@@ -138,7 +138,7 @@ mod tests {
         let p = GatewayClassifier
             .spam(&gateway(&server, Some(KEY)), "/classify", &issue())
             .unwrap();
-        assert_eq!(p, Probability::thousandths(920));
+        assert_eq!(p, Probability::millionths(920_000));
         assert_eq!(server.seen(), ["POST /classify HTTP/1.0"]);
         assert_eq!(server.authorizations(), [Some(format!("Bearer {KEY}"))]);
         let asked = server.requests().remove(0);
@@ -162,7 +162,7 @@ mod tests {
         let p = GatewayClassifier
             .spam(&gateway(&server, Some(KEY)), "/v1/classify", &issue())
             .unwrap();
-        assert_eq!(p, Probability::thousandths(50));
+        assert_eq!(p, Probability::millionths(50_000));
     }
 
     #[test]

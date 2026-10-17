@@ -24,7 +24,7 @@ pub(super) const MOST_PER_DAY: u32 = 200;
 
 /// The probability at or above which an issue is read as spam, when
 /// `triage.spam.threshold` is absent
-const SPAM_THRESHOLD: Probability = Probability::thousandths(800);
+const SPAM_THRESHOLD: Probability = Probability::millionths(800_000);
 
 /// Whose issues kelpie triages
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, JsonSchema)]

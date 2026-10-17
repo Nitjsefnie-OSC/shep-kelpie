@@ -16,8 +16,11 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// A classifier's answer: the probability that the answer to its question is
-/// yes. Kept in thousandths so kelpie's settings and state can compare it, and
-/// written as the number from 0 to 1 the gateway gave.
+/// yes. Kept in millionths so kelpie's settings and state can compare it with
+/// `Eq` and `Ord`, and read down to the millionth at or below the number it
+/// stands for, so an answer is never raised to a threshold it was under. Held
+/// to the thousandth, 0.7996 would stand at 0.8 and be read as spam at the
+/// default threshold. Written as the number from 0 to 1 the gateway gave.
 // wire format: changing this is a change to the state file's triage records
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Deserialize, JsonSchema)]
 #[serde(try_from = "f64")]
@@ -25,19 +28,27 @@ use serde::{Deserialize, Serialize};
 #[schemars(extend("minimum" = 0, "maximum" = 1))]
 pub struct Probability(u32);
 
+/// How many of them one is held in: a `Probability` counts this many millionths
+const PARTS: u32 = 1_000_000;
+
 impl Probability {
-    /// A probability from `value` thousandths, 0 to 1000
+    /// A probability from `value` millionths, 0 to 1_000_000
     #[must_use]
-    pub const fn thousandths(value: u32) -> Self {
+    pub const fn millionths(value: u32) -> Self {
         Self(value)
     }
 
-    /// `value` from 0 to 1, rounded to the nearest thousandth, or `None` when
-    /// it is not a probability at all
+    /// `value` from 0 to 1, read down to the millionth at or below it, or `None`
+    /// when it is not a probability at all
     #[must_use]
     pub fn new(value: f64) -> Option<Self> {
         match value.is_finite() && (0.0..=1.0).contains(&value) {
-            true => Some(Self((value * 1000.0).round() as u32)),
+            // The cut is taken a hair above the product, because a whole
+            // millionth is a hair under itself once it is a float: 0.29 times a
+            // million is 290000.00000000006 for some of them and 289999.99999999994
+            // for others, and a number that stands at a millionth is held as that
+            // millionth.
+            true => Some(Self((value * f64::from(PARTS) + 1e-9).floor() as u32)),
             false => None,
         }
     }
@@ -45,7 +56,7 @@ impl Probability {
     /// The number it stands for, 0 to 1
     #[must_use]
     pub fn value(self) -> f64 {
-        f64::from(self.0) / 1000.0
+        f64::from(self.0) / f64::from(PARTS)
     }
 }
 
@@ -128,4 +139,49 @@ pub trait Classifier: Send + Sync {
         path: &str,
         issue: &SpamState<'_>,
     ) -> Result<Probability, ClassifierError>;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // An answer is held down to the millionth at or below it, so it is never
+    // raised to a threshold it was under, and a number that stands at a whole
+    // millionth is held as that millionth.
+    #[test]
+    fn an_answer_is_held_down_to_the_millionth_at_or_below_it() {
+        assert_eq!(
+            Probability::new(0.7996),
+            Some(Probability::millionths(799_600)),
+            "an answer just under 0.8 stays under it"
+        );
+        assert_eq!(
+            Probability::new(0.7999996),
+            Some(Probability::millionths(799_999)),
+            "and one a hair under is held down too"
+        );
+        assert_eq!(
+            Probability::new(0.29),
+            Some(Probability::millionths(290_000)),
+            "a whole millionth a float is a hair under is held as itself"
+        );
+        assert_eq!(
+            Probability::new(0.8),
+            Some(Probability::millionths(800_000)),
+            "and one at the threshold stands at it"
+        );
+        assert_eq!(
+            Probability::new(1.0),
+            Some(Probability::millionths(1_000_000))
+        );
+        assert_eq!(Probability::new(0.0), Some(Probability::millionths(0)));
+    }
+
+    #[test]
+    fn a_number_that_is_not_a_probability_is_no_answer() {
+        assert_eq!(Probability::new(1.2), None, "above 1");
+        assert_eq!(Probability::new(-0.1), None, "below 0");
+        assert_eq!(Probability::new(f64::NAN), None, "not a number");
+        assert_eq!(Probability::new(f64::INFINITY), None, "not finite");
+    }
 }

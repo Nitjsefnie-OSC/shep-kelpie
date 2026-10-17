@@ -526,7 +526,7 @@ mod tests {
         TriageSpam {
             gateway: Some(GatewayName::try_from(name.to_owned()).unwrap()),
             path: Some(ClassifierPath::try_from("/classify".to_owned()).unwrap()),
-            threshold: Probability::thousandths(800),
+            threshold: Probability::millionths(800_000),
         }
     }
 

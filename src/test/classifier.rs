@@ -103,12 +103,12 @@ impl Classifier for FakeClassifier {
         }
         // The last answer given stands for every check after it.
         Ok(match book.answers.len() {
-            0 => Probability::thousandths(0),
+            0 => Probability::millionths(0),
             1 => book.answers[0],
             _ => book
                 .answers
                 .pop_front()
-                .unwrap_or(Probability::thousandths(0)),
+                .unwrap_or(Probability::millionths(0)),
         })
     }
 }

@@ -159,7 +159,7 @@ fn an_absent_spam_table_means_no_check_and_a_threshold_of_0_8() {
     assert!(t.gateway.is_none(), "no gateway, so no check");
     assert!(t.path.is_none());
     assert!(t.is_off());
-    assert_eq!(t.threshold, Probability::thousandths(800));
+    assert_eq!(t.threshold, Probability::millionths(800_000));
     assert_eq!(parse(&with("")).unwrap().triage.spam, t, "an empty table");
     assert_eq!(
         parse(&with("pick = \"all\"\n")).unwrap().triage.spam,
@@ -169,7 +169,7 @@ fn an_absent_spam_table_means_no_check_and_a_threshold_of_0_8() {
     // A table that names no gateway is a check that is off, whatever else it sets
     let off = parse(&with_spam("threshold = 0.2\n")).unwrap().triage.spam;
     assert!(off.is_off());
-    assert_eq!(off.threshold, Probability::thousandths(200));
+    assert_eq!(off.threshold, Probability::millionths(200_000));
 }
 
 #[test]
@@ -182,10 +182,13 @@ fn a_spam_table_names_its_gateway_its_route_and_its_threshold() {
     .spam;
     assert_eq!(t.gateway.as_ref().unwrap().as_str(), "paddock");
     assert_eq!(t.path.as_ref().unwrap().as_str(), "/classify");
-    assert_eq!(t.threshold, Probability::thousandths(950));
-    assert!(t.is_spam(Probability::thousandths(950)), "at the threshold");
+    assert_eq!(t.threshold, Probability::millionths(950_000));
     assert!(
-        !t.is_spam(Probability::thousandths(949)),
+        t.is_spam(Probability::millionths(950_000)),
+        "at the threshold"
+    );
+    assert!(
+        !t.is_spam(Probability::millionths(949_000)),
         "and just under it"
     );
     // A threshold left out keeps the default
@@ -193,7 +196,28 @@ fn a_spam_table_names_its_gateway_its_route_and_its_threshold() {
         .unwrap()
         .triage
         .spam;
-    assert_eq!(t.threshold, Probability::thousandths(800));
+    assert_eq!(t.threshold, Probability::millionths(800_000));
+}
+
+#[test]
+fn a_spam_answer_just_under_the_threshold_is_not_spam() {
+    let t = parse(&with_spam("gateway = \"paddock\"\npath = \"/classify\"\n"))
+        .unwrap()
+        .triage
+        .spam;
+    // Read to the thousandth, 0.7996 stands at 0.8, which is the default
+    // threshold. It is held down to the millionth at or below it, so the issue
+    // that scored it is not spam.
+    let just_under = Probability::new(0.7996).unwrap();
+    assert_eq!(just_under, Probability::millionths(799_600));
+    assert!(
+        !t.is_spam(just_under),
+        "{just_under} is under the threshold"
+    );
+    assert!(
+        t.is_spam(Probability::new(0.8).unwrap()),
+        "and 0.8 is at it"
+    );
 }
 
 #[test]

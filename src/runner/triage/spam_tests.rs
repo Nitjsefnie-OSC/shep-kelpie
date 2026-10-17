@@ -540,6 +540,38 @@ fn a_possible_spam_no_record_of_kelpies_says_it_read_stands_when_the_verb_asks()
 }
 
 #[test]
+fn an_answer_just_under_the_threshold_is_researched_and_not_labelled() {
+    // 0.7996 read to the thousandth stands at 0.8 and would be spam at the
+    // default threshold. It is held down to the millionth at or below it, so the
+    // issue gets its research call and its comment.
+    let rig = rig_triaging("pick = \"all\"", SPAM, &["newcomer"]);
+    rig.classifier.says(0.7996);
+    let runner = rig.open().unwrap();
+
+    assert_eq!(step(&runner).unwrap(), None);
+
+    assert_eq!(rig.classifier.count(), 1);
+    assert_eq!(
+        calls(&rig, Role::Triager).len(),
+        1,
+        "the issue had its research call"
+    );
+    assert_eq!(
+        rig.github.comments(),
+        [(30, format!("{WORDS}\n\n{MARKER}"))],
+        "and its comment"
+    );
+    assert_eq!(record(&rig, &runner, 30).get("spam"), None);
+    assert!(
+        (written_on(&rig, 30))
+            .iter()
+            .all(|path| !path.contains(POSSIBLE_SPAM)),
+        "and nothing was labelled possible-spam: {:?}",
+        written_on(&rig, 30)
+    );
+}
+
+#[test]
 fn a_call_the_issue_made_before_it_was_read_as_spam_keeps_its_place() {
     // A research call that came to nothing is saved against the issue until a
     // record carries it. The spam record has to take it, or the caps lose the
@@ -602,7 +634,16 @@ fn each_check_is_on_the_ledger_as_a_spam_check() {
     assert_eq!(checks.len(), 2, "one line for each check");
     assert_eq!(
         checks.iter().map(|c| c.issue).collect::<Vec<_>>(),
-        [Some(30), Some(31)]
+        [Some(30), Some(31)],
+        "the issue it asked about, which is what a triager line names"
+    );
+    assert_eq!(
+        (lines.iter())
+            .filter(|c| c.kind == CallKind::Triage)
+            .map(|c| c.issue)
+            .collect::<Vec<_>>(),
+        [Some(31)],
+        "the research line of the issue that was researched names its own the same way"
     );
     assert!(
         checks.iter().all(|c| c.role == Role::Triager),
