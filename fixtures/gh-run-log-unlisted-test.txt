@@ -1,0 +1,58 @@
+--- run 38967162070
+test	Run cargo test --locked	test worker_folder::tests::a_hard_link_to_a_file_outside_the_folder_is_refused_without_its_content ... ok
+test	Run cargo test --locked	test worker_folder::tests::a_link_planted_where_the_write_stages_its_file_is_not_written_through ... ok
+test	Run cargo test --locked	test worker_folder::tests::a_link_to_a_file_outside_the_folder_is_refused_without_its_content ... ok
+test	Run cargo test --locked	test worker_folder::tests::a_link_to_a_missing_file_is_refused_too ... ok
+test	Run cargo test --locked	test worker_folder::tests::a_path_that_climbs_out_of_the_folder_is_refused ... ok
+test	Run cargo test --locked	test worker_folder::tests::a_plain_file_is_read_and_a_missing_one_is_none ... ok
+test	Run cargo test --locked	test worker_folder::tests::a_staged_file_a_crash_left_does_not_stop_the_next_write ... ok
+test	Run cargo test --locked	^[[1m^[[92m    Finished^[[0m `release` profile [optimized] target(s) in 0.09s
+test	Run cargo test --locked	test worker_folder::tests::a_write_makes_the_folders_on_its_way_and_the_private_one_is_for_the_user_alone ... ok
+test	Run cargo test --locked	test worker_folder::tests::a_write_replaces_a_link_and_leaves_what_it_names_alone ... ok
+test	Run cargo test --locked	test worker_folder::tests::a_written_file_has_the_mode_an_ordinary_write_gives_under_the_same_umask ... ok
+test	Run cargo test --locked	test worktree::cache::tests::a_cache_folder_that_is_a_link_is_not_followed ... ok
+test	Run cargo test --locked	test worktree::cache::tests::a_folder_with_no_cargo_output_loses_nothing ... ok
+test	Run cargo test --locked	test worktree::cache::tests::a_link_in_the_cache_is_left_and_not_followed ... ok
+test	Run cargo test --locked	test worktree::cache::tests::stale_cache_goes_and_what_the_turn_wrote_or_cargo_does_not_own_stays ... ok
+test	Run cargo test --locked	test worktree::cache::tests::the_mark_tells_when_the_last_turn_began ... ok
+test	Run cargo test --locked	^[[1m^[[92m   Compiling^[[0m shep-kelpie v0.1.0 (/tmp/.tmpi7coAD/work/source)
+test	Run cargo test --locked	test worktree::ref_folders::tests::a_commit_in_a_worktree_prepare_creates_updates_its_branch_after_the_folder_was_cleaned_up ... ok
+test	Run cargo test --locked	^[[1m^[[92m    Finished^[[0m `release` profile [optimized] target(s) in 0.07s
+test	Run cargo test --locked	test worktree::ref_folders::tests::a_commit_in_an_existing_worktree_updates_its_branch_after_the_folder_was_cleaned_up ... ok
+test	Run cargo test --locked	test upgrade::tests::source::a_ref_is_built_where_it_stands_in_the_repo ... ok
+test	Run cargo test --locked	test worktree::ref_folders::tests::a_removal_that_cannot_reach_origin_still_leaves_the_folders ... ok
+test	Run cargo test --locked	test worktree::ref_folders::tests::removing_a_work_item_leaves_the_folders_other_workers_commit_through ... ok
+test	Run cargo test --locked	test upgrade::tests::sheep::a_restarted_sheep_that_never_answers_again_is_named ... ok
+test	Run cargo test --locked	test worktree::remote::tests::origin_head_on_a_fork_remote_returns_the_forks_head ... ok
+test	Run cargo test --locked	test worktree::remote::tests::a_fork_remote_cannot_move_origins_main ... ok
+test	Run cargo test --locked	test worktree::remote::tests::origin_head_on_origin_returns_the_branch_head_as_before ... ok
+test	Run cargo test --locked	test worktree::remote::tests::prepare_on_a_fork_remote_starts_a_worktree_at_the_forks_branch ... ok
+test	Run cargo test --locked	test worktree::remote::tests::prepare_on_origin_starts_a_pushed_branch_where_origin_holds_it ... ok
+test	Run cargo test --locked	test worktree::remote::tests::prepare_on_origin_starts_and_reuses_a_worktree_as_before ... ok
+test	Run cargo test --locked	test worktree::stale_lock::tests::a_link_in_place_of_the_lock_leaves_what_it_points_to_alone ... ok
+test	Run cargo test --locked	test worktree::stale_lock::tests::a_lock_a_killed_git_left_is_removed_and_one_in_use_is_not ... ok
+test	Run cargo test --locked	test worktree::stale_lock::tests::no_lock_is_nothing_to_do ... ok
+test	Run cargo test --locked	test worktree::tests::a_build_folder_already_gone_is_removed ... ok
+test	Run cargo test --locked	test worktree::tests::a_build_folder_holding_read_only_folders_is_removed ... ok
+test	Run cargo test --locked	test worktree::tests::a_link_in_the_build_folder_leaves_what_it_points_at_alone ... ok
+test	Run cargo test --locked	test worktree::tests::a_missing_ref_is_absent_but_a_folder_git_cannot_read_is_an_error ... ok
+test	Run cargo test --locked	test worktree::tests::a_status_names_every_changed_staged_renamed_and_new_path ... ok
+test	Run cargo test --locked	test worktree::remote::tests::rebase_and_remove_on_a_fork_remote_push_and_delete_on_the_fork ... ok
+test	Run cargo test --locked	test worktree::remote::tests::rebase_and_remove_on_origin_behave_as_before ... ok
+test	Run cargo test --locked	test state::tests::a_runner_killed_mid_write_leaves_the_previous_state_readable ... ok
+test	Run cargo test --locked	
+test	Run cargo test --locked	failures:
+test	Run cargo test --locked	
+test	Run cargo test --locked	---- runner::pm::tests::lease::a_long_lease_wait_wakes_it_naming_who_holds_the_lease stdout ----
+test	Run cargo test --locked	
+test	Run cargo test --locked	thread 'runner::pm::tests::lease::a_long_lease_wait_wakes_it_naming_who_holds_the_lease' (202331) panicked at src/runner/pm/tests.rs:43:9:
+test	Run cargo test --locked	the example's implementers moved
+test	Run cargo test --locked	
+test	Run cargo test --locked	
+test	Run cargo test --locked	failures:
+test	Run cargo test --locked	    runner::pm::tests::lease::a_long_lease_wait_wakes_it_naming_who_holds_the_lease
+test	Run cargo test --locked	
+test	Run cargo test --locked	test result: FAILED. 4796 passed; 1 failed; 28 ignored; 0 measured; 0 filtered out; finished in 249.20s
+test	Run cargo test --locked	
+test	Run cargo test --locked	^[[1m^[[91merror^[[0m: test failed, to rerun pass `--lib`
+test	Run cargo test --locked	##[error]Process completed with exit code 101.

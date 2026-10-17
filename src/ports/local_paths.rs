@@ -15,7 +15,7 @@ use std::fmt;
 use std::sync::Arc;
 
 use super::{
-    BranchRun, CommentMarks, FinishedParent, FolderEntry, Forge, ForgeError, Issue,
+    BranchRun, CommentMarks, FailedLogs, FinishedParent, FolderEntry, Forge, ForgeError, Issue,
     IssueCloseReason, LineComment, NewLabel, OpenIssue, OpenPull, PostedComment, PullRequest,
     QueueStanding, Reviewed, SubIssue, Talk, ThreadComment, Timestamp, Visibility, Voice, Workflow,
 };
@@ -321,7 +321,7 @@ impl Forge for Guarded {
         repo: &ForgeSlug,
         head: &str,
         merge_group: bool,
-    ) -> Result<String, ForgeError> {
+    ) -> Result<FailedLogs, ForgeError> {
         self.forge.failed_run_logs(repo, head, merge_group)
     }
 

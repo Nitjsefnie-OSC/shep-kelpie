@@ -1,0 +1,64 @@
+--- run 38567261082
+sandbox	Run cargo test --locked --no-run	^[[1m^[[92m   Compiling^[[0m encoding_rs_io v0.1.8
+sandbox	Run cargo test --locked --no-run	^[[1m^[[92m   Compiling^[[0m tokio-util v0.7.19
+sandbox	Run cargo test --locked --no-run	^[[1m^[[92m   Compiling^[[0m phf v0.12.1
+sandbox	Run cargo test --locked --no-run	^[[1m^[[92m   Compiling^[[0m crypto-common v0.2.2
+sandbox	Run cargo test --locked --no-run	^[[1m^[[92m   Compiling^[[0m block-buffer v0.12.1
+sandbox	Run cargo test --locked --no-run	^[[1m^[[92m   Compiling^[[0m bstr v1.13.1
+sandbox	Run cargo test --locked --no-run	^[[1m^[[92m   Compiling^[[0m once_cell v1.21.4
+sandbox	Run cargo test --locked --no-run	^[[1m^[[92m   Compiling^[[0m dyn-clone v1.0.20
+sandbox	Run cargo test --locked --no-run	^[[1m^[[92m   Compiling^[[0m fastrand v2.5.0
+sandbox	Run cargo test --locked --no-run	^[[1m^[[92m   Compiling^[[0m schemars v1.2.2
+sandbox	Run cargo test --locked --no-run	^[[1m^[[92m   Compiling^[[0m tempfile v3.27.0
+sandbox	Run cargo test --locked --no-run	^[[1m^[[92m   Compiling^[[0m globset v0.4.20
+sandbox	Run cargo test --locked --no-run	^[[1m^[[92m   Compiling^[[0m toml v0.8.23
+sandbox	Run cargo test --locked --no-run	^[[1m^[[92m   Compiling^[[0m digest v0.11.3
+sandbox	Run cargo test --locked --no-run	^[[1m^[[92m   Compiling^[[0m serde-saphyr v1.1.0
+sandbox	Run cargo test --locked --no-run	^[[1m^[[92m   Compiling^[[0m croner v3.0.1
+sandbox	Run cargo test --locked --no-run	^[[1m^[[92m   Compiling^[[0m json5 v0.4.1
+sandbox	Run cargo test --locked --no-run	^[[1m^[[92m   Compiling^[[0m regex v1.13.1
+sandbox	Run cargo test --locked --no-run	^[[1m^[[92m   Compiling^[[0m shep-channel v0.14.0
+sandbox	Run cargo test --locked --no-run	^[[1m^[[92m   Compiling^[[0m serde_ignored v0.1.14
+sandbox	Run cargo test --locked --no-run	^[[1m^[[92m   Compiling^[[0m futures-task v0.3.34
+sandbox	Run cargo test --locked --no-run	^[[1m^[[92m   Compiling^[[0m winnow v1.0.4
+sandbox	Run cargo test --locked --no-run	^[[1m^[[92m   Compiling^[[0m slab v0.4.12
+sandbox	Run cargo test --locked --no-run	^[[1m^[[92m   Compiling^[[0m futures-util v0.3.34
+sandbox	Run cargo test --locked --no-run	^[[1m^[[92m   Compiling^[[0m toml_parser v1.1.3+spec-1.1.0
+sandbox	Run cargo test --locked --no-run	^[[1m^[[92m   Compiling^[[0m tokio-stream v0.1.19
+sandbox	Run cargo test --locked --no-run	^[[1m^[[92m   Compiling^[[0m shep-macros v0.14.0
+sandbox	Run cargo test --locked --no-run	^[[1m^[[92m   Compiling^[[0m serde_spanned v1.1.1
+sandbox	Run cargo test --locked --no-run	^[[1m^[[92m   Compiling^[[0m toml_datetime v1.1.1+spec-1.1.0
+sandbox	Run cargo test --locked --no-run	^[[1m^[[92m   Compiling^[[0m cpufeatures v0.3.1
+sandbox	Run cargo test --locked --no-run	^[[1m^[[92m   Compiling^[[0m jiff-core v0.1.1
+sandbox	Run cargo test --locked --no-run	^[[1m^[[92m   Compiling^[[0m toml_writer v1.1.2+spec-1.1.0
+sandbox	Run cargo test --locked --no-run	^[[1m^[[92m   Compiling^[[0m toml v1.1.6+spec-1.1.0
+sandbox	Run cargo test --locked --no-run	^[[1m^[[92m   Compiling^[[0m jiff v0.2.37
+sandbox	Run cargo test --locked --no-run	^[[1m^[[92m   Compiling^[[0m sha1 v0.11.0
+sandbox	Run cargo test --locked --no-run	^[[1m^[[92m   Compiling^[[0m hmac v0.13.0
+sandbox	Run cargo test --locked --no-run	^[[1m^[[92m   Compiling^[[0m shep-handover v0.14.0
+sandbox	Run cargo test --locked --no-run	^[[1m^[[92m   Compiling^[[0m qrcode v0.14.1
+sandbox	Run cargo test --locked --no-run	^[[1m^[[92m   Compiling^[[0m shep-core v0.14.0
+sandbox	Run cargo test --locked --no-run	^[[1m^[[92m   Compiling^[[0m shep-client v0.14.0
+sandbox	Run cargo test --locked --no-run	^[[1m^[[92m   Compiling^[[0m shep-kelpie v0.0.0 (/home/me/work/shep-kelpie/shep-kelpie)
+sandbox	Run cargo test --locked --no-run	^[[1m^[[91merror[E0061]^[[0m^[[1m: this function takes 5 arguments but 4 arguments were supplied^[[0m
+sandbox	Run cargo test --locked --no-run	   ^[[1m^[[94m--> ^[[0msrc/adapters/goose/web_tests.rs:58:15
+sandbox	Run cargo test --locked --no-run	    ^[[1m^[[94m|^[[0m
+sandbox	Run cargo test --locked --no-run	^[[1m^[[94m 58^[[0m ^[[1m^[[94m|^[[0m     let env = env_args(call, server(call).unwrap(), &files, &upstream);
+sandbox	Run cargo test --locked --no-run	    ^[[1m^[[94m|^[[0m               ^[[1m^[[91m^^^^^^^^^[[0m^[[1m^[[94m------------------------------------------------^[[0m ^[[1m^[[94margument #5 of type `std::option::Option<&str>` is missing^[[0m
+sandbox	Run cargo test --locked --no-run	    ^[[1m^[[94m|^[[0m
+sandbox	Run cargo test --locked --no-run	^[[1m^[[92mnote^[[0m: function defined here
+sandbox	Run cargo test --locked --no-run	   ^[[1m^[[94m--> ^[[0msrc/adapters/goose.rs:541:4
+sandbox	Run cargo test --locked --no-run	    ^[[1m^[[94m|^[[0m
+sandbox	Run cargo test --locked --no-run	^[[1m^[[94m541^[[0m ^[[1m^[[94m|^[[0m fn env_args(
+sandbox	Run cargo test --locked --no-run	    ^[[1m^[[94m|^[[0m    ^[[1m^[[92m^^^^^^^^^[[0m
+sandbox	Run cargo test --locked --no-run	^[[1m^[[94m...^[[0m
+sandbox	Run cargo test --locked --no-run	^[[1m^[[94m546^[[0m ^[[1m^[[94m|^[[0m     mode: Option<&str>,
+sandbox	Run cargo test --locked --no-run	    ^[[1m^[[94m|^[[0m     ^[[1m^[[94m------------------^[[0m
+sandbox	Run cargo test --locked --no-run	^[[1m^[[96mhelp^[[0m: provide the argument
+sandbox	Run cargo test --locked --no-run	    ^[[1m^[[94m|^[[0m
+sandbox	Run cargo test --locked --no-run	^[[1m^[[94m 58^[[0m ^[[1m^[[94m| ^[[0m    let env = env_args(call, server(call).unwrap(), &files, &upstream^[[92m, /* Option<&str> */^[[0m);
+sandbox	Run cargo test --locked --no-run	    ^[[1m^[[94m|^[[0m                                                                      ^[[92m++++++++++++++++++++^[[0m
+sandbox	Run cargo test --locked --no-run	
+sandbox	Run cargo test --locked --no-run	^[[1mFor more information about this error, try `rustc --explain E0061`.^[[0m
+sandbox	Run cargo test --locked --no-run	^[[1m^[[91merror^[[0m: could not compile `shep-kelpie` (lib test) due to 1 previous error
+sandbox	Run cargo test --locked --no-run	##[error]Process completed with exit code 101.

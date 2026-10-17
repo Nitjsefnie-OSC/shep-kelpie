@@ -26,9 +26,9 @@ use serde::Deserialize;
 
 use crate::board::{OpenPullRequest, ReadyIssue};
 use crate::ports::{
-    BranchRun, Checks, CommentMarks, FinishedParent, FolderEntry, Forge, ForgeError, Issue,
-    IssueCloseReason, NewLabel, OpenIssue, OpenPull, PullRequest, PullRequestState, QueueStanding,
-    Reviewed, SubIssue, Talk, ThreadComment, Timestamp, Visibility, Workflow,
+    BranchRun, Checks, CommentMarks, FailedLogs, FinishedParent, FolderEntry, Forge, ForgeError,
+    Issue, IssueCloseReason, NewLabel, OpenIssue, OpenPull, PullRequest, PullRequestState,
+    QueueStanding, Reviewed, SubIssue, Talk, ThreadComment, Timestamp, Visibility, Workflow,
 };
 use crate::review_bot::{Activity, Login};
 use crate::settings::ForgeSlug;
@@ -262,7 +262,7 @@ impl Forge for Gh {
         repo: &ForgeSlug,
         head: &str,
         merge_group: bool,
-    ) -> Result<String, ForgeError> {
+    ) -> Result<FailedLogs, ForgeError> {
         runs::failed_run_logs(repo, head, merge_group)
     }
 

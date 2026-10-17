@@ -8,7 +8,7 @@
 use serde::Deserialize;
 
 use super::{gh, unreadable};
-use crate::ports::{BranchRun, ForgeError, Timestamp, Workflow, WorkflowState};
+use crate::ports::{BranchRun, FailedLogs, ForgeError, Timestamp, Workflow, WorkflowState};
 use crate::settings::ForgeSlug;
 
 /// How many failed runs are read
@@ -21,16 +21,17 @@ pub(super) fn failed_run_logs(
     repo: &ForgeSlug,
     head: &str,
     merge_group: bool,
-) -> Result<String, ForgeError> {
+) -> Result<FailedLogs, ForgeError> {
     let listed = list(repo)?;
+    let failed = failed_runs(&listed, head, merge_group)?;
     let mut text = String::new();
-    for id in failed_runs(&listed, head, merge_group)?
-        .into_iter()
-        .take(RUNS)
-    {
+    for id in failed.iter().copied().take(RUNS) {
         text.push_str(&format!("--- run {id}\n{}\n", run_log_tail(repo, id)?));
     }
-    Ok(text)
+    Ok(FailedLogs {
+        text,
+        omitted: failed.len().saturating_sub(RUNS),
+    })
 }
 
 pub(super) fn run_log_tail(repo: &ForgeSlug, run: u64) -> Result<String, ForgeError> {

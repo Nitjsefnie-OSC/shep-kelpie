@@ -12,9 +12,9 @@ use std::time::Instant;
 
 use super::Revalidated;
 use super::{
-    BranchRun, Clock, CommentMarks, FinishedParent, FolderEntry, Forge, ForgeError, Issue,
-    IssueCloseReason, LocalPace, NewLabel, OpenIssue, OpenPull, Pace, PullRequest, QueueStanding,
-    Reviewed, SubIssue, Talk, ThreadComment, Timestamp, Visibility, Workflow, pace,
+    BranchRun, Clock, CommentMarks, FailedLogs, FinishedParent, FolderEntry, Forge, ForgeError,
+    Issue, IssueCloseReason, LocalPace, NewLabel, OpenIssue, OpenPull, Pace, PullRequest,
+    QueueStanding, Reviewed, SubIssue, Talk, ThreadComment, Timestamp, Visibility, Workflow, pace,
 };
 use crate::board::{OpenPullRequest, ReadyIssue};
 use crate::forge_ledger::{Ended, Identity, Kind, Ledger};
@@ -484,7 +484,7 @@ impl Forge for RateHeld {
         repo: &ForgeSlug,
         head: &str,
         merge_group: bool,
-    ) -> Result<String, ForgeError> {
+    ) -> Result<FailedLogs, ForgeError> {
         self.call(Kind::FailedRunLogs, |f| {
             f.failed_run_logs(repo, head, merge_group)
         })

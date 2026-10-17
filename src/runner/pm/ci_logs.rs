@@ -49,6 +49,7 @@ impl Runner {
             // (`ci_failed`), never on a merge queue removal, so not `merge_group`.
             let read = (self.ports.forge)
                 .failed_run_logs(&self.remote, &head, false)
+                .map(|logs| logs.text)
                 .map_err(|e| format!("kelpie could not read it ({e})"))
                 .and_then(|logs| match logs.trim().is_empty() {
                     true => Err(format!("kelpie found no failed run of {}", short(&head))),

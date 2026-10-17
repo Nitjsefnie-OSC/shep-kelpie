@@ -18,7 +18,7 @@ mod requests;
 mod series;
 
 pub(crate) use mcp::OWN_SERVERS;
-pub use series::{FEATURE_RUNS, Feature};
+pub use series::{CiTests, FEATURE_RUNS, Feature};
 
 /// The most series a runner sends, under the metrics dog's 256 a sender
 /// (shep-pm/shep#733). The worst case the budget test drives is 197 series, and

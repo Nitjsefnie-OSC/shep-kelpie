@@ -8,7 +8,7 @@ Kelpie's numbers, live, on shep's metrics endpoint. ADR 0012, #920.
 - Through the `Sink` port (`src/ports/metrics.rs`): the real one is the runner's `Shepherd`, a test holds `RecordedSink` and asserts the samples sent. Sending never blocks or fails; a full outbox drops a sample, and the next carries the total.
 - Counters are kept whole in kelpie's memory (`Recorder`) and each change sends the new total. A runner start begins them at zero, as Prometheus expects of a restart.
 - A runner sends at most `SERIES_CAP` (240) series, under the dog's 256 a sender; a new series past it is not sent and counts in `kelpie_series_dropped_total`, with one log line per name. The budget test drives every role on every harness it may use with every kind of call, which is 236 series once the failed tool calls' 39 are counted.
-- Names `kelpie_*`, snake case; counters end `_total`. Labels only from bounded sets: `role`, `kind`, `agent` and `effort` (named in settings), `harness`, `model`, `ended`, `account`, `window`, `phase`, `feature`, `outcome`, `type`, `le`, `after`, `server` (kelpie's own servers by name, any other `repo`). Never an issue, pull request, session or path.
+- Names `kelpie_*`, snake case; counters end `_total`. Labels only from bounded sets: `role`, `kind`, `agent` and `effort` (named in settings), `harness`, `model`, `ended`, `account`, `window`, `phase`, `feature`, `outcome`, `type`, `tests`, `le`, `after`, `server` (kelpie's own servers by name, any other `repo`). Never an issue, pull request, session or path.
 
 ## Series
 
@@ -32,6 +32,7 @@ Work items:
 - `kelpie_work_items_finished_total{outcome}`: `merged`, `closed`, `dropped`, from the ledger's `finished` line
 - `kelpie_review_rounds_total`, `kelpie_fix_turns_total`, `kelpie_rulings_total`, from the same line
 - `kelpie_work_item_seconds_total{outcome}`, the wall time of finished items
+- `kelpie_ci_failures_total{tests}`: each head of a work item's pull request the gate reads red, counted once per head, which the work item records, so a still-red yes at the same head counts it once. `tests` is `sandbox-only` when every failing test the logs name is in a module `docs/agents/sandbox-red-tests.md` lists whole, `runnable` when one is not, is in a module the doc lists only in part (a `some:` entry: kelpie cannot tell which of them), is a test failure in a runner kelpie cannot read (a failed step named for a test run with none of cargo's test or build shapes), or its names were cut off, or more runs failed than kelpie read, `none` when no test failed (lint, docs, fmt, or a build that never ran one, as a failed test build is). The list is of this crate's modules, so it is used only on the repo that doc describes: elsewhere every failing test counts `runnable`. Each name is judged against its own cargo run, since one tail holds several. The names come from the logs a red run's prompt carries. A head whose logs kelpie could not read, or found none of, counts nothing; a queue removal is not counted. `src/runner/ci_failure.rs`
 
 Features: whether what a project turned on runs.
 
