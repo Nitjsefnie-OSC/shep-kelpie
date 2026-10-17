@@ -239,9 +239,9 @@ fn kind_of(text: &str, tool: Option<&str>) -> Kind {
 
 // One line of a failed result: what it says, and what it says about itself. `head` is the line
 // with the markers a harness or a program writes in front of its own error taken off: Claude
-// Code's `<tool_use_error>` wrapper, and each leading `<something>:` (`error:`, `mkdir:`,
-// `(eval):1:`, `grep: /tmp/x:`). A line that quotes an error keeps its own words at its head,
-// so no kind's phrase lands there.
+// Code's `<tool_use_error>` wrapper, and the `<something>:` run a program or a shell puts before
+// its message. A line that quotes an error keeps its own words at its head, so no kind's phrase
+// lands there.
 #[derive(Debug)]
 struct Line {
     head: String,
@@ -250,21 +250,15 @@ struct Line {
 
 impl Line {
     fn of(raw: &str) -> Self {
-        let mut head = raw.trim();
-        if let Some(inner) = head.strip_prefix("<tool_use_error>") {
-            head = inner
+        let mut line = raw.trim();
+        if let Some(inner) = line.strip_prefix("<tool_use_error>") {
+            line = inner
                 .trim_end()
                 .strip_suffix("</tool_use_error>")
                 .unwrap_or(inner);
         }
-        while let Some((token, rest)) = head.split_once(':') {
-            if token.is_empty() || token.chars().any(char::is_whitespace) {
-                break;
-            }
-            head = rest.trim_start();
-        }
         Self {
-            head: head.to_lowercase(),
+            head: message(line).to_lowercase(),
             all: raw.trim_end().to_lowercase(),
         }
     }
@@ -279,7 +273,45 @@ impl Line {
     }
 }
 
-// `PreToolUse:Bash hook error: [<the hook's command>]: <its reason>`, as the whole first line
+// Where a line's own message begins. A program or a shell writes its error after a run of
+// `<token>:` markers, each followed by a space (`mkdir: cbm-docs: Operation not permitted`,
+// `(eval):1: no such file or directory: /x`, `grep: /tmp/x: No such file or directory`), so the
+// message is what follows the last such marker. A grep or rg match line writes no space after its
+// colons (`notes.txt:3:Operation not permitted`), so it holds no marker and keeps its own words.
+// A match line whose matched text has a colon and a space of its own is caught by naming the file
+// and the line number it matched (`docs/x.md:7:Command timed out after 2m`).
+fn message(line: &str) -> &str {
+    if names_a_match(line) {
+        return line;
+    }
+    let mut rest = line;
+    let mut message = line;
+    while let Some((token, after)) = rest.split_once(':') {
+        if token.is_empty() || token.chars().any(char::is_whitespace) {
+            break;
+        }
+        if after.starts_with(char::is_whitespace) {
+            message = after.trim_start();
+        }
+        rest = after.trim_start();
+    }
+    message
+}
+
+// Whether a line begins by naming a file and a line in it, as grep and rg write a match
+fn names_a_match(line: &str) -> bool {
+    let Some((file, rest)) = line.split_once(':') else {
+        return false;
+    };
+    let number = rest.split(':').next().unwrap_or_default();
+    (file.contains('/') || file.contains('.'))
+        && !number.is_empty()
+        && number.chars().all(|c| c.is_ascii_digit())
+}
+
+// `PreToolUse:Bash hook error: [<the hook's command>]: <its reason>`, as the whole first line.
+// The command is what sits between the brackets, cut at the first `]: ` since a command can hold
+// a `]` of its own (`bash -c '[ -f .gate ] && exit 2'`).
 fn hook_refusal(text: &str) -> Option<&str> {
     let first = text.lines().next()?;
     let (head, rest) = first.split_once(" hook error: [")?;
@@ -292,8 +324,8 @@ fn hook_refusal(text: &str) -> Option<&str> {
     if words.len() > 2 || !words.iter().all(|w| named(w)) {
         return None;
     }
-    let (command, _) = rest.split_once(']')?;
-    Some(command)
+    let end = rest.find("]: ").or_else(|| rest.find(']'))?;
+    Some(&rest[..end])
 }
 
 // Whether a hook's command is kelpie's own check. The settings write kelpie's binary first

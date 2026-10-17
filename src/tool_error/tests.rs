@@ -346,6 +346,90 @@ fn a_kelpie_hook_under_a_path_with_a_space_is_still_a_guard_block() {
 }
 
 #[test]
+fn a_command_that_prints_matching_lines_from_files_is_not_those_errors() {
+    let line = r#"{"type":"user","message":{"role":"user","content":[{"type":"tool_result","is_error":true,"tool_use_id":"t1","content":"Exit code 1\nnotes.txt:3:Operation not permitted\ndocs/x.md:7:Command timed out after 2m\nsrc/webhook.rs:12: error: cannot lock ref\nnotes.txt:12: error: cannot lock ref\nnotes:3:No such file or directory\nthe grep ran and the build is red"}]}}
+"#;
+    let kinds = claude_of(line);
+    assert_eq!(
+        kinds.get("other").copied(),
+        Some(1),
+        "a command that ran and failed"
+    );
+    for quoted in [
+        "path-refused",
+        "tmp-refused",
+        "timeout",
+        "git-ref-lock",
+        "command-not-found",
+    ] {
+        assert_eq!(
+            kinds.get(quoted),
+            None,
+            "{quoted} is what the grep matched, not what failed"
+        );
+    }
+}
+
+#[test]
+fn a_program_error_that_names_a_file_still_counts_as_its_own_kind() {
+    let line = r#"{"type":"user","message":{"role":"user","content":[{"type":"tool_result","is_error":true,"tool_use_id":"t1","content":"Exit code 1\nmkdir: cbm-docs: Operation not permitted"}]}}
+"#;
+    assert_eq!(
+        claude_of(line).get("path-refused").copied(),
+        Some(1),
+        "the program writes a space after each marker, so the message is read after them"
+    );
+}
+
+#[test]
+fn a_pi_command_that_prints_matching_lines_from_files_is_not_those_errors() {
+    let line = r#"{"type":"message","id":"m1","parentId":"p1","timestamp":"2026-10-16T00:00:00.000Z","message":{"role":"toolResult","toolCallId":"c1","toolName":"bash","content":[{"type":"text","text":"notes.txt:3:Operation not permitted\n\n\nCommand exited with code 1"}],"isError":true,"durationMs":5,"timestamp":1792078844059}}
+"#;
+    let kinds = pi_of(line);
+    assert_eq!(kinds.get("other").copied(), Some(1));
+    assert_eq!(kinds.get("path-refused"), None);
+    assert_eq!(kinds.get("tmp-refused"), None);
+}
+
+#[test]
+fn a_program_error_named_by_its_full_path_still_counts_as_its_own_kind() {
+    let line = r#"{"type":"user","message":{"role":"user","content":[{"type":"tool_result","is_error":true,"tool_use_id":"t1","content":"Exit code 2\n/usr/bin/env: 'python3': No such file or directory"}]}}
+"#;
+    assert_eq!(
+        claude_of(line).get("command-not-found").copied(),
+        Some(1),
+        "a program's own name is no file and line number"
+    );
+}
+
+#[test]
+fn a_hook_command_that_holds_a_bracket_is_told_whole() {
+    let line = r#"{"type":"user","message":{"role":"user","content":[{"type":"tool_result","is_error":true,"tool_use_id":"t1","content":"PreToolUse:Bash hook error: [bash -c '[ -f .gate ] && exit 2']: the project's own gate"}]}}
+"#;
+    let errors = claude(line, 0);
+    assert_eq!(errors.len(), 1);
+    assert_eq!(errors[0].kind, Kind::HookBlock);
+    assert_eq!(
+        errors[0].hook.as_deref(),
+        Some("bash -c '[ -f .gate ] && exit 2'"),
+        "the command is cut at the `]: ` before the reason, not at the `]` inside it"
+    );
+}
+
+#[test]
+fn kelpies_own_guard_under_a_path_with_a_bracket_is_still_a_guard_block() {
+    let line = r#"{"type":"user","message":{"role":"user","content":[{"type":"tool_result","is_error":true,"tool_use_id":"t1","content":"PreToolUse:Bash hook error: ['/Users/me/a]b/shep-kelpie' 'guard' '--git-dir' '/x']: the fetch is not yours"}]}}
+"#;
+    let kinds = claude_of(line);
+    assert_eq!(
+        kinds.get("guard-block").copied(),
+        Some(1),
+        "the whole command is read, bracket included"
+    );
+    assert_eq!(kinds.get("hook-block"), None);
+}
+
+#[test]
 fn a_hook_refusal_names_the_hook_that_refused() {
     let errors = claude(CLAUDE, 0);
     let hooks: Vec<&str> = errors
