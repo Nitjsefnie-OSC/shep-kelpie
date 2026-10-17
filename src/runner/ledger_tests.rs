@@ -105,6 +105,11 @@ fn a_merged_work_item_leaves_a_line_for_each_call_and_one_for_itself() {
         (&json!(1), &json!(1))
     );
     assert_eq!(item["qwen"], json!({ "rounds": 1, "seconds": 0 }));
+    assert_eq!(
+        (&item["agent"], &item["harness"], &item["model"]),
+        (&turn["agent"], &turn["harness"], &turn["model"])
+    );
+    assert_eq!(item.get("held"), None, "no finding was sent to the worker");
 
     // The state file's record keeps the same.
     let state = std::fs::read_to_string(rig.paths().state).unwrap();

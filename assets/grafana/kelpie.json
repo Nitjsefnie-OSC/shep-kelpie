@@ -725,8 +725,8 @@
     {
       "id": 19,
       "type": "timeseries",
-      "title": "Review rounds and fix turns per finished work item",
-      "description": "Rounds and fix turns of the work items finished in a day, over how many finished. A rise is more rework per item.",
+      "title": "Review rounds, fix turns and findings per finished work item",
+      "description": "Rounds, fix turns and high and medium findings of the work items finished in a day, over how many finished. A rise is more rework per item.",
       "gridPos": {
         "h": 8,
         "w": 12,
@@ -755,6 +755,15 @@
           },
           "expr": "sum(increase(kelpie_fix_turns_total{sheep=~\"$sheep\"}[1d])) / (sum(increase(kelpie_work_items_finished_total{sheep=~\"$sheep\"}[1d])) > 0)",
           "legendFormat": "fix turns"
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "sum by (severity) (increase(kelpie_findings_total{sheep=~\"$sheep\"}[1d])) / scalar(sum(increase(kelpie_work_items_finished_total{sheep=~\"$sheep\"}[1d])) > 0)",
+          "legendFormat": "{{severity}} findings"
         }
       ],
       "fieldConfig": {

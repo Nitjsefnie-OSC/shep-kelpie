@@ -417,10 +417,19 @@ impl Runner {
             DESCRIBED_REPO => &SANDBOX_RED,
             _ => &[],
         };
-        self.metrics
-            .ci_failure(failed_tests(&logs.text, logs.omitted, listed));
+        let tests = failed_tests(&logs.text, logs.omitted, listed);
+        self.metrics.ci_failure(tests);
         let counted = head.to_owned();
-        self.update(|item| item.counted_head = Some(counted))
+        self.update(|item| {
+            let failures = &mut item.counts.ci_failures;
+            let class = match tests {
+                CiTests::Runnable => &mut failures.runnable,
+                CiTests::SandboxOnly => &mut failures.sandbox_only,
+                CiTests::NoTests => &mut failures.no_tests,
+            };
+            *class = class.saturating_add(1);
+            item.counted_head = Some(counted);
+        })
     }
 }
 
@@ -827,12 +836,17 @@ mod tests {
             .value("kelpie_ci_failures_total", &[("tests", tests)])
     }
 
+    // The work item keeps the same count, which its finished line carries.
     #[test]
     fn a_red_run_on_tests_a_worker_cannot_run_counts_as_sandbox_only() {
-        let (rig, _runner, _head) = red_ci(SANDBOX_ONLY);
+        let (rig, runner, _head) = red_ci(SANDBOX_ONLY);
         assert_eq!(counted(&rig, "sandbox-only"), Some(1.0));
         assert_eq!(counted(&rig, "runnable"), None);
         assert_eq!(counted(&rig, "none"), None);
+        let kept = runner.lock().unwrap().state.work_items[0]
+            .counts
+            .ci_failures;
+        assert_eq!((kept.sandbox_only, kept.runnable, kept.no_tests), (1, 0, 0));
     }
 
     #[test]

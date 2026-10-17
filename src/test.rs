@@ -141,6 +141,7 @@ pub(crate) fn a_work_item() -> WorkItem {
             ci_fix_turns: 1,
             worker_unreported: 0,
             reviewer_unreported: 0,
+            ci_failures: crate::work_item::CiFailures::default(),
         },
         calls: vec![CallRecord {
             role: Role::Worker,

@@ -2,6 +2,7 @@ use serde_json::json;
 
 use super::*;
 use crate::usage::baselines::Baseline;
+use crate::work_item::{CiFailures, QwenTally};
 
 fn usage(input: u64, cache_write: u64, cache_read: u64, output: u64) -> Usage {
     Usage {
@@ -57,6 +58,12 @@ fn finished(issue: u64, merged: bool, worker: u64, reviewer: u64, wall: u64) -> 
         review_rounds: 2,
         fix_turns: 1,
         rulings: (issue % 2) as u32,
+        agent: None,
+        harness: None,
+        model: None,
+        ci_fix_turns: 0,
+        ci_failures: CiFailures::default(),
+        held: HeldFindings::default(),
     })
 }
 
@@ -495,7 +502,8 @@ fn the_ledger_comes_out_as_the_counters_the_runner_sends_each_at_its_lines_time(
         "wall":90,"units":30,"cost_usd":0.5,
         "worker":{"calls":2,"tokens":{"input":30,"cache_write":0,"cache_read":0,"output":0},"units":30,"cost_usd":0.5},
         "reviewer":{"calls":0,"tokens":{"input":0,"cache_write":0,"cache_read":0,"output":0},"units":0,"cost_usd":0.0},
-        "qwen":{"rounds":0,"seconds":0},"review_rounds":2,"fix_turns":1,"rulings":0}"#,
+        "qwen":{"rounds":0,"seconds":0},"review_rounds":2,"fix_turns":1,"rulings":0,
+        "held":{"high":1,"medium":2}}"#,
     );
     // Imports come last in the file and are not in order
     let out = openmetrics(&[("koji".to_owned(), vec![call(150, 20), item, call(100, 10)])]);
@@ -504,6 +512,8 @@ fn the_ledger_comes_out_as_the_counters_the_runner_sends_each_at_its_lines_time(
     assert!(out.contains(&format!("{calls} 2 150")), "{out:#?}");
     let merged = r#"kelpie_work_items_finished_total{sheep="koji",outcome="merged"} 1 200"#;
     assert!(out.contains(&merged.to_owned()), "{out:#?}");
+    let high = r#"kelpie_findings_total{sheep="koji",severity="high"} 1 200"#;
+    assert!(out.contains(&high.to_owned()), "{out:#?}");
     let moves =
         r#"kelpie_compactions_total{sheep="koji",harness="claude-code",role="worker"} 2 150"#;
     assert!(out.contains(&moves.to_owned()), "{out:#?}");

@@ -410,7 +410,11 @@ impl Runner {
             seconds: timings.seconds.clone(),
             spend: Some(item.tally()),
         };
-        let line = crate::usage::FinishedLine::of(&record, &item.tally());
+        let mut line = crate::usage::FinishedLine::of(&record, item);
+        if let Ok(agent) = self.worker_agent(item) {
+            line.harness = Some(agent.harness.harness().as_str().to_owned());
+            line.model = Some(agent.model);
+        }
         let ended = record.clone();
         let report = StepReport::Finished {
             issue: item.issue,
