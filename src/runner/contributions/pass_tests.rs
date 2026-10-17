@@ -16,7 +16,8 @@ use crate::ports::{
 use crate::runner::{CHECKS_SETTLE, Runner, advance, step};
 use crate::settings::{Harness, LocalRound};
 use crate::test::{
-    CALL_PATIENCE, Hold, Rig, Scripted, ScriptedRound, Seen, SeenRound, git, write_script,
+    CALL_PATIENCE, Hold, Rig, Scripted, ScriptedRound, Seen, SeenRound, assert_granted, git,
+    installed_sources, source_folders, write_script,
 };
 
 // What the security reviewer finds in a head it flags
@@ -455,4 +456,17 @@ fn a_pass_past_its_ceiling_ends_unread_and_counts_what_it_spent() {
         Vec::<String>::new(),
         "no reviewer gets another turn"
     );
+}
+
+#[test]
+fn a_pass_reviewer_reads_the_installed_dependency_sources_and_no_credential_of_them() {
+    let (rig, runner) = listing(&["haiku"]);
+    let (cargo, rustup, secret) = installed_sources(&rig);
+    rig.claude
+        .script([Scripted::Text(CLEAN), Scripted::Text(CLEAN)]);
+    let head = contribute(&rig, 30, |h| write(h, "one.txt", "one\n"));
+    read_through(&rig, &runner, &head);
+
+    let [seen] = haiku(&rig).try_into().unwrap();
+    assert_granted(&seen, &source_folders(&cargo, &rustup), &secret);
 }

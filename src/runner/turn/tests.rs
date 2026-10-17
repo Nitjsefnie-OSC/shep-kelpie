@@ -11,7 +11,7 @@ use crate::profile;
 use crate::runner::step;
 use crate::runner::turn::paused::PAUSED;
 use crate::settings::Effort;
-use crate::test::{Hold, LEFT_BEHIND, Rig, Scripted, git, write_in};
+use crate::test::{Hold, LEFT_BEHIND, Rig, Scripted, assert_reads, git, write_in};
 
 pub(super) fn usage(n: u64) -> Usage {
     Usage {
@@ -934,6 +934,7 @@ fn the_turn_after_a_pause_resumes_the_session_with_a_fresh_ceiling() {
 
 mod browser;
 mod budget;
+mod dep_sources;
 mod dev_server;
 mod draining;
 mod hand_over;

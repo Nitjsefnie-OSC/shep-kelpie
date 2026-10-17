@@ -31,6 +31,7 @@ use super::super::review::{ROUND_FAILURES, changed_files, prompts, touches};
 use super::super::untrusted;
 use super::Job as Call;
 use super::security::MAX_DIFF;
+use crate::dep_sources::{grant, machine_sources};
 use crate::fence;
 use crate::ports::{
     AgentError, Agents, Cost, Ending, Finding, Reviewer, ReviewerError, Role, Tools, read_review,
@@ -53,6 +54,9 @@ pub(in crate::runner) struct Job {
     worktree: PathBuf,
     out: PathBuf,
     settings: PathBuf,
+    // The maintainer's home, whose installed dependency and toolchain sources
+    // each reviewer reads
+    home: PathBuf,
     // The reviewers that can run before the next bot, in the order the pass
     // walks them
     reviewers: Vec<ListedReviewer>,
@@ -190,6 +194,7 @@ impl Runner {
             pull_request: number,
             head: contribution.head.clone(),
             repo: self.settings.git.checkout.clone(),
+            home: self.home.clone(),
             worktree: folder.join(number.to_string()),
             out: folder.join(format!("{number}-out")),
             settings: (self.paths.worker).join(format!("pass-settings-{number}.json")),
@@ -513,6 +518,9 @@ impl Job {
         .map_err(Stop::Failed)?;
         call.settings.clone_from(&self.settings);
         call.tools = Tools::Review;
+        // It reads the contribution's code against the crates it calls, so it
+        // reads the installed sources of this machine's dependencies.
+        grant(&mut call, &machine_sources(&self.home));
         let ran = agents
             .prepare(&call)
             .and_then(|()| agents.run(&call, ending));
