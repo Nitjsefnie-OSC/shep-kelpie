@@ -344,6 +344,15 @@ compact_window = 200000
 # history in the repo, is labelled `needs-triage` the same way. `max_body_kb` is
 # the most of an issue body the triager is given, cut at that size with a line
 # in the fence saying it was cut and how long it was; the title is never cut.
+# [app.dogs.kelpie.triage]
+# pick = "off"
+# wait_days = 7
+# max_questions = 10
+# agent = "triager"
+# per_day = 10
+# per_author_per_day = 2
+# min_account_days = 30
+# max_body_kb = 20
 #
 # A text classifier the project's gateway can be asked before an issue's research
 # call, so a spam issue costs a classifier call and no comment. `gateway` is a
@@ -355,15 +364,6 @@ compact_window = 200000
 # decides. A gateway that cannot be reached is told once and the check is off for
 # the rest of the run, with the limits still holding. The maintainer's own issues
 # and `shep kelpie triage <issue>` skip the check.
-# [app.dogs.kelpie.triage]
-# pick = "off"
-# wait_days = 7
-# max_questions = 10
-# agent = "triager"
-# per_day = 10
-# per_author_per_day = 2
-# min_account_days = 30
-# max_body_kb = 20
 # [app.dogs.kelpie.triage.spam]
 # gateway = "paddock"
 # path = "/classify"
