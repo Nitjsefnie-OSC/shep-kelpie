@@ -1,4 +1,5 @@
 use std::path::Path;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use super::*;
 use crate::ports::{CodeGraph, Role, Session, Tools, Usage};
@@ -11,14 +12,26 @@ const PI: &str = include_str!("../../../fixtures/pi-session-mcp.jsonl");
 // A pi 1.1.0 worker session given the code graph, recorded after #949, whose system message lists
 // the graph's tools in `toolsAdded`
 const PI_CONNECTED: &str = include_str!("../../../fixtures/pi-session-mcp-connected.jsonl");
+// pi's `system` messages for the code graph's tools: added when the server connects, and removed
+// when it goes, which pi writes by re-registering each tool hidden
+const ADDED: &str = concat!(
+    r#"{"type":"message","message":{"role":"system","content":"","toolsAdded":[{"name":"mcp__codebase_memory_mcp__search_graph"},{"name":"mcp__codebase_memory_mcp__list_projects"}]}}"#,
+    "\n",
+);
+const REMOVED: &str = concat!(
+    r#"{"type":"message","message":{"role":"system","content":"","toolsRemoved":[{"name":"mcp__codebase_memory_mcp__search_graph"},{"name":"mcp__codebase_memory_mcp__list_projects"}]}}"#,
+    "\n",
+);
 const SESSION: &str = "8b2d6e41-0c3f-4a97-b5e8-1d7f9a2c4e60";
 
 // pi, as far as its session file goes: each call appends its lines to the file pi names
-// `<time>_<session>.jsonl` in its sessions folder.
+// `<time>_<session>.jsonl` in its sessions folder. Each call appends the next of `texts`, and the
+// last one again once they run out.
 #[derive(Debug)]
 struct Pi {
     sessions: PathBuf,
-    text: &'static str,
+    texts: Vec<&'static str>,
+    next: AtomicUsize,
 }
 
 impl Agents for Pi {
@@ -29,7 +42,11 @@ impl Agents for Pi {
     fn run(&self, call: &AgentCall, _ending: &Ending) -> Result<AgentReply, AgentError> {
         let file = (self.sessions).join(format!("2026-10-15T19-59-36-998Z_{SESSION}.jsonl"));
         let before = std::fs::read_to_string(&file).unwrap_or_default();
-        std::fs::write(&file, before + self.text).unwrap();
+        let at = self
+            .next
+            .fetch_add(1, Ordering::Relaxed)
+            .min(self.texts.len() - 1);
+        std::fs::write(&file, before + self.texts[at]).unwrap();
         Ok(AgentReply {
             session_id: call.session.id().clone(),
             text: "done".into(),
@@ -73,10 +90,14 @@ fn pi_call(folder: &Path) -> AgentCall {
     call
 }
 
-fn counted_over(sessions: PathBuf, text: &'static str) -> (TranscriptCount, RecordedSink) {
+fn counted_over(sessions: PathBuf, texts: Vec<&'static str>) -> (TranscriptCount, RecordedSink) {
     let sink = RecordedSink::default();
     let counted = TranscriptCount {
-        agents: Arc::new(Pi { sessions, text }),
+        agents: Arc::new(Pi {
+            sessions,
+            texts,
+            next: AtomicUsize::new(0),
+        }),
         notes: Notes::default(),
         metrics: Arc::new(Recorder::new(Arc::new(sink.clone()))),
     };
@@ -88,7 +109,7 @@ fn each_pi_call_counts_its_own_tool_calls_from_its_session_file() {
     let folder = short_tempdir();
     let sessions = folder.path().join("sessions");
     std::fs::create_dir_all(&sessions).unwrap();
-    let (counted, sink) = counted_over(sessions, PI);
+    let (counted, sink) = counted_over(sessions, vec![PI]);
     let call = pi_call(folder.path());
     let graph = [("server", "codebase-memory-mcp")];
 
@@ -113,7 +134,7 @@ fn a_pi_call_counts_a_server_whose_tools_its_session_loaded_connected() {
     let folder = short_tempdir();
     let sessions = folder.path().join("sessions");
     std::fs::create_dir_all(&sessions).unwrap();
-    let (counted, sink) = counted_over(sessions, PI_CONNECTED);
+    let (counted, sink) = counted_over(sessions, vec![PI_CONNECTED]);
     let call = pi_call(folder.path());
     let connected = [("outcome", "connected"), ("server", "codebase-memory-mcp")];
     let failed = [("outcome", "failed"), ("server", "codebase-memory-mcp")];
@@ -139,7 +160,7 @@ fn a_pi_call_counts_a_server_whose_tools_its_session_never_loaded_failed_and_not
     let folder = short_tempdir();
     let sessions = folder.path().join("sessions");
     std::fs::create_dir_all(&sessions).unwrap();
-    let (counted, sink) = counted_over(sessions, PI);
+    let (counted, sink) = counted_over(sessions, vec![PI]);
     let call = pi_call(folder.path());
     let failed = [("outcome", "failed"), ("server", "codebase-memory-mcp")];
 
@@ -149,7 +170,7 @@ fn a_pi_call_counts_a_server_whose_tools_its_session_never_loaded_failed_and_not
     assert_eq!(standing.len(), 1, "{standing:#?}");
     assert!(standing[0].contains("issue #7's worker"), "{}", standing[0]);
     assert!(
-        standing[0].contains("its tools never loaded"),
+        standing[0].contains("its tools were not in the session as the call ended"),
         "pi records no reason: {}",
         standing[0]
     );
@@ -164,11 +185,47 @@ fn a_pi_call_counts_a_server_whose_tools_its_session_never_loaded_failed_and_not
 }
 
 #[test]
+fn a_pi_call_counts_a_server_whose_tools_its_session_removed_after_loading_them_failed() {
+    let folder = short_tempdir();
+    let sessions = folder.path().join("sessions");
+    std::fs::create_dir_all(&sessions).unwrap();
+    let (counted, sink) = counted_over(sessions, vec![ADDED, REMOVED]);
+    let call = pi_call(folder.path());
+    let connected = [("outcome", "connected"), ("server", "codebase-memory-mcp")];
+    let failed = [("outcome", "failed"), ("server", "codebase-memory-mcp")];
+
+    counted.run(&call, &Ending::default()).unwrap();
+    assert_eq!(
+        sink.value("kelpie_mcp_servers_total", &connected),
+        Some(1.0)
+    );
+    assert!(counted.notes.standing_lines().is_empty());
+
+    counted.run(&call, &Ending::default()).unwrap();
+    assert_eq!(
+        sink.value("kelpie_mcp_servers_total", &failed),
+        Some(1.0),
+        "the tools went, so the earlier addition does not stand"
+    );
+    assert_eq!(
+        sink.value("kelpie_mcp_servers_total", &connected),
+        Some(1.0)
+    );
+    let standing = counted.notes.standing_lines();
+    assert_eq!(standing.len(), 1, "{standing:#?}");
+    assert!(
+        standing[0].contains("its tools were not in the session as the call ended"),
+        "{}",
+        standing[0]
+    );
+}
+
+#[test]
 fn each_pi_call_counts_its_own_requests_from_its_session_file() {
     let folder = short_tempdir();
     let sessions = folder.path().join("sessions");
     std::fs::create_dir_all(&sessions).unwrap();
-    let (counted, sink) = counted_over(sessions, PI);
+    let (counted, sink) = counted_over(sessions, vec![PI]);
     let call = pi_call(folder.path());
     let small = [("harness", "pi"), ("le", "50000"), ("role", "worker")];
 

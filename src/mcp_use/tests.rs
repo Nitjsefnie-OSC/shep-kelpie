@@ -177,6 +177,42 @@ fn a_resumed_pi_call_reads_the_tools_its_session_loaded_in_an_earlier_call() {
     );
 }
 
+// pi's `system` messages for one server's tools: added, then one of them gone, then the last one,
+// each removal written by re-registering that tool hidden
+const ADDED: &str = r#"{"type":"message","message":{"role":"system","content":"","toolsAdded":[{"name":"mcp__docs__search"},{"name":"mcp__docs__fetch"},{"name":"read"}]}}"#;
+const ONE_GONE: &str = r#"{"type":"message","message":{"role":"system","content":"","toolsRemoved":[{"name":"mcp__docs__fetch"}]}}"#;
+const ALL_GONE: &str = r#"{"type":"message","message":{"role":"system","content":"","toolsRemoved":[{"name":"mcp__docs__search"}]}}"#;
+
+#[test]
+fn a_pi_session_that_removes_a_server_s_tools_reads_it_gone_and_one_tool_left_keeps_it() {
+    let used = pi(&format!("{ADDED}\n{ONE_GONE}\n"), 0);
+    let loaded = used.loaded.expect("its system message adds tools");
+    assert_eq!(
+        loaded.iter().map(String::as_str).collect::<Vec<_>>(),
+        ["docs"],
+        "one of the server's tools is still there"
+    );
+
+    let used = pi(&format!("{ADDED}\n{ONE_GONE}\n{ALL_GONE}\n"), 0);
+    assert!(
+        used.loaded
+            .expect("its system message adds tools")
+            .is_empty(),
+        "none of them left, whatever an earlier line added"
+    );
+}
+
+#[test]
+fn a_pi_session_that_adds_a_server_s_tools_again_after_removing_them_reads_it_there() {
+    let used = pi(&format!("{ADDED}\n{ONE_GONE}\n{ALL_GONE}\n{ADDED}\n"), 0);
+    assert!(
+        used.loaded
+            .expect("its system message adds tools")
+            .contains("docs"),
+        "the last word is the addition"
+    );
+}
+
 #[test]
 fn a_tool_s_server_part_is_named_as_each_harness_names_it() {
     assert_eq!(

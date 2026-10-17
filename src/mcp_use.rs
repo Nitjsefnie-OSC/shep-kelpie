@@ -7,8 +7,8 @@
 //! how they stood at the call's end. While every server connects and none of
 //! their tools is deferred it writes no such line, and its prompt snapshot
 //! lists each server's tools with the server's name. pi's session file
-//! records the call's tool calls, and the tools its system message lists as
-//! added, which is all it says of a server that failed to connect: it names
+//! records the call's tool calls, and the tools its system messages add and
+//! remove, which is all it says of a server that failed to connect: it names
 //! none.
 //! `docs/facts/mcp-servers.md`
 
@@ -25,9 +25,9 @@ pub(crate) struct McpUse {
     /// How its servers stood as the call ended, where the transcript says.
     /// Claude Code says this, and pi does not
     pub(crate) servers: Option<Stood>,
-    /// The servers whose tools the session lists as added, by the part of a
-    /// tool's name each is named after. pi says this, and names no server
-    /// that failed
+    /// The servers whose tools the session leaves available as it ends,
+    /// by the part of a tool's name each is named after. pi says this, and
+    /// names no server that failed
     pub(crate) loaded: Option<BTreeSet<String>>,
     /// The call's tool calls to MCP servers, by the server's part of the
     /// tool's name, `mcp__<server>__<tool>`
@@ -129,23 +129,35 @@ fn all_connected(text: &str) -> Option<Stood> {
         .and_then(|served| served.then(Stood::default))
 }
 
-// The servers whose tools the session's system messages list as added, by the part of a tool's
-// name pi names them after. pi writes `toolsAdded` once, when a server's tools load, and a
-// resumed call's file holds them from the call that wrote them, so the whole file is read and not
-// the call's own lines.
+// The servers whose tools the session leaves available as it ends, by the part of a tool's name pi
+// names them after. pi writes `toolsAdded` when a server's tools load and `toolsRemoved` when they
+// go, for a server disabled or one that dropped a tool and re-registered it hidden, so both are
+// replayed in the order the file holds them: tools added in an earlier call and removed since are
+// not available now. One tool of a server left keeps it. pi writes them in the session's first
+// system message, and a resumed call's file holds them from the call that wrote them, so the whole
+// file is read and not the call's own lines.
 fn loaded(text: &str) -> BTreeSet<String> {
-    text.lines()
-        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
-        .filter(|entry| entry["message"]["role"] == "system")
-        .flat_map(|entry| {
-            (entry["message"]["toolsAdded"]
-                .as_array()
-                .into_iter()
-                .flatten())
-            .filter_map(|tool| (tool["name"].as_str()).and_then(server_part))
-            .map(str::to_owned)
-            .collect::<Vec<String>>()
-        })
+    let mut tools: BTreeSet<String> = BTreeSet::new();
+    let entries = (text.lines()).filter_map(|line| serde_json::from_str::<Value>(line).ok());
+    for entry in entries {
+        let message = &entry["message"];
+        if message["role"] != "system" {
+            continue;
+        }
+        for (key, added) in [("toolsAdded", true), ("toolsRemoved", false)] {
+            for name in (message[key].as_array().into_iter().flatten())
+                .filter_map(|tool| (tool["name"].as_str()).map(str::to_owned))
+            {
+                if added {
+                    tools.insert(name);
+                } else {
+                    tools.remove(&name);
+                }
+            }
+        }
+    }
+    (tools.iter().filter_map(|name| server_part(name)))
+        .map(str::to_owned)
         .collect()
 }
 
