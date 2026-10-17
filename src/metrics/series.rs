@@ -81,6 +81,11 @@ pub const FEATURE_RUNS: Family = Family {
     kind: Counter,
     help: "Times a feature ran for a call, by outcome. An enabled feature with no ok run is broken.",
 };
+const CI_FAILURES: Family = Family {
+    name: "kelpie_ci_failures_total",
+    kind: Counter,
+    help: "Work item CI runs that failed, by whether the worker could have run the tests that failed.",
+};
 
 // Every phase, so one with no work item reads 0 rather than vanishing
 const PHASES: [&str; 6] = ["implement", "review", "ci", "ruling", "merge", "done"];
@@ -121,6 +126,30 @@ impl Feature {
     }
 }
 
+/// Whether the tests that failed a work item's CI are ones its worker could have
+/// run in its own sandbox, which decides whether the worker could have caught the
+/// failure. `src/runner/ci_failure.rs` reads it from the failed runs' logs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CiTests {
+    /// Every failing test is one `docs/agents/sandbox-red-tests.md` lists as red in
+    /// a worker's sandbox, so no worker could have run it
+    SandboxOnly,
+    /// At least one failing test is one a worker could have run
+    Runnable,
+    /// No test failed: lint, docs, fmt, or a build that never ran one
+    NoTests,
+}
+
+impl CiTests {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::SandboxOnly => "sandbox-only",
+            Self::Runnable => "runnable",
+            Self::NoTests => "none",
+        }
+    }
+}
+
 impl Recorder {
     /// Counts what a ledger line records, as it is written
     pub fn line(&self, line: &Line) {
@@ -154,6 +183,16 @@ impl Recorder {
     pub fn feature_ran(&self, feature: Feature, outcome: &'static str) {
         let labels = vec![feature_label(feature), ("outcome", outcome.to_owned())];
         self.add(&FEATURE_RUNS, labels, 1.0);
+    }
+
+    /// Counts one of a work item's failed CI runs, by whether its worker could have
+    /// run the tests that failed it
+    pub fn ci_failure(&self, tests: CiTests) {
+        self.add(
+            &CI_FAILURES,
+            vec![("tests", tests.as_str().to_owned())],
+            1.0,
+        );
     }
 
     fn call(&self, call: &CallLine) {

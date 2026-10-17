@@ -212,6 +212,8 @@ impl Runner {
     // A red run once the work item's fix turns reach `ci.fix_attempts`
     // raises that ruling too, in place of a fix turn. A red run before a
     // reviewer read the head sends the worker's fix back to that `review`.
+    // Each head read red is counted once, by whether its worker could have
+    // caught it (`super::ci_failure`).
     pub(super) fn ci_failed(
         &mut self,
         number: u64,
@@ -219,10 +221,14 @@ impl Runner {
         checks: Vec<String>,
         review: Option<Review>,
     ) -> Result<Begin, StateError> {
+        // The failed runs' logs are read once here: they are what the failure is
+        // counted by, what a rerun is judged on, and what the fix turn is told.
+        let logs = self.read_logs(&head, false);
+        self.count_ci_failure(&head, &logs);
         let item = self.current().expect("CI runs on a work item");
         if item.red_head.as_deref() == Some(head.as_str()) {
             let fix_turns = None;
-            let rerun = self.rerun_offered(&head);
+            let rerun = self.rerun_offered(&head, &logs);
             return self.raise(
                 number,
                 Stuck::StillRed {
@@ -235,7 +241,7 @@ impl Runner {
                 .into(),
             );
         }
-        if let Some(begin) = self.rerun_if_unrelated(number, &head, &checks)? {
+        if let Some(begin) = self.rerun_if_unrelated(number, &head, &checks, &logs)? {
             return Ok(begin);
         }
         let item = self.current().expect("CI runs on a work item");
@@ -248,7 +254,7 @@ impl Runner {
             .is_some_and(|cap| turns >= cap)
         {
             let fix_turns = Some(turns);
-            let rerun = self.rerun_offered(&head);
+            let rerun = self.rerun_offered(&head, &logs);
             return self.raise(
                 number,
                 Stuck::StillRed {
@@ -261,7 +267,7 @@ impl Runner {
                 .into(),
             );
         }
-        let help = format!("{}{}", self.red_help(number, &head), self.flake_note());
+        let help = format!("{}{}", self.red_help(number, &logs), self.flake_note());
         let repeated = self.current().and_then(|i| i.reran.as_deref()) == Some(head.as_str());
         let prompt = self.skills.invoke(
             Step::CiFix,

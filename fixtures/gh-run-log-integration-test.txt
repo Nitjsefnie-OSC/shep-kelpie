@@ -1,0 +1,80 @@
+test	Run cargo test --locked	test the_lease_round_trip_runs_through_a_real_shepherd ... ignored, needs a shepherd at KELPIE_TEST_SHEP or ~/.kelpie/bin/shep
+test	Run cargo test --locked	test kelpie_s_version_answer_asks_for_the_shepherd_channel ... ok
+test	Run cargo test --locked	
+test	Run cargo test --locked	test result: ok. 1 passed; 0 failed; 9 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test	Run cargo test --locked	
+test	Run cargo test --locked	^[[1m^[[92m     Running^[[0m tests/guard_goose.rs (target/debug/deps/guard_goose-1fa75aa469d5069a)
+test	Run cargo test --locked	
+test	Run cargo test --locked	running 4 tests
+test	Run cargo test --locked	test a_command_the_guard_refuses_exits_2_with_its_reason ... ok
+test	Run cargo test --locked	test a_write_into_a_harness_folder_exits_2_with_its_reason ... ok
+test	Run cargo test --locked	test a_tool_kelpie_does_not_allow_and_an_unreadable_payload_exit_2 ... ok
+test	Run cargo test --locked	test with_read_only_a_listed_command_exits_0_and_a_write_exits_2 ... ok
+test	Run cargo test --locked	
+test	Run cargo test --locked	test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test	Run cargo test --locked	
+test	Run cargo test --locked	^[[1m^[[92m     Running^[[0m tests/guard_issues.rs (target/debug/deps/guard_issues-2fd927fabe4aec2c)
+test	Run cargo test --locked	
+test	Run cargo test --locked	running 1 test
+test	Run cargo test --locked	test the_issue_writers_hook_runs_only_what_it_lists ... ok
+test	Run cargo test --locked	
+test	Run cargo test --locked	test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s
+test	Run cargo test --locked	
+test	Run cargo test --locked	^[[1m^[[92m     Running^[[0m tests/guard_pause.rs (target/debug/deps/guard_pause-e0f66ad285656c55)
+test	Run cargo test --locked	
+test	Run cargo test --locked	running 1 test
+test	Run cargo test --locked	test the_hook_answers_nothing_until_a_pause_is_set_and_then_ends_the_turn ... ok
+test	Run cargo test --locked	
+test	Run cargo test --locked	test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test	Run cargo test --locked	
+test	Run cargo test --locked	^[[1m^[[92m     Running^[[0m tests/guard_pin.rs (target/debug/deps/guard_pin-c399249bc9569338)
+test	Run cargo test --locked	
+test	Run cargo test --locked	running 3 tests
+test	Run cargo test --locked	test a_command_runs_in_the_folder_it_was_judged_in ... ok
+test	Run cargo test --locked	test a_workdir_outside_the_worktree_is_refused_with_what_to_do ... ok
+test	Run cargo test --locked	test a_workdir_inside_the_worktree_is_kept_and_judged_there ... ok
+test	Run cargo test --locked	
+test	Run cargo test --locked	test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+test	Run cargo test --locked	
+test	Run cargo test --locked	^[[1m^[[92m     Running^[[0m tests/lease_gpu_gone.rs (target/debug/deps/lease_gpu_gone-66bc211305e2b936)
+test	Run cargo test --locked	
+test	Run cargo test --locked	running 1 test
+test	Run cargo test --locked	test every_gpu_lease_command_is_refused_and_leaves_no_lock ... ok
+test	Run cargo test --locked	
+test	Run cargo test --locked	test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test	Run cargo test --locked	
+test	Run cargo test --locked	^[[1m^[[92m     Running^[[0m tests/settings_examples.rs (target/debug/deps/settings_examples-bce3fa0dea9b5feb)
+test	Run cargo test --locked	
+test	Run cargo test --locked	running 11 tests
+test	Run cargo test --locked	test a_key_before_any_table_is_outside_the_section ... ok
+test	Run cargo test --locked	test a_comment_over_a_table_covers_the_keys_that_follow_it ... ok
+test	Run cargo test --locked	test a_key_in_a_map_of_tables_is_located_under_the_entry_name ... ok
+test	Run cargo test --locked	test a_file_that_holds_every_key_with_a_comment_has_no_problem ... ok
+test	Run cargo test --locked	test a_key_the_file_lacks_is_named ... ok
+test	Run cargo test --locked	test a_key_the_schema_does_not_accept_is_named_with_its_file_and_line ... ok
+test	Run cargo test --locked	test a_key_under_another_key_does_not_share_the_comment_over_that_key ... ok
+test	Run cargo test --locked	test a_key_with_no_comment_above_it_is_named ... ok
+test	Run cargo test --locked	test a_table_outside_the_section_is_named ... ok
+test	Run cargo test --locked	test every_kelpie_setting_is_documented_in_the_kelpie_settings_example ... ok
+test	Run cargo test --locked	test every_project_setting_is_documented_in_the_settings_example ... FAILED
+test	Run cargo test --locked	
+test	Run cargo test --locked	failures:
+test	Run cargo test --locked	
+test	Run cargo test --locked	---- every_project_setting_is_documented_in_the_settings_example stdout ----
+test	Run cargo test --locked	
+test	Run cargo test --locked	thread 'every_project_setting_is_documented_in_the_settings_example' (376996) panicked at tests/settings_examples.rs:230:5:
+test	Run cargo test --locked	
+test	Run cargo test --locked	settings.example.toml has no comment above `triage.spam.gateway`
+test	Run cargo test --locked	settings.example.toml has no comment above `triage.spam.path`
+test	Run cargo test --locked	settings.example.toml has no comment above `triage.spam.threshold`
+test	Run cargo test --locked	
+test	Run cargo test --locked	note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test	Run cargo test --locked	
+test	Run cargo test --locked	
+test	Run cargo test --locked	failures:
+test	Run cargo test --locked	    every_project_setting_is_documented_in_the_settings_example
+test	Run cargo test --locked	
+test	Run cargo test --locked	test result: FAILED. 10 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test	Run cargo test --locked	
+test	Run cargo test --locked	^[[1m^[[91merror^[[0m: test failed, to rerun pass `--test settings_examples`
+test	Run cargo test --locked	##[error]Process completed with exit code 101.

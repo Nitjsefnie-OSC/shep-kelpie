@@ -11,6 +11,7 @@
 //! A still-red ruling offers the same rerun as an option when the logs name
 //! no changed file, for the maintainer or the panel to choose.
 
+use super::super::ci_help::Logs;
 use crate::runner::Runner;
 use crate::runner::report::{Begin, StepReport};
 use crate::state::StateError;
@@ -20,18 +21,20 @@ use crate::worktree;
 impl Runner {
     /// Whether a still-red ruling at `head` offers to rerun its failed jobs
     /// once more: their logs name no file the branch changed
-    pub(super) fn rerun_offered(&self, head: &str) -> bool {
-        self.unrelated_logs(head).is_some()
+    pub(super) fn rerun_offered(&self, head: &str, logs: &Logs) -> bool {
+        match logs {
+            Logs::Read(logs) => self.unrelated(head, logs),
+            Logs::Refused(_) => false,
+        }
     }
 
-    // The failed runs' logs at `head`, when they are readable and name no
-    // file the branch changed
-    fn unrelated_logs(&self, head: &str) -> Option<String> {
-        let forge = &self.ports.forge;
-        let logs = forge.failed_run_logs(&self.remote, head, false).ok()?;
-        let changed = worktree::changed_files(&self.settings.git.checkout, head).ok()?;
-        let related = logs.trim().is_empty() || changed.is_empty() || names_any(&logs, &changed);
-        (!related).then_some(logs)
+    // Whether `logs` name no file the branch changed at `head`
+    fn unrelated(&self, head: &str, logs: &str) -> bool {
+        let Ok(changed) = worktree::changed_files(&self.settings.git.checkout, head) else {
+            return false;
+        };
+        let related = logs.trim().is_empty() || changed.is_empty() || names_any(logs, &changed);
+        !related
     }
 
     /// Reruns the failed jobs of `head`, instead of a fix turn, when its logs
@@ -41,16 +44,20 @@ impl Runner {
         number: u64,
         head: &str,
         checks: &[String],
+        read: &Logs,
     ) -> Result<Option<Begin>, StateError> {
         let item = self.current().expect("CI runs on a work item");
         if item.reran.as_deref() == Some(head) {
             return Ok(None);
         }
         let issue = item.issue;
-        let Some(logs) = self.unrelated_logs(head) else {
+        let Logs::Read(logs) = read else {
             return Ok(None);
         };
-        self.journal_outside_diff(issue, &logs);
+        if !self.unrelated(head, logs) {
+            return Ok(None);
+        }
+        self.journal_outside_diff(issue, logs);
         if self.ports.forge.rerun_failed(&self.remote, head).is_err() {
             return Ok(None);
         }

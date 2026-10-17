@@ -38,6 +38,7 @@ mod attach;
 mod briefing;
 mod browser;
 mod builds;
+mod ci_failure;
 mod ci_help;
 mod claim;
 mod claude_files;
