@@ -6,14 +6,15 @@
 //! prompt carries them. Any other worker is pointed at the commands.
 
 use super::{Runner, instructions};
-use crate::ports::ForgeError;
+use crate::ports::{FailedLogs, ForgeError};
 
 /// What kelpie found in the failed runs' logs of a head
 #[derive(Debug)]
 pub(super) enum Logs {
     /// The end of each failed run's log, which is empty where kelpie found no failed
-    /// run to read
-    Read(String),
+    /// run to read. `omitted` counts the failed runs whose logs kelpie did not read,
+    /// because more failed than it reads
+    Read(FailedLogs),
     /// The forge refused the read, with its reason
     Refused(ForgeError),
 }
@@ -66,14 +67,22 @@ impl Runner {
     // What a worker whose token cannot read CI is told about logs kelpie read
     fn log_help(&self, logs: &Logs) -> String {
         match logs {
-            Logs::Read(logs) if logs.trim().is_empty() => "Your credential cannot read CI, and \
-                kelpie found no failed run to read for you: reproduce the failing checks \
+            Logs::Read(logs) if logs.text.trim().is_empty() => "Your credential cannot read CI, \
+                and kelpie found no failed run to read for you: reproduce the failing checks \
                 with the repo's own commands."
                 .to_owned(),
-            Logs::Read(logs) => format!(
-                "Your credential cannot read CI, so kelpie read the end of each failed run's \
-                 log for you:\n\n{logs}\n"
-            ),
+            Logs::Read(logs) => {
+                let more = match logs.omitted {
+                    0 => String::new(),
+                    1 => " One more failed run's log is not shown here.".to_owned(),
+                    n => format!(" {n} more failed runs' logs are not shown here."),
+                };
+                format!(
+                    "Your credential cannot read CI, so kelpie read the end of each failed run's \
+                     log for you:\n\n{}\n{more}",
+                    logs.text
+                )
+            }
             Logs::Refused(e) => format!(
                 "Your credential cannot read CI, and kelpie could not read it for you ({e}): \
                  reproduce the failing checks with the repo's own commands."

@@ -536,6 +536,16 @@ impl Rig {
         self.github.registered(&kelpie_home, Self::REMOTE);
     }
 
+    /// Makes the rig's project kelpie's own repo, which is the one the sandbox-red
+    /// list in `src/runner/ci_failure.rs` is of
+    pub(crate) fn remote_is_kelpie(&self) {
+        self.edit_settings(|s| {
+            let rig = format!("remote = \"{}\"", Self::REMOTE);
+            assert!(s.contains(&rig), "the rig's remote moved");
+            s.replace(&rig, "remote = \"shep-pm/shep-kelpie\"")
+        });
+    }
+
     /// Lists CodeRabbit after the rig's reviewers, so it reads each pass last
     pub(crate) fn coderabbit_on(&self) {
         self.edit_settings(|s| {

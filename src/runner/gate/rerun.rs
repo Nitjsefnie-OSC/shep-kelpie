@@ -23,7 +23,7 @@ impl Runner {
     /// once more: their logs name no file the branch changed
     pub(super) fn rerun_offered(&self, head: &str, logs: &Logs) -> bool {
         match logs {
-            Logs::Read(logs) => self.unrelated(head, logs),
+            Logs::Read(logs) => self.unrelated(head, &logs.text),
             Logs::Refused(_) => false,
         }
     }
@@ -54,10 +54,10 @@ impl Runner {
         let Logs::Read(logs) = read else {
             return Ok(None);
         };
-        if !self.unrelated(head, logs) {
+        if !self.unrelated(head, &logs.text) {
             return Ok(None);
         }
-        self.journal_outside_diff(issue, logs);
+        self.journal_outside_diff(issue, &logs.text);
         if self.ports.forge.rerun_failed(&self.remote, head).is_err() {
             return Ok(None);
         }

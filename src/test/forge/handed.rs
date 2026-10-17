@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 
 use super::FakeForge;
-use crate::ports::{BranchRun, PullRequestState, Workflow, WorkflowState};
+use crate::ports::{BranchRun, FailedLogs, PullRequestState, Workflow, WorkflowState};
 
 /// A pull request on the fake forge. Its head is its branch on the rig's
 /// origin, so a push the runner makes moves it.
@@ -26,6 +26,8 @@ pub(super) struct FakePullRequest {
 #[derive(Debug, Default)]
 pub(super) struct CiRuns {
     log: String,
+    // How many failed runs the log leaves out, as `failed_run_logs` reports it
+    log_omitted: usize,
     log_error: Option<String>,
     reruns: Vec<String>,
     rerun_error: Option<String>,
@@ -51,10 +53,13 @@ pub(super) struct CiRuns {
 
 impl CiRuns {
     /// The logs, or why reading them fails
-    pub(super) fn log(&self) -> Result<String, String> {
+    pub(super) fn log(&self) -> Result<FailedLogs, String> {
         match &self.log_error {
             Some(error) => Err(error.clone()),
-            None => Ok(self.log.clone()),
+            None => Ok(FailedLogs {
+                text: self.log.clone(),
+                omitted: self.log_omitted,
+            }),
         }
     }
 
@@ -92,7 +97,14 @@ impl FakeForge {
     /// Makes the failed CI runs' logs say `log`
     pub(crate) fn set_ci_log(&self, log: &str) {
         let mut ci = self.ci.lock().unwrap();
-        (ci.log, ci.log_error) = (log.to_owned(), None);
+        (ci.log, ci.log_error, ci.log_omitted) = (log.to_owned(), None, 0);
+    }
+
+    /// Makes the failed CI runs' logs say `log`, with `omitted` failed runs kelpie
+    /// did not read
+    pub(crate) fn set_ci_log_omitted(&self, log: &str, omitted: usize) {
+        let mut ci = self.ci.lock().unwrap();
+        (ci.log, ci.log_error, ci.log_omitted) = (log.to_owned(), None, omitted);
     }
 
     /// Makes reading the failed CI runs' logs fail with `error`, verbatim

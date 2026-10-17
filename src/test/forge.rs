@@ -9,8 +9,8 @@ use std::sync::{Arc, Mutex};
 use super::coderabbit::FakeCodeRabbit;
 use crate::board::{OpenPullRequest, READY, ReadyIssue, ReviewMarks};
 use crate::ports::{
-    BranchRun, Checks, CommentMarks, FinishedParent, FolderEntry, Forge, ForgeError, Issue,
-    IssueCloseReason, MaintainerReview, NewLabel, OpenIssue, OpenPull, PullRequest,
+    BranchRun, Checks, CommentMarks, FailedLogs, FinishedParent, FolderEntry, Forge, ForgeError,
+    Issue, IssueCloseReason, MaintainerReview, NewLabel, OpenIssue, OpenPull, PullRequest,
     PullRequestState, QueueStanding, Reviewed, SubIssue, Talk, ThreadComment, Timestamp,
     Visibility, Workflow,
 };
@@ -781,7 +781,7 @@ impl Forge for FakeForge {
         _repo: &ForgeSlug,
         _head: &str,
         _merge_group: bool,
-    ) -> Result<String, ForgeError> {
+    ) -> Result<FailedLogs, ForgeError> {
         self.ask()?;
         self.ci.lock().unwrap().log().map_err(ForgeError::Failed)
     }

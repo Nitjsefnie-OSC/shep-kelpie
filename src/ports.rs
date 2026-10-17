@@ -81,7 +81,7 @@ pub use revalidated::Revalidated;
 pub use reviewed::{MaintainerReview, ReviewComment, Reviewed};
 pub use reviewer::{Reviewer, ReviewerError, RoundEnd, RoundStage};
 pub use routed::Routed;
-pub use run::{BranchRun, Workflow, WorkflowState};
+pub use run::{BranchRun, FailedLogs, Workflow, WorkflowState};
 pub use sandbox::{Forward, Policy, Sandbox, SandboxError, Unreadable};
 pub use talk::{Remark, Standing, Talk, TalkThread};
 pub use test_runner::{CEILING, OUTPUT_KEPT, TestOutcome, TestRun, TestRunner, tail};
@@ -408,6 +408,9 @@ pub trait Forge: Send + Sync {
     /// The end of the logs of the CI runs that failed on `head`, or on the
     /// merge queue when `merge_group`, for a worker whose token cannot read CI
     ///
+    /// Where more runs failed than kelpie reads logs of, the answer says how
+    /// many it left out.
+    ///
     /// # Errors
     ///
     /// [`ForgeError`] when the forge cannot be asked or its answer read.
@@ -416,7 +419,7 @@ pub trait Forge: Send + Sync {
         repo: &ForgeSlug,
         head: &str,
         merge_group: bool,
-    ) -> Result<String, ForgeError>;
+    ) -> Result<FailedLogs, ForgeError>;
 
     /// The latest completed CI run of each workflow and event among the 50
     /// newest completed runs on `branch`, whatever its conclusion

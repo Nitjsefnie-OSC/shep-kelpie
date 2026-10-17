@@ -38,3 +38,5 @@ Of the sites that used `tempdir_in("/tmp")`:
 A change that moves a test into or out of this list updates the table in the same pull request. A new test that binds a socket or a port belongs in the table when it lands.
 
 The table is also what `kelpie_ci_failures_total` counts a red run on: `SANDBOX_RED` in `src/runner/ci_failure.rs` holds the table's whole entries, and `the_doc_and_the_list_agree` fails when the two part ways. A whole entry added to the table and not to the list, or the other way round, is a failing test, not a note. A `some:` entry belongs in the table and not in the list: it says the module is red in part, which is not enough to call a failing test in it one a worker could not run.
+
+The list is of this crate's modules, so kelpie uses it only on this repo. On a project kelpie holds no list of, every failing test of a red run counts as one its worker could have run, and `sandbox-only` is never used there. Giving another project a list of its own is unbuilt.
