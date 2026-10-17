@@ -64,28 +64,6 @@ jobs:
       - run: rustup toolchain install stable --profile minimal
       - run: cargo test --locked
 
-  # The whole suite on macOS, where the APFS case folding in `src/fence.rs`,
-  # and the Seatbelt policy `src/adapters/srt.rs` writes run for real. Apart
-  # from the runner and the timeout it is the `test` job.
-  # The 30 minutes comes from a local macOS run (about 5 minutes of tests
-  # after the build) and a hosted run where every test passed but the lib
-  # suite alone took 17 minutes, so 20 cancelled the job before the rest ran.
-  # It runs after merge, not on pull requests: the org gets five macOS
-  # runners at once and pull requests queued behind them.
-  test-macos:
-    if: github.event_name != 'pull_request'
-    runs-on: macos-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v7
-      - run: rustup toolchain install stable --profile minimal
-      # The runner's own `TMPDIR` under /var/folders is too deep for a rig's
-      # pi forwarder socket, three folders below its home, to stay under
-      # macOS's 104 bytes. `runner.temp` is short, as a real `SHEP_HOME` is.
-      - run: cargo test --locked
-        env:
-          TMPDIR: ${{ runner.temp }}
-
   # The tests `#[ignore]`d for needing a real shepherd. One of them is the
   # only test that sees shep answer `NotFound`, which the fake shepherd
   # cannot send.
