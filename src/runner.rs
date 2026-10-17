@@ -98,6 +98,7 @@ mod pm;
 mod points;
 #[cfg(test)]
 mod points_tests;
+mod posted;
 mod pull_request_file;
 mod question;
 mod refused;
@@ -157,6 +158,7 @@ pub use owner_template::{TemplateSource, source_of};
 pub use pace::PacerStatus;
 pub use paths::{ProjectName, ProjectNameError, ProjectPaths};
 pub use pm::{PmAttaching, PmError, PmStatus};
+pub(crate) use posted::Posted;
 pub use refused::Refusal;
 pub use replies::READ_EVERY;
 pub use report::StepReport;
@@ -167,8 +169,9 @@ pub use rework::{HUMAN, ReworkError};
 pub use ruling::{Action, Answer, RuleError};
 pub use step_log::FILE as STEPS_FILE;
 pub use timings::{Totals, settle};
+pub(crate) use trigger::answer;
 use trigger::issue_list;
-pub use trigger::{ACTIONS, BudgetStatus, Status, WorkItemStatus, answer, wakes};
+pub use trigger::{ACTIONS, BudgetStatus, Status, WorkItemStatus, wakes};
 pub use trigger::{GateError, WhichItem};
 pub use words::{Wants, read_answer};
 
@@ -389,9 +392,10 @@ pub struct Runner {
     panel: panel::Desk,
     // What the batch retro keeps between passes, in memory only
     retro_book: retro::Book,
-    // Whether `drain` holds back every new call, in memory only, so a
-    // restart ends it
-    draining: bool,
+    // What the loop posts for `status` and `drain`, and the drain flag they
+    // read, held beside the runner so a trigger can reach it while a pass
+    // holds the runner's lock. In memory only, so a restart ends the drain.
+    postings: Arc<posted::Posted>,
     // What `finish` keeps in memory, beside the state file's `finishing`
     finish: finishing::Finish,
     // What the answers folder held that was no answer, in memory only
@@ -597,6 +601,7 @@ impl Runner {
             store.save(&state)?;
         }
         let spoken = points::Told::of(&state);
+        let postings = Arc::new(posted::Posted::default());
         metrics.features(&settings, dev_server::is_on(&settings));
         metrics.work_items(&state);
         let mut runner = Self {
@@ -653,7 +658,7 @@ impl Runner {
             pm: pm::Desk::default(),
             panel: panel::Desk::default(),
             retro_book: retro::Book::default(),
-            draining: false,
+            postings,
             finish: finishing::Finish::default(),
             left: left::Seen::default(),
             late_reads: BTreeMap::new(),
@@ -678,6 +683,8 @@ impl Runner {
         runner.settle_labels();
         runner.make_agent_labels();
         runner.brief_now();
+        // A trigger asked before the loop's first pass is answered from this.
+        runner.post();
         Ok(runner)
     }
 
@@ -720,6 +727,13 @@ impl Runner {
 
     /// The project's state as `status` reports it
     pub fn status(&self) -> Status<'_> {
+        self.status_of(self.read_local_leases())
+    }
+
+    pub(super) fn status_of(
+        &self,
+        local_leases: BTreeMap<String, Option<crate::ports::PaddockHolder>>,
+    ) -> Status<'_> {
         let now = self.ports.clock.now();
         Status {
             project: self.project.as_str(),
@@ -764,7 +778,7 @@ impl Runner {
             pull_request_template: self.template_source(),
             gpu: self.gpu.status(),
             disk_free_bytes: self.builds.free_bytes(),
-            local_leases: self.local_leases(),
+            local_leases,
             board: &self.paths.board,
             pm: self.pm_status(),
             build: crate::upgrade::seen::running(),

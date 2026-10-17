@@ -45,7 +45,7 @@ impl Runner {
     // call that reads it, which the pass starts.
     pub(super) fn follow_bots(&mut self) -> Result<(), StateError> {
         self.release_idle_bots()?;
-        if self.draining {
+        if self.draining() {
             return Ok(());
         }
         let due: Vec<u64> = (self.state.contributions.iter())

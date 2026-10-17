@@ -40,6 +40,7 @@ impl Rig {
             codex_meter: FakeMeter::idle(),
             reviewer: FakeReviewer::default(),
             local_leases: LocalReviewer::default(),
+            counted_leases: Arc::default(),
             alerts: FakeAlerts::on(clock.clone()),
             disk: FakeDisk::default(),
             leases: FakeLeases::default(),

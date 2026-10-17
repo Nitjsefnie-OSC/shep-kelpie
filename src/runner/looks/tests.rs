@@ -360,7 +360,10 @@ fn no_board_step_runs_before_the_rate_limit_hold_ends() {
         .set_used_up(Some(Timestamp(rig.clock.now().0 + 1800)));
     wake(&runner);
     let reads = rig.forge.board_reads();
-    assert_eq!(reads, before + 1, "the read the hold began on");
+    assert_eq!(
+        reads, before,
+        "the board step ran past the hold the pass's first forge call hit"
+    );
 
     for _ in 0..29 {
         rig.clock.advance(60);

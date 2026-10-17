@@ -76,7 +76,7 @@ impl Runner {
     //
     // The caller holds a free slot for it, which the call keeps until it ends.
     pub(in crate::runner) fn security_due(&mut self) -> Result<Option<Begin>, StateError> {
-        if self.draining || self.flights.securing() {
+        if self.draining() || self.flights.securing() {
             return Ok(None);
         }
         let unread: Vec<_> = (self.state.contributions.iter())
