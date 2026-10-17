@@ -46,7 +46,7 @@ context: 65536
 ---
 ```
 
-Kelpie runs pi with a home of its own, so your `~/.pi` is never read. pi runs no Claude Code hooks, so a worker on pi can't have `worker.guard_hooks`, and the runner refuses to start with them. Kelpie's own checks still run on every command and file write, and so do your `hooks`.
+Kelpie runs pi with a home of its own, so your `~/.pi` is never read. pi runs no Claude Code hooks, so a worker on pi can't have `worker.guard_hooks`, and the runner refuses to start with them. Kelpie's own checks still run on every command and file write, and so do your `hooks`. pi's own `grep` and `find` tools run `rg` and `fd`, which it looks for in that home's `bin` folder first and downloads from GitHub when it finds neither there nor on your `PATH`, which the sandbox refuses. Install `ripgrep` and `fd` (Debian's `fd-find` counts, since pi takes `fd` under either name), and `shep kelpie doctor` names a project with an agent on pi that still lacks one.
 
 A pi call's sandbox allows no host of the model's, since the sandbox opens every port of an allowed host and Ollama's admin calls (pull, delete, create) answer beside chat. Kelpie runs a forwarder outside the sandbox for each call, and the sandbox allows only that. It passes `POST` to the server's `/v1/chat/completions` and refuses every other path and method, naming what was asked. The worker never sees the model's address. The forwarder dials `http://`, so `url` is the server's `http://` address: an `https://` one is refused when settings load.
 
