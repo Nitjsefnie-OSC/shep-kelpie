@@ -1,11 +1,11 @@
 //! What a call's fence lets it read, judged on the settings it saw and the
 //! sandbox policy its fence makes, the way each layer would judge a path
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 
-use super::Seen;
+use super::{Rig, Seen, write_in};
 
 /// `path` as given and with its links resolved, as each tool may name it
 pub(crate) fn spellings(path: &Path) -> Vec<String> {
@@ -78,5 +78,74 @@ pub(crate) fn assert_refuses(seen: &Seen, path: &Path) {
     assert!(
         sandbox_refuses(seen, &spelled),
         "its sandbox reads {spelled}"
+    );
+}
+
+/// A cargo home and a rustup home under `rig`'s home, each holding one source,
+/// with what each tool keeps beside its sources and a cargo credential among
+/// them. Returns the two homes and the credential.
+pub(crate) fn installed_sources(rig: &Rig) -> (PathBuf, PathBuf, PathBuf) {
+    let (cargo, rustup) = (
+        rig.home.path().join(".cargo"),
+        rig.home.path().join(".rustup"),
+    );
+    for (root, rel) in [
+        (&cargo, "registry/src/serde-1.0.2/src/lib.rs"),
+        (&cargo, "git/checkouts/shep-core-1a2b3c/HEAD/src/lib.rs"),
+        (&cargo, "registry/cache/serde-1.0.2.crate"),
+        (&cargo, "credentials.toml"),
+        (
+            &rustup,
+            "toolchains/stable-aarch64/lib/rustlib/src/rust/library/std/src/lib.rs",
+        ),
+        (
+            &rustup,
+            "toolchains/stable-aarch64/share/doc/rust/index.html",
+        ),
+        (&rustup, "toolchains/stable-aarch64/lib/libstd.rlib"),
+    ] {
+        write_in(root, rel, "x\n");
+    }
+    (cargo.clone(), rustup, cargo.join("credentials.toml"))
+}
+
+/// The source folders [`installed_sources`] made under `cargo` and `rustup`
+pub(crate) fn source_folders(cargo: &Path, rustup: &Path) -> Vec<PathBuf> {
+    vec![
+        cargo.join("registry/src"),
+        cargo.join("git/checkouts"),
+        rustup.join("toolchains/stable-aarch64/lib/rustlib/src"),
+        rustup.join("toolchains/stable-aarch64/share/doc"),
+    ]
+}
+
+/// Asserts the call is granted each of `folders`, in its read list and in the
+/// `additionalDirectories` its settings hold, and that no grant covers `secret`
+pub(crate) fn assert_granted(seen: &Seen, folders: &[PathBuf], secret: &Path) {
+    for folder in folders {
+        assert!(
+            seen.call.reach.read.iter().any(|held| held == folder),
+            "{} is not in its read list: {:?}",
+            folder.display(),
+            seen.call.reach.read
+        );
+    }
+    let granted: Vec<&str> = (seen.settings["permissions"]["additionalDirectories"]
+        .as_array()
+        .expect("the call is granted folders outside its working folder")
+        .iter())
+    .filter_map(Value::as_str)
+    .collect();
+    for folder in folders {
+        assert!(
+            granted.contains(&folder.to_str().unwrap()),
+            "{}: {granted:?}",
+            folder.display()
+        );
+    }
+    assert!(
+        !granted.iter().any(|held| secret.starts_with(held)),
+        "{} sits under a granted folder: {granted:?}",
+        secret.display()
     );
 }

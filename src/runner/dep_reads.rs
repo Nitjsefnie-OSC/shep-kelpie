@@ -6,9 +6,14 @@
 //! for every harness. They go in the fence's read carve-outs too, so
 //! `read_denials` cuts them out of a home the call may not read. The write
 //! list is untouched, and a credential beside a readable folder stays denied.
+//!
+//! They are found as they are granted, not once when the runner starts. A
+//! machine gains a toolchain and a project gains its first git dependency while
+//! the runner runs, and a call rendered before that was granted neither.
 
 use std::path::{Path, PathBuf};
 
+use crate::dep_sources::{self, DepSources, ProcessEnv};
 use crate::ports::{AgentCall, Role, Tools};
 use crate::runner::Runner;
 
@@ -18,31 +23,24 @@ impl Runner {
     // kelpie put in its prompt, and its harness gives it no read tool; a
     // researcher reads its own folder and the web, and no file of the flock.
     pub(super) fn with_dep_sources(&self, call: &mut AgentCall) {
-        if matches!(call.tools, Tools::Answer | Tools::Research) {
+        if reads_no_file(call) {
             return;
         }
         // Only a call that works a work item has a build folder of its own.
-        let build = matches!(call.role, Role::Worker | Role::Reviewer | Role::Triager)
+        let build = matches!(call.role, Role::Worker | Role::Reviewer)
             .then(|| self.paths.build(call.issue));
-        let held = |folders: &[PathBuf], folder: &Path| {
-            folders
-                .iter()
-                .any(|h| folder == h.as_path() || folder.starts_with(h))
-        };
-        for folder in self.dep_reads(build.as_deref()) {
-            if held(&call.reach.read, &folder) {
-                continue;
-            }
-            call.reach.read.push(folder.clone());
-            if let Some(fence) = call
-                .reach
-                .fence
-                .as_mut()
-                .filter(|fence| !held(&fence.read, &folder))
-            {
-                fence.read.push(folder);
-            }
+        grant(call, &self.dep_reads(build.as_deref()));
+    }
+
+    /// The machine's own sources, for a call that reads the repo and works no
+    /// work item of its own: a triager, a contribution's reviewers. They are
+    /// built without `prepared`, and a contribution is named by its pull
+    /// request, so `paths.build` of it would be another work item's folder.
+    pub(in crate::runner) fn with_machine_sources(&self, call: &mut AgentCall) {
+        if reads_no_file(call) {
+            return;
         }
+        grant(call, &machine_sources(&self.home));
     }
 
     // The machine's own dependency and toolchain sources, and the folders the
@@ -71,13 +69,49 @@ impl Runner {
             }
             folders
         };
-        let mut reads = self.dep_sources.folders().to_vec();
+        let mut reads = machine_sources(&self.home);
         if let Some(cargo) = named("CARGO_HOME") {
-            reads.extend(made(crate::dep_sources::expected_cargo_srcs(&cargo)));
+            reads.extend(made(dep_sources::expected_cargo_srcs(&cargo)));
         }
         if let Some(rustup) = named("RUSTUP_HOME") {
-            reads.extend(made(crate::dep_sources::expected_rustup_srcs(&rustup)));
+            reads.extend(made(dep_sources::expected_rustup_srcs(&rustup)));
         }
         reads
+    }
+}
+
+// A call that reads no file of the flock reads none of these either
+fn reads_no_file(call: &AgentCall) -> bool {
+    matches!(call.tools, Tools::Answer | Tools::Research)
+}
+
+/// The dependency and toolchain sources this machine holds, as it holds them
+/// now, for a call that has no build folder of its own
+pub(in crate::runner) fn machine_sources(home: &Path) -> Vec<PathBuf> {
+    let found = DepSources::discover(home, &ProcessEnv);
+    found.folders().to_vec()
+}
+
+// Add each of `folders` to the call's read list and its fence's read
+// carve-outs, skipping one the call already holds
+pub(in crate::runner) fn grant(call: &mut AgentCall, folders: &[PathBuf]) {
+    let held = |folders: &[PathBuf], folder: &Path| {
+        folders
+            .iter()
+            .any(|h| folder == h.as_path() || folder.starts_with(h))
+    };
+    for folder in folders {
+        if held(&call.reach.read, folder) {
+            continue;
+        }
+        call.reach.read.push(folder.clone());
+        if let Some(fence) = call
+            .reach
+            .fence
+            .as_mut()
+            .filter(|fence| !held(&fence.read, folder))
+        {
+            fence.read.push(folder.clone());
+        }
     }
 }

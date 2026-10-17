@@ -21,6 +21,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use super::super::Runner;
+use super::super::dep_reads::{grant, machine_sources};
 use super::super::report::Begin;
 use super::super::review::calls::build_call;
 use super::super::untrusted;
@@ -55,6 +56,9 @@ pub(in crate::runner) struct Job {
     settings: PathBuf,
     model: RoleModel,
     instructions: String,
+    // The maintainer's home, whose installed dependency and toolchain sources
+    // the read judges the change against
+    home: PathBuf,
 }
 
 /// What reading one head came to
@@ -115,6 +119,7 @@ impl Runner {
             settings: (self.paths.worker).join(format!("security-settings-{number}.json")),
             model: model.clone(),
             instructions: reviewer.prompt.clone().unwrap_or_default(),
+            home: self.home.clone(),
         })
     }
 
@@ -207,6 +212,9 @@ impl Job {
         };
         call.settings.clone_from(&self.settings);
         call.tools = Tools::Review;
+        // It judges the change against the crates it calls, so it reads the
+        // installed sources of this machine's dependencies.
+        grant(&mut call, &machine_sources(&self.home));
         let ran = agents
             .prepare(&call)
             .and_then(|()| agents.run(&call, ending));

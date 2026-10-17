@@ -172,3 +172,54 @@ fn a_worker_reads_the_build_folder_source_folders_its_cargo_has_not_made_yet() {
         );
     }
 }
+
+#[test]
+fn a_toolchain_installed_while_the_runner_runs_is_read_by_its_next_call() {
+    let (rig, runner) = with_issue_7("shep");
+    let rustup = rig.home.path().join(".rustup");
+    write_in(
+        &rustup,
+        "toolchains/1.88-aarch64/lib/rustlib/src/rust/library/std/src/lib.rs",
+        "x\n",
+    );
+    rig.claude
+        .script([Scripted::Fail(crate::ports::AgentError::Failed(
+            crate::settings::Harness::ClaudeCode,
+            "overloaded".into(),
+        ))]);
+    step(&runner).unwrap();
+    let first = &rig.claude.seen()[0];
+
+    // A toolchain installed after the runner started, while it runs.
+    write_in(
+        &rustup,
+        "toolchains/1.99-aarch64/lib/rustlib/src/rust/library/std/src/lib.rs",
+        "x\n",
+    );
+    rig.ask(&runner, "rule", Some("7 yes"));
+    rig.claude
+        .script([Scripted::Reply(usage(1), crate::ports::Cost(1))]);
+    step(&runner).unwrap();
+    let calls = rig.claude.seen();
+    let [_, next] = calls.as_slice() else {
+        panic!("the ruling resumed the turn with one call");
+    };
+
+    let listed = |seen: &crate::test::Seen| -> Vec<String> {
+        seen.settings["permissions"]["additionalDirectories"]
+            .as_array()
+            .expect("the worker is granted folders outside its worktree")
+            .iter()
+            .filter_map(serde_json::Value::as_str)
+            .map(str::to_owned)
+            .collect()
+    };
+    let new_src = rustup.join("toolchains/1.99-aarch64/lib/rustlib/src");
+    let new = new_src.to_str().unwrap();
+    assert!(
+        !listed(first).contains(&new.to_owned()),
+        "the call that ran before it was installed was granted it anyway"
+    );
+    assert!(listed(next).contains(&new.to_owned()), "{:?}", listed(next));
+    assert_reads(next, &new_src.join("rust/library/std/src/lib.rs"));
+}

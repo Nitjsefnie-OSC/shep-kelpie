@@ -43,7 +43,6 @@ use unfinished::{awaits_a_push, timed_out, uncommitted_prompt};
 pub(super) use unfinished::{failed, named_files};
 
 mod budget;
-mod dep_reads;
 mod handover;
 pub(super) mod held_up;
 pub(super) mod paused;

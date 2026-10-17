@@ -48,6 +48,7 @@ mod code_graph;
 mod coderabbit;
 mod compact;
 mod contributions;
+mod dep_reads;
 mod dependencies;
 mod dev_server;
 mod dispatch;
@@ -328,11 +329,9 @@ pub struct Runner {
     agents: RoleAgents,
     // Every agent kelpie's files define, from which each turn runs its work item's agent
     book: Agents,
-    // The maintainer's home folder, for `~/` in kelpie's own settings
+    // The maintainer's home folder, for `~/` in kelpie's own settings, and for
+    // the dependency and toolchain sources every call reads
     home: PathBuf,
-    // The installed sources and docs of dependencies and toolchains, found once
-    // when the runner starts, which every call reads
-    dep_sources: crate::dep_sources::DepSources,
     // The GPU's last reading, from the page kelpie's settings name
     gpu: gpu::GpuWatch,
     // The gateways the adapters were built with, which a change waits to replace
@@ -625,10 +624,6 @@ impl Runner {
             agents,
             book,
             home: home.to_owned(),
-            dep_sources: crate::dep_sources::DepSources::discover(
-                home,
-                &crate::dep_sources::ProcessEnv,
-            ),
             gpu,
             gateways,
             webhook,
