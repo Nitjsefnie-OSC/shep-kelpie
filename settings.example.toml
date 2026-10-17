@@ -366,10 +366,12 @@ compact_window = 200000
 # `gateway`. `threshold` is the probability from 0 to 1 at or above which the
 # issue is read as spam. An issue read as spam gets the label `possible-spam`
 # with no comment, no research call, no close and no lock: the maintainer
-# decides. A gateway that cannot be reached is told once and the check is off for
+# decides. Asking for the issue with `shep kelpie triage <issue>` skips the check
+# and takes `possible-spam` off, the ask being the maintainer's answer to the
+# read. A gateway that cannot be reached is told once and the check is off for
 # the rest of the run, with the limits still holding, and an answer kelpie cannot
-# read is told once with the check left on. The maintainer's own issues
-# and `shep kelpie triage <issue>` skip the check.
+# read is told once with the check left on. The maintainer's own issues skip the
+# check.
 # [app.dogs.kelpie.triage.spam]
 # gateway = "paddock"
 # path = "/classify"

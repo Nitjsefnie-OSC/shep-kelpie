@@ -7,9 +7,10 @@
 //! it was. A gateway that cannot be asked is told once and the check is off for
 //! the rest of the run, with the issues going on to their calls and the limits
 //! still holding, while an answer kelpie cannot read is told once and leaves the
-//! check on. The maintainer's own issues and one `shep kelpie triage` asked
-//! for skip the check, as they skip the four limits. Each check that got an answer
-//! is a ledger line of its own, and spends no place of a triage cap.
+//! check on. The maintainer's own issues and one `shep kelpie triage` asked for
+//! skip the check, as they skip the four limits, and the verb takes the label off
+//! when it was kelpie's own read, while one put on by hand stands. Each check that
+//! got an answer is a ledger line of its own, and spends no place of a triage cap.
 
 use std::sync::Mutex;
 
@@ -478,7 +479,8 @@ fn an_issue_labelled_possible_spam_is_triaged_when_the_verb_asks() {
     assert_eq!(record(&rig, &runner, 30)["spam"], 0.99);
 
     // The maintainer overrules the label by asking for the issue. Its pass skips
-    // the check, and the triage it posts replaces the record.
+    // the check, the label kelpie put on comes off, and the triage it posts
+    // replaces the record.
     let answer = rig.ask(&runner, "triage", Some("30"));
     assert_eq!(answer.get("error"), None, "{answer}");
     assert_eq!(step(&runner).unwrap(), None);
@@ -490,6 +492,49 @@ fn an_issue_labelled_possible_spam_is_triaged_when_the_verb_asks() {
         [(30, format!("{WORDS}\n\n{MARKER}"))]
     );
     assert_eq!(record(&rig, &runner, 30).get("spam"), None);
+    assert!(
+        (written_on(&rig, 30))
+            .iter()
+            .any(|path| path.ends_with(&format!("/labels/{POSSIBLE_SPAM}"))),
+        "the label kelpie read the issue as is taken off: {:?}",
+        written_on(&rig, 30)
+    );
+}
+
+#[test]
+fn a_possible_spam_no_record_of_kelpies_says_it_read_stands_when_the_verb_asks() {
+    // A `possible-spam` someone put on by hand is not kelpie's read to take off:
+    // no record of kelpie's says it read the issue as spam.
+    let rig = rig_triaging("pick = \"all\"", SPAM, &[]);
+    let mut hand = issue(&rig, 30, "someone", 5);
+    hand.labels = vec![POSSIBLE_SPAM.to_owned()];
+    list(&rig, hand);
+    rig.claude
+        .script_for(Role::Representative, [Scripted::Say(WORDS)]);
+    rig.claude.script_for(Role::Triager, [reply(json!({}))]);
+    let runner = rig.open().unwrap();
+
+    let answer = rig.ask(&runner, "triage", Some("30"));
+    assert_eq!(answer.get("error"), None, "{answer}");
+    assert_eq!(step(&runner).unwrap(), None);
+
+    assert_eq!(rig.classifier.count(), 0, "the override skips the check");
+    assert_eq!(
+        calls(&rig, Role::Triager).len(),
+        1,
+        "and the issue is triaged"
+    );
+    assert_eq!(
+        rig.github.comments(),
+        [(30, format!("{WORDS}\n\n{MARKER}"))]
+    );
+    assert!(
+        !(written_on(&rig, 30))
+            .iter()
+            .any(|path| path.ends_with(&format!("/labels/{POSSIBLE_SPAM}"))),
+        "and kelpie took nothing off: {:?}",
+        written_on(&rig, 30)
+    );
 }
 
 #[test]

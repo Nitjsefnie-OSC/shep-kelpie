@@ -14,7 +14,7 @@ When a skill mentions a role (e.g. "apply the AFK-ready triage label"), use the 
 
 Edit the right-hand column to match whatever vocabulary you actually use.
 
-Kelpie also puts `possible-spam` on an issue its **spam check** read as spam. It is no role: it is the label left for the maintainer to decide, and no worker acts on it.
+Kelpie also puts `possible-spam` on an issue its **spam check** read as spam. It is no role: it is the label left for the maintainer to decide, and no worker acts on it. `shep kelpie triage <n>` takes it off when kelpie's own record says it put it on.
 
 ## Priority
 

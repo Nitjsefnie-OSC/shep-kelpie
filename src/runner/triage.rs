@@ -494,7 +494,9 @@ impl Runner {
     // Queues issue `issue` ahead of the untouched ones, for `shep kelpie triage`
     //
     // The pick rule's `since` and author tests do not apply. A recorded issue is
-    // triaged again, and its record is replaced once the new comment posts.
+    // triaged again, and its record is replaced once the new comment posts. The
+    // `possible-spam` kelpie's own read put on comes off, since the verb is how
+    // the maintainer overrules it.
     //
     // # Errors
     //
@@ -526,6 +528,21 @@ impl Runner {
         if let Some(label) = held {
             return Err(format!(
                 "#{issue} carries `{label}`, so it is not untouched"
+            ));
+        }
+        // Asking for an issue kelpie's classifier read as spam is the maintainer's
+        // answer to that read, so its `possible-spam` comes off now: the pass that
+        // follows labels the issue as any other, and a read the maintainer has
+        // answered would else keep it on the board as suspected spam. A
+        // `possible-spam` no record of kelpie's says it read the issue as spam came
+        // by hand, and stands as any hand label does. A record keeps the issue out
+        // of the pick rule either way, so taking the label off opens no second
+        // triage no one asked for.
+        if self.triage_record(issue).is_some_and(|t| t.spam.is_some())
+            && let Err(e) = self.label_issue(issue, POSSIBLE_SPAM, false)
+        {
+            self.notes.push(format!(
+                "cannot take `{POSSIBLE_SPAM}` off issue #{issue}: {e}"
             ));
         }
         if !self.triage_queue.contains(&issue) {
