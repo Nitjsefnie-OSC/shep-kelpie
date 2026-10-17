@@ -231,7 +231,7 @@ impl Runner {
     // others. Where no App covers the repo nothing is started, since the comment
     // could not be posted as one.
     pub(super) fn triage_due(&mut self) -> Result<Option<Begin>, StateError> {
-        let idle = self.state.triage.is_some() && !self.draining && self.app_covers();
+        let idle = self.state.triage.is_some() && !self.draining() && self.app_covers();
         if !idle || self.flights.triaging().is_some() {
             return Ok(None);
         }
@@ -449,6 +449,9 @@ impl Runner {
         call.settings = folder.join(format!("triage-settings-{issue}.json"));
         call.instructions = Some(instructions);
         call.tools = Tools::Review;
+        // It reads the repo, so it reads the installed sources of its
+        // dependencies and toolchains, as every other call that reads code does.
+        self.with_machine_sources(&mut call);
         self.with_code_graph(&mut call);
         Ok(call)
     }

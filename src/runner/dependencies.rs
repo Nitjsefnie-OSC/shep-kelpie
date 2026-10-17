@@ -318,7 +318,7 @@ impl Runner {
         if !web {
             return Next::Merge;
         }
-        if self.draining {
+        if self.draining() {
             return Next::Waiting("a web bump, waiting for the runner to stop draining".into());
         }
         if self.flights.proof_running() {

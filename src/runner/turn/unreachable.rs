@@ -153,7 +153,7 @@ impl Runner {
     pub(super) fn retry_for_host(&self, issue: u64) -> Option<Begin> {
         let pause = self.unreachable.0.get(&issue)?;
         let now = self.ports.clock.now();
-        if now < pause.until || self.draining || self.token_wait.holds(now) {
+        if now < pause.until || self.draining() || self.token_wait.holds(now) {
             return Some(Begin::Idle);
         }
         // The call is replayed as it was, but its GitHub login was written

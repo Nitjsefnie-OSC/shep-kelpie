@@ -112,6 +112,8 @@ pub(crate) struct FakeForge {
     approvals: Arc<approvals::Approvals>,
     // Set while the forge is down
     down: Arc<Mutex<Option<down::Down>>>,
+    // Set while the test holds the next call open
+    hold: Arc<Mutex<Option<held::Gate>>>,
     limited: Arc<Mutex<Option<crate::ports::Cooldown>>>,
     /// Pull requests' labels, and what CodeRabbit posts
     pub(crate) coderabbit: FakeCodeRabbit,
@@ -195,6 +197,7 @@ impl FakeForge {
             pull_request_reads: Arc::default(),
             approvals: Arc::default(),
             down: Arc::default(),
+            hold: Arc::default(),
             limited: Arc::default(),
             coderabbit: FakeCodeRabbit::default(),
             threads: thread::FakeThreads::default(),
@@ -416,6 +419,7 @@ impl Forge for FakeForge {
 
     fn issue(&self, _repo: &ForgeSlug, number: u64) -> Result<Issue, ForgeError> {
         self.ask()?;
+        self.wait_if_held(held::At::Issue);
         if self.missing.lock().unwrap().contains(&number) {
             return Err(ForgeError::Failed(format!("no issue #{number}")));
         }
@@ -784,6 +788,7 @@ impl Forge for FakeForge {
 
     fn branch_runs(&self, _repo: &ForgeSlug, branch: &str) -> Result<Vec<BranchRun>, ForgeError> {
         self.ask()?;
+        self.wait_if_held(held::At::MainRuns);
         self.branch_runs_of(branch).map_err(ForgeError::Failed)
     }
 
@@ -961,6 +966,7 @@ mod authors;
 mod comments;
 mod down;
 mod handed;
+mod held;
 mod issues;
 mod lookup;
 mod pulls;

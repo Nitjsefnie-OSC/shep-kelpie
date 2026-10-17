@@ -8,6 +8,7 @@ use serde_json::json;
 
 use super::*;
 use crate::ports::{Cost, Session, Usage};
+use crate::runner::answer;
 use crate::runner::step;
 use crate::test::{CALL_PATIENCE, Hold, Rig, Scripted};
 
@@ -424,6 +425,32 @@ fn a_turn_queued_for_its_lease_carries_the_grant_as_when_it_began() {
     assert_eq!(carried.began, Timestamp(started.0 + 3000));
     assert_eq!(carried.left, CEILING);
     hold.release();
+}
+
+// The pass holds the runner's lock from the call it starts to the end of the
+// pass, and a trigger refused the lock answers from the copy the pass posted.
+// The copy lists the call the pass just started, so `drain` never answers that
+// nothing runs while one has.
+#[test]
+fn a_call_the_pass_started_is_in_the_copy_a_refused_trigger_reads() {
+    let rig = Rig::new("acme");
+    let runner = rig.open().unwrap();
+    rig.ask(&runner, "add", Some("7"));
+    let postings = runner.lock().unwrap().postings();
+    // The lock, held as a pass holds it from the launch to the pass's end.
+    let mut held = runner.lock().unwrap();
+    let pass = held.begin(None).unwrap();
+    assert!(matches!(pass, Pass::Started), "no call started: {pass:?}");
+
+    let reply = answer(&runner, &postings, "drain", None);
+    drop(held);
+
+    let reply: serde_json::Value = serde_json::from_str(&reply).expect("a JSON reply");
+    assert_eq!(
+        reply["draining"]["calls"],
+        json!([{ "issue": 7, "role": "worker" }]),
+        "the copy a refused trigger reads left the call the pass started out: {reply}"
+    );
 }
 
 mod builds;
