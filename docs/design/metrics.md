@@ -8,7 +8,7 @@ Kelpie's numbers, live, on shep's metrics endpoint. ADR 0012, #920.
 - Through the `Sink` port (`src/ports/metrics.rs`): the real one is the runner's `Shepherd`, a test holds `RecordedSink` and asserts the samples sent. Sending never blocks or fails; a full outbox drops a sample, and the next carries the total.
 - Counters are kept whole in kelpie's memory (`Recorder`) and each change sends the new total. A runner start begins them at zero, as Prometheus expects of a restart.
 - A runner sends at most `SERIES_CAP` (200) series, under the dog's 256 a sender; a new series past it is not sent and counts in `kelpie_series_dropped_total`, with one log line per name.
-- Names `kelpie_*`, snake case; counters end `_total`. Labels only from bounded sets: `role`, `kind`, `agent` and `effort` (named in settings), `harness`, `model`, `ended`, `account`, `window`, `phase`, `feature`, `outcome`, `type`, `le`, `after`, `server` (kelpie's own servers by name, any other `repo`). Never an issue, pull request, session or path.
+- Names `kelpie_*`, snake case; counters end `_total`. Labels only from bounded sets: `role`, `kind`, `agent` and `effort` (named in settings), `harness`, `model`, `ended`, `account`, `window`, `phase`, `feature`, `outcome`, `type`, `tests`, `le`, `after`, `server` (kelpie's own servers by name, any other `repo`). Never an issue, pull request, session or path.
 
 ## Series
 
@@ -32,6 +32,7 @@ Work items:
 - `kelpie_work_items_finished_total{outcome}`: `merged`, `closed`, `dropped`, from the ledger's `finished` line
 - `kelpie_review_rounds_total`, `kelpie_fix_turns_total`, `kelpie_rulings_total`, from the same line
 - `kelpie_work_item_seconds_total{outcome}`, the wall time of finished items
+- `kelpie_ci_failures_total{tests}`: each head of a work item's pull request the gate reads red, counted once per head. `tests` is `sandbox-only` when every failing test the failed runs' logs name is in a module `docs/agents/sandbox-red-tests.md` lists, `runnable` when one is not or the log was cut before its names, `none` when no test failed (lint, docs, fmt, a build that never ran one). The names are read from the same logs a red run's prompt carries. A head whose logs kelpie could not read, or found none of, counts nothing, and a merge queue removal is not counted. `src/runner/ci_failure.rs`
 
 Features: whether what a project turned on runs.
 

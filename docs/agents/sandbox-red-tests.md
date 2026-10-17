@@ -34,3 +34,5 @@ Of the sites that used `tempdir_in("/tmp")`:
 ## Keeping the list true
 
 A change that moves a test into or out of this list updates the table in the same pull request. A new test that binds a socket or a port belongs in the table when it lands.
+
+The table is also what `kelpie_ci_failures_total` counts a red run on: `SANDBOX_RED` in `src/runner/ci_failure.rs` holds the same modules, and `the_doc_and_the_list_agree` fails when the table and that list part ways. A module added to the table and not to the list, or the other way round, is a failing test, not a note.
