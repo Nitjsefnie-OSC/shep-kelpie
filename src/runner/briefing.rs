@@ -78,8 +78,9 @@ pub(super) struct Watched {
     /// What the call last said it waits for before its model can answer, and
     /// since when. `None` once it has the lease it waited for.
     pub(super) told: Option<(Timestamp, Wait)>,
-    /// When the call was granted the lease it waited for. `None` while it
-    /// waits for one, and while its harness waits on none.
+    /// When the call got its model: the grant of the lease it waited for, or
+    /// the start a carried-back call brought with it. `None` while it waits
+    /// for a lease, and for a live call whose harness never says it has it.
     pub(super) granted: Option<Timestamp>,
     /// Whether this wait has already woken the project manager
     pub(super) woken: bool,
