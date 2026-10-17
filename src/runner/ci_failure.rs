@@ -10,10 +10,14 @@
 //! The names are cargo's, in the three places a log carries them: the
 //! `test <name> ... FAILED` line each failing test gets as it ends, the
 //! `---- <name> stdout ----` block for each one whose output cargo printed, and
-//! the list cargo ends a failing run with. The `test result: FAILED. <passed>
-//! passed; <failed> failed` line counts the failures, and cargo's `to rerun pass`
-//! line names the target they ran in, which tells an integration test's bare name
-//! from a module path.
+//! the list cargo ends a failing run with. A log holds one run per test binary,
+//! each with its own `test result: <n> passed; <m> failed` line and, when it
+//! failed, its own `to rerun pass` line naming the target it ran in. A name is
+//! judged against the target of its own run, since one tail holds several runs.
+//!
+//! Only an entry the doc lists whole makes a name sandbox-red. An entry the doc
+//! marks `some:` covers part of a module, and kelpie cannot tell which part, so a
+//! name in it counts as one the worker could have run.
 //!
 //! A log is the last 6000 bytes of a run (`LOG_BYTES` in `src/adapters/gh/runs.rs`),
 //! so a run with many failures has names cut off. Kelpie counts those `runnable`,
@@ -26,54 +30,35 @@ use super::Runner;
 use super::ci_help::Logs;
 use crate::metrics::CiTests;
 
-/// The modules whose tests a worker's sandbox cannot run, as
-/// `docs/agents/sandbox-red-tests.md` lists them, one entry per entry of its
-/// table. `the_doc_and_the_list_agree` fails when the two part ways, so a new red
-/// module cannot slip past the count. A module covers its child modules, and a
-/// `tests/<name>.rs` entry covers every test of that binary.
-const SANDBOX_RED: [&str; 39] = [
-    "adapters::bridge",
-    "adapters::bridge::proxy::tests",
-    "adapters::claude::calls",
+/// The modules and test binaries `docs/agents/sandbox-red-tests.md` lists whole:
+/// every test of one is a test a worker's sandbox cannot run. The entries the doc
+/// marks `some:` are left out, since kelpie cannot tell which of their tests are
+/// red. `the_doc_and_the_list_agree` fails when this list and the doc's whole
+/// entries part ways, so a new red module cannot slip past the count. A module
+/// covers its child modules, and a `tests/<name>.rs` entry covers every test of
+/// that binary.
+const SANDBOX_RED: [&str; 18] = [
     "adapters::curl",
     "adapters::dev_server",
-    "adapters::forwarder",
-    "adapters::goose::adopt_tests",
-    "adapters::goose::gateway_tests",
-    "adapters::goose::tests",
     "adapters::gpu",
+    "adapters::goose::gateway_tests",
     "adapters::local::endpoint",
     "adapters::paddock",
-    "adapters::pi::adopt_tests",
-    "adapters::pi::attach_tests",
     "adapters::pi::gateway_tests",
-    "adapters::pi::tests",
-    "adapters::process",
     "adapters::test_runner",
     "doctor::gateways",
     "dog::door",
-    "dog::link",
-    "github",
-    "issues::tests",
     "runner::attach",
-    "runner::flight::carry",
     "runner::gpu_tests",
-    "runner::limits_tests",
-    "runner::panel::tests::fences",
     "runner::pm::tests::attach",
-    "runner::pm::tests::code",
     "runner::review::local",
     "runner::slots_tests",
-    "runner::turn::tests::browser",
-    "runner::turn::tests::dev_server",
-    "runner::turn::tests::held",
     "sheep::handover::tests::goose",
     "sheep::handover::tests::pi",
-    "shepherd::connection",
     "tests/upgrade.rs",
 ];
 
-/// Where a failing test ran, as cargo's own line names it
+/// Where a failing test ran, as cargo's own lines name it
 #[derive(Debug, PartialEq, Eq)]
 enum Target {
     /// The crate's own tests, each named by its module path
@@ -82,32 +67,44 @@ enum Target {
     Test(String),
 }
 
-/// What a failed run's log says about its tests
+/// One cargo run in a log: the tests it names as failing, how many it counts as
+/// failed, and the target it ran them in. Cargo prints a run's names before its
+/// `test result` line, and names the target either before the run, in its
+/// `Running <path>` header, or after it, in the `to rerun pass` line.
 #[derive(Debug, Default)]
-struct Seen {
-    /// Each test the log names as failing, once however many times it appears
+struct Run {
     names: BTreeSet<String>,
-    /// How many tests failed, as cargo's `test result` lines count them
     failed: usize,
-    /// The target those tests ran in, from cargo's last `to rerun pass` line
     target: Option<Target>,
+}
+
+impl Run {
+    // Whether this run names as many failures as it counts. One that does not had
+    // names cut off, or its count line fell outside the tail, and kelpie cannot
+    // say the names it holds are all of them.
+    fn agrees(&self) -> bool {
+        self.names.len() == self.failed
+    }
 }
 
 /// Whether a work item's failed CI had tests its worker could have run itself
 pub(super) fn failed_tests(logs: &str) -> CiTests {
-    let seen = read(logs);
+    let runs = read(logs);
     // Nothing the log shows as a failed test: lint, docs, fmt or a build that
     // never got as far as running one
-    if seen.names.is_empty() && seen.failed == 0 {
+    if runs
+        .iter()
+        .all(|run| run.names.is_empty() && run.failed == 0)
+    {
         return CiTests::NoTests;
     }
-    // A log is the end of a run. One that counts more failures than it names had
-    // names cut off, and kelpie cannot say which modules they were in. A run with
-    // names and no count is the same: kelpie cannot say the names are all of them.
-    if seen.failed == 0 || seen.names.len() < seen.failed {
+    if runs.iter().any(|run| !run.agrees()) {
         return CiTests::Runnable;
     }
-    match (seen.names.iter()).all(|name| sandbox_red(name, &seen.target)) {
+    match runs
+        .iter()
+        .all(|run| run.names.iter().all(|name| sandbox_red(name, &run.target)))
+    {
         true => CiTests::SandboxOnly,
         false => CiTests::Runnable,
     }
@@ -131,18 +128,20 @@ fn sandbox_red(name: &str, target: &Option<Target>) -> bool {
     }
 }
 
-// Everything a log says about its tests
-fn read(log: &str) -> Seen {
-    let mut seen = Seen::default();
+// Every cargo run the log holds, in the order cargo printed them
+fn read(log: &str) -> Vec<Run> {
+    let mut runs: Vec<Run> = Vec::new();
+    // The run whose tests cargo is still printing
+    let mut open = Run::default();
     // Whether the line before was cargo's `failures:` heading, which the list of
     // names it ends a failing run with follows
     let mut listing = false;
     for line in log.lines() {
-        let text = after_step(line).trim_end();
+        let text = plain(after_step(line).trim_end());
         if listing {
-            match listed_name(text) {
+            match listed_name(&text) {
                 Some(name) => {
-                    seen.names.insert(name.to_owned());
+                    open.names.insert(name.to_owned());
                     continue;
                 }
                 None => listing = false,
@@ -150,17 +149,28 @@ fn read(log: &str) -> Seen {
         }
         if text == "failures:" {
             listing = true;
-        } else if let Some(name) = block_name(text) {
-            seen.names.insert(name.to_owned());
-        } else if let Some(name) = run_name(text) {
-            seen.names.insert(name.to_owned());
-        } else if let Some(failed) = failed_count(text) {
-            seen.failed += failed;
-        } else if let Some(target) = run_target(text) {
-            seen.target = Some(target);
+        } else if let Some(name) = block_name(&text) {
+            open.names.insert(name.to_owned());
+        } else if let Some(name) = run_name(&text) {
+            open.names.insert(name.to_owned());
+        } else if let Some(target) = run_header(&text) {
+            open.target = Some(target);
+        } else if let Some(failed) = result_counts(&text) {
+            open.failed += failed;
+            runs.push(std::mem::take(&mut open));
+        } else if let Some(target) = rerun_target(&text) {
+            // The line follows the `test result` line of the run it names, which is
+            // the newest run in the log
+            if let Some(run) = runs.last_mut() {
+                run.target.get_or_insert(target);
+            }
         }
     }
-    seen
+    // A run whose count line fell outside the tail is still a run
+    if !open.names.is_empty() || open.failed > 0 {
+        runs.push(open);
+    }
+    runs
 }
 
 // The log's own text of a line: `gh run view --log-failed` puts the job and the
@@ -171,6 +181,29 @@ fn after_step(line: &str) -> &str {
         (Some(_), Some(_), Some(text)) => text,
         _ => line,
     }
+}
+
+// `gh run view --log-failed` writes cargo's colour marks as the literal text
+// `^[[1m` rather than escape bytes, which is why `strip_colour` in
+// `src/adapters/gh/runs.rs` leaves them in. They wrap the words kelpie matches on,
+// so they come off before anything is read.
+fn plain(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some((before, after)) = rest.split_once("^[[") {
+        out.push_str(before);
+        match after.find('m') {
+            Some(end) if after[..end].chars().all(|c| c.is_ascii_digit() || c == ';') => {
+                rest = &after[end + 1..];
+            }
+            _ => {
+                out.push_str("^[[");
+                rest = after;
+            }
+        }
+    }
+    out.push_str(rest);
+    out
 }
 
 // `    <name>`, one name of the list cargo ends a failing run with. The heading is
@@ -195,21 +228,34 @@ fn run_name(text: &str) -> Option<&str> {
     (!name.is_empty()).then_some(name)
 }
 
-// `test result: FAILED. 4599 passed; 2 failed; 28 ignored; 0 measured; ...`
-fn failed_count(text: &str) -> Option<usize> {
-    let rest = text
-        .strip_prefix("test result: FAILED.")?
-        .split_once("passed;")?
-        .1;
-    let mut words = rest.split_whitespace();
-    let failed = words.next()?.parse::<usize>().ok()?;
-    words.next()?.starts_with("failed").then_some(failed)
+// `     Running unittests src/lib.rs (target/debug/deps/...)`, or the
+// `Running tests/<name>.rs` of one integration test binary. Cargo prints the
+// header before the run, so it names the target for the names that follow.
+fn run_header(text: &str) -> Option<Target> {
+    let rest = text.trim_start().strip_prefix("Running ")?;
+    match rest.split_whitespace().next()? {
+        "unittests" => Some(Target::Lib),
+        path => Some(Target::Test(
+            path.strip_prefix("tests/")?.strip_suffix(".rs")?.to_owned(),
+        )),
+    }
+}
+
+// `test result: FAILED. 4599 passed; 2 failed; 28 ignored; ...`, or the `ok` form.
+// Cargo prints one per test binary, which is where one run ends and the next
+// begins.
+fn result_counts(text: &str) -> Option<usize> {
+    let rest = text.strip_prefix("test result: ")?.split_once(". ")?.1;
+    let counts = rest
+        .split(';')
+        .find(|part| part.trim().ends_with("failed"))?;
+    counts.split_whitespace().next()?.parse::<usize>().ok()
 }
 
 // `error: test failed, to rerun pass `--lib``, or the `--test <name>` of one
 // integration test binary. Cargo prints it while the run is still writing, so it
 // is not the log's last line.
-fn run_target(text: &str) -> Option<Target> {
+fn rerun_target(text: &str) -> Option<Target> {
     let flag = text.split_once("to rerun pass `")?.1.strip_suffix('`')?;
     match flag.strip_prefix("--test ") {
         Some(binary) => Some(Target::Test(binary.to_owned())),
@@ -249,30 +295,40 @@ mod tests {
     use crate::runner::{StepReport, step};
     use crate::test::{Rig, Scripted};
 
-    // The end of a real failed run of this repo, as `failed_run_logs` hands it to a
-    // worker: `gh run view --log-failed` on gh 2.96, then `failure_tail` at 6000
-    // bytes. Run 38807299334 failed on two tests of `runner::turn::tests::dev_server`,
-    // which the doc's table lists as red in a worker's sandbox, and nothing else.
-    const SANDBOX_ONLY: &str = include_str!("../../fixtures/gh-run-log-sandbox-only.txt");
+    // Four failed runs of this repo, each kept as `failed_run_logs` hands it:
+    // `gh run view --log-failed` on gh 2.96, then `failure_tail` at 6000 bytes.
 
-    // Run 38967162070 failed on one test of `runner::pm::tests::lease`, which the
-    // doc lists no reason for: a worker could have run it.
+    // Run 38854765050 failed on one test of `sheep::handover::tests::pi`, which the
+    // doc lists whole, and on its private-names job, which runs no test. That job's
+    // home folder path is written `/home/me`, as every fixture writes the home folder.
+    const SANDBOX_ONLY: &str = include_str!("../../fixtures/gh-run-log-handover.txt");
+
+    // Run 38807299334 failed on two tests of `runner::turn::tests::dev_server`, which
+    // the doc lists in part: 5 of its tests. Kelpie cannot tell whether these two are
+    // among those five, so it counts the run as one its worker could have caught.
+    const PARTIAL_MODULE: &str = include_str!("../../fixtures/gh-run-log-partial-module.txt");
+
+    // Run 38967162070 failed on one test of `runner::pm::tests::lease`, which the doc
+    // lists no reason for.
     const UNLISTED_TEST: &str = include_str!("../../fixtures/gh-run-log-unlisted-test.txt");
 
-    // Run 38950550504 failed in `cargo doc --no-deps --locked`, with no test run at
-    // all. The GitHub runner's folder is written `/home/me`, as every fixture writes
-    // the home folder.
-    const NO_TEST: &str = include_str!("../../fixtures/gh-run-log-no-test.txt");
-
     // Run 38983239961 failed on one test of the `tests/settings_examples.rs` binary,
-    // which the doc lists no reason for. It is the recorded shape of an integration
-    // test's log: cargo names the binary in its `to rerun pass` line, and the test
-    // carries no module path of its own.
+    // which the doc lists no reason for. Its tail is the recorded shape of a log that
+    // holds several cargo runs: a `Running tests/<name>.rs` header and a `test result`
+    // line for each binary, the failing one last.
     const INTEGRATION: &str = include_str!("../../fixtures/gh-run-log-integration-test.txt");
+
+    // Run 38950550504 failed in `cargo doc --no-deps --locked`, with no test run at all.
+    const NO_TEST: &str = include_str!("../../fixtures/gh-run-log-no-test.txt");
 
     #[test]
     fn a_run_red_only_on_tests_a_worker_cannot_run_is_sandbox_only() {
         assert_eq!(failed_tests(SANDBOX_ONLY), CiTests::SandboxOnly);
+    }
+
+    #[test]
+    fn a_run_red_on_a_module_the_doc_lists_only_in_part_is_runnable() {
+        assert_eq!(failed_tests(PARTIAL_MODULE), CiTests::Runnable);
     }
 
     #[test]
@@ -299,31 +355,60 @@ mod tests {
 
     #[test]
     fn a_run_that_names_its_tests_and_counts_them_agrees_with_itself() {
-        let seen = read(SANDBOX_ONLY);
-        assert_eq!(seen.failed, 2);
-        assert_eq!(seen.names.len(), 2);
-        assert_eq!(seen.target, Some(Target::Lib));
-
-        let seen = read(UNLISTED_TEST);
-        assert_eq!(seen.failed, 1);
-        assert_eq!(seen.target, Some(Target::Lib));
-
-        // Run 38983239961: one test of the `tests/settings_examples.rs` binary
-        let seen = read(INTEGRATION);
-        assert_eq!(seen.failed, 1);
-        assert_eq!(seen.names.len(), 1);
+        let runs = read(UNLISTED_TEST);
+        assert_eq!(runs.len(), 1, "{runs:?}");
+        assert_eq!(runs[0].failed, 1);
         assert_eq!(
-            seen.target,
-            Some(Target::Test("settings_examples".to_owned()))
+            runs[0].names.iter().collect::<Vec<_>>(),
+            vec!["runner::pm::tests::lease::a_long_lease_wait_wakes_it_naming_who_holds_the_lease"]
         );
+        assert_eq!(runs[0].target, Some(Target::Lib));
+
+        // The recorded multi-binary log: seven runs, the first cut at the head of the
+        // tail, one of them failing, and each naming as many failures as it counts
+        let runs = read(INTEGRATION);
+        assert_eq!(runs.len(), 7, "{runs:?}");
+        assert!(runs.iter().all(Run::agrees), "{runs:?}");
+        let failing = runs.iter().filter(|run| run.failed > 0).collect::<Vec<_>>();
+        assert_eq!(failing.len(), 1);
+        assert_eq!(failing[0].failed, 1);
+        assert_eq!(
+            failing[0].names.iter().collect::<Vec<_>>(),
+            vec!["every_project_setting_is_documented_in_the_settings_example"]
+        );
+    }
+
+    // The two recorded logs joined, as one head red on a lib test and on an
+    // integration binary would leave them, with the second one's binary named as
+    // `tests/upgrade.rs`, which the doc lists whole. Only the binary's name is
+    // changed, in both places cargo prints it.
+    #[test]
+    fn each_run_in_a_log_is_judged_on_its_own_target() {
+        let upgrade = INTEGRATION.replace("settings_examples", "upgrade");
+        let joined = format!("{UNLISTED_TEST}\n{upgrade}");
+
+        let runs = read(&joined);
+        let failing = runs.iter().filter(|run| run.failed > 0).collect::<Vec<_>>();
+        assert_eq!(failing.len(), 2, "{runs:?}");
+        assert_eq!(failing[0].target, Some(Target::Lib));
+        assert_eq!(
+            failing[1].target,
+            Some(Target::Test("upgrade".to_owned())),
+            "the header names it, not the `to rerun pass` line of the run before"
+        );
+
+        // Each half on its own, then the pair: the lib test is one a worker could
+        // have run, so the head is runnable whatever target the log ends on.
+        assert_eq!(failed_tests(UNLISTED_TEST), CiTests::Runnable);
+        assert_eq!(failed_tests(&upgrade), CiTests::SandboxOnly);
+        assert_eq!(failed_tests(&joined), CiTests::Runnable);
     }
 
     #[test]
     fn a_test_of_a_listed_integration_binary_is_sandbox_only() {
         // The recorded log above with its binary named as `tests/upgrade.rs`, which
-        // the doc's table lists. Only the name the log carries is changed here.
-        let listed =
-            INTEGRATION.replace("pass `--test settings_examples`", "pass `--test upgrade`");
+        // the doc's table lists whole. Only the name the log carries is changed here.
+        let listed = INTEGRATION.replace("settings_examples", "upgrade");
         assert_eq!(failed_tests(&listed), CiTests::SandboxOnly);
         assert_eq!(failed_tests(INTEGRATION), CiTests::Runnable);
     }
@@ -336,16 +421,31 @@ mod tests {
             &Some(Target::Lib)
         ));
         assert!(sandbox_red(
-            "adapters::pi::tests::a_turn_that_ends",
+            "runner::gpu_tests::a_changed_metrics_url_takes_effect_at_the_next_reread",
             &Some(Target::Lib)
         ));
-        // `github` is the module, and a name that only starts with it is another
-        assert!(sandbox_red("github::a_run_that_needs_a_port", &None));
-        assert!(!sandbox_red("github_api::a_test", &None));
+        assert!(sandbox_red(
+            "runner::pm::tests::attach::a_pid_that_runs_nothing_holds_nothing",
+            &Some(Target::Lib)
+        ));
+        // A name that only starts with a listed module is another one
+        assert!(!sandbox_red("runner::attached::a_test", &None));
         assert!(!sandbox_red(
             "runner::pm::tests::lease::a_long_lease_wait",
             &Some(Target::Lib)
         ));
+    }
+
+    #[test]
+    fn a_module_the_doc_lists_in_part_is_not_listed_at_all() {
+        for name in [
+            "adapters::pi::tests::a_turn_that_ends",
+            "runner::turn::tests::dev_server::a_server_that_answers_counts_as_an_ok_run",
+            "adapters::bridge::proxy::tests::an_address_that_is_not_a_loopback",
+            "github::a_run_that_needs_a_port",
+        ] {
+            assert!(!sandbox_red(name, &Some(Target::Lib)), "{name}");
+        }
     }
 
     #[test]
@@ -354,8 +454,9 @@ mod tests {
         assert_eq!(failed_tests("--- run 9\n"), CiTests::NoTests);
     }
 
-    // The doc's table is what a person keeps true. Its modules and this list are
-    // read against each other, so a module added to one and not the other fails here.
+    // The doc's table is what a person keeps true. Its whole entries and this list
+    // are read against each other, so an entry added to one and not the other fails
+    // here.
     #[test]
     fn the_doc_and_the_list_agree() {
         let doc = std::fs::read_to_string(concat!(
@@ -363,21 +464,49 @@ mod tests {
             "/docs/agents/sandbox-red-tests.md"
         ))
         .unwrap();
-        let mut mine = SANDBOX_RED.to_vec();
-        mine.sort_unstable();
-        assert_eq!(from_the_doc(&doc), mine);
+        let (whole, part) = from_the_doc(&doc);
+        let mut mine = SANDBOX_RED
+            .iter()
+            .map(|entry| entry.to_string())
+            .collect::<Vec<_>>();
+        mine.sort();
+        assert_eq!(whole, mine);
+        assert!(!part.is_empty(), "the doc marks no entry some:");
+        for entry in &part {
+            assert!(!mine.contains(entry), "{entry} is whole and in part");
+        }
     }
 
-    // Every module and test binary the doc's table names, in order. Only the table
-    // counts: the prose around it names tests that pass in a worker too.
-    fn from_the_doc(doc: &str) -> Vec<&str> {
-        let table = (doc.lines())
+    // Every module and test binary the doc's table names, split into the entries it
+    // lists whole and the ones it marks `some:`. Only the table counts: the prose
+    // around it names tests that pass in a worker too.
+    fn from_the_doc(doc: &str) -> (Vec<String>, Vec<String>) {
+        let rows = (doc.lines())
             .skip_while(|line| !line.starts_with("| Reason | Modules |"))
-            .take_while(|line| line.starts_with('|'))
-            .flat_map(|row| row.split('`'))
-            .filter(|token| listed_in_the_crate(token))
-            .collect::<BTreeSet<_>>();
-        table.into_iter().collect()
+            .take_while(|line| line.starts_with('|'));
+        let mut whole = BTreeSet::new();
+        let mut part = BTreeSet::new();
+        for row in rows {
+            let cells = row.split('`').collect::<Vec<_>>();
+            for i in (1..cells.len()).step_by(2) {
+                if !listed_in_the_crate(cells[i]) {
+                    continue;
+                }
+                let after = cells.get(i + 1).unwrap_or(&"").trim_start();
+                // An entry listed whole in any row is whole
+                match after.starts_with("(some:") {
+                    true => {
+                        part.insert(cells[i].to_owned());
+                    }
+                    false => {
+                        whole.insert(cells[i].to_owned());
+                    }
+                }
+            }
+        }
+        // An entry listed whole in one row and in part in another is whole
+        part.retain(|entry| !whole.contains(entry));
+        (whole.into_iter().collect(), part.into_iter().collect())
     }
 
     // Whether a word the doc sets in backticks names tests of this crate: a
@@ -442,6 +571,13 @@ mod tests {
     #[test]
     fn a_red_run_on_a_test_a_worker_could_have_run_counts_as_runnable() {
         let (rig, _runner, _head) = red_ci(UNLISTED_TEST);
+        assert_eq!(counted(&rig, "runnable"), Some(1.0));
+        assert_eq!(counted(&rig, "sandbox-only"), None);
+    }
+
+    #[test]
+    fn a_red_run_on_a_module_listed_in_part_counts_as_runnable() {
+        let (rig, _runner, _head) = red_ci(PARTIAL_MODULE);
         assert_eq!(counted(&rig, "runnable"), Some(1.0));
         assert_eq!(counted(&rig, "sandbox-only"), None);
     }
