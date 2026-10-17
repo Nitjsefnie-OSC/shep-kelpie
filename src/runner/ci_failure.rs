@@ -810,22 +810,11 @@ mod tests {
                 .exists()
     }
 
-    // The rig's project is `shep-pm/shep`. The sandbox-red list is of kelpie's own
-    // repo, so a test that needs it moves the rig's remote there. It lives here and
-    // not in `src/test.rs`, which is at the 1000-line file-size limit.
-    fn remote_is_kelpie(rig: &Rig) {
-        rig.edit_settings(|s| {
-            let remote = format!("remote = \"{}\"", Rig::REMOTE);
-            assert!(s.contains(&remote), "the rig's remote moved");
-            s.replace(&remote, "remote = \"shep-pm/shep-kelpie\"")
-        });
-    }
-
     // A work item on kelpie's own repo whose CI is red, sent back for a fix turn with
     // `logs` as its failed runs' logs. The sandbox-red list is used only there, so a
     // test that needs it moves the rig's repo.
     fn red_ci(logs: &str) -> (Rig, std::sync::Mutex<Runner>, String) {
-        let (rig, runner, head) = Rig::with_pull_request_set("koji", remote_is_kelpie);
+        let (rig, runner, head) = Rig::with_pull_request_set("koji", |rig| rig.remote_is_kelpie());
         rig.forge.set_ci_log(logs);
         rig.forge
             .set_checks(&head, Checks::Failed(vec!["test".to_owned()]));
@@ -882,7 +871,7 @@ mod tests {
 
     #[test]
     fn a_red_run_with_more_failed_runs_than_kelpie_reads_counts_as_runnable() {
-        let (rig, runner, head) = Rig::with_pull_request_set("koji", remote_is_kelpie);
+        let (rig, runner, head) = Rig::with_pull_request_set("koji", |rig| rig.remote_is_kelpie());
         rig.forge.set_ci_log_omitted(SANDBOX_ONLY, 1);
         rig.forge
             .set_checks(&head, Checks::Failed(vec!["test".to_owned()]));
@@ -898,7 +887,7 @@ mod tests {
     #[test]
     fn a_still_red_head_a_yes_sends_back_to_ci_counts_once() {
         let (rig, runner, head) = Rig::with_pull_request_set("koji", |rig| {
-            remote_is_kelpie(rig);
+            rig.remote_is_kelpie();
             rig.fix_attempts(0);
         });
         rig.forge.set_ci_log(UNLISTED_TEST);
