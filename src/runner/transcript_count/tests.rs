@@ -6,8 +6,8 @@ use crate::ports::{CodeGraph, Role, Session, Tools, Usage};
 use crate::settings::{ContextSize, EndpointUrl, ModelHost, ModelServer};
 use crate::test::{RecordedSink, short_tempdir};
 
-// A pi 1.1.0 session given the code graph, whose model called the graph's `list_projects` and
-// whose lines hold no system message of its tools
+// A pi 1.1.0 session given the code graph, whose model called the graph's `list_projects` and got
+// an answer, and whose lines hold no system message of its tools
 const PI: &str = include_str!("../../../fixtures/pi-session-mcp.jsonl");
 // A pi 1.1.0 worker session given the code graph, recorded after #949, whose system message lists
 // the graph's tools in `toolsAdded`
@@ -156,19 +156,35 @@ fn a_pi_call_counts_a_server_whose_tools_its_session_loaded_connected() {
 }
 
 #[test]
-fn a_pi_call_counts_a_server_whose_tools_its_session_never_loaded_failed_and_notes_it_once() {
+fn a_pi_call_counts_a_server_its_session_answered_connected_and_one_it_said_nothing_of_failed() {
     let folder = short_tempdir();
     let sessions = folder.path().join("sessions");
     std::fs::create_dir_all(&sessions).unwrap();
     let (counted, sink) = counted_over(sessions, vec![PI]);
-    let call = pi_call(folder.path());
-    let failed = [("outcome", "failed"), ("server", "codebase-memory-mcp")];
+    let mut call = pi_call(folder.path());
+    call.reach.mcp_servers = [(
+        "docs".to_owned(),
+        serde_json::json!({ "command": "/k/docs" }),
+    )]
+    .into();
+    let graph = [("outcome", "connected"), ("server", "codebase-memory-mcp")];
+    let docs = [("outcome", "failed"), ("server", "repo")];
 
     counted.run(&call, &Ending::default()).unwrap();
-    assert_eq!(sink.value("kelpie_mcp_servers_total", &failed), Some(1.0));
+    assert_eq!(sink.value("kelpie_mcp_servers_total", &graph), Some(1.0));
+    assert_eq!(
+        sink.value("kelpie_mcp_servers_total", &docs),
+        Some(1.0),
+        "a server the project names is counted as repo"
+    );
     let standing = counted.notes.standing_lines();
     assert_eq!(standing.len(), 1, "{standing:#?}");
     assert!(standing[0].contains("issue #7's worker"), "{}", standing[0]);
+    assert!(
+        standing[0].contains("ran without the MCP server `docs`"),
+        "{}",
+        standing[0]
+    );
     assert!(
         standing[0].contains("its tools were not in the session as the call ended"),
         "pi records no reason: {}",
@@ -177,9 +193,14 @@ fn a_pi_call_counts_a_server_whose_tools_its_session_never_loaded_failed_and_not
 
     counted.run(&call, &Ending::default()).unwrap();
     assert_eq!(
-        sink.value("kelpie_mcp_servers_total", &failed),
+        sink.value("kelpie_mcp_servers_total", &graph),
         Some(2.0),
-        "each call was given the server"
+        "the session answered the graph's tool"
+    );
+    assert_eq!(
+        sink.value("kelpie_mcp_servers_total", &docs),
+        Some(2.0),
+        "and still says nothing of the other"
     );
     assert_eq!(counted.notes.standing_lines(), standing, "noted once");
 }

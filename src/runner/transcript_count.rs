@@ -4,9 +4,9 @@
 //!
 //! A server that is not connected as the call ends is noted once, naming the
 //! call and why: Claude Code's error code, or that pi's session left none of
-//! the server's tools available as it ended. The note stands until a later
-//! call finds the server connected. A call that wrote nothing to its
-//! transcript reached no model, and counts nothing.
+//! the server's tools in it as it ended. The note stands until a later call
+//! finds the server connected. A call that wrote nothing to its transcript
+//! reached no model, and counts nothing.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -50,8 +50,9 @@ enum Format {
 }
 
 impl Format {
-    // pi names no server that failed to connect: the tools its session leaves available say which
-    // connected, and its tool calls are counted as Claude Code's are.
+    // pi names no server that failed to connect: what its session leaves
+    // available and what it answers say which connected, and its tool calls are
+    // counted as Claude Code's are.
     fn of(call: &AgentCall) -> Option<Self> {
         // parity: harness.mcp-tool-calls, harness.mcp-failures, harness.request-usage
         match call.harness {
@@ -93,23 +94,23 @@ impl Format {
     }
 }
 
-// What a server's transcript says about it, where it names no reason: pi lists the tools that are
-// available as its session ends, and nothing of a server that failed
+// What a server's transcript says about it, where it names no reason: pi says which of its servers
+// it reached, and nothing of one it did not
 const NO_TOOLS: &str = "no-tools";
 
 // How each server the call was given stood, as its transcript says: Claude Code names those that
-// failed, pi those whose tools its session leaves available as it ends, so a server with none of
-// its tools there failed. A pi session that lists no tools at all says its servers were none of
-// them there.
+// failed, pi those it reached, whose tools its session leaves available as it ends or whose tool
+// calls it answered. A server with neither failed, and a session that lists no tools and answers no
+// call says its servers were none of them there.
 fn stood(format: Format, given: &[String], used: &McpUse) -> Option<Stood> {
     if let Some(stood) = &used.servers {
         return Some((*stood).clone());
     }
-    let loaded = used.loaded.as_ref()?;
+    let reached = used.reached.as_ref()?;
     Some(Stood {
         failed: given
             .iter()
-            .filter(|name| !loaded.contains(&format.tool_part(name.as_str())))
+            .filter(|name| !reached.contains(&format.tool_part(name.as_str())))
             .map(|name| (name.clone(), NO_TOOLS.to_owned()))
             .collect(),
         pending: Vec::new(),
