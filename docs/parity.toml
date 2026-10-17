@@ -188,9 +188,9 @@ goose = { cannot = "a Claude Code hook holds its writes to its notes", doc = "sr
 [harness.guard-hooks]
 what = "Runs `worker.guard_hooks`"
 claude-code = "yes"
-pi = { cannot = "they are Claude Code hooks; the `hooks` setting runs on every harness", doc = "docs/design/workers.md", says = "`guard_hooks` reach Claude Code alone" }
-codex = { cannot = "they are Claude Code hooks; the `hooks` setting runs on every harness", doc = "docs/design/workers.md", says = "`guard_hooks` reach Claude Code alone" }
-goose = { cannot = "they are Claude Code hooks; the `hooks` setting runs on every harness", doc = "docs/design/workers.md", says = "`guard_hooks` reach Claude Code alone" }
+pi = { cannot = "they are Claude Code hooks; the `hooks` setting runs on every harness", doc = "docs/design/fence.md", says = "`guard_hooks` reach Claude Code alone" }
+codex = { cannot = "they are Claude Code hooks; the `hooks` setting runs on every harness", doc = "docs/design/fence.md", says = "`guard_hooks` reach Claude Code alone" }
+goose = { cannot = "they are Claude Code hooks; the `hooks` setting runs on every harness", doc = "docs/design/fence.md", says = "`guard_hooks` reach Claude Code alone" }
 
 [harness.after-command]
 what = "Runs the project's `after_command` hooks on a worker's command results"

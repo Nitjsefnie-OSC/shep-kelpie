@@ -146,7 +146,7 @@ impl Runner {
                 let ruling = self.unlabelled_ruling(issue);
                 if labelling
                     || ruling.is_some()
-                    || self.draining
+                    || self.draining()
                     || self.flights.labelling().is_some()
                 {
                     unlabelled.push(Skip::Unlabelled { issue, ruling });
