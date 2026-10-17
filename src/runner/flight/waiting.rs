@@ -11,9 +11,10 @@
 use serde::Serialize;
 
 use super::super::Runner;
-use super::super::report::StepReport;
+use super::super::report::{ReviewCall, StepReport};
+use super::Launch;
 use crate::ports::{AgentError, AgentReply, CallActivity, SessionId, Timestamp, Wait};
-use crate::settings::AgentName;
+use crate::settings::{AgentHarness, AgentName, GatewayName, LocalRound, ModelHost};
 use crate::state::StateError;
 use crate::work_item::{Turn, new_session_id};
 
@@ -67,14 +68,14 @@ impl Runner {
         let started = flight.watched.started;
         match self.ports.agents.last_active(call) {
             CallActivity::At(at) if at >= started => return None,
-            CallActivity::Untracked if flight.told.is_none() => return None,
+            CallActivity::Untracked if flight.watched.told.is_none() => return None,
             _ => {}
         }
-        if let Some((since, why)) = flight.told {
+        if let Some((since, why)) = flight.watched.told {
             return Some(Waiting { since, why });
         }
         Some(Waiting {
-            since: flight.began_at.unwrap_or(started),
+            since: flight.watched.granted.unwrap_or(started),
             why: Wait::Silent,
         })
     }
@@ -83,8 +84,8 @@ impl Runner {
     pub(super) fn told(&mut self, issue: u64, wait: Wait) {
         let now = self.ports.clock.now();
         if let Some(flight) = self.flights.flying.get_mut(&issue) {
-            let since = flight.told.map_or(now, |(since, _)| since);
-            flight.told = Some((since, wait));
+            let since = flight.watched.told.map_or(now, |(since, _)| since);
+            flight.watched.told = Some((since, wait));
         }
         self.board_changed();
     }
@@ -210,6 +211,37 @@ impl Runner {
             waited: now.0.saturating_sub(since.0),
         };
         Some(self.save(next).map(|()| Some(report)))
+    }
+}
+
+/// The gateway and the model `launch`'s call holds a lease on, `None` when its
+/// harness or its round holds none
+///
+/// A gateway lease is what a call queues behind, so it is what a long wait
+/// waits on.
+pub(super) fn lease_of(launch: &Launch) -> Option<(GatewayName, String)> {
+    let (host, model) = match launch {
+        Launch::Turn { call, .. } | Launch::Review(ReviewCall::Session(call)) => {
+            match &call.harness {
+                AgentHarness::Pi(server) | AgentHarness::Goose(server) => {
+                    (server.host.clone(), call.model.clone())
+                }
+                // parity: harness.local-model
+                _ => return None,
+            }
+        }
+        Launch::Review(ReviewCall::Local {
+            local: LocalRound::Endpoint(endpoint),
+            ..
+        }) => (endpoint.host.clone(), endpoint.model.as_str().to_owned()),
+        Launch::Review(ReviewCall::Local {
+            local: LocalRound::Command(_),
+            ..
+        }) => return None,
+    };
+    match host {
+        ModelHost::Gateway(name) => Some((name, model)),
+        ModelHost::Url(_) => None,
     }
 }
 

@@ -29,6 +29,8 @@ impl Runner {
             } else if self.flights.watched(issue).is_some_and(|w| w.idle) {
                 let what = "its worker has shown no tool call or output for 10 minutes or more";
                 wakes.push(Wake::Stuck(issue, what.to_owned()));
+            } else if let Some(wake) = self.lease_wake(issue) {
+                wakes.push(wake);
             }
         }
         for (&(a, b), files) in &self.pm.conflicts {
