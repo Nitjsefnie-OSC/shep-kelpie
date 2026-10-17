@@ -12,8 +12,13 @@ const TOOL_CALLS: &str = include_str!("../../fixtures/claude-transcript-mcp-tool
 // the graph's tools.
 const CONNECTED: &str = include_str!("../../fixtures/claude-transcript-mcp-connected.jsonl");
 // A pi 1.1.0 session given the code graph, which connected, and the server whose command is not
-// there, whose model called the graph's `list_projects`.
+// there, whose model called the graph's `list_projects`. Its lines hold no system message of its
+// tools.
 const PI: &str = include_str!("../../fixtures/pi-session-mcp.jsonl");
+// A pi 1.1.0 worker session given the code graph, recorded after #949, whose system message lists
+// the graph's 17 tools in `toolsAdded`. Cut to its system message, each tool kept to its name and
+// the start of its description.
+const PI_CONNECTED: &str = include_str!("../../fixtures/pi-session-mcp-connected.jsonl");
 
 // Where the line that starts with `start`, `nth` from the first, begins
 fn start_of(text: &str, start: &str, nth: usize) -> usize {
@@ -126,10 +131,153 @@ fn a_pi_session_s_tool_calls_are_counted_by_server_and_it_says_nothing_of_its_se
         used.servers, None,
         "pi records no server that failed to connect"
     );
+    assert_eq!(
+        used.reached
+            .expect("pi says which of its servers it reached")
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>(),
+        ["codebase_memory_mcp"],
+        "it lists no system message of its tools, and answered the graph's call"
+    );
     let from = start_of(PI, "{\"type\":\"message\"", 3);
     assert!(
         pi(PI, from).tool_calls.is_empty(),
         "only the lines from `from` on"
+    );
+}
+
+#[test]
+fn a_pi_session_that_lists_a_server_s_tools_in_its_system_message_reads_it_loaded() {
+    let used = pi(PI_CONNECTED, 0);
+    let loaded = used.reached.expect("its system message lists its tools");
+    assert_eq!(
+        loaded.iter().map(String::as_str).collect::<Vec<_>>(),
+        ["codebase_memory_mcp"],
+        "the graph's 17 tools, and pi's own tools name no server"
+    );
+    assert!(
+        used.servers.is_none(),
+        "pi records no server that failed to connect"
+    );
+}
+
+#[test]
+fn a_resumed_pi_call_reads_the_tools_its_session_loaded_in_an_earlier_call() {
+    let text = format!(
+        "{PI_CONNECTED}{{\"type\":\"message\",\"message\":{{\"role\":\"user\",\"content\":[]}}}}\n"
+    );
+    let used = pi(&text, PI_CONNECTED.len());
+    assert!(
+        used.reached
+            .expect("the session's own system message")
+            .contains("codebase_memory_mcp"),
+        "pi writes `toolsAdded` once, in the session's first system message"
+    );
+    assert!(
+        used.tool_calls.is_empty(),
+        "and only the call's own tool calls"
+    );
+}
+
+// pi's `system` messages for one server's tools: added, then one of them gone, then the last one,
+// each removal written by re-registering that tool hidden
+const ADDED: &str = r#"{"type":"message","message":{"role":"system","content":"","toolsAdded":[{"name":"mcp__docs__search"},{"name":"mcp__docs__fetch"},{"name":"read"}]}}"#;
+const ONE_GONE: &str = r#"{"type":"message","message":{"role":"system","content":"","toolsRemoved":[{"name":"mcp__docs__fetch"}]}}"#;
+const ALL_GONE: &str = r#"{"type":"message","message":{"role":"system","content":"","toolsRemoved":[{"name":"mcp__docs__search"}]}}"#;
+const BOTH_GONE: &str = r#"{"type":"message","message":{"role":"system","content":"","toolsRemoved":[{"name":"mcp__docs__search"},{"name":"mcp__docs__fetch"}]}}"#;
+// A call to one of the server's tools, and the answer to it. pi writes `isError` false for one the
+// server answered, and true for one it did not or answered with an error.
+const CALLED: &str = concat!(
+    r#"{"type":"message","message":{"role":"assistant","content":[{"type":"toolCall","id":"call_1","name":"mcp__docs__search","arguments":{}}]}}"#,
+    "\n",
+    r#"{"type":"message","message":{"role":"toolResult","toolCallId":"call_1","toolName":"mcp__docs__search","content":[{"type":"text","text":"3 hits"}],"isError":false}}"#,
+    "\n",
+);
+const ANSWERED_WITH_AN_ERROR: &str = concat!(
+    r#"{"type":"message","message":{"role":"assistant","content":[{"type":"toolCall","id":"call_1","name":"mcp__docs__search","arguments":{}}]}}"#,
+    "\n",
+    r#"{"type":"message","message":{"role":"toolResult","toolCallId":"call_1","toolName":"mcp__docs__search","content":[{"type":"text","text":"no such tool"}],"isError":true}}"#,
+    "\n",
+);
+
+#[test]
+fn a_pi_session_that_removes_a_server_s_tools_reads_it_gone_and_one_tool_left_keeps_it() {
+    let used = pi(&format!("{ADDED}\n{ONE_GONE}\n"), 0);
+    let loaded = used.reached.expect("its system message adds tools");
+    assert_eq!(
+        loaded.iter().map(String::as_str).collect::<Vec<_>>(),
+        ["docs"],
+        "one of the server's tools is still there"
+    );
+
+    let used = pi(&format!("{ADDED}\n{ONE_GONE}\n{ALL_GONE}\n"), 0);
+    assert!(
+        used.reached
+            .expect("its system message adds tools")
+            .is_empty(),
+        "none of them left, whatever an earlier line added"
+    );
+}
+
+#[test]
+fn a_pi_session_that_adds_a_server_s_tools_again_after_removing_them_reads_it_there() {
+    let used = pi(&format!("{ADDED}\n{ONE_GONE}\n{ALL_GONE}\n{ADDED}\n"), 0);
+    assert!(
+        used.reached
+            .expect("its system message adds tools")
+            .contains("docs"),
+        "the last word is the addition"
+    );
+}
+
+#[test]
+fn a_pi_session_that_answers_a_server_s_tool_call_reads_it_reached_without_a_system_message() {
+    let used = pi(CALLED, 0);
+    assert_eq!(
+        used.reached
+            .expect("it answered one of the server's tools")
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>(),
+        ["docs"],
+        "a tool the server answered was in the session"
+    );
+}
+
+#[test]
+fn a_pi_session_whose_tool_call_its_server_answered_with_an_error_reads_nothing_of_it() {
+    assert!(
+        ANSWERED_WITH_AN_ERROR
+            .lines()
+            .any(|line| line.contains("\"isError\":true")),
+        "the stand-in's line"
+    );
+    let used = pi(ANSWERED_WITH_AN_ERROR, 0);
+    assert!(
+        used.reached
+            .expect("pi says which servers it reached")
+            .is_empty(),
+        "an error says the tool was called, not that the server stood"
+    );
+}
+
+#[test]
+fn a_pi_session_s_last_word_about_a_server_is_how_it_reads_it() {
+    let used = pi(&format!("{ADDED}\n{BOTH_GONE}\n{CALLED}"), 0);
+    assert!(
+        used.reached
+            .expect("the call it answered is the last word")
+            .contains("docs"),
+        "the server answered after the removal line"
+    );
+
+    let used = pi(&format!("{CALLED}{ADDED}\n{BOTH_GONE}"), 0);
+    assert!(
+        used.reached
+            .expect("the removal is the last word")
+            .is_empty(),
+        "and the tools went after that"
     );
 }
 

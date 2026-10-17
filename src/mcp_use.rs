@@ -7,11 +7,12 @@
 //! how they stood at the call's end. While every server connects and none of
 //! their tools is deferred it writes no such line, and its prompt snapshot
 //! lists each server's tools with the server's name. pi's session file
-//! records the call's tool calls, and nothing of a server that failed to
-//! connect.
+//! records the call's tool calls, and the tools its system messages add and
+//! remove, which is all it says of a server that failed to connect: it names
+//! none, and names no reason for one whose tool it answered with an error.
 //! `docs/facts/mcp-servers.md`
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::Value;
 
@@ -21,8 +22,14 @@ pub(crate) const NEEDS_AUTH: &str = "NEEDS_AUTH";
 /// What a call's transcript says of its MCP servers
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub(crate) struct McpUse {
-    /// How its servers stood as the call ended, where the transcript says
+    /// How its servers stood as the call ended, where the transcript says.
+    /// Claude Code says this, and pi does not
     pub(crate) servers: Option<Stood>,
+    /// The servers the session shows working as it ends, by the part of a
+    /// tool's name each is named after: those whose tools its system messages
+    /// leave available, and those whose tool calls it answered. pi says this,
+    /// and names no server that failed
+    pub(crate) reached: Option<BTreeSet<String>>,
     /// The call's tool calls to MCP servers, by the server's part of the
     /// tool's name, `mcp__<server>__<tool>`
     pub(crate) tool_calls: BTreeMap<String, u64>,
@@ -51,6 +58,7 @@ pub(crate) fn claude(text: &str, from: usize) -> McpUse {
     });
     McpUse {
         servers,
+        reached: None,
         tool_calls,
     }
 }
@@ -65,6 +73,7 @@ pub(crate) fn pi(text: &str, from: usize) -> McpUse {
     });
     McpUse {
         servers: None,
+        reached: Some(reached(text)),
         tool_calls,
     }
 }
@@ -121,6 +130,68 @@ fn all_connected(text: &str) -> Option<Stood> {
         .and_then(|served| served.then(Stood::default))
 }
 
+// The servers the session shows working as it ends, by the part of a tool's name pi names them
+// after. pi writes `toolsAdded` when a server's tools load and `toolsRemoved` when they go, for a
+// server disabled or one that dropped a tool and re-registered it hidden, and writes nothing at all
+// for a server that failed to connect. So the last word the file says of a server is how it stood:
+// an addition, or a call the server answered with `isError` false, leaves it standing, and a removal
+// that left none of its tools does not. An answer with `isError` true says only that the tool was
+// called: pi writes it for a server whose connection closed and for a tool the model named wrongly.
+// One tool of a server left keeps it. pi writes `toolsAdded` in the session's first system message,
+// and a resumed call's file holds them from the call that wrote them, so the whole file is read and
+// not the call's own lines.
+fn reached(text: &str) -> BTreeSet<String> {
+    let mut tools: BTreeSet<String> = BTreeSet::new();
+    let mut reached: BTreeSet<String> = BTreeSet::new();
+    let entries = (text.lines()).filter_map(|line| serde_json::from_str::<Value>(line).ok());
+    for entry in entries {
+        let message = &entry["message"];
+        match message["role"].as_str() {
+            Some("system") => {
+                for (key, added) in [("toolsAdded", true), ("toolsRemoved", false)] {
+                    let names = (message[key].as_array().into_iter().flatten())
+                        .filter_map(|tool| (tool["name"].as_str()).map(str::to_owned));
+                    for name in names {
+                        let Some(server) = server_part(&name).map(str::to_owned) else {
+                            continue;
+                        };
+                        if added {
+                            tools.insert(name);
+                        } else {
+                            tools.remove(&name);
+                        }
+                        let left = (tools.iter().filter_map(|tool| server_part(tool)))
+                            .any(|part| part == server);
+                        if left {
+                            reached.insert(server);
+                        } else {
+                            reached.remove(&server);
+                        }
+                    }
+                }
+            }
+            Some("toolResult") => {
+                if message["isError"].as_bool().unwrap_or(false) {
+                    continue;
+                }
+                let server = (message["toolName"].as_str()).and_then(server_part);
+                if let Some(server) = server {
+                    reached.insert(server.to_owned());
+                }
+            }
+            _ => {}
+        }
+    }
+    reached
+}
+
+// The server part of a tool's name `mcp__<server>__<tool>`, if it has one
+fn server_part(tool: &str) -> Option<&str> {
+    (tool.strip_prefix("mcp__"))
+        .and_then(|rest| rest.split_once("__"))
+        .map(|(server, _)| server)
+}
+
 // The names of a message's tool calls, blocks of type `kind`
 fn tools(content: &Value, kind: &str) -> Vec<String> {
     (content.as_array().into_iter().flatten())
@@ -137,8 +208,7 @@ fn tool_calls<'a>(
     let mut counted = BTreeMap::new();
     let entries = lines.filter_map(|line| serde_json::from_str::<Value>(line).ok());
     for tool in entries.filter_map(|entry| calls(&entry)).flatten() {
-        let server = (tool.strip_prefix("mcp__")).and_then(|rest| rest.split_once("__"));
-        if let Some((server, _)) = server {
+        if let Some(server) = server_part(&tool) {
             *counted.entry(server.to_owned()).or_insert(0) += 1;
         }
     }
