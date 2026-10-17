@@ -312,14 +312,9 @@ pub struct Runner {
     triage_queue: Vec<u64>,
     // What keeps each issue's triage from finishing, kept in memory only
     triage_tries: BTreeMap<u64, triage::comment::Tries>,
-    // When each triage author's account was created, read once per author per
-    // start, keyed by the login lowered. A `None` is an age the forge could not
-    // say, kept so a poll does not ask again
-    triage_accounts: BTreeMap<String, Option<Timestamp>>,
-    // Whether triage's spam check could not be asked, which turns it off for the
-    // rest of this run and is told once. Kept in memory only: the next start
-    // asks the gateway again
-    triage_spam_off: bool,
+    // What triage holds for this run only: the account ages it read and whether
+    // its spam check could not be asked. The next start asks the forge again
+    triage_run: triage::Run,
     // Each adopted pull request that keeps failing to start, kept in memory only
     adopt_failing: BTreeMap<u64, adopt::Failing>,
     // The forge's refusals in a row to close a done parent, kept in memory only
@@ -623,8 +618,7 @@ impl Runner {
             triage_due: Vec::new(),
             triage_queue: Vec::new(),
             triage_tries: BTreeMap::new(),
-            triage_accounts: BTreeMap::new(),
-            triage_spam_off: false,
+            triage_run: triage::Run::default(),
             adopt_failing: BTreeMap::new(),
             close_refused: parent::Refused::new(),
             unbuilt: parent::Unbuilt::new(),

@@ -286,11 +286,11 @@ impl Runner {
             return None;
         }
         let key = login.to_lowercase();
-        if let Some(age) = self.triage_accounts.get(&key) {
+        if let Some(age) = self.triage_run.accounts.get(&key) {
             return *age;
         }
         let age = (self.ports.forge.account_created(login)).ok();
-        self.triage_accounts.insert(key, age);
+        self.triage_run.accounts.insert(key, age);
         age
     }
 

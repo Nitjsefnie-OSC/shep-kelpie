@@ -14,6 +14,8 @@
 //! [`research`] reads. Each issue ends at `needs-triage`, except a maintainer's
 //! issue the pass is sure of, which [`ready`] rewrites and makes `ready-for-agent`.
 
+use std::collections::BTreeMap;
+
 use serde::Serialize;
 
 use super::Runner;
@@ -52,6 +54,18 @@ pub(super) const TRIAGE_LABELS: [&str; 6] = [
     "wontfix",
     POSSIBLE_SPAM,
 ];
+
+/// What one runner's triage holds for its own run only: the account ages it
+/// read from the forge, and whether the spam check could not be asked. The next
+/// start reads the forge and the gateway again.
+#[derive(Debug, Default)]
+pub(super) struct Run {
+    /// When each triage author's account was created, keyed by the login lowered.
+    /// A `None` is an age the forge could not say, kept so a poll does not ask again
+    pub(super) accounts: BTreeMap<String, Option<Timestamp>>,
+    /// Whether the spam check is off for the rest of the run, told once
+    pub(super) spam_off: bool,
+}
 
 /// An untouched issue, as `status` lists it
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]

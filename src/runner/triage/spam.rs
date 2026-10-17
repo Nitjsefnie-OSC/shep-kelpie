@@ -51,7 +51,7 @@ impl Runner {
     // that could not be asked, and an answer under the threshold each do.
     pub(super) fn triage_spam(&mut self, issue: &OpenIssue) -> Result<bool, StateError> {
         let spam = self.settings.triage.spam.clone();
-        if spam.is_off() || self.triage_spam_off {
+        if spam.is_off() || self.triage_run.spam_off {
             return Ok(false);
         }
         let (Some(gateway), Some(path)) = (spam.gateway.clone(), spam.path.clone()) else {
@@ -133,10 +133,10 @@ impl Runner {
     // run, so an outage costs one attempt and not one per issue. `false`, which
     // sends the pass on to the research call.
     fn triage_spam_gone(&mut self, why: &str) -> bool {
-        if self.triage_spam_off {
+        if self.triage_run.spam_off {
             return false;
         }
-        self.triage_spam_off = true;
+        self.triage_run.spam_off = true;
         self.notes.push(format!(
             "triage's spam check is off for the rest of this run: {why}. Issues go on to their \
              research call, and the triage limits still apply"
