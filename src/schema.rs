@@ -186,6 +186,10 @@ mod tests {
                 "[app.dogs.kelpie.triage]\npick = \"off\"\nwait_days = 7\nmax_questions = 10\nagent = \"triager\"\nper_day = 10\nper_author_per_day = 2\nmin_account_days = 30\nmax_body_kb = 20\n",
             )
             .replace(
+                "# [app.dogs.kelpie.triage.spam]\n# gateway = \"paddock\"\n# path = \"/classify\"\n# threshold = 0.8\n",
+                "[app.dogs.kelpie.triage.spam]\ngateway = \"paddock\"\npath = \"/classify\"\nthreshold = 0.8\n",
+            )
+            .replace(
                 "# [app.dogs.kelpie.dependencies]\n# pick = \"off\"\n# bots = [\"dependabot\"]\n# on_red = \"close\"\n# web = [\"web/\", \"package.json\"]\n# wait_hours = 24\n",
                 "[app.dogs.kelpie.dependencies]\npick = \"off\"\nbots = [\"dependabot\"]\non_red = \"close\"\nweb = [\"web/\", \"package.json\"]\nwait_hours = 24\n",
             )

@@ -65,7 +65,7 @@ pub use repo_setup::{CallRole, MarketplaceSource, Part, PluginId, RepoSetup};
 pub use reviewers::{ListedReviewer, default_reviewers};
 pub use rulings::{Decide, RulingName, Rulings};
 pub use skills::{SkillChoice, SkillName, StepSkills};
-pub use triage::{Triage, TriagePick};
+pub use triage::{ClassifierPath, Triage, TriagePick, TriageSpam};
 
 /// Everything kelpie reads about one project
 #[dog_config]

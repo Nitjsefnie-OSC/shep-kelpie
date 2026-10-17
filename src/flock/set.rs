@@ -134,6 +134,11 @@ fn runnable(tables: &Tables, name: &ProjectName, place: Place<'_>) -> Result<Set
         return Err(invalid(SettingsError::Invalid { setting, reason }));
     }
     check_gateway_shapes(&loaded.kelpie.gateways(), &book, &agents, &lineup).map_err(invalid)?;
+    loaded
+        .kelpie
+        .gateways()
+        .check_triage_spam(&settings.triage.spam)
+        .map_err(invalid)?;
     crate::skills::check(&settings.skills, &paths.skills).map_err(invalid)?;
     crate::runner::check_instructions(&settings).map_err(invalid)?;
     Ok(settings)

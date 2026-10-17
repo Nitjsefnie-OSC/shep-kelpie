@@ -684,6 +684,7 @@ impl Runner {
             asked,
             questions: None,
             local: None,
+            spam: None,
         };
         for at in made {
             record.add_call(at);
