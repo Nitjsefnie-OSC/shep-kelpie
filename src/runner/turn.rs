@@ -43,6 +43,7 @@ use unfinished::{awaits_a_push, timed_out, uncommitted_prompt};
 pub(super) use unfinished::{failed, named_files};
 
 mod budget;
+mod dep_reads;
 mod ended;
 mod handover;
 pub(super) mod held_up;
@@ -715,6 +716,7 @@ impl Runner {
                 self.without_servers_the_harness_cannot_load(&mut call);
             }
         }
+        self.with_dep_sources(&mut call);
         self.with_code_graph(&mut call);
         self.with_browser(&mut call)?;
         if let Err(e) = self.ports.agents.prepare(&call) {
