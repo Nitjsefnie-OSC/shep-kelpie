@@ -21,11 +21,11 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use super::super::Runner;
-use super::super::dep_reads::{grant, machine_sources};
 use super::super::report::Begin;
 use super::super::review::calls::build_call;
 use super::super::untrusted;
 use super::{Job as Call, ruling};
+use crate::dep_sources::{grant, machine_sources};
 use crate::ports::{Agents, Cost, Ending, Finding, Role, Severity, Tools, read_review};
 use crate::settings::RoleModel;
 use crate::state::{Security, SecurityVerdict, StateError};

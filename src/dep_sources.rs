@@ -13,6 +13,8 @@
 use std::ffi::OsString;
 use std::path::{Component, MAIN_SEPARATOR_STR, Path, PathBuf};
 
+use crate::ports::AgentCall;
+
 /// What a cargo home holds of its dependencies' source, at any depth
 const CARGO_SRC: [&str; 2] = ["registry/src", "git/checkouts"];
 
@@ -173,6 +175,38 @@ fn normalize(path: &Path) -> PathBuf {
         out.push(part);
     }
     out
+}
+
+/// The dependency and toolchain sources `home`'s machine holds, as it holds them
+/// now, for a call that has no build folder of its own
+pub(crate) fn machine_sources(home: &Path) -> Vec<PathBuf> {
+    let found = DepSources::discover(home, &ProcessEnv);
+    found.folders().to_vec()
+}
+
+/// Add each of `folders` to `call`'s read list and its fence's read carve-outs,
+/// skipping one the call already holds. The write list is untouched, so a call
+/// reads these and writes none of them.
+pub(crate) fn grant(call: &mut AgentCall, folders: &[PathBuf]) {
+    let held = |folders: &[PathBuf], folder: &Path| {
+        folders
+            .iter()
+            .any(|h| folder == h.as_path() || folder.starts_with(h))
+    };
+    for folder in folders {
+        if held(&call.reach.read, folder) {
+            continue;
+        }
+        call.reach.read.push(folder.clone());
+        if let Some(fence) = call
+            .reach
+            .fence
+            .as_mut()
+            .filter(|fence| !held(&fence.read, folder))
+        {
+            fence.read.push(folder.clone());
+        }
+    }
 }
 
 #[cfg(test)]

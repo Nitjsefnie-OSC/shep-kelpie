@@ -48,7 +48,6 @@ mod code_graph;
 mod coderabbit;
 mod compact;
 mod contributions;
-mod dep_reads;
 mod dependencies;
 mod dev_server;
 mod dispatch;
@@ -332,8 +331,7 @@ pub struct Runner {
     agents: RoleAgents,
     // Every agent kelpie's files define, from which each turn runs its work item's agent
     book: Agents,
-    // The maintainer's home folder, for `~/` in kelpie's own settings, and for
-    // the dependency and toolchain sources every call reads
+    // The maintainer's home folder, for `~/` in kelpie's own settings
     home: PathBuf,
     // The GPU's last reading, from the page kelpie's settings name
     gpu: gpu::GpuWatch,

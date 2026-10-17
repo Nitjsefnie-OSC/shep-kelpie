@@ -25,7 +25,7 @@ Rules live in Rust code; a model is called only for work and judgement.
 | work.md | projects, board, adoption, slots, issue writer | `src/board.rs`, `src/issues.rs`, `src/runner/adopt.rs`, `src/runner/slots.rs`, `src/flock/verbs.rs`, `src/guard/issues.rs` |
 | pm.md | the project manager, its board file | `src/runner/pm.rs`, `src/runner/pm/`, `src/runner/briefing.rs` |
 | workers.md | runner loop, turns | `src/runner/turn.rs`, `src/runner/flight.rs` |
-| fence.md | sandbox, guard, hooks, reads | `src/profile.rs`, `src/guard.rs`, `src/hooks.rs`, `src/dep_sources.rs`, `src/runner/dep_reads.rs` |
+| fence.md | sandbox, guard, hooks, reads | `src/profile.rs`, `src/guard.rs`, `src/hooks.rs`, `src/dep_sources.rs`, `src/runner/turn/dep_reads.rs` |
 | browser.md | a worker's browser outside its sandbox: bridge, filter, tools | `src/bridge.rs`, `src/browse.rs`, `src/adapters/bridge.rs`, `src/runner/browser.rs`, `src/settings/browser.rs`, `src/tools/browser.rs` |
 | browser-dev-server.md | the dev server for a worker's browser: launch file, port, readiness | `src/runner/dev_server.rs`, `src/runner/dev_server/launch.rs`, `src/ports/dev_server.rs`, `src/adapters/dev_server.rs` |
 | compaction.md | when a session compacts, `worker.compact_window` per harness, `COMPACT` | `src/runner/compact.rs`, `src/adapters/pi/compact.rs`, `src/adapters/codex/context.rs`, `src/adapters/goose/compact.rs` |

@@ -25,13 +25,13 @@
 use std::path::PathBuf;
 
 use super::super::Runner;
-use super::super::dep_reads::{grant, machine_sources};
 use super::super::report::Begin;
 use super::super::review::calls::{build_call, diff_against};
 use super::super::review::{ROUND_FAILURES, changed_files, prompts, touches};
 use super::super::untrusted;
 use super::Job as Call;
 use super::security::MAX_DIFF;
+use crate::dep_sources::{grant, machine_sources};
 use crate::fence;
 use crate::ports::{
     AgentError, Agents, Cost, Ending, Finding, Reviewer, ReviewerError, Role, Tools, read_review,
