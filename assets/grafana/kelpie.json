@@ -252,8 +252,8 @@
     {
       "id": 6,
       "type": "stat",
-      "title": "Finished in 24h",
-      "description": "Work items finished in the last day, by outcome.",
+      "title": "Finished work items",
+      "description": "Work items finished in the dashboard's time range, by outcome.",
       "gridPos": {
         "h": 8,
         "w": 6,
@@ -271,8 +271,9 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "sum by (outcome) (increase(kelpie_work_items_finished_total{sheep=~\"$sheep\"}[24h]))",
-          "legendFormat": "{{outcome}}"
+          "expr": "sum by (outcome) (increase(kelpie_work_items_finished_total{sheep=~\"$sheep\"}[$__range]))",
+          "legendFormat": "{{outcome}}",
+          "instant": true
         }
       ],
       "fieldConfig": {
@@ -287,7 +288,7 @@
       "id": 7,
       "type": "stat",
       "title": "Mean work item",
-      "description": "Mean wall time of the work items finished in the last day.",
+      "description": "Mean wall time of the work items finished in the dashboard's time range.",
       "gridPos": {
         "h": 8,
         "w": 6,
@@ -305,8 +306,9 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "sum(increase(kelpie_work_item_seconds_total{sheep=~\"$sheep\"}[24h])) / sum(increase(kelpie_work_items_finished_total{sheep=~\"$sheep\"}[24h]))",
-          "legendFormat": ""
+          "expr": "sum(increase(kelpie_work_item_seconds_total{sheep=~\"$sheep\"}[$__range])) / sum(increase(kelpie_work_items_finished_total{sheep=~\"$sheep\"}[$__range]))",
+          "legendFormat": "",
+          "instant": true
         }
       ],
       "fieldConfig": {
