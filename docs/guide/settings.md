@@ -25,6 +25,7 @@ A key kelpie no longer reads, such as `review.reviewers`, `coderabbit` or `plann
 - `contributions.pick = "off"`, `contributions.security_reviewer = "security-reviewer"`, `contributions.quiet_days = 7` and `contributions.nudge_days = 3`
 - `triage.pick = "off"`, `triage.wait_days = 7`, `triage.max_questions = 10` and `triage.agent = "triager"`
 - `triage.per_day = 10`, `triage.per_author_per_day = 2`, `triage.min_account_days = 30` and `triage.max_body_kb = 20`: the limits checked before an issue's triage call, each `0` for off. The two daily caps are capped at 200, and a higher one is refused at startup. `triage.md` says what each one does
+- no `[app.dogs.kelpie.triage.spam]` table, which means no spam check. `triage.spam.gateway`, `triage.spam.path` and `triage.spam.threshold = 0.8` turn it on, and `triage.md` says what it does
 - `pacing.enabled = true`
 - `worker.allowed_domains = []`, `worker.turn_timeout = 60` and `worker.compact_window = 200000`
 

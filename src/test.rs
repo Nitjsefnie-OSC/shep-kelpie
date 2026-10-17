@@ -26,6 +26,7 @@ use crate::webhook::{KelpieSettings, Webhook};
 use crate::work_item::{CallRecord, Known, Phase, Seconds, TimingPhase, Timings, Turn, WorkItem};
 
 mod alerts;
+mod classifier;
 mod claude;
 mod coderabbit;
 mod codex;
@@ -55,6 +56,7 @@ mod tempdir;
 mod test_runner;
 
 pub(crate) use alerts::FakeAlerts;
+pub(crate) use classifier::{FakeClassifier, SeenAsk};
 pub(crate) use claude::{FakeClaude, Hold, LEFT_BEHIND, Scripted, Seen};
 pub(crate) use dev_server::FakeDevServers;
 pub(crate) use disk::{FakeDisk, GB};
@@ -299,6 +301,8 @@ pub(crate) struct Rig {
     pub(crate) e2e: FakeE2e,
     pub(crate) pages: FakePages,
     pub(crate) samples: RecordedSink,
+    /// The gateway classifier triage's spam check asks
+    pub(crate) classifier: FakeClassifier,
     pub(crate) clock: FakeClock,
     /// The login's forge hold and pace, which no test's calls reach the cap of
     /// until it swaps in a pacer with one
@@ -413,6 +417,15 @@ impl Rig {
     /// Replaces the rig's kelpie settings file with `text`
     pub(crate) fn set_kelpie_settings(&self, text: &str) {
         std::fs::write(self.kelpie_settings_file(), text).unwrap();
+    }
+
+    /// Gives kelpie a gateway named `name` at `url`, in its own settings, read
+    /// when a runner next opens. Its key's variable is `CARGO_PKG_NAME`, which
+    /// every test run has set.
+    pub(crate) fn gateway(&self, name: &str, url: &str) {
+        let text = std::fs::read_to_string(self.kelpie_settings_file()).unwrap();
+        let table = format!("[gateways.{name}]\nurl = \"{url}\"\nkey_env = \"CARGO_PKG_NAME\"\n");
+        std::fs::write(self.kelpie_settings_file(), format!("{text}{table}")).unwrap();
     }
 
     fn make_repo(&self) {
@@ -577,6 +590,7 @@ impl Rig {
             e2e_runner: Arc::new(self.e2e.clone()),
             pages: Arc::new(self.pages.clone()),
             metrics: Arc::new(self.samples.clone()),
+            classifier: Arc::new(self.classifier.clone()),
             clock: Arc::new(self.clock.clone()),
             pace: Arc::clone(&self.pace),
             flock: Vec::new(),

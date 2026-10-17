@@ -4,13 +4,21 @@
 use std::num::NonZeroU32;
 
 use super::{EXAMPLE, parse, parse_err};
+use crate::ports::Probability;
 use crate::settings::TriagePick;
 
 const TABLE: &str = "[app.dogs.kelpie.triage]\n";
 
+const SPAM: &str = "[app.dogs.kelpie.triage.spam]\n";
+
 // The example with `lines` under a triage table.
 fn with(lines: &str) -> String {
     format!("{EXAMPLE}\n{TABLE}{lines}")
+}
+
+// The example with `lines` under a triage spam table.
+fn with_spam(lines: &str) -> String {
+    with(&format!("pick = \"all\"\n{SPAM}{lines}"))
 }
 
 #[test]
@@ -143,4 +151,129 @@ fn a_daily_cap_past_the_records_a_count_can_see_is_refused_naming_it() {
 fn an_unknown_key_in_triage_is_refused_naming_it() {
     let err = parse_err(&with("pik = \"all\"\n"));
     assert!(err.contains("pik"), "{err}");
+}
+
+#[test]
+fn an_absent_spam_table_means_no_check_and_a_threshold_of_0_8() {
+    let t = parse(EXAMPLE).unwrap().triage.spam;
+    assert!(t.gateway.is_none(), "no gateway, so no check");
+    assert!(t.path.is_none());
+    assert!(t.is_off());
+    assert_eq!(t.threshold, Probability::millionths(800_000));
+    assert_eq!(parse(&with("")).unwrap().triage.spam, t, "an empty table");
+    assert_eq!(
+        parse(&with("pick = \"all\"\n")).unwrap().triage.spam,
+        t,
+        "triage on and no spam table"
+    );
+    // A table that names no gateway is a check that is off, whatever else it sets
+    let off = parse(&with_spam("threshold = 0.2\n")).unwrap().triage.spam;
+    assert!(off.is_off());
+    assert_eq!(off.threshold, Probability::millionths(200_000));
+}
+
+#[test]
+fn a_spam_table_names_its_gateway_its_route_and_its_threshold() {
+    let t = parse(&with_spam(
+        "gateway = \"paddock\"\npath = \"/classify\"\nthreshold = 0.95\n",
+    ))
+    .unwrap()
+    .triage
+    .spam;
+    assert_eq!(t.gateway.as_ref().unwrap().as_str(), "paddock");
+    assert_eq!(t.path.as_ref().unwrap().as_str(), "/classify");
+    assert_eq!(t.threshold, Probability::millionths(950_000));
+    assert!(
+        t.is_spam(Probability::millionths(950_000)),
+        "at the threshold"
+    );
+    assert!(
+        !t.is_spam(Probability::millionths(949_000)),
+        "and just under it"
+    );
+    // A threshold left out keeps the default
+    let t = parse(&with_spam("gateway = \"paddock\"\npath = \"/classify\"\n"))
+        .unwrap()
+        .triage
+        .spam;
+    assert_eq!(t.threshold, Probability::millionths(800_000));
+}
+
+#[test]
+fn a_spam_answer_just_under_the_threshold_is_not_spam() {
+    let t = parse(&with_spam("gateway = \"paddock\"\npath = \"/classify\"\n"))
+        .unwrap()
+        .triage
+        .spam;
+    // Read to the thousandth, 0.7996 stands at 0.8, which is the default
+    // threshold. It is held down to the millionth at or below it, so the issue
+    // that scored it is not spam.
+    let just_under = Probability::new(0.7996).unwrap();
+    assert_eq!(just_under, Probability::millionths(799_600));
+    assert!(
+        !t.is_spam(just_under),
+        "{just_under} is under the threshold"
+    );
+    assert!(
+        t.is_spam(Probability::new(0.8).unwrap()),
+        "and 0.8 is at it"
+    );
+}
+
+#[test]
+fn a_spam_threshold_outside_0_to_1_is_refused_naming_it() {
+    for value in ["-0.1", "1.5", "10", "\"high\"", "true"] {
+        let err = parse_err(&with_spam(&format!("threshold = {value}\n")));
+        assert!(err.contains("threshold"), "{value}: {err}");
+    }
+    for value in ["0", "0.0", "1", "1.0", "0.8"] {
+        let t = parse(&with_spam(&format!("threshold = {value}\n")))
+            .unwrap()
+            .triage
+            .spam;
+        assert_eq!(t.threshold.value(), value.parse::<f64>().unwrap());
+    }
+}
+
+#[test]
+fn a_spam_gateway_with_no_route_is_refused_naming_the_route() {
+    let err = parse_err(&with_spam("gateway = \"paddock\"\n"));
+    assert!(
+        err.contains("triage.spam.path") && err.contains("/classify"),
+        "{err}"
+    );
+    // With no gateway there is no check, so no route is owed
+    parse(&with_spam("path = \"/classify\"\n")).unwrap();
+}
+
+#[test]
+fn a_spam_route_that_is_not_one_path_is_refused_naming_it() {
+    for value in [
+        "\"classify\"",
+        "\"\"",
+        "\"http://gpu:8700/classify\"",
+        "\"/classify x\"",
+        "\"/classify\\r\\nX-Evil: 1\"",
+        "\"/classify#x\"",
+    ] {
+        let err = parse_err(&with_spam(&format!(
+            "gateway = \"paddock\"\npath = {value}\n"
+        )));
+        assert!(err.contains("path"), "{value}: {err}");
+    }
+    for value in ["/classify", "/v1/classify", "/classify?model=spam"] {
+        let t = parse(&with_spam(&format!(
+            "gateway = \"paddock\"\npath = \"{value}\"\n"
+        )))
+        .unwrap()
+        .triage
+        .spam;
+        assert_eq!(t.path.unwrap().as_str(), value, "{value}");
+    }
+}
+
+#[test]
+fn an_unknown_key_in_the_spam_table_is_refused_naming_it() {
+    let err = parse_err(&with_spam("gateways = \"paddock\"\n"));
+    assert!(err.contains("gateways"), "{err}");
 }

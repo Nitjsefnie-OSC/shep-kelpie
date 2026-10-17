@@ -8,13 +8,13 @@ Rules live in Rust code; a model is called only for work and judgement.
 - Gates, locks, rate windows live in code; Claude only for work and judgement. ADR 0001
 - Kelpie controls each agent's context growth. `src/runner/turn.rs`
 - Naming: dog = adopted `kelpie` (lease dog); project = sheep (`runner <project>`); agent calls = lambs. One kelpie for all projects (bot windows, pacer are machine/account-wide). ADR 0001 to 0004
-- Binary is the dog only with no args + `SHEP_DOG_NAME` and `SHEP_NAME` set; needs shepherd channel from `shep adopt`; names itself in handshake so shep never lists it `silent`. `src/sheep.rs`, shep-pm/shep#656
-- Needs shep 0.15.0+ in 0.15 (a 0.14 shepherd drops notes); `upgrade` refuses a build its shepherd would refuse. shep-pm/shep#688, #319, #656, #914
+- Binary is the dog with no args + `SHEP_DOG_NAME` and `SHEP_NAME` set; needs the `shep adopt` channel; names itself in handshake so shep never lists it `silent`. `src/sheep.rs`, shep-pm/shep#656
+- Needs shep 0.15.0+ in 0.15 (a 0.14 shepherd drops notes); `upgrade` refuses a build its shepherd would. shep-pm/shep#688, #319, #656, #914
 - Home: `$SHEP_HOME/kelpie` (`KELPIE_HOME` overrides), shep plugin, folder per project (no shared names); dog files stay under `$SHEP_HOME`. #253
-- The shepherd is reached through the `Dial` port (`src/shepherd/connection.rs`): `Socket` is shep's control socket; tests dial `FakeShepherd`, which answers in memory and binds nothing. The sandbox-red list names the tests that bind a real socket. #587
+- The shepherd is reached through the `Dial` port (`src/shepherd/connection.rs`): `Socket` is shep's control socket; tests dial `FakeShepherd`, which answers in memory. The sandbox-red list names the tests that bind a real socket. #587
 - Socket path over 103 bytes: runner refuses to start (macOS caps 104). `src/runner.rs`
 - Home never moved from `~/.kelpie`: refuses to start naming each old file, exit 78 (in `stop_exit_codes`, no restart into it). #311, #345
-- State file version 68 (`VERSION` in `src/state.rs`); each change one way, so rollback means finishing or dropping open items first. `src/state/removed.rs`
+- State file version 70 (`VERSION` in `src/state.rs`); each change one way: rollback means finishing or dropping open items first. `src/state/removed.rs`
 - Rust for all business code; Tauri GUI after MVP, until then run and watched from a Claude session. #5
 - Never put budget numbers in agent prompts; never let a worker merge or post as the maintainer (see fence.md, github-app.md).
 
@@ -27,12 +27,12 @@ Rules live in Rust code; a model is called only for work and judgement.
 | workers.md | runner loop, turns | `src/runner/turn.rs`, `src/runner/flight.rs` |
 | fence.md | sandbox, guard, hooks, reads | `src/profile.rs`, `src/guard.rs`, `src/hooks.rs`, `src/dep_sources.rs`, `src/runner/turn/dep_reads.rs` |
 | browser.md | a worker's browser outside its sandbox: bridge, filter, tools | `src/bridge.rs`, `src/browse.rs`, `src/adapters/bridge.rs`, `src/runner/browser.rs`, `src/settings/browser.rs`, `src/tools/browser.rs` |
-| browser-dev-server.md | the dev server for a worker's browser: launch file, port, readiness | `src/runner/dev_server.rs`, `src/runner/dev_server/launch.rs`, `src/ports/dev_server.rs`, `src/adapters/dev_server.rs` |
+| browser-dev-server.md | the dev server for a worker's browser: launch, port, readiness | `src/runner/dev_server.rs`, `src/runner/dev_server/launch.rs`, `src/ports/dev_server.rs`, `src/adapters/dev_server.rs` |
 | compaction.md | when a session compacts, `worker.compact_window` per harness, `COMPACT` | `src/runner/compact.rs`, `src/adapters/pi/compact.rs`, `src/adapters/codex/context.rs`, `src/adapters/goose/compact.rs` |
-| skills.md | step skills, repo plugins, how each harness loads them | `src/skills.rs`, `src/skills/`, `src/adapters/skills.rs`, `src/runner/turn.rs` (`prepared`) |
+| skills.md | step skills, repo plugins, how harnesses load them | `src/skills.rs`, `src/skills/`, `src/adapters/skills.rs`, `src/runner/turn.rs` (`prepared`) |
 | agents.md | agent files, harnesses, gateways | `src/agents/`, `src/adapters/`, `src/settings/agents.rs`, `src/spawn.rs` |
-| handover.md | a runner handing its in-flight turns to a new image, `upgrade` | `src/sheep/handover.rs`, `src/runner/flight/carry.rs`, `src/adapters/process/adopt.rs`, `src/upgrade/handover.rs` |
-| waits-and-spend.md | a turn waiting for its model or host, `usage`, spend by role | `src/runner/turn/unreachable.rs`, `src/adapters/unreachable.rs`, `src/adapters/codex.rs`, `src/usage.rs`, `src/settings/agents.rs` |
+| handover.md | a runner handing in-flight turns to a new image, `upgrade` | `src/sheep/handover.rs`, `src/runner/flight/carry.rs`, `src/adapters/process/adopt.rs`, `src/upgrade/handover.rs` |
+| waits-and-spend.md | a turn waiting for its model or host, spend by role | `src/runner/turn/unreachable.rs`, `src/adapters/unreachable.rs`, `src/adapters/codex.rs`, `src/usage.rs`, `src/settings/agents.rs` |
 | review.md | review, bots, rulings | `src/runner/review/`, `src/runner/ruling.rs`, `src/webhook.rs` |
 | local-review.md | local reviewers (`command`, `endpoint`), their lock, rounds kept after an item | `src/runner/review/keep.rs`, `src/settings/local_rounds.rs`, `src/adapters/local/`, `src/settings/local.rs` |
 | merge.md | CI, catching up, merge, after it | `src/runner/gate.rs`, `src/runner/merge.rs`, `src/runner/close_merged.rs`, `src/runner/main_ci.rs` |
@@ -48,10 +48,11 @@ Rules live in Rust code; a model is called only for work and judgement.
 | triage.md | settings, the triager, the pick rule, `since`, the verb, `status` | `src/settings/triage.rs`, `src/runner/triage.rs`, `src/runner/open_checks.rs`, `src/ports/issue.rs` |
 | triage-pass.md | one issue's pass: post, labels, duplicate close, agent-ready | `src/runner/triage/`, `src/runner/flight/`, `src/ports/voice.rs` |
 | triage-author.md | the author's round: the ask, `github`, `local`, `none`, answers | `src/runner/triage/ask.rs`, `src/runner/triage/heard.rs`, `src/runner/triage/local.rs`, `src/runner/representative/reading.rs` |
-| log-lines.md | what the runner and the dog log between steps: pause, handover, lease waits, board skips, warnings | `src/runner/drain.rs`, `src/runner/skip_log.rs`, `src/runner/review_bot/lease_wait.rs`, `src/runner/claim.rs`, `src/dog/desk.rs`, `src/dog/door.rs` |
+| triage-spam.md | the spam check: `triage.spam`, `possible-spam` | `src/runner/triage/spam.rs` |
+| log-lines.md | what the runner and the dog log between steps: pause, handover, lease waits, skips, warnings | `src/runner/drain.rs`, `src/runner/skip_log.rs`, `src/runner/review_bot/lease_wait.rs`, `src/runner/claim.rs`, `src/dog/desk.rs`, `src/dog/door.rs` |
 | metrics.md | kelpie's series on shep's metrics endpoint, alerts, dashboard | `src/metrics.rs`, `src/metrics/`, `src/ports/metrics.rs`, `src/adapters/metric_sink.rs`, `assets/prometheus/`, `assets/grafana/` |
 | metrics-dog.md | the dog's series: leases, summons, the forge hold | `src/metrics/dog.rs`, `src/dog/watch.rs` |
-| metrics-transcripts.md | series and reports read from a call's transcript: MCP servers, tool calls, requests, `shep kelpie usage` | `src/mcp_use.rs`, `src/request_use.rs`, `src/runner/transcript_count.rs`, `src/usage/` |
+| metrics-transcripts.md | series and reports read from a call's transcript: MCP servers, tool calls, `shep kelpie usage` | `src/mcp_use.rs`, `src/request_use.rs`, `src/runner/transcript_count.rs`, `src/usage/` |
 | budget.md | pacing, dog + leases, time, usage, settings | `src/runner/pace.rs`, `src/dog/`, `src/usage.rs`, `src/settings/`, `src/sheep.rs` |
 
 Each file stays under 8 KB; a changed decision updates its bullet in the same PR. An area past it splits in two, with a new row here. `scripts/design-size.sh` checks both.

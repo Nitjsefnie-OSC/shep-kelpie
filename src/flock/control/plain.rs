@@ -5,6 +5,7 @@
 
 use serde_json::Value;
 
+use crate::ports::Probability;
 use crate::state::TriageHeld;
 
 /// `sheep`'s block from `status`, the runner's answer, under a header that
@@ -246,6 +247,17 @@ fn triage(status: &Value, lines: &mut Vec<String>) {
     let records = triage["issues"].as_array().map_or(&[][..], Vec::as_slice);
     for record in records {
         let (issue, comment) = (&record["issue"], &record["comment"]);
+        // A classifier read it as spam: the pass made no call of its own and
+        // posted no comment, and the label the maintainer is asked to look at is
+        // the whole of it. A call the issue made before the check can still be in
+        // the record, which is why the line says "of its own".
+        if let Some(p) = spam(record) {
+            lines.push(format!(
+                "  triaged #{issue}: a classifier read it as {p} spam, so it is labelled \
+                 possible-spam with no call of its own"
+            ));
+            continue;
+        }
         // A limit held it: no call was made and no comment was posted, so the
         // line says which limit rather than a comment that is not there.
         if let Some(why) = held(record) {
@@ -300,6 +312,12 @@ fn daily(triage: &Value, lines: &mut Vec<String>) {
         None => String::new(),
     };
     lines.push(format!("  triage daily: {used} of {cap} used{waiting}"));
+}
+
+// The probability a classifier read the issue as spam, and none for a record
+// that was researched
+fn spam(record: &Value) -> Option<Probability> {
+    serde_json::from_value(record["spam"].clone()).ok()
 }
 
 // The limit a record says held its issue, in the words the state gives it, or

@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::ports::Timestamp;
+use crate::ports::{Probability, Timestamp};
 
 /// Where triaging stands
 // wire format: changing this is a breaking change to the state file
@@ -220,6 +220,13 @@ pub struct Triaged {
     /// Left out unless the triage waits on a local session.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub local: Option<TriageLocal>,
+    /// The classifier's probability that the issue is spam, on an issue the
+    /// check read as spam and gave no research call. It is what `status` says
+    /// the `possible-spam` label is for.
+    ///
+    /// Left out unless the check read the issue as spam.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spam: Option<Probability>,
 }
 
 impl Triaged {

@@ -7,8 +7,10 @@ use schemars::JsonSchema;
 use serde::Deserialize;
 
 use super::agents::find;
+use super::gateway::GatewayName;
 use super::{AgentName, ExpertAgent, Settings, SettingsError};
 use crate::agents::{Agents, Role, Runs, TRIAGER};
+use crate::ports::Probability;
 use crate::state::TRIAGED_KEPT;
 
 /// The most questions one triage comment may ask
@@ -19,6 +21,10 @@ pub const MOST_QUESTIONS: u8 = 10;
 /// kept ahead of one that holds none, so a cap past it is one kelpie cannot see
 /// and cannot hold anyone to.
 pub(super) const MOST_PER_DAY: u32 = 200;
+
+/// The probability at or above which an issue is read as spam, when
+/// `triage.spam.threshold` is absent
+const SPAM_THRESHOLD: Probability = Probability::millionths(800_000);
 
 /// Whose issues kelpie triages
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, JsonSchema)]
@@ -65,6 +71,10 @@ pub struct Triage {
     /// call is given cut at that size with a line saying so. The title is
     /// never cut. 20 when absent, 0 sends the whole body.
     pub max_body_kb: u32,
+    /// The classifier check each issue goes through after the limits and
+    /// before its research call. No check when the table is absent.
+    #[serde(default)]
+    pub spam: TriageSpam,
 }
 
 impl Default for Triage {
@@ -78,6 +88,7 @@ impl Default for Triage {
             per_author_per_day: 2,
             min_account_days: 30,
             max_body_kb: 20,
+            spam: TriageSpam::default(),
         }
     }
 }
@@ -96,7 +107,8 @@ impl Triage {
     /// [`SettingsError::Invalid`] naming `triage.max_questions` when it is
     /// above 10, or `triage.per_day` or `triage.per_author_per_day` when a cap is
     /// above 200, the most this file's `MOST_PER_DAY` allows and the number of
-    /// finished triage records the state keeps.
+    /// finished triage records the state keeps, or `triage.spam.path` when
+    /// `triage.spam.gateway` names a gateway and no route is given for it.
     pub fn check(&self) -> Result<(), SettingsError> {
         if self.max_questions.get() > MOST_QUESTIONS {
             return Err(SettingsError::Invalid {
@@ -125,7 +137,89 @@ impl Triage {
                 });
             }
         }
+        if self.spam.gateway.is_some() && self.spam.path.is_none() {
+            return Err(SettingsError::Invalid {
+                setting: "triage.spam.path",
+                reason: "`triage.spam.gateway` names a gateway and no route is given for its \
+                         classifier: set `triage.spam.path` to the route, such as `/classify`"
+                    .to_owned(),
+            });
+        }
         Ok(())
+    }
+}
+
+/// The spam check an issue goes through after the limits and before its
+/// research call, `[app.dogs.kelpie.triage.spam]`: a text classifier the
+/// project's gateway serves, asked whether the issue is spam
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, JsonSchema)]
+#[serde(default, deny_unknown_fields)]
+pub struct TriageSpam {
+    /// The gateway whose classifier the check asks, by name. No check when
+    /// absent.
+    pub gateway: Option<GatewayName>,
+    /// The route its classifier is served on, such as `/classify`. Needed
+    /// beside `gateway`, and refused without it.
+    pub path: Option<ClassifierPath>,
+    /// The probability at or above which an issue is read as spam, 0 to 1.
+    /// 0.8 when absent.
+    pub threshold: Probability,
+}
+
+impl Default for TriageSpam {
+    fn default() -> Self {
+        Self {
+            gateway: None,
+            path: None,
+            threshold: SPAM_THRESHOLD,
+        }
+    }
+}
+
+impl TriageSpam {
+    /// Whether issues go through no spam check
+    #[inline]
+    pub fn is_off(&self) -> bool {
+        self.gateway.is_none()
+    }
+
+    /// Whether `p` is spam by this table's threshold
+    #[inline]
+    pub fn is_spam(&self, p: Probability) -> bool {
+        p >= self.threshold
+    }
+}
+
+/// The route a gateway serves its classifier on, as `triage.spam.path` gives
+/// it. It goes in a request line, so it is one path: no space, no control
+/// character, and no fragment, which would start a header of its own.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, JsonSchema)]
+#[serde(try_from = "String")]
+pub struct ClassifierPath(String);
+
+impl ClassifierPath {
+    /// The route as written
+    #[inline]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl TryFrom<String> for ClassifierPath {
+    type Error = &'static str;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        let usable = value.starts_with('/')
+            && !value
+                .chars()
+                .any(|c| c.is_control() || c.is_whitespace() || c == '#');
+        match usable {
+            true => Ok(Self(value)),
+            false => Err(
+                "must be a route such as /classify, starting with `/` and holding no space, \
+                 line break or `#`",
+            ),
+        }
     }
 }
 

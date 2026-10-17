@@ -8,6 +8,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use crate::ports::{Clock, Timestamp};
 
 pub(crate) mod bridge;
+mod classifier;
 mod claude;
 mod codex;
 mod codex_usage;
@@ -40,6 +41,7 @@ mod test_runner;
 mod unreachable;
 mod usage;
 
+pub(crate) use classifier::GatewayClassifier;
 #[cfg(test)]
 pub(crate) use claude::sandbox::fence_policy;
 pub(crate) use claude::settings::REVIEW_TOOLS as CLAUDE_REVIEW_TOOLS;

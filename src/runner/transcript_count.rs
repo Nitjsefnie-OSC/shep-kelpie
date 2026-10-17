@@ -1,6 +1,6 @@
 //! What a call's transcript says once it ends, as series and a standing
-//! warning: the MCP servers it was given and its tool calls to them, and
-//! each request it made to its model
+//! warning: the MCP servers it was given and its tool calls to them, each
+//! request it made to its model, and each of its tool calls that failed
 //!
 //! A server that is not connected as the call ends is noted once, naming the
 //! call and why: Claude Code's error code, or that pi's session left none of
@@ -8,6 +8,7 @@
 //! finds the server connected. A call that wrote nothing to its transcript
 //! reached no model, and counts nothing.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -15,7 +16,7 @@ use serde::{Deserialize, Serialize};
 
 use super::Runner;
 use super::claim::Notes;
-use super::code_graph::who;
+use super::code_graph::{who, who_carried};
 use crate::mcp_use::{self, McpUse, Stood};
 use crate::metrics::{OWN_SERVERS, Recorder};
 use crate::ports::{
@@ -23,6 +24,7 @@ use crate::ports::{
 };
 use crate::request_use::{self, Request};
 use crate::settings::{AgentHarness, Harness};
+use crate::tool_error::{self, ToolError};
 
 /// Agents that count each call's MCP servers, tool calls and requests as it ends
 pub(super) struct TranscriptCount {
@@ -54,7 +56,8 @@ impl Format {
     // available and what it answers say which connected, and its tool calls are
     // counted as Claude Code's are.
     fn of(call: &AgentCall) -> Option<Self> {
-        // parity: harness.mcp-tool-calls, harness.mcp-failures, harness.request-usage
+        // parity: harness.mcp-tool-calls, harness.mcp-failures, harness.request-usage,
+        // harness.tool-errors
         match call.harness {
             AgentHarness::ClaudeCode => Some(Self::Claude),
             AgentHarness::Pi(_) => Some(Self::Pi),
@@ -63,7 +66,7 @@ impl Format {
     }
 
     fn of_harness(harness: Harness) -> Option<Self> {
-        // parity: harness.request-usage
+        // parity: harness.request-usage, harness.tool-errors
         match harness {
             Harness::ClaudeCode => Some(Self::Claude),
             Harness::Pi => Some(Self::Pi),
@@ -82,6 +85,13 @@ impl Format {
         match self {
             Self::Claude => request_use::claude(text, from),
             Self::Pi => request_use::pi(text, from),
+        }
+    }
+
+    fn errors(self, text: &str, from: usize) -> Vec<ToolError> {
+        match self {
+            Self::Claude => tool_error::claude(text, from),
+            Self::Pi => tool_error::pi(text, from),
         }
     }
 
@@ -139,6 +149,26 @@ fn length(file: &Path) -> u64 {
     std::fs::metadata(file).map_or(0, |m| m.len())
 }
 
+// Count each failed tool call of `role`, and name each hook that is not kelpie's in a note,
+// since no label may hold a command. The wrapper does this for a turn it began, and a carried
+// turn does it for the one its own image began.
+fn counted_errors(who: &str, role: &str, errors: &[ToolError], metrics: &Recorder, notes: &Notes) {
+    let mut refused: BTreeMap<String, u64> = BTreeMap::new();
+    for error in errors {
+        metrics.tool_error(role, error.kind.as_str());
+        if let Some(hook) = &error.hook {
+            *refused.entry(hook.clone()).or_insert(0) += 1;
+        }
+    }
+    for (hook, count) in refused {
+        let calls = match count {
+            1 => "one tool call".to_owned(),
+            n => format!("{n} tool calls"),
+        };
+        notes.push(format!("{who} had {calls} refused by the hook `{hook}`"));
+    }
+}
+
 /// Where a worker's turn found its session's transcript as it began, which a handover carries so
 /// the next image counts the turn's requests when it ends
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -162,8 +192,9 @@ impl Mark {
         })
     }
 
-    /// Counts the requests the turn made since, as the wrapper does for a turn this image began
-    pub(super) fn count(&self, harness: Harness, metrics: &Recorder) {
+    /// Counts the requests and the failed tool calls the turn made since, as the
+    /// wrapper does for a turn this image began
+    pub(super) fn count(&self, harness: Harness, issue: u64, metrics: &Recorder, notes: &Notes) {
         let Some(format) = Format::of_harness(harness) else {
             return;
         };
@@ -178,6 +209,13 @@ impl Mark {
             for request in format.requests(&text, from) {
                 metrics.request(Role::Worker.as_str(), harness.as_str(), &request);
             }
+            counted_errors(
+                &who_carried(issue),
+                Role::Worker.as_str(),
+                &format.errors(&text, from),
+                metrics,
+                notes,
+            );
         }
     }
 }
@@ -193,6 +231,17 @@ impl TranscriptCount {
         for request in format.requests(text, from) {
             self.metrics.request(role, harness, &request);
         }
+    }
+
+    // Each failed tool call of the roles whose requests are counted
+    fn count_errors(&self, call: &AgentCall, format: Format, text: &str, from: usize) {
+        counted_errors(
+            &who(call),
+            call.role.as_str(),
+            &format.errors(text, from),
+            &self.metrics,
+            &self.notes,
+        );
     }
 
     fn count_mcp(&self, call: &AgentCall, format: Format, used: &McpUse) {
@@ -261,6 +310,7 @@ impl Agents for TranscriptCount {
                 self.count_mcp(call, format, &format.read(&text, from));
             }
             self.count_requests(call, format, &text, from);
+            self.count_errors(call, format, &text, from);
         }
         ran
     }
