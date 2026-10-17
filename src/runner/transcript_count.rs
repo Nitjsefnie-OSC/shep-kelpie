@@ -2,10 +2,11 @@
 //! warning: the MCP servers it was given and its tool calls to them, each
 //! request it made to its model, and each of its tool calls that failed
 //!
-//! A server that failed to connect is noted once, naming the call and its
-//! error code, and the note stands until a later call finds it connected. A
-//! call that wrote nothing to its transcript reached no model, and counts
-//! nothing.
+//! A server that is not connected as the call ends is noted once, naming the
+//! call and why: Claude Code's error code, or that pi's session left none of
+//! the server's tools in it as it ended. The note stands until a later call
+//! finds the server connected. A call that wrote nothing to its transcript
+//! reached no model, and counts nothing.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -16,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use super::Runner;
 use super::claim::Notes;
 use super::code_graph::{who, who_carried};
-use crate::mcp_use::{self, McpUse};
+use crate::mcp_use::{self, McpUse, Stood};
 use crate::metrics::{OWN_SERVERS, Recorder};
 use crate::ports::{
     AgentCall, AgentError, AgentReply, Agents, CallActivity, Ending, Role, SessionId, Transcript,
@@ -51,7 +52,9 @@ enum Format {
 }
 
 impl Format {
-    // pi records no server that failed to connect, so only its tool calls are counted.
+    // pi names no server that failed to connect: what its session leaves
+    // available and what it answers say which connected, and its tool calls are
+    // counted as Claude Code's are.
     fn of(call: &AgentCall) -> Option<Self> {
         // parity: harness.mcp-tool-calls, harness.mcp-failures, harness.request-usage,
         // harness.tool-errors
@@ -99,6 +102,29 @@ impl Format {
             Self::Pi => crate::adapters::pi_tool_prefix(name),
         }
     }
+}
+
+// What a server's transcript says about it, where it names no reason: pi says which of its servers
+// it reached, and nothing of one it did not
+const NO_TOOLS: &str = "no-tools";
+
+// How each server the call was given stood, as its transcript says: Claude Code names those that
+// failed, pi those it reached, whose tools its session leaves available as it ends or whose tool
+// calls it answered. A server with neither failed, and a session that lists no tools and answers no
+// call says its servers were none of them there.
+fn stood(format: Format, given: &[String], used: &McpUse) -> Option<Stood> {
+    if let Some(stood) = &used.servers {
+        return Some((*stood).clone());
+    }
+    let reached = used.reached.as_ref()?;
+    Some(Stood {
+        failed: given
+            .iter()
+            .filter(|name| !reached.contains(&format.tool_part(name.as_str())))
+            .map(|name| (name.clone(), NO_TOOLS.to_owned()))
+            .collect(),
+        pending: Vec::new(),
+    })
 }
 
 // The file a session writes in `folder`, once it is written: Claude Code names it for the session,
@@ -232,7 +258,7 @@ impl TranscriptCount {
                 .find(|name| format.tool_part(name) == *part);
             self.metrics.mcp_tool_calls(named.unwrap_or(part), *calls);
         }
-        let Some(stood) = &used.servers else {
+        let Some(stood) = stood(format, &given, used) else {
             return;
         };
         for name in given.iter().filter(|name| !stood.pending.contains(name)) {
@@ -240,13 +266,15 @@ impl TranscriptCount {
             match stood.failed.get(name) {
                 Some(code) => {
                     self.metrics.mcp_server(name, false);
+                    let why = match code.as_str() {
+                        NO_TOOLS => {
+                            "its tools were not in the session as the call ended".to_owned()
+                        }
+                        other => format!("which failed to connect: {other}"),
+                    };
                     self.notes.standing(
                         &key,
-                        format!(
-                            "{} ran without the MCP server `{name}`, which failed to connect: \
-                             {code}",
-                            who(call)
-                        ),
+                        format!("{} ran without the MCP server `{name}`, {why}", who(call)),
                     );
                 }
                 None => {
