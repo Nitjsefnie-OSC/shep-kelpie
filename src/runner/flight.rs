@@ -8,7 +8,6 @@
 //! a deadline each pass checks, and a call past it is ended through its own
 //! process group.
 
-use std::any::Any;
 use std::collections::BTreeMap;
 use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -23,7 +22,7 @@ use super::dev_server;
 use super::in_flight::InFlight;
 use super::login_refresh;
 use super::replies::answer_replies;
-use super::report::{Begin, ReviewCall, ReviewResult, Reviewed, Spent, StepReport};
+use super::report::{Begin, ReviewCall, Reviewed, Spent, StepReport};
 use super::review::run_review_call;
 use super::transcript_count::Mark;
 use super::trigger::lock;
@@ -220,131 +219,6 @@ impl Flight {
             again: self.again,
             first: self.first,
             compact: self.compact,
-        }
-    }
-}
-
-// What a call's thread sends the runner
-enum News {
-    Ended {
-        issue: u64,
-        end: End,
-    },
-    // The project manager's call ended
-    Pm(End),
-    // The batch retro's call ended
-    Retro(End),
-    // The issue writer's call labelling an issue ended
-    Labelled {
-        issue: u64,
-        end: End,
-    },
-    // The e2e run of a bump's head ended
-    Proved(proving::Proof),
-    // A contribution's head was read for security, to a verdict or to none
-    Secured {
-        pull_request: u64,
-        head: String,
-        reading: crate::runner::contributions::Reading,
-    },
-    // The triager's research of an issue ended, with its reply read against its
-    // view. The reply is boxed: it is the largest thing any `News` variant holds
-    // by far, and the rest of the enum is small next to it.
-    Triaged {
-        issue: u64,
-        end: End,
-        found: Option<Box<Result<crate::runner::triage::research::Found, String>>>,
-    },
-    // The experts of a ruling ended, each as its own call did
-    Paneled {
-        id: u64,
-        ends: Vec<(crate::panel::Voter, Result<AgentReply, AgentError>)>,
-    },
-    // A local round queued for the GPU or began to run. The call waits until
-    // `_seen` drops, once the stage is saved, so its time is charged right.
-    Stage {
-        issue: u64,
-        stage: RoundStage,
-        _seen: Sender<()>,
-    },
-    // The call has the lease it waited for, and begins now. It waits until
-    // `_seen` drops, once its ceiling counts from now.
-    Began {
-        issue: u64,
-        _seen: Sender<()>,
-    },
-    // The call waits for its model
-    Waits {
-        issue: u64,
-        wait: Wait,
-    },
-}
-
-// How a call ended
-enum End {
-    Turn(Result<AgentReply, AgentError>),
-    Review(Reviewed),
-    // The call's thread panicked, which ends the runner as a panic in its
-    // own thread does
-    Panicked(Box<dyn Any + Send>),
-}
-
-impl End {
-    // Whether it ended before reaching a model: its settings, its harness or
-    // its session never got that far
-    fn reached_no_model(&self) -> bool {
-        match self {
-            Self::Turn(result) => crate::usage::ended(result).is_none(),
-            Self::Review(reviewed) => matches!(
-                (&reviewed.result, &reviewed.spent),
-                (ReviewResult::Findings(Err(_)), None)
-            ),
-            Self::Panicked(_) => false,
-        }
-    }
-}
-
-// What a call's thread needs to tell the runner about its call
-#[derive(Clone)]
-struct Tell {
-    issue: u64,
-    news: Sender<News>,
-    wake: Option<Sender<()>>,
-}
-
-impl Tell {
-    fn send(&self, news: News) -> bool {
-        let sent = self.news.send(news).is_ok();
-        if let Some(wake) = &self.wake {
-            let _ = wake.send(());
-        }
-        sent
-    }
-
-    fn stage(&self, stage: RoundStage) {
-        let issue = self.issue;
-        self.until_heard(|seen| News::Stage {
-            issue,
-            stage,
-            _seen: seen,
-        });
-    }
-
-    fn began(&self) {
-        let issue = self.issue;
-        self.until_heard(|seen| News::Began { issue, _seen: seen });
-    }
-
-    fn waits(&self, wait: Wait) {
-        let issue = self.issue;
-        self.send(News::Waits { issue, wait });
-    }
-
-    // Sends the news `news` makes, and waits until the runner has heard it.
-    fn until_heard(&self, news: impl FnOnce(Sender<()>) -> News) {
-        let (seen, heard) = mpsc::channel();
-        if self.send(news(seen)) {
-            let _ = heard.recv();
         }
     }
 }
@@ -985,9 +859,11 @@ fn hear_news(runner: &Mutex<Runner>, news: News) -> Result<Option<StepReport>, S
 mod calls;
 mod carry;
 pub(super) mod label;
+mod news;
 pub(super) mod panel;
 mod proving;
 
+use news::{End, News, Tell};
 pub(in crate::runner) use proving::Verdict;
 pub(super) mod retro;
 pub(super) mod security;
