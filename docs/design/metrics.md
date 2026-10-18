@@ -26,14 +26,7 @@ Plan limits: gauges the pacer sets whenever it reads an account's usage (`Runner
 - `kelpie_plan_resets_at_seconds{account,window}`: Unix seconds
 - `kelpie_plan_allowance_ratio{account}`, `kelpie_plan_spent_today_ratio{account}`: the share of the week today may spend, and the share spent since the day began, 0 to 1. They read the same with `pacing.enabled` off
 
-Work items:
-
-- `kelpie_work_items{phase}` gauge, sent after each step from the state file
-- `kelpie_work_items_finished_total{outcome}`: `merged`, `closed`, `dropped`, from the ledger's `finished` line
-- `kelpie_review_rounds_total`, `kelpie_fix_turns_total`, `kelpie_rulings_total`, from the same line
-- `kelpie_findings_total{severity}`: `high`, `medium`, from the same line's `held`, the findings above a nit sent to the worker, each counted once across rounds (the work item's `held`)
-- `kelpie_work_item_seconds_total{outcome}`, the wall time of finished items
-- `kelpie_ci_failures_total{tests}`: each head of a work item's pull request the gate reads red, counted once per head, which the work item records, so a still-red yes at the same head counts it once. `tests` is `sandbox-only` when every failing test the logs name is in a module `docs/agents/sandbox-red-tests.md` lists whole, `runnable` when one is not, is in a module the doc lists only in part (a `some:` entry: kelpie cannot tell which of them), is a test failure in a runner kelpie cannot read (a failed step named for a test run with none of cargo's test or build shapes), or its names were cut off, or more runs failed than kelpie read, `none` when no test failed (lint, docs, fmt, or a build that never ran one, as a failed test build is). The list is of this crate's modules, so it is used only on the repo that doc describes: elsewhere every failing test counts `runnable`. Each name is judged against its own cargo run, since one tail holds several. The names come from the logs a red run's prompt carries. A head whose logs kelpie could not read, or found none of, counts nothing; a queue removal is not counted. `src/runner/ci_failure.rs`
+Work items (phases, how they ended, review rounds, findings, red CI heads) are in `metrics-work-items.md`.
 
 Features: whether what a project turned on runs.
 

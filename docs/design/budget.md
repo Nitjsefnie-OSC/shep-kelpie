@@ -42,7 +42,6 @@ Pacing, leases, forge limits, time, usage, settings.
 - Each step is a JSON object in `<kelpie home>/<project>/steps.jsonl` (`at` first), append-only, which `watch` and `usage --import` read; the out log gets one plain line per event, never JSON. `src/runner/step_log.rs`, #491
 - Units = `input + 2 x hour cache writes + 1.25 x five-minute writes + 0.1 x cache reads + 5 x output` (control room weights). #347
 - Call never reaching a model gets no line; call cut by stop written from launch draft; finished item adds `finished` line. #347
-- The `finished` line names the worker's `agent`, and the `harness` and `model` its file runs on at the end (none once kelpie no longer runs it), with `ci_fix_turns`, `ci_failures` (red heads by `runnable`, `sandbox_only`, `no_tests`, as `kelpie_ci_failures_total`, kept in the work item's counts since state version 71) and `held` (findings above a nit by `high`, `medium`), so a work item's quality reads from one line.
 - Unwritable ledger fails no call or step. `shep kelpie usage` compares units per merged PR against baselines kept only on maintainer's machine. #347
 
 ## Settings
