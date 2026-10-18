@@ -70,6 +70,11 @@ const RULINGS: Family = Family {
     kind: Counter,
     help: "Rulings raised, on finished work items.",
 };
+const FINDINGS: Family = Family {
+    name: "kelpie_findings_total",
+    kind: Counter,
+    help: "Findings above a nit sent to the worker, each once, on finished work items, by severity.",
+};
 const FEATURE_ENABLED: Family = Family {
     name: "kelpie_feature_enabled",
     kind: Gauge,
@@ -274,6 +279,16 @@ impl Recorder {
         );
         self.add(&FIX_TURNS, Vec::new(), f64::from(finished.fix_turns));
         self.add(&RULINGS, Vec::new(), f64::from(finished.rulings));
+        for (severity, n) in [
+            ("high", finished.held.high),
+            ("medium", finished.held.medium),
+        ] {
+            self.add(
+                &FINDINGS,
+                vec![("severity", severity.to_owned())],
+                f64::from(n),
+            );
+        }
     }
 }
 

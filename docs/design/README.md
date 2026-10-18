@@ -14,7 +14,7 @@ Rules live in Rust code; a model is called only for work and judgement.
 - The shepherd is reached through the `Dial` port (`src/shepherd/connection.rs`): `Socket` is shep's control socket; tests dial `FakeShepherd`, which answers in memory. The sandbox-red list names the tests that bind a real socket. #587
 - Socket path over 103 bytes: runner refuses to start (macOS caps 104). `src/runner.rs`
 - Home never moved from `~/.kelpie`: refuses to start naming each old file, exit 78 (in `stop_exit_codes`, no restart into it). #311, #345
-- State file version 70 (`VERSION` in `src/state.rs`); each change one way: rollback means finishing or dropping open items first. `src/state/removed.rs`
+- State file version 71 (`VERSION` in `src/state.rs`); each change one way: rollback means finishing or dropping open items first. `src/state/removed.rs`
 - Rust for all business code; Tauri GUI after MVP, until then run and watched from a Claude session. #5
 - Never put budget numbers in agent prompts; never let a worker merge or post as the maintainer (see fence.md, github-app.md).
 
@@ -51,15 +51,11 @@ Rules live in Rust code; a model is called only for work and judgement.
 | triage-spam.md | the spam check: `triage.spam`, `possible-spam` | `src/runner/triage/spam.rs` |
 | log-lines.md | what the runner and the dog log between steps: pause, handover, lease waits, skips, warnings | `src/runner/drain.rs`, `src/runner/skip_log.rs`, `src/runner/review_bot/lease_wait.rs`, `src/runner/claim.rs`, `src/dog/desk.rs`, `src/dog/door.rs` |
 | metrics.md | kelpie's series on shep's metrics endpoint, alerts, dashboard | `src/metrics.rs`, `src/metrics/`, `src/ports/metrics.rs`, `src/adapters/metric_sink.rs`, `assets/prometheus/`, `assets/grafana/` |
+| metrics-work-items.md | work items' series, the `finished` line | `src/usage/finished.rs`, `src/runner/ci_failure.rs` |
 | metrics-dog.md | the dog's series: leases, summons, the forge hold | `src/metrics/dog.rs`, `src/dog/watch.rs` |
 | metrics-transcripts.md | series and reports read from a call's transcript: MCP servers, tool calls, `shep kelpie usage` | `src/mcp_use.rs`, `src/request_use.rs`, `src/runner/transcript_count.rs`, `src/usage/` |
 | budget.md | pacing, dog + leases, time, usage, settings | `src/runner/pace.rs`, `src/dog/`, `src/usage.rs`, `src/settings/`, `src/sheep.rs` |
 
-Each file stays under 8 KB; a changed decision updates its bullet in the same PR. An area past it splits in two, with a new row here. `scripts/design-size.sh` checks both.
+Each file stays under 8 KB, and an area past it splits in two with a new row here (`scripts/design-size.sh`). A changed decision updates its bullet in the same PR.
 
-## Elsewhere
-
-- `docs/design-log.md`: full record, mechanics, history, old file formats
-- `docs/facts/`: measurements
-- `docs/adr/`: hard-to-reverse decisions
-- `GLOSSARY.md`: vocabulary
+Elsewhere: `docs/design-log.md` (record, history, old file formats), `docs/facts/`, `docs/adr/`, `GLOSSARY.md`.

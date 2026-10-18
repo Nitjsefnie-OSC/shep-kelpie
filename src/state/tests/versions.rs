@@ -127,6 +127,33 @@ fn a_version_14_file_loads_with_no_late_fix_and_saves_at_the_current_version() {
     assert_eq!(saved["version"], VERSION);
 }
 
+// A version 70 file has no `ci_failures` in a work item's counts: none counted.
+// A count saves under its class alone.
+#[test]
+fn a_version_70_file_loads_with_no_red_heads_counted() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = store_in(dir.path());
+    let mut old = serde_json::to_value(ProjectState::new()).unwrap();
+    old["version"] = 70.into();
+    let mut item = serde_json::to_value(a_work_item()).unwrap();
+    item["counts"] =
+        serde_json::json!({ "review_rounds": 1, "fix_turns": 0, "rulings": 0, "ci_fix_turns": 1 });
+    old["work_items"] = serde_json::json!([item]);
+    fs::write(dir.path().join(STATE_FILE), old.to_string()).unwrap();
+
+    let mut loaded = store.load().unwrap().expect("a saved state");
+    assert!(loaded.work_items[0].counts.ci_failures.is_zero());
+    loaded.work_items[0].counts.ci_failures.runnable = 2;
+    store.save(&loaded).unwrap();
+    let text = fs::read_to_string(dir.path().join(STATE_FILE)).unwrap();
+    let saved: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(saved["version"], VERSION);
+    assert_eq!(
+        saved["work_items"][0]["counts"]["ci_failures"],
+        serde_json::json!({ "runnable": 2 })
+    );
+}
+
 // A version 15 file has no `ci_fix_turns` in a work item's counts and no
 // `fix_turns` on a still-red ruling: none counted, and the pushed-no-fix ruling.
 #[test]

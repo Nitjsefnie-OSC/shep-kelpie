@@ -21,11 +21,12 @@ use crate::metrics::Recorder;
 use crate::panel::{Tier, Voter};
 use crate::ports::{Cost, Role, SessionId, Timestamp, Usage};
 use crate::settings::RulingName;
-use crate::work_item::{QwenTally, RoleTally, Tally};
+use crate::work_item::RoleTally;
 
 pub mod baselines;
 mod context;
 mod draft;
+mod finished;
 mod import;
 mod item;
 mod openmetrics;
@@ -37,6 +38,7 @@ mod session;
 
 pub use context::context;
 pub use draft::{Draft, Spent, ended};
+pub use finished::{FinishedLine, HeldFindings};
 pub use import::{Imported, import};
 pub use item::item;
 pub use openmetrics::openmetrics;
@@ -271,68 +273,6 @@ impl From<RoleTally> for RoleLine {
             units: role.units,
             cost_usd: role.cost.usd(),
             unpriced_calls: role.unpriced_calls,
-        }
-    }
-}
-
-/// A finished work item, merged, closed with no change or dropped, and what
-/// it spent
-// wire format: changing this is a breaking change to the usage ledger
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct FinishedLine {
-    /// When it finished
-    pub at: Timestamp,
-    /// The issue it resolved
-    pub issue: u64,
-    /// The issue's title
-    pub title: String,
-    /// Its pull request, if it had one
-    pub pull_request: Option<u64>,
-    /// Whether the pull request merged
-    pub merged: bool,
-    /// Whether its issue was closed with no change, so it ended with no
-    /// pull request
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub closed: bool,
-    /// Seconds from its creation to `at`
-    pub wall: u64,
-    /// Every role's units together
-    pub units: u64,
-    /// Every role's priced calls together, in US dollars
-    pub cost_usd: f64,
-    /// The worker's turns
-    pub worker: RoleLine,
-    /// The reviewers' sessions
-    pub reviewer: RoleLine,
-    /// Its local rounds and their seconds
-    pub qwen: QwenTally,
-    /// Reviewers' rounds that came back with an answer
-    pub review_rounds: u32,
-    /// Worker turns sent to fix a round's held findings
-    pub fix_turns: u32,
-    /// Rulings raised for it
-    pub rulings: u32,
-}
-
-impl FinishedLine {
-    /// The line for a work item that finished as `record` says, spending `tally`
-    pub fn of(record: &crate::state::Finished, tally: &Tally) -> Self {
-        Self {
-            at: record.at,
-            issue: record.issue,
-            title: record.title.clone(),
-            pull_request: record.pull_request,
-            merged: record.merged,
-            closed: record.closed,
-            wall: record.wall,
-            units: tally.units(),
-            cost_usd: tally.cost().usd(),
-            worker: tally.worker.into(),
-            reviewer: tally.reviewer.into(),
-            qwen: tally.qwen,
-            review_rounds: tally.counts.review_rounds,
-            fix_turns: tally.counts.fix_turns,
-            rulings: tally.counts.rulings,
         }
     }
 }

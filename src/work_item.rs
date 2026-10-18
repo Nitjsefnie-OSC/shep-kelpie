@@ -35,7 +35,7 @@ pub use review::{Awaited, Reading, Review, ReviewStage, TestCheck};
 pub use seat::Seat;
 pub use spend::{Priced, QwenTally, RoleSpend, Spend, raised_cap};
 pub use talked::{TALK_ROUNDS, Talked};
-pub use tally::{Counts, RoleTally, Tally};
+pub use tally::{CiFailures, Counts, RoleTally, Tally};
 pub use threads::ThreadAnswer;
 pub use timings::{CallKind, Seconds, Split, TimingPhase, Timings};
 

@@ -33,6 +33,35 @@ pub struct Counts {
     /// The same for the reviewers' sessions
     #[serde(default, skip_serializing_if = "is_zero")]
     pub reviewer_unreported: u32,
+    /// Its pull request's heads the gate read red, as `kelpie_ci_failures_total`
+    /// counts them
+    #[serde(default, skip_serializing_if = "CiFailures::is_zero")]
+    pub ci_failures: CiFailures,
+}
+
+/// A work item's red heads, by whether its worker could have run the tests
+/// that failed (`src/runner/ci_failure.rs`)
+// wire format: changing this is a breaking change to the state file and the
+// usage ledger
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CiFailures {
+    /// A test its worker could have run failed
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub runnable: u32,
+    /// Only tests a worker's sandbox cannot run failed
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub sandbox_only: u32,
+    /// No test failed: lint, docs, fmt, or a build that never ran one
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub no_tests: u32,
+}
+
+impl CiFailures {
+    /// Whether no head was read red
+    pub fn is_zero(&self) -> bool {
+        *self == Self::default()
+    }
 }
 
 impl Counts {
