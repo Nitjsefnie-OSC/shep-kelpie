@@ -710,12 +710,12 @@ impl Rig {
 
     /// The worktree kelpie makes for issue 7
     pub(crate) fn worktree_7(&self) -> PathBuf {
-        self.paths().worktree(7)
+        self.paths().worktree(ticket(7))
     }
 
     /// The build folder kelpie makes for issue 7
     pub(crate) fn build_7(&self) -> PathBuf {
-        self.paths().build(7)
+        self.paths().build(ticket(7))
     }
 }
 
@@ -801,4 +801,9 @@ pub(crate) fn linked_worktree(home: &Path) -> (PathBuf, PathBuf) {
         &["worktree", "add", "--quiet", "-b", "wt", path(&worktree)],
     );
     (repo, worktree)
+}
+
+/// The ticket of GitHub issue `number`
+pub(crate) fn ticket(number: u64) -> crate::ticket::TicketId {
+    crate::ticket::TicketId::from_issue(number).expect("a test's issue is not zero")
 }

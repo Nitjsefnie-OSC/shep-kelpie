@@ -259,7 +259,7 @@ pub(super) fn wake(
         }
     }
     out.push_str(&notes_note(notes));
-    if wakes.iter().any(|w| matches!(w, Wake::Stuck(..))) {
+    if wakes.iter().any(|w| matches!(w, Wake::Stuck { .. })) {
         out.push_str(RED);
     }
     out
@@ -331,7 +331,7 @@ pub(super) fn reason(wake: &Wake) -> String {
             "the branches of #{a} and #{b} conflict in {}",
             files.join(", ")
         ),
-        Wake::Stuck(issue, what) => format!("#{issue} is stuck: {what}"),
+        Wake::Stuck { issue, what, .. } => format!("#{issue} is stuck: {what}"),
         Wake::LeaseWait {
             issue,
             worker,
@@ -427,6 +427,8 @@ pub(super) fn reason(wake: &Wake) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ports::Timestamp;
+    use crate::runner::pm::StuckState;
 
     #[test]
     fn a_first_wake_names_its_reasons_the_files_and_the_answer() {
@@ -468,7 +470,14 @@ mod tests {
     fn a_resumed_wake_points_back_at_the_answer_it_already_has() {
         let text = wake(
             "koji",
-            &[Wake::Stuck(7, "its turn failed".into())],
+            &[Wake::Stuck {
+                issue: 7,
+                what: "its turn failed".into(),
+                state: StuckState::Ruling {
+                    id: 7,
+                    raised: Some(Timestamp(1)),
+                },
+            }],
             &[],
             false,
             &Notes::default(),
@@ -483,7 +492,11 @@ mod tests {
 
     #[test]
     fn a_wake_for_a_stuck_item_says_to_read_its_ci_log_before_passing_it_on() {
-        let stuck = Wake::Stuck(7, "CI failed".into());
+        let stuck = Wake::Stuck {
+            issue: 7,
+            what: "CI failed".into(),
+            state: StuckState::Idle(Timestamp(1)),
+        };
         for fresh in [true, false] {
             let text = wake(
                 "koji",
