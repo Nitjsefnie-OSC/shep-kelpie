@@ -48,6 +48,7 @@ mod sandbox;
 mod talk;
 mod test_runner;
 mod thread;
+mod tickets;
 mod voice;
 
 pub use agent::{
@@ -88,6 +89,7 @@ pub use sandbox::{Forward, Policy, Sandbox, SandboxError, Unreadable};
 pub use talk::{Remark, Standing, Talk, TalkThread};
 pub use test_runner::{CEILING, OUTPUT_KEPT, TestOutcome, TestRun, TestRunner, tail};
 pub use thread::{CommentMarks, LineComment, PostedComment, ThreadComment, Thumb};
+pub use tickets::Tickets;
 pub use voice::{UNREAD_ID, Voice};
 
 /// Seconds since the Unix epoch
@@ -119,6 +121,9 @@ pub enum Visibility {
 }
 
 /// The forge that holds the project's issues and pull requests
+///
+/// Its issue methods are the GitHub ticket source's [`Tickets`] (ADR 0014),
+/// which stays here until every caller of them has moved to that port.
 pub trait Forge: Send + Sync {
     /// Who can see `repo`
     ///
@@ -857,6 +862,11 @@ pub struct Ports {
     pub agents: Arc<dyn Agents>,
     /// The forge
     pub forge: Arc<dyn Forge>,
+    /// The project's tickets, as their source holds them (ADR 0014). Today
+    /// they are the forge's issue half: the runner sets this to the same
+    /// wrapped forge as `forge`, so a call through either reaches the same
+    /// guard, rate-limit hold and ledger
+    pub tickets: Arc<dyn Tickets>,
     /// Which repos the forge's reads go through the App's token for, where it has one
     pub app_reads: Option<Arc<dyn AppForges>>,
     /// The tally the forge's conditional reads add a 304 to, for the ledger

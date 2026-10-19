@@ -26,6 +26,8 @@ use crate::local_paths::{Leak, LocalPaths, Surface, names_repo};
 use crate::review_bot::{Activity, Login};
 use crate::settings::ForgeSlug;
 
+mod tickets;
+
 // The repos of the flock, and the forge to ask who can see one
 struct Flock {
     repos: Vec<ForgeSlug>,
