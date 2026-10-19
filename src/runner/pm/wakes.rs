@@ -14,22 +14,12 @@ use crate::usage::VoteMark;
 use crate::work_item::Phase;
 
 impl Runner {
-    // Queues a wake for each item still stuck and each conflict still open,
-    // once it is back after giving some up.
+    // Queues a wake for each item the board still reads as stuck or waiting
+    // and each conflict still open, once it is back after giving some up.
     pub(super) fn still_due(&mut self) {
         let mut wakes = Vec::new();
         for item in &self.state.work_items {
-            let issue = item.issue;
-            let parked = match item.phase {
-                Phase::Ruling { id } => self.state.rulings.iter().find(|r| r.id == id),
-                _ => None,
-            };
-            if let Some(wake) = parked.and_then(|r| stuck_wake(issue, r.id, &r.kind)) {
-                wakes.push(wake);
-            } else if self.flights.watched(issue).is_some_and(|w| w.idle) {
-                let what = "its worker has shown no tool call or output for 10 minutes or more";
-                wakes.push(Wake::Stuck(issue, what.to_owned()));
-            } else if let Some(wake) = self.lease_wake(issue) {
+            if let Some(wake) = self.item_wake(item.issue) {
                 wakes.push(wake);
             }
         }
@@ -38,6 +28,37 @@ impl Runner {
         }
         for wake in wakes {
             self.pm_due(wake);
+        }
+    }
+
+    /// The stuck or lease-wait wake the board shows for `issue` now, if it
+    /// shows one: its item parked on a ruling a stuck item raises, its call in
+    /// flight read as idle, or that call waiting long for its model
+    pub(super) fn item_wake(&self, issue: u64) -> Option<Wake> {
+        let parked = (self.state.item(issue)).and_then(|item| match item.phase {
+            Phase::Ruling { id } => self.state.rulings.iter().find(|r| r.id == id),
+            _ => None,
+        });
+        if let Some(wake) = parked.and_then(|r| stuck_wake(issue, r.id, &r.kind)) {
+            return Some(wake);
+        }
+        if self.flights.watched(issue).is_some_and(|w| w.idle) {
+            let what = "its worker has shown no tool call or output for 10 minutes or more";
+            return Some(Wake::Stuck(issue, what.to_owned()));
+        }
+        self.lease_wake(issue)
+    }
+
+    /// Whether the board still shows `wake` as a reason, as `still_due` would
+    /// queue it: the item still stuck or still waiting, the pair still in
+    /// conflict. A reason it is never asked about is one it never drops.
+    pub(super) fn wake_holds(&self, wake: &Wake) -> bool {
+        match wake {
+            Wake::Stuck(issue, _) | Wake::LeaseWait { issue, .. } => {
+                self.item_wake(*issue).is_some_and(|now| now.same(wake))
+            }
+            Wake::Conflict(a, b, _) => self.pm.conflicts.contains_key(&(*a, *b)),
+            _ => true,
         }
     }
 
