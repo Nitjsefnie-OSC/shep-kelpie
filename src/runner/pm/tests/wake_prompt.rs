@@ -3,6 +3,7 @@
 //! what kelpie did, and the answer's `why`
 
 use super::{PICK_12, answered, pm_seen, step_until, with_pm};
+use crate::runner::pm::prompt::BOARD_INLINE;
 use crate::runner::{StepReport, step};
 use crate::test::{Rig, Scripted};
 
@@ -88,11 +89,48 @@ fn a_resumed_wake_carries_the_board_with_only_the_events_since_its_last_answer()
         "its cursor holds the events it has read: {after}"
     );
     assert!(
-        second
-            .call
-            .prompt
-            .contains("`board.md` holds the same text"),
+        second.call.prompt.contains("`board.md` holds the same text"),
         "{}",
         &second.call.prompt
     );
+}
+
+#[test]
+fn a_board_over_64_kib_keeps_the_read_instruction() {
+    let (rig, runner) = with_pm("koji");
+    // A ready issue the board passes over for a blocker keeps its body quoted
+    // on it, so enough of them make a board no prompt should hold.
+    let body = "word ".repeat(150);
+    for n in 1..=110 {
+        rig.forge.list_ready(n, false);
+        rig.forge.set_ready_body(n, &body);
+        rig.forge.block(n, 900);
+    }
+    rig.ask(&runner, "tell", Some("first"));
+    rig.claude.script([Scripted::Say("{\"pick\": null}")]);
+    answered(Some(step_until(&runner, |r| {
+        matches!(r, StepReport::PmAnswered { .. })
+    })));
+
+    let [wake] = pm_seen(&rig).try_into().unwrap();
+    let board = read(&rig, "board.md");
+    assert!(
+        board.len() > BOARD_INLINE,
+        "the test's board is {} bytes",
+        board.len()
+    );
+    let prompt = &wake.call.prompt;
+    assert!(
+        prompt.len() < board.len(),
+        "the board is no part of the prompt: {} bytes against the board's {}",
+        prompt.len(),
+        board.len()
+    );
+    assert!(!prompt.contains("## The board"), "{}", &prompt[..400]);
+    assert!(
+        prompt.contains("Read `board.md`, which kelpie wrote as the board stood when it woke you."),
+        "{}",
+        &prompt[..400]
+    );
+    assert!(board.contains("#110"), "the board is written for it to read");
 }
