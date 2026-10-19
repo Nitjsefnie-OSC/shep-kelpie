@@ -42,9 +42,7 @@ impl Runner {
     ) -> Option<String> {
         // Only a GitHub issue has a pull request to merge, so a ticket with no
         // GitHub number is nothing this closes.
-        let Some(issue) = ticket.github() else {
-            return None;
-        };
+        let issue = ticket.github()?;
         // The forge closes a named issue a moment after the merge, so one that
         // still reads as open then is left to it.
         let named = (self.ports.forge).reviewed(&self.remote, pull_request);

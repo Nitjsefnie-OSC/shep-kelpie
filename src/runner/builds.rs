@@ -187,7 +187,7 @@ impl Runner {
         }
         let now = self.ports.clock.now();
         (self.state.work_items.iter())
-            .filter_map(|item| Some((item.issue, item.build.clone())))
+            .map(|item| (item.issue, item.build.clone()))
             .filter(|(ticket, _)| self.flights.runs_turn(*ticket))
             .filter(|(ticket, _)| (self.builds.items.get(ticket)).is_none_or(|w| w.due(now)))
             .collect()

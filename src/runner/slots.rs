@@ -212,7 +212,7 @@ impl Runner {
     pub(super) fn parked_overlap(&self, ready: &[ReadyIssue]) -> Vec<Skip> {
         let parked: Vec<(TicketId, Files)> = (self.state.work_items.iter())
             .filter(|i| self.held_back(i))
-            .filter_map(|i| Some((i.issue, self.item_files(i.issue))))
+            .map(|i| (i.issue, self.item_files(i.issue)))
             .collect();
         let unread = |issue: &ReadyIssue, unknown| Skip::PathsUnread {
             issue: issue.ticket,

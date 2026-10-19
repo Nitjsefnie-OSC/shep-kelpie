@@ -182,11 +182,11 @@ fn fold_pending(value: &mut Value) {
 }
 
 // The work item parked on ruling `named`, of `issue` when the ruling names it.
-fn parked_on<'a>(
-    state: &'a mut Map<String, Value>,
+fn parked_on(
+    state: &mut Map<String, Value>,
     named: Option<TicketId>,
     issue: Option<TicketId>,
-) -> Option<&'a mut Map<String, Value>> {
+) -> Option<&mut Map<String, Value>> {
     let parked = |item: &Map<String, Value>| {
         let on = item.get("phase").is_some_and(|phase| {
             phase.get("state").and_then(Value::as_str) == Some("ruling")

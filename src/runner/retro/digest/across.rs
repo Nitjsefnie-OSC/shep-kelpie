@@ -12,7 +12,7 @@ use crate::ticket::TicketId;
 /// The section, with a line for each of the four
 pub(super) fn section(out: &mut String, records: &Records<'_>) {
     let items: Vec<(TicketId, Vec<&Stamped>)> = (records.batch.iter())
-        .filter_map(|f| Some((f.issue, mine(records, f))))
+        .map(|f| (f.issue, mine(records, f)))
         .collect();
     let _ = writeln!(out, "## Across the batch");
     conflicts(out, &items);

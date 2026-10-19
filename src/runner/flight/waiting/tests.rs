@@ -48,7 +48,8 @@ fn queued(rig: &Rig, then: Scripted) -> Hold {
 fn item(rig: &Rig, runner: &Mutex<Runner>, issue: u64) -> Value {
     let status = rig.ask(runner, "status", None);
     let items = status["work_items"].as_array().unwrap();
-    let found = items.iter().find(|i| i["issue"] == issue.to_string());
+    let named = issue.to_string();
+    let found = items.iter().find(|i| i["issue"] == named);
     found.expect("the work item is open").clone()
 }
 

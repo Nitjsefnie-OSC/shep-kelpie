@@ -182,10 +182,10 @@ impl Runner {
         }
         let opened = self.with_browser(call);
         let written = (self.ports.agents.prepare(call)).map_err(|e| e.to_string());
-        if written.is_err() {
-            if let Some(ticket) = ticket_of(call) {
-                drop(self.opened.take(ticket));
-            }
+        if written.is_err()
+            && let Some(ticket) = ticket_of(call)
+        {
+            drop(self.opened.take(ticket));
         }
         opened.and(written)
     }

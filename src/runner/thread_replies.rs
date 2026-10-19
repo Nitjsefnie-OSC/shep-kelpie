@@ -562,9 +562,8 @@ impl Runner {
             Aimed::Elsewhere(id, there) => {
                 let number = self.ruling_number(id);
                 let said = format!(
-                    "@{who} Ruling {} waits on {}, so answer it there.",
-                    number.shown(),
-                    format!("#{there}")
+                    "@{who} Ruling {} waits on #{there}, so answer it there.",
+                    number.shown()
                 );
                 self.say(thread, &said);
             }

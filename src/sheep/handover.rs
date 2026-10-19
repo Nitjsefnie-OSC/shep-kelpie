@@ -157,7 +157,7 @@ impl State for Carry {
     // turn's issue number where this build carries a ticket id, which the
     // alias on `CarriedTurn::ticket` reads.
     fn reads(format: u32) -> bool {
-        matches!(format, 4 | 5 | 6)
+        matches!(format, 4..=6)
     }
 }
 
