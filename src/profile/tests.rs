@@ -711,3 +711,20 @@ fn the_instructions_never_mention_money_or_limits() {
         assert!(!text.contains(word), "the instructions mention {word:?}");
     }
 }
+
+// A worker that opens its own pull request is told the base, since `gh` would
+// otherwise open it against the repo's default branch.
+#[test]
+fn a_worker_that_opens_its_own_pull_request_is_told_to_open_it_against_the_base() {
+    let kelpie = Path::new("/bin/kelpie");
+    let on_next = instructions_for(kelpie, None, true, "next");
+    assert!(
+        on_next.contains("`gh pr create --draft --base next`"),
+        "{on_next}"
+    );
+    let default = instructions(kelpie, None);
+    assert!(
+        default.contains("`gh pr create --draft --base main`"),
+        "{default}"
+    );
+}
