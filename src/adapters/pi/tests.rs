@@ -90,6 +90,16 @@ fn a_pi_call_s_zsh_makes_its_heredoc_files_in_the_call_s_scratch_folder() {
 }
 
 #[test]
+fn the_guard_extension_names_the_base_branch_only_when_it_is_not_the_default() {
+    let w = World::new();
+    let mut call = w.fenced(URL, Path::new("/k/kelpie"), Session::New(id(WORKER_ID)));
+    let fence = call.reach.fence.as_mut().unwrap();
+    assert!(!guard_extension(fence, false).contains("--base="));
+    fence.guard.base = "v2".to_owned();
+    assert!(guard_extension(fence, false).contains("--base=v2"));
+}
+
+#[test]
 fn a_new_worker_session_carries_its_model_tools_and_guard() {
     let w = World::new();
     let mut call = w.fenced(URL, Path::new("/k/kelpie"), Session::New(id(WORKER_ID)));
@@ -896,6 +906,7 @@ impl World {
             git_common_dir: &git,
             git_dir: &git,
             branch: "kelpie/7",
+            base: "main",
             kelpie,
             kelpie_home: &self.path("kelpie"),
             repo: &self.path("repo"),

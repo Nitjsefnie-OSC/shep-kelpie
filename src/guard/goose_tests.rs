@@ -52,6 +52,7 @@ impl Worker {
         let checkout = Checkout {
             git_common_dir: Path::new("/nowhere"),
             worktree: self.worktree.path(),
+            base: "main",
         };
         judge_goose(
             payload,
@@ -83,6 +84,7 @@ impl Worker {
         let checkout = Checkout {
             git_common_dir: Path::new("/nowhere"),
             worktree: self.worktree.path(),
+            base: "main",
         };
         crate::guard::judge(
             call.to_string().as_bytes(),

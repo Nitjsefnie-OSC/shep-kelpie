@@ -128,6 +128,26 @@ fn a_new_worker_session_loads_nothing_of_the_maintainers_and_runs_kelpies_checks
 }
 
 #[test]
+fn the_guard_is_told_the_base_branch_only_when_it_is_not_the_default() {
+    let w = World::new();
+    let guard_command = |base: &str| {
+        let mut call = w.fenced(Path::new("/k/kelpie"), Session::New(id(WORKER_ID)));
+        call.reach.fence.as_mut().unwrap().guard.base = base.to_owned();
+        let argv = strings(&call, None, None);
+        let hooks = argv
+            .iter()
+            .find_map(|a| a.strip_prefix("hooks.PreToolUse="));
+        let hooks: toml::Value = toml::from_str(&format!("h = {}", hooks.unwrap())).unwrap();
+        hooks["h"][1]["hooks"][0]["command"]
+            .as_str()
+            .unwrap()
+            .to_owned()
+    };
+    assert!(guard_command("v2").contains(" '--base=v2'"));
+    assert!(!guard_command("main").contains("--base"));
+}
+
+#[test]
 fn a_resumed_session_names_codexs_own_id_after_the_options() {
     let w = World::new();
     let mut call = w.fenced(Path::new("/k/kelpie"), Session::Resume(id(WORKER_ID)));
@@ -773,6 +793,7 @@ fn worker_in(wt: &Path, build: &Path, kelpie: &Path, root: &Path, call: AgentCal
         git_common_dir: &git,
         git_dir: &git,
         branch: "kelpie/34",
+        base: "main",
         kelpie,
         kelpie_home: &root.join("kelpie"),
         repo: &root.join("repo"),

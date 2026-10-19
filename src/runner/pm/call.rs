@@ -189,6 +189,7 @@ impl Runner {
                     worktree: folder.clone(),
                     build: folder.clone(),
                     git_common_dir: folder,
+                    base: self.settings.git.base().to_owned(),
                     folders: vec![kelpie.clone(), self.settings.git.checkout.clone()],
                     issues: None,
                     hooks: Hooks::default(),

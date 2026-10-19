@@ -33,7 +33,7 @@ use serde_json::{Value, json};
 
 use crate::metrics::{Feature, Recorder};
 use crate::settings::{HookPoint, ProjectHook};
-use crate::worktree::{BASE, WorktreeError};
+use crate::worktree::WorktreeError;
 
 /// How long a hook may run before it is killed and counts as failed
 pub const TIMEOUT: Duration = Duration::from_secs(30);
@@ -365,9 +365,10 @@ const PLAIN: [&str; 4] = [
 pub(crate) fn commits_past_base(
     run: &dyn Fn(&[&str]) -> Result<String, WorktreeError>,
     source: &str,
+    base: &str,
 ) -> Result<Option<Value>, WorktreeError> {
-    let base = format!("refs/remotes/origin/{BASE}");
-    let log = run(&["log", "--format=%H%x1f%B%x1e", source, "--not", &base])?;
+    let tip = format!("refs/remotes/origin/{base}");
+    let log = run(&["log", "--format=%H%x1f%B%x1e", source, "--not", &tip])?;
     let commits: Vec<Value> = log
         .split('\x1e')
         .filter_map(|entry| {
@@ -378,13 +379,13 @@ pub(crate) fn commits_past_base(
     if commits.is_empty() {
         return Ok(None);
     }
-    let patch = ["log", "-p", "--format=", source, "--not", &base];
+    let patch = ["log", "-p", "--format=", source, "--not", &tip];
     let diff = run(&[&patch[..], &PLAIN].concat())?;
     let head = run(&["rev-parse", source])?.trim().to_owned();
-    let base = run(&["rev-parse", &base])?.trim().to_owned();
+    let base_sha = run(&["rev-parse", &tip])?.trim().to_owned();
     Ok(Some(json!({
-        "range": format!("{base}..{head}"),
-        "base": base,
+        "range": format!("{base_sha}..{head}"),
+        "base": base_sha,
         "head": head,
         "commits": commits,
         "diff": diff,

@@ -293,6 +293,7 @@ fn reach(
             worktree: checkout.to_owned(),
             build: checkout.to_owned(),
             git_common_dir: PathBuf::from(common),
+            base: settings.git.base().to_owned(),
             folders: vec![paths.kelpie_home.clone(), settings.git.checkout.clone()],
             issues: Some(rules),
             hooks: Hooks::new(

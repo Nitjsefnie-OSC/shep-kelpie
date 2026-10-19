@@ -213,6 +213,7 @@ fn guarded(fence: &crate::ports::Fence, command: &str) -> Verdict {
     let checkout = Checkout {
         git_common_dir: &guard.git_common_dir,
         worktree: &guard.worktree,
+        base: "main",
     };
     judge_with(
         call.to_string().as_bytes(),

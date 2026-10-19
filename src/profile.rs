@@ -16,7 +16,6 @@ use crate::hooks::Hooks;
 use crate::lease::door;
 use crate::ports::{Fence, Guard, Reach};
 use crate::settings::{BuildDir, EnvName, GuardHook, NonBlank};
-use crate::worktree::BASE;
 
 mod housekeeping;
 mod login;
@@ -197,6 +196,8 @@ pub struct WorkerProfile<'a> {
     pub git_dir: &'a Path,
     /// The work item's branch
     pub branch: &'a str,
+    /// The project's base branch, which the worker may not write or push to
+    pub base: &'a str,
     /// The kelpie binary, which runs kelpie's own checks
     pub kelpie: &'a Path,
     /// Kelpie's home, whose path the guard keeps off the forge
@@ -248,7 +249,7 @@ impl WorkerProfile<'_> {
         let no_write: Vec<PathBuf> = GIT_DENY
             .iter()
             .map(|p| git(p))
-            .chain([git("refs/heads").join(BASE)])
+            .chain([git("refs/heads").join(self.base)])
             .chain(fence::deny_write(self.worktree))
             .collect();
         // Kelpie's home is the shepherd's too unless `KELPIE_HOME` puts it elsewhere.
@@ -272,7 +273,7 @@ impl WorkerProfile<'_> {
             .chain(&GH_DENY)
             .chain(self.token.iter().flat_map(|_| &KEYCHAIN_COMMANDS))
             .map(|&c| c.to_owned())
-            .chain(push_to_base())
+            .chain(push_to_base(self.base))
             .chain(PUSH_FLAGS.iter().map(|&c| c.to_owned()))
             .collect();
         let hosts = GITHUB
@@ -295,6 +296,7 @@ impl WorkerProfile<'_> {
                 worktree: self.worktree.to_owned(),
                 build: self.build.to_owned(),
                 git_common_dir: self.git_common_dir.to_owned(),
+                base: self.base.to_owned(),
                 folders: vec![self.kelpie_home.to_owned(), self.repo.to_owned()],
                 issues: None,
                 hooks: Hooks::default(),
@@ -344,10 +346,10 @@ impl WorkerProfile<'_> {
 // Pushes that name the branch kelpie cuts from, as `origin main`,
 // `HEAD:main` or `refs/heads/main`. A repo without branch protection
 // would otherwise take them. The guard reads every spelling; these are its backup.
-fn push_to_base() -> impl Iterator<Item = String> {
+fn push_to_base(base: &str) -> impl Iterator<Item = String> {
     [" {b}", " {b} *", ":{b}*", "/{b}*"]
         .into_iter()
-        .map(|p| format!("git push *{}", p.replace("{b}", BASE)))
+        .map(move |p| format!("git push *{}", p.replace("{b}", base)))
 }
 
 fn with_suffix(path: &Path, suffix: &str) -> PathBuf {

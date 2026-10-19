@@ -205,6 +205,7 @@ fn command(guard: &Guard, judging: Judging<'_>, servers: &[String]) -> String {
     .into_iter()
     .chain(folders)
     .chain(guard.hooks.flag().map(|flag| shell_quote(&flag)))
+    .chain(guard.base_flag().map(|flag| shell_quote(&flag)))
     .chain([shell_quote(&format!(
         "{GOOSE_FLAG}{}",
         guard.build.display()

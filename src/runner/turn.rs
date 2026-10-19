@@ -657,6 +657,7 @@ impl Runner {
             git_common_dir: &dirs.git_common_dir,
             git_dir: &dirs.git_dir,
             branch: &item.branch,
+            base: self.settings.git.base(),
             kelpie: &self.kelpie,
             guard_hooks: &self.settings.worker.guard_hooks,
             kelpie_home: &self.paths.kelpie_home,
