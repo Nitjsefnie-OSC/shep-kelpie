@@ -295,7 +295,8 @@ fn unrecorded(calls: &[&CallLine], recorded: &BTreeSet<TicketId>) -> Vec<String>
         let dollars = calls.iter().filter_map(|call| call.cost_usd).sum();
         let unpriced = calls.iter().filter(|call| call.unpriced).count();
         out.push(format!(
-            "  #{issue}{pr}: {}, {} units, {}{}",
+            "  {}{pr}: {}, {} units, {}{}",
+            issue.shown(),
             count(calls.len(), "call"),
             thousands(units),
             money(dollars),
