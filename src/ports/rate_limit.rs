@@ -25,6 +25,8 @@ mod app_reads;
 pub use app_reads::{AppForges, AppReads, Reading};
 use app_reads::{AppReader, Read};
 
+mod tickets;
+
 /// How long a hold lasts when the forge cannot say when its limit resets
 pub(super) const FALLBACK: u64 = 10 * 60;
 
