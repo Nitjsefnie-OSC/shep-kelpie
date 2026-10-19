@@ -99,6 +99,8 @@ pub(crate) struct FakeForge {
     // The files of the repos a test filled, by lowercase slug and then path
     files: Arc<Mutex<HashMap<String, BTreeMap<String, String>>>>,
     repo_labels: Arc<Mutex<Vec<String>>>,
+    // Each write to the repo's labels or issues, such as `label made: in-progress`
+    issue_writes: Arc<Mutex<Vec<String>>>,
     pushes: Arc<AtomicBool>,
     bot_seen: Arc<AtomicBool>,
     viewer_down: Arc<Mutex<Option<ForgeError>>>,
@@ -188,6 +190,7 @@ impl FakeForge {
             default_branch: Arc::new(Mutex::new("main".to_owned())),
             files: Arc::default(),
             repo_labels: Arc::default(),
+            issue_writes: Arc::default(),
             pushes: Arc::new(AtomicBool::new(true)),
             bot_seen: Arc::new(AtomicBool::new(true)),
             viewer_down: Arc::default(),
@@ -289,6 +292,16 @@ impl FakeForge {
     /// Makes changing a pull request's or an issue's labels fail, or work again
     pub(crate) fn set_labels_down(&self, down: bool) {
         self.labels_down.store(down, Ordering::SeqCst);
+    }
+
+    /// Every write to the repo's labels or issues, oldest first: a label made,
+    /// an issue opened, closed or labelled
+    pub(crate) fn issue_writes(&self) -> Vec<String> {
+        self.issue_writes.lock().unwrap().clone()
+    }
+
+    pub(super) fn wrote(&self, write: String) {
+        self.issue_writes.lock().unwrap().push(write);
     }
 
     /// Every comment posted, oldest first, with its pull request
@@ -395,6 +408,7 @@ impl Forge for FakeForge {
 
     fn create_label(&self, _repo: &ForgeSlug, label: &NewLabel) -> Result<(), ForgeError> {
         self.ask()?;
+        self.wrote(format!("label made: {}", label.name));
         let mut labels = self.repo_labels.lock().unwrap();
         if labels.iter().any(|l| l == label.name) {
             return Err(ForgeError::Failed(format!(

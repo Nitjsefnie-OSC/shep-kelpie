@@ -41,6 +41,9 @@ impl Settings {
             .triage
             .check()
             .map_err(|e| refused(e.to_string()))?;
+        settings
+            .check_tickets()
+            .map_err(|e| refused(e.to_string()))?;
         settings.expand(home);
         settings.relative_to(folder);
         Ok(settings)

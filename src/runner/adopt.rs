@@ -89,6 +89,9 @@ pub enum AdoptError {
     Unlabel(u64, String, ForgeError),
     /// `finish` holds the board back, so nothing new is taken on
     Finishing,
+    /// The project's tickets are local, and an adopted pull request closes a
+    /// GitHub issue
+    LocalStore,
     /// The change could not be saved
     State(StateError),
 }
@@ -135,6 +138,10 @@ impl fmt::Display for AdoptError {
                 write!(f, "cannot take the `{label}` label off #{number}: {e}")
             }
             Self::Finishing => f.write_str(super::finishing::NOTHING_NEW),
+            Self::LocalStore => f.write_str(
+                "adoption needs GitHub issues, and this project's tickets are local \
+                 (`tickets.source = \"local\"`)",
+            ),
             Self::State(e) => e.fmt(f),
         }
     }
@@ -173,6 +180,9 @@ impl Runner {
     pub fn adopt(&mut self, number: u64) -> Result<(), AdoptError> {
         if !self.picks() {
             return Err(AdoptError::Finishing);
+        }
+        if self.local_store() {
+            return Err(AdoptError::LocalStore);
         }
         let in_flight = self
             .state
@@ -215,6 +225,20 @@ impl Runner {
         open: &[OpenPullRequest],
     ) -> Result<(Option<Begin>, Vec<Skip>), StateError> {
         let mut skipped = Vec::new();
+        // A queue saved before the project moved to the local store is let go,
+        // since an adopted pull request closes a GitHub issue.
+        if self.local_store() {
+            for waiting in self
+                .state
+                .adopted
+                .iter()
+                .map(|w| w.pull_request)
+                .collect::<Vec<_>>()
+            {
+                self.let_go(waiting)?;
+            }
+            return Ok((None, skipped));
+        }
         if let Some(mut labelled) = self.labelled_for_adoption(open) {
             labelled.sort_unstable();
             let mut next = self.state.clone();
@@ -336,8 +360,12 @@ impl Runner {
     // The labelled pull requests whose branch isn't `kelpie/N` that adoption
     // queues. A labelled pull request of someone else's, a draft included, is
     // left to the contributions, and when the logins that tell one cannot be
-    // read there is no answer, so the queue stays as it is.
+    // read there is no answer, so the queue stays as it is. On the local store
+    // there is none, since an adopted pull request closes a GitHub issue.
     fn labelled_for_adoption(&mut self, open: &[OpenPullRequest]) -> Option<Vec<u64>> {
+        if self.local_store() {
+            return None;
+        }
         let own = match self.settings.contributions.is_off() {
             true => None,
             false => Some(self.own_logins().ok()?),

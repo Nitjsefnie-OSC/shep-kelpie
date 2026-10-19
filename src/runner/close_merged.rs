@@ -19,6 +19,12 @@ fn merged_without_closing(pull_request: u64) -> String {
     format!("Pull request #{pull_request} merged without closing this issue, so kelpie closes it.")
 }
 
+/// What kelpie says on a local ticket it closes after its pull request merged,
+/// which names no ticket for the forge to close
+fn merged_local(pull_request: u64) -> String {
+    format!("Pull request #{pull_request} merged, so kelpie closes this ticket.")
+}
+
 /// What kelpie says on a parent it closes after the pull request that closed
 /// its last open sub-issue merged
 fn last_sub_issue_merged(pull_request: u64) -> String {
@@ -75,7 +81,8 @@ impl Runner {
         self.close_after_merge(ticket, pull_request)
     }
 
-    // Closes a local ticket that is still open after `pull_request` merged
+    // Closes a local ticket that is still open after `pull_request` merged, with
+    // a note on the ticket, on the first try only
     fn close_local(&mut self, ticket: TicketId, pull_request: u64) -> Option<String> {
         match self.ports.tickets.issue(&self.remote, ticket) {
             Ok(read) if !read.open => {
@@ -90,6 +97,14 @@ impl Runner {
                 ));
                 return None;
             }
+        }
+        if !self.close_refused.contains_key(&ticket)
+            && let Err(e) = self.comment_on_ticket(ticket, &merged_local(pull_request))
+        {
+            self.notes.push(format!(
+                "cannot comment on {} before closing it: {e}",
+                super::turn::ticket_name(ticket)
+            ));
         }
         self.close_after_merge(ticket, pull_request)
     }
@@ -170,11 +185,10 @@ impl Runner {
         if !(done && built) {
             return;
         }
-        if let Some(issue) = parent.github()
-            && let Err(e) = self.comment_on_issue(issue, &last_sub_issue_merged(pull_request))
-        {
+        if let Err(e) = self.comment_on_ticket(parent, &last_sub_issue_merged(pull_request)) {
             self.notes.push(format!(
-                "cannot comment on issue #{parent} before closing it: {e}"
+                "cannot comment on {} before closing it: {e}",
+                super::turn::ticket_name(parent)
             ));
         }
         if let Err(e) = self.ports.tickets.close_issue(&self.remote, parent) {

@@ -3,6 +3,8 @@
 use schemars::JsonSchema;
 use serde::Deserialize;
 
+use super::{Settings, SettingsError};
+
 /// Where a project's tickets live
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, JsonSchema)]
 #[serde(rename_all = "kebab-case")]
@@ -36,6 +38,28 @@ pub struct Tickets {
     /// pull request merges. `github` when absent.
     #[serde(default)]
     pub source: TicketSource,
+}
+
+impl Settings {
+    /// Refuses a project whose tickets are local and whose triage is on
+    ///
+    /// Triage reads and answers issues other people open on GitHub, and a
+    /// project on the local store writes nothing to its repo but pull requests.
+    ///
+    /// # Errors
+    ///
+    /// [`SettingsError::Invalid`] naming `triage.pick`.
+    pub fn check_tickets(&self) -> Result<(), SettingsError> {
+        match (self.tickets.source, self.triage.is_off()) {
+            (TicketSource::Local, false) => Err(SettingsError::Invalid {
+                setting: "triage.pick",
+                reason: "triage reads GitHub issues, and this project's tickets are local \
+                         (`tickets.source = \"local\"`): set it to `off`"
+                    .to_owned(),
+            }),
+            _ => Ok(()),
+        }
+    }
 }
 
 #[cfg(test)]

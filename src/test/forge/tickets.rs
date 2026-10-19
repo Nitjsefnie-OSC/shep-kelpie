@@ -138,6 +138,7 @@ impl Tickets for FakeForge {
             }
             *left -= 1;
         }
+        self.wrote(format!("issue opened: {title}"));
         let mut created = self.created.lock().unwrap();
         let number = 900 + created.len() as u64;
         created.push(CreatedIssue {
@@ -165,6 +166,7 @@ impl Tickets for FakeForge {
             self.closes_refused.fetch_add(1, Ordering::SeqCst);
             return Err(ForgeError::Failed("closing is refused".into()));
         }
+        self.wrote(format!("issue closed: #{number}"));
         self.closed.lock().unwrap().insert(number);
         self.closings.lock().unwrap().push(number);
         Ok(())
@@ -183,6 +185,7 @@ impl Tickets for FakeForge {
             self.closes_refused.fetch_add(1, Ordering::SeqCst);
             return Err(ForgeError::Failed("closing is refused".into()));
         }
+        self.wrote(format!("issue closed: #{number}"));
         self.closed.lock().unwrap().insert(number);
         self.closings.lock().unwrap().push(number);
         self.closed_as.lock().unwrap().insert(number, reason);
@@ -201,6 +204,7 @@ impl Tickets for FakeForge {
         if self.labels_down.load(Ordering::SeqCst) {
             return Err(ForgeError::Failed("labels are down".into()));
         }
+        self.wrote(format!("label {label} on #{number}: {on}"));
         let mut labels = self.labels.lock().unwrap();
         let on_issue = labels.entry(number).or_default();
         on_issue.retain(|l| l != label);

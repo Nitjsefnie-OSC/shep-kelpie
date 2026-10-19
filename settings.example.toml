@@ -450,7 +450,10 @@ compact_window = 200000
 # of kelpie's home, which `shep kelpie ticket new|list|show|edit|close` files and
 # reads: a ticket's id is `k` and a counter (`k1`), its branch is `kelpie/k1`,
 # its pull request has no `Resolves` line, and kelpie closes it when the pull
-# request merges.
+# request merges. A project on `local` writes nothing to its repo but the
+# branch and the pull request with its comments: it makes no label, comments
+# on its tickets in the store, has no triage (`triage.pick` must be `off`), and
+# refuses `adopt`.
 [app.dogs.kelpie.tickets]
 source = "github"
 

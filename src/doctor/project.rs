@@ -115,6 +115,12 @@ pub(super) fn checks(
     };
     let (line, remote) = checkout(at("checkout"), &settings);
     let mut lines = vec![line, tickets(at("tickets"), &settings, &paths)];
+    if settings.tickets.source == TicketSource::Local {
+        lines.push(Line::ok(
+            at("repo writes"),
+            "the branch, the pull request and its comments, and nothing else",
+        ));
+    }
     lines.extend(super::ci::drafts(at("ci on drafts"), &settings));
     if settings.worker.instructions_file.is_some() {
         lines.push(instructions(at("instructions"), &settings));

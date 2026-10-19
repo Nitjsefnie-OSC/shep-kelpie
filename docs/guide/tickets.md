@@ -31,9 +31,19 @@ A ticket is a markdown file, `<kelpie home>/<project>/tickets/k1.md`. Its title,
 
 - `ready-for-agent`, `priority:` and `agent:` labels, blocked-by and parents work as they do on GitHub. A ticket blocked by an open ticket waits until the blocker closes, and a blocker the store does not hold counts as open.
 - The worker's branch is `kelpie/k1`, and its prompt carries the ticket's text rather than telling it to fetch one.
-- Its pull request has no `Resolves` line. Kelpie closes the ticket when the pull request merges, and says nothing on GitHub.
-- A ticket with no `agent:` label goes to the project's default implementer.
+- Its pull request has no `Resolves` line. Kelpie closes the ticket when the pull request merges, with a note on the ticket and nothing on GitHub.
+- A ticket with no `agent:` label goes to the project's default implementer. The issue writer is not asked to pick.
 - `shep kelpie issue` files local tickets, `ticket new` in the store, and a finding a merged work item deferred becomes a local ticket labelled `needs-triage`, or a comment on an open ticket that already holds it. Label one `ready-for-agent` with `ticket edit` to put it on the board.
-- `doctor` prints a `tickets` line: the source, and for `local` how many tickets the store holds.
+- `doctor` prints a `tickets` line: the source, and for `local` how many tickets the store holds, then a `repo writes` line listing what kelpie still writes to the repo: the branch, the pull request and its comments.
 
-Not here yet: keeping every other file out of the repo. Triage, adoption and contributions stay on GitHub's issues and pull requests.
+## What it leaves out of the repo
+
+A project on `local` writes nothing to its repo but the branch and the pull request with its comments.
+
+- No `in-progress` or `agent:` label is made on the repo or put on an issue.
+- What kelpie would say on an issue goes on the local ticket: a ruling raised before there is a pull request, and the note when it closes a ticket or a parent.
+- A dependency bump that goes red is closed with a comment on its pull request, and a local ticket is filed for it.
+- Triage does not run: `triage.pick` must be `off`, and a settings table that turns it on is refused.
+- `adopt` is refused, and a pull request labelled `ready-for-agent` is not adopted: adoption needs GitHub issues.
+
+Contributions stay on GitHub's pull requests.

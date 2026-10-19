@@ -5,11 +5,13 @@
 //! reader of GitHub can see a worker has the issue. The label is a courtesy:
 //! a forge that refuses it leaves a note and never stops the work item.
 //! Each listed implementer's `agent:` label is made where the repo lacks it.
+//! A project on the local store does neither.
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use super::Runner;
+use crate::settings::TicketSource;
 use crate::ticket::TicketId;
 
 /// The label on an issue while a work item holds it
@@ -26,10 +28,18 @@ pub(super) fn main_fetch_key(ticket: TicketId) -> String {
 }
 
 impl Runner {
+    /// Whether the project takes its tickets from the local store, and so
+    /// writes nothing to its repo but the branch and the pull request
+    pub(super) fn local_store(&self) -> bool {
+        self.settings.tickets.source == TicketSource::Local
+    }
+
     // Labels `ticket`'s issue as held, or takes the label off, and notes a
-    // refusal. Only a GitHub ticket has an issue to label.
+    // refusal. Only a GitHub ticket has an issue to label, and a project on the
+    // local store puts no label on its repo's issues. It still takes one off,
+    // for an issue held before the project changed its source.
     pub(super) fn mark_held(&mut self, ticket: TicketId, held: bool) {
-        let Some(issue) = ticket.github() else {
+        let Some(issue) = ticket.github().filter(|_| !(held && self.local_store())) else {
             return;
         };
         if let Err(e) = self.label_issue(issue, IN_PROGRESS, held) {
@@ -60,7 +70,12 @@ impl Runner {
 
     // Makes each listed implementer's `agent:` label the repo lacks. Only
     // adds: removing a label would strip it from every issue, closed ones too.
+    // A local ticket carries its `agent:` label in the store, so a project on
+    // the local store makes none on the repo.
     pub(super) fn make_agent_labels(&mut self) {
+        if self.local_store() {
+            return;
+        }
         let labels = crate::issues::agent_labels(&self.agents);
         let wanted = labels.iter().map(crate::issues::AgentLabel::new_label);
         let made = self.make_missing_labels(wanted);
