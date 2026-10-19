@@ -61,7 +61,7 @@ impl Runner {
     /// count of sub-issues changes, or an hour on. A read that fails is told
     /// in the log.
     fn unlisted_done_parent(&mut self, ready: &[ReadyIssue]) -> Option<u64> {
-        let listed = match (self.ports.forge).finished_parents(&self.remote) {
+        let listed = match self.ports.tickets.finished_parents(&self.remote) {
             Ok(listed) => listed,
             Err(e) => {
                 self.notes.push(format!(
@@ -83,7 +83,7 @@ impl Runner {
             if held || !self.may_close(number) {
                 continue;
             }
-            match (self.ports.forge).sub_issues(&self.remote, number) {
+            match self.ports.tickets.sub_issues(&self.remote, number) {
                 // The listing can be stale, so every sub-issue is checked closed here.
                 Ok(subs) if subs.iter().any(|s| s.state == SubIssueState::Open) => {}
                 Ok(subs) if subs.iter().any(|s| s.state == SubIssueState::Completed) => {

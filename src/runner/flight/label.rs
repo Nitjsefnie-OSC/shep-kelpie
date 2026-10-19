@@ -182,7 +182,7 @@ impl Runner {
             return Ok(None);
         }
         // A label put on by hand while the call ran stands, valid or not.
-        if let Ok(found) = self.ports.forge.issue(&self.remote, issue)
+        if let Ok(found) = self.ports.tickets.issue(&self.remote, issue)
             && let Some(label) = (found.labels.iter()).find(|l| is_agent_label(l))
         {
             self.notes.push(format!(

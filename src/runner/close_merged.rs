@@ -41,7 +41,7 @@ impl Runner {
         if named.is_ok_and(|pr| pr.closes.contains(&issue)) {
             return None;
         }
-        match (self.ports.forge).issue(&self.remote, issue) {
+        match self.ports.tickets.issue(&self.remote, issue) {
             Ok(read) if !read.open => {
                 self.close_refused.remove(&issue);
                 return None;
@@ -87,7 +87,7 @@ impl Runner {
     /// merge. Only the parent is closed: a grandparent waits
     /// for its own next merge. A read or a close that fails is told in the log.
     pub(super) fn close_done_parent_of(&mut self, issue: u64, pull_request: u64) {
-        let parent = match (self.ports.forge).issue(&self.remote, issue) {
+        let parent = match self.ports.tickets.issue(&self.remote, issue) {
             Ok(read) => read.parent,
             Err(e) => {
                 self.notes.push(format!(
@@ -97,7 +97,7 @@ impl Runner {
             }
         };
         let Some(parent) = parent else { return };
-        match (self.ports.forge).issue(&self.remote, parent) {
+        match self.ports.tickets.issue(&self.remote, parent) {
             Ok(read) if !read.open => return,
             Ok(_) => {}
             Err(e) => {
@@ -107,7 +107,7 @@ impl Runner {
                 return;
             }
         }
-        let subs = match (self.ports.forge).sub_issues(&self.remote, parent) {
+        let subs = match self.ports.tickets.sub_issues(&self.remote, parent) {
             Ok(subs) => subs,
             Err(e) => {
                 self.notes.push(format!(

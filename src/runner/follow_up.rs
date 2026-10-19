@@ -104,7 +104,7 @@ impl Runner {
         // READY is on every repo `add` set up, so only TRIAGE may need making.
         let mut labelled = triaged;
         let repo = self.remote.clone();
-        let mut open = match self.ports.forge.open_issues(&repo) {
+        let mut open = match self.ports.tickets.open_issues(&repo) {
             Ok(open) => open,
             Err(e) => {
                 return self.forge_refused(number, format!("cannot list the open issues: {e}"));

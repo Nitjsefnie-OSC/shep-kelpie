@@ -162,6 +162,7 @@ impl Runner {
     // The issue's and the pull request's threads, each a file's name and text.
     fn threads_text(&self, issue: Option<u64>, pull_request: Option<u64>) -> Vec<(String, String)> {
         let forge = &self.ports.forge;
+        let tickets = &self.ports.tickets;
         let mut files = Vec::new();
         let now = self.ports.clock.now();
         let since = crate::ports::Timestamp(now.0.saturating_sub(THREADS_BACK));
@@ -193,7 +194,7 @@ impl Runner {
         };
         let mut pieces = Vec::new();
         if let Some(n) = issue {
-            let heading = match forge.issue(&self.remote, n) {
+            let heading = match tickets.issue(&self.remote, n) {
                 Ok(found) => format!(
                     "Issue #{n}: {}\n\n{}",
                     found.title,
