@@ -50,7 +50,7 @@ mod tests {
 
     fn call(role: Role, tools: Tools, settings: &Path, reach: Reach) -> AgentCall {
         AgentCall {
-            issue: 7,
+            issue: crate::ticket::TicketId::from_issue(7),
             settings: settings.to_owned(),
             reach,
             ..AgentCall::new(

@@ -353,33 +353,25 @@ fn a_project_without_the_browser_counts_no_browser_runs() {
     }
 }
 
-// `add` refuses a local ticket today, so the item is put on one by hand. Its
-// call names no GitHub number, and the bridge, its socket name and the session
-// note all hang off the ticket the call names.
 #[test]
-fn a_worker_turn_on_a_local_ticket_runs_with_no_browser_and_is_told_of_none() {
-    let rig = Rig::new("shep");
+fn a_worker_turn_on_a_local_ticket_with_the_browser_on_gets_a_socket_and_is_told_its_hosts() {
+    let rig = Rig::new("koji");
+    rig.tickets_local();
+    rig.ticket_verb(&["new", "Add a thing", "--label", "ready-for-agent"]);
     turn_on(&rig);
     install(&rig);
     let runner = rig.open().unwrap();
-    rig.ask(&runner, "add", Some("7"));
     rig.claude.script([Scripted::Push("work.txt", "work\n")]);
-    step(&runner).unwrap();
-    let runner = runner.lock().unwrap();
-    let mut item = runner.current().expect("an item").clone();
-    item.issue = "k12".parse().unwrap();
-    let session = Session::New(crate::work_item::new_session_id().unwrap());
-    let call = runner
-        .prepare(&item, session, Some("work on it".into()))
-        .unwrap();
-    assert_eq!(
-        call.issue, 0,
-        "a local ticket's call names no GitHub number"
-    );
-    assert_eq!(call.reach.browser, None);
-    let told = fs::read_to_string(call.instructions.unwrap()).unwrap();
-    assert!(!told.contains("playwright"), "{told}");
-    assert!(!told.contains("app.example.com"), "{told}");
-    // No folder was made for a ticket no call named.
-    assert!(!rig.paths().browser("k12".parse().unwrap()).exists());
+    step(&runner).unwrap(); // dispatches k1
+    step(&runner).unwrap(); // the worker's first turn
+
+    let seen = rig.claude.all_seen();
+    let worker = seen.iter().find(|s| s.call.role == Role::Worker).unwrap();
+    assert_eq!(worker.call.issue, Some("k1".parse().unwrap()));
+    let browser = worker.call.reach.browser.as_ref().expect("a browser");
+    assert_eq!(browser.socket.parent(), Some(rig.paths().worker.as_path()));
+    let told = instructions_of(worker);
+    assert!(told.contains("`app.example.com`"), "{told}");
+    assert!(told.contains("`playwright` MCP server"), "{told}");
+    assert!(rig.paths().browser("k1".parse().unwrap()).exists());
 }

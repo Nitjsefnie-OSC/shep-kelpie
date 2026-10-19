@@ -585,9 +585,7 @@ impl Runner {
         let compact_window =
             NonZeroU32::new(self.settings.worker.compact_window).filter(|_| prompt != COMPACT);
         Ok(AgentCall {
-            // The adapters name a call's sandbox by its GitHub issue number. A
-            // local ticket has none, so its call carries 0.
-            issue: item.issue.github().unwrap_or(0),
+            issue: Some(item.issue),
             settings,
             instructions: Some(instructions),
             plugin_dirs: self.skills.plugin_dirs().to_vec(),

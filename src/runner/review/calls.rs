@@ -31,15 +31,7 @@ pub(super) fn reviewer_call(
     prompt: String,
     tests: Option<Reach>,
 ) -> Result<AgentCall, String> {
-    // The call's issue is the GitHub number a sandbox is named for; a local
-    // ticket has none, and its settings file is named by its id.
-    let mut call = build_call(
-        Role::Reviewer,
-        ticket.github().unwrap_or(0),
-        worktree,
-        model,
-        prompt,
-    )?;
+    let mut call = build_call(Role::Reviewer, Some(ticket), worktree, model, prompt)?;
     // Named for the work item, whose reviewer runs beside other items' calls.
     call.settings = worker_folder.join(format!("review-settings-{ticket}.json"));
     call.tools = Tools::Review;
@@ -61,7 +53,7 @@ pub(super) fn reviewer_call(
 // fence and no plugins unless the caller adds them, and the role and prompt.
 pub(in crate::runner) fn build_call(
     role: Role,
-    issue: u64,
+    issue: Option<TicketId>,
     worktree: &Path,
     model: &RoleModel,
     prompt: String,

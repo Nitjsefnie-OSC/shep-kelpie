@@ -8,7 +8,9 @@
 use std::io;
 use std::path::{Path, PathBuf};
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, de};
+
+use crate::ticket::TicketId;
 
 use crate::ports::{AgentCall, Ending, Flying, Role};
 
@@ -48,8 +50,10 @@ pub(crate) struct Record {
     /// The role the call is made for
     pub role: Role,
     /// The issue of the work item it is made for, and none for the project
-    /// manager's call
-    pub issue: Option<u64>,
+    /// manager's call. A record an older build wrote for a local ticket's call
+    /// says `0`, which reads as none.
+    #[serde(deserialize_with = "issue_or_zero")]
+    pub issue: Option<TicketId>,
     /// Where its stdout and stderr go
     pub stdout: PathBuf,
     pub stderr: PathBuf,
@@ -57,6 +61,14 @@ pub(crate) struct Record {
     pub ending: bool,
     /// What the runner noted of the call, if it noted any
     pub flying: Option<Flying>,
+}
+
+fn issue_or_zero<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<TicketId>, D::Error> {
+    let value = serde_json::Value::deserialize(deserializer)?;
+    if value == 0 {
+        return Ok(None);
+    }
+    Option::<TicketId>::deserialize(value).map_err(de::Error::custom)
 }
 
 impl Record {
@@ -87,7 +99,7 @@ impl Recorded {
             pid,
             pgid: pid,
             role: call.role,
-            issue: (call.role != Role::Pm).then_some(call.issue),
+            issue: call.issue.filter(|_| call.role != Role::Pm),
             stdout,
             stderr,
             ending: ending.asked(),
@@ -135,5 +147,31 @@ impl Recorded {
 impl Drop for Recorded {
     fn drop(&mut self) {
         let _ = std::fs::remove_file(&self.path);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn record_with(issue: &str) -> Record {
+        let json = format!(
+            r#"{{"pid":1,"pgid":1,"role":"worker","issue":{issue},"stdout":"o","stderr":"e","ending":false,"flying":null}}"#
+        );
+        serde_json::from_str(&json).unwrap()
+    }
+
+    #[test]
+    fn a_record_an_older_build_wrote_for_a_local_ticket_reads_with_no_issue() {
+        assert_eq!(record_with("0").issue, None);
+    }
+
+    #[test]
+    fn a_record_names_a_github_ticket_by_number_or_string_and_a_local_one_by_id() {
+        let seven = TicketId::from_issue(7);
+        assert_eq!(record_with("7").issue, seven);
+        assert_eq!(record_with(r#""7""#).issue, seven);
+        assert_eq!(record_with(r#""k1""#).issue, "k1".parse().ok());
+        assert_eq!(record_with("null").issue, None);
     }
 }

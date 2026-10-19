@@ -55,7 +55,14 @@ impl TurnHooks {
 
     // The payload fields every call shares.
     fn details(&self, call: &AgentCall) -> Value {
-        let issue = (call.role != Recipient::Pm).then_some(call.issue);
+        // A GitHub ticket is its number, as hooks have always read it.
+        let issue = call
+            .issue
+            .filter(|_| call.role != Recipient::Pm)
+            .map(|t| match t.github() {
+                Some(number) => json!(number),
+                None => json!(t.to_string()),
+            });
         json!({
             "issue": issue,
             "phase": self.phase,

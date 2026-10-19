@@ -3,7 +3,7 @@
 
 use std::sync::Mutex;
 
-use serde_json::json;
+use serde_json::{Value, json};
 
 use crate::board::Skip;
 use crate::local_tickets::LocalTickets;
@@ -162,6 +162,34 @@ fn a_label_put_on_a_github_issue_before_the_local_store_still_comes_off() {
 
     runner.mark_held(issue, false);
     assert!(rig.forge.issue_labels(12).is_empty());
+}
+
+#[test]
+fn a_worker_call_on_a_local_ticket_and_its_hook_payload_name_the_ticket() {
+    let (rig, runner) = filed("koji");
+    let record = rig.home.path().join("told");
+    let script = format!("cat >> {0}; echo >> {0}", record.display());
+    rig.hook("told.sh", &["turn_start"], &script);
+    drop(runner);
+    let runner = rig.open().unwrap();
+    rig.claude.script([Scripted::Push("work.txt", "work\n")]);
+
+    step(&runner).unwrap(); // dispatches k1
+    step(&runner).unwrap(); // the worker's first turn
+
+    let [call] = rig.claude.calls().try_into().unwrap();
+    assert_eq!(call.issue, Some(local("k1")));
+    assert_eq!(call.label(), "k1 worker");
+    let text = std::fs::read_to_string(record).unwrap();
+    let told: Vec<Value> = text
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    let [worker] = &told[..] else {
+        panic!("one prompt was sent: {told:?}");
+    };
+    assert_eq!(worker["recipient"], "worker");
+    assert_eq!(worker["issue"], "k1");
 }
 
 // Tickets `k1`, which `k2` blocks, and `k2`, both ready
