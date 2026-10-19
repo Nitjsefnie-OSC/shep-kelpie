@@ -13,7 +13,8 @@ use std::time::Duration;
 use crate::shepherd::Connection;
 
 use super::control;
-use crate::runner::{Attaching, ProjectName};
+use crate::home::ProjectName;
+use crate::runner::Attaching;
 use crate::terminal;
 use crate::ticket::TicketId;
 

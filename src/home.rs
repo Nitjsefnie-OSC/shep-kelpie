@@ -9,7 +9,8 @@
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
-use crate::runner::ProjectName;
+mod paths;
+pub use paths::{ProjectName, ProjectNameError, ProjectPaths, work_branch};
 
 /// The variable that names kelpie's home in place of the shepherd's
 pub const KELPIE_VAR: &str = "KELPIE_HOME";

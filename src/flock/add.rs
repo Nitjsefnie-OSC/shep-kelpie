@@ -21,8 +21,9 @@ use super::share::share_none;
 use super::{Checkout, Launch, flock, kelpie_sheep, send, tables};
 use crate::board::READY;
 use crate::dog;
+use crate::home::ProjectName;
 use crate::ports::{Forge, NewLabel};
-use crate::runner::{HUMAN, IN_PROGRESS, ProjectName, SUMMON_LABEL as SUMMON};
+use crate::runner::{HUMAN, IN_PROGRESS, SUMMON_LABEL as SUMMON};
 use crate::settings::{Settings, table_of};
 use crate::shepherd::{Connection, DOG};
 

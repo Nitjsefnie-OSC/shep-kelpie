@@ -17,7 +17,7 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
-use crate::runner::ProjectName;
+use crate::home::ProjectName;
 
 /// The name the GPU lease had, which is refused now
 pub const GPU: &str = "gpu";

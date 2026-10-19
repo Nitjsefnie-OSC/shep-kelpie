@@ -1,7 +1,7 @@
 //! A work item opened for an issue, before its first turn
 
 use super::Runner;
-use super::paths::work_branch;
+use crate::home::work_branch;
 use crate::ports::SessionId;
 use crate::settings::AgentName;
 use crate::ticket::TicketId;

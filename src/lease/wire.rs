@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 
 use super::saved::SavedBook;
 use super::{Epoch, Holder, LeaseKind};
-use crate::runner::ProjectName;
+use crate::home::ProjectName;
 
 /// The trigger the dog grants a lease with
 pub const GRANT: &str = "grant";

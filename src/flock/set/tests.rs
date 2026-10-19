@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use shep_client::shep_core::config::{AppConfig, DogTable};
 
 use super::*;
-use crate::runner::ProjectPaths;
+use crate::home::ProjectPaths;
 use crate::settings::table_of;
 use crate::test::{CALL_PATIENCE, FakeShepherd};
 

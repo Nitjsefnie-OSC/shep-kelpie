@@ -1,6 +1,7 @@
 //! Which project's ruling a reply on the topic answers
 
-use super::super::{ProjectName, Runner};
+use super::super::Runner;
+use crate::home::ProjectName;
 use crate::state::Projects;
 use crate::state::Ruling;
 use crate::ticket::TicketId;

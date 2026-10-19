@@ -8,7 +8,8 @@
 
 use std::io::{BufRead, Write};
 
-use crate::runner::{ProjectName, Wants, read_answer};
+use crate::home::ProjectName;
+use crate::runner::{Wants, read_answer};
 use crate::state::Projects;
 use crate::state::Ruling;
 use crate::ticket::TicketId;

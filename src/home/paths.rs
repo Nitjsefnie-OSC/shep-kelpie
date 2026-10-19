@@ -71,7 +71,7 @@ impl fmt::Display for ProjectNameError {
 impl core::error::Error for ProjectNameError {}
 
 /// The branch kelpie makes for the work item for `ticket`
-pub(super) fn work_branch(ticket: TicketId) -> String {
+pub fn work_branch(ticket: TicketId) -> String {
     format!("kelpie/{ticket}")
 }
 

@@ -8,12 +8,10 @@ use serde_json::{Map, Value};
 use super::{Here, Line, Probes, rulings};
 use crate::agents::Agents;
 use crate::flock::add::LABELS;
+use crate::home::{ProjectName, ProjectPaths};
 use crate::local_tickets::LocalTickets;
 use crate::ports::{NewLabel, Visibility};
-use crate::runner::{
-    NO_ORIGIN, ProjectName, ProjectPaths, SUMMON_LABEL, check_checkout, check_instructions,
-    source_of,
-};
+use crate::runner::{NO_ORIGIN, SUMMON_LABEL, check_checkout, check_instructions, source_of};
 use crate::settings::{
     Account, AgentHarness, ForgeSlug, Limit, Pick, RoleModel, Settings, SettingsError, TicketSource,
 };

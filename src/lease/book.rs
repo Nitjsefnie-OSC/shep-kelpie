@@ -13,9 +13,9 @@ use serde::Serialize;
 use super::saved::{SavedHeld, SavedLease};
 use super::window::{Window, WindowStatus};
 use super::{Epoch, Holder, LeaseKind};
+use crate::home::ProjectName;
 use crate::ports::{Clock, Timestamp};
 use crate::review_bot::{Bot, ReviewWindow, Reviewers};
-use crate::runner::ProjectName;
 
 /// What asking for a lease came to
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
