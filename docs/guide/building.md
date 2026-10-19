@@ -100,17 +100,19 @@ A plugin can bring MCP servers, and so can the repo's own `.mcp.json`. shep-kelp
 
 ## Code graph
 
-A project can give its workers and reviewers a graph of the code in the worktree, served by [codebase-memory-mcp](https://github.com/DeusData/codebase-memory-mcp). One call answers where a symbol is, what calls it and what it touches, where a worker would run a series of greps. It is off unless the project turns it on:
+A project can give its reviewers, and with `worker` its workers, a graph of the code in the worktree, served by [codebase-memory-mcp](https://github.com/DeusData/codebase-memory-mcp). One call answers where a symbol is, what calls it and what it touches, where a worker would run a series of greps. It is off unless the project turns it on:
 
 ```toml
 [app.dogs.kelpie.code_graph]
 enabled = true
+worker = false
 ```
 
 - `shep kelpie tools install` fetches the pinned release into `<kelpie home>/tools/bin`. It prints a line as each of its five steps starts and ends, naming each tool with its pinned version, and closes with a table of every tool and its result. A download shows a progress bar only when stderr is a terminal. Kelpie writes each call's MCP config itself and never runs the tool's own `install`, which writes to your agent config files.
-- Before each worker turn and each reviewer, kelpie indexes the work item's worktree into `<kelpie home>/<project>/code-graphs/<issue>`. Indexing is local CPU and spends no tokens. It runs on the call's own thread, not under the runner's lock, so a stop ends it, and it stops after five minutes. The folder goes when the work item's worktree does.
+- Before each reviewer, and before each worker turn with `worker`, kelpie indexes the work item's worktree into `<kelpie home>/<project>/code-graphs/<issue>`. Indexing is local CPU and spends no tokens. It runs on the call's own thread, not under the runner's lock, so a stop ends it, and it stops after five minutes. The folder goes when the work item's worktree does.
 - Claude Code gets the server through `--mcp-config` beside `--strict-mcp-config`, and `mcp__codebase-memory-mcp` in its allow-list. pi gets it in the `mcp.json` of the call's own home, Codex in a `-c mcp_servers.codebase-memory-mcp=...` override, and goose in a `--with-extension` flag. No other MCP server loads but those of the repo's plugins and `.mcp.json`, see [MCP servers](#mcp-servers). The server runs inside the call's sandbox, may read its binary and index, writes only its index, and reaches no host.
-- Only the worker's working turns and the reviewers have it, and only on Claude Code, pi, Codex and goose. A retro, the project manager, the advisor and the researcher do not.
+- Only the reviewers and the triager have it, and only on Claude Code, pi, Codex and goose. `worker` adds the worker's own working turns, and is off: the server's 17 tool definitions ride in every request of every turn (16,470 bytes on Claude Code, about 4.3k tokens), and no worker session recorded so far, on Claude Code or pi, has answered one of them (`docs/facts/mcp-servers.md`). A retro, the project manager, the advisor and the researcher do not have it at all.
+- A worker with no graph is indexed for nothing: kelpie builds the index only for a call that is given the server.
 - A project that turns it on while the server is not installed gets a MISSING `code graph` line in `doctor`. Its calls run without a graph and the runner logs why, so a missing binary or a failed index never stops a work item.
 - The setting is read as the runner rereads its settings.
 
