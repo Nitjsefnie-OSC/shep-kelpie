@@ -67,9 +67,15 @@ impl Runner {
         let loads = harness.drives_a_browser();
         // Chromium outside the sandbox is a macOS measurement; Linux waits on #135.
         let here = cfg!(any(target_os = "macos", test));
+        // A GitHub ticket only, since a call names its work item by GitHub's
+        // number and a local ticket's call names none (`ticket_of`). The bridge,
+        // its socket name and the session note all hang off the ticket the call
+        // names, so its worker runs with no browser and is told of no hosts,
+        // rather than promised a browser no folder is opened for.
         self.settings.browser.enabled
             && loads
             && here
+            && ticket.is_some_and(|t| t.github().is_some())
             && self.session_has_it(harness, session, ticket)
     }
 
