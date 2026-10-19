@@ -39,7 +39,8 @@ pub(super) struct Answer {
     pub(super) follow_up: Option<Decide>,
     /// Its votes on rulings before the panel: each ruling, and the object it voted with
     pub(super) votes: Vec<(u64, Map<String, Value>)>,
-    /// The whole of its standing notes, which replaces the file kelpie holds
+    /// The whole of its standing notes, which replaces the file kelpie holds.
+    /// None leaves the file as it is, and empty text clears it.
     pub(super) standing: Option<String>,
     /// A message for the maintainer
     pub(super) reply: Option<String>,
@@ -208,7 +209,6 @@ pub(super) fn read(text: &str) -> Option<Answer> {
             },
             "standing" => match value {
                 Value::Null => {}
-                Value::String(text) if text.trim().is_empty() => {}
                 Value::String(text) => answer.standing = Some(plain(text.trim())),
                 _ => answer.unread.push(unread("text or null")),
             },
@@ -584,6 +584,13 @@ mod tests {
             over.standing.as_deref(),
             Some(long.as_str()),
             "the whole text reaches the file's own limit"
+        );
+
+        let cleared = read("{\"standing\": \"  \\n \"}").unwrap();
+        assert_eq!(
+            cleared.standing.as_deref(),
+            Some(""),
+            "empty text is a whole file with nothing in it"
         );
 
         let bad = read("{\"pick\": 3, \"standing\": 4, \"merge_order\": [1]}").unwrap();

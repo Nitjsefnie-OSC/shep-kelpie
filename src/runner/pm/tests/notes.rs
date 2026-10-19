@@ -315,3 +315,30 @@ fn a_tell_answered_before_the_first_roll_does_not_hide_the_first_roll() {
         "what a tell already kept stays kept: {standing}"
     );
 }
+
+#[test]
+fn an_empty_standing_answer_clears_the_file() {
+    let (rig, runner) = with_pm("koji");
+    rig.forge.list_ready(9, false);
+    rig.forge.list_ready(12, false);
+    std::fs::create_dir_all(rig.paths().pm).unwrap();
+    std::fs::write(
+        rig.paths().pm.join(PM_STANDING),
+        "Hold #12 until the release.\n",
+    )
+    .unwrap();
+    rig.claude
+        .script([Scripted::Say("{\"pick\": null, \"standing\": \"\"}")]);
+
+    let (_, acted, dropped) = answered(step(&runner).unwrap());
+    assert_eq!(dropped, Vec::<String>::new());
+    assert!(
+        acted.iter().any(|a| a == "set the standing notes, 0 bytes"),
+        "{acted:?}"
+    );
+    assert_eq!(
+        read(&rig, PM_STANDING),
+        "",
+        "every standing decision had become obsolete"
+    );
+}

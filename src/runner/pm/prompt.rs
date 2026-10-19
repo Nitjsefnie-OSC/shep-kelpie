@@ -113,7 +113,8 @@ macro_rules! standing_how {
     () => {
         "`pm-standing.md` is what a later wake must keep, above all the maintainer's standing \
          decisions. Kelpie writes it, and you change it only through `standing`, which replaces \
-         the whole file; null leaves it. A tell that is a rule for later wakes belongs in it."
+         the whole file: null leaves it, and empty text clears it. A tell that is a rule for \
+         later wakes belongs in it."
     };
 }
 
