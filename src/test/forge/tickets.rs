@@ -3,6 +3,11 @@
 //! The rig has one forge, so a ticket read or written through it lands on the
 //! same fake a test set up. The impl stands here rather than in `forge` itself,
 //! so no call site there has both ports in scope at once.
+//!
+//! No runner call reaches it. `Runner::open` wraps the forge it is given in the
+//! guard and takes both ports from that one guard, so a ticket write lands on
+//! the rig's forge impl whichever port it was asked of. Which port a call used
+//! is a rule over the source, and `scripts/ticket-port.sh` holds it.
 
 use super::FakeForge;
 use crate::board::ReadyIssue;

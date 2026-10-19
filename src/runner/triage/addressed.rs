@@ -71,7 +71,7 @@ impl Runner {
     pub(super) fn close_duplicate(&mut self, issue: u64, of: u64) -> Result<(), StateError> {
         match self
             .ports
-            .forge
+            .tickets
             .close_issue_as(&self.remote, issue, IssueCloseReason::Duplicate)
         {
             Ok(()) => {

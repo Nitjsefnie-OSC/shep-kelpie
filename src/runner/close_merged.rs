@@ -61,7 +61,7 @@ impl Runner {
                 "cannot comment on issue #{issue} before closing it: {e}"
             ));
         }
-        let Err(e) = (self.ports.forge).close_issue(&self.remote, issue) else {
+        let Err(e) = self.ports.tickets.close_issue(&self.remote, issue) else {
             self.close_refused.remove(&issue);
             return None;
         };
@@ -134,7 +134,7 @@ impl Runner {
                 "cannot comment on issue #{parent} before closing it: {e}"
             ));
         }
-        if let Err(e) = (self.ports.forge).close_issue(&self.remote, parent) {
+        if let Err(e) = self.ports.tickets.close_issue(&self.remote, parent) {
             self.notes.push(format!(
                 "cannot close issue #{parent} after merging #{pull_request}: {e}"
             ));
