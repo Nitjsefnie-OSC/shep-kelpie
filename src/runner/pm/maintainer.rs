@@ -215,7 +215,8 @@ impl Runner {
                 (id.clone(), Session::New(id))
             }
         };
-        let call = self.pm_call(agent, session, String::new(), true);
+        let board = self.pm_board().map_err(PmError::Files)?;
+        let call = self.pm_call(agent, session, String::new(), Some(board));
         let command = call
             .and_then(|call| {
                 self.ports
