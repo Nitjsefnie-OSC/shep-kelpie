@@ -15,6 +15,7 @@ pub(crate) mod review_bot;
 mod runs;
 mod talk;
 mod thread;
+mod tickets;
 
 pub use app::GhApps;
 pub use conditional::Etags;

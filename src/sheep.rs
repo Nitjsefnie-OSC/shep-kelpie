@@ -34,7 +34,7 @@ use crate::github::{AppTokens, AppVoice, Apps};
 use crate::lease::Epoch;
 use crate::lease::saved::BookFile;
 use crate::lease::wire::GRANT;
-use crate::ports::{Leases, Ports, Revalidated, Routed, SandboxError};
+use crate::ports::{Forge, Leases, Ports, Revalidated, Routed, SandboxError, Tickets};
 use crate::runner::{
     ACTIONS, Pass, Posted, ProjectName, ProjectPaths, Runner, advance, answer, wakes,
 };
@@ -228,6 +228,7 @@ fn serve(project: &str, arrival: Option<Arrival<Carry>>) -> Result<(), Exit> {
             .map_err(|e| e.describe(&shep_home))?;
         control::repos(&client, &home).await
     })?;
+    let gh = Arc::new(Gh::new(etags));
     let ports = Ports {
         agents: Arc::new(Routed::new(
             Arc::new(claude.clone()),
@@ -235,7 +236,8 @@ fn serve(project: &str, arrival: Option<Arrival<Carry>>) -> Result<(), Exit> {
             Arc::new(claude.codex(codex_home.clone())),
             Arc::new(claude.goose().with_gateways(gateways)),
         )),
-        forge: Arc::new(Gh::new(etags)),
+        forge: Arc::clone(&gh) as Arc<dyn Forge>,
+        tickets: Arc::clone(&gh) as Arc<dyn Tickets>,
         app_reads: Some(Arc::new(app_reads)),
         revalidated,
         voice: Arc::new(AppVoice::new(app_tokens, Box::new(CurlGithub))),
