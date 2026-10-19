@@ -10,8 +10,10 @@
 //! once as `needs-triage`, under `ask` the maintainer is asked first and a
 //! yes files them `ready-for-agent` (the project manager's too, though it may
 //! ask for `needs-triage`), and under `skip` nothing is filed and the
-//! findings stay in the review. A finding an open issue already holds
-//! gets a comment on that issue instead of a second one.
+//! findings stay in the review. A finding an open ticket already holds
+//! gets a comment on that ticket instead of a second one. The tickets are
+//! the project's source's: GitHub issues, or the local store, where a
+//! follow-up is a local ticket.
 
 use std::path::Path;
 
@@ -19,8 +21,8 @@ use super::Runner;
 use super::report::{Begin, StepReport};
 use super::review::findings;
 use crate::board::{READY, TRIAGE};
-use crate::ports::{AuthorAssociation, Finding, ForgeError, NewLabel, OpenIssue, Severity};
-use crate::settings::Filing;
+use crate::ports::{Finding, ForgeError, NewLabel, OpenTicket, Severity};
+use crate::settings::{Filing, TicketSource};
 use crate::state::{RulingKind, StateError};
 use crate::work_item::{FollowUps, WorkItem};
 
@@ -104,7 +106,7 @@ impl Runner {
         // READY is on every repo `add` set up, so only TRIAGE may need making.
         let mut labelled = triaged;
         let repo = self.remote.clone();
-        let mut open = match self.ports.tickets.open_issues(&repo) {
+        let mut open = match self.ports.tickets.open_tickets(&repo) {
             Ok(open) => open,
             Err(e) => {
                 return self.forge_refused(number, format!("cannot list the open issues: {e}"));
@@ -116,12 +118,13 @@ impl Runner {
             let filed = match already_filed(&open, &title, &finding) {
                 Some(known) => {
                     let body = comment_body(number, &finding);
-                    let on = known.number;
-                    let posted = self.comment_on_issue(on, &body);
+                    let on = known.ticket;
+                    let posted = self.comment_on_ticket(on, &body);
                     posted.map(|()| commented.push(on))
                 }
                 None => {
-                    if !labelled {
+                    // A local store takes any label, and has no repo to make one on.
+                    if !labelled && self.settings.tickets.source == TicketSource::Github {
                         let made = self.make_missing_labels([TRIAGE_LABEL]);
                         if let Err(reason) = made {
                             return self.forge_refused(number, reason);
@@ -129,18 +132,13 @@ impl Runner {
                         labelled = true;
                     }
                     let body = issue_body(number, &finding, triaged);
-                    let made = self.open_issue(&title, &body, &[label]);
+                    let made = self.file_ticket(&title, &body, &[label]);
                     made.map(|made| {
                         opened.push(made);
-                        open.push(OpenIssue {
-                            number: made,
+                        open.push(OpenTicket {
+                            ticket: made,
                             title,
                             body,
-                            author: self.maintainer().unwrap_or_default(),
-                            author_is_bot: false,
-                            author_association: Some(AuthorAssociation::Owner),
-                            labels: vec![label.to_owned()],
-                            created: self.ports.clock.now(),
                         });
                     })
                 }
@@ -241,10 +239,10 @@ fn title_of(finding: &Finding) -> String {
 // whose body says what this one does. A short `what` would match half the
 // tracker, so only a title can match on one.
 fn already_filed<'a>(
-    open: &'a [OpenIssue],
+    open: &'a [OpenTicket],
     title: &str,
     finding: &Finding,
-) -> Option<&'a OpenIssue> {
+) -> Option<&'a OpenTicket> {
     // A title cut short at the limit could be any of several findings.
     let cut = finding.what.trim().chars().count() > TITLE_LIMIT;
     open.iter().find(|issue| {

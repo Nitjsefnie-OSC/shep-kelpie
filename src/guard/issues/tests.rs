@@ -6,6 +6,7 @@ use crate::board::READY;
 use crate::runner::HUMAN;
 
 mod hooks;
+mod local;
 
 const HOME: &str = "/home/me";
 
@@ -27,8 +28,16 @@ impl Session {
             status: status.to_owned(),
             agents: vec!["sonnet-high".to_owned(), "opus-high".to_owned()],
             ledger: Some(dir.path().join("ledger.json")),
+            tickets: None,
         };
         Self { _dir: dir, rules }
+    }
+
+    // A session on a project whose tickets are the local store, `koji`.
+    fn local(status: &str) -> Self {
+        let mut session = Self::new(status);
+        session.rules.tickets = Some("koji".to_owned());
+        session
     }
 
     fn tool(&self, name: &str, command: &str) -> Verdict {

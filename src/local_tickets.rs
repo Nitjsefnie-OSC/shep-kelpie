@@ -19,8 +19,8 @@ pub use routed::Routed;
 
 use crate::board::{Blocker, READY, ReadyIssue, SubIssues};
 use crate::ports::{
-    FinishedParent, ForgeError, Issue, IssueCloseReason, OpenIssue, SubIssue, SubIssueState,
-    ThreadComment, Tickets, Timestamp,
+    FinishedParent, ForgeError, Issue, IssueCloseReason, OpenIssue, OpenTicket, SubIssue,
+    SubIssueState, ThreadComment, Tickets, Timestamp,
 };
 use crate::settings::ForgeSlug;
 use crate::ticket::TicketId;
@@ -437,10 +437,41 @@ impl Tickets for LocalTickets {
         Ok(ready)
     }
 
-    // Nothing is filed by anyone else, so there is no open ticket to tell a finding by
-    // until the issue writer and follow-ups file to the project's source.
+    // Triage reads GitHub's issues, and a local project has no triage.
     fn open_issues(&self, _repo: &ForgeSlug) -> Result<Vec<OpenIssue>, ForgeError> {
         Ok(Vec::new())
+    }
+
+    fn open_tickets(&self, _repo: &ForgeSlug) -> Result<Vec<OpenTicket>, ForgeError> {
+        Ok(self
+            .all()?
+            .into_iter()
+            .filter(|(_, s)| s.standing.is_open())
+            .map(|(ticket, s)| OpenTicket {
+                ticket,
+                title: s.title,
+                body: s.body,
+            })
+            .collect())
+    }
+
+    fn comment_ticket(
+        &self,
+        _repo: &ForgeSlug,
+        ticket: TicketId,
+        body: &str,
+    ) -> Result<(), ForgeError> {
+        let at = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |since| since.as_secs());
+        self.update(ticket, |s| {
+            s.comments.push(Comment {
+                author: "kelpie".to_owned(),
+                at,
+                body: body.to_owned(),
+            });
+        })?;
+        Ok(())
     }
 
     fn issue_comments(

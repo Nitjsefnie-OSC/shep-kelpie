@@ -3,12 +3,14 @@
 
 use super::{Mode, Project, Writer};
 use crate::board::AGENT_LABEL;
-use crate::settings::{Implementer, RoleAgents};
+use crate::settings::{Implementer, RoleAgents, TicketSource};
 
 /// The issue writer's whole prompt for `project`: its file's body, then the
 /// project's implementers, the commands it has and how `mode` ends
 pub fn instructions(writer: &Writer, project: &Project<'_>, mode: Mode) -> String {
     let status = mode.status();
+    let local =
+        (project.settings.tickets.source == TicketSource::Local).then(|| project.paths.name());
     let ending = match mode {
         Mode::Headless => format!(
             "You run on your own, and no one answers a question, so you cannot grill \
@@ -37,7 +39,8 @@ pub fn instructions(writer: &Writer, project: &Project<'_>, mode: Mode) -> Strin
              recommend.\n\n\
              When you have filed everything, end with one JSON object and nothing \
              else:\n\
-             {{\"filed\": [<each issue's number, a parent first>], \"note\": \"<one \
+             {{\"filed\": [<each issue's number, or local ticket's id such as \"k12\", a parent \
+             first>], \"note\": \"<one \
              sentence for the maintainer, or empty>\"}}\n\
              If the request needs nothing filed, such as one an open issue already \
              covers, file nothing and say why in the note."
@@ -68,7 +71,7 @@ pub fn instructions(writer: &Writer, project: &Project<'_>, mode: Mode) -> Strin
         "{}\n\n--- this project ---\n\n{}\n\n{}\n\n{ending}\n",
         writer.prompt.trim_end(),
         implementers(project.agents),
-        commands(status),
+        commands(status, local.as_deref()),
     )
 }
 
@@ -108,8 +111,43 @@ pub fn implementers(agents: &RoleAgents) -> String {
     )
 }
 
-// The commands the guard runs, as the issue writer should write them.
-fn commands(status: &str) -> String {
+// The commands the guard runs, as the issue writer should write them: `gh`'s
+// on GitHub, and on the local project `local`, `shep kelpie ticket`'s.
+fn commands(status: &str, local: Option<&str>) -> String {
+    match local {
+        Some(project) => local_commands(status, project),
+        None => github_commands(status),
+    }
+}
+
+fn local_commands(status: &str, project: &str) -> String {
+    format!(
+        "You have Read, Grep and Glob to read the repo, and Bash for these commands \
+         only, one to a call where you can, written as plain words: no `$`, backticks, \
+         pipes, redirects or variables, but for the body's `$(cat <<'EOF'`. Kelpie's \
+         guard refuses anything else, git included. This project's tickets are local \
+         files, not GitHub issues, and `gh issue create` is refused. Each ticket has an id \
+         such as `k12`, which `ticket new` prints, and every command names this project \
+         with `-p {project}`.\n\n\
+         - File a ticket: `shep kelpie ticket new '<title>' -p {project} --label '{status}' \
+         --label '<priority label>' --label '{AGENT_LABEL}<name>' --body \"$(cat \
+         <<'EOF'`, then the body's lines, then `EOF` and `)\"` on the next line. Leave out \
+         the `{AGENT_LABEL}` label for none, and the priority label where the repo sets no \
+         priority rules. Add `--parent <id>` to make it a sub-ticket of one you filed, and \
+         `--blocked-by <id>` for each ticket that blocks it\n\
+         - Change a ticket you filed: `shep kelpie ticket edit <id> -p {project} \
+         --unlabel '{AGENT_LABEL}<old>' --label '{AGENT_LABEL}<new>'`, or either flag \
+         alone, and `--parent <id>` or `--blocked-by <id>` to link it\n\
+         - Read this project's tickets: `shep kelpie ticket show <id> -p {project}`, \
+         `shep kelpie ticket list -p {project}`, and `--all` to include the closed ones\n\
+         - Read this repo's GitHub issues: `gh issue view <number>`, `gh issue list \
+         --search '<words>'`\n\n\
+         You edit and link only the tickets you filed in this session. A body names no \
+         path outside the repo."
+    )
+}
+
+fn github_commands(status: &str) -> String {
     format!(
         "You have Read, Grep and Glob to read the repo, and Bash for these commands \
          only, one to a call where you can, written as plain words: no `$`, backticks, \

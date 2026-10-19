@@ -10,6 +10,11 @@
 //! naming a listed implementer, and an acceptance criteria section, and no
 //! title or body names this machine. It edits and links only the issues
 //! the session filed, as its ledger records them.
+//!
+//! On a project whose tickets are the local store the writer files with `shep
+//! kelpie ticket new` and reads and edits with `ticket show`, `list` and `edit`
+//! instead, each naming the project with `-p`, under the same rules, and `gh
+//! issue create` is refused: a GitHub issue is not where its tickets live.
 
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -27,6 +32,7 @@ use ledger::Ledger;
 
 mod gh;
 mod ledger;
+mod tickets;
 
 pub use ledger::{filed_in, record_issues};
 
@@ -35,6 +41,10 @@ pub const ISSUES_FLAG: &str = "--issues=";
 
 /// How the hook's command line names one implementer an `agent:` label may name
 pub const AGENT_FLAG: &str = "--agent=";
+
+/// How the hook's command line names the project whose local store holds the
+/// tickets the issue writer files. Without it they are GitHub issues.
+pub const TICKETS_FLAG: &str = "--tickets=";
 
 /// How the hook's command line names the session's ledger
 pub const LEDGER_FLAG: &str = "--ledger=";
@@ -53,6 +63,9 @@ pub struct IssueRules {
     /// The file that records what the session filed and read. Without one
     /// no edit or link is allowed.
     pub ledger: Option<PathBuf>,
+    /// The project, when its tickets are the local store, which `shep kelpie
+    /// ticket` files in and `gh issue create` is refused for
+    pub tickets: Option<String>,
 }
 
 impl IssueRules {
@@ -60,18 +73,20 @@ impl IssueRules {
     pub fn flags(&self) -> Vec<String> {
         let agents = self.agents.iter().map(|a| format!("{AGENT_FLAG}{a}"));
         let ledger = (self.ledger.iter()).map(|l| format!("{LEDGER_FLAG}{}", l.display()));
+        let tickets = (self.tickets.iter()).map(|t| format!("{TICKETS_FLAG}{t}"));
         [format!("{ISSUES_FLAG}{}", self.status)]
             .into_iter()
             .chain(agents)
             .chain(ledger)
+            .chain(tickets)
             .collect()
     }
 }
 
 /// The issue writer's rules, when `args` name them, and the rest of `args`
 ///
-/// `--agent=` or `--ledger=` with no `--issues=` is not taken, so the rest
-/// refuses it.
+/// `--agent=`, `--ledger=` or `--tickets=` with no `--issues=` is not taken, so
+/// the rest refuses it.
 pub fn issue_rules(args: &[String]) -> (Option<IssueRules>, Vec<String>) {
     let status = args.iter().find_map(|a| a.strip_prefix(ISSUES_FLAG));
     let Some(status) = status else {
@@ -84,9 +99,12 @@ pub fn issue_rules(args: &[String]) -> (Option<IssueRules>, Vec<String>) {
         ledger: (args.iter())
             .find_map(|a| a.strip_prefix(LEDGER_FLAG))
             .map(PathBuf::from),
+        tickets: (args.iter())
+            .find_map(|a| a.strip_prefix(TICKETS_FLAG))
+            .map(str::to_owned),
     };
     let ours = |a: &str| {
-        [ISSUES_FLAG, AGENT_FLAG, LEDGER_FLAG]
+        [ISSUES_FLAG, AGENT_FLAG, LEDGER_FLAG, TICKETS_FLAG]
             .iter()
             .any(|f| a.starts_with(f))
     };
@@ -99,6 +117,20 @@ const ONLY: &str = "the issue writer runs only these commands, each as plain wor
     `gh issue view <n>`, `gh issue list`, and `gh api` on `repos/{owner}/{repo}/issues/<n>`, \
     its `sub_issues` and its `dependencies/blocked_by`. It runs no git: read the repo with \
     Read, Grep and Glob";
+
+// What a local project's issue writer runs besides `ONLY`'s reads of this repo.
+const ONLY_LOCAL: &str = "this project's tickets are local, so it files with `shep kelpie \
+    ticket new \"<title>\" -p <project> --label <label> --body \"$(cat <<'EOF' ...)\"` and edits \
+    with `ticket edit <id> -p <project>`, `--label`, `--unlabel`, `--parent` or `--blocked-by` \
+    alone, and reads with `ticket show <id> -p <project>` and `ticket list -p <project>`";
+
+// What the writer may run, as its refusals name it.
+fn only(rules: &IssueRules) -> String {
+    match rules.tickets {
+        Some(_) => format!("{ONLY}. Besides {ONLY_LOCAL}."),
+        None => format!("{ONLY}."),
+    }
+}
 
 const PLAIN: &str = "kelpie runs the issue writer's commands only as plain words: no `$`, \
     backticks, pipes, redirects or variables. Write each value out, and give a body as \
@@ -159,13 +191,18 @@ pub fn judge_issues_with(
     }
     let commands = match shell::commands(&line) {
         Ok(commands) if commands.len() <= MAX_COMMANDS => commands,
-        Ok(_) => return Verdict::Refuse(format!("{ONLY}.")),
+        Ok(_) => return Verdict::Refuse(only(rules)),
         Err(e) => return Verdict::Refuse(format!("kelpie cannot check this command: {e}.")),
     };
     if !cats_feed_bodies(&commands) {
+        let ticket = match rules.tickets {
+            Some(_) => " or `ticket new --body \"$(cat <<'EOF' ...)\"`",
+            None => "",
+        };
         return Verdict::Refuse(format!(
-            "{ONLY}. A `cat` runs only as the body of `gh issue create --body \"$(cat \
-             <<'EOF' ...)\"`."
+            "{} A `cat` runs only as the body of `gh issue create --body \"$(cat \
+             <<'EOF' ...)\"`{ticket}.",
+            only(rules)
         ));
     }
     let home = Home::new(home, local).with_hooks(hooks.clone());
@@ -203,7 +240,8 @@ fn judge(command: &Command, gh: &Gh<'_>) -> Result<(), String> {
         // `--body "$(cat <<'EOF' ... EOF)"` reads its heredoc this way.
         "cat" if is_heredoc(&words[1..]) && !command.heredocs.is_empty() => Ok(()),
         "gh" => gh.judge(&words[1..]),
-        _ => Err(format!("{ONLY}.")),
+        "shep" if gh.rules.tickets.is_some() => tickets::judge(&words[1..], gh),
+        _ => Err(only(gh.rules)),
     }
 }
 
@@ -240,7 +278,7 @@ fn unquoted_heredoc(line: &str) -> bool {
 fn cats_feed_bodies(commands: &[Command]) -> bool {
     let cats = commands.iter().filter(|c| c.words[0] == "cat").count();
     let bodies: usize = (commands.iter())
-        .filter(|c| c.words[0] == "gh")
+        .filter(|c| c.words[0] == "gh" || c.words[0] == "shep")
         .map(|c| {
             let words = &c.words;
             (0..words.len())

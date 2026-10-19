@@ -16,7 +16,8 @@
 #[cfg(doc)]
 use super::Forge;
 use super::{
-    FinishedParent, ForgeError, Issue, IssueCloseReason, OpenIssue, SubIssue, ThreadComment,
+    FinishedParent, ForgeError, Issue, IssueCloseReason, OpenIssue, OpenTicket, SubIssue,
+    ThreadComment,
 };
 #[cfg(doc)]
 use crate::board::READY;
@@ -67,6 +68,30 @@ pub trait Tickets: Send + Sync {
     /// [`ForgeError`] when the forge cannot be asked or its answer read.
     fn open_issues(&self, repo: &ForgeSlug) -> Result<Vec<OpenIssue>, ForgeError>;
 
+    /// The open tickets of the project's own source, for telling a finding
+    /// already filed
+    ///
+    /// [`Tickets::open_issues`] is the GitHub issues, which triage reads. This is
+    /// the tickets the project's work items come from, which are the same until
+    /// the project's source is not GitHub.
+    ///
+    /// # Errors
+    ///
+    /// [`ForgeError`] when the source cannot be asked or its answer read.
+    fn open_tickets(&self, repo: &ForgeSlug) -> Result<Vec<OpenTicket>, ForgeError> {
+        let open = self.open_issues(repo)?;
+        Ok(open
+            .into_iter()
+            .filter_map(|issue| {
+                Some(OpenTicket {
+                    ticket: TicketId::from_issue(issue.number)?,
+                    title: issue.title,
+                    body: issue.body,
+                })
+            })
+            .collect())
+    }
+
     /// Every comment on ticket `ticket` of `repo`, oldest first
     ///
     /// # Errors
@@ -90,6 +115,44 @@ pub trait Tickets: Send + Sync {
         body: &str,
         labels: &[&str],
     ) -> Result<TicketId, ForgeError>;
+
+    /// Files a ticket in the project's own source with these labels, and
+    /// returns its id
+    ///
+    /// [`Tickets::create_issue`] on a source that holds both kinds is the GitHub
+    /// issue, which adoption needs a number of. This is where a follow-up or
+    /// the issue writer's ticket lands.
+    ///
+    /// # Errors
+    ///
+    /// [`ForgeError`] when the source refuses, or its answer names no ticket.
+    fn file_ticket(
+        &self,
+        repo: &ForgeSlug,
+        title: &str,
+        body: &str,
+        labels: &[&str],
+    ) -> Result<TicketId, ForgeError> {
+        self.create_issue(repo, title, body, labels)
+    }
+
+    /// Comments on a ticket of the project's own source other than a GitHub
+    /// one, whose comments go through [`Forge::comment`]
+    ///
+    /// # Errors
+    ///
+    /// [`ForgeError`] when the source takes no comment through this port, or
+    /// cannot write it.
+    fn comment_ticket(
+        &self,
+        _repo: &ForgeSlug,
+        ticket: TicketId,
+        _body: &str,
+    ) -> Result<(), ForgeError> {
+        Err(ForgeError::Failed(format!(
+            "ticket {ticket} takes no comment through the ticket port"
+        )))
+    }
 
     /// Closes ticket `ticket`, with no comment: a comment would be posted as the
     /// login `gh` acts as, and only [`Forge::comment`] records the id of one
