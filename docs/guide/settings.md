@@ -27,6 +27,7 @@ A key kelpie no longer reads, such as `review.reviewers`, `coderabbit` or `plann
 - `triage.per_day = 10`, `triage.per_author_per_day = 2`, `triage.min_account_days = 30` and `triage.max_body_kb = 20`: the limits checked before an issue's triage call, each `0` for off. The two daily caps are capped at 200, and a higher one is refused at startup. `triage.md` says what each one does
 - no `[app.dogs.kelpie.triage.spam]` table, which means no spam check. `triage.spam.gateway`, `triage.spam.path` and `triage.spam.threshold = 0.8` turn it on, and `triage.md` says what it does
 - `pacing.enabled = true`
+- no `[app.dogs.kelpie.tickets]` table, which means `tickets.source = "github"`. `local` takes the project's tickets from files, see [Local tickets](tickets.md)
 - `worker.allowed_domains = []`, `worker.turn_timeout = 60` and `worker.compact_window = 200000`
 
 The checkout is the project's repo, and shep-kelpie runs `git fetch`, `git worktree` and `git branch` against its `.git`. Its worktrees, build folders and state go under `$SHEP_HOME/kelpie/<project>`, never inside it. Add from a clone you don't work in if you'd rather keep your own checkout out of it.

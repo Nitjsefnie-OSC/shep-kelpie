@@ -63,9 +63,13 @@ usage: shep kelpie add [<project>]       registers this checkout as a project
        shep kelpie get [<key>]           the project's settings, or one by its dotted key
        shep kelpie set <key> <value>     changes one setting, such as git.merging auto or
                                          worker.allowed_domains '[\"crates.io\"]'
-       shep kelpie ticket new|list|show|edit|close
-                                         files and reads a local project's tickets, with
-                                         `shep kelpie ticket` alone listing the forms
+       shep kelpie ticket                the forms of the local tickets' verbs, below
+       shep kelpie ticket new \"<title>\" [--body <text>] [--label <label>]... [--parent <id>] [--blocked-by <id>]...
+                                         files a local ticket and prints its id
+       shep kelpie ticket list [--all] | ticket show <id> | ticket close <id> [--not-planned] [--duplicate]
+                                         reads a local ticket, or closes it
+       shep kelpie ticket edit <id> [--title <text>] [--body <text>] [--label <label>]... [--unlabel <label>]... [--parent <id>] [--no-parent] [--blocked-by <id>]... [--unblock <id>]...
+                                         changes a local ticket
        shep kelpie watch [<issue> | pm] [--back <n>] [--full]
                                          follows the runner's steps and the sessions'
                                          transcripts live, from the end or n lines back
