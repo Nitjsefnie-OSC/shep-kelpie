@@ -38,6 +38,7 @@ use crate::ports::{
 };
 use crate::settings::{AgentName, ListedReviewer};
 use crate::state::{Contribution, Pass, StateError, Walking};
+use crate::ticket::TicketId;
 use crate::work_item::LOCAL_FAILURES_DOWN;
 use crate::worktree::{self, BASE, Linked};
 
@@ -510,7 +511,7 @@ impl Job {
         );
         let mut call = build_call(
             Role::Reviewer,
-            self.pull_request,
+            TicketId::from_issue(self.pull_request),
             &self.worktree,
             model,
             prompt,

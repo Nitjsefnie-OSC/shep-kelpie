@@ -487,7 +487,13 @@ impl Runner {
         prompt: String,
     ) -> Result<AgentCall, String> {
         let folder = &self.paths.worker;
-        let mut call = build_call(Role::Triager, issue, view, &agent.model, prompt)?;
+        let mut call = build_call(
+            Role::Triager,
+            TicketId::from_issue(issue),
+            view,
+            &agent.model,
+            prompt,
+        )?;
         let instructions = folder.join(format!("triage-instructions-{issue}.md"));
         super::turn::write(
             folder,

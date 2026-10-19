@@ -117,7 +117,7 @@ mod tests {
 
     fn call(reach: Reach) -> AgentCall {
         AgentCall {
-            issue: 7,
+            issue: crate::ticket::TicketId::from_issue(7),
             reach,
             ..AgentCall::new(
                 Role::Worker,

@@ -269,7 +269,7 @@ mod tests {
 
         fn call(&self, role: Role) -> AgentCall {
             AgentCall {
-                issue: 7,
+                issue: crate::ticket::TicketId::from_issue(7),
                 settings: self.path("worker/settings.json"),
                 ..AgentCall::new(
                     role,

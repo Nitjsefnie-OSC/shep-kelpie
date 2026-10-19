@@ -17,6 +17,7 @@ use super::Timestamp;
 use crate::guard::IssueRules;
 use crate::hooks::Hooks;
 use crate::settings::{AgentHarness, Effort, GuardHook, Harness};
+use crate::ticket::TicketId;
 
 /// Which role an agent call is made for
 // wire format: changing this is a breaking change to the state file
@@ -260,8 +261,10 @@ pub struct AgentCall {
     pub role: Role,
     /// The harness it runs on
     pub harness: AgentHarness,
-    /// The issue of the work item it is made for, which its lamb is labelled with
-    pub issue: u64,
+    /// The ticket of the work item it is made for, which its lamb is labelled with
+    ///
+    /// None for a call that is no work item's, such as the project manager's.
+    pub issue: Option<TicketId>,
     /// The model, as the agent names it
     pub model: String,
     /// How hard the model thinks
@@ -317,7 +320,7 @@ impl AgentCall {
         Self {
             role,
             harness,
-            issue: 0,
+            issue: None,
             model: model.into(),
             effort,
             session,
@@ -338,7 +341,10 @@ impl AgentCall {
     pub fn label(&self) -> String {
         match self.role {
             Role::Pm => Role::Pm.as_str().to_owned(),
-            role => format!("#{} {}", self.issue, role.as_str()),
+            role => match self.issue {
+                Some(ticket) => format!("{} {}", ticket.shown(), role.as_str()),
+                None => format!("#0 {}", role.as_str()),
+            },
         }
     }
 }

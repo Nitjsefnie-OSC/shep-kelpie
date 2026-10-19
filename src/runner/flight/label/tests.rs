@@ -60,7 +60,10 @@ fn an_unlabelled_issue_gets_one_issue_writer_call_and_then_the_label_it_chose() 
     };
     let call = &label.call;
     assert_eq!((call.role, call.tools), (Role::IssueWriter, Tools::Review));
-    assert_eq!((call.issue, call.model.as_str()), (7, "claude-opus-5-5"));
+    assert_eq!(
+        (call.issue, call.model.as_str()),
+        (Some(crate::test::ticket(7)), "claude-opus-5-5")
+    );
     assert!(
         call.prompt.contains("# Title of #7\n\nBody of #7."),
         "{}",

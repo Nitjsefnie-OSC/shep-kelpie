@@ -651,7 +651,7 @@ impl World {
             context: ContextSize::try_from(65_536).unwrap(),
         };
         AgentCall {
-            issue: 7,
+            issue: crate::ticket::TicketId::from_issue(7),
             settings: self.path("settings.json"),
             ..AgentCall::new(
                 role,
