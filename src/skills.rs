@@ -241,20 +241,32 @@ impl Skills {
 
     /// `prompt`, started with `step`'s slash command and kelpie's headless
     /// rules where it has a skill
+    ///
+    /// A worker's turn carries these rules in its instructions on every
+    /// request, so its prompt does not repeat them.
     pub fn invoke(&self, step: Step, prompt: &str) -> String {
-        match self.command(step) {
-            Some(command) => format!("{command} {}{FORMAT_RULE}\n{prompt}", rules(step)),
-            None => prompt.to_owned(),
-        }
+        let Some(command) = self.command(step) else {
+            return prompt.to_owned();
+        };
+        let rules = match step {
+            Step::Implement | Step::CiFix if self.has_worker_rules() => String::new(),
+            _ => rules(step),
+        };
+        format!("{command} {rules}{FORMAT_RULE}\n{prompt}")
     }
 
     /// The headless rules for the skills a worker runs inside its turn, if
     /// it has any
     pub fn worker_rules(&self) -> Option<String> {
-        let skill = [Step::Tests, Step::Pr]
+        self.has_worker_rules().then(|| rules(Step::Tests))
+    }
+
+    // Whether a worker has a skill of its own that runs headless
+    fn has_worker_rules(&self) -> bool {
+        [Step::Tests, Step::Pr]
             .into_iter()
-            .any(|step| self.command(step).is_some());
-        (skill || self.wording.is_loaded()).then(|| rules(Step::Tests))
+            .any(|step| self.command(step).is_some())
+            || self.wording.is_loaded()
     }
 
     /// The slash command of kelpie's writing skill for a pull request's body,
