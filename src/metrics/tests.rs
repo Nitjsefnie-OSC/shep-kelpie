@@ -144,8 +144,14 @@ fn a_turn_s_tokens_and_cost_are_counted_by_role_and_type() {
 }
 
 fn turn_on_the_code_graph(rig: &Rig, script: Option<&str>) {
-    let off = "[app.dogs.kelpie.code_graph]\nenabled = false";
-    rig.edit_settings(|s| s.replace(off, "[app.dogs.kelpie.code_graph]\nenabled = true"));
+    let off = "[app.dogs.kelpie.code_graph]\nenabled = false\nworker = false";
+    rig.edit_settings(|s| {
+        assert!(s.contains(off), "the example's code graph moved");
+        s.replace(
+            off,
+            "[app.dogs.kelpie.code_graph]\nenabled = true\nworker = true",
+        )
+    });
     if let Some(script) = script {
         let binary = rig.paths().tools.code_graph();
         std::fs::create_dir_all(binary.parent().unwrap()).unwrap();

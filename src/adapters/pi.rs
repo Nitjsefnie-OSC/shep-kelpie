@@ -91,6 +91,9 @@ mod retro_tests;
 mod review_tests;
 
 #[cfg(test)]
+mod skills_tests;
+
+#[cfg(test)]
 mod window_tests;
 
 /// The oldest pi kelpie is built for: built-in MCP needs 0.99 or later, and

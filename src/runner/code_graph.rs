@@ -1,9 +1,9 @@
 //! A code graph of a work item's worktree for the calls that read the code
 //!
-//! A project that turns it on in `code_graph` has each worker turn and each
-//! reviewer indexed before the call starts. The index is kept under kelpie's
-//! home per work item, and goes with the work item's worktree. A triage view's
-//! index goes when its call ends.
+//! A project that turns it on in `code_graph` has each reviewer indexed before
+//! the call starts, and each worker turn too when the table names `worker`. The
+//! index is kept under kelpie's home per work item, and goes with the work
+//! item's worktree. A triage view's index goes when its call ends.
 //!
 //! The call is prepared with the runner's lock held, and indexing takes
 //! seconds to minutes, so it runs on the call's own thread, where a stop
@@ -39,7 +39,8 @@ impl Runner {
     /// The index is built by [`indexed`], once the call's thread has started.
     /// A call that cannot have the server runs without, and a note says why.
     pub(super) fn with_code_graph(&self, call: &mut AgentCall) {
-        if !self.settings.code_graph.enabled || !reads_code(call) {
+        let code_graph = &self.settings.code_graph;
+        if !code_graph.enabled || !reads_code(call, code_graph.worker) {
             return;
         }
         let tools = &self.paths.tools;
@@ -123,14 +124,18 @@ impl Runner {
     }
 }
 
-// The worker's turns, the reviewers and the triager read the code. The retro, the advisors and
-// the project manager do not, and a harness that loads no MCP servers cannot use it.
-fn reads_code(call: &AgentCall) -> bool {
+// The reviewers and the triager read the code. The worker's turns do only when the project names
+// `code_graph.worker`: no worker session recorded so far, on Claude Code or pi, has answered one of
+// the server's tools, and its 17 definitions ride in every request of every turn
+// (`docs/facts/mcp-servers.md`). The retro, the advisors and the project manager do not read the
+// code at all, and a harness that loads no MCP servers cannot use the server.
+fn reads_code(call: &AgentCall, worker: bool) -> bool {
     call.harness.loads_mcp()
-        && matches!(
-            (call.role, call.tools),
-            (Role::Worker, Tools::Work) | (Role::Reviewer | Role::Triager, Tools::Review)
-        )
+        && match (call.role, call.tools) {
+            (Role::Worker, Tools::Work) => worker,
+            (Role::Reviewer | Role::Triager, Tools::Review) => true,
+            _ => false,
+        }
 }
 
 pub(super) fn who(call: &AgentCall) -> String {
@@ -316,11 +321,25 @@ mod tests {
         echo \"$CBM_RUNTIME_DIR\" > \"$CBM_CACHE_DIR/runtime\"\n\
         echo \"$CBM_ALLOWED_ROOT\" > \"$CBM_CACHE_DIR/root\"\n";
 
+    // The example's code graph table, as `settings.example.toml` writes it
+    const GRAPH_OFF: &str = "[app.dogs.kelpie.code_graph]\nenabled = false\nworker = false";
+
+    // The graph on for the worker's turns and the reviewers alike
     fn turn_on(rig: &Rig) {
-        let off = "[app.dogs.kelpie.code_graph]\nenabled = false";
         rig.edit_settings(|s| {
-            assert!(s.contains(off), "the example's code graph moved");
-            s.replace(off, "[app.dogs.kelpie.code_graph]\nenabled = true")
+            assert!(s.contains(GRAPH_OFF), "the example's code graph moved");
+            s.replace(
+                GRAPH_OFF,
+                "[app.dogs.kelpie.code_graph]\nenabled = true\nworker = true",
+            )
+        });
+    }
+
+    // The graph on with no `worker` key, which is what `enabled` alone gives today
+    fn turn_on_for_reviewers(rig: &Rig) {
+        rig.edit_settings(|s| {
+            assert!(s.contains(GRAPH_OFF), "the example's code graph moved");
+            s.replace(GRAPH_OFF, "[app.dogs.kelpie.code_graph]\nenabled = true")
         });
     }
 
@@ -328,6 +347,44 @@ mod tests {
         let binary = rig.paths().tools.code_graph();
         std::fs::create_dir_all(binary.parent().unwrap()).unwrap();
         write_script(&binary, script);
+    }
+
+    // The rig's pi worker and reviewer, as their agent files and the project's lists
+    fn pi_agents(rig: &Rig) {
+        let pi = |role: &str| {
+            format!(
+                "---\nrole: {role}\nharness: pi\nmodel: qwen3.8:27b\neffort: low\n\
+                 url: http://box:11434/v1\ncontext: 65536\n---\nReview the change against \
+                 {{{{BASE}}}}. Output one finding per line as SEVERITY|file:line|what|why, or CLEAN.\n"
+            )
+        };
+        rig.write_agent("pi-box", &pi("implementer"));
+        rig.implementers(&["pi-box"]);
+        rig.write_agent("pi-reviewer", &pi("reviewer"));
+        rig.reviewers(&["pi-reviewer"]);
+    }
+
+    // The rig's goose worker. A goose reviewer cannot be named in an agent file yet (#789).
+    fn goose_agent(rig: &Rig) {
+        let goose = "---\nrole: implementer\nharness: goose\nmodel: qwen3.8:27b\neffort: low\n\
+                     url: http://box:11434/v1\ncontext: 65536\n---\n";
+        rig.write_agent("goose-box", goose);
+        rig.implementers(&["goose-box"]);
+    }
+
+    // The rig's Codex worker and reviewer, as their agent files and the project's lists
+    fn codex_agents(rig: &Rig) {
+        let codex = |role: &str| {
+            format!(
+                "---\nrole: {role}\nharness: codex\nmodel: gpt-6-sol\neffort: low\n---\n\
+                 Review the change against {{{{BASE}}}}. Output one finding per line as \
+                 SEVERITY|file:line|what|why, or CLEAN.\n"
+            )
+        };
+        rig.write_agent("codex-box", &codex("implementer"));
+        rig.implementers(&["codex-box"]);
+        rig.write_agent("codex-reviewer", &codex("reviewer"));
+        rig.reviewers(&["codex-reviewer"]);
     }
 
     // Issue 7's worker turn and a Claude reviewer's round after it.
@@ -347,6 +404,22 @@ mod tests {
         (rig.claude.all_seen().into_iter())
             .filter(|s| matches!(s.call.role, Role::Worker | Role::Reviewer))
             .collect()
+    }
+
+    fn worker_turns(rig: &Rig) -> Vec<crate::test::Seen> {
+        (rig.claude.all_seen().into_iter())
+            .filter(|s| s.call.role == Role::Worker)
+            .collect()
+    }
+
+    // Issue 7's worker's first turn on its own, with the graph's server installed
+    fn worker_turn(rig: &Rig) -> Mutex<Runner> {
+        let runner = rig.open().unwrap();
+        rig.ask(&runner, "add", Some("7"));
+        rig.forge.open_pull_request(71, "kelpie/7", &[7]);
+        rig.claude.script([Scripted::Push("work.txt", "work\n")]);
+        step(&runner).unwrap(); // the worker's first turn
+        runner
     }
 
     fn mcp_file(seen: &crate::test::Seen) -> PathBuf {
@@ -416,21 +489,136 @@ mod tests {
     }
 
     #[test]
+    fn a_worker_gets_no_graph_unless_the_project_names_it() {
+        // `enabled = true` with no `worker` key: the worker's turn carries no server, writes no
+        // MCP file of its own, allows no `mcp__` tool, and indexes nothing.
+        let rig = Rig::new("shep");
+        turn_on_for_reviewers(&rig);
+        install(&rig, INDEXER);
+        worker_turn(&rig);
+
+        let seen = worker_turns(&rig);
+        assert!(!seen.is_empty(), "the worker's turn ran");
+        for seen in &seen {
+            assert_eq!(seen.call.reach.code_graph, None);
+            assert!(!mcp_file(seen).exists());
+            assert!(
+                !seen.settings.to_string().contains("mcp__"),
+                "{:?}",
+                seen.settings
+            );
+        }
+        assert!(
+            !rig.paths().folder.join("code-graphs").exists(),
+            "nothing is indexed before a reviewer's round"
+        );
+
+        // With `worker = true`, the same turn carries the server and builds the index it does today.
+        let rig = Rig::new("shep");
+        turn_on(&rig);
+        install(&rig, INDEXER);
+        worker_turn(&rig);
+
+        let index = rig.paths().folder.join("code-graphs/7");
+        let seen = worker_turns(&rig);
+        assert!(!seen.is_empty(), "the worker's turn ran");
+        for seen in &seen {
+            let graph = seen.call.reach.code_graph.as_ref().expect("the server");
+            assert_eq!(graph.index, index);
+            assert_eq!(graph.binary, rig.paths().tools.code_graph());
+            let config: serde_json::Value =
+                serde_json::from_str(&std::fs::read_to_string(mcp_file(seen)).unwrap()).unwrap();
+            assert_eq!(
+                config["mcpServers"]["codebase-memory-mcp"]["env"]["CBM_CACHE_DIR"],
+                index.to_str().unwrap()
+            );
+            assert!(
+                seen.settings["permissions"]["allow"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|a| *a == "mcp__codebase-memory-mcp"),
+                "{:?}",
+                seen.settings
+            );
+        }
+        let indexed = std::fs::read_to_string(index.join("indexed-with")).unwrap();
+        assert!(
+            indexed.starts_with("cli index_repository --repo-path "),
+            "{indexed}"
+        );
+    }
+
+    #[test]
+    fn a_worker_without_the_graph_still_gets_the_repo_s_own_servers() {
+        // The graph is its own path through the call's reach, so a worker without it keeps what
+        // `repo_setup` gives it.
+        let rig = Rig::new("shep");
+        turn_on_for_reviewers(&rig);
+        install(&rig, INDEXER);
+        let own = json!({"mcpServers": {"docs": {"type": "http", "url": "https://docs.example.com/mcp"}}});
+        rig.land(".mcp.json", &own.to_string());
+        worker_turn(&rig);
+
+        let seen = worker_turns(&rig);
+        assert_eq!(seen[0].call.reach.code_graph, None);
+        let config: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(mcp_file(&seen[0])).unwrap()).unwrap();
+        let given: Vec<String> = (config["mcpServers"].as_object().unwrap())
+            .keys()
+            .cloned()
+            .collect();
+        assert_eq!(given, vec!["docs".to_owned()]);
+        assert!(
+            seen[0].settings["permissions"]["allow"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|a| *a == "mcp__docs"),
+            "{:?}",
+            seen[0].settings
+        );
+    }
+
+    #[test]
+    fn a_reviewer_still_gets_the_graph_when_the_worker_does_not() {
+        let rig = Rig::new("shep");
+        turn_on_for_reviewers(&rig);
+        install(&rig, INDEXER);
+        work_and_review(&rig);
+
+        let index = rig.paths().folder.join("code-graphs/7");
+        let seen = reads_code(&rig);
+        let roles: Vec<Role> = seen.iter().map(|s| s.call.role).collect();
+        assert!(
+            roles.contains(&Role::Worker) && roles.contains(&Role::Reviewer),
+            "both calls ran: {roles:?}"
+        );
+        for seen in &seen {
+            if seen.call.role == Role::Worker {
+                assert_eq!(
+                    seen.call.reach.code_graph, None,
+                    "the worker's turn is not given it"
+                );
+                continue;
+            }
+            let graph = seen.call.reach.code_graph.as_ref().expect("the server");
+            assert_eq!(graph.index, index);
+            assert_eq!(graph.binary, rig.paths().tools.code_graph());
+        }
+        let indexed = std::fs::read_to_string(index.join("indexed-with")).unwrap();
+        assert!(
+            indexed.starts_with("cli index_repository --repo-path "),
+            "the reviewer's round built the index: {indexed}"
+        );
+    }
+
+    #[test]
     fn a_pi_worker_and_reviewer_get_the_server_and_an_index() {
         let rig = Rig::new("shep");
         turn_on(&rig);
         install(&rig, INDEXER);
-        let pi = |role: &str| {
-            format!(
-                "---\nrole: {role}\nharness: pi\nmodel: qwen3.8:27b\neffort: low\n\
-                 url: http://box:11434/v1\ncontext: 65536\n---\nReview the change against \
-                 {{{{BASE}}}}. Output one finding per line as SEVERITY|file:line|what|why, or CLEAN.\n"
-            )
-        };
-        rig.write_agent("pi-box", &pi("implementer"));
-        rig.implementers(&["pi-box"]);
-        rig.write_agent("pi-reviewer", &pi("reviewer"));
-        rig.reviewers(&["pi-reviewer"]);
+        pi_agents(&rig);
         let runner = rig.open().unwrap();
         rig.ask(&runner, "add", Some("7"));
         rig.forge.open_pull_request(71, "kelpie/7", &[7]);
@@ -454,16 +642,61 @@ mod tests {
     }
 
     #[test]
+    fn a_pi_worker_gets_no_graph_when_the_project_does_not_name_it() {
+        let rig = Rig::new("shep");
+        turn_on_for_reviewers(&rig);
+        install(&rig, INDEXER);
+        pi_agents(&rig);
+        worker_turn(&rig);
+
+        assert!(
+            worker_turns(&rig)
+                .iter()
+                .all(|s| s.call.reach.code_graph.is_none()),
+            "the pi worker carries no server"
+        );
+    }
+
+    #[test]
+    fn a_goose_worker_gets_no_graph_when_the_project_does_not_name_it() {
+        let rig = Rig::new("shep");
+        turn_on_for_reviewers(&rig);
+        install(&rig, INDEXER);
+        goose_agent(&rig);
+        worker_turn(&rig);
+
+        assert!(
+            worker_turns(&rig)
+                .iter()
+                .all(|s| s.call.reach.code_graph.is_none()),
+            "the goose worker carries no server"
+        );
+    }
+
+    #[test]
+    fn a_codex_worker_gets_no_graph_when_the_project_does_not_name_it() {
+        let rig = Rig::new("shep");
+        turn_on_for_reviewers(&rig);
+        install(&rig, INDEXER);
+        codex_agents(&rig);
+        worker_turn(&rig);
+
+        assert!(
+            worker_turns(&rig)
+                .iter()
+                .all(|s| s.call.reach.code_graph.is_none()),
+            "the Codex worker carries no server"
+        );
+    }
+
+    #[test]
     fn a_goose_worker_and_reviewer_get_the_server_and_an_index() {
         let rig = Rig::new("shep");
         turn_on(&rig);
         install(&rig, INDEXER);
         // A goose reviewer cannot be named in an agent file yet (#789), so the worker is run
         // and the reviewer's call is asked about directly.
-        let goose = "---\nrole: implementer\nharness: goose\nmodel: qwen3.8:27b\neffort: low\n\
-                     url: http://box:11434/v1\ncontext: 65536\n---\n";
-        rig.write_agent("goose-box", goose);
-        rig.implementers(&["goose-box"]);
+        goose_agent(&rig);
         let runner = rig.open().unwrap();
         rig.ask(&runner, "add", Some("7"));
         rig.forge.open_pull_request(71, "kelpie/7", &[7]);
@@ -502,9 +735,21 @@ mod tests {
                 "go",
             )
         };
-        assert!(super::reads_code(&call(Role::Reviewer, Tools::Review)));
-        assert!(!super::reads_code(&call(Role::Worker, Tools::Retro)));
-        assert!(!super::reads_code(&call(Role::Researcher, Tools::Research)));
+        assert!(super::reads_code(
+            &call(Role::Reviewer, Tools::Review),
+            false
+        ));
+        assert!(super::reads_code(
+            &call(Role::Triager, Tools::Review),
+            false
+        ));
+        assert!(super::reads_code(&call(Role::Worker, Tools::Work), true));
+        assert!(!super::reads_code(&call(Role::Worker, Tools::Work), false));
+        assert!(!super::reads_code(&call(Role::Worker, Tools::Retro), true));
+        assert!(!super::reads_code(
+            &call(Role::Researcher, Tools::Research),
+            true
+        ));
     }
 
     #[test]
@@ -512,17 +757,7 @@ mod tests {
         let rig = Rig::new("shep");
         turn_on(&rig);
         install(&rig, INDEXER);
-        let codex = |role: &str| {
-            format!(
-                "---\nrole: {role}\nharness: codex\nmodel: gpt-6-sol\neffort: low\n---\n\
-                 Review the change against {{{{BASE}}}}. Output one finding per line as \
-                 SEVERITY|file:line|what|why, or CLEAN.\n"
-            )
-        };
-        rig.write_agent("codex-box", &codex("implementer"));
-        rig.implementers(&["codex-box"]);
-        rig.write_agent("codex-reviewer", &codex("reviewer"));
-        rig.reviewers(&["codex-reviewer"]);
+        codex_agents(&rig);
         let runner = rig.open().unwrap();
         rig.ask(&runner, "add", Some("7"));
         rig.forge.open_pull_request(71, "kelpie/7", &[7]);

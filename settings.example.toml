@@ -396,10 +396,12 @@ compact_window = 200000
 # wait_hours = 24
 
 # The skill each step runs. A step left out runs its default from kelpie's
-# own copy of mattpocock/skills, so the project installs nothing;
+# own copy of mattpocock/skills, so the project installs nothing, except
+# `triage`, `spec`, `reset` and `retro`: kelpie writes no skill for a step no
+# call of its own runs yet, so those run kelpie's own prompt unless you name
+# them, and a named `retro` is the project manager's batch retro.
 # https://github.com/shep-pm/shep-kelpie/blob/main/docs/guide/building.md#skills
-# lists each step and its default. `retro` is the exception: it is off
-# unless named, and then it is the project manager's batch retro. `path` is a skill folder of your own, `plugin` a skill in a
+# lists each step and its default. `path` is a skill folder of your own, `plugin` a skill in a
 # Claude Code plugin's folder, `kelpie` the step's default from kelpie's copy,
 # and `none` runs kelpie's own prompt, or no retro at all. A skill that cannot load runs kelpie's prompt too, and the log
 # and `status` say why. Kelpie rewrites `$SHEP_HOME/kelpie/<project>/skills/`
@@ -443,16 +445,20 @@ compact_window = 200000
 # skip = ["noisy@house"]
 # extra = { "style@lab" = "github:acme/lab#v2" }
 
-# A code graph of each work item's worktree for the worker's and the
-# reviewers' Claude Code calls, served by codebase-memory-mcp: where a symbol
-# is, what calls it, what it touches, in one call instead of a run of greps.
-# `shep kelpie tools install` fetches the server, and a project that turns it
-# on without it gets a doctor line and calls that run without a graph. Kelpie
-# indexes the worktree before each call, keeps the index under
-# `$SHEP_HOME/kelpie/<project>/code-graphs/`, and removes it with the worktree.
-# The server runs inside the call's sandbox like everything else in it.
+# A code graph of each work item's worktree for the reviewers' calls, served by
+# codebase-memory-mcp: where a symbol is, what calls it, what it touches, in one
+# call instead of a run of greps. `shep kelpie tools install` fetches the
+# server, and a project that turns it on without it gets a doctor line and calls
+# that run without a graph. Kelpie indexes the worktree before each call given
+# it, keeps the index under `$SHEP_HOME/kelpie/<project>/code-graphs/`, and
+# removes it with the worktree. The server runs inside the call's sandbox like
+# everything else in it. `worker` adds the worker's own working turns, and is
+# off: the server's 17 tool definitions ride in every request of every turn, and
+# no worker session recorded so far, on Claude Code or pi, has answered one of
+# them.
 [app.dogs.kelpie.code_graph]
 enabled = false
+worker = false
 
 # A browser for the worker's Claude Code and pi turns, to look at the UI it
 # builds. Chromium cannot start inside the sandbox, so kelpie runs the
