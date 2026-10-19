@@ -106,6 +106,17 @@ mod tests {
     }
 
     #[test]
+    fn the_issue_writer_with_a_server_keeps_the_servers_it_loads_and_names_its_allow_list() {
+        let settings = Path::new("/k/issues/settings.json");
+        let flags = flags(&call(Role::IssueWriter, Tools::Issues, settings, reach()));
+        let at = flags.iter().position(|a| a == "--mcp-config").unwrap();
+        assert_eq!(flags[at + 1], mcp_file(settings).display().to_string());
+        assert!(!flags.contains(&"--strict-mcp-config".to_owned()));
+        let at = flags.iter().position(|a| a == "--tools").unwrap();
+        assert_eq!(flags[at + 1], "Bash,Read,Glob,Grep,Skill");
+    }
+
+    #[test]
     fn a_call_with_no_server_names_no_config() {
         let settings = Path::new("/k/worker/settings.json");
         let call = call(Role::Worker, Tools::Work, settings, Reach::default());
