@@ -398,6 +398,19 @@ mod tests {
         assert!(policy.verify_tls);
     }
 
+    #[test]
+    fn a_retro_reads_the_plugin_folder_its_skill_is_in() {
+        let w = World::new();
+        let call = AgentCall {
+            role: Role::Pm,
+            tools: Tools::Retro,
+            plugin_dirs: vec![w.path("skills/mattpocock")],
+            ..w.worker()
+        };
+        let policy = policy(&call, &w.path("home"), &[]).unwrap();
+        assert!(policy.read.contains(&w.path("skills/mattpocock")));
+    }
+
     // The hook that hands a compacted turn's prompt back runs `cat` on it
     // inside the sandbox, which denies the whole of kelpie's home but for
     // what the call reads.
