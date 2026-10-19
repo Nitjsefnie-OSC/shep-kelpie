@@ -1,9 +1,11 @@
 //! What a worker is told beyond kelpie's own instructions
 //!
 //! Kelpie's instructions are the same for every project. Three things vary:
-//! the repo's pull request template, found in the worker's worktree, the
-//! body of the work item's agent file, and the project's own file of extra
-//! instructions, read once when the runner starts.
+//! the repo's pull request template, found in the worker's worktree or, with
+//! none there, read from its owner's `.github` repository and written to a
+//! file in the item's build folder, the body of the work item's agent file,
+//! and the project's own file of extra instructions, read once when the
+//! runner starts.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -32,6 +34,12 @@ pub(super) fn read_extra(settings: &Settings) -> Result<Option<String>, Settings
         })
 }
 
+/// The file in the work item's build folder that holds the owner's template text
+///
+/// The worker reads it when it writes its body. Kelpie writes it, and the
+/// worker's own `pull-request.md` sits in the same folder.
+pub(super) const TEMPLATE_FILE: &str = "pull-request-template.md";
+
 /// What a worker is told after kelpie's own instructions
 #[derive(Debug, Clone, Copy, Default)]
 pub(super) struct Extra<'a> {
@@ -45,8 +53,10 @@ pub(super) struct Extra<'a> {
     /// The project's e2e host, when it names one
     pub(super) e2e: Option<&'a E2e>,
     /// The template of the repo's owner's `.github` repository, which the
-    /// worktree's own template outranks
-    pub(super) owner_template: Option<&'a OwnerTemplate>,
+    /// worktree's own template outranks, and the file in the worker's build
+    /// folder that holds its text. Both are none where the worktree has a
+    /// template of its own or the owner has none.
+    pub(super) owner_template: Option<(&'a OwnerTemplate, &'a Path)>,
     /// The hosts of the project's browser, when the turn is given one
     pub(super) browser: Option<&'a [NonBlank]>,
     /// The project's dev server kelpie runs for the turn, or why it runs none
@@ -72,8 +82,9 @@ pub(super) fn e2e_command(kelpie: &Path) -> String {
 /// Kelpie's own, naming the `kelpie` binary, then the skills the worker
 /// writes tests and its pull request's body with, then the agent's
 /// instructions, then the project's. A pull request template in the
-/// worktree stands in for the body's skill. A worker that writes
-/// `pull-request.md` is also told the wording skill that words it.
+/// worktree stands in for the body's skill, and the owner's template reaches
+/// the worker as a file it reads. A worker that writes `pull-request.md` is
+/// also told the wording skill that words it.
 pub(super) fn compose(extra: Extra<'_>, worktree: &Path, skills: &Skills, kelpie: &Path) -> String {
     let mut text = profile::instructions(kelpie, extra.pull_request_file);
     let mut lines = Vec::new();
@@ -85,7 +96,7 @@ pub(super) fn compose(extra: Extra<'_>, worktree: &Path, skills: &Skills, kelpie
     let own = template(worktree);
     match (own, extra.owner_template, skills.command(Step::Pr)) {
         (Some(template), _, _) => lines.push(template_line(&template)),
-        (None, Some(owners), _) => lines.push(owners.line()),
+        (None, Some((owners, file)), _) => lines.push(owners.line(file)),
         (None, None, Some(pr)) => lines.push(format!(
             "Write your pull request's body with the `{pr}` skill, and still end it with \
              `Resolves #<issue>`.\n"

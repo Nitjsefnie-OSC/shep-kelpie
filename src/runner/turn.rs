@@ -512,6 +512,22 @@ impl Runner {
             .then(|| pull_request_file::path(&item.build));
         let hosts = (self.browser_hosts(&harness, &session, item.issue)).filter(|_| browses);
         let dev = self.dev_server(item, &reach, hosts);
+        // The owner's template reaches the worker as a file in its build folder,
+        // which it reads when it writes its body. Written on every call, so a
+        // template kelpie reread is the one the next read finds. The worktree's
+        // own template outranks it, and then no file is written.
+        let owners = self
+            .owner_template
+            .as_ref()
+            .filter(|_| instructions::template(&item.worktree).is_none());
+        let template_file = match owners {
+            Some(owners) => {
+                let path = item.build.join(instructions::TEMPLATE_FILE);
+                write(&item.build, &path, &owners.text())?;
+                Some(path)
+            }
+            None => None,
+        };
         let text = instructions::compose(
             instructions::Extra {
                 agent: agent_prompt.as_deref(),
@@ -519,7 +535,7 @@ impl Runner {
                 // Its token opens no pull request, so kelpie opens it.
                 pull_request_file: handed_over.as_deref(),
                 e2e: self.settings.e2e.as_ref(),
-                owner_template: self.owner_template.as_ref(),
+                owner_template: owners.zip(template_file.as_deref()),
                 browser: hosts,
                 dev_server: dev.as_ref(),
             },
