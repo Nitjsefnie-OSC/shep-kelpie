@@ -221,6 +221,7 @@ mod tests {
 
     use super::*;
     use crate::ports::{Clock, ReplyWith, Takes, Timestamp};
+    use crate::test::ticket;
     use crate::webhook::{CaCert, WebhookToken, WebhookUrl};
 
     fn webhook(kind: WebhookKind, url: &str) -> Webhook {
@@ -446,7 +447,7 @@ mod tests {
         let (url, served) = stand_in(200);
         let alert = Alert {
             reply: Some(ReplyWith {
-                number: 3,
+                ticket: ticket(3),
                 takes: Takes::YesOrNo,
             }),
             ..alert("Merge pull request #71?")
@@ -466,7 +467,7 @@ mod tests {
         let (url, served) = stand_in(200);
         let alert = Alert {
             reply: Some(ReplyWith {
-                number: 3,
+                ticket: ticket(3),
                 takes: Takes::YesOrNo,
             }),
             ..alert(&"a".repeat(6000))
@@ -512,7 +513,7 @@ mod tests {
         let now = crate::adapters::SystemClock.now();
         let alert = Alert {
             reply: Some(ReplyWith {
-                number: 3,
+                ticket: ticket(3),
                 takes: Takes::YesOrNo,
             }),
             ..alert("Merge pull request #71 at 4d2c9e1 into main?")

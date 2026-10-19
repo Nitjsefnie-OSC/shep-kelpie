@@ -41,9 +41,11 @@ pub(super) fn keep_old_agents(
         }
         if write_kept(folder, &name, &old.model, effort)? {
             notes.push(format!(
-                "issue #{}'s worker ran {} at {} before agent files, so kelpie wrote \
+                "{}'s worker ran {} at {} before agent files, so kelpie wrote \
                  `agents/{name}.md` for it, on Claude Code",
-                old.issue, old.model, old.effort
+                old.issue.named().to_lowercase(),
+                old.model,
+                old.effort
             ));
         }
     }

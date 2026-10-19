@@ -130,7 +130,10 @@ fn a_host_that_stays_down_past_the_limit_raises_one_turn_failed_ruling_with_the_
     );
 
     rig.clock.advance(3600);
-    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 7 }));
+    assert_eq!(
+        step(&runner).unwrap(),
+        Some(StepReport::Alerted { id: ticket(7) })
+    );
     assert_eq!(step(&runner).unwrap(), None);
     assert_eq!(rig.claude.calls().len(), calls, "no call after it parked");
     assert_eq!(rulings(&rig, &runner), 1);
@@ -204,7 +207,10 @@ fn a_retry_writes_the_workers_github_login_again() {
     let rig = Rig::new("shep");
     rig.with_app();
     let runner = rig.open().unwrap();
-    assert_eq!(rig.ask(&runner, "add", Some("7"))["work_item"]["issue"], 7);
+    assert_eq!(
+        rig.ask(&runner, "add", Some("7"))["work_item"]["issue"],
+        "7"
+    );
     rig.claude
         .script([down("502"), Scripted::Reply(usage(1), Cost(7))]);
     step(&runner).unwrap();

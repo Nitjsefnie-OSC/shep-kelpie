@@ -6,12 +6,13 @@ use super::super::{Hooks, JOIN_BOUND, Worker};
 use super::*;
 use crate::ports::{Adopted, Flying, Kept, KeptServer, SessionId, Timestamp};
 use crate::settings::Harness;
-use crate::test::{CALL_PATIENCE, Hold, Rig, Scripted};
+use crate::test::{CALL_PATIENCE, Hold, Rig, Scripted, ticket};
+use crate::ticket::TicketId;
 
 // What a handover that did not happen leaves to look at
 struct Tried {
     execs: Arc<AtomicUsize>,
-    carried: Arc<Mutex<Vec<u64>>>,
+    carried: Arc<Mutex<Vec<TicketId>>>,
 }
 
 // A handing whose exec refuses with `why` and notes what it was to carry,
@@ -26,7 +27,7 @@ fn refusing(why: &'static str, feeding: &Arc<AtomicBool>) -> (Arc<Handing>, Trie
     let handing = Handing::with(
         Box::new(move |carry| {
             execs.fetch_add(1, Ordering::SeqCst);
-            *carried.lock().unwrap() = carry.turns.iter().map(|t| t.issue()).collect();
+            *carried.lock().unwrap() = carry.turns.iter().map(|t| t.ticket()).collect();
             why.to_owned()
         }),
         Box::new(|| Some(Box::new(()))),
@@ -59,7 +60,7 @@ fn in_a_turn(
 fn turn_of_7(rig: &Rig, runner: &Mutex<Runner>) -> String {
     let status = rig.ask(runner, "status", None);
     let item = &status["work_items"][0];
-    assert_eq!(item["issue"], 7);
+    assert_eq!(item["issue"], "7");
     item["turn"]["state"].as_str().unwrap().to_owned()
 }
 
@@ -85,7 +86,11 @@ fn a_refused_handover_leaves_the_runner_and_its_calls_as_they_were() {
         "handover refused: the build reads another state format"
     );
     assert_eq!(tried.execs.load(Ordering::SeqCst), 1);
-    assert_eq!(*tried.carried.lock().unwrap(), [7], "the turn was carried");
+    assert_eq!(
+        *tried.carried.lock().unwrap(),
+        [ticket(7)],
+        "the turn was carried"
+    );
     assert!(!handing.pending(), "the refused request stays queued");
     assert_eq!(turn_of_7(&rig, &runner), "running");
     assert!(!hold.returned(), "the call was ended");
@@ -317,7 +322,7 @@ fn the_probe_refuses_a_target_that_reads_only_format_3_when_a_goose_turn_is_carr
         .unwrap_err();
 
     assert!(
-        matches!(refused, HandOverError::Format { format: 5, .. }),
+        matches!(refused, HandOverError::Format { format: 6, .. }),
         "{refused}"
     );
 }
@@ -348,7 +353,7 @@ fn a_carry_holding_a_goose_turn() -> Carry {
         compact: false,
     };
     let draft = serde_json::json!({
-        "issue": 7, "pull_request": null, "role": "worker", "kind": "turn",
+        "issue": "7", "pull_request": null, "role": "worker", "kind": "turn",
         "agent": "goose-worker", "harness": "goose", "model": null,
         "effort": null, "session": "goose-7", "started": 1_000,
     });

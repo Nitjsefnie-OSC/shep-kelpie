@@ -33,11 +33,14 @@ fn seven_parked_on_src_seven(project: &str) -> (Rig, Mutex<Runner>) {
         rig.verdict(&runner),
         Some(StepReport::Ruling {
             issue,
-            id: 71,
+            id,
             ..
         })
-     if issue == ticket(7)));
-    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 71 }));
+     if issue == ticket(7) && id == ticket(71)));
+    assert_eq!(
+        step(&runner).unwrap(),
+        Some(StepReport::Alerted { id: ticket(71) })
+    );
     (rig, runner)
 }
 

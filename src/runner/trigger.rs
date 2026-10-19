@@ -67,15 +67,15 @@ pub struct Status<'a> {
     /// How many work items may hold a slot at once. `working` can list
     /// more, since an item going on through CI or a merge holds none.
     pub active_items: u32,
-    /// The issues of the open work items going on, neither parked nor
+    /// The tickets of the open work items going on, neither parked nor
     /// waiting for a slot, oldest first
-    pub working: Vec<u64>,
-    /// The issues of the work items that gave their slot up to a ruling and
+    pub working: Vec<TicketId>,
+    /// The tickets of the work items that gave their slot up to a ruling and
     /// need one again for a model call, each waiting for one, oldest first
-    pub waiting_for_slot: Vec<u64>,
-    /// The issues of the work items parked on rulings, which take no slot,
+    pub waiting_for_slot: Vec<TicketId>,
+    /// The tickets of the work items parked on rulings, which take no slot,
     /// oldest first
-    pub parked: Vec<u64>,
+    pub parked: Vec<TicketId>,
     /// How many work items may wait parked on rulings before the board
     /// opens nothing new. A merged item on its follow-up ruling, which
     /// `parked` lists, does not count.
@@ -96,7 +96,7 @@ pub struct Status<'a> {
     pub triage: Option<super::triage::TriageStatus<'a>>,
     /// The first issues in the order the board takes the ready ones, which
     /// holds those it would pass over too
-    pub order: &'a [u64],
+    pub order: &'a [TicketId],
     /// Ready issues the board passed over on its last poll, and why
     pub skipped: &'a [Skip],
     /// The warnings that stand now, each told once in the log, such as a
@@ -175,7 +175,7 @@ pub struct RulingStatus<'a>(pub &'a Ruling);
 impl Serialize for RulingStatus<'_> {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut shown = serde_json::to_value(self.0).map_err(serde::ser::Error::custom)?;
-        shown["id"] = self.0.number().into();
+        shown["id"] = serde_json::Value::String(self.0.number().to_string());
         shown.serialize(serializer)
     }
 }
@@ -183,8 +183,8 @@ impl Serialize for RulingStatus<'_> {
 /// An open work item, as `status` shows it
 #[derive(Debug, Serialize)]
 pub struct WorkItemStatus<'a> {
-    /// The issue it resolves
-    pub issue: u64,
+    /// The ticket it resolves
+    pub issue: TicketId,
     /// The issue's title
     pub title: &'a str,
     /// Its branch
@@ -321,7 +321,7 @@ enum Request {
     Add(TicketId),
     Rework(u64),
     Adopt(u64),
-    Rule(u64, Answer),
+    Rule(TicketId, Answer),
     Gate(Option<TicketId>),
     Drop(Option<TicketId>),
     Timings(usize),
@@ -596,9 +596,9 @@ fn read(action: &str, params: Option<&str>) -> Result<Request, String> {
 
 /// `rule`'s params read: `<id> yes`, `<id> no <note>`, `<id> rework <note>`
 /// or `<id> answer <text>`
-pub(super) fn read_rule(params: &str) -> Option<(u64, Answer)> {
+pub(super) fn read_rule(params: &str) -> Option<(TicketId, Answer)> {
     let (id, rest) = params.split_once(char::is_whitespace)?;
-    let id = number(id)?;
+    let id = ruling_id(id)?;
     let rest = rest.trim_start();
     let answer = match rest.split_once(char::is_whitespace) {
         None if rest == "yes" => Answer::Yes,
@@ -628,8 +628,19 @@ fn pid_of(text: &str) -> Option<u32> {
 
 // A ticket's id as written: `7` or `k12`, so `+7` and `#7` are refused rather
 // than read as 7.
-fn ticket(text: &str) -> Option<TicketId> {
+pub(super) fn ticket(text: &str) -> Option<TicketId> {
     text.parse().ok()
+}
+
+// The id an answer names a ruling by: a ticket id as `TicketId` spells it, or
+// the digits an older kelpie wrote with leading zeros, which name the same
+// GitHub ticket. `shep kelpie rule` takes a ticket id as it is spelled; an
+// answer left in the `answers` folder by an older kelpie is read either way.
+pub(super) fn ruling_id(text: &str) -> Option<TicketId> {
+    match text.starts_with('k') {
+        true => ticket(text),
+        false => ticket(text.trim_start_matches('0')),
+    }
 }
 
 // Digits only, so `+7` and `#7` are refused rather than read as 7.
@@ -643,8 +654,8 @@ pub(super) fn number(text: &str) -> Option<u64> {
 pub enum WhichItem {
     /// No work item is in flight
     NoWorkItem,
-    /// These issues' work items are open, and the trigger named none
-    Several(Vec<u64>),
+    /// These tickets' work items are open, and the trigger named none
+    Several(Vec<TicketId>),
     /// No work item is open for this issue
     NotOpen(TicketId),
 }
@@ -669,8 +680,8 @@ impl fmt::Display for WhichItem {
 impl core::error::Error for WhichItem {}
 
 /// `#7`, `#7 and #9`, or `#7, #9 and #12`
-pub(super) fn issue_list(issues: &[u64]) -> String {
-    let named: Vec<String> = issues.iter().map(|i| format!("#{i}")).collect();
+pub(super) fn issue_list(tickets: &[TicketId]) -> String {
+    let named: Vec<String> = tickets.iter().map(TicketId::shown).collect();
     match named.split_last() {
         Some((last, rest)) if !rest.is_empty() => format!("{} and {last}", rest.join(", ")),
         _ => named.concat(),
@@ -683,11 +694,11 @@ pub enum GateError {
     /// The trigger named no work item, or one not open
     Which(WhichItem),
     /// The work item is past its worker's turns: in CI, parked, or merging
-    AlreadyGated(u64),
+    AlreadyGated(TicketId),
     /// The worker's turn has not ended, with the turn's state
-    TurnNotEnded(u64, &'static str),
+    TurnNotEnded(TicketId, &'static str),
     /// Kelpie knows no pull request for the work item
-    NoPullRequest(u64),
+    NoPullRequest(TicketId),
     /// The change could not be saved
     State(StateError),
 }
@@ -697,12 +708,22 @@ impl fmt::Display for GateError {
         match self {
             Self::Which(e) => e.fmt(f),
             Self::AlreadyGated(issue) => {
-                write!(f, "the work item for #{issue} is already in the gate")
+                write!(
+                    f,
+                    "the work item for {} is already in the gate",
+                    issue.shown()
+                )
             }
             Self::TurnNotEnded(issue, state) => {
-                write!(f, "the worker's turn on #{issue} is {state}, not ended")
+                write!(
+                    f,
+                    "the worker's turn on {} is {state}, not ended",
+                    issue.shown()
+                )
             }
-            Self::NoPullRequest(issue) => write!(f, "no pull request is known for #{issue}"),
+            Self::NoPullRequest(issue) => {
+                write!(f, "no pull request is known for {}", issue.shown())
+            }
             Self::State(e) => e.fmt(f),
         }
     }
@@ -752,17 +773,15 @@ impl Runner {
     // ticket is named. A work item is keyed by an issue number, so a ticket
     // from another source has none open.
     pub(super) fn choose(&mut self, ticket: Option<TicketId>) -> Result<(), WhichItem> {
-        let open = self.state.open_issues();
+        let open = self.state.open_tickets();
         let chosen = match (ticket, open.as_slice()) {
-            (Some(ticket), _) => match ticket.github().filter(|issue| open.contains(issue)) {
-                Some(issue) => issue,
-                None => return Err(WhichItem::NotOpen(ticket)),
-            },
+            (Some(ticket), _) if open.contains(&ticket) => ticket,
+            (Some(ticket), _) => return Err(WhichItem::NotOpen(ticket)),
             (None, []) => return Err(WhichItem::NoWorkItem),
             (None, [only]) => *only,
             (None, _) => return Err(WhichItem::Several(open)),
         };
-        self.focus = TicketId::from_issue(chosen);
+        self.focus = Some(chosen);
         Ok(())
     }
 }
@@ -772,223 +791,4 @@ pub(super) fn lock(runner: &Mutex<Runner>) -> MutexGuard<'_, Runner> {
 }
 
 #[cfg(test)]
-mod tests {
-    use serde_json::json;
-
-    use super::*;
-    use crate::ports::{Checks, Cost, Usage};
-    use crate::runner::{StepReport, step};
-    use crate::skills::Step;
-    use crate::test::{Rig, Scripted};
-
-    mod board;
-    mod ticket;
-
-    // A running project with issue 7 in flight
-    fn with_issue_7(project: &str) -> (Rig, Mutex<Runner>) {
-        let rig = Rig::new(project);
-        let runner = rig.open().unwrap();
-        assert_eq!(rig.ask(&runner, "add", Some("7"))["work_item"]["issue"], 7);
-        (rig, runner)
-    }
-
-    #[test]
-    fn issue_lists_read_as_prose() {
-        assert_eq!(issue_list(&[7]), "#7");
-        assert_eq!(issue_list(&[7, 9]), "#7 and #9");
-        assert_eq!(issue_list(&[7, 9, 12]), "#7, #9 and #12");
-    }
-
-    #[test]
-    fn a_new_project_has_nothing_in_flight() {
-        let rig = Rig::new("koji");
-        rig.retro_on();
-        let runner = rig.open().unwrap();
-        assert_eq!(
-            rig.ask(&runner, "status", None),
-            json!({
-                "project": "koji",
-                "merging": "ask",
-                "work_item": null,
-                "work_items": [],
-                "active_items": 1,
-                "working": [],
-                "waiting_for_slot": [],
-                "parked": [],
-                "pending_rulings": 2,
-                "adopted": [],
-                "order": [],
-                "skipped": [],
-                "rulings": [],
-                "leases": [],
-                "history": [],
-                "pacer": { "enabled": true, "claude": { "reading": null, "holding": null } },
-                // kelpie seeds a vendored skill for the worker's four and for
-                // the retro this rig turned on, so `status` names no command
-                // for triage, spec and reset: they run kelpie's own prompt.
-                "skills": Step::ALL.map(|step| json!({
-                    "step": step.as_str(),
-                    "skill": (Step::WORKER.contains(&step) || step == Step::Retro)
-                        .then(|| format!("/mattpocock:{}", step.default_skill())),
-                    "fallback": null,
-                })),
-                "pull_request_template": "none",
-                "board": rig.paths().board,
-                "build": crate::upgrade::seen::stamp_of(&std::env::current_exe().unwrap()).unwrap(),
-            })
-        );
-    }
-
-    #[test]
-    fn every_registered_action_is_answered_and_no_other() {
-        let rig = Rig::new("koji");
-        let runner = rig.open().unwrap();
-        for action in ACTIONS.into_iter().filter(|a| {
-            ![
-                "rework", "adopt", "rule", "gate", "drop", "attach", "detach", "tell", "pm",
-                "triage",
-            ]
-            .contains(a)
-        }) {
-            let params = (action == "add").then_some("7");
-            assert_eq!(
-                rig.ask(&runner, action, params)["project"],
-                "koji",
-                "{action}"
-            );
-        }
-        assert_eq!(
-            rig.ask(&runner, "rework", Some("71")),
-            json!({ "error": "the work item for #7 is in flight" })
-        );
-        let no_pm = "the project has no project manager: name one in `agents.pm`, such as `pm`";
-        let me = std::process::id();
-        assert_eq!(
-            rig.ask(&runner, "tell", Some("hold #4")),
-            json!({ "error": no_pm })
-        );
-        assert_eq!(
-            rig.ask(&runner, "pm", Some(&format!("attach {me}"))),
-            json!({ "error": no_pm })
-        );
-        assert_eq!(
-            rig.ask(&runner, "pm", Some(&format!("detach {me}"))),
-            json!({ "error": no_pm })
-        );
-        assert_eq!(
-            rig.ask(&runner, "pm", Some("attach 0")),
-            json!({ "error": "`pm` takes `attach <pid>`, `attach <pid> <session pid>` or \
-                              `detach <pid>`, not \"attach 0\"" })
-        );
-        assert_eq!(
-            rig.ask(&runner, "adopt", Some("71")),
-            json!({ "error": "cannot read pull request #71: gh failed: no pull request #71" })
-        );
-        assert_eq!(
-            rig.ask(&runner, "rule", Some("71 yes")),
-            json!({ "error": "ruling 71 is already answered, or was never raised" })
-        );
-        assert_eq!(
-            rig.ask(&runner, "rule", None),
-            json!({ "error": "`rule` takes `<id> yes`, `<id> no <note>`, `<id> rework <note>` or `<id> answer <text>`" })
-        );
-        assert_eq!(
-            rig.ask(&runner, "merge", None),
-            json!({ "error": "unknown action `merge`" })
-        );
-    }
-
-    #[test]
-    fn a_trigger_with_params_is_refused_and_changes_nothing() {
-        let rig = Rig::new("rotom");
-        let runner = rig.open().unwrap();
-        assert_eq!(
-            rig.ask(&runner, "drain", Some("now")),
-            json!({ "error": "`drain` takes no params" })
-        );
-        assert_eq!(rig.ask(&runner, "status", None)["draining"], json!(null));
-    }
-
-    #[test]
-    fn a_second_add_while_one_is_in_flight_is_refused() {
-        let (rig, runner) = with_issue_7("golbat");
-        assert_eq!(
-            rig.ask(&runner, "add", Some("8")),
-            json!({ "error": "the work item for #7 is in flight" })
-        );
-    }
-
-    #[test]
-    fn adding_an_issue_the_forge_cannot_show_changes_nothing() {
-        let rig = Rig::new("reactmap");
-        rig.forge.remove_issue(9);
-        let runner = rig.open().unwrap();
-        assert_eq!(
-            rig.ask(&runner, "add", Some("9")),
-            json!({ "error": "cannot read the issue: gh failed: no issue #9" })
-        );
-        assert_eq!(rig.ask(&runner, "status", None)["work_item"], json!(null));
-    }
-
-    #[test]
-    fn gate_sends_a_work_item_saved_before_the_gate_to_its_merge_ruling() {
-        let (rig, runner, head) = Rig::with_pull_request("webapp");
-        drop(runner);
-        let state = rig.paths().state;
-        let text = std::fs::read_to_string(&state).unwrap();
-        let mut saved: serde_json::Value = serde_json::from_str(&text).unwrap();
-        let item = saved["work_items"][0].as_object_mut().unwrap();
-        item.remove("phase");
-        item.remove("red_head");
-        std::fs::write(&state, saved.to_string()).unwrap();
-
-        let runner = rig.open().unwrap();
-        rig.forge.set_checks(&head, Checks::Passed);
-        assert_eq!(step(&runner).unwrap(), None, "left alone until asked");
-        let status = rig.ask(&runner, "gate", None);
-        assert_eq!(
-            status["work_item"]["phase"],
-            json!({ "state": "ci", "head": null, "since": Rig::EPOCH })
-        );
-        assert!(matches!(
-            rig.verdict(&runner),
-            Some(StepReport::Ruling { id: 71, .. })
-        ));
-        assert_eq!(rig.forge.merges(), []);
-    }
-
-    #[test]
-    fn gate_refuses_anything_but_an_ended_turn_with_a_known_pull_request() {
-        let rig = Rig::new("koji");
-        let runner = rig.open().unwrap();
-        let refused = |runner: &Mutex<Runner>, error: &str| {
-            assert_eq!(rig.ask(runner, "gate", None), json!({ "error": error }));
-        };
-        refused(&runner, "no work item is in flight");
-        rig.ask(&runner, "add", Some("7"));
-        refused(&runner, "the worker's turn on #7 is due, not ended");
-        assert_eq!(
-            rig.ask(&runner, "gate", Some("7")),
-            json!({ "error": "the worker's turn on #7 is due, not ended" })
-        );
-        assert_eq!(
-            rig.ask(&runner, "gate", Some("8")),
-            json!({ "error": "no work item for #8 is open" })
-        );
-        assert_eq!(
-            rig.ask(&runner, "gate", Some("#7")),
-            json!({ "error": "\"#7\" is not a ticket id" })
-        );
-
-        rig.claude
-            .script([Scripted::Reply(Usage::default(), Cost(1))]);
-        step(&runner).unwrap();
-        refused(&runner, "no pull request is known for #7");
-
-        let (rig, runner, _) = Rig::with_pull_request("rotom");
-        assert_eq!(
-            rig.ask(&runner, "gate", None),
-            json!({ "error": "the work item for #7 is already in the gate" })
-        );
-    }
-}
+mod tests;

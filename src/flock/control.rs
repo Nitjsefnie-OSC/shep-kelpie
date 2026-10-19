@@ -324,36 +324,47 @@ pub async fn finish(
     if format == Format::Json {
         return Ok(vec![body]);
     }
-    let named = |numbers: &[u64]| {
-        let named: Vec<String> = numbers.iter().map(|n| format!("#{n}")).collect();
-        named.join(", ")
-    };
     let open = listed(&body, "work_items", "issue");
     let mut lines = vec![match open.as_slice() {
         [] => format!("{name} has no work item open, so its runner stops now"),
         open => format!(
             "{name} is finishing {}: the board picks nothing new, and the runner stops once \
              they end. `shep kelpie start {name}` picks again",
-            named(open)
+            open.join(", ")
         ),
     }];
     let adopted = listed(&body, "adopted", "pull_request");
     if !adopted.is_empty() {
         lines.push(format!(
             "adopted and waiting for a slot, {} stay waiting until `shep kelpie start {name}`",
-            named(&adopted)
+            adopted.join(", ")
         ));
     }
     Ok(lines)
 }
 
-// The `key` of each entry in the `list` a runner's `status` shows.
-fn listed(status: &str, list: &str, key: &str) -> Vec<u64> {
+// The `key` of each entry in the `list` a runner's `status` shows, each as the
+// maintainer reads it: `#7` for a GitHub ticket or a pull request, `k12` for a
+// local ticket.
+fn listed(status: &str, list: &str, key: &str) -> Vec<String> {
     let Ok(status) = serde_json::from_str::<serde_json::Value>(status) else {
         return Vec::new();
     };
     let entries = status[list].as_array().into_iter().flatten();
-    entries.filter_map(|entry| entry[key].as_u64()).collect()
+    entries.filter_map(|entry| shown(&entry[key])).collect()
+}
+
+// A status field that names a ticket or a pull request, as the maintainer
+// writes it. A ticket id is a string; a pull request number is still a number.
+fn shown(value: &serde_json::Value) -> Option<String> {
+    match value {
+        serde_json::Value::String(text) => Some(
+            text.strip_prefix('k')
+                .map_or_else(|| format!("#{text}"), |_| text.clone()),
+        ),
+        serde_json::Value::Number(number) => number.as_u64().map(|n| format!("#{n}")),
+        _ => None,
+    }
 }
 
 /// Lets `project`'s runner end what it has running, then stops its sheep
@@ -437,9 +448,9 @@ pub async fn pause(
     }
     let mut lines: Vec<String> = attached
         .into_iter()
-        .map(|issue| {
+        .map(|ticket| {
             format!(
-                "#{issue} is attached in your terminal: its session goes on, and the work item \
+                "{ticket} is attached in your terminal: its session goes on, and the work item \
                  stays held until it ends"
             )
         })
@@ -494,15 +505,16 @@ async fn come_up(
     }
 }
 
-// The issues of the work items a runner's `status` shows attached.
-fn attached(status: &str) -> Vec<u64> {
+// The work items a runner's `status` shows attached, each named as the
+// maintainer writes its ticket.
+fn attached(status: &str) -> Vec<String> {
     let Ok(status) = serde_json::from_str::<serde_json::Value>(status) else {
         return Vec::new();
     };
     let items = status["work_items"].as_array().into_iter().flatten();
     items
         .filter(|item| !item["attached"].is_null())
-        .filter_map(|item| item["issue"].as_u64())
+        .filter_map(|item| shown(&item["issue"]))
         .collect()
 }
 

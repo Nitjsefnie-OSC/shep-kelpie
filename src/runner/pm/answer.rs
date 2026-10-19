@@ -42,7 +42,7 @@ pub(super) struct Answer {
     /// What to do about one follow-up ruling's findings
     pub(super) follow_up: Option<Decide>,
     /// Its votes on rulings before the panel: each ruling, and the object it voted with
-    pub(super) votes: Vec<(u64, Map<String, Value>)>,
+    pub(super) votes: Vec<(TicketId, Map<String, Value>)>,
     /// The whole of its standing notes, which replaces the file kelpie holds.
     /// None leaves the file as it is, and empty text clears it.
     pub(super) standing: Option<String>,
@@ -208,7 +208,7 @@ pub(super) fn read(text: &str) -> Option<Answer> {
                 Value::Array(items) => {
                     for item in items {
                         let vote = item.as_object().and_then(|fields| {
-                            Some((number(fields.get("ruling")?)?, fields.clone()))
+                            Some((ticket(fields.get("ruling")?)?, fields.clone()))
                         });
                         match vote {
                             Some(vote) => answer.votes.push(vote),
@@ -285,16 +285,6 @@ fn plain(text: &str) -> String {
     text.chars()
         .filter(|&c| c == '\n' || !c.is_control())
         .collect()
-}
-
-// A positive whole number, as a JSON number or digits in a string.
-fn number(value: &Value) -> Option<u64> {
-    let n = match value {
-        Value::Number(n) => n.as_u64()?,
-        Value::String(text) => text.trim().trim_start_matches('#').parse().ok()?,
-        _ => return None,
-    };
-    (n > 0).then_some(n)
 }
 
 // A ticket id, as a JSON number or as text: `9`, `#9` or `k12`.
@@ -549,8 +539,8 @@ mod tests {
                     \"why\": \"CI is green\", \"design\": false}, {\"ruling\": \"#5\", \
                     \"choice\": \"B\"}, {\"choice\": \"A\"}, 7]}";
         let answer = read(text).unwrap();
-        let rulings: Vec<u64> = answer.votes.iter().map(|(id, _)| *id).collect();
-        assert_eq!(rulings, [4, 5]);
+        let rulings: Vec<TicketId> = answer.votes.iter().map(|(id, _)| *id).collect();
+        assert_eq!(rulings, [ticket(4), ticket(5)]);
         assert_eq!(
             crate::panel::from_fields(&answer.votes[0].1, 2).map(|v| v.choice),
             Ok('A')

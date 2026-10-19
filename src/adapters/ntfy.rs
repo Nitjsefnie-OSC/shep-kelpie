@@ -9,6 +9,7 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use crate::ports::{Reply, ReplyWith, Since, Takes, Timestamp};
+use crate::ticket::TicketId;
 
 /// The tag on everything kelpie posts, which a read skips
 pub(super) const TAG: &str = "kelpie";
@@ -17,7 +18,7 @@ pub(super) const TAG: &str = "kelpie";
 ///
 /// On a `trusted` topic only a yes on a merge ruling names the code.
 pub(super) fn reply_line(reply: &ReplyWith, trusted: bool) -> String {
-    let ruling = reply.number;
+    let ruling = reply.ticket;
     if trusted {
         return match reply.takes {
             Takes::MergeCodedOff => coded_off(ruling),
@@ -45,7 +46,7 @@ pub(super) fn reply_line(reply: &ReplyWith, trusted: bool) -> String {
 
 // A merge ruling alerted while coded answers are off: only the replies that
 // need no code, since the yes would be dropped until the terminal unlocks.
-fn coded_off(ruling: u64) -> String {
+fn coded_off(ruling: TicketId) -> String {
     format!(
         "\n\nReply here with `{ruling} no <note>` or `{ruling} rework <note>`. A yes on a \
          merge ruling needs `shep kelpie totp --unlock` on the terminal first."
@@ -138,6 +139,7 @@ fn strings(value: &Value, into: &mut Vec<String>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test::ticket;
 
     const POLL: &str = include_str!("../../fixtures/ntfy-poll.jsonl");
 
@@ -213,7 +215,7 @@ mod tests {
     #[test]
     fn the_reply_line_names_what_the_ruling_takes() {
         let yes_or_no = ReplyWith {
-            number: 3,
+            ticket: ticket(3),
             takes: Takes::YesOrNo,
         };
         assert_eq!(
@@ -241,7 +243,7 @@ mod tests {
     #[test]
     fn a_merge_alerted_while_coded_answers_are_off_does_not_offer_the_yes() {
         let reply = ReplyWith {
-            number: 3,
+            ticket: ticket(3),
             takes: Takes::MergeCodedOff,
         };
         let line = reply_line(&reply, true);
@@ -256,7 +258,10 @@ mod tests {
     // On a trusted topic only the merge yes takes a code.
     #[test]
     fn on_a_trusted_topic_the_reply_line_names_the_code_only_on_the_merge_yes() {
-        let reply = |takes| ReplyWith { number: 3, takes };
+        let reply = |takes| ReplyWith {
+            ticket: ticket(3),
+            takes,
+        };
         assert_eq!(
             reply_line(&reply(Takes::YesOrNo), true),
             "\n\nReply here with `3 yes` or `3 no <note>`."

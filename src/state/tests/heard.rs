@@ -1,6 +1,7 @@
 use std::fs;
 
 use super::super::*;
+use super::ticket;
 
 #[test]
 fn where_a_ruling_is_answered_in_its_thread_is_pinned_by_ruling_id_and_left_out_when_empty() {
@@ -16,7 +17,7 @@ fn where_a_ruling_is_answered_in_its_thread_is_pinned_by_ruling_id_and_left_out_
     assert_eq!((value.get("heard"), value.get("posted")), (None, None));
 
     state.heard.insert(
-        2,
+        ticket(2),
         Heard {
             mentions: "octocat".into(),
             time: Timestamp(6),
@@ -47,7 +48,7 @@ fn the_comment_of_a_ruling_posted_with_no_mention_is_kept_by_ruling_id_and_left_
     };
     assert_eq!(saved(&store, &state).get("unmentioned"), None);
 
-    state.unmentioned.insert(3, 12);
+    state.unmentioned.insert(ticket(3), 12);
 
     assert_eq!(
         saved(&store, &state)["unmentioned"],

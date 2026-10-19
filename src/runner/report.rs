@@ -46,18 +46,18 @@ pub enum StepReport {
     },
     /// The issue writer labelled an issue for the implementer it picked
     Labelled {
-        /// The issue
-        issue: u64,
+        /// The ticket
+        issue: TicketId,
         /// The implementer its label names
         agent: AgentName,
     },
     /// The issue writer could not label an issue, so a ruling asks the
     /// maintainer to, and the board passes it over until it is answered
     Unlabelled {
-        /// The issue
-        issue: u64,
+        /// The ticket
+        issue: TicketId,
         /// The ruling's id
-        id: u64,
+        id: TicketId,
         /// The question, with the triggers that answer it
         question: String,
     },
@@ -117,13 +117,13 @@ pub enum StepReport {
     },
     /// An issue whose sub-issues are all closed was closed too
     ParentClosed {
-        /// The issue
-        issue: u64,
+        /// The ticket
+        issue: TicketId,
     },
     /// An issue whose sub-issues are all closed could not be closed this step
     ParentCloseFailed {
-        /// The issue
-        issue: u64,
+        /// The ticket
+        issue: TicketId,
         /// Why
         reason: String,
         /// Whether the forge refused too often in a row, so this runner
@@ -177,7 +177,7 @@ pub enum StepReport {
         /// The worker's draft pull request, once it has opened one
         pull_request: Option<u64>,
         /// The ruling's id
-        id: u64,
+        id: TicketId,
         /// The question, with the trigger that answers it
         question: String,
         /// Why the question could not be posted on the pull request, if it could not
@@ -190,7 +190,7 @@ pub enum StepReport {
         /// The worker's draft pull request, once it has opened one
         pull_request: Option<u64>,
         /// The ruling's id
-        id: u64,
+        id: TicketId,
         /// The question, carrying why the turn failed and the triggers that answer it
         question: String,
         /// Why the question could not be posted on the pull request, if it could not
@@ -205,7 +205,7 @@ pub enum StepReport {
         /// The worker's draft pull request, once it has opened one
         pull_request: Option<u64>,
         /// The ruling's id
-        id: u64,
+        id: TicketId,
         /// The question, with the triggers that answer it
         question: String,
         /// Why the question could not be posted on the pull request, if it could not
@@ -270,7 +270,7 @@ pub enum StepReport {
         /// Its pull request
         pull_request: u64,
         /// The ruling's id
-        id: u64,
+        id: TicketId,
         /// The question, with the triggers that answer it
         question: String,
         /// Why the question could not be posted on the pull request, if it could not
@@ -350,12 +350,12 @@ pub enum StepReport {
     /// A ruling was posted to the maintainer's webhook
     Alerted {
         /// The ruling's id
-        id: u64,
+        id: TicketId,
     },
     /// A ruling could not be sent, and is tried again later
     AlertFailed {
         /// The ruling's id
-        id: u64,
+        id: TicketId,
         /// Why, never naming the webhook's URL
         reason: String,
         /// When the post is tried again at the earliest
@@ -402,13 +402,13 @@ pub enum StepReport {
     /// A reply on the webhook's topic, carrying the authenticator code, answered it
     ReplyAnswered {
         /// The ruling's id
-        id: u64,
+        id: TicketId,
     },
     /// A reply carrying the authenticator code was refused, by `rule` or
     /// because its code could not be recorded, and the topic was told why
     ReplyRefused {
         /// The ruling's id
-        id: u64,
+        id: TicketId,
         /// Why, as `rule` refused it
         reason: String,
         /// Why the line for the topic could not be posted, if it could not
@@ -418,7 +418,7 @@ pub enum StepReport {
     /// it ran nothing, and the topic was told so
     ReplyToSettled {
         /// The ruling's id
-        id: u64,
+        id: TicketId,
         /// Why the line for the topic could not be posted, if it could not
         line_failed: Option<String>,
     },
@@ -426,7 +426,7 @@ pub enum StepReport {
     /// nothing, and the topic was told so
     ReplyCodeUsed {
         /// The ruling's id
-        id: u64,
+        id: TicketId,
         /// Why the line for the topic could not be posted, if it could not
         line_failed: Option<String>,
     },
@@ -749,18 +749,6 @@ pub enum StepReport {
         /// Why
         reason: String,
     },
-}
-
-/// The ticket of a work item's issue number, for a step that names its work
-/// item while the state file still keys it by issue number
-///
-/// # Panics
-///
-/// When `number` is zero. Kelpie opens a work item only from a ticket it read,
-/// so no open item's issue is zero.
-#[track_caller]
-pub(super) fn ticket_of(number: u64) -> TicketId {
-    TicketId::from_issue(number).expect("a work item's issue is never zero")
 }
 
 impl StepReport {

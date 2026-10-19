@@ -10,6 +10,7 @@ use std::path::Path;
 
 use crate::runner::Runner;
 use crate::state::{RulingKind, Stuck};
+use crate::ticket::TicketId;
 use crate::work_item::Phase;
 
 /// The folder in the project manager's that holds the logs
@@ -20,13 +21,13 @@ impl Runner {
     /// `StillRed` ruling, and returns what the board says of each
     ///
     /// A log that could not be read or written is noted there and in the log.
-    pub(super) fn pm_ci_logs(&mut self, folder: &Path) -> BTreeMap<u64, String> {
+    pub(super) fn pm_ci_logs(&mut self, folder: &Path) -> BTreeMap<TicketId, String> {
         let ci = folder.join(CI);
         let cleared = match std::fs::remove_dir_all(&ci) {
             Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
             _ => Ok(()),
         };
-        let red: Vec<(u64, String)> = self
+        let red: Vec<(TicketId, String)> = self
             .state
             .work_items
             .iter()
@@ -43,8 +44,8 @@ impl Runner {
             })
             .collect();
         let mut said = BTreeMap::new();
-        for (issue, head) in red {
-            let file = format!("{CI}/{issue}.log");
+        for (ticket, head) in red {
+            let file = format!("{CI}/{ticket}.log");
             // A `StillRed` ruling is raised only on a pull request's red run
             // (`ci_failed`), never on a merge queue removal, so not `merge_group`.
             let read = (self.ports.forge)
@@ -70,12 +71,13 @@ impl Runner {
                 Ok(()) => format!("CI log `{file}`"),
                 Err(why) => {
                     self.notes.push(format!(
-                        "no CI log of #{issue} for the project manager: {why}"
+                        "no CI log of {} for the project manager: {why}",
+                        ticket.shown()
                     ));
                     format!("no CI log: {why}")
                 }
             };
-            said.insert(issue, line);
+            said.insert(ticket, line);
         }
         said
     }

@@ -53,8 +53,8 @@ pub(super) fn seat(before: &ProjectState, next: &mut ProjectState, max: usize) -
 }
 
 impl Runner {
-    // The issues of the open work items `keep` keeps, oldest first
-    pub(super) fn issues_where(&self, keep: impl Fn(&WorkItem) -> bool) -> Vec<u64> {
+    // The tickets of the open work items `keep` keeps, oldest first
+    pub(super) fn issues_where(&self, keep: impl Fn(&WorkItem) -> bool) -> Vec<TicketId> {
         (self.state.work_items.iter())
             .filter(|i| keep(i))
             .map(|i| i.issue)
@@ -64,10 +64,14 @@ impl Runner {
     // The open work items that hold a slot or wait for one, then the
     // pull request of the contribution a call runs on, then the issue the
     // triager researches
-    pub(super) fn slot_issues(&self) -> Vec<u64> {
+    pub(super) fn slot_issues(&self) -> Vec<TicketId> {
         let mut held = self.issues_where(|i| !i.parked() && i.seat != Seat::Without);
-        held.extend(self.flights.securing_pull_request());
-        held.extend(self.flights.triaging());
+        held.extend(
+            self.flights
+                .securing_pull_request()
+                .map(TicketId::from_pull_request),
+        );
+        held.extend((self.flights.triaging()).and_then(TicketId::from_issue));
         held
     }
 
@@ -91,7 +95,7 @@ impl Runner {
     }
 
     // The open work items parked on rulings
-    pub(super) fn parked_issues(&self) -> Vec<u64> {
+    pub(super) fn parked_issues(&self) -> Vec<TicketId> {
         self.issues_where(WorkItem::parked)
     }
 
@@ -121,15 +125,15 @@ impl Runner {
 
     // Whether a slot is free for the work item for `issue`, which holds
     // none: one that no item holding a slot, or waiting ahead of it, takes
-    pub(super) fn slot_open_for(&self, issue: u64) -> bool {
+    pub(super) fn slot_open_for(&self, ticket: TicketId) -> bool {
         let waits = self
             .state
-            .item(issue)
+            .item(ticket)
             .is_some_and(|i| i.seat == Seat::Waiting);
         let mut ahead = 0;
         let mut passed = false;
         for item in &self.state.work_items {
-            if item.issue == issue {
+            if item.issue == ticket {
                 passed = true;
                 continue;
             }
@@ -182,7 +186,7 @@ impl Runner {
 
     // What the alert for ruling `id` adds while `concurrency.pending_rulings` items wait,
     // the item parked on it among them
-    pub(super) fn parked_note(&self, id: u64) -> Option<String> {
+    pub(super) fn parked_note(&self, id: TicketId) -> Option<String> {
         let parks = (self.state.work_items.iter())
             .any(|i| i.phase == Phase::Ruling { id } && self.held_back(i));
         if !parks || !self.parked_full() {
@@ -208,7 +212,7 @@ impl Runner {
     pub(super) fn parked_overlap(&self, ready: &[ReadyIssue]) -> Vec<Skip> {
         let parked: Vec<(TicketId, Files)> = (self.state.work_items.iter())
             .filter(|i| self.held_back(i))
-            .filter_map(|i| Some((i.ticket()?, self.item_files(i.ticket()?))))
+            .map(|i| (i.issue, self.item_files(i.issue)))
             .collect();
         let unread = |issue: &ReadyIssue, unknown| Skip::PathsUnread {
             issue: issue.ticket,

@@ -16,7 +16,9 @@ use super::*;
 use crate::flock::Launch;
 use crate::runner::ProjectName;
 use crate::shepherd::Dial;
+use crate::test::ticket;
 use crate::test::{CALL_PATIENCE, FakeShepherd, write_script};
+use crate::ticket::TicketId;
 
 mod drain;
 mod files;
@@ -33,8 +35,8 @@ const FAST: Patience = Patience {
     tool: Duration::from_secs(10),
 };
 
-const MERGING: &str = r#"{"work_items":[{"issue":7,"phase":{"state":"merge","head":"abc"}}]}"#;
-const IDLE: &str = r#"{"work_items":[{"issue":7,"phase":{"state":"implement"}}]}"#;
+const MERGING: &str = r#"{"work_items":[{"issue":"7","phase":{"state":"merge","head":"abc"}}]}"#;
+const IDLE: &str = r#"{"work_items":[{"issue":"7","phase":{"state":"implement"}}]}"#;
 
 /// A shepherd whose adopted dog and a runner for `koji` run a stand-in
 /// kelpie, a kelpie home, and a folder of stand-in builds
@@ -216,7 +218,7 @@ fn the_five_forms_are_read_and_nothing_else() {
 
 #[test]
 fn a_merge_in_flight_is_a_work_item_being_merged_or_just_merged() {
-    let phase = |phase: &str| format!(r#"{{"work_items":[{{"issue":4,"phase":{phase}}}]}}"#);
+    let phase = |phase: &str| format!(r#"{{"work_items":[{{"issue":"4","phase":{phase}}}]}}"#);
     for (phase_json, merging_now) in [
         (r#"{"state":"merge","head":"a"}"#, true),
         (r#"{"state":"done","merged":true}"#, true),
@@ -225,19 +227,27 @@ fn a_merge_in_flight_is_a_work_item_being_merged_or_just_merged() {
         (r#"{"state":"implement"}"#, false),
         (r#""merge""#, true),
     ] {
-        let expected: Vec<u64> = if merging_now { vec![4] } else { vec![] };
+        let expected: Vec<TicketId> = if merging_now { vec![ticket(4)] } else { vec![] };
         assert_eq!(
             restart::merging(&phase(phase_json)),
             expected,
             "{phase_json}"
         );
     }
-    // A status from before `work_items`, and ones that say nothing.
+    // A status from before `work_items` and before ticket ids, and ones that
+    // say nothing.
     assert_eq!(
         restart::merging(r#"{"work_item":{"issue":9,"phase":{"state":"merge","head":"a"}}}"#),
-        [9]
+        [ticket(9)]
+    );
+    // A local ticket is a ticket too.
+    assert_eq!(
+        restart::merging(
+            r#"{"work_items":[{"issue":"k12","phase":{"state":"merge","head":"a"}}]}"#
+        ),
+        ["k12".parse().expect("a test's local ticket")]
     );
     for status in [r#"{"work_item":null}"#, "unknown action: status", "", "[]"] {
-        assert_eq!(restart::merging(status), Vec::<u64>::new(), "{status}");
+        assert_eq!(restart::merging(status), Vec::<TicketId>::new(), "{status}");
     }
 }

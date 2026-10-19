@@ -13,6 +13,7 @@ use std::time::Duration;
 
 use super::Runner;
 use super::adopt;
+use super::browser;
 use super::claim::main_fetch_key;
 use super::claude_files::Unchecked;
 use super::instructions;
@@ -152,12 +153,7 @@ impl Runner {
         self.follow_contributions()?;
         self.follow_dependencies()?;
         self.follow_triage()?;
-        let open: Vec<TicketId> = self
-            .state
-            .work_items
-            .iter()
-            .filter_map(WorkItem::ticket)
-            .collect();
+        let open: Vec<TicketId> = self.state.work_items.iter().map(|i| i.issue).collect();
         self.unreachable.keep_only(&open);
         self.held_up.keep_only(&open);
         self.seat_waiting()?;
@@ -220,7 +216,7 @@ impl Runner {
     fn note_left_out(&mut self, rotation: &[Slot], now: Timestamp) {
         let left_out: Vec<(TicketId, Option<Reason>)> = (self.state.work_items.iter())
             .filter_map(|i| {
-                let ticket = i.ticket()?;
+                let ticket = i.issue;
                 if rotation.contains(&Slot::Item(ticket)) {
                     return None;
                 }
@@ -252,7 +248,7 @@ impl Runner {
     // cannot starve the rest
     pub(super) fn rotation(&self) -> Vec<Slot> {
         let items = (self.state.work_items.iter()).filter_map(|i| {
-            let ticket = i.ticket()?;
+            let ticket = i.issue;
             (!self.flights.flying(ticket) && i.attached.is_none() && i.seat != Seat::Waiting)
                 .then_some(Slot::Item(ticket))
         });
@@ -309,7 +305,7 @@ impl Runner {
         }
         // A turn whose model host could not be reached is tried again as it
         // was, once its pause has passed.
-        if !start_over && let Some(retry) = item.ticket().and_then(|t| self.retry_for_host(t)) {
+        if !start_over && let Some(retry) = self.retry_for_host(item.issue) {
             return Ok(retry);
         }
         // Only a turn that has not begun waits on the pacer: one already
@@ -402,7 +398,7 @@ impl Runner {
             return Ok(self.idle(Reason::Draining));
         }
         let issue = item.issue;
-        let ticket = item.ticket();
+        let ticket = item.issue;
         // A later turn restarted with a new session, as one that found no
         // session to resume is, has a worker call on record and is not first.
         let first = matches!(session, Session::New(_))
@@ -470,7 +466,7 @@ impl Runner {
             drop(self.opened.take(issue));
             return Err(e);
         }
-        if resumed && let Some(ticket) = ticket {
+        if resumed {
             self.note_resumed(ticket);
         }
         if let Begin::Report(report) = &mut begin {
@@ -533,7 +529,7 @@ impl Runner {
         let handed_over = token
             .is_some()
             .then(|| pull_request_file::path(&item.build));
-        let hosts = (self.browser_hosts(&harness, &session, item.issue)).filter(|_| browses);
+        let hosts = (self.browser_hosts(&harness, &session, Some(item.issue))).filter(|_| browses);
         let dev = self.dev_server(item, &reach, hosts);
         // The owner's template reaches the worker as a file in its build folder,
         // which it reads when it writes its body. Written on every call, so a
@@ -574,14 +570,12 @@ impl Runner {
             None if item.rework => rework::first_prompt(item),
             None if item.adopted => adopt::first_prompt(item, None),
             None => {
-                let ticket = item
-                    .ticket()
-                    .ok_or_else(|| format!("issue #{} has no ticket", item.issue))?;
+                let ticket = item.issue;
                 let issue = self
                     .ports
                     .tickets
                     .issue(&self.remote, ticket)
-                    .map_err(|e| format!("cannot read issue #{}: {e}", item.issue))?;
+                    .map_err(|e| format!("cannot read {}: {e}", ticket.shown()))?;
                 self.skills
                     .invoke(Step::Implement, &first_prompt(ticket, &issue))
             }
@@ -590,7 +584,9 @@ impl Runner {
         let compact_window =
             NonZeroU32::new(self.settings.worker.compact_window).filter(|_| prompt != COMPACT);
         Ok(AgentCall {
-            issue: item.issue,
+            // The adapters name a call's sandbox by its GitHub issue number. A
+            // local ticket has none, so its call carries 0.
+            issue: item.issue.github().unwrap_or(0),
             settings,
             instructions: Some(instructions),
             plugin_dirs: self.skills.plugin_dirs().to_vec(),
@@ -760,7 +756,9 @@ impl Runner {
         self.with_browser(&mut call)?;
         if let Err(e) = self.ports.agents.prepare(&call) {
             // No flight will take the bridge `with_browser` opened.
-            drop(self.opened.take(call.issue));
+            if let Some(ticket) = browser::ticket_of(&call) {
+                drop(self.opened.take(ticket));
+            }
             return Err(e.to_string());
         }
         Ok(call)

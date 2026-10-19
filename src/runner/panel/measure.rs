@@ -17,6 +17,7 @@ use serde::Serialize;
 use super::history::Record;
 use crate::panel::{Case, Policy, Skip, Stage, Step, Tier, Voter, settle};
 use crate::settings::{Decide, RulingName};
+use crate::ticket::TicketId;
 
 /// After this many rulings the panel has voted on, `docs/facts/the-panel.md`
 /// is due an entry on what it cost and how it did
@@ -111,7 +112,7 @@ pub struct Score {
 pub(super) fn standing(
     decide: Decide,
     records: &[Record],
-    costs: Option<&BTreeMap<(u64, Voter), f64>>,
+    costs: Option<&BTreeMap<(TicketId, Voter), f64>>,
 ) -> Standing {
     let mut stand = Standing {
         decide,
@@ -239,10 +240,10 @@ fn shadowed(record: &Record) -> Option<Case<'_>> {
 // Scores every policy on ruling `id`, answered as `chose`.
 fn play(
     stand: &mut Standing,
-    id: u64,
+    id: TicketId,
     chose: Option<char>,
     case: &Case<'_>,
-    costs: Option<&BTreeMap<(u64, Voter), f64>>,
+    costs: Option<&BTreeMap<(TicketId, Voter), f64>>,
 ) {
     for policy in Policy::ALL {
         let outcome = policy.play(case);

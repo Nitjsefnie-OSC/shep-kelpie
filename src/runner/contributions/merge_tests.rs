@@ -37,7 +37,10 @@ fn reviewed() -> (Rig, Mutex<Runner>, String) {
 fn ruled_on() -> (Rig, Mutex<Runner>, String) {
     let (rig, runner, head) = reviewed();
     poll(&rig, &runner);
-    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 30 }));
+    assert_eq!(
+        step(&runner).unwrap(),
+        Some(StepReport::Alerted { id: ticket(30) })
+    );
     (rig, runner, head)
 }
 
@@ -72,12 +75,15 @@ fn the_merge_ruling_is_raised_when_the_pass_has_ended_and_ci_is_green_on_the_hea
 
     // The poll after the pass raises it, and the step after that alerts.
     poll(&rig, &runner);
-    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 30 }));
+    assert_eq!(
+        step(&runner).unwrap(),
+        Some(StepReport::Alerted { id: ticket(30) })
+    );
 
     let waiting = rulings(&rig, &runner);
     assert_eq!(waiting.len(), 1);
     let ruling = &waiting[0];
-    assert_eq!(ruling["id"], 30);
+    assert_eq!(ruling["id"], "30");
     assert_eq!(ruling["issue"], Value::Null);
     assert_eq!(ruling["pull_request"], 30);
     assert_eq!(ruling["kind"]["kind"], "contribution");
@@ -111,7 +117,10 @@ fn it_is_raised_under_git_merging_auto_too_and_sends_no_notice() {
     read_through(&rig, &runner, &head);
 
     poll(&rig, &runner);
-    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 30 }));
+    assert_eq!(
+        step(&runner).unwrap(),
+        Some(StepReport::Alerted { id: ticket(30) })
+    );
     poll(&rig, &runner);
 
     let waiting = rulings(&rig, &runner);
@@ -337,7 +346,10 @@ fn the_maintainers_comment_does_not_reset_the_contributors_clock() {
     let head = contribute(&rig, 30, |h| write(h, "one.txt", "one\n"));
     read_through(&rig, &runner, &head);
     poll(&rig, &runner);
-    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 30 }));
+    assert_eq!(
+        step(&runner).unwrap(),
+        Some(StepReport::Alerted { id: ticket(30) })
+    );
     let started = contribution(&rig, &runner)["waiting_since"].clone();
     assert_ne!(started, Value::Null, "the findings wait on the contributor");
     assert_eq!(rulings(&rig, &runner).len(), 1, "the merge ruling waits");
@@ -388,7 +400,11 @@ fn a_rework_answer_to_the_merge_ruling_adopts_at_once_and_runs_the_full_pass() {
     // A worker went before any reviewer read it, and its prompt named the file
     // with the pull request, its issue and the maintainer's note.
     let [worker] = rig.claude.calls().try_into().unwrap();
-    let issue = status["work_item"]["issue"].as_u64().unwrap();
+    let issue = status["work_item"]["issue"]
+        .as_str()
+        .unwrap()
+        .parse::<u64>()
+        .unwrap();
     let named = rig
         .paths()
         .build(ticket(issue))
@@ -452,7 +468,9 @@ fn a_rework_answer_with_the_note_a_tick_gives_sends_the_worker_none() {
     );
 
     let issue = rig.ask(&runner, "status", None)["work_item"]["issue"]
-        .as_u64()
+        .as_str()
+        .unwrap()
+        .parse::<u64>()
         .unwrap();
     let text = std::fs::read_to_string(
         rig.paths()
@@ -526,7 +544,11 @@ fn a_new_head_after_a_rework_answer_keeps_the_maintainers_note_for_the_worker() 
     }
 
     let status = rig.ask(&runner, "status", None);
-    let issue = status["work_item"]["issue"].as_u64().unwrap();
+    let issue = status["work_item"]["issue"]
+        .as_str()
+        .unwrap()
+        .parse::<u64>()
+        .unwrap();
     assert_eq!(status["work_item"]["pull_request"], 30);
     assert_eq!(rulings(&rig, &runner), Vec::<Value>::new());
     let text = std::fs::read_to_string(
@@ -605,7 +627,11 @@ fn a_rework_answer_after_the_release_landed_takes_the_pull_request_over_with_the
     );
     let seen = rig.claude.seen();
     let [worker] = seen.try_into().unwrap();
-    let issue = status["work_item"]["issue"].as_u64().unwrap();
+    let issue = status["work_item"]["issue"]
+        .as_str()
+        .unwrap()
+        .parse::<u64>()
+        .unwrap();
     let named = rig
         .paths()
         .build(ticket(issue))

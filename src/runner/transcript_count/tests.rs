@@ -4,6 +4,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use super::*;
 use crate::ports::{CodeGraph, Role, Session, Tools, Usage};
 use crate::settings::{ContextSize, EndpointUrl, ModelHost, ModelServer};
+use crate::test::ticket;
 use crate::test::{RecordedSink, short_tempdir};
 
 // A pi 1.1.0 session given the code graph, whose model called the graph's `list_projects` and got
@@ -471,7 +472,7 @@ fn a_carried_turn_counts_its_failed_tool_calls_and_names_a_hook_that_is_not_kelp
     let notes = Notes::default();
     mark.count(
         Harness::ClaudeCode,
-        794,
+        ticket(794),
         &Recorder::new(Arc::new(sink.clone())),
         &notes,
     );

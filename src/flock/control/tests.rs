@@ -473,11 +473,11 @@ async fn status_reports_every_project() {
 const RECORDED: &str = r#"{"project":"koji","merging":"ask","run":"finishing",
     "work_item":null,
     "work_items":[
-        {"issue":7,"title":"Add a thing","phase":{"state":"ruling","id":1},
+        {"issue":"7","title":"Add a thing","phase":{"state":"ruling","id":"1"},
          "turn":{"state":"ended","at":100},"pull_request":71},
-        {"issue":9,"title":"Fix the other","phase":{"state":"implement"},
+        {"issue":"9","title":"Fix the other","phase":{"state":"implement"},
          "turn":{"state":"running","since":200},"pull_request":null}],
-    "rulings":[{"id":1,"issue":7,"pull_request":71,
+    "rulings":[{"id":"1","issue":"7","pull_request":71,
         "question":"Merge pull request #71 at abc1234 into main?",
         "kind":{"kind":"merge","head":"abc1234def"},"alerted":false}],
     "pacer":{"enabled":true,"claude":{
@@ -508,7 +508,7 @@ fn a_plain_status_names_what_the_maintainer_looks_for() {
 #[test]
 fn a_plain_status_says_so_of_a_ruling_with_no_issue() {
     let body = r#"{"project":"koji","work_items":[],"rulings":[
-        {"id":1,"issue":null,"pull_request":null,"kind":{"kind":"question"}}]}"#;
+        {"id":"1","issue":null,"pull_request":null,"kind":{"kind":"question"}}]}"#;
     assert_eq!(
         plain_status("koji", body)[3..5],
         [
@@ -678,6 +678,16 @@ fn a_plain_board_numbers_each_issue_with_its_title_priority_and_why_it_waits() {
     assert_eq!(
         plain_reply("koji", "board", None, r#"{"project":"koji","board":[]}"#),
         ["koji: no issue is ready on the board"]
+    );
+    // A board from a runner from before ticket ids, which wrote a number.
+    assert_eq!(
+        plain_reply(
+            "koji",
+            "board",
+            None,
+            r#"{"project":"koji","board":[{"position":1,"issue":284,"title":"Add the list","priority":"P0"}]}"#,
+        ),
+        ["1. #284 Add the list (P0)"]
     );
 }
 

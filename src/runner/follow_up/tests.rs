@@ -11,6 +11,7 @@ use crate::runner::thread_replies::Settler;
 use crate::runner::{Answer, CHECKS_SETTLE, Runner, StepReport, step};
 use crate::test::ticket;
 use crate::test::{Rig, Scripted, ScriptedRound};
+use crate::ticket::TicketId;
 
 fn finding(file: &str, what: &str) -> Finding {
     Finding::new(
@@ -702,13 +703,13 @@ fn a_restart_after_the_merge_still_files_what_the_worker_deferred() {
 pub(in crate::runner) fn ask_after_the_merge(
     rig: Rig,
     found: &[Finding],
-) -> (Rig, Mutex<Runner>, u64, String) {
+) -> (Rig, Mutex<Runner>, TicketId, String) {
     let (rig, runner, head) = reviewed_in(rig, found, false);
     defer(&rig, &lines(found));
     rig.forge.set_checks(&head, Checks::Passed);
     assert!(matches!(
         rig.verdict(&runner),
-        Some(StepReport::Ruling { id: 71, .. })
+        Some(StepReport::Ruling { id, .. }) if id == ticket(71)
     ));
     rig.ask(&runner, "rule", Some("71 yes"));
     assert!(matches!(
@@ -739,7 +740,7 @@ fn a_merged_item_on_its_follow_up_ruling_holds_back_no_new_work() {
        Some(StepReport::Dispatched { issue, .. }) if issue == ticket(8)
     ));
     let status = rig.ask(&runner, "status", None);
-    assert_eq!(status["parked"], json!([7]));
+    assert_eq!(status["parked"], json!(["7"]));
 }
 
 // Whether #7 finishes, once the board has opened #900, the issue just filed
@@ -776,7 +777,7 @@ fn under_ask_the_findings_are_a_ruling_first_and_a_yes_files_them() {
     assert!(ends_beside_900(&runner));
     let status = rig.ask(&runner, "status", None);
     let open = status["work_items"].as_array().unwrap();
-    assert!(open.iter().all(|item| item["issue"] != 7), "{open:?}");
+    assert!(open.iter().all(|item| item["issue"] != "7"), "{open:?}");
     assert_eq!(status["rulings"], json!([]));
 }
 
@@ -792,7 +793,7 @@ fn the_question_names_files_by_their_path_in_the_repo() {
 }
 
 // The project manager's yes to ruling `id`, asking for `needs-triage` if `unread`
-fn pm_says_yes(runner: &Mutex<Runner>, id: u64, unread: bool) {
+fn pm_says_yes(runner: &Mutex<Runner>, id: TicketId, unread: bool) {
     let by = Settler::Pm {
         answer: "yes".into(),
         why: "the diff shows the race".into(),
@@ -902,7 +903,7 @@ fn issues_file_files_at_once_under_ask_merging_too() {
     rig.forge.set_checks(&head, Checks::Passed);
     assert!(matches!(
         rig.verdict(&runner),
-        Some(StepReport::Ruling { id: 71, .. })
+        Some(StepReport::Ruling { id, .. }) if id == ticket(71)
     ));
     rig.ask(&runner, "rule", Some("71 yes"));
     assert!(matches!(

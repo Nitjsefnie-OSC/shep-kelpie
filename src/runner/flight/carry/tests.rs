@@ -94,7 +94,7 @@ fn a_drain_waits_while_a_pi_session_is_attached() {
     let draining = rig.ask(&runner, "drain", None)["draining"]["calls"].clone();
     assert_eq!(
         draining,
-        serde_json::json!([{"issue": 7, "role": "pi_session"}])
+        serde_json::json!([{"issue": "7", "role": "pi_session"}])
     );
 
     rig.ask(&runner, "detach", Some(&format!("7 {pid}")));
@@ -120,7 +120,7 @@ fn a_drain_waits_while_a_goose_session_is_attached() {
     let draining = rig.ask(&runner, "drain", None)["draining"]["calls"].clone();
     assert_eq!(
         draining,
-        serde_json::json!([{"issue": 7, "role": "goose_session"}])
+        serde_json::json!([{"issue": "7", "role": "goose_session"}])
     );
 
     rig.ask(&runner, "detach", Some(&format!("7 {pid}")));

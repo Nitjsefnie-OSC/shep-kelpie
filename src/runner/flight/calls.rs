@@ -1,7 +1,7 @@
 //! The calls in flight, as the drain reports them
 
 use super::super::drain::{CallRole, CallRunning};
-use super::ledger_issue;
+use crate::ticket::TicketId;
 
 impl super::Flights {
     /// Whether no call is in flight, the project manager's included
@@ -21,7 +21,7 @@ impl super::Flights {
     /// project manager's
     pub(in crate::runner) fn running(&self) -> Vec<CallRunning> {
         let items = self.flying.iter().map(|(&ticket, flight)| CallRunning {
-            issue: Some(ledger_issue(ticket)),
+            issue: Some(ticket),
             role: match flight.deadline {
                 Some(_) => CallRole::Worker,
                 None => CallRole::Reviewer,
@@ -40,7 +40,7 @@ impl super::Flights {
             role: CallRole::Security,
         });
         let triaging = self.triaging().into_iter().map(|issue| CallRunning {
-            issue: Some(issue),
+            issue: TicketId::from_issue(issue),
             role: CallRole::Triager,
         });
         let panel = self.panel.iter().map(|_| CallRunning {

@@ -13,7 +13,7 @@ use super::Runner;
 use crate::board::briefing::ticket_ref;
 use crate::board::priority;
 use crate::state::StateError;
-use crate::ticket::{TicketId, issue_numbers, ticket_ids};
+use crate::ticket::TicketId;
 
 /// What `board` answers
 #[derive(Debug, Serialize)]
@@ -127,7 +127,7 @@ impl Runner {
         };
         listed.retain(|&t| t != ticket);
         listed.insert(place - 1, ticket);
-        let order = issue_numbers(&refill(&ticket_ids(&self.state.order), &listed));
+        let order = refill(&self.state.order, &listed);
         if order == self.state.order {
             return Ok(());
         }

@@ -153,7 +153,7 @@ pub struct PacerLine {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VoteMark {
     /// The ruling's id
-    pub ruling: u64,
+    pub ruling: TicketId,
     /// The kind of ruling it is
     pub ruling_kind: RulingName,
     /// The expert who voted

@@ -13,7 +13,6 @@
 
 use super::super::ci_help::Logs;
 use crate::runner::Runner;
-use crate::runner::report::ticket_of;
 use crate::runner::report::{Begin, StepReport};
 use crate::state::StateError;
 use crate::work_item::Phase;
@@ -58,7 +57,7 @@ impl Runner {
         if !self.unrelated(head, &logs.text) {
             return Ok(None);
         }
-        self.journal_outside_diff(ticket_of(issue), &logs.text);
+        self.journal_outside_diff(issue, &logs.text);
         if self.ports.forge.rerun_failed(&self.remote, head).is_err() {
             return Ok(None);
         }
@@ -79,7 +78,7 @@ impl Runner {
             }
         })?;
         Ok(Some(Begin::Report(StepReport::CiRerun {
-            issue: ticket_of(issue),
+            issue,
             pull_request: number,
             head: head.to_owned(),
             checks: checks.to_vec(),

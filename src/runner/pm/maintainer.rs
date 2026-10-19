@@ -50,7 +50,7 @@ pub struct PmStatus<'a> {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Settled {
     /// The ruling the question raised
-    pub ruling: u64,
+    pub ruling: TicketId,
     /// The work item's ticket
     pub issue: TicketId,
     /// What it did: `answered`, so the maintainer was not asked, `passed on`, or

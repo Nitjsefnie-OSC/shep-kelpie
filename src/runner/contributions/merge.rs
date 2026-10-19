@@ -38,6 +38,7 @@ use super::post::forge_is_busy;
 use super::ruling::{flagged_lines, raise_merge};
 use crate::ports::Finding;
 use crate::state::{Contribution, Held, How, Released, RulingKind, StateError, Verdict};
+use crate::ticket::TicketId;
 
 const THANKS: &str = "Thank the contributor: their pull request is merged. Short and warm. Credit \
     them for the work, and promise nothing.";
@@ -90,7 +91,7 @@ impl Runner {
         // item started.
         if held.released.is_some()
             || !held.awaits_merge_ruling()
-            || (self.state.rulings.iter()).any(|r| r.id == number)
+            || (self.state.rulings.iter()).any(|r| r.id == TicketId::from_pull_request(number))
         {
             return Ok(());
         }

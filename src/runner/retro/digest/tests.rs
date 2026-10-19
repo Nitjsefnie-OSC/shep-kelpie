@@ -13,7 +13,7 @@ use crate::work_item::Seconds;
 
 fn finished(issue: u64, title: &str, pull_request: Option<u64>, at: u64, wall: u64) -> Finished {
     Finished {
-        issue,
+        issue: ticket(issue),
         title: title.to_owned(),
         pull_request,
         merged: pull_request.is_some(),

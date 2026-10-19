@@ -14,6 +14,7 @@ use crate::runner::rework::HUMAN;
 use crate::runner::{CHECKS_SETTLE, Runner, StepReport, step};
 use crate::test::ticket;
 use crate::test::{Rig, Scripted, git};
+use crate::ticket::TicketId;
 
 // The same project restarted under `auto`, as the maintainer would switch
 // it: a runner reads its settings when it opens.
@@ -61,7 +62,7 @@ fn merged(report: Option<StepReport>) -> bool {
 }
 
 // The id of the ruling a report raised, whichever report carries it
-fn raised(report: Option<StepReport>) -> u64 {
+fn raised(report: Option<StepReport>) -> TicketId {
     match report {
         Some(
             StepReport::Ruling { id, .. }
@@ -75,16 +76,16 @@ fn raised(report: Option<StepReport>) -> u64 {
 
 // Ruling `id`, of `kind`, parks the worker as it would under `ask`: it is
 // posted, and the worker waits with nothing merged.
-fn still_asks(rig: &Rig, runner: &Mutex<Runner>, id: u64, kind: &str) {
+fn still_asks(rig: &Rig, runner: &Mutex<Runner>, id: TicketId, kind: &str) {
     let status = rig.ask(runner, "status", None);
     assert_eq!(status["merging"], "auto");
     // Named by its pull request, or by its issue before there is one.
     let ruling = &status["rulings"][0];
-    let number = match &ruling["pull_request"] {
-        serde_json::Value::Null => &ruling["issue"],
-        pull_request => pull_request,
-    };
-    assert_eq!(&ruling["id"], number);
+    let named = ruling["pull_request"]
+        .as_u64()
+        .map(|n| n.to_string())
+        .unwrap_or_else(|| ruling["issue"].as_str().unwrap().to_owned());
+    assert_eq!(ruling["id"], named);
     assert_eq!(ruling["kind"]["kind"], kind);
     assert_eq!(
         status["work_item"]["phase"],
@@ -97,7 +98,7 @@ fn still_asks(rig: &Rig, runner: &Mutex<Runner>, id: u64, kind: &str) {
 }
 
 // Ruling `id` is `stuck` for `reason`, and parks the worker as it would under `ask`.
-fn still_stuck(rig: &Rig, runner: &Mutex<Runner>, id: u64, reason: &str) {
+fn still_stuck(rig: &Rig, runner: &Mutex<Runner>, id: TicketId, reason: &str) {
     let status = rig.ask(runner, "status", None);
     assert_eq!(status["rulings"][0]["kind"]["reason"], reason);
     still_asks(rig, runner, id, "stuck");

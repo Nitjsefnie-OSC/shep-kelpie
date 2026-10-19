@@ -22,7 +22,7 @@ use crate::local_paths::Surface;
 use crate::ports::{AgentCall, PaddockHolder, Timestamp, Wait};
 use crate::settings::{GatewayName, ModelHost};
 use crate::state::{ProjectState, StateError, write_atomically};
-use crate::ticket::{TicketId, ticket_ids};
+use crate::ticket::TicketId;
 use crate::work_item::{Phase, ReviewStage, Seat, Turn, WorkItem};
 
 mod events;
@@ -164,7 +164,7 @@ impl Runner {
                 found.push(format!("#{} left the ready queue", issue.ticket));
             }
         }
-        let open = ticket_ids(&self.state.open_issues());
+        let open = self.state.open_tickets();
         self.brief
             .bodies
             .retain(|(ticket, _)| open.contains(ticket));
@@ -181,7 +181,7 @@ impl Runner {
             return Vec::new();
         };
         (ready.iter())
-            .filter(|i| self.state.item_by_ticket(i.ticket).is_none())
+            .filter(|i| self.state.item(i.ticket).is_none())
             .map(|i| i.ticket)
             .collect()
     }
@@ -213,12 +213,12 @@ impl Runner {
             repo: self.settings.git.checkout.clone(),
             git: std::mem::take(&mut self.brief.git),
             branches: (self.state.work_items.iter())
-                .filter_map(|item| Some((item.ticket()?, item.branch.clone())))
+                .map(|item| (item.issue, item.branch.clone()))
                 .collect(),
             bodies: self.brief.bodies.clone(),
             patches: (self.agents.pm.is_some() || self.panel_enabled()).then(|| {
                 (self.state.work_items.iter())
-                    .filter_map(|item| Some((item.ticket()?, self.paths.worktree(item.ticket()?))))
+                    .map(|item| (item.issue, self.paths.worktree(item.issue)))
                     .collect()
             }),
         })
@@ -368,7 +368,7 @@ impl Runner {
         self.brief.named = std::mem::take(&mut answers.named);
         self.brief.named_from = std::mem::take(&mut answers.bodies).into_iter().collect();
         // A branch git could not read this time keeps the files last read.
-        let open = ticket_ids(&self.state.open_issues());
+        let open = self.state.open_tickets();
         self.brief.files.retain(|ticket, _| open.contains(ticket));
         self.brief.files.extend(std::mem::take(&mut answers.files));
         // A diff git could not give is not kept, since a stale one would mislead.
@@ -408,10 +408,7 @@ impl Runner {
 
     fn briefing(&self, now: Timestamp, answers: GitAnswers) -> Briefing<'_> {
         let items = (self.state.work_items.iter())
-            .filter_map(|item| {
-                item.ticket()
-                    .map(|ticket| self.item_line(item, ticket, self.item_files(ticket), now))
-            })
+            .map(|item| self.item_line(item, item.issue, self.item_files(item.issue), now))
             .collect();
         let (events, dropped) = self.state.unread_events(RECENT);
         let events = events.to_vec();
@@ -527,10 +524,10 @@ impl Runner {
             return Vec::new();
         };
         let mut ready: Vec<ReadyIssue> = (ready.iter())
-            .filter(|i| self.state.item_by_ticket(i.ticket).is_none())
+            .filter(|i| self.state.item(i.ticket).is_none())
             .cloned()
             .collect();
-        rule_order(&mut ready, &ticket_ids(&self.state.order));
+        rule_order(&mut ready, &self.state.order);
         ready
     }
 

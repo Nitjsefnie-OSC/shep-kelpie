@@ -10,6 +10,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::{CallLine, Line, VoteMark};
 use crate::panel::Voter;
+use crate::ticket::TicketId;
 
 // How a vote is grouped.
 type Key = fn(&VoteMark) -> String;
@@ -22,7 +23,7 @@ struct Share {
     unpriced: usize,
     seconds: Vec<f64>,
     abstained: usize,
-    rulings: BTreeSet<u64>,
+    rulings: BTreeSet<TicketId>,
 }
 
 /// What each expert's vote on each ruling cost, in US dollars, from the call
@@ -30,7 +31,7 @@ struct Share {
 ///
 /// A call that cast several votes shares its cost between them. A call with
 /// no reported cost adds nothing, so a vote with none is missing from the map.
-pub fn vote_costs(lines: &[Line]) -> BTreeMap<(u64, Voter), f64> {
+pub fn vote_costs(lines: &[Line]) -> BTreeMap<(TicketId, Voter), f64> {
     let mut costs = BTreeMap::new();
     for line in lines {
         let Line::Call(call) = line else { continue };
@@ -49,7 +50,7 @@ pub(super) fn split(calls: &[&CallLine]) -> Vec<String> {
     if voted.is_empty() {
         return Vec::new();
     }
-    let rulings: BTreeSet<u64> = (voted.iter())
+    let rulings: BTreeSet<TicketId> = (voted.iter())
         .flat_map(|c| c.votes.iter().map(|v| v.ruling))
         .collect();
     let cost: f64 = voted.iter().filter_map(|c| c.cost_usd).sum();

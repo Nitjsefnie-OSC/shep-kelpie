@@ -127,7 +127,6 @@ impl FinishedLine {
 
 #[cfg(test)]
 mod tests {
-    use crate::test::ticket;
     use serde_json::json;
 
     use super::*;
@@ -166,8 +165,7 @@ mod tests {
             seconds: Seconds::default(),
             spend: None,
         };
-        let line =
-            serde_json::to_value(FinishedLine::of(&record, &item, ticket(item.issue))).unwrap();
+        let line = serde_json::to_value(FinishedLine::of(&record, &item, item.issue)).unwrap();
         assert_eq!(line["agent"], json!(item.agent.as_str()));
         assert_eq!(
             (&line["held"], &line["ci_failures"], &line["ci_fix_turns"]),

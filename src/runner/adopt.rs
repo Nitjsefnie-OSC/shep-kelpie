@@ -31,7 +31,6 @@ use crate::board::{LabelError, OpenPullRequest, READY, Skip};
 use crate::ports::{
     ForgeError, Issue, MaintainerReview, PullRequestState, Reviewed, Role, Timestamp,
 };
-use crate::runner::report::ticket_of;
 use crate::settings::AgentName;
 use crate::state::{How, Ruling, RulingKind, StateError, Stuck, Waiting};
 use crate::ticket::TicketId;
@@ -69,7 +68,7 @@ pub enum AdoptError {
     /// The pull request names no issue on the repo that it closes
     NoIssue(u64),
     /// A work item for the issue it closes is open
-    InFlight(u64),
+    InFlight(TicketId),
     /// The forge could not say which account kelpie acts as
     Viewer(ForgeError),
     /// The forge could not show the pull request's issue
@@ -119,7 +118,9 @@ impl fmt::Display for AdoptError {
             Self::NoIssue(number) => {
                 write!(f, "pull request #{number} names no issue it closes")
             }
-            Self::InFlight(issue) => write!(f, "the work item for #{issue} is in flight"),
+            Self::InFlight(ticket) => {
+                write!(f, "the work item for {} is in flight", ticket.shown())
+            }
             Self::Viewer(e) => write!(f, "cannot read the account kelpie acts as: {e}"),
             Self::Issue(issue, e) => write!(f, "cannot read issue #{issue}: {e}"),
             Self::Label(e) => e.fmt(f),
@@ -241,7 +242,7 @@ impl Runner {
                 Ok((issue, agent)) => {
                     self.adopt_failing.remove(&number);
                     Begin::Report(StepReport::Adopted {
-                        issue: ticket_of(issue),
+                        issue,
                         pull_request: number,
                         agent,
                     })
@@ -291,11 +292,15 @@ impl Runner {
                 let mut next = self.state.clone();
                 next.rulings.retain(|r| !failed_on(r, number));
                 let kind = RulingKind::Stuck(Stuck::AdoptFailed { why: why.clone() });
-                let question = super::ruling::question(number, Some(number), &kind);
+                let question = super::ruling::question(
+                    TicketId::from_pull_request(number),
+                    Some(number),
+                    &kind,
+                );
                 next.rulings.push(Ruling {
                     pull_request: Some(number),
                     raised: Some(now),
-                    ..Ruling::new(number, question, kind)
+                    ..Ruling::new(TicketId::from_pull_request(number), question, kind)
                 });
                 self.save(next)?;
             }
@@ -477,7 +482,7 @@ impl Runner {
     // Checks the pull request can be adopted, then prepares its worktree,
     // writes what the worker needs, takes the triage and summon labels off
     // and saves the work item, in that order.
-    fn start_adoption(&mut self, number: u64) -> Result<(u64, AgentName), AdoptError> {
+    fn start_adoption(&mut self, number: u64) -> Result<(TicketId, AgentName), AdoptError> {
         let repo = self.remote.clone();
         let pr = self
             .ports
@@ -491,8 +496,8 @@ impl Runner {
             released,
         } = self.adoptable(number, &pr)?;
         let ticket = TicketId::from_issue(issue).ok_or(AdoptError::NoIssue(number))?;
-        if self.state.item(issue).is_some() {
-            return Err(AdoptError::InFlight(issue));
+        if self.state.item(ticket).is_some() {
+            return Err(AdoptError::InFlight(ticket));
         }
         let found = self
             .ports
@@ -500,12 +505,10 @@ impl Runner {
             .issue(&repo, ticket)
             .map_err(|e| AdoptError::Issue(issue, e))?;
         let (agent, note) = self
-            .labelled_agent(issue, &found.labels)
+            .labelled_agent(ticket, &found.labels)
             .map_err(AdoptError::Label)?;
         let session = new_session_id().map_err(|e| AdoptError::Session(e.to_string()))?;
-        let fresh = self
-            .fresh(issue, found.title.clone(), agent.clone(), session)
-            .map_err(|e| AdoptError::Issue(issue, e))?;
+        let fresh = self.fresh(ticket, found.title.clone(), agent.clone(), session);
         // A start that failed part way leaves a worktree on a head `origin`
         // may have moved past, so each start begins from a fresh one.
         let removed = worktree::remove(
@@ -640,9 +643,9 @@ impl Runner {
         item.summons_owed = listed.iter().map(|bot| bot.bot).collect();
         next.work_items.push(item);
         self.save(next).map_err(AdoptError::State)?;
-        self.mark_held(issue, true);
+        self.mark_held(ticket, true);
         self.notes.extend(note);
-        Ok((issue, agent))
+        Ok((ticket, agent))
     }
 }
 

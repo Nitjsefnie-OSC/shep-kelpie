@@ -42,12 +42,13 @@ use serde::{Deserialize, Serialize};
 use crate::pacer::DayStart;
 use crate::ports::{Cost, Finding, SessionId, Timestamp};
 use crate::settings::Account;
+use crate::ticket::TicketId;
 use crate::work_item::{Attached, Known, Phase, Priced, Review, Seconds, Tally, Turn, WorkItem};
 
 /// The name of a project's state file, in its folder
 pub const STATE_FILE: &str = "state.json";
 
-/// The state file's format version. 72 added the project manager's `pm_unmined`, 71 added a work item's `ci_failures` count, 70 added a triage record's `spam`, 69 added a triage record's `at`, `author`, `held` and `calls` and the `unrecorded` calls of an issue with no record yet, 68 added its `local` wait, 67 added its
+/// The state file's format version. 73 keys its work items, rulings, finished, dropped and saved order by ticket id, so an older file's issue numbers load as GitHub ticket ids, 72 added the project manager's `pm_unmined`, 71 added a work item's `ci_failures` count, 70 added a triage record's `spam`, 69 added a triage record's `at`, `author`, `held` and `calls` and the `unrecorded` calls of an issue with no record yet, 68 added its `local` wait, 67 added its
 /// `asked` and `questions` and its `answers` step, 66 added a contribution's `adopting`, a merge ruling's `rework` verdict and the `cannot-adopt` contribution ruling, 65 added a work item's `remote`, `left_open` and the `no-edits` contribution ruling, 64 added a triage record's `ready_body`, `seen` and its `body-written` and `ready` steps, 63 added a triage record's `duplicate_of` and its `closed` step, 62 added a triage record's `issues`, 61 added a contribution's `ruled` and the `merge` contribution ruling, 60 added `triage`, 59 added a contribution's `asked` and `released` and the `waiting` contribution ruling, 58 added a contribution's `answered` and `deciding` and the `question` contribution ruling, 57 added a pass's `review` and `note`, 56 added `bumps`, 55 added the `adopt-failed` stuck reason, 54 added a work item's `disputes` and `disputes_comment`, the merge ruling's `disputes` and the fix-not-pushed stuck reason's `said`, 53 added a contribution's `waiting_since`, 52 added a contribution's `walking` and a pass's `nits`, 51 added a contribution's `pass`, `last_answered` and `local_failures`, 50 added a contribution's `ci`, 49 added a contribution's `spend` and `budget_raises`, `spent` and the `over-budget` contribution ruling, 48 added a contribution's `heard`, `context` and `reviews_from`, 47 added the `contribution` ruling kind, 46 added a contribution's `security` and `passed`, 45 added a red workflow's `reran` and `noticed` and the main-workflow notice, 44 added the still-red stuck reason's `rerun` and the turn-failed one's `restore`, 43 added `red`, 42 added a ruling's `skipped`, 41 added a test check's `sent_back` and the `test-still-fails` stuck reason, 40 added `contributions`, 39 added a work item's `talked`, 38 named rulings by their work item's number and dropped
 /// `last_ruling`, 37 added the still-red stuck reason's `review`, 36 added a work item's `reran`, 35 added a work item's `test_checks`, 34 added a finding's `test`, 33 added a work item's `budget_raises` and the `over-budget` stuck reason, 32 added a ruling verdict's `risky` and `shadow`, 31 added `order` and `ranked`, 30 added a ruling's `verdict`, 29 added `dropped`, 28 added a ruling's `panel` and `unposted`, 27 added `unmentioned`, 26 added `heard`'s `ruling_comment`, 25 added a work item's `threads_accepted` and a merge ruling's `held_by`, 24 added a work item's `context`, 23 added a review's `ci`, 22 added `heard` and `posted`, 21 added a work item's `thread_answers`, 20 added a work item's `retro`, 19 added `finishing`, 18 added `closed`
 /// to the `done` phase and to a finished work item, 17 added a work item's `pinned` and the
@@ -63,7 +64,7 @@ pub const STATE_FILE: &str = "state.json";
 /// kinds to six, 8 added the project manager's session, notes and attach, 7
 /// a work item's `attached`, 6 folded the timing phases to six, and 5 added
 /// the board's events, each of which an older kelpie refuses
-pub(crate) const VERSION: u32 = 72;
+pub(crate) const VERSION: u32 = 73;
 
 /// The format before a project could have more than one work item open,
 /// which this kelpie still reads
@@ -114,19 +115,19 @@ pub struct ProjectState {
     /// under them once.
     #[serde(skip)]
     renamed: numbered::Renamed,
-    /// Issues whose work items kelpie finished, which the board never takes again
+    /// Tickets whose work items kelpie finished, which the board never takes again
     #[serde(default)]
-    pub finished: Vec<u64>,
-    /// Issues whose work items `drop` ended, which the board leaves be until
+    pub finished: Vec<TicketId>,
+    /// Tickets whose work items `drop` ended, which the board leaves be until
     /// the forge stops listing them as ready, so a label put back returns one
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub dropped: Vec<u64>,
-    /// The ready issues in the order the board takes them, first to go
+    pub dropped: Vec<TicketId>,
+    /// The ready tickets in the order the board takes them, first to go
     /// first. Each read of the board updates it. Empty until one has.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub order: Vec<u64>,
-    /// The priority rank each issue in `order` had when the board last read it,
-    /// so a changed priority label moves the issue. Empty until a read has.
+    pub order: Vec<TicketId>,
+    /// The priority rank each ticket in `order` had when the board last read it,
+    /// so a changed priority label moves it. Empty until a read has.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub ranked: crate::board::Ranked,
     /// The last [`HISTORY_CAP`] work items kelpie finished, oldest first
@@ -215,13 +216,13 @@ pub struct ProjectState {
     /// comments on its thread have been read for an answer. A ruling is
     /// entered when its comment is posted, and leaves when it is answered.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub heard: BTreeMap<u64, Heard>,
+    pub heard: BTreeMap<TicketId, Heard>,
     /// Each pending ruling kelpie's App posted on a thread with no mention,
     /// since no login could be named, by ruling id: the id of its comment.
     /// Nothing is read for an answer there, but the comment is edited when
     /// the ruling is settled.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub unmentioned: BTreeMap<u64, u64>,
+    pub unmentioned: BTreeMap<TicketId, u64>,
     /// The ids of the last [`POSTED_KEPT`] comments kelpie posted as the
     /// login `gh` acts as, oldest first. A reply in a ruling's thread is
     /// from that login too, so these are never read as answers.
@@ -315,19 +316,19 @@ impl ProjectState {
         }
     }
 
-    /// The open work items' issues, oldest first
-    pub fn open_issues(&self) -> Vec<u64> {
+    /// The open work items' tickets, oldest first
+    pub fn open_tickets(&self) -> Vec<TicketId> {
         self.work_items.iter().map(|item| item.issue).collect()
     }
 
-    /// The open work item for `issue`
-    pub fn item(&self, issue: u64) -> Option<&WorkItem> {
-        self.work_items.iter().find(|item| item.issue == issue)
+    /// The open work item for `ticket`
+    pub fn item(&self, ticket: TicketId) -> Option<&WorkItem> {
+        self.work_items.iter().find(|item| item.issue == ticket)
     }
 
-    /// The open work item for `issue`, to change
-    pub fn item_mut(&mut self, issue: u64) -> Option<&mut WorkItem> {
-        self.work_items.iter_mut().find(|item| item.issue == issue)
+    /// The open work item for `ticket`, to change
+    pub fn item_mut(&mut self, ticket: TicketId) -> Option<&mut WorkItem> {
+        self.work_items.iter_mut().find(|item| item.issue == ticket)
     }
 
     /// Adds `record` to the history, dropping the oldest past [`HISTORY_CAP`]
@@ -356,9 +357,9 @@ impl ProjectState {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Finished {
-    /// The issue it resolved
-    pub issue: u64,
-    /// The issue's title when it was added
+    /// The ticket it resolved
+    pub issue: TicketId,
+    /// The ticket's title when it was added
     pub title: String,
     /// Its pull request, if it had one
     pub pull_request: Option<u64>,
@@ -463,8 +464,8 @@ pub enum Notice {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct MergeNotice {
-    /// The work item's issue
-    pub issue: u64,
+    /// The work item's ticket
+    pub issue: TicketId,
     /// The pull request merged
     pub pull_request: u64,
     /// The head it merged at
@@ -761,9 +762,9 @@ pub enum Resume {
 pub struct LeaseHeld {
     /// What the lease is for
     pub resource: Resource,
-    /// The issue of the work item it was taken for
+    /// The ticket of the work item it was taken for
     #[serde(default)]
-    pub issue: Option<u64>,
+    pub issue: Option<TicketId>,
     /// When it was granted
     pub since: Timestamp,
 }

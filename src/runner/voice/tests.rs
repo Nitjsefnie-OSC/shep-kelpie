@@ -3,6 +3,7 @@ use std::sync::Mutex;
 use crate::github::ApiError;
 use crate::ports::{CLEAN, Checks, Cost, Finding, ForgeError, Severity, Usage};
 use crate::runner::{CHECKS_SETTLE, Runner, StepReport, step};
+use crate::test::ticket;
 use crate::test::{Rig, Scripted, ScriptedRound};
 
 const ASKS: &str = "I added the flag.\n\n<kelpie-question>\nShould it be `--dry-run` or \
@@ -178,7 +179,7 @@ fn raise_the_merge_ruling(rig: &Rig, runner: &Mutex<Runner>, head: &str, checks:
     rig.forge.set_checks(head, checks);
     assert!(matches!(
         rig.verdict(runner),
-        Some(StepReport::Ruling { id: 71, .. })
+        Some(StepReport::Ruling { id, .. }) if id == ticket(71)
     ));
     merge_card(rig)
 }
@@ -193,13 +194,13 @@ fn raise_the_merge_ruling_after_a_change(
     rig.forge.set_checks(head, checks.clone());
     assert!(matches!(
         rig.verdict(runner),
-        Some(StepReport::Ruling { id: 71, .. })
+        Some(StepReport::Ruling { id, .. }) if id == ticket(71)
     ));
     rig.ask(runner, "rule", Some("71 yes"));
     rig.forge.set_checks(head, checks);
     assert!(matches!(
         rig.verdict(runner),
-        Some(StepReport::Ruling { id: 71, .. })
+        Some(StepReport::Ruling { id, .. }) if id == ticket(71)
     ));
     merge_card(rig)
 }
@@ -230,14 +231,14 @@ fn a_merge_card_does_not_say_rounds_read_a_head_that_no_round_read() {
     step(&runner).unwrap();
     assert!(matches!(
         rig.verdict(&runner),
-        Some(StepReport::Ruling { id: 71, .. })
+        Some(StepReport::Ruling { id, .. }) if id == ticket(71)
     ));
     let pushed = rig.push_by_hand("kelpie/7", "lint.txt");
     rig.ask(&runner, "rule", Some("71 yes"));
     rig.forge.set_checks(&pushed, Checks::Passed);
     assert!(matches!(
         rig.verdict(&runner),
-        Some(StepReport::Ruling { id: 71, .. })
+        Some(StepReport::Ruling { id, .. }) if id == ticket(71)
     ));
 
     let card = merge_card(&rig);
@@ -378,7 +379,7 @@ fn a_ruling_posted_when_gh_names_no_login_goes_up_unmentioned_and_says_so() {
         rig.github.comments(),
         [(7, format!("{OPEN_QUESTION}{HOW_UNMENTIONED}"))]
     );
-    assert_eq!(rig.ask(&runner, "status", None)["rulings"][0]["id"], 7);
+    assert_eq!(rig.ask(&runner, "status", None)["rulings"][0]["id"], "7");
 
     // Asked again at the next ruling, once gh answers, it mentions them.
     rig.forge.set_viewer_up();
@@ -491,7 +492,7 @@ fn a_ruling_whose_post_fails_is_still_raised_and_says_why() {
     let why = "the GitHub App could not post: GitHub answered HTTP 403";
     assert_eq!(comment_failed.as_deref(), Some(why));
     assert_eq!(rig.forge.comments(), []);
-    assert_eq!(rig.ask(&runner, "status", None)["rulings"][0]["id"], 7);
+    assert_eq!(rig.ask(&runner, "status", None)["rulings"][0]["id"], "7");
 }
 
 #[test]

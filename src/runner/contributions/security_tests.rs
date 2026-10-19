@@ -9,7 +9,7 @@ use crate::runner::{Pass, Runner, StepReport, advance, step};
 use crate::settings::Harness;
 use crate::test::{
     CALL_PATIENCE, Hold, Rig, Scripted, Seen, assert_granted, git, installed_sources,
-    source_folders,
+    source_folders, ticket,
 };
 
 // The clone the rig's contributors push from
@@ -233,7 +233,10 @@ fn a_binary_a_symlink_a_submodule_or_an_oversize_diff_is_flagged_and_never_passe
 
         assert_eq!(step(&runner).unwrap(), None);
         // A flagged head raises a ruling, which is alerted.
-        assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 30 }));
+        assert_eq!(
+            step(&runner).unwrap(),
+            Some(StepReport::Alerted { id: ticket(30) })
+        );
         poll(&rig, &runner);
 
         let held = contribution(&rig, &runner);
@@ -365,7 +368,10 @@ fn a_head_already_read_is_not_read_again() {
     assert_eq!(step(&runner).unwrap(), None);
     let first = flagged(&rig);
     // The ruling it raised is alerted once.
-    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 30 }));
+    assert_eq!(
+        step(&runner).unwrap(),
+        Some(StepReport::Alerted { id: ticket(30) })
+    );
     poll(&rig, &runner);
     poll(&rig, &runner);
 

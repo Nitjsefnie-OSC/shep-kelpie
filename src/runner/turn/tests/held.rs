@@ -33,7 +33,7 @@ fn held_up_of(rig: &Rig, runner: &Mutex<Runner>, issue: u64) -> Option<Value> {
         .as_array()
         .unwrap()
         .iter()
-        .find(|i| i["issue"] == issue)
+        .find(|i| i["issue"] == ticket(issue).to_string())
         .unwrap()
         .clone();
     item.get("held_up").cloned()
@@ -171,7 +171,7 @@ fn a_turn_for_a_work_item_with_no_slot_says_so_in_status() {
         // ruling waits for it: this is the seat that item has.
         let mut r = runner.lock().unwrap();
         let mut eight = r.state.work_items[0].clone();
-        eight.issue = 8;
+        eight.issue = ticket(8);
         eight.seat = crate::work_item::Seat::Waiting;
         r.state.work_items.push(eight);
     }

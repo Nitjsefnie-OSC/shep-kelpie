@@ -17,23 +17,23 @@ use crate::ports::{AgentCall, Browser, Role, Session, Tools};
 use crate::settings::{AgentHarness, NonBlank};
 use crate::ticket::TicketId;
 
-/// The bridges opened for turns not yet launched, by the issue of their work item
+/// The bridges opened for turns not yet launched, by the ticket of their work item
 #[derive(Debug, Default)]
-pub(super) struct Opened(Mutex<BTreeMap<u64, Bridge>>);
+pub(super) struct Opened(Mutex<BTreeMap<TicketId, Bridge>>);
 
 impl Opened {
-    /// Takes the bridge opened for `issue`'s turn, which the turn's flight then holds
-    pub(super) fn take(&self, issue: u64) -> Option<Bridge> {
+    /// Takes the bridge opened for `ticket`'s turn, which the turn's flight then holds
+    pub(super) fn take(&self, ticket: TicketId) -> Option<Bridge> {
         let mut held = self.0.lock().unwrap_or_else(PoisonError::into_inner);
-        held.remove(&issue)
+        held.remove(&ticket)
     }
 
-    // A bridge already held for `issue` is dropped, and its socket removed.
-    fn hold(&self, issue: u64, bridge: Option<Bridge>) {
+    // A bridge already held for `ticket` is dropped, and its socket removed.
+    fn hold(&self, ticket: TicketId, bridge: Option<Bridge>) {
         let mut held = self.0.lock().unwrap_or_else(PoisonError::into_inner);
         match bridge {
-            Some(bridge) => held.insert(issue, bridge),
-            None => held.remove(&issue),
+            Some(bridge) => held.insert(ticket, bridge),
+            None => held.remove(&ticket),
         };
     }
 }
@@ -50,31 +50,48 @@ impl Runner {
         &self,
         harness: &AgentHarness,
         session: &Session,
-        issue: u64,
+        ticket: Option<TicketId>,
     ) -> Option<&[NonBlank]> {
-        self.may_browse(harness, session, issue)
+        self.may_browse(harness, session, ticket)
             .then_some(self.settings.browser.domains.as_slice())
             .filter(|_| self.paths.tools.has_browser())
     }
 
-    fn may_browse(&self, harness: &AgentHarness, session: &Session, issue: u64) -> bool {
+    fn may_browse(
+        &self,
+        harness: &AgentHarness,
+        session: &Session,
+        ticket: Option<TicketId>,
+    ) -> bool {
         // parity: harness.browser
         let loads = harness.drives_a_browser();
         // Chromium outside the sandbox is a macOS measurement; Linux waits on #135.
         let here = cfg!(any(target_os = "macos", test));
+        // A GitHub ticket only, since a call names its work item by GitHub's
+        // number and a local ticket's call names none (`ticket_of`). The bridge,
+        // its socket name and the session note all hang off the ticket the call
+        // names, so its worker runs with no browser and is told of no hosts,
+        // rather than promised a browser no folder is opened for.
         self.settings.browser.enabled
             && loads
             && here
-            && self.session_has_it(harness, session, issue)
+            && ticket.is_some_and(|t| t.github().is_some())
+            && self.session_has_it(harness, session, ticket)
     }
 
     // A session that keeps the servers it began with has the browser only if it began with one:
     // kelpie noted its id as it opened the browser for the session's first call.
-    fn session_has_it(&self, harness: &AgentHarness, session: &Session, issue: u64) -> bool {
+    // A call with no ticket of its own has no folder to note one in.
+    fn session_has_it(
+        &self,
+        harness: &AgentHarness,
+        session: &Session,
+        ticket: Option<TicketId>,
+    ) -> bool {
         match session {
             Session::Resume(id) if harness.keeps_its_servers() => {
-                let folder = TicketId::from_issue(issue).map(|t| self.paths.browser(t));
-                let noted = folder.map(|f| std::fs::read_to_string(f.join(SESSION_FILE)));
+                let noted = (ticket)
+                    .map(|t| std::fs::read_to_string(self.paths.browser(t).join(SESSION_FILE)));
                 noted.is_some_and(|noted| noted.is_ok_and(|noted| noted.trim() == id.0))
             }
             Session::New(_) | Session::Resume(_) => true,
@@ -95,12 +112,14 @@ impl Runner {
         let turn = (call.role, call.tools) == (Role::Worker, Tools::Work)
             && !call.prompt.is_empty()
             && call.prompt != crate::ports::COMPACT;
-        if !turn || !self.may_browse(&call.harness, &call.session, call.issue) {
+        let ticket = ticket_of(call);
+        if !turn || !self.may_browse(&call.harness, &call.session, ticket) {
             return Ok(());
         }
+        let ticket = ticket.expect("checked above");
         // A bridge opened for an earlier prepare of this work item's turn goes.
-        self.opened.hold(call.issue, None);
-        let opened = self.open_browser(call);
+        self.opened.hold(ticket, None);
+        let opened = self.open_browser(call, ticket);
         let outcome = match opened {
             Ok(true) => "ok",
             Ok(false) => "skipped",
@@ -111,7 +130,7 @@ impl Runner {
     }
 
     // Whether the bridge was opened: not when the tools are missing.
-    fn open_browser(&self, call: &mut AgentCall) -> Result<bool, String> {
+    fn open_browser(&self, call: &mut AgentCall, ticket: TicketId) -> Result<bool, String> {
         let tools = &self.paths.tools;
         if !tools.has_browser() {
             self.notes.push(format!(
@@ -122,9 +141,6 @@ impl Runner {
             ));
             return Ok(false);
         }
-        let Some(ticket) = TicketId::from_issue(call.issue) else {
-            return Err(format!("{} has no ticket to open a browser for", who(call)));
-        };
         let folder = self.paths.browser(ticket);
         let server = Server::playwright(
             &tools.playwright_mcp(),
@@ -140,7 +156,7 @@ impl Runner {
             domains: (self.settings.browser.domains.iter())
                 .map(|d| d.as_str().to_owned())
                 .collect(),
-            dev_port: self.dev_gate(call.issue),
+            dev_port: self.dev_gate(ticket),
         };
         let bridge = Bridge::open(
             &self.paths.worker,
@@ -153,7 +169,7 @@ impl Runner {
             kelpie: self.kelpie.clone(),
             socket: bridge.socket().to_owned(),
         }));
-        self.opened.hold(call.issue, Some(bridge));
+        self.opened.hold(ticket, Some(bridge));
         Ok(true)
     }
 
@@ -172,9 +188,18 @@ impl Runner {
         }
         let opened = self.with_browser(call);
         let written = (self.ports.agents.prepare(call)).map_err(|e| e.to_string());
-        if written.is_err() {
-            drop(self.opened.take(call.issue));
+        if written.is_err()
+            && let Some(ticket) = ticket_of(call)
+        {
+            drop(self.opened.take(ticket));
         }
         opened.and(written)
     }
+}
+
+// The ticket of the work item `call` is on: its issue is the GitHub number of
+// a GitHub ticket, and a local ticket's call carries none, so its worker runs
+// with no browser.
+pub(super) fn ticket_of(call: &AgentCall) -> Option<TicketId> {
+    TicketId::from_issue(call.issue)
 }

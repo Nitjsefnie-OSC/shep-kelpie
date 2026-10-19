@@ -25,13 +25,14 @@ fn a_work_item_past_its_cap_raises_a_ruling_before_the_worker_is_called_again() 
     let Some(StepReport::Failed {
         issue,
         pull_request: None,
-        id: 7,
+        id,
         question,
         ..
     }) = step(&runner).unwrap()
     else {
         panic!("the worker was not parked");
     };
+    assert_eq!(id, ticket(7));
     assert_eq!(issue, ticket(7));
     assert_eq!(
         question,

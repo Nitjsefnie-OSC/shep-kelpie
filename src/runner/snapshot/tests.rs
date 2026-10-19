@@ -6,6 +6,7 @@ use crate::board::READY;
 use crate::ports::{Checks, MaintainerReview};
 use crate::runner::{CHECKS_SETTLE, StepReport, step};
 use crate::test::Rig;
+use crate::test::ticket;
 
 // What the forge was asked of pull requests so far: listings, single reads
 // and reviews
@@ -99,7 +100,7 @@ fn the_ci_gate_reads_the_pass_listing_not_the_pull_request() {
     rig.forge.set_checks(&head, Checks::Passed);
     let report = rig.verdict(&runner);
     assert!(
-        matches!(report, Some(StepReport::Ruling { id: 71, .. })),
+        matches!(report, Some(StepReport::Ruling { id, .. }) if id == ticket(71)),
         "{report:?}"
     );
     let (_, viewed, _) = reads(&rig);

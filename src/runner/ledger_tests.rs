@@ -11,7 +11,7 @@ use crate::ports::{AgentError, Clock, Cost, Usage};
 use crate::runner::flight::advance;
 use crate::runner::{CHECKS_SETTLE, Pass, Runner, StepReport, count_stopped, step};
 use crate::settings::Harness;
-use crate::test::{CALL_PATIENCE, Hold, Rig, Scripted, ScriptedRound};
+use crate::test::{CALL_PATIENCE, Hold, Rig, Scripted, ScriptedRound, ticket};
 use crate::usage::{FILE, read};
 
 // Every line of the rig's project's ledger, as JSON
@@ -277,7 +277,7 @@ fn a_call_still_in_flight_as_the_runner_stops_is_written_as_stopped() {
     rig.claude.stop();
     let stopped = stopping.record(crate::ports::Clock::now(&rig.clock));
     drop(held);
-    assert_eq!(stopped, [(7, crate::ports::Role::Worker)]);
+    assert_eq!(stopped, [(ticket(7), crate::ports::Role::Worker)]);
     count_stopped(&runner, &stopped);
     assert_eq!(
         stopping.record(crate::ports::Clock::now(&rig.clock)),

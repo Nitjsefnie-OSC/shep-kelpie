@@ -7,6 +7,7 @@ use crate::ports::{CLEAN, Checks};
 use crate::runner::coderabbit::tests::now;
 use crate::runner::review_bot::two_bots::{bot_reviewed, listing, reviewed, summoned};
 use crate::runner::{Runner, StepReport, step};
+use crate::test::ticket;
 use crate::test::{Rig, Scripted, ScriptedRound};
 
 const NIT: &str = "P3: The name could be shorter.";
@@ -66,8 +67,8 @@ fn a_bot_that_reviews_every_push_cannot_loop_on_nits() {
     rig.forge.set_checks(&fixed, Checks::Passed);
     assert!(matches!(
         rig.verdict(&runner),
-        Some(StepReport::Ruling { id: 71, .. })
-    ));
+        Some(StepReport::Ruling { id, .. })
+     if id == ticket(71)));
     let worker_turns = rig.claude.calls().len();
     rig.ask(&runner, "rule", Some("71 rework check it once more"));
     rig.claude

@@ -8,6 +8,7 @@ use std::time::Instant;
 use crate::ports::{AgentError, Role, Tools};
 use crate::runner::{Runner, step};
 use crate::settings::Harness;
+use crate::test::ticket;
 use crate::test::{CALL_PATIENCE, Rig, Scripted, Seen};
 
 mod calls;
@@ -339,7 +340,7 @@ fn a_ruling_queued_behind_another_holds_from_its_turn_not_from_its_take_up() {
 
     let mut desk = Desk::default();
     desk.open.insert(
-        2,
+        ticket(2),
         Open {
             since: crate::ports::Timestamp(100),
             waiting: BTreeSet::new(),
@@ -349,11 +350,11 @@ fn a_ruling_queued_behind_another_holds_from_its_turn_not_from_its_take_up() {
             overtaken: BTreeSet::new(),
         },
     );
-    desk.queue.push_back(2);
+    desk.queue.push_back(ticket(2));
 
     let now = crate::ports::Timestamp(100 + HOLD + 5);
-    assert_eq!(desk.queue_pop(now), Some(2));
-    assert_eq!(desk.open[&2].since, now);
+    assert_eq!(desk.queue_pop(now), Some(ticket(2)));
+    assert_eq!(desk.open[&ticket(2)].since, now);
 }
 
 #[test]

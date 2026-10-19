@@ -179,7 +179,11 @@ fn a_pull_request_that_closes_no_issue_gets_one_from_the_issue_writer_and_resolv
     let (rig, runner) = taken_over();
 
     let status = rig.ask(&runner, "status", None);
-    let issue = status["work_item"]["issue"].as_u64().unwrap();
+    let issue = status["work_item"]["issue"]
+        .as_str()
+        .unwrap()
+        .parse::<u64>()
+        .unwrap();
     let filed = filed(&rig);
     assert_eq!(filed.len(), 1, "{filed:?}");
     assert_eq!(filed[0]["title"], "Title of pull request #30");
@@ -249,7 +253,11 @@ fn a_failed_issue_or_body_edit_is_retried_at_the_next_poll() {
     later(&rig, &runner, 1);
 
     let status = rig.ask(&runner, "status", None);
-    let issue = status["work_item"]["issue"].as_u64().unwrap();
+    let issue = status["work_item"]["issue"]
+        .as_str()
+        .unwrap()
+        .parse::<u64>()
+        .unwrap();
     assert_eq!(rig.github.issues_created(), 1, "no second issue");
     assert_eq!(
         rig.forge.pull_request_body(30),
@@ -339,7 +347,11 @@ fn a_pull_request_that_closes_an_issue_after_kelpie_filed_one_is_adopted_against
     later(&rig, &runner, 1);
 
     let status = rig.ask(&runner, "status", None);
-    let issue = status["work_item"]["issue"].as_u64().unwrap();
+    let issue = status["work_item"]["issue"]
+        .as_str()
+        .unwrap()
+        .parse::<u64>()
+        .unwrap();
     assert_eq!(status["work_item"]["pull_request"], 30);
     assert_eq!(
         issue, filed,

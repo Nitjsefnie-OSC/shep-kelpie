@@ -8,6 +8,7 @@ use crate::runner::coderabbit::tests::now;
 use crate::runner::review_bot::two_bots::{bot_reviewed, listing, reviewed, summoned};
 use crate::runner::{Runner, StepReport, step};
 use crate::state::RulingKind;
+use crate::test::ticket;
 use crate::test::{Rig, Scripted};
 
 const FINDING: &str = "P2: `bleats` loses a stamped prefix. Strip only files shep stamped.";
@@ -274,8 +275,8 @@ fn the_threads_a_new_pass_after_a_no_finds_are_answered_like_any_rounds() {
     rig.forge.set_checks(&fixed, Checks::Passed);
     assert!(matches!(
         rig.verdict(&runner),
-        Some(StepReport::Ruling { id: 71, .. })
-    ));
+        Some(StepReport::Ruling { id, .. })
+     if id == ticket(71)));
     rig.ask(&runner, "rule", Some("71 no strip only stamped files"));
     rig.claude
         .script([Scripted::Push("stamped.txt", "stamped only\n")]);

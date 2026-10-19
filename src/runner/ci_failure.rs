@@ -438,6 +438,7 @@ mod tests {
     use super::*;
     use crate::ports::Checks;
     use crate::runner::{StepReport, step};
+    use crate::test::ticket;
     use crate::test::{Rig, Scripted};
     use serde_json::json;
 
@@ -913,7 +914,7 @@ mod tests {
 
         let report = rig.verdict(&runner);
         assert!(
-            matches!(report, Some(StepReport::Ruling { id: 71, .. })),
+            matches!(report, Some(StepReport::Ruling { id, .. }) if id == ticket(71)),
             "{report:?}"
         );
         assert_eq!(

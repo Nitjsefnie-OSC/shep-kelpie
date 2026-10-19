@@ -27,7 +27,10 @@ pub(super) fn usage(n: u64) -> Usage {
 pub(super) fn with_issue_7(project: &str) -> (Rig, Mutex<Runner>) {
     let rig = Rig::new(project);
     let runner = rig.open().unwrap();
-    assert_eq!(rig.ask(&runner, "add", Some("7"))["work_item"]["issue"], 7);
+    assert_eq!(
+        rig.ask(&runner, "add", Some("7"))["work_item"]["issue"],
+        "7"
+    );
     (rig, runner)
 }
 
@@ -384,7 +387,7 @@ fn a_failed_turn_raises_a_ruling_carrying_why_and_alerts_like_the_rest() {
     else {
         panic!("the failed turn raised no ruling");
     };
-    assert_eq!((issue, pull_request, id), (ticket(7), None, 7));
+    assert_eq!((issue, pull_request, id), (ticket(7), None, ticket(7)));
     assert!(
         question.starts_with("The worker's turn on issue #7 failed: claude failed: overloaded."),
         "{question}"
@@ -394,9 +397,12 @@ fn a_failed_turn_raises_a_ruling_carrying_why_and_alerts_like_the_rest() {
         item["turn"],
         json!({ "state": "failed", "at": Rig::EPOCH, "reason": "claude failed: overloaded" })
     );
-    assert_eq!(item["phase"], json!({ "state": "ruling", "id": 7 }));
+    assert_eq!(item["phase"], json!({ "state": "ruling", "id": "7" }));
 
-    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 7 }));
+    assert_eq!(
+        step(&runner).unwrap(),
+        Some(StepReport::Alerted { id: ticket(7) })
+    );
     let [(_, alert)] = rig.alerts.posts().try_into().unwrap();
     assert_eq!(alert.text, question);
     assert_eq!(step(&runner).unwrap(), None);
@@ -494,7 +500,7 @@ fn a_turn_past_its_ceiling_is_stopped_and_a_yes_resumes_its_session() {
     else {
         panic!("the timed-out turn raised no ruling");
     };
-    assert_eq!((issue, pull_request, id), (ticket(7), None, 7));
+    assert_eq!((issue, pull_request, id), (ticket(7), None, ticket(7)));
     assert!(
         question.starts_with(
             "The worker on issue #7 has been running past its turn's ceiling, \
@@ -504,7 +510,7 @@ fn a_turn_past_its_ceiling_is_stopped_and_a_yes_resumes_its_session() {
     );
     assert_eq!(
         rig.ask(&runner, "status", None)["work_item"]["phase"],
-        json!({ "state": "ruling", "id": 7 })
+        json!({ "state": "ruling", "id": "7" })
     );
 
     rig.ask(&runner, "rule", Some("7 yes"));
@@ -556,7 +562,7 @@ fn a_restart_after_the_ceiling_passed_parks_it_with_no_call_spent() {
     let Some(StepReport::TimedOut { id, .. }) = step(&runner).unwrap() else {
         panic!("a turn found past its ceiling on restart raised no ruling");
     };
-    assert_eq!(id, 7);
+    assert_eq!(id, ticket(7));
     assert_eq!(
         rig.claude.calls().len(),
         1,
@@ -564,7 +570,7 @@ fn a_restart_after_the_ceiling_passed_parks_it_with_no_call_spent() {
     );
     assert_eq!(
         rig.ask(&runner, "status", None)["work_item"]["phase"],
-        json!({ "state": "ruling", "id": 7 })
+        json!({ "state": "ruling", "id": "7" })
     );
 }
 
@@ -784,13 +790,14 @@ fn a_second_turn_that_stops_short_parks_the_worker_on_a_ruling() {
     let Some(StepReport::Failed {
         issue,
         pull_request: None,
-        id: 7,
+        id,
         question,
         ..
     }) = step(&runner).unwrap()
     else {
         panic!("the worker was not parked");
     };
+    assert_eq!(id, ticket(7));
     assert_eq!(issue, ticket(7));
     assert!(
         question.starts_with(
@@ -800,7 +807,10 @@ fn a_second_turn_that_stops_short_parks_the_worker_on_a_ruling() {
         "{question}"
     );
     assert!(question.ends_with("stops the work item."), "{question}");
-    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 7 }));
+    assert_eq!(
+        step(&runner).unwrap(),
+        Some(StepReport::Alerted { id: ticket(7) })
+    );
     assert_eq!(step(&runner).unwrap(), None);
     assert_eq!(rig.claude.calls().len(), 2);
 
@@ -877,7 +887,7 @@ fn step_paused_in_a_tool(rig: &Rig, runner: &Mutex<Runner>, then: Scripted) -> O
             let deadline = std::time::Instant::now() + crate::test::CALL_PATIENCE;
             loop {
                 let drained = rig.ask(runner, "drain", Some("pause"));
-                if drained["draining"]["at_tool"] == json!([7]) {
+                if drained["draining"]["at_tool"] == json!(["7"]) {
                     break;
                 }
                 assert!(std::time::Instant::now() < deadline, "{drained}");

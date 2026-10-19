@@ -24,6 +24,7 @@ use crate::ports::{
 };
 use crate::request_use::{self, Request};
 use crate::settings::{AgentHarness, Harness};
+use crate::ticket::TicketId;
 use crate::tool_error::{self, ToolError};
 
 /// Agents that count each call's MCP servers, tool calls and requests as it ends
@@ -194,7 +195,13 @@ impl Mark {
 
     /// Counts the requests and the failed tool calls the turn made since, as the
     /// wrapper does for a turn this image began
-    pub(super) fn count(&self, harness: Harness, issue: u64, metrics: &Recorder, notes: &Notes) {
+    pub(super) fn count(
+        &self,
+        harness: Harness,
+        ticket: TicketId,
+        metrics: &Recorder,
+        notes: &Notes,
+    ) {
         let Some(format) = Format::of_harness(harness) else {
             return;
         };
@@ -210,7 +217,7 @@ impl Mark {
                 metrics.request(Role::Worker.as_str(), harness.as_str(), &request);
             }
             counted_errors(
-                &who_carried(issue),
+                &who_carried(ticket),
                 Role::Worker.as_str(),
                 &format.errors(&text, from),
                 metrics,

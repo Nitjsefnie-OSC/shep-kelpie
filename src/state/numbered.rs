@@ -1,21 +1,23 @@
-//! Rulings saved under counter ids, renamed by their work item's number
+//! Rulings saved under counter ids, renamed by the id they are named by now
 //!
 //! Before version 38 a ruling's id came from a counter shared by every
-//! project. A ruling's id is now the number of its pull request, or of its
-//! issue before there is one, so a state file from before is renamed as it
-//! loads. A file saved after is already named by numbers and loads as it is.
+//! project. A ruling's id is now its pull request's number, or its ticket's
+//! id before there is one, so a state file from before is renamed as it
+//! loads. A file saved after is already named so and loads as it is.
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::{ProjectState, Ruling};
+use crate::ticket::TicketId;
 use crate::work_item::Phase;
 
-/// The counter ids a file's rulings were renamed from, by their numbers now
+/// The counter ids a file's rulings were renamed from, by the id each is
+/// named by now
 ///
 /// Not part of the state: it is never saved, and two states are equal
 /// whatever it holds.
 #[derive(Debug, Clone, Default)]
-pub(super) struct Renamed(BTreeMap<u64, u64>);
+pub(super) struct Renamed(BTreeMap<TicketId, TicketId>);
 
 impl PartialEq for Renamed {
     fn eq(&self, _: &Self) -> bool {
@@ -26,20 +28,20 @@ impl PartialEq for Renamed {
 impl Eq for Renamed {}
 
 impl ProjectState {
-    /// The numbers rulings were renamed to as the file loaded, by the counter
-    /// id each was saved under, taken: asked a second time it is empty
+    /// The ids rulings were renamed to as the file loaded, by the counter id
+    /// each was saved under, taken: asked a second time it is empty
     ///
     /// Only the runner that loaded the file has them, so an answer left
     /// under an old id is read once, by that runner's first pass, and no old
     /// id works after.
-    pub fn take_renamed(&mut self) -> BTreeMap<u64, u64> {
+    pub fn take_renamed(&mut self) -> BTreeMap<TicketId, TicketId> {
         std::mem::take(&mut self.renamed.0)
     }
 
-    // Names each ruling by its number. The work item parked on it, its
+    // Names each ruling by its id. The work item parked on it, its
     // posted comment and what is read from its thread follow the new name.
     pub(super) fn rulings_numbered(mut self) -> Self {
-        let parked: BTreeSet<u64> = self
+        let parked: BTreeSet<TicketId> = self
             .work_items
             .iter()
             .filter_map(|item| match item.phase {
@@ -47,14 +49,14 @@ impl ProjectState {
                 _ => None,
             })
             .collect();
-        let before: BTreeSet<u64> = self.rulings.iter().map(|r| r.id).collect();
+        let before: BTreeSet<TicketId> = self.rulings.iter().map(|r| r.id).collect();
         let rulings = std::mem::take(&mut self.rulings);
         let kept = numbered(rulings, &parked);
-        let dropped: Vec<u64> = {
-            let after: BTreeSet<u64> = kept.iter().map(|(old, _)| *old).collect();
+        let dropped: Vec<TicketId> = {
+            let after: BTreeSet<TicketId> = kept.iter().map(|(old, _)| *old).collect();
             before.difference(&after).copied().collect()
         };
-        let renames: BTreeMap<u64, u64> = kept
+        let renames: BTreeMap<TicketId, TicketId> = kept
             .iter()
             .filter(|(old, r)| *old != r.id)
             .map(|(old, r)| (*old, r.id))
@@ -63,7 +65,7 @@ impl ProjectState {
         if renames.is_empty() && dropped.is_empty() {
             return self;
         }
-        let new = |id: &u64| renames.get(id).copied().unwrap_or(*id);
+        let new = |id: &TicketId| renames.get(id).copied().unwrap_or(*id);
         for item in &mut self.work_items {
             if let Phase::Ruling { id } = &mut item.phase {
                 *id = new(id);
@@ -93,8 +95,8 @@ impl ProjectState {
 // item is parked on, or else the last, takes the number, and the others keep
 // their ids, which still tell them apart in a thread. One whose id is another's
 // number cannot, and goes.
-fn numbered(rulings: Vec<Ruling>, parked: &BTreeSet<u64>) -> Vec<(u64, Ruling)> {
-    let mut winners: BTreeMap<u64, usize> = BTreeMap::new();
+fn numbered(rulings: Vec<Ruling>, parked: &BTreeSet<TicketId>) -> Vec<(TicketId, Ruling)> {
+    let mut winners: BTreeMap<TicketId, usize> = BTreeMap::new();
     for (at, ruling) in rulings.iter().enumerate() {
         let held = winners
             .get(&ruling.number())
@@ -104,7 +106,7 @@ fn numbered(rulings: Vec<Ruling>, parked: &BTreeSet<u64>) -> Vec<(u64, Ruling)> 
         }
     }
     let won: BTreeSet<usize> = winners.values().copied().collect();
-    let taken: BTreeSet<u64> = winners.keys().copied().collect();
+    let taken: BTreeSet<TicketId> = winners.keys().copied().collect();
     rulings
         .into_iter()
         .enumerate()

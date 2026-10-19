@@ -6,7 +6,7 @@ use serde_json::Value;
 
 use crate::runner::{Runner, step};
 use crate::state::{Finished, ProjectState, StateStore};
-use crate::test::{CALL_PATIENCE, Hold, Rig};
+use crate::test::{CALL_PATIENCE, Hold, Rig, ticket};
 use crate::work_item::{Seconds, TimingPhase};
 
 mod charging;
@@ -68,7 +68,7 @@ fn read_while_held(rig: &Rig, runner: &Mutex<Runner>, hold: &Hold, seconds: u64)
 fn finished(issue: u64, merged: bool, pairs: &[(TimingPhase, u64)]) -> Finished {
     let seconds = Seconds::of(pairs);
     Finished {
-        issue,
+        issue: ticket(issue),
         title: format!("Issue {issue}"),
         pull_request: Some(issue + 60),
         merged,

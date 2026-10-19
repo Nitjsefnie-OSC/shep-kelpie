@@ -8,6 +8,7 @@ use super::{parked_with, seen, state_of};
 use crate::ports::{CLEAN, Checks, Role};
 use crate::runner::{Runner, StepReport, step};
 use crate::settings::{Decide, Merging, RulingName};
+use crate::test::ticket;
 use crate::test::{CALL_PATIENCE, Rig, Scripted};
 
 mod candidates;
@@ -340,8 +341,8 @@ fn alone(project: &str, title: &str) -> (Rig, Mutex<Runner>) {
     rig.forge.set_checks(&head, Checks::Passed);
     assert!(matches!(
         rig.verdict(&runner),
-        Some(StepReport::Ruling { id: 71, .. })
-    ));
+        Some(StepReport::Ruling { id, .. })
+     if id == ticket(71)));
     // Under `ask` it was raised; it is judged under `auto`.
     runner.lock().unwrap().settings.git.merging = Merging::Auto;
     (rig, runner)

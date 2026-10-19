@@ -55,7 +55,7 @@ fn drain_answers_the_calls_still_running_until_they_end() {
     assert!(hold.entered(CALL_PATIENCE), "the turn never began");
     assert_eq!(
         rig.ask(&runner, "drain", None)["draining"]["calls"],
-        json!([{ "issue": 7, "role": "worker" }])
+        json!([{ "issue": "7", "role": "worker" }])
     );
     assert!(!hold.returned(), "draining ended the call");
 
@@ -202,7 +202,7 @@ fn a_drain_answered_while_a_pass_holds_the_lock_leaves_its_ask_for_the_pass() {
     let reply: Value = serde_json::from_str(&asking.join().unwrap()).expect("a JSON reply");
     assert_eq!(
         reply["draining"]["calls"],
-        json!([{ "issue": 7, "role": "worker" }]),
+        json!([{ "issue": "7", "role": "worker" }]),
         "{reply}"
     );
     assert!(

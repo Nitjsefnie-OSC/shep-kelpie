@@ -113,8 +113,8 @@ fn a_ruling_is_told_to_the_ruling_hook_with_its_kind_question_and_choices() {
     };
     assert_eq!(ruling["point"], "ruling");
     assert_eq!(ruling["role"], "kelpie");
-    assert_eq!(ruling["id"], 71);
-    assert_eq!(ruling["issue"], 7);
+    assert_eq!(ruling["id"], "71");
+    assert_eq!(ruling["issue"], "7");
     assert_eq!(ruling["pull_request"], 71);
     assert_eq!(ruling["kind"], "merge");
     assert_eq!(
@@ -168,8 +168,12 @@ fn a_second_ruling_on_the_same_work_item_is_told_too() {
 
     let told = payloads(&rig, "told");
 
-    let ids: Vec<&Value> = told.iter().map(|t| &t["id"]).collect();
-    assert_eq!(ids, [7, 7], "{told:?}");
+    let ids: Vec<Value> = told.iter().map(|t| t["id"].clone()).collect();
+    assert_eq!(
+        ids,
+        [serde_json::json!("7"), serde_json::json!("7")],
+        "{told:?}"
+    );
 }
 
 #[test]
@@ -296,7 +300,7 @@ fn the_ci_hook_is_told_a_head_that_settled_green_with_no_failed_checks() {
     };
     assert_eq!(ci["point"], "ci");
     assert_eq!(ci["role"], "kelpie");
-    assert_eq!(ci["issue"], 7);
+    assert_eq!(ci["issue"], "7");
     assert_eq!(ci["pull_request"], 71);
     assert_eq!(ci["head"], head.as_str());
     assert_eq!(ci["conclusion"], "passed");
@@ -344,12 +348,12 @@ fn the_done_hook_is_told_a_work_item_that_merged_with_its_history_entry() {
         panic!("one work item ended: {told:?}");
     };
     assert_eq!(done["point"], "done");
-    assert_eq!(done["issue"], 7);
+    assert_eq!(done["issue"], "7");
     assert_eq!(done["pull_request"], 71);
     assert_eq!(done["merged"], true);
     let status = rig.ask(&runner, "status", None);
     assert_eq!(done["history"], status["history"][0]);
-    assert_eq!(done["history"]["issue"], 7);
+    assert_eq!(done["history"]["issue"], "7");
     let _ = head;
 }
 
@@ -367,7 +371,7 @@ fn the_done_hook_is_told_a_work_item_that_ended_unmerged_too() {
     let [done] = &told[..] else {
         panic!("one work item ended: {told:?}");
     };
-    assert_eq!(done["issue"], 7);
+    assert_eq!(done["issue"], "7");
     assert_eq!(done["merged"], false);
 }
 
@@ -577,7 +581,7 @@ fn the_turn_end_hook_runs_every_turn_with_the_issue_phase_message_and_head() {
     };
     assert_eq!(ended["point"], "turn_end");
     assert_eq!(ended["role"], "worker");
-    assert_eq!(ended["issue"], 7);
+    assert_eq!(ended["issue"], "7");
     assert_eq!(ended["phase"], "implement");
     assert_eq!(ended["last_message"], "pushed it");
     assert_eq!(ended["head"].as_str().map(str::len), Some(40));

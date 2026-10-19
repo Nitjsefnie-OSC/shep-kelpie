@@ -194,7 +194,7 @@ fn a_call_that_voted_on_a_ruling_of_a_removed_kind_still_reads() {
         "usage": { "input": 10, "cache_write": 0, "cache_read": 0, "output": 0 },
         "units": 10, "cost_usd": 0.5, "seconds": 5, "ended": "answered",
         "votes": [{
-            "ruling": 3, "ruling_kind": "local-model-spilled", "voter": "pm",
+            "ruling": "3", "ruling_kind": "local-model-spilled", "voter": "pm",
             "panel": "fix", "work": "feat",
         }],
     });
@@ -205,7 +205,7 @@ fn a_call_that_voted_on_a_ruling_of_a_removed_kind_still_reads() {
         panic!("{lines:?}")
     };
     assert_eq!(call.cost_usd, Some(0.5));
-    assert_eq!(call.votes[0].ruling, 3);
+    assert_eq!(call.votes[0].ruling, ticket(3));
 }
 
 #[test]
@@ -411,7 +411,7 @@ fn a_wake_that_voted_on_two_rulings_shares_its_cost_between_them() {
         unreachable!()
     };
     let mut second = wake.votes[0].clone();
-    second.ruling = 2;
+    second.ruling = ticket(2);
     wake.votes.push(second);
 
     let report = report("koji", &[Line::Call(wake)], None, &[]);

@@ -17,8 +17,8 @@ use super::report::StepReport;
 use super::trigger::lock;
 use crate::board::briefing::elapsed;
 use crate::ports::{Alert, AlertError, Alerts, ReplyWith, Timestamp};
-use crate::runner::report::ticket_of;
 use crate::state::{MainNotice, MergeNotice, Notice, StateError};
+use crate::ticket::TicketId;
 use crate::webhook::Webhook;
 
 // A failed post waits a minute, then twice as long after each failure, up
@@ -30,12 +30,12 @@ const RETRY_MAX: u64 = 30 * 60;
 /// What a post carries
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Posting {
-    /// The ruling with this id
-    Ruling(u64),
+    /// The ruling with this ticket
+    Ruling(TicketId),
     /// The notice of an automatic merge
     Notice {
-        /// The work item's issue
-        issue: u64,
+        /// The work item's ticket
+        issue: TicketId,
         /// The pull request merged
         pull_request: u64,
     },
@@ -94,11 +94,10 @@ impl Runner {
                 (self.state.rulings.iter()).find(|r| !r.alerted && !self.ruling_held(r.id))
         {
             let (id, kind) = (ruling.id, ruling.kind.clone());
-            let number = ruling.number();
             if waiting(self.retry, Posting::Ruling(id)) {
                 return None;
             }
-            let reply = self.reply_with(number, &kind);
+            let reply = self.reply_with(id, &kind);
             return Some(self.ruling_due(id, reply));
         }
         let notice = self.state.notices.first()?;
@@ -126,7 +125,7 @@ impl Runner {
     }
 
     // Ruling `id`'s post, which must be pending
-    fn ruling_due(&self, id: u64, reply: Option<ReplyWith>) -> Due {
+    fn ruling_due(&self, id: TicketId, reply: Option<ReplyWith>) -> Due {
         let project = self.project.as_str();
         let ruling = self.state.rulings.iter().find(|r| r.id == id);
         let ruling = ruling.expect("the ruling due is pending");
@@ -138,7 +137,7 @@ impl Runner {
             of: Posting::Ruling(id),
             webhook: self.webhook.clone(),
             alert: Alert {
-                title: format!("kelpie: {project} ruling #{}", ruling.number()),
+                title: format!("kelpie: {project} ruling {}", id.shown()),
                 text,
                 reply,
             },
@@ -171,7 +170,7 @@ impl Runner {
                     issue,
                     pull_request,
                 } => StepReport::NoticeFailed {
-                    issue: ticket_of(issue),
+                    issue,
                     pull_request,
                     reason,
                     retry_at: at,
@@ -201,7 +200,7 @@ impl Runner {
                 next.notices
                     .retain(|n| !matches!(n, Notice::Merged(n) if n.pull_request == pull_request));
                 StepReport::Noticed {
-                    issue: ticket_of(issue),
+                    issue,
                     pull_request,
                 }
             }
@@ -294,6 +293,7 @@ mod no_webhook;
 
 #[cfg(test)]
 mod tests {
+    use crate::test::ticket;
     use serde_json::json;
 
     use super::*;
@@ -304,7 +304,10 @@ mod tests {
     #[test]
     fn each_new_ruling_posts_once_with_its_number_question_and_trigger() {
         let (rig, runner, head) = Rig::parked("shep");
-        assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 71 }));
+        assert_eq!(
+            step(&runner).unwrap(),
+            Some(StepReport::Alerted { id: ticket(71) })
+        );
         let [(webhook, alert)] = rig.alerts.posts().try_into().unwrap();
         assert_eq!(webhook, rig.webhook());
         assert_eq!(alert.title, "kelpie: shep ruling #71");
@@ -343,7 +346,7 @@ mod tests {
         let (rig, runner, _) = Rig::parked("rotom");
         rig.alerts.set_down(true);
         let failed = |at| StepReport::AlertFailed {
-            id: 71,
+            id: ticket(71),
             reason: "the webhook answered HTTP 503".into(),
             retry_at: Timestamp(Rig::EPOCH + at),
         };
@@ -356,16 +359,19 @@ mod tests {
         assert_eq!(step(&runner).unwrap(), Some(failed(start + 180 + 240)));
 
         let status = rig.ask(&runner, "status", None);
-        assert_eq!(status["rulings"][0]["id"], 71);
+        assert_eq!(status["rulings"][0]["id"], "71");
         assert_eq!(status["rulings"][0]["alerted"], false);
         assert_eq!(
             status["work_item"]["phase"],
-            json!({ "state": "ruling", "id": 71 })
+            json!({ "state": "ruling", "id": "71" })
         );
 
         rig.alerts.set_down(false);
         rig.clock.advance(240);
-        assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 71 }));
+        assert_eq!(
+            step(&runner).unwrap(),
+            Some(StepReport::Alerted { id: ticket(71) })
+        );
         assert_eq!(rig.alerts.posts().len(), 4, "three failures and one post");
         rig.clock.advance(3600);
         assert_eq!(step(&runner).unwrap(), None);
@@ -439,7 +445,7 @@ mod tests {
         let due = runner.lock().unwrap().alert_due().unwrap();
         rig.ask(&runner, "rule", Some("71 no not yet"));
         let report = runner.lock().unwrap().alert_sent(due.of, Ok(())).unwrap();
-        assert_eq!(report, StepReport::Alerted { id: 71 });
+        assert_eq!(report, StepReport::Alerted { id: ticket(71) });
         assert_eq!(rig.ask(&runner, "status", None)["rulings"], json!([]));
         assert!(runner.lock().unwrap().alert_due().is_none());
     }
@@ -455,6 +461,9 @@ mod tests {
         drop(runner);
         rig.alerts.set_down(false);
         let runner = rig.open().unwrap();
-        assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 71 }));
+        assert_eq!(
+            step(&runner).unwrap(),
+            Some(StepReport::Alerted { id: ticket(71) })
+        );
     }
 }

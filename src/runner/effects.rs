@@ -12,6 +12,7 @@ use super::ruling::needs_pass;
 use super::voice::phrases;
 use crate::ports::{Checks, Cost, Role};
 use crate::state::{Ruling, RulingKind, StateError};
+use crate::ticket::TicketId;
 use crate::work_item::WorkItem;
 
 impl Runner {
@@ -20,7 +21,7 @@ impl Runner {
     /// # Errors
     ///
     /// [`StateError`] when they cannot be saved.
-    pub(super) fn word_effects(&mut self, id: u64) -> Result<(), StateError> {
+    pub(super) fn word_effects(&mut self, id: TicketId) -> Result<(), StateError> {
         let Some(ruling) = self.state.rulings.iter().find(|r| r.id == id) else {
             return Ok(());
         };

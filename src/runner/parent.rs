@@ -79,7 +79,7 @@ impl Runner {
         for parent in listed {
             let ticket = parent.ticket;
             let held = ready.iter().any(|i| i.ticket == ticket)
-                || self.state.item_by_ticket(ticket).is_some()
+                || self.state.item(ticket).is_some()
                 || self.unbuilt.contains_key(&ticket);
             if held || !self.may_close(ticket) {
                 continue;
@@ -122,13 +122,13 @@ impl Runner {
         match closed {
             Ok(()) => {
                 self.close_refused.remove(&ticket);
-                StepReport::ParentClosed { issue }
+                StepReport::ParentClosed { issue: ticket }
             }
             Err(e) => {
                 let failures = self.close_refused.entry(ticket).or_default();
                 *failures += 1;
                 StepReport::ParentCloseFailed {
-                    issue,
+                    issue: ticket,
                     reason: e.to_string(),
                     given_up: *failures >= TRIES,
                 }
@@ -172,7 +172,7 @@ mod tests {
         rig.ask(&runner, "drop", Some("6"));
         assert_eq!(
             step(&runner).unwrap(),
-            Some(StepReport::ParentClosed { issue: 5 })
+            Some(StepReport::ParentClosed { issue: ticket(5) })
         );
         assert_eq!(rig.forge.closings(), [5]);
         assert_eq!(rig.forge.comments(), [(5, PARENT_CLOSED.to_owned())]);
@@ -205,7 +205,7 @@ mod tests {
         rig.forge.close_issue(8);
         rig.forge.set_closes_down(true);
         let refused = |given_up| StepReport::ParentCloseFailed {
-            issue: 5,
+            issue: ticket(5),
             reason: "gh failed: closing is refused".into(),
             given_up,
         };
@@ -230,7 +230,7 @@ mod tests {
         let runner = rig.open().unwrap();
         assert_eq!(
             step(&runner).unwrap(),
-            Some(StepReport::ParentClosed { issue: 5 })
+            Some(StepReport::ParentClosed { issue: ticket(5) })
         );
     }
 
@@ -244,7 +244,7 @@ mod tests {
         rig.forge.close_issue(7);
         assert_eq!(
             step(&runner).unwrap(),
-            Some(StepReport::ParentClosed { issue: 5 })
+            Some(StepReport::ParentClosed { issue: ticket(5) })
         );
         assert_eq!(rig.forge.closings(), [5]);
         assert_eq!(rig.forge.comments(), [(5, PARENT_CLOSED.to_owned())]);
@@ -300,7 +300,7 @@ mod tests {
         rig.next_look();
         assert_eq!(
             step(&runner).unwrap(),
-            Some(StepReport::ParentClosed { issue: 5 })
+            Some(StepReport::ParentClosed { issue: ticket(5) })
         );
     }
 
@@ -312,7 +312,7 @@ mod tests {
         rig.forge.close_issue(6);
         rig.forge.set_closes_down(true);
         let refused = |given_up| StepReport::ParentCloseFailed {
-            issue: 5,
+            issue: ticket(5),
             reason: "gh failed: closing is refused".into(),
             given_up,
         };
@@ -351,7 +351,7 @@ mod tests {
         rig.clock.advance(UNBUILT_RECHECK);
         assert_eq!(
             step(&runner).unwrap(),
-            Some(StepReport::ParentClosed { issue: 5 })
+            Some(StepReport::ParentClosed { issue: ticket(5) })
         );
     }
 }

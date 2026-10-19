@@ -68,14 +68,14 @@ const HOLD: u64 = 20 * 60;
 #[derive(Debug, Default)]
 pub(super) struct Desk {
     // Each ruling the panel is voting on
-    open: BTreeMap<u64, Open>,
+    open: BTreeMap<TicketId, Open>,
     // The rulings whose experts have yet to be asked, oldest first
-    queue: VecDeque<u64>,
+    queue: VecDeque<TicketId>,
     // Whether experts started since the loop last asked
     launched: bool,
     // How the last rulings were asked once they left `open`, for the votes
     // of a project manager wake that outlasts its ruling
-    closed: BTreeMap<u64, Plan>,
+    closed: BTreeMap<TicketId, Plan>,
 }
 
 // Why a voter ended by the maintainer's answer abstains.
@@ -139,7 +139,7 @@ impl Plan {
     }
 
     /// What the usage ledger says of a vote on this ruling
-    pub(super) fn mark(&self, ruling: u64, voter: Voter, choice: Option<char>) -> VoteMark {
+    pub(super) fn mark(&self, ruling: TicketId, voter: Voter, choice: Option<char>) -> VoteMark {
         VoteMark {
             ruling,
             ruling_kind: self.kind,
@@ -155,7 +155,7 @@ impl Desk {
     // The next ruling whose experts are to be asked. Its hold runs from now,
     // not from when it was taken up, since only one panel's experts run at a
     // time and a ruling queued behind another has not had its turn.
-    pub(super) fn queue_pop(&mut self, now: Timestamp) -> Option<u64> {
+    pub(super) fn queue_pop(&mut self, now: Timestamp) -> Option<TicketId> {
         let id = self.queue.pop_front()?;
         if let Some(open) = self.open.get_mut(&id) {
             open.since = now;
@@ -164,13 +164,13 @@ impl Desk {
     }
 
     // How ruling `id`'s panel is being asked, or was when it closed.
-    pub(super) fn plan(&self, id: u64) -> Option<Plan> {
+    pub(super) fn plan(&self, id: TicketId) -> Option<Plan> {
         let open = self.open.get(&id).map(|o| &o.plan);
         open.or_else(|| self.closed.get(&id)).cloned()
     }
 
     // Keeps how ruling `id` was asked, now that its panel is done.
-    fn retire(&mut self, id: u64, plan: Plan) {
+    fn retire(&mut self, id: TicketId, plan: Plan) {
         self.closed.insert(id, plan);
         while self.closed.len() > CLOSED_KEPT {
             self.closed.pop_first();
@@ -178,7 +178,7 @@ impl Desk {
     }
 
     // Who is still to vote on ruling `id`.
-    pub(super) fn waiting(&self, id: u64) -> Vec<Voter> {
+    pub(super) fn waiting(&self, id: TicketId) -> Vec<Voter> {
         (self.open.get(&id)).map_or_else(Vec::new, |o| o.waiting.iter().copied().collect())
     }
 }
@@ -208,7 +208,7 @@ impl Runner {
     }
 
     /// Whether ruling `id`'s comment waits on its panel
-    pub(super) fn panel_holds_ruling(&self, id: u64) -> bool {
+    pub(super) fn panel_holds_ruling(&self, id: TicketId) -> bool {
         self.panel_enabled() && self.panel.open.contains_key(&id)
     }
 
@@ -234,7 +234,7 @@ impl Runner {
         }
         self.panel_forget_answered();
         self.panel_settle_overdue();
-        let wanting: Vec<u64> = (self.state.rulings.iter())
+        let wanting: Vec<TicketId> = (self.state.rulings.iter())
             .filter(|r| self.panel_wants(r))
             .map(|r| r.id)
             .collect();
@@ -268,7 +268,7 @@ impl Runner {
 
     // Drops what the panel keeps of a ruling that is answered or gone.
     fn panel_forget_answered(&mut self) {
-        let mut pending: BTreeSet<u64> = self.state.rulings.iter().map(|r| r.id).collect();
+        let mut pending: BTreeSet<TicketId> = self.state.rulings.iter().map(|r| r.id).collect();
         // A ruling answered under `shadow` keeps its panel to the end of its hold.
         pending.extend(
             (self.panel.open.iter())
@@ -280,7 +280,7 @@ impl Runner {
         if (self.flights.panel_ruling()).is_some_and(|id| !pending.contains(&id)) {
             self.panel_end_flight();
         }
-        let gone: Vec<u64> = (self.panel.open.keys())
+        let gone: Vec<TicketId> = (self.panel.open.keys())
             .copied()
             .filter(|id| !pending.contains(id))
             .collect();
@@ -298,7 +298,7 @@ impl Runner {
     fn panel_settle_overdue(&mut self) {
         let now = self.ports.clock.now();
         let draining = self.draining();
-        let overdue: Vec<u64> = (self.panel.open.iter())
+        let overdue: Vec<TicketId> = (self.panel.open.iter())
             .filter(|(id, open)| {
                 let waits_its_turn = self.panel.queue.contains(id) && !draining;
                 !waits_its_turn && now.0 >= open.since.0.saturating_add(HOLD)
@@ -330,7 +330,7 @@ impl Runner {
     // Lets ruling `id` go to the maintainer with no vote, and keeps why. A reason
     // that cannot be saved leaves the ruling with the panel, to be skipped again
     // next step, so none goes unvoted with no reason on record.
-    fn panel_skip(&mut self, id: u64, skip: Skip) {
+    fn panel_skip(&mut self, id: TicketId, skip: Skip) {
         let answered = self
             .panel
             .open
@@ -351,7 +351,7 @@ impl Runner {
 
     // Keeps on answered ruling `id`'s line that the panel cast no vote on it,
     // since `skip`, and returns whether it is saved.
-    fn panel_skip_answered(&mut self, id: u64, skip: Skip) -> bool {
+    fn panel_skip_answered(&mut self, id: TicketId, skip: Skip) -> bool {
         let field = serde_json::to_value(skip).unwrap_or_default();
         match history::amend(&self.paths.rulings, id, vec![("skipped", field)]) {
             Ok(()) => true,
@@ -366,7 +366,7 @@ impl Runner {
 
     /// Keeps on ruling `id` that the panel cast no vote on it, since `skip`,
     /// and returns whether it is saved
-    pub(super) fn panel_skipped(&mut self, id: u64, skip: Skip) -> bool {
+    pub(super) fn panel_skipped(&mut self, id: TicketId, skip: Skip) -> bool {
         let mut next = self.state.clone();
         let Some(ruling) = next.rulings.iter_mut().find(|r| r.id == id) else {
             return false;
@@ -391,7 +391,7 @@ impl Runner {
 
     /// Keeps why the panel cast no vote on ruling `id`, whose comment is posted
     /// now, when the comment had gone out before the panel took it up
-    pub(super) fn panel_unvoted(&mut self, id: u64) {
+    pub(super) fn panel_unvoted(&mut self, id: TicketId) {
         let Some(ruling) = self.state.rulings.iter().find(|r| r.id == id) else {
             return;
         };
@@ -404,13 +404,13 @@ impl Runner {
 
     // Opens ruling `id`'s vote: its work item's type, who is on the panel,
     // who abstains at once, and who is asked.
-    fn panel_take_up(&mut self, id: u64) {
+    fn panel_take_up(&mut self, id: TicketId) {
         let Some(ruling) = self.state.rulings.iter().find(|r| r.id == id) else {
             return;
         };
         let (kind, ticket, number) = (
             RulingName::of(&ruling.kind),
-            ruling.ticket(),
+            ruling.issue,
             ruling.pull_request,
         );
         let asked = super::voice::brief(ruling).0;
@@ -467,7 +467,7 @@ impl Runner {
     // abstains, or, when the project does not name it, is left off the panel.
     fn panel_enlist(
         &mut self,
-        id: u64,
+        id: TicketId,
         ticket: Option<TicketId>,
         asked: &str,
         mut open: Open,
@@ -506,7 +506,7 @@ impl Runner {
 
     // What the pull request's title says of ruling `id`'s work item, which
     // sets the panel asked; any work with no title read is all four's.
-    fn panel_work(&mut self, id: u64, number: Option<u64>) -> Work {
+    fn panel_work(&mut self, id: TicketId, number: Option<u64>) -> Work {
         let Some(number) = number else {
             return work_of(None);
         };
@@ -527,10 +527,10 @@ impl Runner {
     // leaves out the commits it arrived with, and those are as risky. With
     // no list, or no work item, there is nothing to read. A diff that cannot
     // be read counts as touching one, since this only ever raises scrutiny.
-    fn panel_risky(&mut self, id: u64, ticket: Option<TicketId>) -> bool {
+    fn panel_risky(&mut self, id: TicketId, ticket: Option<TicketId>) -> bool {
         let globs = self.settings.rulings.full_panel_paths.clone();
         let Some(item) = ticket
-            .and_then(|t| self.state.item_by_ticket(t))
+            .and_then(|t| self.state.item(t))
             .filter(|_| !globs.is_empty())
         else {
             return false;
@@ -558,7 +558,7 @@ impl Runner {
         let Some(ticket) = ticket else {
             return no_item();
         };
-        let Some(item) = self.state.item_by_ticket(ticket) else {
+        let Some(item) = self.state.item(ticket) else {
             return no_item();
         };
         let ran = item
@@ -577,7 +577,7 @@ impl Runner {
     /// `voter`'s ballot already, takes none.
     pub(super) fn panel_voted(
         &mut self,
-        id: u64,
+        id: TicketId,
         voter: Voter,
         vote: Result<Vote, String>,
     ) -> bool {
@@ -608,14 +608,14 @@ impl Runner {
     }
 
     /// Records that `voter` abstains on ruling `id`, since `why`
-    pub(super) fn panel_abstains(&mut self, id: u64, voter: Voter, why: String) {
+    pub(super) fn panel_abstains(&mut self, id: TicketId, voter: Voter, why: String) {
         self.panel_voted(id, voter, Err(why));
     }
 
     // Settles ruling `id` once none of the experts its stage asks is still to
     // vote: it goes up a stage when the panel does not decide, else its votes
     // are saved and it is decided or left to the maintainer.
-    fn panel_close_if_done(&mut self, id: u64) {
+    fn panel_close_if_done(&mut self, id: TicketId) {
         loop {
             let Some(open) = self.panel.open.get(&id).filter(|o| o.waiting.is_empty()) else {
                 return;
@@ -646,7 +646,7 @@ impl Runner {
             open.plan.stage = up;
             let ruling = self.state.rulings.iter().find(|r| r.id == id);
             let (ticket, asked) = ruling.map_or((None, String::new()), |r| {
-                (r.ticket(), super::voice::brief(r).0)
+                (r.issue, super::voice::brief(r).0)
             });
             let open = self.panel_enlist(id, ticket, &asked, open);
             let asks = open.waiting.iter().any(|v| *v != Voter::Pm);
@@ -660,7 +660,7 @@ impl Runner {
 
     // Saves ruling `id`'s votes and what they come to, and, under `panel`,
     // applies the option they decide on, unless the maintainer is to be asked.
-    fn panel_conclude(&mut self, id: u64, plan: &Plan, ballots: Vec<Ballot>) {
+    fn panel_conclude(&mut self, id: TicketId, plan: &Plan, ballots: Vec<Ballot>) {
         let told = told(&ballots);
         let merge = (self.state.rulings.iter())
             .any(|r| r.id == id && matches!(r.kind, RulingKind::Merge { .. }));
@@ -701,7 +701,7 @@ impl Runner {
     // Saves the votes of a ruling the maintainer answered while they were
     // being cast, on its line in `rulings.jsonl`, where `status` counts them
     // against the answer. Under `shadow` they decide nothing.
-    fn panel_record_late(&mut self, id: u64, open: &Open, ballots: &[Ballot]) {
+    fn panel_record_late(&mut self, id: TicketId, open: &Open, ballots: &[Ballot]) {
         let plan = &open.plan;
         let advice = advice_of(simulate(plan.start, plan.tier, ballots).1);
         let overtaken: Vec<Voter> = (ballots.iter())
@@ -754,7 +754,7 @@ impl Runner {
     }
 
     // Ruling `id` as the panel votes on it: pending, or answered under `shadow`.
-    pub(super) fn panel_ruling(&self, id: u64) -> Option<Ruling> {
+    pub(super) fn panel_ruling(&self, id: TicketId) -> Option<Ruling> {
         let pending = self.state.rulings.iter().find(|r| r.id == id);
         let answered = self.panel.open.get(&id).and_then(|o| o.answered.as_ref());
         pending.or(answered).cloned()
@@ -767,10 +767,10 @@ impl Runner {
     /// for the log: a ruling that closed before its vote landed took none.
     pub(super) fn panel_pm_answered(
         &mut self,
-        asked: &[u64],
-        votes: Vec<(u64, Result<Vote, String>)>,
+        asked: &[TicketId],
+        votes: Vec<(TicketId, Result<Vote, String>)>,
     ) -> Vec<String> {
-        let mut votes: BTreeMap<u64, Result<Vote, String>> = votes.into_iter().collect();
+        let mut votes: BTreeMap<TicketId, Result<Vote, String>> = votes.into_iter().collect();
         let mut done = Vec::new();
         for id in asked {
             let vote = votes
@@ -788,12 +788,12 @@ impl Runner {
     }
 
     /// Lets the panel go of a ruling the project manager can no longer be asked about
-    pub(super) fn panel_pm_gone(&mut self, id: u64) {
+    pub(super) fn panel_pm_gone(&mut self, id: TicketId) {
         self.panel_abstains(id, Voter::Pm, "it could not be woken".into());
     }
 
     /// The option count of ruling `id`, for reading a vote on it
-    pub(super) fn panel_options(&self, id: u64) -> usize {
+    pub(super) fn panel_options(&self, id: TicketId) -> usize {
         self.panel_ruling(id)
             .map_or(0, |r| super::voice::brief(&r).1)
     }
@@ -801,7 +801,7 @@ impl Runner {
     // Records how the experts' calls ended.
     pub(in crate::runner) fn panel_heard(
         &mut self,
-        id: u64,
+        id: TicketId,
         options: usize,
         ends: Vec<(Voter, Result<AgentReply, AgentError>)>,
     ) {

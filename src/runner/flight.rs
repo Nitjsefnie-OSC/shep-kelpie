@@ -19,7 +19,7 @@ use super::Runner;
 use super::alert::post_due;
 use super::briefing::{Watched, brief};
 use super::dev_server;
-use super::in_flight::InFlight;
+use super::in_flight::{InFlight, Key};
 use super::login_refresh;
 use super::replies::answer_replies;
 use super::report::{Begin, ReviewCall, Reviewed, Spent, StepReport};
@@ -103,7 +103,7 @@ impl Default for Flights {
 
 impl Flights {
     /// The issue the issue writer is labelling, while it is
-    pub(super) fn labelling(&self) -> Option<u64> {
+    pub(super) fn labelling(&self) -> Option<TicketId> {
         self.labelling.as_ref().map(|l| l.issue)
     }
 
@@ -114,7 +114,7 @@ impl Flights {
     }
 
     /// The ruling whose panel's experts are in flight, while they are
-    pub(super) fn panel_ruling(&self) -> Option<u64> {
+    pub(super) fn panel_ruling(&self) -> Option<TicketId> {
         self.panel.as_ref().map(panel::Panelling::ruling)
     }
 
@@ -307,7 +307,9 @@ impl Runner {
     pub(super) fn launch_pm(&mut self, call: AgentCall, ceiling: u64, agent: &str, kind: CallKind) {
         let now = self.ports.clock.now();
         let draft = Draft::of(&call, agent, kind, now);
-        self.flights.ledger.open(None, draft, self.pacer_lines());
+        self.flights
+            .ledger
+            .open(Key::Manager, draft, self.pacer_lines());
         self.call_started(&call, agent);
         let ledger = self.flights.ledger.clone();
         let (news, wake) = (self.flights.send.clone(), self.flights.wake.clone());
@@ -330,7 +332,7 @@ impl Runner {
             let ran = catch_unwind(AssertUnwindSafe(|| End::Turn(agents.run(&call, &held))));
             let end = ran.unwrap_or_else(End::Panicked);
             if end.reached_no_model() {
-                ledger.no_model(None);
+                ledger.no_model(Key::Manager);
             }
             let _ = news.send(News::Pm(end));
             if let Some(wake) = &wake {
@@ -431,7 +433,6 @@ impl Runner {
 
     // Starts `launch` on a thread of its own, whose end comes back as news.
     fn launch(&mut self, ticket: TicketId, launch: Launch) {
-        let issue = ledger_issue(ticket);
         let tell = Tell {
             ticket,
             news: self.flights.send.clone(),
@@ -478,34 +479,37 @@ impl Runner {
             woken: false,
             lease: waiting::lease_of(&launch),
         };
-        let draft = match &launch {
+        let mut draft = match &launch {
             Launch::Turn { call, .. } => {
                 let kind = match compact {
                     true => CallKind::Compact,
                     false => CallKind::Turn,
                 };
-                Draft::of(call, &self.ledger_worker(issue), kind, now)
+                Draft::of(call, &self.ledger_worker(ticket), kind, now)
             }
             Launch::Review(ReviewCall::Session(call)) => {
-                Draft::of(call, &self.ledger_reviewer(issue), CallKind::Review, now)
+                Draft::of(call, &self.ledger_reviewer(ticket), CallKind::Review, now)
             }
             Launch::Review(ReviewCall::Local { local, .. }) => {
-                Draft::local(local, ticket_of(issue), &self.ledger_reviewer(issue), now)
+                Draft::local(local, ticket, &self.ledger_reviewer(ticket), now)
             }
         };
+        // The launch names the ticket, which is what the ledger keys the call
+        // by, and what its line carries.
+        draft.issue = Some(ticket);
         let draft = self.with_pull_request(draft);
         self.flights
             .ledger
-            .open(Some(issue), draft, self.pacer_lines());
+            .open(Key::Item(ticket), draft, self.pacer_lines());
         match &launch {
-            Launch::Turn { call, .. } => self.call_started(call, &self.ledger_worker(issue)),
+            Launch::Turn { call, .. } => self.call_started(call, &self.ledger_worker(ticket)),
             Launch::Review(ReviewCall::Session(call)) => {
-                self.call_started(call, &self.ledger_reviewer(issue));
+                self.call_started(call, &self.ledger_reviewer(ticket));
             }
             Launch::Review(ReviewCall::Local { .. }) => {}
         }
         let ledger = self.flights.ledger.clone();
-        let item = (self.state.work_items.iter()).find(|i| i.ticket() == Some(ticket));
+        let item = (self.state.work_items.iter()).find(|i| i.issue == ticket);
         let agents = self.counted(TurnHooks::around(
             Arc::clone(&self.ports.agents),
             &self.hooks,
@@ -523,7 +527,10 @@ impl Runner {
             first,
             compact,
             fallback: waiting::Fallback::Stays,
-            browser: deadline.and_then(|_| self.opened.take(issue)),
+            browser: match &launch {
+                Launch::Turn { .. } => self.opened.take(ticket),
+                Launch::Review(_) => None,
+            },
             requests: match &launch {
                 Launch::Turn { call, .. } => Mark::of(self.ports.agents.as_ref(), call),
                 Launch::Review(_) => None,
@@ -572,7 +579,7 @@ impl Runner {
             }));
             let end = ran.unwrap_or_else(End::Panicked);
             if end.reached_no_model() {
-                ledger.no_model(Some(issue));
+                ledger.no_model(Key::Item(ticket));
             }
             tell.send(News::Ended { ticket, end });
         };
@@ -755,7 +762,7 @@ fn hear_news(runner: &Mutex<Runner>, news: News) -> Result<Option<StepReport>, S
         News::Stage { ticket, stage, .. } => {
             if stage == RoundStage::Running {
                 let now = runner.ports.clock.now();
-                runner.flights.ledger.ran(Some(ledger_issue(ticket)), now);
+                runner.flights.ledger.ran(Key::Item(ticket), now);
                 // The round has the lease it queued for.
                 runner.began(ticket);
             } else {
@@ -802,7 +809,7 @@ fn hear_news(runner: &Mutex<Runner>, news: News) -> Result<Option<StepReport>, S
         News::Ended { ticket, end } => (ticket, end),
         News::Pm(end) => {
             runner.flights.pm = None;
-            let open = runner.flights.ledger.take(None);
+            let open = runner.flights.ledger.take(Key::Manager);
             return match end {
                 End::Turn(result) => {
                     if let Some(open) = &open {
@@ -821,8 +828,7 @@ fn hear_news(runner: &Mutex<Runner>, news: News) -> Result<Option<StepReport>, S
             };
         }
     };
-    let issue = ledger_issue(ticket);
-    let open = runner.flights.ledger.take(Some(issue));
+    let open = runner.flights.ledger.take(Key::Item(ticket));
     // A call's line goes in only once its end is saved: one not saved runs
     // again, and its session's cost by then takes in this call's.
     match end {
@@ -875,12 +881,6 @@ mod proving;
 
 use news::{End, News, Tell};
 
-// The usage ledger and the drain report key a work item's call by its issue
-// number, which only a GitHub ticket has, and only a GitHub ticket has a work
-// item.
-fn ledger_issue(ticket: TicketId) -> u64 {
-    ticket.github().unwrap_or_default()
-}
 pub(in crate::runner) use proving::Verdict;
 pub(super) mod retro;
 pub(super) mod security;
@@ -891,7 +891,6 @@ pub(crate) mod tests;
 pub(super) mod triage;
 mod waiting;
 
-use super::report::ticket_of;
 pub use carry::CarriedTurn;
 #[cfg(test)]
 pub use step::step;

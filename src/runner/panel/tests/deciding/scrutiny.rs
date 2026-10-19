@@ -7,6 +7,7 @@ use super::{PANEL, asked, decided_comment, leak, pm_says, ruling, script, voted}
 use crate::ports::{Checks, Role};
 use crate::runner::{Runner, StepReport, step};
 use crate::settings::Merging;
+use crate::test::ticket;
 use crate::test::{Rig, Scripted};
 
 const QUESTION: &str = "Done so far.\n\n<kelpie-question>\nWhich flag?\n- `--dry-run`\n\
@@ -28,8 +29,8 @@ fn asking(project: &str, title: &str, rulings: &str) -> (Rig, Mutex<Runner>) {
     rig.claude.script([Scripted::Say(QUESTION)]);
     assert!(matches!(
         step(&runner).unwrap(),
-        Some(StepReport::Asked { id: 71, .. })
-    ));
+        Some(StepReport::Asked { id, .. })
+     if id == ticket(71)));
     (rig, runner)
 }
 
@@ -93,11 +94,17 @@ fn the_commits_an_adopted_pull_request_arrived_with_count_toward_a_risky_path() 
     });
     // The pull request arrived at the head that already holds the change, so
     // its review sees nothing of it.
-    runner.lock().unwrap().state.item_mut(7).unwrap().arrived = Some(head.clone());
+    runner
+        .lock()
+        .unwrap()
+        .state
+        .item_mut(ticket(7))
+        .unwrap()
+        .arrived = Some(head.clone());
     rig.forge.set_checks(&head, Checks::Passed);
     assert!(matches!(
         rig.verdict(&runner),
-        Some(StepReport::Ruling { id: 71, .. })
+        Some(StepReport::Ruling { id, .. }) if id == ticket(71)
     ));
     // The merge ruling was raised under `ask`, and is judged under `auto`.
     runner.lock().unwrap().settings.git.merging = Merging::Auto;

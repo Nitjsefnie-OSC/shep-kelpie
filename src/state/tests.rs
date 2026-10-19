@@ -3,7 +3,7 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 use super::*;
-use crate::test::{a_work_item, a_work_item_from_before_comments};
+use crate::test::{a_work_item, a_work_item_from_before_comments, ticket};
 use crate::work_item::TimingPhase;
 
 const WRITER_DIR: &str = "KELPIE_TEST_WRITER_DIR";
@@ -16,19 +16,23 @@ fn store_in(dir: &Path) -> StateStore {
 // deliberate edit here and shows in review. Every other test reads `VERSION`.
 #[test]
 fn the_state_file_version_is_pinned() {
-    assert_eq!(VERSION, 72);
+    assert_eq!(VERSION, 73);
 }
 
 // Large, so a kill is likely to land inside a write, and uniform, so a
 // mix of two saves is visible.
-fn big_state(n: u64) -> ProjectState {
+fn big_state(n: TicketId) -> ProjectState {
     let mut state = ProjectState::new();
     state.finished = vec![n];
-    state.rulings = (0..20_000)
+    state.rulings = (1..20_000u64)
         .map(|id| Ruling {
             issue: Some(n),
-            pull_request: Some(n),
-            ..Ruling::new(id, format!("question {n}"), RulingKind::from(Stuck::Closed))
+            pull_request: n.github(),
+            ..Ruling::new(
+                ticket(id),
+                format!("question {n}"),
+                RulingKind::from(Stuck::Closed),
+            )
         })
         .collect();
     state
@@ -52,11 +56,11 @@ fn a_saved_state_loads_back_whole() {
     let mut state = ProjectState::new();
     state.work_items = vec![a_work_item()];
     state.rulings.push(Ruling {
-        issue: Some(7),
+        issue: Some(ticket(7)),
         pull_request: Some(43),
         alerted: true,
         ..Ruling::new(
-            1,
+            ticket(1),
             "merge #43?",
             RulingKind::Merge {
                 head: "c0ffee".into(),
@@ -73,7 +77,7 @@ fn a_saved_state_loads_back_whole() {
     });
     state.leases.push(LeaseHeld {
         resource: Resource::Gpu,
-        issue: Some(7),
+        issue: Some(ticket(7)),
         since: Timestamp(1_790_000_100),
     });
     state.pacing = Some(DayStart {
@@ -108,7 +112,7 @@ fn a_file_with_one_work_item_loads_as_a_list_of_one() {
     assert_eq!(state.work_items, [a_work_item()]);
     assert_eq!(
         state.rulings[0].issue,
-        Some(42),
+        Some(ticket(42)),
         "its rulings are its item's"
     );
 
@@ -173,14 +177,14 @@ fn the_file_format_is_pinned() {
     let mut state = ProjectState::new();
     state.leases.push(LeaseHeld {
         resource: Resource::Coderabbit,
-        issue: Some(22),
+        issue: Some(ticket(22)),
         since: Timestamp(8),
     });
     let ruling = |id: u64, kind| Ruling {
-        issue: Some(22),
+        issue: Some(ticket(22)),
         pull_request: Some(30),
         alerted: id.is_multiple_of(2),
-        ..Ruling::new(id, "q", kind)
+        ..Ruling::new(ticket(id), "q", kind)
     };
     state.rulings = vec![
         ruling(
@@ -257,11 +261,11 @@ fn the_file_format_is_pinned() {
         }),
     ));
     state.notices = vec![Notice::Merged(MergeNotice {
-        issue: 22,
+        issue: ticket(22),
         pull_request: 30,
         head: "c0ffee".into(),
     })];
-    state.finished = vec![22, 30];
+    state.finished = vec![ticket(22), ticket(30)];
     state.reworked = vec!["PRR_1".into()];
     state.adopted = vec![
         Waiting {
@@ -289,8 +293,8 @@ fn the_file_format_is_pinned() {
     let value: serde_json::Value = serde_json::from_str(&text).unwrap();
     let pinned = |id: u64, kind| {
         serde_json::json!({
-            "id": id,
-            "issue": 22,
+            "id": id.to_string(),
+            "issue": "22",
             "question": "q",
             "pull_request": 30,
             "kind": kind,
@@ -356,16 +360,16 @@ fn the_file_format_is_pinned() {
                     "why": "its call failed",
                 })),
             ],
-            "finished": [22, 30],
+            "finished": ["22", "30"],
             "history": [],
             "reworked": ["PRR_1"],
             "adopted": [
                 { "pull_request": 614, "by_label": false },
                 { "pull_request": 638, "by_label": true },
             ],
-            "leases": [{ "resource": "coderabbit", "issue": 22, "since": 8 }],
+            "leases": [{ "resource": "coderabbit", "issue": "22", "since": 8 }],
             "pacing": { "week_resets_at": 9, "day": 1, "week_used_pct": 10 },
-            "notices": [{ "issue": 22, "pull_request": 30, "head": "c0ffee" }],
+            "notices": [{ "issue": "22", "pull_request": 30, "head": "c0ffee" }],
             "replies": { "last": { "id": "W3EqiUm5rsNq", "time": 5 } },
         })
     );
@@ -375,7 +379,7 @@ fn the_file_format_is_pinned() {
 fn the_history_keeps_the_last_hundred_finished_work_items() {
     let mut state = ProjectState::new();
     let finished = |issue: u64| Finished {
-        issue,
+        issue: ticket(issue),
         title: format!("Issue {issue}"),
         pull_request: None,
         merged: true,
@@ -390,13 +394,13 @@ fn the_history_keeps_the_last_hundred_finished_work_items() {
         state.record_finished(finished(issue));
     }
     let issues: Vec<_> = state.history.iter().map(|f| f.issue).collect();
-    assert_eq!(issues, (6..=last).collect::<Vec<_>>());
+    assert_eq!(issues, (6..=last).map(ticket).collect::<Vec<_>>());
 }
 
 #[test]
 fn a_finished_work_item_is_pinned() {
     let finished = Finished {
-        issue: 7,
+        issue: ticket(7),
         title: "Seven".into(),
         pull_request: Some(71),
         merged: true,
@@ -411,7 +415,7 @@ fn a_finished_work_item_is_pinned() {
     assert_eq!(
         serde_json::to_value(&finished).unwrap(),
         serde_json::json!({
-            "issue": 7,
+            "issue": "7",
             "title": "Seven",
             "pull_request": 71,
             "merged": true,
@@ -472,7 +476,12 @@ fn a_version_17_file_loads_with_nothing_closed_and_saves_at_the_current_version(
     let text = fs::read_to_string(dir.path().join(STATE_FILE)).unwrap();
     let saved: serde_json::Value = serde_json::from_str(&text).unwrap();
     assert_eq!(saved["version"], VERSION);
-    assert_eq!(saved["history"], old["history"]);
+    let mut older = old["history"].clone();
+    older[0]["issue"] = serde_json::json!("3");
+    assert_eq!(
+        saved["history"], older,
+        "the number saves as the ticket id of it"
+    );
     assert_eq!(
         saved["work_items"][0]["phase"],
         old["work_items"][0]["phase"]
@@ -509,7 +518,7 @@ fn a_version_18_file_loads_not_finishing_and_saves_at_the_current_version() {
 #[test]
 fn a_finished_work_item_closed_with_no_change_is_pinned() {
     let finished = Finished {
-        issue: 7,
+        issue: ticket(7),
         title: "Seven".into(),
         pull_request: None,
         merged: false,
@@ -560,7 +569,7 @@ fn a_version_10_file_with_the_ledger_and_a_run_state_loads_and_saves_at_the_curr
     state.work_items.push(a_work_item_from_before_comments());
     state.work_items[0].counts.review_rounds = 2;
     state.record_finished(Finished {
-        issue: 3,
+        issue: ticket(3),
         title: "Three".into(),
         pull_request: Some(30),
         merged: true,
@@ -805,13 +814,13 @@ fn a_ruling_saved_before_webhooks_is_posted_once() {
 fn a_torn_temporary_file_leaves_the_saved_state_readable() {
     let dir = tempfile::tempdir().unwrap();
     let store = store_in(dir.path());
-    store.save(&big_state(1)).unwrap();
-    let whole = serde_json::to_vec(&big_state(2)).unwrap();
+    store.save(&big_state(ticket(1))).unwrap();
+    let whole = serde_json::to_vec(&big_state(ticket(2))).unwrap();
     fs::write(temporary_path(&store.path), &whole[..whole.len() / 2]).unwrap();
 
-    assert_eq!(store.load().unwrap(), Some(big_state(1)));
-    store.save(&big_state(3)).unwrap();
-    assert_eq!(store.load().unwrap(), Some(big_state(3)));
+    assert_eq!(store.load().unwrap(), Some(big_state(ticket(1))));
+    store.save(&big_state(ticket(3))).unwrap();
+    assert_eq!(store.load().unwrap(), Some(big_state(ticket(3))));
 }
 
 #[test]
@@ -869,8 +878,8 @@ fn writer_child() {
     };
     let store = store_in(Path::new(&dir));
     let mut out = io::stdout().lock();
-    for n in 0..=u64::MAX {
-        store.save(&big_state(n)).unwrap();
+    for n in 1..=u64::MAX {
+        store.save(&big_state(ticket(n))).unwrap();
         writeln!(out, "saved {n}").unwrap();
         out.flush().unwrap();
     }

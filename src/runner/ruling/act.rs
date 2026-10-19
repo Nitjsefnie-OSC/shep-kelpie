@@ -15,6 +15,7 @@ use crate::runner::gate::short;
 use crate::runner::panel::Answerer;
 use crate::runner::voice;
 use crate::state::{Ruling, RulingKind, Stuck};
+use crate::ticket::TicketId;
 use crate::worktree;
 
 impl Action {
@@ -45,7 +46,11 @@ pub(super) enum Act {
 /// # Errors
 ///
 /// [`RuleError::NotOffered`] when the ruling lists no option for it.
-pub(super) fn plan(id: u64, answer: &Answer, kind: &RulingKind) -> Result<Option<Act>, RuleError> {
+pub(super) fn plan(
+    id: TicketId,
+    answer: &Answer,
+    kind: &RulingKind,
+) -> Result<Option<Act>, RuleError> {
     let Answer::Do(action) = answer else {
         return Ok(None);
     };
@@ -77,7 +82,9 @@ pub(super) fn asked(ruling: &Ruling, answer: &Answer, by: Answerer) -> String {
         Answerer::Pm => "the project manager",
         Answerer::Panel => "the panel",
     };
-    let on = ruling.issue.map_or(String::new(), |n| format!("#{n}: "));
+    let on = ruling
+        .issue
+        .map_or(String::new(), |ticket| format!("{}: ", ticket.shown()));
     format!("{on}ruling {}{option} chosen by {who}", ruling.number())
 }
 
@@ -86,7 +93,7 @@ impl Runner {
     // work item the ruling parks.
     pub(super) fn carry_out(
         &self,
-        id: u64,
+        id: TicketId,
         act: &Act,
         worktree: Option<&Path>,
     ) -> Result<String, RuleError> {
@@ -115,7 +122,7 @@ impl Runner {
     ///
     /// A file the worktree's git ignores is still one the fence refuses, so the
     /// files that differ from `main` and the head does not hold count too.
-    pub(in crate::runner) fn restorable(&self, issue: u64) -> Vec<String> {
+    pub(in crate::runner) fn restorable(&self, issue: TicketId) -> Vec<String> {
         let Some(item) = self.state.item(issue) else {
             return Vec::new();
         };

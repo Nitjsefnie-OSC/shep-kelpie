@@ -20,6 +20,7 @@ use crate::hooks::{Hooks, Role};
 use crate::ports::Timestamp;
 use crate::settings::HookPoint;
 use crate::state::{Finished, ProjectState, Ruling};
+use crate::ticket::TicketId;
 use crate::work_item::{Phase, WorkItem};
 
 /// What the notice points have told already, in memory only
@@ -30,9 +31,9 @@ use crate::work_item::{Phase, WorkItem};
 pub(super) struct Told {
     // The rulings told to the `ruling` hooks, by id and when each was raised:
     // a work item's number names every ruling it raises in turn
-    rulings: BTreeSet<(u64, Option<Timestamp>)>,
+    rulings: BTreeSet<(TicketId, Option<Timestamp>)>,
     // The head each work item's CI last settled on, told to the `ci` hooks
-    ci: BTreeMap<u64, String>,
+    ci: BTreeMap<TicketId, String>,
     // The thread the notice hooks run on
     notices: Notices,
 }
@@ -227,7 +228,7 @@ impl Runner {
     /// request `number` as `conclusion`, once for each head
     pub(super) fn ci_settled(
         &mut self,
-        issue: u64,
+        issue: TicketId,
         number: u64,
         head: &str,
         conclusion: &str,

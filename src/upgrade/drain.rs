@@ -27,6 +27,7 @@ use tokio::time::Instant;
 use super::restart::Patience;
 use crate::flock::control::{Answered, refusal, trigger};
 use crate::shepherd::Connection;
+use crate::ticket::TicketId;
 
 /// What a runner is drained for, which the lines about it name
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -97,13 +98,14 @@ pub fn drained(body: &str) -> Option<Drained> {
     let answer = serde_json::from_str::<Value>(body).ok()?;
     let draining = answer.get("draining")?;
     let calls = draining.get("calls")?.as_array()?;
-    let at_tool: Vec<u64> = draining
+    let at_tool: Vec<TicketId> = draining
         .get("at_tool")
         .and_then(Value::as_array)
-        .map(|issues| issues.iter().filter_map(Value::as_u64).collect())
+        .map(|tickets| tickets.iter().filter_map(TicketId::from_json).collect())
         .unwrap_or_default();
     let ends_at_tool = |call: &&Value| {
-        call["role"] == "worker" && call["issue"].as_u64().is_some_and(|i| at_tool.contains(&i))
+        call["role"] == "worker"
+            && TicketId::from_json(&call["issue"]).is_some_and(|issue| at_tool.contains(&issue))
     };
     let (ending, others): (Vec<_>, Vec<_>) = calls.iter().partition(ends_at_tool);
     Some(Drained {
@@ -115,17 +117,20 @@ pub fn drained(body: &str) -> Option<Drained> {
     })
 }
 
-// How a call in a draining runner's answer reads.
+// How a call in a draining runner's answer reads. A runner from before ticket
+// ids names a call by its issue number, which reads as GitHub's.
 fn call(call: &Value) -> String {
-    let issue = call["issue"].as_u64();
-    match (call["role"].as_str(), issue) {
+    let ticket = TicketId::from_json(&call["issue"]);
+    match (call["role"].as_str(), ticket) {
         (Some("pm"), _) => "the project manager's wake".to_owned(),
         (Some("panel"), _) => "the panel's votes on a ruling".to_owned(),
-        (Some("worker"), Some(issue)) => format!("#{issue}'s worker turn"),
-        (Some("pi_session"), Some(issue)) => format!("#{issue}'s attached pi session"),
-        (Some("goose_session"), Some(issue)) => format!("#{issue}'s attached goose session"),
-        (Some("reviewer"), Some(issue)) => format!("#{issue}'s review"),
-        (_, Some(issue)) => format!("a call for #{issue}"),
+        (Some("worker"), Some(ticket)) => format!("{}'s worker turn", ticket.shown()),
+        (Some("pi_session"), Some(ticket)) => format!("{}'s attached pi session", ticket.shown()),
+        (Some("goose_session"), Some(ticket)) => {
+            format!("{}'s attached goose session", ticket.shown())
+        }
+        (Some("reviewer"), Some(ticket)) => format!("{}'s review", ticket.shown()),
+        (_, Some(ticket)) => format!("a call for {}", ticket.shown()),
         (_, None) => "a call".to_owned(),
     }
 }

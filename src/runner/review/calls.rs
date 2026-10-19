@@ -12,9 +12,10 @@ use std::process::Stdio;
 use crate::adapters::CLAUDE_REVIEW_TOOLS;
 use crate::ports::{AgentCall, Reach, Role, Session, Severity, Tools};
 use crate::settings::{Harness, RoleModel};
+use crate::ticket::TicketId;
 use crate::work_item::new_session_id;
 
-/// A fresh session of a reviewer on `model` over issue `issue`'s
+/// A fresh session of a reviewer on `model` over `ticket`'s work item's
 /// `worktree`, asked `prompt`, its settings in `worker_folder`
 ///
 /// With `tests`, the fenced reach of a reviewer that may write a failing test
@@ -23,16 +24,24 @@ use crate::work_item::new_session_id;
 /// A Codex or goose reviewer with no tests to write gets a reach with no write
 /// folder, which gives it a shell that only reads.
 pub(super) fn reviewer_call(
-    issue: u64,
+    ticket: TicketId,
     worktree: &Path,
     worker_folder: &Path,
     model: &RoleModel,
     prompt: String,
     tests: Option<Reach>,
 ) -> Result<AgentCall, String> {
-    let mut call = build_call(Role::Reviewer, issue, worktree, model, prompt)?;
+    // The call's issue is the GitHub number a sandbox is named for; a local
+    // ticket has none, and its settings file is named by its id.
+    let mut call = build_call(
+        Role::Reviewer,
+        ticket.github().unwrap_or(0),
+        worktree,
+        model,
+        prompt,
+    )?;
     // Named for the work item, whose reviewer runs beside other items' calls.
-    call.settings = worker_folder.join(format!("review-settings-{issue}.json"));
+    call.settings = worker_folder.join(format!("review-settings-{ticket}.json"));
     call.tools = Tools::Review;
     if let Some(reach) = tests {
         // `agent_tools` is Claude's tool list, which pi ignores: its own tools

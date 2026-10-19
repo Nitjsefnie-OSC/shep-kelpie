@@ -48,7 +48,6 @@ use super::report::{Begin, StepReport};
 use crate::lease::wire::WindowFact;
 use crate::ports::{Finding, PullRequestState, Timestamp, Visibility};
 use crate::review_bot::{Activity, Bot, BotReviewer, Reading, ReviewWindow};
-use crate::runner::report::ticket_of;
 use crate::settings::{AgentName, ListedReviewer};
 use crate::state::{StateError, Stuck};
 use crate::work_item::{BotSkipped, Phase, Review, ReviewStage, WorkItem};
@@ -351,13 +350,13 @@ impl Runner {
         let (issue, pull_request) = (self.item().issue, number);
         Begin::Report(if again {
             StepReport::SummonedAgain {
-                issue: ticket_of(issue),
+                issue,
                 pull_request,
                 head,
             }
         } else {
             StepReport::Summoned {
-                issue: ticket_of(issue),
+                issue,
                 pull_request,
                 head,
             }
@@ -464,7 +463,7 @@ impl Runner {
             full,
         })?;
         Ok(Some(Begin::Report(StepReport::MarkedReady {
-            issue: ticket_of(self.item().issue),
+            issue: self.item().issue,
             pull_request: number,
         })))
     }
@@ -548,7 +547,7 @@ impl Runner {
                     full: full && profile.label().is_some(),
                 })?;
                 Ok(Begin::Report(StepReport::SummonRefused {
-                    issue: ticket_of(self.item().issue),
+                    issue: self.item().issue,
                     pull_request: number,
                     opens,
                 }))
@@ -690,7 +689,7 @@ impl Runner {
             item.phase = next;
         })?;
         Ok(Begin::Report(StepReport::BotReviewed {
-            issue: ticket_of(self.item().issue),
+            issue: self.item().issue,
             pull_request: number,
             round,
             reviewer,
@@ -735,7 +734,7 @@ impl Runner {
             item.phase = next;
         })?;
         Ok(Begin::Report(StepReport::ReviewerSkipped {
-            issue: ticket_of(self.item().issue),
+            issue: self.item().issue,
             pull_request: number,
             round,
             reviewer,

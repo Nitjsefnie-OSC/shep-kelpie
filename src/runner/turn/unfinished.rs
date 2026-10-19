@@ -14,11 +14,11 @@ use super::handover::{Handover, Refused};
 use crate::ports::Timestamp;
 use crate::runner::closed::end_closed;
 use crate::runner::pull_request_file;
-use crate::runner::report::ticket_of;
 use crate::runner::report::{Begin, StepReport};
 use crate::runner::ruling::park;
 use crate::runner::{Names, Runner};
 use crate::state::{ProjectState, StateError, Stuck};
+use crate::ticket::TicketId;
 use crate::work_item::{Phase, Review, Turn, WorkItem};
 
 /// The prompt that sends back a worker whose turn ended with no pull request
@@ -123,10 +123,7 @@ impl Runner {
             Ok(open) => open,
             Err(e) => {
                 let reason = format!("cannot list open pull requests: {e}");
-                return Ok(Begin::Report(StepReport::GateFailed {
-                    issue: ticket_of(issue),
-                    reason,
-                }));
+                return Ok(Begin::Report(StepReport::GateFailed { issue, reason }));
             }
         };
         let (pushed_nothing, known) = (awaits_a_push(item), item.pull_request.is_some());
@@ -140,7 +137,11 @@ impl Runner {
         let retry = item.known.head.is_some() && item.pull_request_refused.is_none();
         let handed_over = self.app_covers();
         // A pull request on another branch that closes the issue is work too.
-        let claimed = open.iter().any(|pr| pr.closes.contains(&issue));
+        let claimed = (open.iter()).any(|pr| {
+            pr.closes
+                .iter()
+                .any(|n| TicketId::from_issue(*n) == Some(issue))
+        });
         let closed = match found {
             None if !known && !claimed => self.closed_with_no_change(issue),
             _ => Ok(false),
@@ -151,14 +152,11 @@ impl Runner {
             Ok(true) => {
                 end_closed(&mut next, issue);
                 self.save(next)?;
-                self.say_closed(ticket_of(issue), None);
+                self.say_closed(issue, None);
                 return self.begin_item(false);
             }
             Err(reason) => {
-                return Ok(Begin::Report(StepReport::GateFailed {
-                    issue: ticket_of(issue),
-                    reason,
-                }));
+                return Ok(Begin::Report(StepReport::GateFailed { issue, reason }));
             }
         }
         // A hand-over worker's branch pushed with its file written is opened
@@ -171,7 +169,7 @@ impl Runner {
                     Err(refused) => {
                         refusal = Some(pull_request_file::told(&refused));
                         self.started.push(StepReport::PullRequestNotOpened {
-                            issue: ticket_of(issue),
+                            issue,
                             reason: refused.to_string(),
                         });
                         None
@@ -297,7 +295,7 @@ impl Runner {
 // finds a turn already past its ceiling with no call spent. The caller sets
 // `item.turn` beforehand: this only raises the ruling. `comment_failed` is
 // filled in afterwards, once the ruling has actually been posted.
-pub(super) fn timed_out(names: Names, next: &mut ProjectState, issue: u64) -> StepReport {
+pub(super) fn timed_out(names: Names, next: &mut ProjectState, issue: TicketId) -> StepReport {
     let item = next
         .item_mut(issue)
         .expect("a turn ceiling is about an open work item");
@@ -311,7 +309,7 @@ pub(super) fn timed_out(names: Names, next: &mut ProjectState, issue: u64) -> St
         Stuck::TurnTimeout { phase }.into(),
     );
     StepReport::TimedOut {
-        issue: ticket_of(issue),
+        issue,
         session,
         pull_request,
         id,
@@ -326,7 +324,7 @@ pub(super) fn timed_out(names: Names, next: &mut ProjectState, issue: u64) -> St
 pub(in crate::runner) fn failed(
     names: Names,
     next: &mut ProjectState,
-    issue: u64,
+    issue: TicketId,
     at: Timestamp,
     reason: String,
     restore: Vec<String>,
@@ -349,7 +347,7 @@ pub(in crate::runner) fn failed(
     .into();
     let (id, question) = park(names, next, issue, pull_request, kind);
     StepReport::Failed {
-        issue: ticket_of(issue),
+        issue,
         pull_request,
         id,
         question,

@@ -16,6 +16,7 @@ use crate::ports::Timestamp;
 use crate::runner::Answer;
 use crate::settings::RulingName;
 use crate::state::Ruling;
+use crate::ticket::TicketId;
 
 /// How many of the latest answered rulings the researcher is shown
 const LAST: usize = 60;
@@ -38,12 +39,12 @@ pub(in crate::runner) enum Answerer {
 // wire format: changing this is a breaking change to the rulings file
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(in crate::runner) struct Record {
-    pub(in crate::runner) id: u64,
+    pub(in crate::runner) id: TicketId,
     pub(in crate::runner) at: Timestamp,
     // When it was raised, if the state file said
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(in crate::runner) raised: Option<Timestamp>,
-    pub(in crate::runner) issue: Option<u64>,
+    pub(in crate::runner) issue: Option<TicketId>,
     pull_request: Option<u64>,
     asked: String,
     pub(in crate::runner) answer: String,
@@ -151,7 +152,7 @@ impl Record {
 /// What went wrong, for the log.
 pub(in crate::runner) fn amend(
     file: &Path,
-    id: u64,
+    id: TicketId,
     fields: Vec<(&str, serde_json::Value)>,
 ) -> Result<(), String> {
     let text = std::fs::read_to_string(file)
@@ -159,7 +160,9 @@ pub(in crate::runner) fn amend(
     let mut lines: Vec<String> = text.lines().map(str::to_owned).collect();
     let at = lines.iter().rposition(|line| {
         let value = serde_json::from_str::<serde_json::Value>(line).ok();
-        value.is_some_and(|v| v["id"] == id)
+        value.is_some_and(|v| {
+            serde_json::from_value::<TicketId>(v["id"].clone()).is_ok_and(|read| read == id)
+        })
     });
     let Some(at) = at else {
         return Ok(());
@@ -201,7 +204,7 @@ pub(super) fn read(file: &Path) -> String {
     }
     for record in &records[start..] {
         let mut about = Vec::new();
-        about.extend(record.issue.map(|n| format!("issue #{n}")));
+        about.extend(record.issue.map(|t| t.named().to_lowercase()));
         about.extend(record.pull_request.map(|n| format!("pull request #{n}")));
         let about = match about.is_empty() {
             true => String::new(),
@@ -234,6 +237,23 @@ fn day(at: Timestamp) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test::ticket;
+
+    // A ruling id from before a ruling was named by its ticket, where the
+    // counter named no ticket at all (0), is an id no record can carry: the
+    // line is skipped as any line that does not read is.
+    #[test]
+    fn a_line_whose_id_names_no_ticket_is_skipped() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("rulings.jsonl");
+        std::fs::write(
+            &file,
+            "{\"id\":0,\"at\":100,\"issue\":7,\"pull_request\":null,\"asked\":\"q\",\"answer\":\"yes\"}\n",
+        )
+        .unwrap();
+        assert_eq!(records(&file), Vec::new());
+        assert!(read(&file).contains("(none kept yet)"));
+    }
 
     // An answered ruling of a kind that has since gone stays in the history.
     #[test]
@@ -247,7 +267,7 @@ mod tests {
         std::fs::write(&file, format!("{text}\n")).unwrap();
         let records = records(&file);
         assert_eq!(records.len(), 1);
-        assert_eq!(records[0].id, 3);
+        assert_eq!(records[0].id, ticket(3));
         assert!(read(&file).contains("yes"));
     }
 }

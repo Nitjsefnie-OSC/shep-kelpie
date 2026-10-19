@@ -25,8 +25,7 @@ impl Runner {
     // Whether the turn of `ticket`'s work item that came back ended at a tool
     // result for a pause
     pub(in crate::runner) fn paused_at_tool(&self, ticket: TicketId) -> bool {
-        (self.state.item_by_ticket(ticket))
-            .is_some_and(|item| Pause::in_build(&item.build).ended_turn())
+        (self.state.item(ticket)).is_some_and(|item| Pause::in_build(&item.build).ended_turn())
     }
 
     // Ends the current work item's turn as paused, when it ended that way, and
@@ -36,7 +35,7 @@ impl Runner {
         &mut self,
         result: &Result<AgentReply, AgentError>,
     ) -> Option<Result<Option<StepReport>, StateError>> {
-        let ticket = self.current()?.ticket()?;
+        let ticket = self.current()?.issue;
         if !self.paused_at_tool(ticket) {
             return None;
         }
@@ -65,7 +64,8 @@ impl Runner {
 
     // Says that the turn that just started resumed one a pause ended
     pub(in crate::runner) fn note_resumed(&self, ticket: TicketId) {
-        self.notes.push(format!("#{ticket} resumed-after-pause"));
+        self.notes
+            .push(format!("{} resumed-after-pause", ticket.shown()));
     }
 }
 

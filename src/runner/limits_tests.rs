@@ -379,8 +379,8 @@ fn beside_a_local_implementer_listed_first_the_issue_writer_labels_an_issue_and_
         .script([Scripted::Say("{\"agent\": \"sonnet-high\"}")]);
     assert!(matches!(
         step(&runner).unwrap(),
-        Some(StepReport::Labelled { issue: 7, .. })
-    ));
+        Some(StepReport::Labelled { issue, .. })
+     if issue == ticket(7)));
     assert!(dispatched(&step(&runner).unwrap()));
 
     rig.clock.advance(RECHECK_SECS);
@@ -484,6 +484,6 @@ fn the_issue_writer_waits_on_claudes_window_when_no_listed_role_spends_claude() 
     rig.claude.script([Scripted::Say("{\"agent\": \"coder\"}")]);
     assert!(matches!(
         step(&runner).unwrap(),
-        Some(StepReport::Labelled { issue: 7, .. })
+        Some(StepReport::Labelled { issue, .. }) if issue == ticket(7)
     ));
 }

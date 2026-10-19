@@ -106,12 +106,10 @@ fn a_bot_passed_over_that_reviews_during_ci_gets_a_fix_turn_before_the_merge_rul
             "auto: {auto}"
         );
         assert_eq!(rig.forge.coderabbit.resolved(), ["PRRT_cubic_71_0"]);
-        let Some(StepReport::Ruling {
-            id: 71, question, ..
-        }) = rig.verdict(&runner)
-        else {
+        let Some(StepReport::Ruling { id, question, .. }) = rig.verdict(&runner) else {
             panic!("no merge ruling on the late round's fix, auto: {auto}");
         };
+        assert_eq!(id, ticket(71));
         assert!(question.contains(&fixed[..7]), "{question}");
         assert!(question.contains(LATE_FIX), "{question}");
         assert!(
@@ -130,16 +128,20 @@ fn a_bot_passed_over_that_reviews_while_the_merge_ruling_waits_withdraws_it() {
     let rig = listing("shep", &["cubic"]);
     let (runner, head) = passed_over(&rig);
     rig.forge.set_checks(&head, Checks::Passed);
-    let Some(StepReport::Ruling { id: 71, .. }) = rig.verdict(&runner) else {
+    let Some(StepReport::Ruling { id, .. }) = rig.verdict(&runner) else {
         panic!("no merge ruling");
     };
+    assert_eq!(id, ticket(71));
     assert!(
         rig.forge
             .pull_request_labels(71)
             .contains(&HUMAN.to_owned())
     );
     let logins = || rig.forge.coderabbit.logins().len();
-    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 71 }));
+    assert_eq!(
+        step(&runner).unwrap(),
+        Some(StepReport::Alerted { id: ticket(71) })
+    );
     let read_at_ruling = logins();
 
     rig.forge
@@ -148,7 +150,7 @@ fn a_bot_passed_over_that_reviews_while_the_merge_ruling_waits_withdraws_it() {
     rig.clock.advance(LATE_READ - 1);
     assert_eq!(step(&runner).unwrap(), None);
     assert_eq!(logins(), read_at_ruling, "no read before LATE_READ");
-    assert_eq!(status(&rig, &runner)["rulings"][0]["id"], 71);
+    assert_eq!(status(&rig, &runner)["rulings"][0]["id"], "71");
 
     rig.clock.advance(1);
     assert_eq!(step(&runner).unwrap(), None);
@@ -172,12 +174,10 @@ fn a_bot_passed_over_that_reviews_while_the_merge_ruling_waits_withdraws_it() {
     assert_eq!(alert.text, said);
 
     let fixed = late_round_fixed(&rig, &runner);
-    let Some(StepReport::Ruling {
-        id: 71, question, ..
-    }) = rig.verdict(&runner)
-    else {
+    let Some(StepReport::Ruling { id, question, .. }) = rig.verdict(&runner) else {
         panic!("no merge ruling on the late round's fix");
     };
+    assert_eq!(id, ticket(71));
     assert!(question.contains(&fixed[..7]), "{question}");
     assert!(question.contains(LATE_FIX), "{question}");
 }
@@ -221,15 +221,18 @@ fn a_late_read_with_nothing_new_costs_no_fix_turn() {
     rig.forge.set_checks(&head, Checks::Passed);
     assert!(matches!(
         rig.verdict(&runner),
-        Some(StepReport::Ruling { id: 71, .. })
+        Some(StepReport::Ruling { id, .. }) if id == ticket(71)
     ));
-    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 71 }));
+    assert_eq!(
+        step(&runner).unwrap(),
+        Some(StepReport::Alerted { id: ticket(71) })
+    );
     let worker_turns = rig.claude.calls().len();
     let reads = rig.forge.coderabbit.logins().len();
     rig.clock.advance(LATE_READ);
     assert_eq!(step(&runner).unwrap(), None);
     assert_eq!(rig.forge.coderabbit.logins().len(), reads + 1, "cubic read");
-    assert_eq!(status(&rig, &runner)["rulings"][0]["id"], 71);
+    assert_eq!(status(&rig, &runner)["rulings"][0]["id"], "71");
     assert_eq!(rig.claude.calls().len(), worker_turns, "no fix turn");
 
     let rig = listing("shep", &["cubic"]);
@@ -243,12 +246,10 @@ fn a_late_read_with_nothing_new_costs_no_fix_turn() {
     rig.clock.advance(super::SETTLE_LEAST);
     assert_eq!(step(&runner).unwrap(), bot_reviewed(4, "cubic", 0));
     assert_eq!(status(&rig, &runner)["work_item"]["phase"]["state"], "ci");
-    let Some(StepReport::Ruling {
-        id: 71, question, ..
-    }) = rig.verdict(&runner)
-    else {
+    let Some(StepReport::Ruling { id, question, .. }) = rig.verdict(&runner) else {
         panic!("no merge ruling");
     };
+    assert_eq!(id, ticket(71));
     assert!(question.contains(&head[..7]), "{question}");
     assert!(!question.contains(LATE_FIX), "{question}");
     assert!(!question.contains("No reviewer read it"), "{question}");
@@ -265,9 +266,12 @@ fn a_withdrawn_merge_ruling_waits_for_a_slot() {
     rig.forge.set_checks(&head, Checks::Passed);
     assert!(matches!(
         rig.verdict(&runner),
-        Some(StepReport::Ruling { id: 71, .. })
-    ));
-    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 71 }));
+        Some(StepReport::Ruling { id, .. })
+     if id == ticket(71)));
+    assert_eq!(
+        step(&runner).unwrap(),
+        Some(StepReport::Alerted { id: ticket(71) })
+    );
     rig.forge.list_ready(8, false);
     // #7's branch touches a file, so #8 waits for the board to read its paths.
     assert_eq!(step(&runner).unwrap(), None);
@@ -295,7 +299,10 @@ fn a_withdrawn_merge_ruling_waits_for_a_slot() {
        step(&runner).unwrap(),
        Some(StepReport::Summoned { issue, .. }) if issue == ticket(8)
     ));
-    assert_eq!(slots(&rig, &runner), [json!([8]), json!([]), json!([7])]);
+    assert_eq!(
+        slots(&rig, &runner),
+        [json!(["8"]), json!([]), json!(["7"])]
+    );
 
     rig.forge
         .coderabbit
@@ -303,7 +310,10 @@ fn a_withdrawn_merge_ruling_waits_for_a_slot() {
     rig.clock.advance(LATE_READ);
     assert_eq!(step(&runner).unwrap(), None);
     assert_eq!(status(&rig, &runner)["rulings"], json!([]));
-    assert_eq!(slots(&rig, &runner), [json!([8]), json!([7]), json!([])]);
+    assert_eq!(
+        slots(&rig, &runner),
+        [json!(["8"]), json!(["7"]), json!([])]
+    );
     rig.clock.advance(super::SETTLE_LEAST);
     assert_eq!(step(&runner).unwrap(), None, "#7's round waits");
 
@@ -324,7 +334,10 @@ fn a_withdrawn_merge_ruling_waits_for_a_slot() {
        rig.verdict(&runner),
        Some(StepReport::Ruling { issue, .. }) if issue == ticket(8)
     ));
-    assert_eq!(slots(&rig, &runner), [json!([7]), json!([]), json!([8])]);
+    assert_eq!(
+        slots(&rig, &runner),
+        [json!(["7"]), json!([]), json!(["8"])]
+    );
 }
 
 // Two bots passed over, and only cubic reviews late, at green CI. Once its
@@ -403,11 +416,9 @@ fn a_second_bot_passed_over_is_read_again_before_a_late_fix_goes_to_ci() {
     );
     let fixed = rig.forge.head_of("kelpie/7").unwrap();
     rig.forge.set_checks(&fixed, Checks::Passed);
-    let Some(StepReport::Ruling {
-        id: 71, question, ..
-    }) = rig.verdict(&runner)
-    else {
+    let Some(StepReport::Ruling { id, question, .. }) = rig.verdict(&runner) else {
         panic!("no merge ruling on the late round's fix");
     };
+    assert_eq!(id, ticket(71));
     assert!(question.contains(LATE_FIX), "{question}");
 }

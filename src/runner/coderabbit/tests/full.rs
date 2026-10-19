@@ -10,9 +10,8 @@ use super::super::{DONE_SETTLE, FAR, FULL_REVIEW, HEARD_WAIT, LABEL, REVIEW_WAIT
 use super::{coderabbit, cr, fixed, hold_a_finding, labels, now, off, on, reviewed, summoned};
 use crate::lease::wire::WindowFact;
 use crate::ports::{CLEAN, Checks, Timestamp};
-use crate::runner::report::ticket_of;
 use crate::runner::{Runner, StepReport, step};
-use crate::test::{Rig, Scripted, Told};
+use crate::test::{Rig, Scripted, Told, ticket};
 
 fn full_review(number: u64) -> Vec<(u64, String)> {
     vec![(number, FULL_REVIEW.to_owned())]
@@ -20,7 +19,7 @@ fn full_review(number: u64) -> Vec<(u64, String)> {
 
 fn summoned_80(head: &str) -> Option<StepReport> {
     Some(StepReport::Summoned {
-        issue: ticket_of(5),
+        issue: ticket(5),
         pull_request: 80,
         head: head.to_owned(),
     })
@@ -70,7 +69,7 @@ fn an_adopted_pull_requests_owed_summon_asks_for_a_full_review_under_the_lease()
     );
     assert_eq!(
         rig.ask(&runner, "status", None)["leases"],
-        json!([{ "resource": "coderabbit", "issue": 5, "since": summon }])
+        json!([{ "resource": "coderabbit", "issue": "5", "since": summon }])
     );
 
     rig.forge.coderabbit.review(80, &head, summon + 600, &[]);
@@ -158,7 +157,7 @@ fn an_owed_summon_marked_done_with_nothing_posted_asks_once_for_a_full_review_th
 
 fn read_80(open_threads: usize) -> Option<StepReport> {
     Some(StepReport::BotReviewed {
-        issue: ticket_of(5),
+        issue: ticket(5),
         pull_request: 80,
         round: 1,
         reviewer: coderabbit(),
@@ -194,7 +193,7 @@ fn a_full_review_with_no_sign_is_asked_for_once_more_by_comment() {
     assert_eq!(
         step(&runner).unwrap(),
         Some(StepReport::SummonedAgain {
-            issue: ticket_of(5),
+            issue: ticket(5),
             pull_request: 80,
             head: head.clone(),
         })
@@ -237,8 +236,8 @@ fn noted_after_a_catch_up(rig: &Rig, runner: &Mutex<Runner>, head: &str) -> Stri
     rig.forge.set_checks(&rebased, Checks::Passed);
     assert!(matches!(
         rig.verdict(runner),
-        Some(StepReport::Ruling { id: 71, .. })
-    ));
+        Some(StepReport::Ruling { id, .. })
+     if id == ticket(71)));
     rig.ask(runner, "rule", Some("71 rework name the flag"));
     rig.claude
         .script([Scripted::Push("flag.txt", "named\n"), Scripted::Text(CLEAN)]);
@@ -260,7 +259,7 @@ fn the_summon_after_kelpie_catches_the_branch_up_asks_for_a_full_review() {
     assert_eq!(
         step(&runner).unwrap(),
         Some(StepReport::Summoned {
-            issue: ticket_of(7),
+            issue: ticket(7),
             pull_request: 71,
             head: noted,
         })
@@ -323,7 +322,7 @@ fn a_catch_up_before_coderabbits_first_read_is_summoned_by_the_label_alone() {
     assert_eq!(
         step(&runner).unwrap(),
         Some(StepReport::Summoned {
-            issue: ticket_of(7),
+            issue: ticket(7),
             pull_request: 71,
             head: noted,
         })

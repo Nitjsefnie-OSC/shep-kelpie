@@ -630,7 +630,7 @@ fn a_drain_lists_the_call_and_waits_for_it() {
     let draining = rig.ask(&runner, "drain", None)["draining"].clone();
     assert_eq!(
         draining["calls"],
-        json!([{ "issue": 30, "role": "triager" }])
+        json!([{ "issue": "30", "role": "triager" }])
     );
 
     hold.release();

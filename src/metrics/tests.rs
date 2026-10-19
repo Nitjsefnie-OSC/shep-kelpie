@@ -355,7 +355,7 @@ fn call_line(role: &str, kind: &str, harness: &str, ended: &str) -> Line {
     });
     Line::Call(
         serde_json::from_value(serde_json::json!({
-            "at": 1, "issue": 7, "role": role, "kind": kind, "harness": harness,
+            "at": 1, "issue": "7", "role": role, "kind": kind, "harness": harness,
             "model": "model", "usage": usage, "units": 1, "cost_usd": 0.5,
             "seconds": 3, "ended": ended, "compactions": u32::from(harness == "claude-code"),
         }))

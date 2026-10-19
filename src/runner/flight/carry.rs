@@ -16,9 +16,9 @@ use serde::{Deserialize, Serialize};
 use super::super::Runner;
 use super::super::attach::live;
 use super::super::briefing::Watched;
-use super::super::in_flight::Open;
+use super::super::in_flight::{Key, Open};
 use super::super::transcript_count::Mark;
-use super::{End, Flight, News, Tell, ledger_issue, unstarted, waiting};
+use super::{End, Flight, News, Tell, unstarted, waiting};
 use crate::lease::wire::AskerCarry;
 use crate::ports::{Adopted, Ending, Flying, Timestamp};
 use crate::settings::Harness;
@@ -29,7 +29,10 @@ use crate::work_item::WorkItem;
 // wire format: changing this is a change to the handover's state format
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CarriedTurn {
-    issue: u64,
+    // A build that carried issue numbers names this field `issue`: a handover
+    // from one still loads, each number read as the ticket id of that number.
+    #[serde(alias = "issue")]
+    ticket: TicketId,
     adopted: Adopted,
     flying: Flying,
     started: Timestamp,
@@ -40,9 +43,9 @@ pub struct CarriedTurn {
 }
 
 impl CarriedTurn {
-    /// The issue of the work item the turn is for
-    pub fn issue(&self) -> u64 {
-        self.issue
+    /// The ticket of the work item the turn is for
+    pub fn ticket(&self) -> TicketId {
+        self.ticket
     }
 
     /// The process the turn's call runs as
@@ -85,7 +88,6 @@ impl Runner {
             .flying
             .iter()
             .map(|(&ticket, flight)| {
-                let issue = ledger_issue(ticket);
                 if flight.browser.is_some() {
                     return Err(format!(
                         "#{ticket}'s turn drives a browser, whose socket this image holds, \
@@ -105,11 +107,11 @@ impl Runner {
                         "the record of #{ticket}'s turn notes no ceiling, so it cannot be timed"
                     )
                 })?;
-                let open = (flights.ledger.peek(Some(issue))).ok_or_else(|| {
+                let open = (flights.ledger.peek(Key::Item(ticket))).ok_or_else(|| {
                     format!("the turn of #{ticket} has no line in the usage ledger")
                 })?;
                 Ok(CarriedTurn {
-                    issue,
+                    ticket,
                     adopted,
                     flying,
                     started: flight.watched.started,
@@ -128,7 +130,7 @@ impl Runner {
 
     // The work items whose hold stands on a worker of `harness`, whose session in the
     // maintainer's terminal dials a forwarder only this image holds.
-    pub(in crate::runner) fn sessions_attached_on(&self, harness: Harness) -> Vec<u64> {
+    pub(in crate::runner) fn sessions_attached_on(&self, harness: Harness) -> Vec<TicketId> {
         let holds = |item: &&WorkItem| item.attached.as_ref().is_some_and(live);
         let on_it = |item: &&WorkItem| {
             // parity: harness.attach-ends
@@ -151,18 +153,13 @@ impl Runner {
 
     fn adopt_turn(&mut self, turn: CarriedTurn) {
         let CarriedTurn {
-            issue,
+            ticket,
             adopted,
             flying,
             started,
             open,
             requests,
         } = turn;
-        // A carried turn is a work item's, and no forge numbers an issue zero.
-        let Some(ticket) = TicketId::from_issue(issue) else {
-            eprintln!("the carried turn for issue {issue} names no ticket, so it is left out");
-            return;
-        };
         let harness = adopted.harness;
         let ending = Ending::default();
         ending.carry(flying);
@@ -171,7 +168,7 @@ impl Runner {
             news: self.flights.send.clone(),
             wake: self.flights.wake.clone(),
         };
-        self.flights.ledger.restore(Some(issue), open);
+        self.flights.ledger.restore(Key::Item(ticket), open);
         let (held, ledger) = (ending.clone(), self.flights.ledger.clone());
         let agents = Arc::clone(&self.ports.agents);
         let metrics = Arc::clone(&self.metrics);
@@ -181,11 +178,11 @@ impl Runner {
                 End::Turn(agents.adopt(&adopted, &held))
             }));
             if let Some(mark) = &requests {
-                mark.count(adopted.harness, issue, &metrics, &notes);
+                mark.count(adopted.harness, ticket, &metrics, &notes);
             }
             let end = ran.unwrap_or_else(End::Panicked);
             if end.reached_no_model() {
-                ledger.no_model(Some(issue));
+                ledger.no_model(Key::Item(ticket));
             }
             tell.send(News::Ended { ticket, end });
         };

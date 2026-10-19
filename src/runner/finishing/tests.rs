@@ -33,11 +33,14 @@ fn finish_lets_an_open_item_reach_its_merge_with_no_new_dispatch_then_stops() {
     let status = rig.ask(&runner, "finish", None);
     assert_eq!(
         (&status["run"], &status["parked"]),
-        (&json!("finishing"), &json!([7]))
+        (&json!("finishing"), &json!(["7"]))
     );
     assert_eq!(saved(&rig)["finishing"], true);
 
-    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 71 }));
+    assert_eq!(
+        step(&runner).unwrap(),
+        Some(StepReport::Alerted { id: ticket(71) })
+    );
     // Parked on its ruling, #7 is still open, so the runner stays up for the answer.
     for _ in 0..3 {
         rig.clock.advance(3600);
@@ -111,14 +114,17 @@ fn add_is_refused_while_the_runner_finishes() {
     });
     assert_eq!(rig.ask(&runner, "add", Some("8")), refused);
     let status = rig.ask(&runner, "status", None);
-    assert_eq!(status["working"], json!([7]));
+    assert_eq!(status["working"], json!(["7"]));
 }
 
 #[test]
 fn start_while_finishing_lets_the_board_pick_again() {
     let (rig, runner, _) = parked_with_9_ready("golbat");
     rig.ask(&runner, "finish", None);
-    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 71 }));
+    assert_eq!(
+        step(&runner).unwrap(),
+        Some(StepReport::Alerted { id: ticket(71) })
+    );
     assert_eq!(step(&runner).unwrap(), None);
 
     let status = rig.ask(&runner, "start", None);
@@ -158,9 +164,12 @@ fn a_runner_restarted_while_finishing_comes_back_finishing() {
     let status = rig.ask(&runner, "status", None);
     assert_eq!(
         (&status["run"], &status["parked"]),
-        (&json!("finishing"), &json!([7]))
+        (&json!("finishing"), &json!(["7"]))
     );
-    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 71 }));
+    assert_eq!(
+        step(&runner).unwrap(),
+        Some(StepReport::Alerted { id: ticket(71) })
+    );
     for _ in 0..2 {
         assert_eq!(step(&runner).unwrap(), None, "the board opened #9");
     }
@@ -221,7 +230,10 @@ fn a_pause_while_finishing_leaves_a_runner_that_comes_back_picking() {
         "it goes on finishing until the stop"
     );
     assert_eq!(saved(&rig).get("finishing"), None);
-    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 71 }));
+    assert_eq!(
+        step(&runner).unwrap(),
+        Some(StepReport::Alerted { id: ticket(71) })
+    );
     assert_eq!(step(&runner).unwrap(), None);
 
     // A refused stop sends `finish` again, which saves it again.

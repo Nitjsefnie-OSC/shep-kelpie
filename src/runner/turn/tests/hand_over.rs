@@ -10,7 +10,10 @@ fn covered_issue_7() -> (Rig, Mutex<Runner>) {
     let rig = Rig::new("acme");
     rig.with_app();
     let runner = rig.open().unwrap();
-    assert_eq!(rig.ask(&runner, "add", Some("7"))["work_item"]["issue"], 7);
+    assert_eq!(
+        rig.ask(&runner, "add", Some("7"))["work_item"]["issue"],
+        "7"
+    );
     fs::create_dir_all(rig.build_7()).unwrap();
     (rig, runner)
 }

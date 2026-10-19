@@ -17,6 +17,7 @@ use super::super::talk::At;
 use super::settle::open_ids;
 use crate::settings::AgentName;
 use crate::state::{RulingKind, StateError};
+use crate::ticket::TicketId;
 use crate::work_item::{Phase, Review, ReviewStage};
 
 // A read is a fetch and a forge call for each bot passed over, and a merge
@@ -127,7 +128,10 @@ impl Runner {
     /// Reads, while the work item waits on merge ruling `id`, whether a bot
     /// its pass went on without has reviewed the head, at most once every
     /// [`LATE_READ`] seconds from when the ruling was raised
-    pub(in crate::runner) fn late_while_parked(&mut self, id: u64) -> Result<Begin, StateError> {
+    pub(in crate::runner) fn late_while_parked(
+        &mut self,
+        id: TicketId,
+    ) -> Result<Begin, StateError> {
         let merge = |kind: &RulingKind| matches!(kind, RulingKind::Merge { .. });
         let on_merge = self
             .state

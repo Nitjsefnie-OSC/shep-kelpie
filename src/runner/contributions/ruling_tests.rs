@@ -8,6 +8,7 @@ use super::security_tests::{commit_on, contribute, contribution, reviews};
 use super::tests::{picking, poll, posts};
 use crate::ports::{CLEAN, PullRequestState, Role};
 use crate::runner::{Runner, StepReport, step};
+use crate::test::ticket;
 use crate::test::{Rig, Scripted};
 
 // What the security reviewer finds in a head it flags
@@ -25,7 +26,10 @@ pub(super) fn flagged() -> (Rig, Mutex<Runner>, String) {
     let head = contribute(&rig, 30, |h| write(h, "build.rs", "fn main() {}\n"));
     assert_eq!(step(&runner).unwrap(), None);
     // The ruling reaches the webhook, and nothing else.
-    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 30 }));
+    assert_eq!(
+        step(&runner).unwrap(),
+        Some(StepReport::Alerted { id: ticket(30) })
+    );
     (rig, runner, head)
 }
 
@@ -47,7 +51,7 @@ fn a_flagged_head_raises_one_ruling_naming_each_file_line_and_why() {
     let ruling = &waiting[0];
     assert_eq!(
         (ruling["id"].clone(), ruling["issue"].clone()),
-        (30.into(), Value::Null)
+        ("30".into(), Value::Null)
     );
     assert_eq!(ruling["pull_request"], 30);
     assert_eq!(ruling["kind"]["kind"], "contribution");
@@ -186,7 +190,10 @@ fn a_yes_to_an_old_head_does_not_trust_the_new_one() {
         write(h, "build.rs", "fn main() {}\n")
     });
     poll(&rig, &runner);
-    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 30 }));
+    assert_eq!(
+        step(&runner).unwrap(),
+        Some(StepReport::Alerted { id: ticket(30) })
+    );
     assert_eq!(rulings(&rig, &runner)[0]["kind"]["head"], second);
     rig.claude.script([Scripted::Text("I could not tell.")]);
     let third = commit_on(&rig, 30, "topic/30", |h| write(h, "three.txt", "three\n"));
@@ -211,7 +218,10 @@ fn a_yes_naming_the_old_flagged_head_does_not_trust_the_new_flagged_one() {
         write(h, "two.rs", "fn two() {}\n")
     });
     poll(&rig, &runner);
-    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 30 }));
+    assert_eq!(
+        step(&runner).unwrap(),
+        Some(StepReport::Alerted { id: ticket(30) })
+    );
     let waiting = rulings(&rig, &runner);
     assert_eq!(waiting.len(), 1, "the old head's ruling is withdrawn");
     assert_eq!(waiting[0]["kind"]["head"], new);

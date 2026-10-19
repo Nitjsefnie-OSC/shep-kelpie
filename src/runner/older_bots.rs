@@ -11,6 +11,7 @@ use super::Runner;
 use super::thread_replies::Outcome;
 use crate::ports::Alert;
 use crate::state::{RulingKind, StateError};
+use crate::ticket::TicketId;
 use crate::work_item::{Awaited, Phase};
 
 impl Runner {
@@ -71,16 +72,21 @@ impl Runner {
     /// Logs that merge ruling `id` on `issue`'s pull request `number` is
     /// withdrawn, and `why`, and posts it once to the webhook, where one is
     /// set: no ruling is left to retry the post for.
-    pub(super) fn say_withdrawn(&mut self, id: u64, issue: u64, number: Option<u64>, why: &str) {
+    pub(super) fn say_withdrawn(
+        &mut self,
+        id: TicketId,
+        issue: TicketId,
+        number: Option<u64>,
+        why: &str,
+    ) {
         let project = self.project.as_str().to_owned();
-        let about = number.map_or_else(
-            || format!("issue #{issue}"),
-            |n| format!("pull request #{n}"),
-        );
+        let about = number.map_or_else(|| issue.shown(), |n| format!("pull request #{n}"));
         let text = format!("Merge ruling {id} on {about} is withdrawn: {why}. Nothing to answer.");
         self.notes.push(text.clone());
         self.say_settled(id, Outcome::withdrawn(why));
-        self.notice_on(number.unwrap_or(issue), &text);
+        if let Some(thread) = number.or_else(|| issue.github()) {
+            self.notice_on(thread, &text);
+        }
         let Some(webhook) = self.webhook.clone() else {
             return;
         };

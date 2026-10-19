@@ -10,6 +10,7 @@ use super::full::adopted_set;
 use super::{fixed, hold_a_finding, labels, now, off, on, reviewed_by_qwen};
 use crate::ports::{CLEAN, Checks};
 use crate::runner::{CHECKS_SETTLE, Runner, StepReport, step};
+use crate::test::ticket;
 use crate::test::{Rig, Scripted};
 
 // CodeRabbit's file with `rounds` set, read when a runner next opens.
@@ -44,8 +45,8 @@ fn noted(rig: &Rig, runner: &Mutex<Runner>, head: &str) {
     rig.forge.set_checks(head, Checks::Passed);
     assert!(matches!(
         rig.verdict(runner),
-        Some(StepReport::Ruling { id: 71, .. })
-    ));
+        Some(StepReport::Ruling { id, .. })
+     if id == ticket(71)));
     rig.ask(runner, "rule", Some("71 rework name the flag"));
     rig.claude.script([
         Scripted::Push("named.txt", "named\n"),
@@ -98,7 +99,7 @@ fn two_rounds_read_two_passes_and_not_a_third() {
     rig.forge.set_checks(&second, Checks::Passed);
     assert!(matches!(
         rig.verdict(&runner),
-        Some(StepReport::Ruling { id: 71, .. })
+        Some(StepReport::Ruling { id, .. }) if id == ticket(71)
     ));
     rig.ask(&runner, "rule", Some("71 rework once more"));
     rig.claude.script([
@@ -174,7 +175,7 @@ fn an_adopted_pull_request_whose_earlier_review_spent_the_rounds_still_gets_one_
     rig.forge.set_checks(&fixed, Checks::Passed);
     assert!(matches!(
         rig.verdict(&runner),
-        Some(StepReport::Ruling { id: 80, .. })
+        Some(StepReport::Ruling { id, .. }) if id == ticket(80)
     ));
     let asked: Vec<_> = rig.forge.comments();
     assert_eq!(asked, [(80, FULL_REVIEW.to_owned())], "one full review");

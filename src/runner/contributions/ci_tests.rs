@@ -11,6 +11,7 @@ use super::tests::{picking, poll};
 use crate::ports::{AgentError, CLEAN, Checks};
 use crate::runner::{CHECKS_SETTLE, Runner, StepReport, step};
 use crate::settings::Harness;
+use crate::test::ticket;
 use crate::test::{Rig, Scripted};
 
 // What the security reviewer finds in a head it flags
@@ -59,7 +60,10 @@ fn a_flagged_unread_or_old_head_gets_no_approval() {
     rig.claude.script([Scripted::Text(FOUND)]);
     contribute(&rig, 30, |h| write(h, "build.rs", "fn main() {}\n"));
     assert_eq!(step(&runner).unwrap(), None);
-    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 30 }));
+    assert_eq!(
+        step(&runner).unwrap(),
+        Some(StepReport::Alerted { id: ticket(30) })
+    );
     poll(&rig, &runner);
     assert_eq!(rig.forge.approvals(), Vec::<String>::new());
 

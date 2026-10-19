@@ -30,7 +30,10 @@ fn asked(project: &str) -> (Rig, Mutex<Runner>) {
     rig.ask(&runner, "add", Some("7"));
     rig.claude.script([Scripted::Say(ASKS)]);
     step(&runner).unwrap();
-    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 7 }));
+    assert_eq!(
+        step(&runner).unwrap(),
+        Some(StepReport::Alerted { id: ticket(7) })
+    );
     (rig, runner)
 }
 
@@ -80,7 +83,7 @@ fn a_worker_that_closes_its_issue_with_no_commit_finishes_with_no_nudge_or_rulin
     let history = &status["history"][0];
     assert_eq!(
         (&history["issue"], &history["merged"], &history["closed"]),
-        (&json!(7), &json!(false), &json!(true))
+        (&json!("7"), &json!(false), &json!(true))
     );
     let said = "Issue #7 was closed with no change, so its work item ends with no pull \
                 request. Nothing to answer.";
@@ -108,20 +111,23 @@ fn a_closed_issue_whose_branch_holds_a_commit_is_still_sent_back_then_parked() {
         step(&runner).unwrap(),
         Some(StepReport::Failed {
             issue,
-            id: 7,
+            id,
             ..
         })
-     if issue == ticket(7)));
+     if issue == ticket(7) && id == ticket(7)));
 
     // Parked, it stays: the commit is work the maintainer decides on.
-    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 7 }));
+    assert_eq!(
+        step(&runner).unwrap(),
+        Some(StepReport::Alerted { id: ticket(7) })
+    );
     assert_eq!(step(&runner).unwrap(), None);
     let status = rig.ask(&runner, "status", None);
     assert_eq!(
         status["work_item"]["phase"],
-        json!({ "state": "ruling", "id": 7 })
+        json!({ "state": "ruling", "id": "7" })
     );
-    assert_eq!(status["rulings"][0]["id"], 7);
+    assert_eq!(status["rulings"][0]["id"], "7");
 }
 
 #[test]
@@ -146,7 +152,7 @@ fn a_parked_item_whose_issue_is_closed_ends_at_its_next_read_and_its_ruling_goes
     rig.forge.close_issue(7);
     // Its issue was read on the alert's pass, so the next read waits.
     assert_eq!(step(&runner).unwrap(), None);
-    assert_eq!(rig.ask(&runner, "status", None)["rulings"][0]["id"], 7);
+    assert_eq!(rig.ask(&runner, "status", None)["rulings"][0]["id"], "7");
     rig.clock.advance(PARKED_READ);
     assert!(closed_with_no_change(step(&runner).unwrap()));
     let status = rig.ask(&runner, "status", None);
@@ -172,9 +178,9 @@ fn a_parked_item_whose_closed_issue_an_open_pull_request_closes_stays() {
     let status = rig.ask(&runner, "status", None);
     assert_eq!(
         status["work_item"]["phase"],
-        json!({ "state": "ruling", "id": 7 })
+        json!({ "state": "ruling", "id": "7" })
     );
-    assert_eq!(status["rulings"][0]["id"], 7);
+    assert_eq!(status["rulings"][0]["id"], "7");
 }
 
 #[test]
@@ -184,7 +190,7 @@ fn a_parked_item_stays_while_the_open_pull_requests_cannot_be_listed() {
     rig.forge.set_board_down(true);
     rig.clock.advance(PARKED_READ);
     step(&runner).unwrap();
-    assert_eq!(rig.ask(&runner, "status", None)["rulings"][0]["id"], 7);
+    assert_eq!(rig.ask(&runner, "status", None)["rulings"][0]["id"], "7");
     let notes = runner.lock().unwrap().take_notes();
     let note = "cannot list open pull requests";
     assert!(notes.iter().any(|n| n.starts_with(note)), "{notes:?}");
@@ -226,7 +232,7 @@ fn a_parked_item_stays_while_its_issue_cannot_be_read() {
     let status = rig.ask(&runner, "status", None);
     assert_eq!(
         status["work_item"]["phase"],
-        json!({ "state": "ruling", "id": 7 })
+        json!({ "state": "ruling", "id": "7" })
     );
     let notes = runner.lock().unwrap().take_notes();
     assert!(
@@ -245,7 +251,7 @@ fn a_parked_item_with_files_in_its_worktree_stays_when_its_issue_is_closed() {
     let status = rig.ask(&runner, "status", None);
     assert_eq!(
         status["work_item"]["phase"],
-        json!({ "state": "ruling", "id": 7 })
+        json!({ "state": "ruling", "id": "7" })
     );
     assert!(rig.worktree_7().join("notes.txt").exists());
 }
@@ -327,7 +333,10 @@ fn an_answered_question_gives_the_next_turn_that_stops_short_its_nudge_again() {
     rig.claude.script([reply(), Scripted::Say(ASKS)]);
     step(&runner).unwrap();
     step(&runner).unwrap();
-    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 7 }));
+    assert_eq!(
+        step(&runner).unwrap(),
+        Some(StepReport::Alerted { id: ticket(7) })
+    );
 
     rig.ask(&runner, "rule", Some("7 answer no, keep going"));
     rig.claude.script([reply(), reply()]);
@@ -386,7 +395,7 @@ fn merged_by_hand_before_9(rig: &Rig) {
 // issue 9 was opened in its place
 fn seven_is_gone(status: &serde_json::Value) -> bool {
     let rulings = status["rulings"].as_array().unwrap();
-    status["work_item"]["issue"] == 9 && rulings.iter().all(|r| r["issue"] != 7)
+    status["work_item"]["issue"] == "9" && rulings.iter().all(|r| r["issue"] != "7")
 }
 
 // A running project whose worker on issue 7 pushed pull request 71 and then
@@ -421,7 +430,7 @@ fn a_pull_request_merged_by_hand_ends_its_item_parked_on_a_merge_ruling() {
     let history = &status["history"][0];
     assert_eq!(
         (&history["issue"], &history["merged"], &history["closed"]),
-        (&json!(7), &json!(true), &json!(null))
+        (&json!("7"), &json!(true), &json!(null))
     );
     let said = "Pull request #71 was merged, so work item #7 ends. Ruling 71 is withdrawn. \
                 Nothing to answer.";
@@ -455,16 +464,19 @@ fn a_pull_request_merged_by_hand_ends_its_item_parked_on_a_workers_question() {
 fn a_parked_item_whose_pull_request_was_closed_unmerged_asks_about_that_instead() {
     let (rig, runner) = asked_with_a_pull_request("koji");
     rig.forge.set_state(71, PullRequestState::Closed);
-    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 71 }));
+    assert_eq!(
+        step(&runner).unwrap(),
+        Some(StepReport::Alerted { id: ticket(71) })
+    );
     let status = rig.ask(&runner, "status", None);
     assert_eq!(
         status["work_item"]["phase"],
-        json!({ "state": "ruling", "id": 71 })
+        json!({ "state": "ruling", "id": "71" })
     );
     let [ruling] = status["rulings"].as_array().unwrap().as_slice() else {
         panic!("the old ruling stayed: {}", status["rulings"]);
     };
-    assert_eq!(ruling["id"], 71);
+    assert_eq!(ruling["id"], "71");
     assert_eq!(ruling["pull_request"], 71);
     assert_eq!(ruling["kind"]["kind"], "stuck");
     assert_eq!(ruling["kind"]["reason"], "closed");
@@ -472,14 +484,17 @@ fn a_parked_item_whose_pull_request_was_closed_unmerged_asks_about_that_instead(
     // It stays parked on that one, and is not asked again.
     rig.clock.advance(PARKED_READ);
     assert_eq!(step(&runner).unwrap(), None);
-    assert_eq!(rig.ask(&runner, "status", None)["rulings"][0]["id"], 71);
+    assert_eq!(rig.ask(&runner, "status", None)["rulings"][0]["id"], "71");
 }
 
 #[test]
 fn a_pull_request_reopened_and_merged_after_it_was_found_closed_ends_its_item() {
     let (rig, runner) = asked_with_a_pull_request("shep");
     rig.forge.set_state(71, PullRequestState::Closed);
-    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 71 }));
+    assert_eq!(
+        step(&runner).unwrap(),
+        Some(StepReport::Alerted { id: ticket(71) })
+    );
     rig.forge.set_state(71, PullRequestState::Merged);
     rig.forge.close_issue(7);
     rig.clock.advance(PARKED_READ);
@@ -503,9 +518,9 @@ fn an_item_parked_on_its_follow_up_ruling_after_kelpies_own_merge_is_left_alone(
         assert_eq!(step(&runner).unwrap(), None);
     }
     let status = rig.ask(&runner, "status", None);
-    assert_eq!(status["rulings"][0]["id"], 71);
+    assert_eq!(status["rulings"][0]["id"], "71");
     assert_eq!(status["rulings"][0]["kind"]["kind"], "follow-up");
-    assert_eq!(status["work_item"]["phase"]["id"], id);
+    assert_eq!(status["work_item"]["phase"]["id"], id.to_string());
 }
 
 #[test]
@@ -513,11 +528,14 @@ fn a_parked_item_stays_while_its_pull_request_cannot_be_read_and_is_read_again_l
     let (rig, runner, _) = Rig::parked("acme");
     merged_by_hand(&rig);
     rig.forge.set_down(true);
-    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 71 }));
+    assert_eq!(
+        step(&runner).unwrap(),
+        Some(StepReport::Alerted { id: ticket(71) })
+    );
     let status = rig.ask(&runner, "status", None);
     assert_eq!(
         status["work_item"]["phase"],
-        json!({ "state": "ruling", "id": 71 })
+        json!({ "state": "ruling", "id": "71" })
     );
     let notes = runner.lock().unwrap().take_notes();
     assert!(

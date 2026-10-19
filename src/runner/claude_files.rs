@@ -101,6 +101,7 @@ mod tests {
     use crate::runner::report::StepReport;
     use crate::runner::step;
     use crate::test::{Rig, Scripted, ticket};
+    use crate::ticket::TicketId;
 
     const HOOK: &str =
         r#"{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"touch /tmp/x"}]}]}}"#;
@@ -116,7 +117,7 @@ mod tests {
         (rig, runner)
     }
 
-    fn ruling(report: Option<StepReport>) -> (u64, String) {
+    fn ruling(report: Option<StepReport>) -> (TicketId, String) {
         match report {
             Some(StepReport::Ruling { id, question, .. }) => (id, question),
             other => panic!("no ruling was raised: {other:?}"),

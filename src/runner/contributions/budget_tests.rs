@@ -14,6 +14,7 @@ use crate::runner::rework::HUMAN;
 use crate::runner::{Pass, Runner, StepReport, advance, step};
 use crate::test::ticket;
 use crate::test::{CALL_PATIENCE, Hold, Rig, Scripted};
+use crate::ticket::TicketId;
 
 fn write(folder: &Path, file: &str, text: &str) {
     std::fs::write(folder.join(file), text).unwrap();
@@ -63,7 +64,10 @@ fn over_its_cap() -> (Rig, Mutex<Runner>) {
     assert_eq!(step(&runner).unwrap(), None);
     commit_on(&rig, 30, "topic/30", |h| write(h, "two.txt", "two\n"));
     poll(&rig, &runner);
-    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 30 }));
+    assert_eq!(
+        step(&runner).unwrap(),
+        Some(StepReport::Alerted { id: ticket(30) })
+    );
     (rig, runner)
 }
 
@@ -78,7 +82,7 @@ fn a_contribution_holds_no_slot_while_it_waits_on_the_contributor() {
     // A model call on it takes the one slot while it runs.
     assert!(matches!(advance(&runner).unwrap(), Pass::Started));
     assert!(hold.entered(CALL_PATIENCE), "the review never began");
-    assert_eq!(runner.lock().unwrap().slot_issues(), [30]);
+    assert_eq!(runner.lock().unwrap().slot_issues(), [ticket(30)]);
     assert!(!runner.lock().unwrap().slot_free());
     assert!(!runner.lock().unwrap().board_open());
 
@@ -86,7 +90,7 @@ fn a_contribution_holds_no_slot_while_it_waits_on_the_contributor() {
     hold.release();
     assert!(hold.answered(CALL_PATIENCE), "the review never answered");
     settle(&runner);
-    assert_eq!(runner.lock().unwrap().slot_issues(), Vec::<u64>::new());
+    assert_eq!(runner.lock().unwrap().slot_issues(), Vec::<TicketId>::new());
     assert!(runner.lock().unwrap().slot_free());
     assert!(runner.lock().unwrap().board_open());
 
@@ -192,7 +196,7 @@ fn no_call_starts_on_a_contribution_over_per_item_usd_and_status_says_so() {
 
     assert_eq!(reviews(&rig).len(), 1, "the new head is not read");
     let [ruling] = rulings(&rig, &runner).try_into().unwrap();
-    assert_eq!(ruling["id"], 30);
+    assert_eq!(ruling["id"], "30");
     assert_eq!(ruling["issue"], Value::Null);
     assert_eq!(ruling["kind"]["kind"], "contribution");
     assert_eq!(ruling["kind"]["reason"], "over-budget");
@@ -229,7 +233,10 @@ fn a_yes_or_a_no_with_a_note_doubles_the_cap() {
     assert_eq!(reviews(&rig).len(), 2, "over the doubled cap");
     let [ruling] = rulings(&rig, &runner).try_into().unwrap();
     assert_eq!(ruling["kind"]["cap"], dollars(2).0);
-    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 30 }));
+    assert_eq!(
+        step(&runner).unwrap(),
+        Some(StepReport::Alerted { id: ticket(30) })
+    );
     rig.ask(&runner, "rule", Some("30 no it is worth the cost"));
     poll(&rig, &runner);
     assert_eq!(reviews(&rig).len(), 3);
@@ -266,7 +273,10 @@ fn a_contribution_taken_off_the_board_and_back_keeps_its_spend_and_its_cap() {
     poll(&rig, &runner);
     assert_eq!(contribution(&rig, &runner)["spend"], dollars(1).0 + 1);
     assert_eq!(reviews(&rig).len(), 1, "the new head is not read");
-    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 30 }));
+    assert_eq!(
+        step(&runner).unwrap(),
+        Some(StepReport::Alerted { id: ticket(30) })
+    );
     let [ruling] = rulings(&rig, &runner).try_into().unwrap();
     assert_eq!(ruling["kind"]["reason"], "over-budget");
     assert_eq!(ruling["kind"]["cap"], dollars(1).0);

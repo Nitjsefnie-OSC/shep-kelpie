@@ -14,6 +14,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use serde::{Deserialize, Serialize};
 
 use crate::ports::{Cost, Role, Timestamp};
+use crate::ticket::TicketId;
 use crate::usage::{CallLine, Draft, Ended, Line, PacerLine, append_to};
 
 /// One call in flight
@@ -57,10 +58,40 @@ pub(super) fn gpu_seconds(
     }
 }
 
-// Keyed by the work item's issue, and none for the project manager's call
+/// Which call the ledger holds open
+///
+/// A work item's call is keyed by its ticket. The calls no work item owns have
+/// a key of their own, so one never stands in for a work item's: the triager
+/// researches an issue that may have a turn in flight on it, and the retro and
+/// the project manager run beside every work item.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(super) enum Key {
+    /// The worker's or a reviewer's call on the work item for `ticket`
+    Item(TicketId),
+    /// The issue writer's call labelling `ticket`'s issue
+    Label(TicketId),
+    /// The triager's research of `ticket`
+    Triage(TicketId),
+    /// The project manager's call
+    Manager,
+    /// The batch retro's call
+    Retro,
+}
+
+impl Key {
+    /// The ticket of a work item's call, which its ended line names
+    pub(super) fn ticket(&self) -> Option<TicketId> {
+        match self {
+            Self::Item(ticket) | Self::Label(ticket) | Self::Triage(ticket) => Some(*ticket),
+            Self::Manager | Self::Retro => None,
+        }
+    }
+}
+
+// Keyed by which call it is
 #[derive(Debug, Default)]
 struct Calls {
-    open: BTreeMap<Option<u64>, Open>,
+    open: BTreeMap<Key, Open>,
     closed: bool,
 }
 
@@ -74,7 +105,7 @@ impl InFlight {
     }
 
     /// Adds the call `key` launched as `draft`, unless the runner is stopping
-    pub fn open(&self, key: Option<u64>, draft: Draft, pacer: BTreeMap<String, PacerLine>) {
+    pub fn open(&self, key: Key, draft: Draft, pacer: BTreeMap<String, PacerLine>) {
         let mut calls = self.calls();
         if !calls.closed {
             let open = Open {
@@ -88,12 +119,12 @@ impl InFlight {
     }
 
     /// `key`'s call as it stands, left in flight
-    pub fn peek(&self, key: Option<u64>) -> Option<Open> {
+    pub fn peek(&self, key: Key) -> Option<Open> {
         self.calls().open.get(&key).cloned()
     }
 
     /// Puts back `key`'s call, as [`Self::peek`] left it, in a runner that did not launch it
-    pub fn restore(&self, key: Option<u64>, open: Open) {
+    pub fn restore(&self, key: Key, open: Open) {
         let mut calls = self.calls();
         if !calls.closed {
             calls.open.insert(key, open);
@@ -101,21 +132,21 @@ impl InFlight {
     }
 
     /// Marks that `key`'s local round began to run at `at`
-    pub fn ran(&self, key: Option<u64>, at: Timestamp) {
+    pub fn ran(&self, key: Key, at: Timestamp) {
         if let Some(open) = self.calls().open.get_mut(&key) {
             open.ran_from.get_or_insert(at);
         }
     }
 
     /// Marks that `key`'s call ended before it reached a model
-    pub fn no_model(&self, key: Option<u64>) {
+    pub fn no_model(&self, key: Key) {
         if let Some(open) = self.calls().open.get_mut(&key) {
             open.no_model = true;
         }
     }
 
     /// Takes `key`'s call as its end is heard, or `None` once the stop has
-    pub fn take(&self, key: Option<u64>) -> Option<Open> {
+    pub fn take(&self, key: Key) -> Option<Open> {
         self.calls().open.remove(&key)
     }
 }
@@ -138,7 +169,7 @@ impl Stopping {
     ///
     /// Takes no lock of the runner's, so it runs while a pass holds it. One
     /// append each; a line that cannot be written is told and let go.
-    pub fn record(&self, at: Timestamp) -> Vec<(u64, Role)> {
+    pub fn record(&self, at: Timestamp) -> Vec<(TicketId, Role)> {
         let open = {
             let mut calls = self.calls.calls();
             calls.closed = true;
@@ -156,8 +187,8 @@ impl Stopping {
                 continue;
             }
             // A local round is counted as a round, not as a reviewer's call.
-            if let (Some(issue), true) = (key, session) {
-                stopped.push((issue, role));
+            if let (Some(ticket), true) = (key.ticket(), session) {
+                stopped.push((ticket, role));
             }
         }
         stopped

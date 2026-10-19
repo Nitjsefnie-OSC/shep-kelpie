@@ -70,20 +70,27 @@ fn both_parked(project: &str) -> (Rig, Mutex<Runner>) {
         rig.verdict(&runner),
         Some(StepReport::Ruling {
             issue,
-            id: 71,
+            id,
             ..
         })
-     if issue == ticket(7)));
-    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 71 }));
+     if issue == ticket(7) && id == ticket(71)));
+    assert_eq!(
+        step(&runner).unwrap(),
+        Some(StepReport::Alerted { id: ticket(71) })
+    );
     assert!(matches!(
         step(&runner).unwrap(),
         Some(StepReport::Ruling {
             issue,
-            id: 81,
+            id,
             ..
         })
-     if issue == ticket(8)));
-    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 81 }));
+     if issue == ticket(8) && id == ticket(81)
+    ));
+    assert_eq!(
+        step(&runner).unwrap(),
+        Some(StepReport::Alerted { id: ticket(81) })
+    );
     (rig, runner)
 }
 
@@ -105,7 +112,10 @@ fn phases(rig: &Rig, runner: &Mutex<Runner>) -> Vec<(u64, String)> {
         .iter()
         .map(|item| {
             let state = item["phase"]["state"].as_str().unwrap().to_owned();
-            (item["issue"].as_u64().unwrap(), state)
+            (
+                item["issue"].as_str().unwrap().parse::<u64>().unwrap(),
+                state,
+            )
         })
         .collect()
 }
@@ -228,7 +238,7 @@ fn an_item_waiting_on_coderabbit_yields_to_one_implementing_and_reviewing() {
     assert_eq!(summons, [71]);
     assert_eq!(
         rig.ask(&runner, "status", None)["leases"][0]["issue"],
-        json!(7)
+        json!("7")
     );
 
     // #7's review lands, the lease goes back, and #8 asks for it anew.
@@ -262,7 +272,7 @@ fn a_ruling_answered_for_one_item_leaves_the_other_alone() {
     assert_eq!(rulings.len(), 1);
     assert_eq!(
         (&rulings[0]["id"], &rulings[0]["issue"]),
-        (&json!(71), &json!(7))
+        (&json!("71"), &json!("7"))
     );
     assert_eq!(
         phases(&rig, &runner),
@@ -340,8 +350,8 @@ fn drop_and_gate_name_the_item_when_more_than_one_is_open() {
         .iter()
         .map(|item| item["issue"].clone())
         .collect();
-    assert_eq!(open, [json!(7)]);
-    assert_eq!(status["work_item"]["issue"], 7);
+    assert_eq!(open, [json!("7")]);
+    assert_eq!(status["work_item"]["issue"], "7");
 }
 
 #[test]
@@ -381,7 +391,10 @@ fn dispatched(report: Option<StepReport>) -> (TicketId, Vec<Skip>) {
 fn open_items(rig: &Rig, runner: &Mutex<Runner>) -> Vec<u64> {
     let status = rig.ask(runner, "status", None);
     let items = status["work_items"].as_array().unwrap().clone();
-    items.iter().map(|i| i["issue"].as_u64().unwrap()).collect()
+    items
+        .iter()
+        .map(|i| i["issue"].as_str().unwrap().parse::<u64>().unwrap())
+        .collect()
 }
 
 #[test]
@@ -398,7 +411,10 @@ fn the_board_fills_a_free_slot_and_never_takes_an_open_issue_again() {
         ticket(7),
         "#7's first turn"
     );
-    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 7 }));
+    assert_eq!(
+        step(&runner).unwrap(),
+        Some(StepReport::Alerted { id: ticket(7) })
+    );
     // #7 is still ready on the forge, and in flight here.
     assert_eq!(dispatched(step(&runner).unwrap()), (ticket(8), vec![]));
     assert_eq!(
@@ -406,7 +422,10 @@ fn the_board_fills_a_free_slot_and_never_takes_an_open_issue_again() {
         ticket(8),
         "#8's first turn"
     );
-    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 8 }));
+    assert_eq!(
+        step(&runner).unwrap(),
+        Some(StepReport::Alerted { id: ticket(8) })
+    );
 
     // Both workers are parked on their questions, which fills `concurrency.pending_rulings`, so #9 waits.
     assert_eq!(step(&runner).unwrap(), None);
@@ -463,7 +482,10 @@ fn an_adoption_for_an_issue_in_flight_waits_for_it_to_end() {
         ticket(7),
         "#7's first turn"
     );
-    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 7 }));
+    assert_eq!(
+        step(&runner).unwrap(),
+        Some(StepReport::Alerted { id: ticket(7) })
+    );
     assert_eq!(step(&runner).unwrap(), None, "#90 waits for #7");
     let status = rig.ask(&runner, "status", None);
     assert_eq!(

@@ -8,6 +8,7 @@
 
 use super::{Action, Answer};
 use crate::state::{Held, RulingKind};
+use crate::ticket::TicketId;
 
 /// The note a worker gets from a no or a rework that was given by a reaction
 /// or a tick, which carries none
@@ -95,7 +96,7 @@ pub fn read_answer(wants: Wants, words: &str) -> Result<Answer, String> {
 
 impl Answer {
     /// `rule`'s params for this answer to ruling `id`
-    pub fn params(&self, id: u64) -> String {
+    pub fn params(&self, id: TicketId) -> String {
         match self {
             Self::Yes => format!("{id} yes"),
             Self::No(note) => format!("{id} no {note}"),
@@ -112,6 +113,7 @@ mod tests {
     use super::*;
     use crate::runner::trigger::read_rule;
     use crate::state::Stuck;
+    use crate::test::ticket;
 
     #[test]
     fn a_question_takes_an_answer_a_merge_ruling_a_rework_too_and_any_other_a_yes_or_no() {
@@ -174,7 +176,10 @@ mod tests {
         assert!(read_answer(Wants::YesOrNo, "yes 6b0606e now").is_err());
         assert!(read_answer(Wants::YesOrNo, "yes please").is_err());
         assert!(read_answer(Wants::Merge, "yes 6b0606e").is_err());
-        assert_eq!(Answer::Trust("6b0606e".into()).params(30), "30 yes 6b0606e");
+        assert_eq!(
+            Answer::Trust("6b0606e".into()).params(ticket(30)),
+            "30 yes 6b0606e"
+        );
     }
 
     #[test]
@@ -221,8 +226,8 @@ mod tests {
             Answer::Do(Action::Rerun),
             Answer::Do(Action::Restore),
         ] {
-            let params = answer.params(14);
-            assert_eq!(read_rule(&params), Some((14, answer)), "{params:?}");
+            let params = answer.params(ticket(14));
+            assert_eq!(read_rule(&params), Some((ticket(14), answer)), "{params:?}");
         }
     }
 }

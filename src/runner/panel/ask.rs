@@ -19,7 +19,7 @@ project's direction. Your vote is one of four and counts as one. You vote alone:
 see the others' votes, and they cannot see yours.";
 
 // The ruling as every expert is shown it.
-fn ruling(id: u64, ticket: Option<TicketId>, brief: &str) -> String {
+fn ruling(id: TicketId, ticket: Option<TicketId>, brief: &str) -> String {
     let about = match ticket {
         Some(ticket) => format!(", about the work item for {}", ticket_name(ticket)),
         None => String::new(),
@@ -32,7 +32,7 @@ fn ruling(id: u64, ticket: Option<TicketId>, brief: &str) -> String {
 }
 
 /// The worker's: its own session, resumed, with the ruling
-pub(super) fn worker(id: u64, ticket: Option<TicketId>, brief: &str) -> String {
+pub(super) fn worker(id: TicketId, ticket: Option<TicketId>, brief: &str) -> String {
     format!(
         "{}\n\nYou are the worker of this work item, and this is your own session, so you \
          hold what you did and why. Answer from that, and read your worktree if you must. \
@@ -43,7 +43,7 @@ pub(super) fn worker(id: u64, ticket: Option<TicketId>, brief: &str) -> String {
 
 /// The advisor's: the codebase, in the folders kelpie names
 pub(super) fn advisor(
-    id: u64,
+    id: TicketId,
     ticket: Option<TicketId>,
     brief: &str,
     worktree: Option<&Path>,
@@ -65,7 +65,7 @@ pub(super) fn advisor(
 
 /// The researcher's: everything outside the codebase, in its folder, and the web
 pub(super) fn researcher(
-    id: u64,
+    id: TicketId,
     ticket: Option<TicketId>,
     brief: &str,
     files: &[String],

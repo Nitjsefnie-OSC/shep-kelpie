@@ -19,11 +19,10 @@ use super::talk::At;
 use super::turn::KEEP_BODY_TRUE;
 use crate::board::READY;
 use crate::ports::{Checks, PullRequestState, Timestamp};
-use crate::runner::report::ticket_of;
 use crate::settings::Merging;
 use crate::skills::Step;
 use crate::state::{RulingKind, StateError, Stuck};
-use crate::work_item::{Phase, Review, Turn, WorkItem, foreign_change};
+use crate::work_item::{Phase, Review, Turn, foreign_change};
 use crate::worktree::{self, Base};
 
 // GitHub registers the checks a push or a ready pull request starts within
@@ -113,7 +112,9 @@ impl Runner {
         if !settled(since, now) {
             return Ok(Begin::Idle);
         }
-        let issue = self.current().map_or(0, |item| item.issue);
+        let Some(issue) = self.current().map(|item| item.issue) else {
+            return Ok(Begin::Idle);
+        };
         match pr.checks {
             Checks::None | Checks::Pending => Ok(Begin::Idle),
             Checks::Passed | Checks::Skipped => {
@@ -305,7 +306,7 @@ impl Runner {
             item.phase = Phase::Implement;
         })?;
         Ok(Begin::Report(StepReport::CiFailed {
-            issue: ticket_of(issue),
+            issue,
             pull_request: number,
             head,
             checks,
@@ -337,14 +338,14 @@ impl Runner {
             return Ok(self.gate_failed(reason));
         }
         Ok(Begin::Report(StepReport::Regated {
-            issue: ticket_of(issue),
+            issue,
             pull_request: number,
             head: head.to_owned(),
         }))
     }
 
     pub(super) fn gate_failed(&self, reason: String) -> Begin {
-        let Some(issue) = self.current().and_then(WorkItem::ticket) else {
+        let Some(issue) = self.current().map(|item| item.issue) else {
             return Begin::Idle;
         };
         Begin::Report(StepReport::GateFailed { issue, reason })
@@ -380,6 +381,7 @@ fn red_prompt(number: u64, head: &str, checks: &[String], help: &str, repeated: 
 #[cfg(test)]
 pub(super) mod tests {
     use crate::test::ticket;
+    use crate::ticket::TicketId;
     use serde_json::json;
 
     use super::*;
@@ -387,7 +389,7 @@ pub(super) mod tests {
     use crate::runner::step;
     use crate::test::{Rig, Scripted, git};
 
-    pub(super) fn ruling_report(report: Option<StepReport>) -> (u64, String) {
+    pub(super) fn ruling_report(report: Option<StepReport>) -> (TicketId, String) {
         match report {
             Some(StepReport::Ruling { id, question, .. }) => (id, question),
             other => panic!("no ruling was raised: {other:?}"),
@@ -402,7 +404,7 @@ pub(super) mod tests {
 
         rig.forge.set_checks(&head, Checks::Passed);
         let (id, question) = ruling_report(rig.verdict(&runner));
-        assert_eq!(id, 71);
+        assert_eq!(id, ticket(71));
         assert_eq!(
             question,
             format!(
@@ -418,8 +420,8 @@ pub(super) mod tests {
         assert_eq!(
             status["rulings"],
             json!([{
-                "id": 71,
-                "issue": 7,
+                "id": "71",
+                "issue": "7",
                 "question": question,
                 "pull_request": 71,
                 "kind": { "kind": "merge", "head": head },
@@ -436,9 +438,12 @@ pub(super) mod tests {
         );
         assert_eq!(
             status["work_item"]["phase"],
-            json!({ "state": "ruling", "id": 71 })
+            json!({ "state": "ruling", "id": "71" })
         );
-        assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 71 }));
+        assert_eq!(
+            step(&runner).unwrap(),
+            Some(StepReport::Alerted { id: ticket(71) })
+        );
         assert_eq!(step(&runner).unwrap(), None, "a parked worker waits");
     }
 
@@ -449,7 +454,7 @@ pub(super) mod tests {
         assert_ne!(fixed, red);
         rig.forge.set_checks(&fixed, Checks::Passed);
         let (id, question) = ruling_report(rig.verdict(runner));
-        assert_eq!(id, 71);
+        assert_eq!(id, ticket(71));
         assert!(question.contains(&fixed[..7]), "{question}");
     }
 
@@ -681,7 +686,7 @@ pub(super) mod tests {
             comment_failed.as_deref(),
             Some("gh failed: comments are down")
         );
-        assert_eq!(rig.ask(&runner, "status", None)["rulings"][0]["id"], 71);
+        assert_eq!(rig.ask(&runner, "status", None)["rulings"][0]["id"], "71");
     }
 
     #[test]
@@ -739,7 +744,7 @@ pub(super) mod tests {
         let (rig, runner, head) = Rig::with_pull_request("shep");
         rig.forge.label_pull_request(71, "bug");
         let (id, question) = ruling_report(step(&runner).unwrap());
-        assert_eq!(id, 71);
+        assert_eq!(id, ticket(71));
         assert_eq!(
             question,
             "Pull request #71 changed outside kelpie: the `bug` label was added. \
@@ -759,7 +764,7 @@ pub(super) mod tests {
         rig.ask(&runner, "rule", Some("71 yes"));
         rig.forge.set_checks(&head, Checks::Passed);
         let (next, merge_question) = ruling_report(rig.verdict(&runner));
-        assert_eq!(next, 71);
+        assert_eq!(next, ticket(71));
         assert!(merge_question.starts_with("Merge pull request #71"));
         // Kelpie's own record now matches, so the accepted label is not asked again.
         assert_eq!(rig.forge.merges(), []);
@@ -806,7 +811,7 @@ pub(super) mod tests {
         step(&runner).unwrap(); // review round 2, claude: scripted clean above
         // The label is still there, and unaccepted, so the next look parks again.
         let (id, _) = ruling_report(rig.verdict(&runner));
-        assert_eq!(id, 71);
+        assert_eq!(id, ticket(71));
     }
 
     #[test]
@@ -817,7 +822,7 @@ pub(super) mod tests {
         rig.ask(&runner, "rule", Some("71 yes"));
         rig.forge.unlabel_pull_request(71, "bug");
         let (id, question) = ruling_report(step(&runner).unwrap());
-        assert_eq!(id, 71);
+        assert_eq!(id, ticket(71));
         assert!(
             question.starts_with(
                 "Pull request #71 changed outside kelpie: the `bug` label was removed."

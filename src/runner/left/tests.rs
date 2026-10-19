@@ -19,7 +19,7 @@ fn a_ruling_answered_while_the_runner_was_stopped_is_acted_on_when_it_starts() {
 
     let runner = rig.open().unwrap();
     let waiting = rig.ask(&runner, "status", None)["rulings"].clone();
-    assert_eq!(waiting[0]["id"], 71, "nothing is answered before a pass");
+    assert_eq!(waiting[0]["id"], "71", "nothing is answered before a pass");
     step(&runner).unwrap();
     rig.clock.advance(CHECKS_SETTLE);
     assert!(matches!(
@@ -63,7 +63,7 @@ fn an_answer_left_under_an_old_id_is_taken_once_by_the_ruling_it_became() {
     let answers = rig.paths().answers;
     leave(&answers, "1 yes").unwrap();
     let runner = saved_under_counter_id(&rig, runner);
-    assert_eq!(rig.ask(&runner, "status", None)["rulings"][0]["id"], 71);
+    assert_eq!(rig.ask(&runner, "status", None)["rulings"][0]["id"], "71");
     step(&runner).unwrap();
     rig.clock.advance(CHECKS_SETTLE);
     step(&runner).unwrap();
@@ -102,7 +102,7 @@ fn an_answer_left_under_an_old_id_is_refused_when_no_ruling_became_it() {
         ),
         "{notes:?}"
     );
-    assert_eq!(rig.ask(&runner, "status", None)["rulings"][0]["id"], 71);
+    assert_eq!(rig.ask(&runner, "status", None)["rulings"][0]["id"], "71");
 }
 
 #[test]
@@ -129,8 +129,8 @@ fn an_answer_to_a_ruling_no_longer_waiting_is_logged_and_let_go() {
     assert!(
         notes(&runner).contains(
             &"the answer to ruling 3 left while the runner was stopped was not taken: ruling 3 \
-              is already answered, or was never raised; a ruling is named by the number of its pull \
-              request or issue, so an id from before that no longer works"
+              is already answered, or was never raised; a ruling is named by its pull request's \
+              number or its ticket's id, so an id from before that no longer works"
                 .to_owned()
         )
     );
@@ -156,8 +156,8 @@ fn an_id_written_with_leading_zeros_is_left_under_its_number_and_taken() {
     assert!(
         notes.contains(
             &"the answer to ruling 2 left while the runner was stopped was not taken: \
-                         ruling 2 is already answered, or was never raised; a ruling is named by the number of its pull \
-              request or issue, so an id from before that no longer works"
+              ruling 2 is already answered, or was never raised; a ruling is named by its pull \
+              request's number or its ticket's id, so an id from before that no longer works"
                 .to_owned()
         ),
         "{notes:?}"
@@ -174,7 +174,7 @@ fn an_answer_that_cannot_be_read_stays_for_the_next_pass() {
     let runner = rig.open().unwrap();
     let _ = step(&runner);
     assert!(answers.join("71").exists(), "the answer was removed unread");
-    assert_eq!(rig.ask(&runner, "status", None)["rulings"][0]["id"], 71);
+    assert_eq!(rig.ask(&runner, "status", None)["rulings"][0]["id"], "71");
     let notes = notes(&runner);
     assert!(
         notes

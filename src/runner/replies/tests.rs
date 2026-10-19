@@ -5,13 +5,17 @@ use serde_json::json;
 use super::*;
 use crate::ports::{Clock, Session};
 use crate::runner::{OpenError, step};
+use crate::test::ticket;
 use crate::test::{Rig, Scripted};
 use crate::totp::STEP;
 
 // A merge ruling on #71, alerted on the rig's ntfy webhook
 fn alerted(project: &str) -> (Rig, Mutex<Runner>, String) {
     let (rig, runner, head) = Rig::parked(project);
-    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 71 }));
+    assert_eq!(
+        step(&runner).unwrap(),
+        Some(StepReport::Alerted { id: ticket(71) })
+    );
     (rig, runner, head)
 }
 
@@ -39,8 +43,14 @@ fn two_rulings(project: &str) -> (Rig, Mutex<Runner>) {
     saved["rulings"].as_array_mut().unwrap().push(second);
     std::fs::write(&state, saved.to_string()).unwrap();
     let runner = rig.open().unwrap();
-    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 71 }));
-    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 72 }));
+    assert_eq!(
+        step(&runner).unwrap(),
+        Some(StepReport::Alerted { id: ticket(71) })
+    );
+    assert_eq!(
+        step(&runner).unwrap(),
+        Some(StepReport::Alerted { id: ticket(72) })
+    );
     (rig, runner)
 }
 
@@ -52,7 +62,7 @@ fn the_alert_says_how_to_reply_and_carries_no_code() {
     assert_eq!(
         alert.reply,
         Some(ReplyWith {
-            number: 71,
+            ticket: ticket(71),
             takes: Takes::Merge
         })
     );
@@ -68,7 +78,7 @@ fn a_reply_with_the_code_of_the_moment_answers_the_ruling() {
     rig.reply("koji 71 yes");
     assert_eq!(
         step(&runner).unwrap(),
-        Some(StepReport::ReplyAnswered { id: 71 })
+        Some(StepReport::ReplyAnswered { id: ticket(71) })
     );
     assert_eq!(
         phase(&rig, &runner),
@@ -87,7 +97,7 @@ fn a_code_is_taken_in_its_step_and_the_one_after() {
         .reply(&format!("koji 71 no rename it {previous}"), now);
     assert_eq!(
         step(&runner).unwrap(),
-        Some(StepReport::ReplyAnswered { id: 71 })
+        Some(StepReport::ReplyAnswered { id: ticket(71) })
     );
 }
 
@@ -117,7 +127,10 @@ fn a_reply_without_the_right_code_is_ignored() {
         rig.clock.advance(READ_EVERY);
     }
     assert_eq!(step(&runner).unwrap(), None);
-    assert_eq!(phase(&rig, &runner), json!({ "state": "ruling", "id": 71 }));
+    assert_eq!(
+        phase(&rig, &runner),
+        json!({ "state": "ruling", "id": "71" })
+    );
     assert_eq!(lines(&rig), [""; 0], "nothing is posted back");
 }
 
@@ -128,7 +141,7 @@ fn a_code_answers_once_across_every_ruling() {
     let code = rig.reply("koji 71 yes");
     assert_eq!(
         step(&runner).unwrap(),
-        Some(StepReport::ReplyAnswered { id: 71 })
+        Some(StepReport::ReplyAnswered { id: ticket(71) })
     );
     rig.alerts
         .reply(&format!("koji 72 yes {code}"), rig.clock.now());
@@ -136,13 +149,13 @@ fn a_code_answers_once_across_every_ruling() {
     assert_eq!(
         step(&runner).unwrap(),
         Some(StepReport::ReplyCodeUsed {
-            id: 72,
+            id: ticket(72),
             line_failed: None
         })
     );
     let rulings = rig.ask(&runner, "status", None)["rulings"].clone();
     assert_eq!(rulings.as_array().unwrap().len(), 1);
-    assert_eq!(rulings[0]["id"], 72, "ruling 72 still waits");
+    assert_eq!(rulings[0]["id"], "72", "ruling 72 still waits");
     assert_eq!(
         lines(&rig)[1..],
         ["Ruling #72 was not answered: that code was used already. \
@@ -154,7 +167,7 @@ fn a_code_answers_once_across_every_ruling() {
     rig.reply("koji 72 no not yet");
     assert_eq!(
         step(&runner).unwrap(),
-        Some(StepReport::ReplyAnswered { id: 72 })
+        Some(StepReport::ReplyAnswered { id: ticket(72) })
     );
 }
 
@@ -167,7 +180,7 @@ fn a_reply_to_a_settled_ruling_runs_nothing_and_the_topic_is_told() {
     assert_eq!(
         step(&runner).unwrap(),
         Some(StepReport::ReplyToSettled {
-            id: 71,
+            id: ticket(71),
             line_failed: None
         })
     );
@@ -190,7 +203,7 @@ fn a_reply_rule_refuses_is_told_on_the_topic() {
     assert_eq!(
         step(&runner).unwrap(),
         Some(StepReport::ReplyRefused {
-            id: 71,
+            id: ticket(71),
             reason: reason.into(),
             line_failed: None
         })
@@ -199,13 +212,16 @@ fn a_reply_rule_refuses_is_told_on_the_topic() {
         lines(&rig),
         [format!("Ruling #71 was not answered: {reason}.")]
     );
-    assert_eq!(phase(&rig, &runner), json!({ "state": "ruling", "id": 71 }));
+    assert_eq!(
+        phase(&rig, &runner),
+        json!({ "state": "ruling", "id": "71" })
+    );
 
     rig.clock.advance(STEP);
     rig.reply("koji 71 yes");
     assert_eq!(
         step(&runner).unwrap(),
-        Some(StepReport::ReplyAnswered { id: 71 })
+        Some(StepReport::ReplyAnswered { id: ticket(71) })
     );
 }
 
@@ -218,14 +234,17 @@ fn a_questions_answer_by_reply_is_the_workers_next_turn() {
         "Done.\n\n<kelpie-question>\nShould it be `--dry-run` or `--check`?\n</kelpie-question>\n",
     )]);
     step(&runner).unwrap();
-    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 7 }));
+    assert_eq!(
+        step(&runner).unwrap(),
+        Some(StepReport::Alerted { id: ticket(7) })
+    );
     let reply = rig.alerts.posts()[0].1.reply.clone().unwrap();
     assert_eq!(reply.takes, Takes::Answer);
 
     rig.reply("rotom 7 answer  use --dry-run, it matches shep.");
     assert_eq!(
         step(&runner).unwrap(),
-        Some(StepReport::ReplyAnswered { id: 7 })
+        Some(StepReport::ReplyAnswered { id: ticket(7) })
     );
     rig.claude.script([Scripted::Say("renamed")]);
     step(&runner).unwrap();
@@ -246,13 +265,13 @@ fn a_reply_takes_the_same_answers_as_the_terminal_without_the_project() {
     rig.reply("71 no rename it");
     assert_eq!(
         step(&runner).unwrap(),
-        Some(StepReport::ReplyAnswered { id: 71 })
+        Some(StepReport::ReplyAnswered { id: ticket(71) })
     );
     let status = rig.ask(&runner, "status", None);
     assert_eq!(status["rulings"], json!([]));
     assert_ne!(
         status["work_item"]["phase"],
-        json!({ "state": "ruling", "id": 71 })
+        json!({ "state": "ruling", "id": "71" })
     );
 }
 
@@ -271,7 +290,7 @@ fn a_reply_written_as_the_terminal_command_answers_the_ruling() {
         rig.reply(command);
         assert_eq!(
             step(&runner).unwrap(),
-            Some(StepReport::ReplyAnswered { id: 71 }),
+            Some(StepReport::ReplyAnswered { id: ticket(71) }),
             "{command}"
         );
         assert_eq!(
@@ -290,7 +309,7 @@ fn a_project_named_shep_kelpie_is_still_addressed_by_its_name() {
     rig.reply("shep-kelpie 71 yes");
     assert_eq!(
         step(&runner).unwrap(),
-        Some(StepReport::ReplyAnswered { id: 71 })
+        Some(StepReport::ReplyAnswered { id: ticket(71) })
     );
     assert_eq!(
         phase(&rig, &runner),
@@ -316,16 +335,22 @@ fn a_reply_with_a_right_code_and_no_readable_ruling_says_its_code_is_spent() {
     let (_, line) = &rig.alerts.posts()[1];
     assert_eq!(line.title, "kelpie: koji answers");
     assert_eq!(line.reply, None);
-    assert_eq!(phase(&rig, &runner), json!({ "state": "ruling", "id": 71 }));
+    assert_eq!(
+        phase(&rig, &runner),
+        json!({ "state": "ruling", "id": "71" })
+    );
 
     rig.alerts
         .reply(&format!("koji 71 yes {code}"), rig.clock.now());
     rig.clock.advance(READ_EVERY);
     assert!(matches!(
         step(&runner).unwrap(),
-        Some(StepReport::ReplyCodeUsed { id: 71, .. })
+        Some(StepReport::ReplyCodeUsed { id, .. }) if id == ticket(71)
     ));
-    assert_eq!(phase(&rig, &runner), json!({ "state": "ruling", "id": 71 }));
+    assert_eq!(
+        phase(&rig, &runner),
+        json!({ "state": "ruling", "id": "71" })
+    );
 }
 
 #[test]
@@ -351,7 +376,7 @@ fn a_rework_by_reply_sends_the_note_and_a_new_pass_of_the_review() {
     rig.reply("koji 71 Rework split the parser out");
     assert_eq!(
         step(&runner).unwrap(),
-        Some(StepReport::ReplyAnswered { id: 71 })
+        Some(StepReport::ReplyAnswered { id: ticket(71) })
     );
     rig.claude.script([Scripted::Push("split.txt", "split\n")]);
     step(&runner).unwrap(); // the noted turn: pushes, and a pass begins
@@ -376,12 +401,15 @@ fn a_yes_by_reply_to_a_question_is_the_answer_s_text() {
         "Done.\n\n<kelpie-question>\nShall I keep the old flag?\n</kelpie-question>\n",
     )]);
     step(&runner).unwrap();
-    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 7 }));
+    assert_eq!(
+        step(&runner).unwrap(),
+        Some(StepReport::Alerted { id: ticket(7) })
+    );
 
     rig.reply("7 yes");
     assert_eq!(
         step(&runner).unwrap(),
-        Some(StepReport::ReplyAnswered { id: 7 })
+        Some(StepReport::ReplyAnswered { id: ticket(7) })
     );
     rig.claude.script([Scripted::Say("kept")]);
     step(&runner).unwrap();
@@ -398,7 +426,10 @@ fn a_reply_to_another_project_s_ruling_answers_nothing_here() {
     let (rig, runner, _) = alerted("koji");
     rig.reply("2 yes");
     assert_eq!(step(&runner).unwrap(), Some(StepReport::ReplyIgnored));
-    assert_eq!(phase(&rig, &runner), json!({ "state": "ruling", "id": 71 }));
+    assert_eq!(
+        phase(&rig, &runner),
+        json!({ "state": "ruling", "id": "71" })
+    );
     assert_eq!(lines(&rig), [""; 0]);
 }
 
@@ -423,7 +454,7 @@ fn a_number_another_project_may_hold_needs_the_project_named() {
         assert_eq!(
             step(&runner).unwrap(),
             Some(StepReport::ReplyRefused {
-                id: 71,
+                id: ticket(71),
                 reason: reason.clone(),
                 line_failed: None
             })
@@ -432,13 +463,16 @@ fn a_number_another_project_may_hold_needs_the_project_named() {
             lines(&rig).last().unwrap(),
             &format!("Ruling #71 was not answered: {reason}.")
         );
-        assert_eq!(phase(&rig, &runner), json!({ "state": "ruling", "id": 71 }));
+        assert_eq!(
+            phase(&rig, &runner),
+            json!({ "state": "ruling", "id": "71" })
+        );
         rig.clock.advance(STEP);
     }
     rig.reply("koji 71 yes");
     assert_eq!(
         step(&runner).unwrap(),
-        Some(StepReport::ReplyAnswered { id: 71 })
+        Some(StepReport::ReplyAnswered { id: ticket(71) })
     );
 }
 
@@ -455,7 +489,7 @@ fn reading_resumes_after_the_last_reply_across_a_restart() {
     rig.reply("koji 71 yes");
     assert_eq!(
         step(&runner).unwrap(),
-        Some(StepReport::ReplyAnswered { id: 71 })
+        Some(StepReport::ReplyAnswered { id: ticket(71) })
     );
     // The alert was m1 and the phone's hello m2.
     assert_eq!(rig.alerts.reads()[1], Since::After("m2".into()));
@@ -475,7 +509,10 @@ fn an_old_position_reads_from_the_window_instead() {
     std::fs::write(&state, saved.to_string()).unwrap();
 
     let runner = rig.open().unwrap();
-    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 71 }));
+    assert_eq!(
+        step(&runner).unwrap(),
+        Some(StepReport::Alerted { id: ticket(71) })
+    );
     step(&runner).unwrap();
     let floor = Timestamp(rig.clock.now().0 - WINDOW - 3 * STEP);
     assert_eq!(rig.alerts.reads(), [Since::Time(floor)]);
@@ -524,7 +561,10 @@ fn a_discord_webhook_says_nothing_of_replies_and_is_never_read() {
             Rig::WEBHOOK_URL
         ));
     });
-    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 71 }));
+    assert_eq!(
+        step(&runner).unwrap(),
+        Some(StepReport::Alerted { id: ticket(71) })
+    );
     assert_eq!(rig.alerts.posts()[0].1.reply, None);
     rig.clock.advance(READ_EVERY);
     step(&runner).unwrap();
@@ -537,7 +577,10 @@ fn with_no_secret_yet_ntfy_is_alerted_and_never_read() {
     let (rig, runner, _) = Rig::parked_set("koji", |rig| {
         std::fs::remove_file(rig.paths().totp.join("secret")).unwrap();
     });
-    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 71 }));
+    assert_eq!(
+        step(&runner).unwrap(),
+        Some(StepReport::Alerted { id: ticket(71) })
+    );
     assert_eq!(rig.alerts.posts()[0].1.reply, None);
     step(&runner).unwrap();
     assert_eq!(rig.alerts.reads(), []);
@@ -556,385 +599,6 @@ fn a_secret_kelpie_did_not_write_stops_the_runner_naming_the_file() {
     assert!(!e.contains("hunter2"), "{e}");
 }
 
-// Probed in review: a code in a reply that answered nothing stayed
-// unclaimed, and a reader of the topic reused it to merge.
-#[test]
-fn a_right_code_is_spent_even_when_its_reply_answers_nothing() {
-    let (rig, runner, _) = alerted("koji");
-    let code = rig.reply("koji 71");
-    assert_eq!(
-        step(&runner).unwrap(),
-        Some(StepReport::ReplyUnreadable { line_failed: None })
-    );
-    rig.alerts
-        .reply(&format!("koji 71 yes {code}"), rig.clock.now());
-    rig.clock.advance(READ_EVERY);
-    assert_eq!(
-        step(&runner).unwrap(),
-        Some(StepReport::ReplyCodeUsed {
-            id: 71,
-            line_failed: None
-        })
-    );
-    assert_eq!(phase(&rig, &runner), json!({ "state": "ruling", "id": 71 }));
-}
-
-// Every project reads the one topic, and a reply may name another project.
-#[test]
-fn a_reply_for_another_project_answers_nothing_here() {
-    let (rig, runner, _) = alerted("koji");
-    let code = rig.reply("rotom 71 yes");
-    assert_eq!(step(&runner).unwrap(), Some(StepReport::ReplyIgnored));
-    assert_eq!(phase(&rig, &runner), json!({ "state": "ruling", "id": 71 }));
-    assert_eq!(lines(&rig), [""; 0]);
-
-    // Its code is spent all the same.
-    rig.alerts
-        .reply(&format!("koji 71 yes {code}"), rig.clock.now());
-    rig.clock.advance(READ_EVERY);
-    assert!(matches!(
-        step(&runner).unwrap(),
-        Some(StepReport::ReplyCodeUsed { id: 71, .. })
-    ));
-}
-
-#[test]
-fn five_wrong_codes_turn_answers_off_until_the_terminal_turns_them_on() {
-    let (rig, runner, _) = alerted("koji");
-    let now = rig.clock.now();
-    let right = rig.code_at(now);
-    let wrong = |n: u32| format!("{:06}", (right.parse::<u32>().unwrap() + n) % 1_000_000);
-    for n in 1..5 {
-        rig.alerts.reply(&format!("koji 71 yes {}", wrong(n)), now);
-        assert_eq!(
-            step(&runner).unwrap(),
-            Some(StepReport::ReplyIgnored),
-            "{n}"
-        );
-        rig.clock.advance(READ_EVERY);
-    }
-    rig.alerts.reply(&format!("koji 71 yes {}", wrong(5)), now);
-    assert_eq!(
-        step(&runner).unwrap(),
-        Some(StepReport::RepliesLocked { line_failed: None })
-    );
-    assert_eq!(
-        lines(&rig),
-        ["Answers from ntfy are off after 5 wrong codes. \
-          Turn them back on with `shep kelpie totp --unlock` on the terminal. \
-          Anyone can post to a topic whose name they know, so think \
-          about moving to a new one."]
-    );
-    assert!(!lock(&runner).awaits_reply());
-
-    // The right code of the moment answers nothing now, and is not read.
-    rig.clock.advance(STEP);
-    rig.reply("koji 71 yes");
-    rig.clock.advance(READ_EVERY);
-    step(&runner).unwrap();
-    assert_eq!(phase(&rig, &runner), json!({ "state": "ruling", "id": 71 }));
-
-    crate::totp::answers::Answers::in_folder(rig.paths().totp)
-        .unlock()
-        .unwrap();
-    rig.clock.advance(STEP);
-    rig.reply("koji 71 yes");
-    rig.clock.advance(READ_EVERY);
-    let mut answered = false;
-    for _ in 0..4 {
-        answered |= step(&runner).unwrap() == Some(StepReport::ReplyAnswered { id: 71 });
-    }
-    assert!(answered);
-}
-
-#[test]
-fn a_secret_others_may_read_stops_the_runner() {
-    use std::os::unix::fs::PermissionsExt;
-    let rig = Rig::new("koji");
-    let secret = rig.paths().totp.join("secret");
-    std::fs::set_permissions(&secret, std::fs::Permissions::from_mode(0o644)).unwrap();
-    let Err(OpenError::Settings(e)) = rig.open() else {
-        panic!("the runner started");
-    };
-    assert!(e.to_string().contains("may be read by others"), "{e}");
-}
-
-// Probed in review: a right code in any shape but the exact one was never
-// claimed, so a reader of the topic could reuse it with the exact shape.
-#[test]
-fn a_right_code_in_any_shape_is_spent_before_a_replay() {
-    for shape in [
-        "koji 71 no rename it {code}.",
-        "{code} koji 71 no rename it",
-        "koji 71 no rename it {spaced}",
-        "{code}",
-        "koji 71 no rename it {wide}",
-        "koji 71 no rename it {dashed}",
-        "koji 71 no rename it {arabic}",
-    ] {
-        let (rig, runner, _) = alerted("koji");
-        let now = rig.clock.now();
-        let code = rig.code_at(now);
-        let spaced = format!("{} {}", &code[..3], &code[3..]);
-        let wide: String = code
-            .chars()
-            .map(|c| char::from_u32(u32::from(c) - u32::from('0') + 0xff10).unwrap())
-            .collect();
-        let dashed = format!("{}-{}", &code[..3], &code[3..]);
-        let arabic: String = code
-            .chars()
-            .map(|c| char::from_u32(u32::from(c) - u32::from('0') + 0x660).unwrap())
-            .collect();
-        let sent = shape
-            .replace("{dashed}", &dashed)
-            .replace("{arabic}", &arabic)
-            .replace("{code}", &code)
-            .replace("{spaced}", &spaced)
-            .replace("{wide}", &wide);
-        rig.alerts.reply(&sent, now);
-        assert_eq!(
-            step(&runner).unwrap(),
-            Some(StepReport::ReplyIgnored),
-            "{sent}"
-        );
-        rig.alerts.reply(&format!("koji 71 yes {code}"), now);
-        rig.clock.advance(READ_EVERY);
-        assert!(
-            matches!(
-                step(&runner).unwrap(),
-                Some(StepReport::ReplyCodeUsed { id: 71, .. })
-            ),
-            "{sent}"
-        );
-        assert_eq!(
-            phase(&rig, &runner),
-            json!({ "state": "ruling", "id": 71 }),
-            "{sent}"
-        );
-    }
-}
-
-// A reply just too old to act on still spends its code, so a replay just
-// inside the window finds it used.
-#[test]
-fn a_reply_older_than_the_window_is_read_only_to_spend_its_code() {
-    let (rig, runner, _) = alerted("koji");
-    let now = rig.clock.now();
-    let sent = Timestamp(now.0 - WINDOW - 10);
-    let code = rig.code_at(sent);
-    rig.alerts
-        .reply(&format!("koji 71 no not this {code}"), sent);
-    rig.alerts
-        .reply(&format!("koji 71 yes {code}"), Timestamp(sent.0 + 20));
-    assert_eq!(step(&runner).unwrap(), Some(StepReport::ReplyIgnored));
-    assert!(matches!(
-        step(&runner).unwrap(),
-        Some(StepReport::ReplyCodeUsed { id: 71, .. })
-    ));
-    assert_eq!(phase(&rig, &runner), json!({ "state": "ruling", "id": 71 }));
-}
-
-// Probed in review: an attacker's fifth wrong code, read with the
-// maintainer's reply, turned answers off before that reply's code was
-// spent, and a replay after `--unlock` merged.
-#[test]
-fn a_code_is_spent_even_when_answers_are_off() {
-    let (rig, runner, _) = alerted("koji");
-    let now = rig.clock.now();
-    let right = rig.code_at(now);
-    let wrong = |n: u32| format!("{:06}", (right.parse::<u32>().unwrap() + n) % 1_000_000);
-    for n in 1..=5 {
-        rig.alerts.reply(&format!("koji 71 yes {}", wrong(n)), now);
-    }
-    rig.alerts
-        .reply(&format!("koji 71 no rename it {right}"), now);
-    for _ in 1..5 {
-        assert_eq!(step(&runner).unwrap(), Some(StepReport::ReplyIgnored));
-    }
-    assert!(matches!(
-        step(&runner).unwrap(),
-        Some(StepReport::RepliesLocked { .. })
-    ));
-    step(&runner).unwrap();
-
-    rig.clock.advance(25);
-    rig.alerts
-        .reply(&format!("koji 71 yes {right}"), rig.clock.now());
-    crate::totp::answers::Answers::in_folder(rig.paths().totp)
-        .unlock()
-        .unwrap();
-    rig.clock.advance(READ_EVERY);
-    assert!(matches!(
-        step(&runner).unwrap(),
-        Some(StepReport::ReplyCodeUsed { id: 71, .. })
-    ));
-    assert_eq!(phase(&rig, &runner), json!({ "state": "ruling", "id": 71 }));
-}
-
-// Only a message's text answers, but a code anywhere in a post is spent:
-// in its title, or in a post kelpie reads as its own.
-#[test]
-fn a_code_in_a_title_or_a_tagged_post_is_spent() {
-    for (text, others) in [
-        (Some("koji 71 no rename it"), vec!["{code}"]),
-        (None, vec!["koji 71 no {code}", "kelpie"]),
-    ] {
-        let (rig, runner, _) = alerted("koji");
-        let now = rig.clock.now();
-        let code = rig.code_at(now);
-        let others: Vec<String> = others.iter().map(|o| o.replace("{code}", &code)).collect();
-        let others: Vec<&str> = others.iter().map(String::as_str).collect();
-        rig.alerts.post_raw(text, &others, now);
-        rig.alerts.reply(&format!("koji 71 yes {code}"), now);
-        let mut used = false;
-        for _ in 0..3 {
-            used |= matches!(
-                step(&runner).unwrap(),
-                Some(StepReport::ReplyCodeUsed { id: 71, .. })
-            );
-        }
-        assert!(used, "{text:?} {others:?}");
-        assert_eq!(phase(&rig, &runner), json!({ "state": "ruling", "id": 71 }));
-    }
-}
-
-// ntfy turns a message over 4,095 bytes into an attachment, whose text
-// kelpie never reads, so any code in it would stay unspent.
-#[test]
-fn a_post_too_long_to_read_spends_every_step_it_could_name() {
-    let (rig, runner, _) = alerted("koji");
-    let now = rig.clock.now();
-    let code = rig.code_at(now);
-    rig.alerts.post_cut(
-        Some("You received a file: attachment.txt"),
-        &["attachment.txt"],
-        true,
-        now,
-    );
-    assert_eq!(
-        step(&runner).unwrap(),
-        Some(StepReport::ReplyTooLong { line_failed: None })
-    );
-    assert_eq!(
-        lines(&rig),
-        [
-            "That reply was too long to read, so it answered nothing and any code \
-          in it is spent. Send a shorter reply with a new code."
-        ]
-    );
-    for sent in [now, Timestamp(now.0 + STEP)] {
-        rig.alerts.reply(&format!("koji 71 yes {code}"), sent);
-        rig.clock.advance(READ_EVERY);
-        assert!(
-            matches!(
-                step(&runner).unwrap(),
-                Some(StepReport::ReplyCodeUsed { id: 71, .. })
-            ),
-            "{sent:?}"
-        );
-    }
-    assert_eq!(phase(&rig, &runner), json!({ "state": "ruling", "id": 71 }));
-}
-
-// A phone whose clock runs ahead sends the next step's code, which a
-// reader could replay once that step comes.
-#[test]
-fn a_code_for_the_next_step_is_spent_before_it_comes() {
-    let (rig, runner, _) = alerted("koji");
-    let now = rig.clock.now();
-    let ahead = rig.code_at(Timestamp(now.0 + STEP));
-    rig.alerts
-        .reply(&format!("koji 71 no rename it {ahead}"), now);
-    assert_eq!(step(&runner).unwrap(), Some(StepReport::ReplyIgnored));
-    rig.clock.advance(STEP);
-    rig.alerts
-        .reply(&format!("koji 71 yes {ahead}"), rig.clock.now());
-    assert!(matches!(
-        step(&runner).unwrap(),
-        Some(StepReport::ReplyCodeUsed { id: 71, .. })
-    ));
-    assert_eq!(phase(&rig, &runner), json!({ "state": "ruling", "id": 71 }));
-}
-
-// Probed in review: a secret that could not be read, or a claim that could
-// not be written, let the read move past the reply with its code unspent,
-// and a replay behind it answered.
-#[test]
-fn a_code_that_cannot_be_spent_holds_the_reply_until_it_can() {
-    use std::os::unix::fs::PermissionsExt;
-    let set = |path: &std::path::Path, mode| {
-        std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).unwrap();
-    };
-    for fault in ["the secret others may read", "no claim can be written"] {
-        let (rig, runner, _) = alerted("koji");
-        let totp = rig.paths().totp;
-        let (path, broken, fixed) = if fault.starts_with("the secret") {
-            (totp.join("secret"), 0o644, 0o600)
-        } else {
-            crate::totp::private_dir(&totp.join("used")).unwrap();
-            (totp.join("used"), 0o500, 0o700)
-        };
-        let now = rig.clock.now();
-        let code = rig.code_at(now);
-        set(&path, broken);
-        rig.alerts
-            .reply(&format!("koji 71 no rename it {code}"), now);
-        rig.alerts.reply(&format!("koji 71 yes {code}"), now);
-        let held = step(&runner).unwrap();
-        assert!(
-            matches!(held, Some(StepReport::RepliesFailed { .. })),
-            "{fault}: {held:?}"
-        );
-        assert_eq!(step(&runner).unwrap(), None, "{fault}: held, not skipped");
-        assert_eq!(lines(&rig), [""; 0], "{fault}: nothing says a code is live");
-
-        set(&path, fixed);
-        rig.clock.advance(READ_EVERY);
-        let mut seen = Vec::new();
-        for _ in 0..4 {
-            seen.extend(step(&runner).unwrap());
-        }
-        assert!(
-            seen.contains(&StepReport::ReplyAnswered { id: 71 }),
-            "{fault}: {seen:?}"
-        );
-        assert!(
-            seen.iter()
-                .any(|r| matches!(r, StepReport::ReplyCodeUsed { id: 71, .. })),
-            "{fault}: {seen:?}"
-        );
-        let phase = phase(&rig, &runner);
-        assert_ne!(phase["state"], "merge", "{fault}: {phase}");
-    }
-}
-
-// Probed in review: a reply spends the next step's code, which a replay
-// can still send three steps later. With kelpie down, a read that starts
-// only two steps before the window missed the reply but read the replay.
-#[test]
-fn a_replay_of_a_next_step_code_after_a_gap_finds_it_spent() {
-    let (rig, runner, _) = alerted("koji");
-    // The start of a step to come, so the replay lands two steps later.
-    let sent = (rig.clock.now().0 / STEP + 1) * STEP;
-    let ahead = rig.code_at(Timestamp(sent + STEP));
-    rig.alerts
-        .reply(&format!("koji 71 no rename it {ahead}"), Timestamp(sent));
-    rig.alerts
-        .reply(&format!("koji 71 yes {ahead}"), Timestamp(sent + 85));
-    // Kelpie comes back with the replay just inside the window.
-    let back = sent + WINDOW + 80;
-    rig.clock.advance(back - rig.clock.now().0);
-    let mut seen = Vec::new();
-    for _ in 0..3 {
-        seen.extend(step(&runner).unwrap());
-    }
-    assert!(
-        seen.iter()
-            .any(|r| matches!(r, StepReport::ReplyCodeUsed { id: 71, .. })),
-        "{seen:?}"
-    );
-    assert_eq!(phase(&rig, &runner), json!({ "state": "ruling", "id": 71 }));
-}
-
+mod codes;
 mod numbered;
 mod trusted;
