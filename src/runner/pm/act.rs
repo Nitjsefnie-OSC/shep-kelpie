@@ -13,6 +13,7 @@ use super::{Pick, StuckState, stuck_on};
 use crate::runner::thread_replies::Settler;
 use crate::runner::{Answer as Ruled, RuleError, Runner};
 use crate::state::{RulingKind, StateError};
+use crate::ticket::TicketId;
 use crate::work_item::Phase;
 
 /// The most of the project manager's words a ruling or a note carries, in
@@ -123,7 +124,7 @@ impl Runner {
     fn unstick(&mut self, unstick: &Unstick) -> Result<Result<String, String>, StateError> {
         let Unstick { item, action, why } = unstick;
         let n = *item;
-        let Some(stuck) = self.stuck(n) else {
+        let Some((ticket, stuck)) = self.stuck(n) else {
             return Ok(Err(format!(
                 "{} #{n}: not a stuck work item on the board",
                 action.as_str()
@@ -138,7 +139,7 @@ impl Runner {
             (StuckState::Idle(..), action) => {
                 self.pm.left_alone.remove(&n);
                 // Its end parks it on the ceiling's ruling, which this then settles.
-                self.flights.end(n);
+                self.flights.end(ticket);
                 self.pm.after_end.insert(n, (*action, why.clone()));
                 format!("ended #{n}'s idle call, to {}", action.as_str())
             }
@@ -166,7 +167,7 @@ impl Runner {
         let Some((action, why)) = self.pm.after_end.remove(&issue) else {
             return Ok(());
         };
-        let Some(StuckState::Ruling { id, .. }) = self.stuck(issue) else {
+        let Some((_, StuckState::Ruling { id, .. })) = self.stuck(issue) else {
             return Ok(());
         };
         if let Err(e) = self.settle(issue, id, action, &why)? {
@@ -227,18 +228,26 @@ impl Runner {
         Ok(Ok(()))
     }
 
-    // How `issue`'s work item is stuck now, if it is.
-    fn stuck(&self, issue: u64) -> Option<StuckState> {
-        let item = self.state.item(issue)?;
+    // How `issue`'s work item is stuck now, if it is, by its ticket.
+    fn stuck(&self, issue: u64) -> Option<(TicketId, StuckState)> {
+        let ticket = TicketId::from_issue(issue)?;
+        let item = self.state.item_by_ticket(ticket)?;
         if let Phase::Ruling { id } = item.phase {
             let ruling = self.state.rulings.iter().find(|r| r.id == id)?;
-            return stuck_on(&ruling.kind).map(|_| StuckState::Ruling {
-                id,
-                raised: ruling.raised,
+            return stuck_on(&ruling.kind).map(|_| {
+                (
+                    ticket,
+                    StuckState::Ruling {
+                        id,
+                        raised: ruling.raised,
+                    },
+                )
             });
         }
-        let watched = self.flights.watched(issue)?;
-        watched.idle.then_some(StuckState::Idle(watched.started))
+        let watched = self.flights.watched(ticket)?;
+        watched
+            .idle
+            .then_some((ticket, StuckState::Idle(watched.started)))
     }
 }
 

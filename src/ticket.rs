@@ -11,7 +11,7 @@ use core::str::FromStr;
 use serde::de::{self, Visitor};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use crate::state::{Finished, Ruling};
+use crate::state::{Finished, ProjectState, Ruling};
 use crate::work_item::WorkItem;
 
 /// The id of a ticket
@@ -152,6 +152,20 @@ impl Finished {
     }
 }
 
+impl ProjectState {
+    /// The open work item for `ticket`
+    #[must_use]
+    pub fn item_by_ticket(&self, ticket: TicketId) -> Option<&WorkItem> {
+        (self.work_items.iter()).find(|item| item.ticket() == Some(ticket))
+    }
+
+    /// The open work item for `ticket`, to change
+    #[must_use]
+    pub fn item_mut_by_ticket(&mut self, ticket: TicketId) -> Option<&mut WorkItem> {
+        (self.work_items.iter_mut()).find(|item| item.ticket() == Some(ticket))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
@@ -160,7 +174,7 @@ mod tests {
 
     use super::TicketId;
     use crate::ports::{SessionId, Timestamp};
-    use crate::state::{Finished, Ruling, RulingKind, Stuck};
+    use crate::state::{Finished, ProjectState, Ruling, RulingKind, Stuck};
     use crate::work_item::{Seconds, WorkItem};
 
     fn id(text: &str) -> TicketId {
@@ -284,6 +298,27 @@ mod tests {
             ..ruling
         };
         assert_eq!(ruling.ticket(), Some(id("340")));
+    }
+
+    #[test]
+    fn a_work_item_is_found_by_its_ticket() {
+        let item = WorkItem::new(
+            340,
+            "A title",
+            "kelpie/340",
+            PathBuf::from("wt"),
+            PathBuf::from("build"),
+            "sonnet-high".to_owned().try_into().unwrap(),
+            SessionId("s".to_owned()),
+        );
+        let mut state = ProjectState::new();
+        state.work_items.push(item);
+        assert_eq!(state.item_by_ticket(id("340")).map(|i| i.issue), Some(340));
+        assert_eq!(state.item_by_ticket(id("k12")), None);
+        assert_eq!(
+            state.item_mut_by_ticket(id("340")).map(|i| i.issue),
+            Some(340)
+        );
     }
 
     #[test]

@@ -762,7 +762,7 @@ impl Runner {
             (None, [only]) => *only,
             (None, _) => return Err(WhichItem::Several(open)),
         };
-        self.focus = Some(chosen);
+        self.focus = TicketId::from_issue(chosen);
         Ok(())
     }
 }

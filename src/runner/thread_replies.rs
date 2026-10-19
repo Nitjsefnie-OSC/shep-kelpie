@@ -715,10 +715,12 @@ impl Runner {
     fn reopen(&mut self, ruling: Ruling, answer: Answer) -> Result<(), RuleError> {
         let id = ruling.id;
         let not = |why: &str| RuleError::Reopen(id, why.to_owned());
-        let issue = ruling.issue.ok_or_else(|| not("it has no work item"))?;
-        let item = self.state.item(issue);
+        let Some(ticket) = ruling.ticket() else {
+            return Err(not("it has no work item"));
+        };
+        let item = self.state.item_by_ticket(ticket);
         let item = item.ok_or_else(|| not("its work item has finished"))?;
-        if self.flights.flying(issue) {
+        if self.flights.flying(ticket) {
             return Err(not("its worker is running"));
         }
         if matches!(item.phase, Phase::Ruling { .. } | Phase::Done { .. }) {
@@ -726,7 +728,7 @@ impl Runner {
         }
         let before = self.state.clone();
         let mut next = before.clone();
-        if let Some(item) = next.item_mut(issue) {
+        if let Some(item) = next.item_mut_by_ticket(ticket) {
             item.phase = Phase::Ruling { id };
         }
         next.rulings.push(ruling);

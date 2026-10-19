@@ -16,6 +16,7 @@ use crate::ports::{AgentError, AgentReply, Timestamp};
 use crate::runner::Runner;
 use crate::settings::RulingName;
 use crate::state::{ProjectState, Ruling, RulingKind, Stuck};
+use crate::ticket::TicketId;
 use crate::usage::VoteMark;
 use crate::work_item::Phase;
 
@@ -69,8 +70,15 @@ impl Runner {
     pub(super) fn still_due(&mut self) {
         let mut wakes = Vec::new();
         for item in &self.state.work_items {
-            if let Some(wake) = self.item_wake(item.issue) {
-                wakes.push(wake);
+            let issue = item.issue;
+            let ticket = item.ticket();
+            match self.stuck_now(issue) {
+                Some(wake) => wakes.push(wake),
+                None => {
+                    if let Some(wake) = ticket.and_then(|t| self.lease_wake(t)) {
+                        wakes.push(wake);
+                    }
+                }
             }
         }
         for (&(a, b), files) in &self.pm.conflicts {
@@ -84,7 +92,8 @@ impl Runner {
     // The stuck wake `issue` deserves as the board stands: the ruling it is
     // parked on, its idle call, or nothing.
     fn stuck_now(&self, issue: u64) -> Option<Wake> {
-        let item = self.state.item(issue)?;
+        let ticket = TicketId::from_issue(issue)?;
+        let item = self.state.item_by_ticket(ticket)?;
         let parked = match item.phase {
             Phase::Ruling { id } => self.state.rulings.iter().find(|r| r.id == id),
             _ => None,
@@ -92,23 +101,12 @@ impl Runner {
         if let Some(wake) = parked.and_then(|r| stuck_wake(issue, r)) {
             return Some(wake);
         }
-        let watched = self.flights.watched(issue).filter(|w| w.idle)?;
+        let watched = self.flights.watched(ticket).filter(|w| w.idle)?;
         Some(Wake::Stuck {
             issue,
             what: IDLE_WHAT.to_owned(),
             state: StuckState::Idle(watched.started),
         })
-    }
-
-    /// The stuck or lease-wait wake the board shows for `issue` now, if it
-    /// shows one: its item parked on a ruling a stuck item raises, its call in
-    /// flight read as idle, or that call waiting long for its model. The one
-    /// check `still_due` and the end of a hold window both use
-    pub(super) fn item_wake(&self, issue: u64) -> Option<Wake> {
-        match self.stuck_now(issue) {
-            Some(wake) => Some(wake),
-            None => self.lease_wake(issue),
-        }
     }
 
     /// Whether the board still shows `wake` as a reason, by the same checks
@@ -121,7 +119,9 @@ impl Runner {
                 self.stuck_now(*issue),
                 Some(Wake::Stuck { state: now, .. }) if now == *state
             ),
-            Wake::LeaseWait { issue, .. } => self.lease_wake(*issue).is_some(),
+            Wake::LeaseWait { issue, .. } => {
+                TicketId::from_issue(*issue).is_some_and(|ticket| self.lease_wake(ticket).is_some())
+            }
             Wake::Conflict(a, b, _) => self.pm.conflicts.contains_key(&(*a, *b)),
             _ => true,
         }
