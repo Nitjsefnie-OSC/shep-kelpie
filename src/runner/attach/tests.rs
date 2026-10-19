@@ -156,7 +156,7 @@ fn an_attached_item_runs_nothing_and_its_push_is_the_worker_s_once_it_detaches()
     assert_eq!(rig.claude.all_calls().len(), calls, "no call ran for it");
     assert_eq!(
         detach(&rig, &runner, me.pid())["work_item"]["issue"],
-        7,
+        "7",
         "a second detach changes nothing"
     );
 }

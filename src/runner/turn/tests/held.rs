@@ -33,7 +33,7 @@ fn held_up_of(rig: &Rig, runner: &Mutex<Runner>, issue: u64) -> Option<Value> {
         .as_array()
         .unwrap()
         .iter()
-        .find(|i| i["issue"] == issue)
+        .find(|i| i["issue"] == ticket(issue).to_string())
         .unwrap()
         .clone();
     item.get("held_up").cloned()

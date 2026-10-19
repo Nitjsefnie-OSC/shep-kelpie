@@ -777,7 +777,7 @@ fn under_ask_the_findings_are_a_ruling_first_and_a_yes_files_them() {
     assert!(ends_beside_900(&runner));
     let status = rig.ask(&runner, "status", None);
     let open = status["work_items"].as_array().unwrap();
-    assert!(open.iter().all(|item| item["issue"] != 7), "{open:?}");
+    assert!(open.iter().all(|item| item["issue"] != "7"), "{open:?}");
     assert_eq!(status["rulings"], json!([]));
 }
 
