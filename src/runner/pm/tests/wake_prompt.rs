@@ -3,8 +3,10 @@
 //! what kelpie did, and the answer's `why`
 
 use super::{PICK_12, answered, pm_seen, step_until, with_pm};
+use crate::ports::AgentError;
 use crate::runner::pm::prompt::BOARD_INLINE;
 use crate::runner::{StepReport, step};
+use crate::settings::Harness;
 use crate::test::{Rig, Scripted};
 
 fn read(rig: &Rig, name: &str) -> String {
@@ -89,7 +91,10 @@ fn a_resumed_wake_carries_the_board_with_only_the_events_since_its_last_answer()
         "its cursor holds the events it has read: {after}"
     );
     assert!(
-        second.call.prompt.contains("`board.md` holds the same text"),
+        second
+            .call
+            .prompt
+            .contains("`board.md` holds the same text"),
         "{}",
         &second.call.prompt
     );
@@ -132,5 +137,90 @@ fn a_board_over_64_kib_keeps_the_read_instruction() {
         "{}",
         &prompt[..400]
     );
-    assert!(board.contains("#110"), "the board is written for it to read");
+    assert!(
+        board.contains("#110"),
+        "the board is written for it to read"
+    );
+}
+
+#[test]
+fn an_answered_wake_adds_one_line_with_its_reason_its_action_and_its_why() {
+    let (rig, runner) = with_pm("koji");
+    rig.forge.list_ready(9, false);
+    rig.forge.list_ready(12, false);
+    let long = "x".repeat(400);
+    let home = rig.paths().pm.display().to_string();
+    let picked = format!("{{\"pick\": null, \"why\": \"{long}\"}}");
+    let told = format!("{{\"pick\": null, \"hold\": [12], \"why\": \"{home}\"}}");
+    let (picked, told): (&'static str, &'static str) = (
+        Box::leak(picked.into_boxed_str()),
+        Box::leak(told.into_boxed_str()),
+    );
+    rig.claude
+        .script([Scripted::Say(picked), Scripted::Say(told)]);
+    answered(step(&runner).unwrap());
+    rig.ask(&runner, "tell", Some("Release is out"));
+    answered(Some(step_until(&runner, |r| {
+        matches!(r, StepReport::PmAnswered { .. })
+    })));
+
+    let notes = read(&rig, "pm-notes.md");
+    let lines: Vec<&str> = notes.lines().collect();
+    assert_eq!(lines.len(), 2, "{notes}");
+    let [pick, tell] = lines.as_slice().try_into().unwrap();
+
+    assert!(pick.starts_with("- [2026-09-21 14:13] "), "{pick}");
+    assert!(
+        pick.contains("woke for: a slot is free and 2 ready issues could fill it"),
+        "{pick}"
+    );
+    assert!(pick.contains("starts nothing now"), "{pick}");
+    let (_, why) = pick.split_once("; why: ").expect("{pick}");
+    assert_eq!(
+        why.chars().count(),
+        300 + " …".chars().count(),
+        "its `why` is cut at 300 characters: {why}"
+    );
+
+    assert!(
+        tell.contains("woke for: the maintainer told you something"),
+        "{tell}"
+    );
+    assert!(tell.contains("holds #12"), "{tell}");
+    assert!(!tell.contains(&home), "{tell}");
+    assert!(
+        tell.contains("(withheld: it names a path on this machine, which names its user)"),
+        "{tell}"
+    );
+}
+
+#[test]
+fn a_wake_that_failed_or_was_unread_adds_nothing_to_the_notes() {
+    let (rig, runner) = with_pm("koji");
+    rig.ask(&runner, "tell", Some("first"));
+    let down = AgentError::Failed(Harness::ClaudeCode, "overloaded".into());
+    rig.claude.script([
+        Scripted::Fail(down),
+        Scripted::Say("I thought about the board and wrote nothing else."),
+    ]);
+    assert!(
+        matches!(step(&runner).unwrap(), Some(StepReport::PmFailed { .. })),
+        "the wake failed"
+    );
+
+    rig.clock.advance(super::super::DOWN_FOR + 1);
+    assert!(
+        matches!(
+            step_until(&runner, |r| matches!(r, StepReport::PmFailed { .. })),
+            StepReport::PmFailed { .. }
+        ),
+        "its reply held no answer kelpie reads"
+    );
+
+    assert_eq!(
+        read(&rig, "pm-notes.md"),
+        "",
+        "a wake that failed, and one whose reply kelpie could not read, wrote nothing"
+    );
+    assert_eq!(pm_seen(&rig).len(), 2, "both wakes ran");
 }
