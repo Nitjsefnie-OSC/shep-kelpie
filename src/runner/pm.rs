@@ -32,6 +32,7 @@ mod call;
 mod ci_logs;
 mod diffs;
 mod maintainer;
+mod notes;
 mod prompt;
 mod question;
 #[cfg(test)]
@@ -226,8 +227,8 @@ struct Flying {
     wakes: Vec<Wake>,
     // The last board event when it was woken, its cursor once it answers
     read_to: u64,
-    // How many of the state file's `pm_told` the prompt carried
-    told: usize,
+    // What the state file's `pm_told` the prompt carried, which the standing notes keep
+    told: Vec<String>,
     session: SessionId,
     fresh: bool,
 }
@@ -582,8 +583,9 @@ impl Runner {
         let wakes = std::mem::take(&mut self.pm.due);
         self.pm.holding_since = None;
         let told = self.state.pm_told.clone();
+        let notes = self.pm_notes();
         let full = fresh || self.pm.full_prompt;
-        let text = prompt::wake(self.project.as_str(), &wakes, &told, full);
+        let text = prompt::wake(self.project.as_str(), &wakes, &told, full, &notes);
         let call = match self.pm_call(agent, session, text, true) {
             Ok(call) => call,
             Err(why) => {
@@ -595,7 +597,7 @@ impl Runner {
             kind: Kind::Wake,
             wakes,
             read_to: self.state.last_event,
-            told: told.len(),
+            told,
             session: id,
             fresh,
         });
@@ -618,7 +620,7 @@ impl Runner {
             kind: Kind::Compact,
             wakes: Vec::new(),
             read_to: self.state.last_event,
-            told: 0,
+            told: Vec::new(),
             session: id,
             fresh: false,
         });
@@ -680,10 +682,18 @@ impl Runner {
         let mut next = self.state.clone();
         next.pm_session = Some(flying.session.clone());
         next.pm_seen = Some(flying.read_to);
-        next.pm_told.drain(..flying.told.min(next.pm_told.len()));
+        next.pm_told
+            .drain(..flying.told.len().min(next.pm_told.len()));
         self.save(next)?;
         let woke_for = flying.wakes.iter().map(prompt::reason).collect();
         let picking = flying.wakes.iter().any(|w| matches!(w, Wake::Pick(_)));
+        // Each tell this wake carried goes into the standing notes before the
+        // answer acts, so an action that cannot be saved cannot lose a rule the
+        // maintainer gave. An answer that gave the whole file was told to carry
+        // its own tells, so they are not added a second time.
+        if answer.standing.is_none() {
+            self.pm_stand_tells(&flying.told);
+        }
         let (acted, dropped) = self.act(&answer, picking)?;
         // Its votes on the rulings it was asked about; one it gave none on abstains.
         let asked: Vec<u64> = (flying.wakes.iter())

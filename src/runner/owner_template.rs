@@ -2,8 +2,11 @@
 //!
 //! GitHub offers a repo that has no template of its own the one in its owner's
 //! `.github` repository. The worker cannot read that repository, so the runner
-//! reads it through the forge as it starts and when it rereads its settings,
-//! and keeps the text for the worker's instructions.
+//! reads it through the forge as it starts and when it rereads its settings.
+//! The worker's instructions only name the template: its text goes in a file
+//! in the item's build folder, which the worker reads when it writes its body,
+//! so a session is not made to carry the template on every request for a line
+//! it writes once near the end.
 
 use std::path::Path;
 
@@ -14,7 +17,7 @@ use super::instructions::{PLACES, Template, pick, template};
 use crate::ports::{Forge, ForgeError, Visibility};
 use crate::settings::ForgeSlug;
 
-/// How much template text the instructions carry, over which it is cut
+/// How much template text the worker's file keeps, over which it is cut
 const KEPT: usize = 8 * 1024;
 
 /// Where a repo's pull request template comes from
@@ -54,38 +57,49 @@ impl OwnerTemplate {
         &self.repo
     }
 
-    /// What the worker is told of the template, with its text
-    pub(super) fn line(&self) -> String {
-        let repo = self.repo.as_str();
-        let (head, texts) = match &self.found {
-            Template::File(path) => (
-                format!(
-                    "The repo has no pull request template of its own, so its owner's applies, \
-                     `{path}` of `{repo}`. Fill it in for your pull request's body instead of \
-                     writing your own, and still end the body with `Resolves #<issue>`. Its \
-                     text:\n\n"
-                ),
-                self.texts
-                    .iter()
-                    .map(|(_, text)| format!("<template>\n{}</template>\n", closed(text)))
-                    .collect::<String>(),
+    /// What the worker is told of the template, naming the file that holds its text
+    ///
+    /// The text itself is not here: it goes in `file`, which the worker reads
+    /// when it writes its body, so the instructions it carries every request
+    /// stay short.
+    pub(super) fn line(&self, file: &Path) -> String {
+        let (repo, file) = (self.repo.as_str(), file.display());
+        match &self.found {
+            Template::File(path) => format!(
+                "The repo has no pull request template of its own, so its owner's applies, \
+                 `{path}` of `{repo}`. Its text is in `{file}`: read it before you write the \
+                 body, fill it in rather than write your own, and end with `Resolves \
+                 #<issue>`.\n"
             ),
-            Template::Folder(path) => (
-                format!(
-                    "The repo has no pull request templates of its own, so its owner's apply, \
-                     in `{path}` of `{repo}`. Fill in the one that fits for your pull request's \
-                     body instead of writing your own, and still end the body with \
-                     `Resolves #<issue>`. Each follows by name:\n\n"
-                ),
-                self.texts
-                    .iter()
-                    .map(|(name, text)| {
-                        format!("<template name=\"{name}\">\n{}</template>\n", closed(text))
-                    })
-                    .collect::<String>(),
+            Template::Folder(path) => format!(
+                "The repo has no pull request templates of its own, so its owner's apply, in \
+                 `{path}` of `{repo}`. Each is in `{file}`, by name: read it before you write \
+                 the body, fill in the one that fits rather than write your own, and end with \
+                 `Resolves #<issue>`.\n"
             ),
+        }
+    }
+
+    /// The template's own text, for the worker to read from its build folder
+    ///
+    /// One `<template>` block, or one per file of a folder, each by name, cut
+    /// at [`KEPT`].
+    pub(super) fn text(&self) -> String {
+        let blocks = match &self.found {
+            Template::File(_) => self
+                .texts
+                .iter()
+                .map(|(_, text)| format!("<template>\n{}</template>\n", closed(text)))
+                .collect::<String>(),
+            Template::Folder(_) => self
+                .texts
+                .iter()
+                .map(|(name, text)| {
+                    format!("<template name=\"{name}\">\n{}</template>\n", closed(text))
+                })
+                .collect::<String>(),
         };
-        format!("{head}{}", fitted(texts))
+        fitted(blocks)
     }
 }
 

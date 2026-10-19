@@ -495,7 +495,7 @@ impl Runner {
         }
         let found = self
             .ports
-            .forge
+            .tickets
             .issue(&repo, issue)
             .map_err(|e| AdoptError::Issue(issue, e))?;
         let (agent, note) = self

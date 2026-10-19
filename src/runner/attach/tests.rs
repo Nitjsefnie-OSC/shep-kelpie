@@ -246,7 +246,7 @@ fn an_item_with_no_session_or_parked_on_a_ruling_says_what_to_do_and_stays_as_it
         let refused = rig.ask(&runner, "attach", bad);
         let why = refused["error"].as_str().unwrap();
         assert!(
-            why.starts_with("`attach` takes an issue number and the attaching process's pid"),
+            why.starts_with("`attach` takes a ticket id and the attaching process's pid"),
             "{why}"
         );
     }

@@ -15,11 +15,12 @@ use crate::shepherd::Connection;
 use super::control;
 use crate::runner::{Attaching, ProjectName};
 use crate::terminal;
+use crate::ticket::TicketId;
 
 /// How often `attach` asks again while a call for the work item is in flight
 const ASK_AGAIN: Duration = Duration::from_secs(5);
 
-/// Attaches to the work item for `issue` in `project`, and runs its
+/// Attaches to the work item for `ticket` in `project`, and runs its
 /// session here until it exits
 ///
 /// # Errors
@@ -29,13 +30,13 @@ const ASK_AGAIN: Duration = Duration::from_secs(5);
 pub(super) async fn attach(
     client: &dyn Connection,
     project: &ProjectName,
-    issue: u64,
+    ticket: TicketId,
 ) -> Result<Vec<String>, String> {
     let me = std::process::id();
     let ask = async |action: &str, session: Option<u32>| {
         let params = match session {
-            Some(session) => format!("{issue} {me} {session}"),
-            None => format!("{issue} {me}"),
+            Some(session) => format!("{ticket} {me} {session}"),
+            None => format!("{ticket} {me}"),
         };
         let answer = control::send(client, project, action, Some(&params)).await?;
         Ok(answer.concat())

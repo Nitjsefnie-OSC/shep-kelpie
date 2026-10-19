@@ -11,7 +11,7 @@ The agent kelpie wakes to pick, answer and unstick, and the board file it reads.
 - An item it answered `none` for is not woken for again while it is in the same state: parked on a ruling, until that ruling is answered; an idle call, for 30 min, then 60, then 2h at most. A new turn, phase or ruling is a new state; new output in the same turn is not (the 10 min idle flapping). When the hold ends the wake goes out again even if the board showed nothing more, once per hold, so a worker hung during a hold is not left unattended until its turn ceiling ends it. Any other action on the item, or its closing, clears it. #986, `src/runner/pm/wakes.rs`
 - Reads project worktrees + each item's diff (messages alone miss defects); secret-shaped files and kelpie secrets stay denied. #413, `src/runner/pm/call.rs`
 - No git or gh: kelpie writes diffs (64 KiB each) + a `still-red` item's CI log. #452
-- Tools `Read,Glob,Grep,Edit,Write`; writes only to append-only `pm-notes.md` via `kelpie confine --append`. #327
+- Tools `Read,Glob,Grep,Edit,Write`; writes only to the end of `pm-notes.md` via `kelpie confine --append`. Kelpie rolls that log past 32 KiB into `pm-archive.md` at a wake, and keeps what a later wake must remember in `pm-standing.md`, which only kelpie writes and asks every wake to mine the archive into until a `standing` answer lands. #327, #988
 - Answer is one JSON object (`pick`, `hold`, `unstick`, `answer`, `follow_up`, `reply`) checked against the board; anything else dropped + logged. #327
 - Pick of none lasts 30 min with nothing open; hold ends when an item closes. #327
 - One session resumed per wake, compacted past 100k; failed call passed over 10 min, board rule picks meanwhile. #327

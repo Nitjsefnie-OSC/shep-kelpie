@@ -576,7 +576,8 @@ impl Runner {
         self.mark_unposted(id, false);
         let ruling = self.state.rulings.iter().find(|r| r.id == id)?;
         if self.app_covers() {
-            let thread = number.or(ruling.issue)?;
+            // Only a GitHub ticket is a thread to comment on.
+            let thread = number.or(ruling.ticket().and_then(|ticket| ticket.github()))?;
             let (failed, placed) = self.post_app_ruling(thread, ruling);
             if let Some(placed) = placed {
                 let mut next = self.state.clone();

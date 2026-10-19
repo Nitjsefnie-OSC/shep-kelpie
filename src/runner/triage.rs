@@ -153,7 +153,7 @@ impl Runner {
             return Ok(());
         }
         self.flights.triage_retry();
-        let Ok(open) = self.ports.forge.open_issues(&self.remote) else {
+        let Ok(open) = self.ports.tickets.open_issues(&self.remote) else {
             return Ok(());
         };
         // A record that names no author, which is what a file saved before the
@@ -346,7 +346,7 @@ impl Runner {
     // Everything the research on `issue` needs, or `None` when it cannot be
     // had: the issue is no longer open, or what it needs cannot be read or built.
     fn triage_job(&mut self, issue: u64, purpose: Purpose, limited: bool) -> Option<Job> {
-        let open = match self.ports.forge.open_issues(&self.remote) {
+        let open = match self.ports.tickets.open_issues(&self.remote) {
             Ok(open) => open,
             Err(e) => {
                 let why = format!("cannot list the open issues: {e}");
@@ -514,7 +514,7 @@ impl Runner {
         if self.flights.triaging() == Some(issue) {
             return Err(format!("the triage call on #{issue} is in flight"));
         }
-        let open = (self.ports.forge.open_issues(&self.remote))
+        let open = (self.ports.tickets.open_issues(&self.remote))
             .map_err(|e| format!("cannot read the open issues: {e}"))?;
         let Some(found) = open.iter().find(|i| i.number == issue) else {
             return Err(format!("#{issue} is not an open issue"));

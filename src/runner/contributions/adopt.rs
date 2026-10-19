@@ -175,7 +175,7 @@ impl Runner {
     // more than one. A forge that cannot show the issue is no answer, and the
     // board tries the adoption and skips it, as it does now.
     fn issue_label_refuses(&self, issue: u64) -> Option<String> {
-        let found = self.ports.forge.issue(&self.remote, issue).ok()?;
+        let found = self.ports.tickets.issue(&self.remote, issue).ok()?;
         self.labelled_agent(issue, &found.labels)
             .err()
             .map(|why| why.to_string())
