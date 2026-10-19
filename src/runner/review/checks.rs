@@ -1,7 +1,7 @@
 //! A reviewer's test, run before the fix and after it
 //!
 //! With `ci.test_command` set, a finding may carry a failing test the reviewer
-//! wrote, kept in `<worker>/review-tests-<issue>` ([`super::attached`]). Once
+//! wrote, kept in `<worker>/review-tests-<ticket>` ([`super::attached`]). Once
 //! the head a round read is known, each such test is put in the worktree at
 //! its path, run through the [`TestRunner`](crate::ports::TestRunner), and
 //! taken out again, so the worktree is as clean as it was. When the fix has
@@ -17,11 +17,12 @@ use std::path::{Component, Path, PathBuf};
 
 use super::super::Runner;
 use super::super::report::Begin;
-use super::super::turn::start_of;
+use super::super::turn::{start_of, ticket_name};
 use super::attached::kept_folder;
 use super::findings::{Sent, still_failing_prompt};
 use crate::ports::{CEILING, Finding, TestOutcome, TestRun};
 use crate::state::{FailingTest, Fix, StateError, Stuck};
+use crate::ticket::TicketId;
 use crate::work_item::{Phase, Review, ReviewStage, TestCheck, Turn};
 use crate::worker_folder;
 
@@ -30,8 +31,8 @@ const NOT_AT_THE_HEAD: &str = "the worktree is not at the head the reviewer read
 
 // What the worker folder holds while a test is in the worktree: a kelpie
 // stopped mid-run leaves the file there, and this says so.
-fn placed_name(issue: u64) -> String {
-    format!("test-placed-{issue}")
+fn placed_name(ticket: TicketId) -> String {
+    format!("test-placed-{ticket}")
 }
 
 impl Runner {
@@ -206,20 +207,22 @@ impl Runner {
         let Some(item) = self.current() else {
             return;
         };
-        let (issue, name) = (item.issue, placed_name(item.issue));
+        let ticket = item.ticket().expect("a work item's issue is never zero");
+        let name = placed_name(ticket);
         let text = match worker_folder::read(&self.paths.worker, Path::new(&name)) {
             Ok(Some(text)) => text,
             Ok(None) => return,
             Err(e) => {
                 self.notes.push(format!(
-                    "issue #{issue}: cannot read {name}, so a test a stopped run left in the worktree is not looked for: {e}"
+                    "{}: cannot read {name}, so a test a stopped run left in the worktree is not looked for: {e}",
+                    ticket_name(ticket)
                 ));
                 return;
             }
         };
         let mut paths = text.lines().map(PathBuf::from);
         let file = paths.next().filter(|file| inside(file));
-        let kept = kept_folder(&self.paths.worker, issue);
+        let kept = kept_folder(&self.paths.worker, ticket);
         // Only the reviewer's own text is taken out: a file that reads
         // otherwise is not what kelpie put there.
         let ours =
@@ -253,10 +256,12 @@ impl Runner {
         };
         self.notes.push(match left.is_empty() {
             true => format!(
-                "issue #{issue}: kelpie was stopped during a test run, and took the test out of the worktree"
+                "{}: kelpie was stopped during a test run, and took the test out of the worktree",
+                ticket_name(ticket)
             ),
             false => format!(
-                "issue #{issue}: kelpie was stopped during a test run, and the worktree may be dirty, remove by hand: {}",
+                "{}: kelpie was stopped during a test run, and the worktree may be dirty, remove by hand: {}",
+                ticket_name(ticket),
                 left.join("; ")
             ),
         });
@@ -276,14 +281,15 @@ impl Runner {
             .ok_or("the project has no `ci.test_command` now")?;
         let command = fill(template.as_str(), test)?;
         let rel = Path::new(test);
-        let kept = kept_folder(&self.paths.worker, item.issue);
+        let ticket = item.ticket().expect("a work item's issue is never zero");
+        let kept = kept_folder(&self.paths.worker, ticket);
         let text = worker_folder::read(&kept, rel)
             .map_err(|e| format!("cannot read the kept copy of {test}: {e}"))?
             .ok_or_else(|| format!("the kept copy of {test} is gone"))?;
         // The worker's own fence, never the maintainer's reach: the file and
         // the code under it are a model's.
         let reach = self.worker_reach(item, start_of(item), None)?;
-        let record = self.paths.worker.join(placed_name(item.issue));
+        let record = self.paths.worker.join(placed_name(ticket));
         let placed = Placed::put(&item.worktree, rel, &text, &record)?;
         let outcome = self.ports.test_runner.run(&TestRun {
             command,
@@ -299,8 +305,8 @@ impl Runner {
         let left = placed.take_out();
         if !left.is_empty() {
             self.notes.push(format!(
-                "issue #{}: the test {test} left the worktree dirty, remove by hand: {}",
-                item.issue,
+                "{}: the test {test} left the worktree dirty, remove by hand: {}",
+                ticket_name(ticket),
                 left.join("; ")
             ));
         }

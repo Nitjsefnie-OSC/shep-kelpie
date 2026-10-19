@@ -295,7 +295,7 @@ impl Runner {
         let parked_on = |item: &WorkItem| item.phase == Phase::Ruling { id };
         let parked = next.work_items.iter().find(|item| parked_on(item));
         // The answer moves only the work item it parks, whichever is open.
-        self.focus = parked.map(|item| item.issue);
+        self.focus = parked.and_then(|item| item.ticket());
         // A ruling raised before the ids were kept (state version 24) names
         // its threads and holds no ids, so the forge says which hold it now.
         let accepted = match (&answer, &ruling.kind) {

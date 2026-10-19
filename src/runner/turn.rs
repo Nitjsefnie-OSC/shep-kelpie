@@ -21,7 +21,6 @@ use super::pm::WORKER_COMPACT_PAST;
 use super::pull_request_file;
 use super::question::asked;
 use super::report::{Begin, StepReport};
-use super::review::findings;
 use super::rework;
 use super::ruling::park;
 use crate::github::InstallationToken;
@@ -34,6 +33,7 @@ use crate::profile::{self, WorkerProfile};
 use crate::settings::{AgentHarness, Effort, Limit};
 use crate::skills::{Step, split_command};
 use crate::state::{Resume, RulingKind, StateError};
+use crate::ticket::TicketId;
 use crate::work_item::{Phase, Review, ReviewStage, Seat, Turn, WorkItem};
 use crate::worker_folder;
 use crate::worktree::{self, Start};
@@ -83,9 +83,22 @@ pub(super) const CONTINUE: &str = "Kelpie restarted while your last turn was run
 pub(super) const KEEP_BODY_TRUE: &str = "Update the pull request's body so it matches the head \
     you push: what changed, the files touched, the test evidence, and the decisions you made.";
 
-fn first_prompt(number: u64, issue: &Issue) -> String {
+/// How a worker's prompt names its ticket
+///
+/// A GitHub ticket is an issue, which the worker can read with `gh`. A ticket
+/// from another source is only a ticket.
+#[must_use]
+pub(super) fn ticket_name(ticket: TicketId) -> String {
+    match ticket.github() {
+        Some(_) => format!("issue #{ticket}"),
+        None => format!("ticket {ticket}"),
+    }
+}
+
+fn first_prompt(ticket: TicketId, issue: &Issue) -> String {
     format!(
-        "Your work item is issue #{number}: {}\n\n{}\n",
+        "Your work item is {}: {}\n\n{}\n",
+        ticket_name(ticket),
         issue.title,
         issue.body.trim_end()
     )
@@ -94,8 +107,8 @@ fn first_prompt(number: u64, issue: &Issue) -> String {
 /// What a step can work on
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) enum Slot {
-    /// The open work item for this issue
-    Item(u64),
+    /// The open work item for this ticket
+    Item(TicketId),
     /// The board, while a slot is free under `concurrency.active_items` and fewer than
     /// `concurrency.pending_rulings` items are parked on rulings other than a follow-up.
     /// 0 counts as 1: the board opens nothing while any such ruling waits.
@@ -110,7 +123,7 @@ impl Runner {
     // a slot is free, from the one after the last to act, until one acts.
     // `start_over` is the item whose session died unborn, which begins the
     // same turn again.
-    pub(super) fn begin_turn(&mut self, start_over: Option<u64>) -> Result<Begin, StateError> {
+    pub(super) fn begin_turn(&mut self, start_over: Option<TicketId>) -> Result<Begin, StateError> {
         self.snapshot.begin_pass();
         self.looks.pass_began(self.forge_ledger.writes());
         // What follows asks the forge with the runner's lock held.
@@ -123,23 +136,28 @@ impl Runner {
         begin
     }
 
-    fn step_rotation(&mut self, start_over: Option<u64>) -> Result<Begin, StateError> {
-        if let Some(issue) = start_over {
-            self.focus = Some(issue);
+    fn step_rotation(&mut self, start_over: Option<TicketId>) -> Result<Begin, StateError> {
+        if let Some(ticket) = start_over {
+            self.focus = Some(ticket);
             let begin = if self.current().is_some_and(|item| item.attached.is_some()) {
                 self.held_up.because(Reason::Attached);
                 Begin::Idle
             } else {
                 self.begin_item(true)?
             };
-            self.note_held_up(issue, &begin);
+            self.note_held_up(ticket, &begin);
             return Ok(begin);
         }
         self.recheck_dropped()?;
         self.follow_contributions()?;
         self.follow_dependencies()?;
         self.follow_triage()?;
-        let open: Vec<u64> = self.state.work_items.iter().map(|i| i.issue).collect();
+        let open: Vec<TicketId> = self
+            .state
+            .work_items
+            .iter()
+            .filter_map(WorkItem::ticket)
+            .collect();
         self.unreachable.keep_only(&open);
         self.held_up.keep_only(&open);
         self.seat_waiting()?;
@@ -156,10 +174,10 @@ impl Runner {
             // post what a trigger reads before it waits.
             self.post();
             let begin = match slot {
-                Slot::Item(issue) => {
-                    self.focus = Some(issue);
+                Slot::Item(ticket) => {
+                    self.focus = Some(ticket);
                     let begin = self.begin_item(false)?;
-                    self.note_held_up(issue, &begin);
+                    self.note_held_up(ticket, &begin);
                     begin
                 }
                 Slot::Board => {
@@ -188,10 +206,10 @@ impl Runner {
         Ok(waiting.map_or(Begin::Idle, Begin::Report))
     }
 
-    // Remembers why `issue`'s step began `begin`, and logs a turn held up long
-    fn note_held_up(&mut self, issue: u64, begin: &Begin) {
+    // Remembers why `ticket`'s step began `begin`, and logs a turn held up long
+    fn note_held_up(&mut self, ticket: TicketId, begin: &Begin) {
         let now = self.ports.clock.now();
-        if let Some(line) = self.held_up.stepped(issue, begin, now) {
+        if let Some(line) = self.held_up.stepped(ticket, begin, now) {
             self.notes.push(line);
         }
     }
@@ -200,25 +218,28 @@ impl Runner {
     // turn is due, and forgets the wait of the rest: the rotation never steps
     // them, so no step would
     fn note_left_out(&mut self, rotation: &[Slot], now: Timestamp) {
-        let left_out: Vec<(u64, Option<Reason>)> = (self.state.work_items.iter())
-            .filter(|i| !rotation.contains(&Slot::Item(i.issue)))
-            .map(|i| {
+        let left_out: Vec<(TicketId, Option<Reason>)> = (self.state.work_items.iter())
+            .filter_map(|i| {
+                let ticket = i.ticket()?;
+                if rotation.contains(&Slot::Item(ticket)) {
+                    return None;
+                }
                 let due = matches!(i.turn, Turn::Due | Turn::Next { .. });
-                let reason = if !due || self.flights.flying(i.issue) {
+                let reason = if !due || self.flights.flying(ticket) {
                     None
                 } else if i.attached.is_some() {
                     Some(Reason::Attached)
                 } else {
                     (i.seat == Seat::Waiting).then_some(Reason::Unseated)
                 };
-                (i.issue, reason)
+                Some((ticket, reason))
             })
             .collect();
-        for (issue, reason) in left_out {
+        for (ticket, reason) in left_out {
             if let Some(reason) = reason {
                 self.held_up.because(reason);
             }
-            if let Some(line) = self.held_up.stepped(issue, &Begin::Idle, now) {
+            if let Some(line) = self.held_up.stepped(ticket, &Begin::Idle, now) {
                 self.notes.push(line);
             }
         }
@@ -230,11 +251,11 @@ impl Runner {
     // is free, from the one after the last to act, so one that keeps acting
     // cannot starve the rest
     pub(super) fn rotation(&self) -> Vec<Slot> {
-        let items = (self.state.work_items.iter())
-            .filter(|i| {
-                !self.flights.flying(i.issue) && i.attached.is_none() && i.seat != Seat::Waiting
-            })
-            .map(|i| Slot::Item(i.issue));
+        let items = (self.state.work_items.iter()).filter_map(|i| {
+            let ticket = i.ticket()?;
+            (!self.flights.flying(ticket) && i.attached.is_none() && i.seat != Seat::Waiting)
+                .then_some(Slot::Item(ticket))
+        });
         let board = self.board_open().then_some(Slot::Board);
         let contributions = (board.is_none() && self.slot_free() && self.contribution_unread())
             .then_some(Slot::Contributions);
@@ -288,7 +309,7 @@ impl Runner {
         }
         // A turn whose model host could not be reached is tried again as it
         // was, once its pause has passed.
-        if !start_over && let Some(retry) = self.retry_for_host(item.issue) {
+        if !start_over && let Some(retry) = item.ticket().and_then(|t| self.retry_for_host(t)) {
             return Ok(retry);
         }
         // Only a turn that has not begun waits on the pacer: one already
@@ -381,6 +402,7 @@ impl Runner {
             return Ok(self.idle(Reason::Draining));
         }
         let issue = item.issue;
+        let ticket = item.ticket();
         // A later turn restarted with a new session, as one that found no
         // session to resume is, has a worker call on record and is not first.
         let first = matches!(session, Session::New(_))
@@ -448,8 +470,8 @@ impl Runner {
             drop(self.opened.take(issue));
             return Err(e);
         }
-        if resumed {
-            self.note_resumed(issue);
+        if resumed && let Some(ticket) = ticket {
+            self.note_resumed(ticket);
         }
         if let Begin::Report(report) = &mut begin {
             self.fill_comment_failed(report);
@@ -513,6 +535,22 @@ impl Runner {
             .then(|| pull_request_file::path(&item.build));
         let hosts = (self.browser_hosts(&harness, &session, item.issue)).filter(|_| browses);
         let dev = self.dev_server(item, &reach, hosts);
+        // The owner's template reaches the worker as a file in its build folder,
+        // which it reads when it writes its body. Written on every call, so a
+        // template kelpie reread is the one the next read finds. The worktree's
+        // own template outranks it, and then no file is written.
+        let owners = self
+            .owner_template
+            .as_ref()
+            .filter(|_| instructions::template(&item.worktree).is_none());
+        let template_file = match owners {
+            Some(owners) => {
+                let path = item.build.join(instructions::TEMPLATE_FILE);
+                write(&item.build, &path, &owners.text())?;
+                Some(path)
+            }
+            None => None,
+        };
         let text = instructions::compose(
             instructions::Extra {
                 agent: agent_prompt.as_deref(),
@@ -520,15 +558,13 @@ impl Runner {
                 // Its token opens no pull request, so kelpie opens it.
                 pull_request_file: handed_over.as_deref(),
                 e2e: self.settings.e2e.as_ref(),
-                owner_template: self.owner_template.as_ref(),
+                owner_template: owners.zip(template_file.as_deref()),
                 browser: hosts,
                 dev_server: dev.as_ref(),
             },
             &item.worktree,
             &self.skills,
             &self.kelpie,
-            &findings::deferred_path(&item.build),
-            &findings::disputed_path(&item.build),
         );
         write(folder, &instructions, &text)?;
         // A pause set for an earlier call, or one that ended it, is not this call's.
@@ -538,13 +574,16 @@ impl Runner {
             None if item.rework => rework::first_prompt(item),
             None if item.adopted => adopt::first_prompt(item, None),
             None => {
+                let ticket = item
+                    .ticket()
+                    .ok_or_else(|| format!("issue #{} has no ticket", item.issue))?;
                 let issue = self
                     .ports
                     .tickets
                     .issue(&self.remote, item.issue)
                     .map_err(|e| format!("cannot read issue #{}: {e}", item.issue))?;
                 self.skills
-                    .invoke(Step::Implement, &first_prompt(item.issue, &issue))
+                    .invoke(Step::Implement, &first_prompt(ticket, &issue))
             }
         };
         // A `/compact` has nothing to bound, and would hand itself back after.

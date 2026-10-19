@@ -29,12 +29,34 @@ fn skill_folder(at: &Path, text: &str) {
     fs::write(at.join("references/more.md"), "more\n").unwrap();
 }
 
-// Asserts `prompt` runs `command` under kelpie's headless rules, then asks `then`
+// Asserts `prompt` runs `command` under kelpie's format rule, then asks `then`
 #[track_caller]
 fn assert_invoked(prompt: &str, command: &str, then: &str) {
-    let rules = format!("{command} Kelpie runs this skill headless. Where the skill");
-    assert!(prompt.starts_with(&rules), "{prompt}");
+    assert!(prompt.starts_with(command), "{prompt}");
+    assert!(prompt.contains(FORMAT_RULE.trim_end()), "{prompt}");
     assert!(prompt.contains(&format!("\n{then}")), "{prompt}");
+}
+
+// Asserts `prompt` also carries kelpie's headless rules, ahead of the format rule
+#[track_caller]
+fn assert_headless(prompt: &str) {
+    let at = prompt
+        .find("Kelpie runs this skill headless.")
+        .expect("the headless rules");
+    assert!(
+        at < prompt.find(FORMAT_RULE.trim_end()).unwrap(),
+        "{prompt}"
+    );
+    assert!(prompt.contains("Run no /code-review"), "{prompt}");
+}
+
+// Asserts `prompt` carries none of them, because the instructions already do
+#[track_caller]
+fn assert_no_headless(prompt: &str) {
+    assert!(
+        !prompt.contains("Kelpie runs this skill headless"),
+        "{prompt}"
+    );
 }
 
 fn call_of(rig: &Rig, role: Role) -> AgentCall {
@@ -52,7 +74,14 @@ fn each_step_runs_its_default_skill_from_kelpies_own_copy() {
     let worker = call_of(&rig, Role::Worker);
     let (implement, first) = ("/mattpocock:implement", "Your work item is issue #7: ");
     assert_invoked(&worker.prompt, implement, first);
-    assert!(worker.prompt.contains("Run no /code-review"));
+    assert_no_headless(&worker.prompt);
+    let text = fs::read_to_string(worker.instructions.expect("a worker has instructions")).unwrap();
+    assert_eq!(
+        text.matches("Kelpie runs this skill headless.").count(),
+        1,
+        "the headless rules come once, in the instructions: {text}"
+    );
+    assert!(text.contains("Run no /code-review"), "{text}");
     let wording = rig.paths().skills.join("kelpie-wording");
     assert_eq!(worker.plugin_dirs, [plugin.clone(), wording]);
     // A reviewer's prompt is its agent file's body, which runs no skill.
@@ -85,6 +114,7 @@ fn each_step_runs_its_default_skill_from_kelpies_own_copy() {
         "CI failed on your pull request #71",
     );
     assert_invoked(&fix.prompt, ci, red);
+    assert_no_headless(&fix.prompt);
 
     let status = rig.ask(&runner, "status", None);
     assert_eq!(
@@ -220,6 +250,28 @@ fn a_step_set_to_none_runs_kelpies_prompt_with_no_notice() {
     assert_eq!(
         status["skills"][2],
         json!({ "step": "implement", "skill": null, "fallback": null })
+    );
+}
+
+#[test]
+fn a_worker_with_no_skill_of_its_own_keeps_the_headless_rules_in_its_prompt() {
+    let (rig, _runner, _) = Rig::with_pull_request_set("shep", |rig| {
+        choose(
+            rig,
+            "tests = { kind = \"none\" }\npr = { kind = \"none\" }\n",
+        );
+    });
+    let worker = call_of(&rig, Role::Worker);
+    assert_invoked(
+        &worker.prompt,
+        "/mattpocock:implement",
+        "Your work item is issue #7: ",
+    );
+    assert_headless(&worker.prompt);
+    let text = fs::read_to_string(worker.instructions.expect("a worker has instructions")).unwrap();
+    assert!(
+        !text.contains("Kelpie runs this skill headless"),
+        "nothing carries the block but the prompt: {text}"
     );
 }
 

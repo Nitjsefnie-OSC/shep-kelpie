@@ -10,11 +10,12 @@ use std::sync::mpsc::{self, Sender};
 
 use crate::ports::{AgentError, AgentReply, RoundStage, Wait};
 use crate::runner::report::{ReviewResult, Reviewed};
+use crate::ticket::TicketId;
 
 // What a call's thread sends the runner
 pub(super) enum News {
     Ended {
-        issue: u64,
+        ticket: TicketId,
         end: End,
     },
     // The project manager's call ended
@@ -50,19 +51,19 @@ pub(super) enum News {
     // A local round queued for the GPU or began to run. The call waits until
     // `_seen` drops, once the stage is saved, so its time is charged right.
     Stage {
-        issue: u64,
+        ticket: TicketId,
         stage: RoundStage,
         _seen: Sender<()>,
     },
     // The call has the lease it waited for, and begins now. It waits until
     // `_seen` drops, once its ceiling counts from now.
     Began {
-        issue: u64,
+        ticket: TicketId,
         _seen: Sender<()>,
     },
     // The call waits for its model
     Waits {
-        issue: u64,
+        ticket: TicketId,
         wait: Wait,
     },
 }
@@ -94,7 +95,7 @@ impl End {
 // What a call's thread needs to tell the runner about its call
 #[derive(Clone)]
 pub(super) struct Tell {
-    pub(super) issue: u64,
+    pub(super) ticket: TicketId,
     pub(super) news: Sender<News>,
     pub(super) wake: Option<Sender<()>>,
 }
@@ -109,22 +110,25 @@ impl Tell {
     }
 
     pub(super) fn stage(&self, stage: RoundStage) {
-        let issue = self.issue;
+        let ticket = self.ticket;
         self.until_heard(|seen| News::Stage {
-            issue,
+            ticket,
             stage,
             _seen: seen,
         });
     }
 
     pub(super) fn began(&self) {
-        let issue = self.issue;
-        self.until_heard(|seen| News::Began { issue, _seen: seen });
+        let ticket = self.ticket;
+        self.until_heard(|seen| News::Began {
+            ticket,
+            _seen: seen,
+        });
     }
 
     pub(super) fn waits(&self, wait: Wait) {
-        let issue = self.issue;
-        self.send(News::Waits { issue, wait });
+        let ticket = self.ticket;
+        self.send(News::Waits { ticket, wait });
     }
 
     // Sends the news `news` makes, and waits until the runner has heard it.

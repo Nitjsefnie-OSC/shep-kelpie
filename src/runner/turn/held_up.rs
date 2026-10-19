@@ -13,6 +13,9 @@ use serde::Serialize;
 
 use crate::ports::Timestamp;
 use crate::runner::report::{Begin, StepReport};
+use crate::ticket::TicketId;
+
+use super::ticket_name;
 
 /// Seconds a due turn waits before the log says what it waits on
 const LOG_AFTER: u64 = 5 * 60;
@@ -76,7 +79,7 @@ struct Held {
 pub(in crate::runner) struct HeldUps {
     // The reason the step in hand gives, taken when it ends
     pending: Option<Reason>,
-    items: BTreeMap<u64, Held>,
+    items: BTreeMap<TicketId, Held>,
 }
 
 impl HeldUps {
@@ -85,11 +88,11 @@ impl HeldUps {
         self.pending = Some(reason);
     }
 
-    /// Records that `issue`'s step began `begin` at `now`, and returns the
+    /// Records that `ticket`'s step began `begin` at `now`, and returns the
     /// log line when a turn has waited [`LOG_AFTER`] on a reason not yet told
     pub(in crate::runner) fn stepped(
         &mut self,
-        issue: u64,
+        ticket: TicketId,
         begin: &Begin,
         now: Timestamp,
     ) -> Option<String> {
@@ -97,10 +100,10 @@ impl HeldUps {
         let held = matches!(begin, Begin::Idle | Begin::Report(StepReport::Held { .. }));
         let reason = self.pending.take().filter(|_| held);
         let Some(reason) = reason else {
-            self.items.remove(&issue);
+            self.items.remove(&ticket);
             return None;
         };
-        let held = self.items.entry(issue).or_insert_with(|| Held {
+        let held = self.items.entry(ticket).or_insert_with(|| Held {
             since: now,
             reason: reason.clone(),
             told: Vec::new(),
@@ -113,22 +116,23 @@ impl HeldUps {
         }
         held.told.push(kind);
         Some(format!(
-            "issue #{issue}'s turn is due and has not started for {} minutes: {}",
+            "{}'s turn is due and has not started for {} minutes: {}",
+            ticket_name(ticket),
             waited / 60,
             held.reason.text()
         ))
     }
 
-    /// What `issue`'s due turn waits on, if its last step left it idle
-    pub(in crate::runner) fn of(&self, issue: u64) -> Option<HeldUp> {
-        self.items.get(&issue).map(|held| HeldUp {
+    /// What `ticket`'s due turn waits on, if its last step left it idle
+    pub(in crate::runner) fn of(&self, ticket: TicketId) -> Option<HeldUp> {
+        self.items.get(&ticket).map(|held| HeldUp {
             since: held.since,
             because: held.reason.text(),
         })
     }
 
     /// Forgets the work items no longer open
-    pub(in crate::runner) fn keep_only(&mut self, open: &[u64]) {
-        self.items.retain(|issue, _| open.contains(issue));
+    pub(in crate::runner) fn keep_only(&mut self, open: &[TicketId]) {
+        self.items.retain(|ticket, _| open.contains(ticket));
     }
 }

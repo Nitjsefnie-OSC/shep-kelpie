@@ -159,7 +159,7 @@ impl Runner {
         }
         let mine = attached.as_ref().is_some_and(|a| a.by == me);
         let seated = item.seat == Seat::Held;
-        let flying = self.flights.flying(issue);
+        let flying = self.flights.flying(ticket);
         if let Some(refused) = self.refusal(item, flying) {
             if mine {
                 self.update(|item| item.attached = None)
@@ -218,15 +218,17 @@ impl Runner {
     // Lets go of each work item whose attach and session have both ended
     // without a `detach`, as a terminal closed under them would.
     pub(super) fn let_go_of_the_gone(&mut self) {
-        let gone: Vec<u64> = (self.state.work_items.iter())
+        let gone: Vec<TicketId> = (self.state.work_items.iter())
             .filter(|item| item.attached.as_ref().is_some_and(|a| !live(a)))
-            .map(|item| item.issue)
+            .filter_map(|item| item.ticket())
             .collect();
-        for issue in gone {
-            self.focus = Some(issue);
+        for ticket in gone {
+            self.focus = Some(ticket);
             match self.end_attach() {
-                Ok(()) => eprintln!("the attach on #{issue} ended, so its work item carries on"),
-                Err(e) => eprintln!("cannot let go of #{issue}, whose attach ended: {e}"),
+                Ok(()) => {
+                    eprintln!("the attach on #{ticket} ended, so its work item carries on")
+                }
+                Err(e) => eprintln!("cannot let go of #{ticket}, whose attach ended: {e}"),
             }
         }
     }
