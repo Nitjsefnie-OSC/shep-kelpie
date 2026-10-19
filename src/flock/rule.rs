@@ -22,8 +22,8 @@ usage: shep kelpie rule <ruling> yes
        shep kelpie rule                          lists the rulings waiting, and asks
 
 A <ruling> is its pull request's number, or its ticket's id before there is
-one: 427, #427, koji#427 or k12. A number that two projects have a ruling on
-needs the project.
+one: 427, #427, koji#427, k12 or koji#k12. A number that two projects have a
+ruling on needs the project.
 
 Quotes are optional. In zsh a note with ?, *, ! or an apostrophe still
 needs them: shep kelpie rule 427 no \"it's the wrong flag\". `-p` goes
@@ -160,9 +160,18 @@ impl Reference {
 
     // As typed, without the project when it was not typed.
     fn label(&self) -> String {
-        let project = self.project.as_ref().map_or("", ProjectName::as_str);
-        format!("{project}{}", self.ticket.shown())
+        match self.project.as_ref().map(ProjectName::as_str) {
+            Some(name) => qualified(name, self.ticket),
+            None => self.ticket.shown(),
+        }
     }
+}
+
+// A ticket's id after a project's name, the way `rule` reads it back:
+// `shep-kelpie#427`, `shep-kelpie#k12`. `Reference::of` sees a project only
+// where the text has a `#`, and a local id carries none of its own.
+fn qualified(project: &str, ticket: TicketId) -> String {
+    format!("{project}#{ticket}")
 }
 
 // The ruling `reference` names among those waiting.
@@ -183,7 +192,15 @@ fn locate(
         (Some(p), _) | (None, Some(p)) => Some(p.as_str()),
         (None, None) => None,
     };
-    let about = |r: &Ruling| r.issue == Some(*ticket) || r.pull_request == ticket.github();
+    // A ruling answers to its ticket, or to the pull request it is about. Only
+    // a GitHub ticket has a pull request number, and a ruling raised before
+    // one exists has none yet, so the pull request side is read only when the
+    // reference names a GitHub ticket. A local id has no GitHub number, and
+    // `None == None` would otherwise answer it to every ruling with no pull
+    // request yet.
+    let github = ticket.github();
+    let about =
+        |r: &Ruling| r.issue == Some(*ticket) || github.is_some_and(|n| r.pull_request == Some(n));
     let mut found: Vec<&(String, Ruling)> = (waiting.open.iter())
         .filter(|(p, r)| about(r) && on.is_none_or(|on| on == p))
         .collect();
@@ -209,7 +226,10 @@ fn locate(
             .collect::<Vec<_>>()
             .join(" and ")
     });
-    let name_one = format!("so name the project: `shep kelpie rule <project>{shown} <answer>`");
+    let name_one = format!(
+        "so name the project: `shep kelpie rule {} <answer>`",
+        qualified("<project>", *ticket)
+    );
     match (found.as_slice(), unread) {
         ([(project, _)], Some(unread)) => Err(format!(
             "{shown} has a ruling on {project}, and {unread} rulings cannot be read, {name_one}"
@@ -238,9 +258,9 @@ fn locate(
                 ));
             }
             Err(format!(
-                "{shown} has a ruling on {}, so name one: \
-                 `shep kelpie rule <project>{shown} <answer>`",
-                projects.join(" and ")
+                "{shown} has a ruling on {}, so name one: `shep kelpie rule {} <answer>`",
+                projects.join(" and "),
+                qualified("<project>", *ticket)
             ))
         }
     }
