@@ -12,6 +12,7 @@ use super::Runner;
 use super::in_flight::{Open, Stopping, gpu_seconds};
 use super::report::{ReviewResult, Reviewed, Spent as ReviewSpent};
 use crate::ports::{AgentError, AgentReply, Cost, Role};
+use crate::ticket::TicketId;
 use crate::usage::{CallLine, Draft, Ended, Line, PacerLine, Spent, ended};
 use crate::work_item::Phase;
 
@@ -85,7 +86,8 @@ impl Runner {
                 if open
                     .draft
                     .issue
-                    .is_some_and(|issue| self.paused_at_tool(issue)) =>
+                    .and_then(TicketId::from_issue)
+                    .is_some_and(|ticket| self.paused_at_tool(ticket)) =>
             {
                 Ended::Paused
             }

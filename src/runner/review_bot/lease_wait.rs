@@ -9,18 +9,24 @@ use std::collections::BTreeMap;
 use super::super::Runner;
 use crate::ports::Timestamp;
 use crate::review_bot::Bot;
+use crate::ticket::TicketId;
 
 /// When each work item began waiting for each bot's lease, in memory only
 ///
 /// A restart forgets a wait, so the first pass after it says the wait again.
 #[derive(Debug, Default)]
-pub(in crate::runner) struct LeaseWaits(RefCell<BTreeMap<(u64, &'static str), Timestamp>>);
+pub(in crate::runner) struct LeaseWaits(RefCell<BTreeMap<(TicketId, &'static str), Timestamp>>);
 
 impl Runner {
     // Says the wait began, if this pass is the first to find it
     pub(super) fn lease_waits(&self, bot: Bot) {
-        let (issue, now) = (self.item().issue, self.ports.clock.now());
-        let key = (issue, bot.as_str());
+        let (ticket, now) = (
+            self.item()
+                .ticket()
+                .expect("a work item's issue is never zero"),
+            self.ports.clock.now(),
+        );
+        let key = (ticket, bot.as_str());
         let mut waits = self.lease_waits.0.borrow_mut();
         if waits.contains_key(&key) {
             return;
@@ -28,34 +34,37 @@ impl Runner {
         waits.insert(key, now);
         drop(waits);
         let facts = self.lease_facts(bot);
-        self.notes.push(format!("#{issue} lease-wait{facts}"));
+        self.notes.push(format!("#{ticket} lease-wait{facts}"));
     }
 
     // Says how long the wait lasted, if one was going on
     pub(super) fn lease_wait_ends(&self, bot: Bot, how: &str) {
-        let issue = self.item().issue;
+        let ticket = self
+            .item()
+            .ticket()
+            .expect("a work item's issue is never zero");
         let Some(since) = self
             .lease_waits
             .0
             .borrow_mut()
-            .remove(&(issue, bot.as_str()))
+            .remove(&(ticket, bot.as_str()))
         else {
             return;
         };
         let waited = self.ports.clock.now().0.saturating_sub(since.0);
         let facts = self.lease_facts(bot);
         self.notes
-            .push(format!("#{issue} lease-{how}{facts} waited={waited}s"));
+            .push(format!("#{ticket} lease-{how}{facts} waited={waited}s"));
     }
 
     // The wait is over without a word, because the round ended some other way
     pub(super) fn lease_wait_forgotten(&self, bot: Bot) {
-        let issue = self.current().map(|item| item.issue);
-        if let Some(issue) = issue {
+        let ticket = self.current().and_then(|item| item.ticket());
+        if let Some(ticket) = ticket {
             self.lease_waits
                 .0
                 .borrow_mut()
-                .remove(&(issue, bot.as_str()));
+                .remove(&(ticket, bot.as_str()));
         }
     }
 

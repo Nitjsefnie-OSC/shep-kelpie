@@ -40,6 +40,7 @@ use crate::panel::{
 use crate::ports::{AgentError, AgentReply, Timestamp};
 use crate::settings::{Decide, Merging, RulingName};
 use crate::state::{Ruling, RulingKind};
+use crate::ticket::TicketId;
 use crate::usage::VoteMark;
 
 mod ask;
@@ -407,16 +408,16 @@ impl Runner {
         let Some(ruling) = self.state.rulings.iter().find(|r| r.id == id) else {
             return;
         };
-        let (kind, issue, number) = (
+        let (kind, ticket, number) = (
             RulingName::of(&ruling.kind),
-            ruling.issue,
+            ruling.ticket(),
             ruling.pull_request,
         );
         let asked = super::voice::brief(ruling).0;
         let work = self.panel_work(id, number);
         let always = self.settings.rulings.decide == Decide::Always;
         // `full_panel_paths` has no effect under `always`: it asks all four anyway.
-        let risky = !always && self.panel_risky(id, issue);
+        let risky = !always && self.panel_risky(id, ticket);
         let tier = first_tier(work.tier, kind == RulingName::Question, risky);
         let shadow = self.settings.rulings.decide == Decide::Shadow;
         // A kind the project manager decides alone starts with it alone, if it is
@@ -452,7 +453,7 @@ impl Runner {
             answered: None,
             overtaken: BTreeSet::new(),
         };
-        let open = self.panel_enlist(id, issue, &asked, open);
+        let open = self.panel_enlist(id, ticket, &asked, open);
         let asks = open.waiting.iter().any(|v| *v != Voter::Pm);
         self.panel.open.insert(id, open);
         match asks {
@@ -464,13 +465,19 @@ impl Runner {
     // Adds who `open`'s stage asks and has not been asked: an expert that is
     // there is waited for (and the project manager is woken), one that is not
     // abstains, or, when the project does not name it, is left off the panel.
-    fn panel_enlist(&mut self, id: u64, issue: Option<u64>, asked: &str, mut open: Open) -> Open {
+    fn panel_enlist(
+        &mut self,
+        id: u64,
+        ticket: Option<TicketId>,
+        asked: &str,
+        mut open: Open,
+    ) -> Open {
         for &voter in open.plan.stage.voters() {
             if open.ballots.contains_key(&voter) || open.waiting.contains(&voter) {
                 continue;
             }
             match voter {
-                Voter::Worker => match self.panel_worker(issue) {
+                Voter::Worker => match self.panel_worker(ticket) {
                     (true, _) => {
                         open.waiting.insert(voter);
                     }
@@ -520,10 +527,10 @@ impl Runner {
     // leaves out the commits it arrived with, and those are as risky. With
     // no list, or no work item, there is nothing to read. A diff that cannot
     // be read counts as touching one, since this only ever raises scrutiny.
-    fn panel_risky(&mut self, id: u64, issue: Option<u64>) -> bool {
+    fn panel_risky(&mut self, id: u64, ticket: Option<TicketId>) -> bool {
         let globs = self.settings.rulings.full_panel_paths.clone();
-        let Some(item) = issue
-            .and_then(|n| self.state.item(n))
+        let Some(item) = ticket
+            .and_then(|t| self.state.item_by_ticket(t))
             .filter(|_| !globs.is_empty())
         else {
             return false;
@@ -545,18 +552,22 @@ impl Runner {
         }
     }
 
-    // Whether `issue`'s work item has a worker to ask, or why not.
-    fn panel_worker(&self, issue: Option<u64>) -> (bool, String) {
-        let Some(item) = issue.and_then(|n| self.state.item(n)) else {
-            return (false, "the ruling has no work item open".into());
+    // Whether `ticket`'s work item has a worker to ask, or why not.
+    fn panel_worker(&self, ticket: Option<TicketId>) -> (bool, String) {
+        let no_item = || (false, "the ruling has no work item open".to_owned());
+        let Some(ticket) = ticket else {
+            return no_item();
+        };
+        let Some(item) = self.state.item_by_ticket(ticket) else {
+            return no_item();
         };
         let ran = item
             .calls
             .iter()
             .any(|c| c.role == crate::ports::Role::Worker);
         match (ran, item.worktree.is_dir()) {
-            (false, _) => (false, format!("#{} has had no worker turn", item.issue)),
-            (_, false) => (false, format!("#{}'s worktree is gone", item.issue)),
+            (false, _) => (false, format!("#{ticket} has had no worker turn")),
+            (_, false) => (false, format!("#{ticket}'s worktree is gone")),
             _ => (true, String::new()),
         }
     }
@@ -634,10 +645,10 @@ impl Runner {
             };
             open.plan.stage = up;
             let ruling = self.state.rulings.iter().find(|r| r.id == id);
-            let (issue, asked) = ruling.map_or((None, String::new()), |r| {
-                (r.issue, super::voice::brief(r).0)
+            let (ticket, asked) = ruling.map_or((None, String::new()), |r| {
+                (r.ticket(), super::voice::brief(r).0)
             });
-            let open = self.panel_enlist(id, issue, &asked, open);
+            let open = self.panel_enlist(id, ticket, &asked, open);
             let asks = open.waiting.iter().any(|v| *v != Voter::Pm);
             self.panel.open.insert(id, open);
             if asks {
