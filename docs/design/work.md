@@ -4,7 +4,7 @@ Projects, the board, work items, slots, issue writer. The project manager is in 
 
 ## Projects
 
-- `shep kelpie add`: registers stopped runner + `[app.dogs.kelpie]` table; takes `--base <branch>` (default: the repo's default branch, which must exist on the remote) and writes it as `git.base`; reads all, then makes only what's missing. `src/flock/verbs.rs`
+- `shep kelpie add`: registers stopped runner + `[app.dogs.kelpie]` table; takes `--base`, writes `git.base`; reads all, then makes only what's missing. `src/flock/verbs.rs`
 - `add` refuses a checkout or repo another project's table names, even a broken one (two runners, same issues). `src/flock/verbs.rs`
 - Project runs exactly while its runner's sheep runs; no paused state. #268
 - `finish`: open items end, nothing new picked, then stops the sheep; `finishing` saved so restart keeps finishing. `add`, `adopt`, `rework` refused meanwhile; flag cleared just before stop. #303
