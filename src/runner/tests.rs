@@ -338,48 +338,64 @@ fn the_steps_a_runner_logs_are_in_steps_jsonl_one_object_per_line() {
     }
 }
 
-// The tickets port is the forge's own issue half (ADR 0014): one wrapped forge
-// stands behind both, so a read or a write on either reaches the rig's forge,
-// is ledged there, and is refused by the same guard.
+// The tickets port is a source's ticket half (ADR 0014). One wrapped source
+// stands behind it and behind the forge port, so a ticket read or write
+// reaches the rig's forge, is held and ledged there, and is refused by the
+// same guard.
 #[test]
-fn the_tickets_port_and_the_forge_port_are_one_wrapped_forge() {
+fn the_tickets_port_and_the_forge_port_are_one_wrapped_source() {
     use crate::forge_ledger::{self, Kind};
 
     let rig = Rig::new("koji");
     let runner = rig.open().unwrap();
     let runner = runner.lock().unwrap();
     let repo = runner.remote.clone();
-    let ledger = || {
+    let ledger = |kind: Kind| {
         forge_ledger::read(&rig.paths().kelpie_home.join(forge_ledger::FILE))
             .unwrap()
             .iter()
-            .filter(|line| line.kind == Kind::Issue)
+            .filter(|line| line.kind == kind)
             .count()
     };
 
-    let (asked, ledged) = (rig.forge.asked(), ledger());
-    let through_tickets = runner.ports.tickets.issue(&repo, 7);
-    let through_forge = runner.ports.forge.issue(&repo, 7);
-    assert_eq!(through_tickets, through_forge);
-    assert_eq!(rig.forge.asked(), asked + 2, "each port asked once");
-    assert_eq!(ledger(), ledged + 2, "each read is ledged");
+    let (asked, ledged) = (rig.forge.asked(), ledger(Kind::Issue));
+    let read = runner.ports.tickets.issue(&repo, 7).unwrap();
+    let again = runner.ports.tickets.issue(&repo, 7).unwrap();
+    assert_eq!(read, again);
+    assert_eq!(
+        rig.forge.asked(),
+        asked + 2,
+        "each read reached the rig's forge"
+    );
+    assert_eq!(ledger(Kind::Issue), ledged + 2, "each read is ledged");
 
-    // What the rig's forge no longer has is gone through either port
+    // What the rig's forge no longer has is gone
     rig.forge.remove_issue(7);
     assert_eq!(
         runner.ports.tickets.issue(&repo, 7).unwrap_err(),
-        runner.ports.forge.issue(&repo, 7).unwrap_err(),
+        ForgeError::Failed("no issue #7".into()),
     );
 
-    // What the ticket port opens, the forge port reads
+    // What the ticket port opens, the ticket port reads back
     let opened = runner
         .ports
         .tickets
         .create_issue(&repo, "A ticket", "Its body", &[])
         .unwrap();
     assert_eq!(
-        runner.ports.forge.issue(&repo, opened).unwrap().title,
+        runner.ports.tickets.issue(&repo, opened).unwrap().title,
         "A ticket",
+    );
+
+    // The forge port keeps the pull requests, and reaches the same rig forge
+    // through the same hold
+    let (asked, ledged) = (rig.forge.asked(), ledger(Kind::OpenPullRequests));
+    runner.ports.forge.open_pull_requests(&repo).unwrap();
+    assert_eq!(rig.forge.asked(), asked + 1, "one call on one forge");
+    assert_eq!(
+        ledger(Kind::OpenPullRequests),
+        ledged + 1,
+        "the forge read is ledged too"
     );
 
     // And the ticket port stands behind the same guard, so a body naming this

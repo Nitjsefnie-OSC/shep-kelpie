@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::github::{ApiError, AppVoice};
-use crate::ports::{CallPacer, Cooldown, Forge, LocalPace, Pace, RateHeld, Timestamp};
+use crate::ports::{CallPacer, Cooldown, Forge, LocalPace, Pace, RateHeld, Tickets, Timestamp};
 use crate::test::{FakeClock, FakeForge, FakeGithub};
 
 fn koji() -> ForgeSlug {
@@ -41,8 +41,10 @@ fn an_app_calls_retry_after_holds_the_other_runners_app_and_gh_calls_for_that_lo
     let first = app(&one, home.path(), &clock, &hold, "koji");
     let second = app(&two, home.path(), &clock, &hold, "golbat");
     let forge = FakeForge::new(home.path().join("origin"));
+    let source = Arc::new(forge.clone());
     let gh = RateHeld::new(
-        Arc::new(forge.clone()),
+        Arc::clone(&source) as Arc<dyn Forge>,
+        Arc::clone(&source) as Arc<dyn Tickets>,
         Arc::new(clock.clone()),
         hold.clone(),
         Box::new(|_| {}),

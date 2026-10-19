@@ -18,8 +18,8 @@ use crate::hooks::Hooks;
 use crate::local_paths::LocalPaths;
 use crate::pacer::Assessment;
 use crate::ports::{
-    Forge, ForgeError, ForgeHold, Guarded, GuardedVoice, KeychainBlocked, PacedVoice, Ports,
-    RateHeld, RecordedVoice, Say, Timestamp,
+    ForgeError, ForgeHold, Guarded, GuardedVoice, KeychainBlocked, PacedVoice, Ports, RateHeld,
+    RecordedVoice, Say, Timestamp,
 };
 use crate::review_bot::{Bot, Profile};
 use crate::settings::{
@@ -527,6 +527,7 @@ impl Runner {
         let forge_ledger = Arc::new(ForgeLedger::in_home(&paths.kelpie_home, project.as_str()));
         let mut rate_held = RateHeld::new(
             ports.forge,
+            ports.tickets,
             Arc::clone(&clock),
             forge_hold.clone(),
             say_to(&told),
@@ -539,7 +540,7 @@ impl Runner {
                 .with_app_reads(app_reads)
                 .with_standing(Arc::new(told.clone()));
         }
-        let held: Arc<dyn Forge> = Arc::new(rate_held);
+        let (held_forge, held_tickets) = rate_held.into_ports();
         let recorded =
             RecordedVoice::new(ports.voice, Arc::clone(&clock), Arc::clone(&forge_ledger));
         let paced = PacedVoice::new(
@@ -550,10 +551,10 @@ impl Runner {
             say_to(&told),
         );
         let voice = GuardedVoice::new(Arc::new(paced), local.clone())
-            .with_flock(ports.flock.clone(), Arc::clone(&held))
+            .with_flock(ports.flock.clone(), Arc::clone(&held_forge))
             .with_hooks(hooks.clone());
         ports.voice = Arc::new(voice);
-        (ports.forge, ports.tickets) = Guarded::new(held, local.clone())
+        (ports.forge, ports.tickets) = Guarded::new(held_forge, held_tickets, local.clone())
             .with_flock(ports.flock.clone())
             .with_hooks(hooks.clone())
             .into_ports();
