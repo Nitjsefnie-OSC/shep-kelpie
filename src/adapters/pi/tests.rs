@@ -323,7 +323,7 @@ fn plugin(w: &World, name: &str, skills: &[&str]) -> PathBuf {
 }
 
 // Every value that follows `flag`, in order
-fn values<'a>(argv: &'a [String], flag: &str) -> Vec<&'a str> {
+pub(super) fn values<'a>(argv: &'a [String], flag: &str) -> Vec<&'a str> {
     let at = |(i, a): (usize, &String)| (a == flag).then(|| argv[i + 1].as_str());
     argv.iter().enumerate().filter_map(at).collect()
 }

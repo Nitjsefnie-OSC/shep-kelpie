@@ -10,11 +10,13 @@
 //! and writes only by adding to its notes, which a hook enforces.
 
 use std::collections::BTreeMap;
+use std::path::Path;
 
 use crate::hooks::Hooks;
 use crate::ports::{AgentCall, Fence, Guard, PM_NOTES, Reach, Role, Session, Tools};
 use crate::runner::Runner;
 use crate::settings::PmAgent;
+use crate::skills::Step;
 
 /// `gh`'s config, its token with it, which a worker reads to open its pull
 /// request and the project manager never needs
@@ -48,7 +50,8 @@ impl Runner {
     }
 
     /// The batch retro's call: the project manager's agent in its folder, with
-    /// no standing instructions and tools that read and search only
+    /// no standing instructions, tools that read and search only, and the plugin
+    /// folder its skill is in
     pub(in crate::runner) fn pm_retro_call(
         &mut self,
         agent: &PmAgent,
@@ -59,6 +62,9 @@ impl Runner {
         call.tools = Tools::Retro;
         call.instructions = None;
         call.settings = self.paths.worker.join("pm-retro-settings.json");
+        call.plugin_dirs = (self.skills.plugin_dir(Step::Retro).into_iter())
+            .map(Path::to_owned)
+            .collect();
         self.prepared(call)
     }
 
