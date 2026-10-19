@@ -1,3 +1,4 @@
+use crate::test::ticket;
 use serde_json::json;
 
 use super::*;
@@ -44,7 +45,7 @@ fn finished(issue: u64, merged: bool, worker: u64, reviewer: u64, wall: u64) -> 
     };
     Line::Finished(FinishedLine {
         at: Timestamp(1000 + issue),
-        issue,
+        issue: ticket(issue),
         title: format!("Issue {issue}"),
         pull_request: Some(issue + 100),
         merged,

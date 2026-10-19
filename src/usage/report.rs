@@ -8,6 +8,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use super::baselines::Baseline;
 use super::{CallKind, CallLine, FinishedLine, Line};
 use crate::ports::{Role, Timestamp};
+use crate::ticket::TicketId;
 
 /// The plain-text report on `project`'s ledger `lines`, from `since` on
 /// when given, with each of `baselines` held against the loaded figure and
@@ -89,7 +90,7 @@ pub fn report(
     out.extend(posts(&calls));
     out.extend(triage(&calls));
     out.extend(super::panel::split(&calls));
-    let recorded: BTreeSet<u64> = finished.iter().map(|item| item.issue).collect();
+    let recorded: BTreeSet<TicketId> = finished.iter().map(|item| item.issue).collect();
     out.extend(unrecorded(&calls, &recorded));
     out
 }
@@ -141,7 +142,7 @@ fn item_row(item: &FinishedLine) -> String {
     let (worker, reviewer) = shares(item);
     row([
         &pr,
-        &format!("#{}", item.issue),
+        &item.issue.shown(),
         &thousands(item.units),
         &money(item.cost_usd),
         &unpriced_of(item).to_string(),
@@ -276,8 +277,8 @@ fn of_kind(name: &str, kind: CallKind, calls: &[&CallLine]) -> Option<String> {
 
 // Work items' calls with no finished line for them: open still, or run
 // before the ledger kept finished lines
-fn unrecorded(calls: &[&CallLine], recorded: &BTreeSet<u64>) -> Vec<String> {
-    let mut by_issue: BTreeMap<u64, Vec<&CallLine>> = BTreeMap::new();
+fn unrecorded(calls: &[&CallLine], recorded: &BTreeSet<TicketId>) -> Vec<String> {
+    let mut by_issue: BTreeMap<TicketId, Vec<&CallLine>> = BTreeMap::new();
     for call in calls {
         if let Some(issue) = call.issue.filter(|issue| !recorded.contains(issue)) {
             by_issue.entry(issue).or_default().push(call);

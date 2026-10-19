@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{RoleLine, is_zero};
 use crate::ports::{Severity, Timestamp};
+use crate::ticket::TicketId;
 use crate::work_item::{CiFailures, QwenTally, WorkItem};
 
 /// A finished work item, merged, closed with no change or dropped, and what
@@ -14,8 +15,8 @@ use crate::work_item::{CiFailures, QwenTally, WorkItem};
 pub struct FinishedLine {
     /// When it finished
     pub at: Timestamp,
-    /// The issue it resolved
-    pub issue: u64,
+    /// The ticket it resolved
+    pub issue: TicketId,
     /// The issue's title
     pub title: String,
     /// Its pull request, if it had one
@@ -87,7 +88,7 @@ impl HeldFindings {
 impl FinishedLine {
     /// The line for `item`, which finished as `record` says. Its harness and
     /// model are the caller's to fill, from the agent's file.
-    pub fn of(record: &crate::state::Finished, item: &WorkItem) -> Self {
+    pub fn of(record: &crate::state::Finished, item: &WorkItem, ticket: TicketId) -> Self {
         let tally = item.tally();
         let mut held = HeldFindings::default();
         for finding in &item.held {
@@ -100,7 +101,7 @@ impl FinishedLine {
         }
         Self {
             at: record.at,
-            issue: record.issue,
+            issue: ticket,
             title: record.title.clone(),
             pull_request: record.pull_request,
             merged: record.merged,
@@ -126,6 +127,7 @@ impl FinishedLine {
 
 #[cfg(test)]
 mod tests {
+    use crate::test::ticket;
     use serde_json::json;
 
     use super::*;
@@ -164,7 +166,8 @@ mod tests {
             seconds: Seconds::default(),
             spend: None,
         };
-        let line = serde_json::to_value(FinishedLine::of(&record, &item)).unwrap();
+        let line =
+            serde_json::to_value(FinishedLine::of(&record, &item, ticket(item.issue))).unwrap();
         assert_eq!(line["agent"], json!(item.agent.as_str()));
         assert_eq!(
             (&line["held"], &line["ci_failures"], &line["ci_fix_turns"]),

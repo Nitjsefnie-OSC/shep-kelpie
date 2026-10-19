@@ -6,6 +6,7 @@ use jiff::Timestamp;
 use serde_json::{Map, Value};
 
 use super::Scope;
+use crate::ticket::TicketId;
 
 /// One step the runner logged
 #[derive(Debug, Clone, PartialEq)]
@@ -19,6 +20,14 @@ const STARTED: &str = "session-started";
 
 /// A step the project manager's session is named in
 const PM_STEPS: &str = "pm-";
+
+// The ticket a logged step names. A step written before ticket ids held a
+// bare number, which reads as a GitHub ticket.
+fn named(fields: &Map<String, Value>) -> Option<TicketId> {
+    fields
+        .get("issue")
+        .and_then(|issue| serde_json::from_value::<TicketId>(issue.clone()).ok())
+}
 
 /// The line of the steps file `line` as a step, or `None` for a line that is not one
 pub(super) fn parse(line: &str) -> Option<Step> {
@@ -48,7 +57,7 @@ pub(super) struct Started {
     pub session: String,
     pub folder: PathBuf,
     pub threads: Option<PathBuf>,
-    issue: Option<u64>,
+    issue: Option<TicketId>,
     pm: bool,
 }
 
@@ -93,7 +102,7 @@ impl Step {
     pub fn in_scope(&self, scope: Scope) -> bool {
         match scope {
             Scope::Project => true,
-            Scope::Issue(issue) => self.fields.get("issue").and_then(Value::as_u64) == Some(issue),
+            Scope::Issue(ticket) => named(&self.fields) == Some(ticket),
             Scope::Pm => {
                 self.name().starts_with(PM_STEPS)
                     || (self.name() == STARTED && self.fields.get("role") == Some(&"pm".into()))
@@ -127,11 +136,11 @@ impl Step {
             .and_then(Value::as_str)
             .map(PathBuf::from);
         let role = text("role")?;
-        let issue = self.fields.get("issue").and_then(Value::as_u64);
+        let issue = named(&self.fields);
         let agent = text("agent").filter(|agent| !agent.is_empty());
         let who = match (role, issue) {
             ("pm", _) | (_, None) => role.to_owned(),
-            (role, Some(issue)) => format!("#{issue} {role}"),
+            (role, Some(ticket)) => format!("{} {role}", ticket.shown()),
         };
         let who = match agent {
             Some(agent) if role != "pm" => format!("{who} ({agent})"),
@@ -155,8 +164,8 @@ impl Step {
     /// where a transcript is kept.
     pub fn text(&self, full: bool) -> String {
         let mut parts = vec![self.name().to_owned()];
-        if let Some(issue) = self.fields.get("issue").and_then(Value::as_u64) {
-            parts.push(format!("#{issue}"));
+        if let Some(ticket) = named(&self.fields) {
+            parts.push(ticket.shown());
         }
         for (key, value) in &self.fields {
             let shown = match value {

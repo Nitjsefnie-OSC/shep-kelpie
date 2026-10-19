@@ -488,7 +488,7 @@ impl Runner {
                 Draft::of(call, &self.ledger_reviewer(issue), CallKind::Review, now)
             }
             Launch::Review(ReviewCall::Local { local, .. }) => {
-                Draft::local(local, issue, &self.ledger_reviewer(issue), now)
+                Draft::local(local, ticket_of(issue), &self.ledger_reviewer(issue), now)
             }
         };
         let draft = self.with_pull_request(draft);
@@ -881,6 +881,7 @@ pub(crate) mod tests;
 pub(super) mod triage;
 mod waiting;
 
+use super::report::ticket_of;
 pub use carry::CarriedTurn;
 #[cfg(test)]
 pub use step::step;

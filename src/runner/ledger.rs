@@ -35,7 +35,10 @@ impl Runner {
 
     /// `draft` with its work item's pull request, once it has one
     pub(super) fn with_pull_request(&self, mut draft: Draft) -> Draft {
-        let item = draft.issue.and_then(|issue| self.state.item(issue));
+        let item = draft
+            .issue
+            .and_then(|ticket| ticket.github())
+            .and_then(|issue| self.state.item(issue));
         draft.pull_request = draft.pull_request.or(item.and_then(|i| i.pull_request));
         draft
     }
@@ -64,7 +67,10 @@ impl Runner {
 
     // What `draft`'s session had cost before this call, by its work item's record
     fn cost_before(&self, draft: &Draft) -> Cost {
-        let item = draft.issue.and_then(|issue| self.state.item(issue));
+        let item = draft
+            .issue
+            .and_then(|ticket| ticket.github())
+            .and_then(|issue| self.state.item(issue));
         match (item, draft.session()) {
             (Some(item), Some(session)) => item.session_cost(session),
             _ => Cost(0),
@@ -82,10 +88,11 @@ impl Runner {
             // A turn the pause ended at a tool result, whatever its harness
             // reported of the abort.
             Ended::Answered | Ended::Failed | Ended::Unreadable
-                if open
-                    .draft
-                    .issue
-                    .is_some_and(|issue| self.paused_at_tool(issue)) =>
+                if open.draft.issue.is_some_and(|ticket| {
+                    ticket
+                        .github()
+                        .is_some_and(|issue| self.paused_at_tool(issue))
+                }) =>
             {
                 Ended::Paused
             }
@@ -169,9 +176,16 @@ impl Runner {
     /// now. An `unreported` session's call, which no call record holds, is
     /// counted on its work item, so the finished tally has every call.
     pub(super) fn append_call(&mut self, mut line: CallLine, unreported: bool) {
-        let item = line.issue.and_then(|issue| self.state.item(issue));
+        let item = line
+            .issue
+            .and_then(|ticket| ticket.github())
+            .and_then(|issue| self.state.item(issue));
         line.pull_request = line.pull_request.or(item.and_then(|i| i.pull_request));
-        let counted = (line.issue.zip(line.session.as_ref())).map(|(issue, _)| (issue, line.role));
+        let counted = (line
+            .issue
+            .and_then(|ticket| ticket.github())
+            .zip(line.session.as_ref()))
+        .map(|(issue, _)| (issue, line.role));
         self.ledger.append(&Line::Call(line));
         if let (true, Some(counted)) = (unreported, counted) {
             self.count_unreported(&[counted]);

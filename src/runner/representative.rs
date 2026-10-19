@@ -24,6 +24,7 @@ use crate::ports::{
     AgentCall, AgentError, AgentReply, Cost, Ending, Role, Session, Timestamp, Tools,
 };
 use crate::settings::SettingsError;
+use crate::ticket::TicketId;
 use crate::usage::{CallKind, Draft, Line, Spent, ended};
 use crate::work_item::new_session_id;
 
@@ -216,7 +217,7 @@ impl Runner {
             let mut draft = Draft::of(&call, agent.name.as_str(), CallKind::Post, started);
             match thread {
                 Thread::PullRequest => draft.pull_request = Some(post.pull_request),
-                Thread::Issue => draft.issue = Some(post.pull_request),
+                Thread::Issue => draft.issue = TicketId::from_issue(post.pull_request),
             }
             let spent = ran.as_ref().ok().map(Spent::from);
             // A fresh session, so the call cost all of it.

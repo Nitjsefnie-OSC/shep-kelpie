@@ -414,7 +414,7 @@ impl Runner {
             seconds: timings.seconds.clone(),
             spend: Some(item.tally()),
         };
-        let mut line = crate::usage::FinishedLine::of(&record, item);
+        let mut line = crate::usage::FinishedLine::of(&record, item, ticket_of(item.issue));
         if let Ok(agent) = self.worker_agent(item) {
             line.harness = Some(agent.harness.harness().as_str().to_owned());
             line.model = Some(agent.model);

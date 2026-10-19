@@ -603,9 +603,9 @@ fn the_call_is_on_the_ledger_as_triager_and_the_wording_as_representative_with_t
     let (triager, wording) = (seen(Role::Triager), seen(Role::Representative));
     assert_eq!((triager.len(), wording.len()), (1, 1), "{calls:?}");
     assert_eq!(triager[0].kind, CallKind::Triage);
-    assert_eq!(triager[0].issue, Some(30));
+    assert_eq!(triager[0].issue, Some(ticket(30)));
     assert_eq!(wording[0].kind, CallKind::Post);
-    assert_eq!(wording[0].issue, Some(30));
+    assert_eq!(wording[0].issue, Some(ticket(30)));
     assert_eq!(wording[0].pull_request, None);
 }
 
@@ -797,7 +797,7 @@ fn a_research_on_an_issue_with_a_turn_in_flight_keeps_both_lines_on_the_ledger()
         let kinds: Vec<(CallKind, Role)> = lines
             .into_iter()
             .filter_map(|line| match line {
-                Line::Call(call) if call.issue == Some(30) => Some((call.kind, call.role)),
+                Line::Call(call) if call.issue == Some(ticket(30)) => Some((call.kind, call.role)),
                 _ => None,
             })
             .collect();
