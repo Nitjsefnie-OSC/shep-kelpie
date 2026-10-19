@@ -30,6 +30,7 @@ use crate::dog;
 use crate::flock::control::{Answered, trigger};
 use crate::flock::{flock, kelpie_sheep, resume, script, tables};
 use crate::shepherd::Connection;
+use crate::ticket::TicketId;
 
 /// How long the upgrade waits, and how often it asks
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -370,7 +371,7 @@ pub(crate) async fn wait_out_merges(
                 Answered::Runner(body) => busy.extend(
                     merging(&body)
                         .into_iter()
-                        .map(|issue| format!("`{name}` is merging #{issue}")),
+                        .map(|ticket| format!("`{name}` is merging {}", ticket.shown())),
                 ),
                 // Not taking its actions yet: it may be mid-merge from before.
                 Answered::Starting => busy.push(format!("`{name}` is starting")),
@@ -398,11 +399,13 @@ pub(crate) async fn wait_out_merges(
     }
 }
 
-/// The issue of each work item a runner's `status` shows being merged
+/// The ticket of each work item a runner's `status` shows being merged
 ///
 /// A work item in `merge` is being merged, and one in `done` with its pull
 /// request merged is having its worktree removed: a restart cuts neither short.
-pub fn merging(status: &str) -> Vec<u64> {
+/// A runner from before ticket ids writes a GitHub issue number, which reads as
+/// the GitHub id of that number.
+pub fn merging(status: &str) -> Vec<TicketId> {
     let Ok(Value::Object(status)) = serde_json::from_str::<Value>(status) else {
         return Vec::new();
     };
@@ -421,6 +424,6 @@ pub fn merging(status: &str) -> Vec<u64> {
                 _ => false,
             }
         })
-        .filter_map(|item| item["issue"].as_u64())
+        .filter_map(|item| TicketId::from_json(&item["issue"]))
         .collect()
 }

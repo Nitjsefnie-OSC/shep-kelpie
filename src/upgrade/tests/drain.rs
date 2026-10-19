@@ -5,11 +5,11 @@ use crate::upgrade::drain::{Drained, drained};
 
 // A runner draining with #7's worker turn still running, whose calls are
 // ended within the ceiling it gives
-const RUNNING_7: &str = r#"{"work_items":[{"issue":7,"phase":{"state":"implement"}}],
-    "draining":{"calls":[{"issue":7,"role":"worker"}],"ceiling":0}}"#;
+const RUNNING_7: &str = r#"{"work_items":[{"issue":"7","phase":{"state":"implement"}}],
+    "draining":{"calls":[{"issue":"7","role":"worker"}],"ceiling":0}}"#;
 
 // A runner draining with no call left
-const DRAINED: &str = r#"{"work_items":[{"issue":7,"phase":{"state":"implement"}}],
+const DRAINED: &str = r#"{"work_items":[{"issue":"7","phase":{"state":"implement"}}],
     "draining":{"calls":[],"ceiling":3600}}"#;
 
 // The triggers sent to `sheep` since the last look, by action
@@ -246,9 +246,9 @@ fn now_is_read_first_or_last_and_once() {
 
 #[test]
 fn a_draining_answer_names_each_call() {
-    let body = r#"{"draining":{"calls":[{"issue":7,"role":"worker"},
-        {"issue":8,"role":"reviewer"},{"role":"pm"},{"issue":9,"role":"pi_session"},
-        {"issue":10,"role":"goose_session"}],
+    let body = r#"{"draining":{"calls":[{"issue":"7","role":"worker"},
+        {"issue":"8","role":"reviewer"},{"role":"pm"},{"issue":"k12","role":"pi_session"},
+        {"issue":"10","role":"goose_session"}],
         "ceiling":3600}}"#;
     assert_eq!(
         drained(body),
@@ -257,7 +257,7 @@ fn a_draining_answer_names_each_call() {
                 "#7's worker turn".into(),
                 "#8's review".into(),
                 "the project manager's wake".into(),
-                "#9's attached pi session".into(),
+                "k12's attached pi session".into(),
                 "#10's attached goose session".into(),
             ],
             ceiling: 3600,
@@ -271,6 +271,20 @@ fn a_draining_answer_names_each_call() {
 
 #[test]
 fn a_draining_answer_names_the_worker_turns_that_end_at_a_tool_call() {
+    let body = r#"{"draining":{"calls":[{"issue":"7","role":"worker"},
+        {"issue":"8","role":"worker"}],"ceiling":3600,"at_tool":["7"]}}"#;
+    assert_eq!(
+        drained(body),
+        Some(Drained {
+            calls: vec!["#8's worker turn".into()],
+            ceiling: 3600,
+            at_tool: vec!["#7's worker turn, which ends at its next tool call".into()],
+        })
+    );
+}
+
+#[test]
+fn a_draining_answer_from_before_ticket_ids_still_names_its_calls() {
     let body = r#"{"draining":{"calls":[{"issue":7,"role":"worker"},
         {"issue":8,"role":"worker"}],"ceiling":3600,"at_tool":[7]}}"#;
     assert_eq!(

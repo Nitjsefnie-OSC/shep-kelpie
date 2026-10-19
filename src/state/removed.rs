@@ -22,14 +22,10 @@ use serde_json::{Map, Value, json};
 
 use crate::ticket::TicketId;
 
-// The ticket id a field holds: an older file's number, read as the GitHub id
-// of that number, or the id itself.
+// The ticket id a field holds: the id as it is written, or an older file's
+// number, read as the GitHub id of that number.
 pub(super) fn ticket(value: Option<&Value>) -> Option<TicketId> {
-    match value? {
-        Value::Number(number) => number.as_u64().and_then(TicketId::from_issue),
-        Value::String(text) => text.parse().ok(),
-        _ => None,
-    }
+    value.and_then(TicketId::from_json)
 }
 
 mod bot_rounds;

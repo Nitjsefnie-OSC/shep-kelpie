@@ -69,6 +69,18 @@ impl TicketId {
         }
     }
 
+    /// The ticket a JSON field holds
+    ///
+    /// A build from now writes the id as it displays it, `"340"` or `"k12"`.
+    /// One from before ticket ids wrote a GitHub issue number, which reads as
+    /// the GitHub id of that number. None for a field that names no ticket, and
+    /// for text that is not an id. This is the reader's side of what
+    /// [`TicketId`] serializes to, so a newer `kelpie` still reads an older
+    /// runner's `status` and an older state file.
+    pub fn from_json(value: &serde_json::Value) -> Option<Self> {
+        Self::deserialize(value).ok()
+    }
+
     /// The ticket as a log line names it: `#340` for a GitHub ticket, `k12`
     /// with no `#` for a local one, which no GitHub number carries
     pub fn shown(&self) -> String {
@@ -166,6 +178,28 @@ mod tests {
 
     fn id(text: &str) -> TicketId {
         text.parse().unwrap()
+    }
+
+    #[test]
+    fn a_json_field_reads_as_a_ticket_as_a_string_or_as_an_older_number() {
+        for (field, want) in [
+            (json!("7"), id("7")),
+            (json!(7), id("7")),
+            (json!("k12"), id("k12")),
+            (json!(12), id("12")),
+        ] {
+            assert_eq!(TicketId::from_json(&field), Some(want), "{field}");
+        }
+        for field in [
+            json!(null),
+            json!(0),
+            json!("071"),
+            json!("#7"),
+            json!(""),
+            json!(true),
+        ] {
+            assert_eq!(TicketId::from_json(&field), None, "{field}");
+        }
     }
 
     // text, github(), and what it displays as
