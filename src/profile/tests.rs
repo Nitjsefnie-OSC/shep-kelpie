@@ -625,6 +625,20 @@ fn the_instructions_send_a_worker_to_the_domain_docs_before_code() {
     );
 }
 
+// The deferred and disputed findings rules reach a worker in the header of the
+// findings file a fix turn is sent to, which names both paths there.
+#[test]
+fn the_worker_instructions_name_no_findings_file() {
+    for name in [
+        "deferred-findings.md",
+        "disputed-findings.md",
+        "{deferred}",
+        "{disputed}",
+    ] {
+        assert!(!INSTRUCTIONS.contains(name), "{name}: {INSTRUCTIONS}");
+    }
+}
+
 // A bare verb on a choice only the maintainer can carry out read as "kelpie,
 // do this", and the answer reached a worker that could not (shep#829).
 #[test]
@@ -640,18 +654,27 @@ fn the_worker_instructions_say_a_choice_the_maintainer_carries_out_starts_with_y
     );
 }
 
-// The deferred and disputed findings rules reach a worker in the header of the
-// findings file a fix turn is sent to, which names both paths there.
+// The question block is told once, with one worked example that shows the
+// block, the choices, `Problem:` and ` => ` together.
 #[test]
-fn the_worker_instructions_name_no_findings_file() {
-    for name in [
-        "deferred-findings.md",
-        "disputed-findings.md",
-        "{deferred}",
-        "{disputed}",
+fn the_instructions_tell_the_question_block_once_with_one_example() {
+    for rule in [
+        "Open the block with a line that starts `Problem: `",
+        "Write after each choice ` => `",
+        "starts with `You`",
+        "- You run the command => ",
+        "Never offer a choice you cannot carry out",
     ] {
-        assert!(!INSTRUCTIONS.contains(name), "{name}: {INSTRUCTIONS}");
+        assert_eq!(INSTRUCTIONS.matches(rule).count(), 1, "{rule}");
     }
+    assert_eq!(
+        INSTRUCTIONS
+            .lines()
+            .filter(|line| line.trim() == "<kelpie-question>")
+            .count(),
+        1,
+        "one worked example of the block"
+    );
 }
 
 #[test]

@@ -73,6 +73,29 @@ fn a_repo_without_a_template_gets_its_owners_text_in_a_file_it_reads() {
 }
 
 #[test]
+fn the_instructions_of_a_templated_repo_stay_under_8_kib_and_tell_the_question_block_once() {
+    let two_kib = format!("## Summary\n{}\n", "x".repeat(2 * 1024 - 11));
+    let (_rig, text) = with_owners_template(&two_kib);
+    assert!(text.len() <= 8 * 1024, "{} bytes", text.len());
+    for rule in [
+        "Open the block with a line that starts `Problem: `",
+        "Write after each choice ` => `",
+        "starts with `You`",
+        "- You run the command => ",
+        "Never offer a choice you cannot carry out",
+    ] {
+        assert_eq!(text.matches(rule).count(), 1, "{rule}: {text}");
+    }
+    assert_eq!(
+        text.lines()
+            .filter(|line| line.trim() == "<kelpie-question>")
+            .count(),
+        1,
+        "one worked example of the block: {text}"
+    );
+}
+
+#[test]
 fn a_planted_link_at_the_template_file_is_replaced_and_its_target_is_left_alone() {
     let rig = Rig::new("koji");
     rig.forge
