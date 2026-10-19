@@ -298,8 +298,9 @@ const NOTES: &str = "\
 Your notes are three files:\n\n\
 - `pm-standing.md`: what a later wake must keep, above all the maintainer's standing \
 decisions. Kelpie writes it; you change it only by giving `standing` in your answer.\n\
-- `pm-notes.md`: your recent log, oldest first. Read it, and add to its end what a later \
-wake must remember.\n\
+- `pm-notes.md`: your recent log, oldest first. Read it. Kelpie writes one line for every \
+wake it answers, with the time, what it woke for, what it did, and your `why`, so add to \
+its end only what a later wake needs and that line does not say.\n\
 - `pm-archive.md`: your older log, which kelpie moves the end of `pm-notes.md` into as it \
 grows. Grep it when a wake needs history, and never read it whole.\n";
 
