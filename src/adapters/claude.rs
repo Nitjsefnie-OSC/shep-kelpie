@@ -348,10 +348,10 @@ fn profile(call: &AgentCall) -> Vec<OsString> {
         "--settings".into(),
         call.settings.clone().into(),
     ];
-    // Every kind of call but an answer or the issue writer's runs on an
-    // allow-list and loads no MCP server but those kelpie names, so what a
-    // project's settings allow adds nothing. An agent file's own list replaces a worker's and a
-    // reviewer's, and no other's.
+    // Every kind of call but an answer's runs on an allow-list. Every one but
+    // the issue writer's loads no MCP server but those kelpie names, so what
+    // a project's settings allow adds nothing. An agent file's own list
+    // replaces a worker's and a reviewer's, and no other's.
     use crate::ports::Tools as Kind;
     let own = call.agent_tools.as_deref();
     let tools = match (call.role, call.tools) {
@@ -361,14 +361,21 @@ fn profile(call: &AgentCall) -> Vec<OsString> {
         (_, Kind::Research) => Some(settings::RESEARCH_TOOLS),
         (_, Kind::Work) => Some(own.unwrap_or(settings::WORK_TOOLS)),
         (_, Kind::Review) => Some(own.unwrap_or(settings::REVIEW_TOOLS)),
-        (_, Kind::Answer | Kind::Issues | Kind::Pm) => None,
+        // Its call loads the repo's plugins and their servers on purpose, so
+        // it is allow-listed without `--strict-mcp-config`.
+        (_, Kind::Issues) => Some(settings::ISSUES_TOOLS),
+        (_, Kind::Answer | Kind::Pm) => None,
     };
     if crate::adapters::mcp::loads(call) {
         argv.extend(["--mcp-config".into(), mcp::mcp_file(&call.settings).into()]);
     }
     if let Some(tools) = tools {
-        // Only the config named above is loaded, so its servers are the call's MCP servers.
-        argv.extend(["--tools".into(), tools.into(), "--strict-mcp-config".into()]);
+        argv.extend(["--tools".into(), tools.into()]);
+        // Only the config named above is loaded, so its servers are the call's MCP
+        // servers. The issue writer is the one call that keeps the other sources.
+        if call.tools != Kind::Issues {
+            argv.push("--strict-mcp-config".into());
+        }
     }
     argv
 }
@@ -784,6 +791,27 @@ mod tests {
             tools(Role::Researcher, Tools::Research),
             "Read,Glob,Grep,WebFetch,WebSearch"
         );
+    }
+
+    #[test]
+    fn the_issue_writer_runs_on_an_allow_list_of_the_tools_it_uses_and_no_strict_mcp() {
+        let mut issues = call(Role::IssueWriter, fresh());
+        issues.tools = Tools::Issues;
+        for flags in [argv(&issues), terminal_argv(&issues)] {
+            let at = flags.iter().position(|a| a == "--tools").unwrap();
+            assert_eq!(flags[at + 1], "Bash,Read,Glob,Grep,Skill");
+            assert!(!flags.contains(&"--strict-mcp-config".into()), "{flags:?}");
+            assert!(!flags.contains(&"bypassPermissions".into()), "{flags:?}");
+        }
+    }
+
+    #[test]
+    fn the_representative_starts_with_no_tool_allow_list_as_it_did() {
+        let mut answer = call(Role::Representative, fresh());
+        answer.tools = Tools::Answer;
+        let argv = strings(&answer);
+        assert!(!argv.contains(&"--tools".into()), "{argv:?}");
+        assert!(!argv.contains(&"--strict-mcp-config".into()), "{argv:?}");
     }
 
     #[test]
