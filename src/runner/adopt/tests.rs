@@ -24,7 +24,7 @@ fn running(rig: &Rig) -> Mutex<Runner> {
 
 fn adopted_80() -> StepReport {
     StepReport::Adopted {
-        issue: 5,
+        issue: ticket(5),
         pull_request: 80,
         agent: "sonnet-high".to_owned().try_into().unwrap(),
     }
@@ -283,14 +283,14 @@ fn an_adopted_pull_request_skips_the_other_reviewers_and_reaches_coderabbit() {
     assert_eq!(
         step(&runner).unwrap(),
         Some(StepReport::MarkedReady {
-            issue: 5,
+            issue: ticket(5),
             pull_request: 80,
         })
     );
     assert_eq!(
         step(&runner).unwrap(),
         Some(StepReport::Summoned {
-            issue: 5,
+            issue: ticket(5),
             pull_request: 80,
             head,
         })
@@ -381,7 +381,7 @@ fn an_adopted_turn_that_pushes_nothing_is_sent_back_once_then_parks_on_a_ruling(
         again.prompt
     );
     let Some(StepReport::Failed {
-        issue: 5,
+        issue,
         pull_request: Some(80),
         question,
         ..
@@ -389,6 +389,7 @@ fn an_adopted_turn_that_pushes_nothing_is_sent_back_once_then_parks_on_a_ruling(
     else {
         panic!("the adopted work item was not parked");
     };
+    assert_eq!(issue, ticket(5));
     assert!(
         question.contains("it ended twice with no new push and no question"),
         "{question}"
@@ -462,7 +463,7 @@ fn adopted_pull_requests_wait_for_the_work_item_in_flight_across_a_restart() {
     assert_eq!(
         step(&runner).unwrap(),
         Some(StepReport::Adopted {
-            issue: 6,
+            issue: ticket(6),
             pull_request: 81,
             agent: "sonnet-high".to_owned().try_into().unwrap(),
         })
@@ -585,7 +586,7 @@ fn a_start_retried_after_a_failure_begins_at_the_head_origin_holds_now() {
     assert_eq!(
         step(&runner).unwrap(),
         Some(StepReport::Adopted {
-            issue: 5,
+            issue: ticket(5),
             pull_request: 80,
             agent: "sonnet-high".to_owned().try_into().unwrap(),
         })
@@ -683,7 +684,7 @@ fn a_clean_review_from_before_the_adoption_never_stands_for_the_bots_read() {
     assert_eq!(
         rig.verdict(&runner),
         Some(StepReport::Summoned {
-            issue: 5,
+            issue: ticket(5),
             pull_request: 80,
             head: head.clone(),
         })

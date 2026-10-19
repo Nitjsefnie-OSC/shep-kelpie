@@ -12,6 +12,7 @@ use super::Runner;
 use super::report::StepReport;
 use super::turn::ticket_name;
 use crate::ports::{AgentError, AgentReply, Role};
+use crate::runner::report::ticket_of;
 use crate::skills::split_command;
 use crate::state::StateError;
 use crate::ticket::TicketId;
@@ -63,13 +64,13 @@ impl Runner {
                     };
                 }
                 StepReport::WorkerCompacted {
-                    issue,
+                    issue: ticket_of(issue),
                     session,
                     context,
                 }
             }
             Err(e) => StepReport::WorkerCompactFailed {
-                issue,
+                issue: ticket_of(issue),
                 reason: e.to_string(),
             },
         };

@@ -96,7 +96,7 @@ impl Runner {
         };
         let now = self.ports.clock.now();
         let mut draft = Draft::of(&call, name.as_str(), CallKind::Issues, now);
-        draft.issue = Some(number);
+        draft.issue = Some(issue.ticket);
         let key = Some(number);
         self.flights.ledger.open(key, draft, self.pacer_lines());
         self.call_started(&call, name.as_str());

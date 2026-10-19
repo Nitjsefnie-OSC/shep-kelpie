@@ -11,7 +11,9 @@ use crate::runner::flight::advance;
 use crate::runner::flight::tests::Driven;
 use crate::runner::{Pass, Runner, StepReport, step};
 use crate::settings::Harness;
+use crate::test::ticket;
 use crate::test::{CALL_PATIENCE, Hold, Rig, Scripted, Seen};
+use crate::ticket::TicketId;
 
 use super::HOLD_FOR;
 
@@ -78,7 +80,7 @@ fn answered(report: Option<StepReport>) -> (Vec<String>, Vec<String>, Vec<String
     }
 }
 
-fn dispatched(report: Option<StepReport>) -> u64 {
+fn dispatched(report: Option<StepReport>) -> TicketId {
     match report {
         Some(StepReport::Dispatched { issue, .. }) => issue,
         other => panic!("nothing was dispatched: {other:?}"),
@@ -227,7 +229,7 @@ fn a_free_slot_with_two_ready_issues_wakes_it_and_its_pick_goes_first() {
     assert_eq!((acted, dropped), (vec!["picked #12".to_owned()], vec![]));
     assert_eq!(
         dispatched(step(&runner).unwrap()),
-        12,
+        ticket(12),
         "the rule would take #9"
     );
 
@@ -337,7 +339,7 @@ fn an_answer_naming_what_is_not_on_the_board_is_dropped_and_the_rule_picks() {
             "retry #9: not a stuck work item on the board",
         ]
     );
-    assert_eq!(dispatched(step(&runner).unwrap()), 9);
+    assert_eq!(dispatched(step(&runner).unwrap()), ticket(9));
 }
 
 #[test]
@@ -353,7 +355,7 @@ fn with_the_project_manager_down_the_rule_picks_until_it_is_back() {
         step(&runner).unwrap(),
         Some(StepReport::PmFailed { reason })
     );
-    assert_eq!(dispatched(step(&runner).unwrap()), 9);
+    assert_eq!(dispatched(step(&runner).unwrap()), ticket(9));
     assert_eq!(
         pm_seen(&rig).len(),
         1,
@@ -369,7 +371,7 @@ fn with_no_project_manager_the_rule_picks_and_nothing_wakes() {
     let runner = rig.open().unwrap();
     rig.forge.list_ready(12, false);
     rig.forge.list_ready(9, false);
-    assert_eq!(dispatched(step(&runner).unwrap()), 9);
+    assert_eq!(dispatched(step(&runner).unwrap()), ticket(9));
     assert!(pm_seen(&rig).is_empty());
     let status = rig.ask(&runner, "status", None);
     assert_eq!(status.get("pm"), None);
@@ -398,7 +400,7 @@ fn a_pick_of_none_with_nothing_open_waits_half_an_hour_and_never_stalls() {
     );
 
     rig.clock.advance(31 * 60);
-    assert_eq!(dispatched(step(&runner).unwrap()), 9);
+    assert_eq!(dispatched(step(&runner).unwrap()), ticket(9));
     assert_eq!(pm_seen(&rig).len(), 1);
 }
 
@@ -414,7 +416,7 @@ fn a_hold_over_every_ready_issue_with_nothing_open_goes() {
     assert_eq!(dropped, ["pick #12: it holds #12 too"]);
     assert_eq!(
         dispatched(step(&runner).unwrap()),
-        9,
+        ticket(9),
         "the rule picks past the holds"
     );
     let notes = runner.lock().unwrap().take_notes();

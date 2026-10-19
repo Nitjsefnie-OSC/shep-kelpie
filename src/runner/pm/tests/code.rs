@@ -32,9 +32,10 @@ fn with_open_commit(project: &str, commit: Scripted) -> (Rig, Mutex<Runner>, See
     let failed = AgentError::Failed(Harness::ClaudeCode, "it crashed".into());
     rig.claude
         .script([commit, Scripted::Fail(failed), Scripted::Say(NOTHING)]);
-    step_until(&runner, |r| {
-        matches!(r, StepReport::Failed { issue: 7, .. })
-    });
+    step_until(
+        &runner,
+        |r| matches!(r, StepReport::Failed { issue, .. } if *issue == ticket(7)),
+    );
     past_the_window(&rig);
     answered(Some(step_until(&runner, |r| {
         matches!(r, StepReport::PmAnswered { .. })

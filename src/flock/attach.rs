@@ -1,4 +1,4 @@
-//! `shep kelpie attach <issue>`: the maintainer drives a work item's session
+//! `shep kelpie attach <ticket>`: the maintainer drives a work item's session
 //!
 //! The runner holds the work item for this process, so no call starts for
 //! it, and `attach` asks again while a call in flight runs to its end. Then
@@ -82,21 +82,26 @@ pub(super) async fn drive(
             Attaching::Waiting { issue } => {
                 if !told {
                     say(&format!(
-                        "a call for #{issue} is in flight, and no other starts for it: \
-                         waiting for it to end"
+                        "a call for {} is in flight, and no other starts for it: \
+                         waiting for it to end",
+                        issue.shown()
                     ));
                     told = true;
                 }
                 if !wait().await {
                     let let_go = ask("detach", None).await.err();
                     let why = let_go.map_or(String::new(), |e| format!(" ({e})"));
-                    return Err(format!("stopped waiting, so #{issue} carries on{why}"));
+                    return Err(format!(
+                        "stopped waiting, so {} carries on{why}",
+                        issue.shown()
+                    ));
                 }
             }
         }
     };
     say(&format!(
-        "attached to #{issue}: its worker's session {} in {}, until you exit",
+        "attached to {}: its worker's session {} in {}, until you exit",
+        issue.shown(),
         session.0,
         worktree.display()
     ));
@@ -115,8 +120,9 @@ pub(super) async fn drive(
     // the runner to let go once it ends.
     if let (Err(e), true) = (&ran, began) {
         return Err(format!(
-            "{e}. #{issue} stays held while its session may run, and the runner lets it go \
-             once it has ended"
+            "{e}. {} stays held while its session may run, and the runner lets it go \
+             once it has ended",
+            issue.shown()
         ));
     }
     let detached = ask("detach", None).await;
@@ -127,13 +133,15 @@ pub(super) async fn drive(
     };
     match (ran, detached) {
         (Ok(_), Ok(_)) => Ok(vec![format!(
-            "detached from #{issue}{ended}: its next turn carries on from session {}",
+            "detached from {}{ended}: its next turn carries on from session {}",
+            issue.shown(),
             session.0
         )]),
-        (Err(e), Ok(_)) => Err(format!("{e}, so #{issue} carries on as it was")),
+        (Err(e), Ok(_)) => Err(format!("{e}, so {} carries on as it was", issue.shown())),
         (_, Err(e)) => Err(format!(
-            "cannot let #{issue} go: {e}. The runner lets it go at its next pass once this \
-             command ends"
+            "cannot let {} go: {e}. The runner lets it go at its next pass once this \
+             command ends",
+            issue.shown()
         )),
     }
 }

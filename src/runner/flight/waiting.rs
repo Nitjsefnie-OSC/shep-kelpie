@@ -14,6 +14,7 @@ use super::super::Runner;
 use super::super::report::{ReviewCall, StepReport};
 use super::Launch;
 use crate::ports::{AgentError, AgentReply, CallActivity, SessionId, Timestamp, Wait};
+use crate::runner::report::ticket_of;
 use crate::settings::{AgentHarness, AgentName, GatewayName, LocalRound, ModelHost};
 use crate::state::StateError;
 use crate::ticket::TicketId;
@@ -214,7 +215,7 @@ impl Runner {
         let issue = item.issue;
         let since = waited.unwrap_or(flight.watched.started);
         let report = StepReport::FellBack {
-            issue,
+            issue: ticket_of(issue),
             from,
             to,
             waited: now.0.saturating_sub(since.0),

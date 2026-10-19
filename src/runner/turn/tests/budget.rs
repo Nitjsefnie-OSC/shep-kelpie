@@ -1,6 +1,7 @@
 //! A work item past its spending cap
 
 use super::*;
+use crate::test::ticket;
 
 const DOLLAR: u64 = 1_000_000_000;
 
@@ -22,7 +23,7 @@ fn a_work_item_past_its_cap_raises_a_ruling_before_the_worker_is_called_again() 
     step(&runner).unwrap();
 
     let Some(StepReport::Failed {
-        issue: 7,
+        issue,
         pull_request: None,
         id: 7,
         question,
@@ -31,6 +32,7 @@ fn a_work_item_past_its_cap_raises_a_ruling_before_the_worker_is_called_again() 
     else {
         panic!("the worker was not parked");
     };
+    assert_eq!(issue, ticket(7));
     assert_eq!(
         question,
         "The work on issue #7 has cost $6.00 against its cap of $5.00: the worker $6.00 and \

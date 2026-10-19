@@ -12,6 +12,7 @@ use crate::runner::coderabbit::tests::{hold_a_finding, now, reviewed_by_qwen};
 use crate::runner::coderabbit::{ANSWER_WAIT, REVIEW_WAIT};
 use crate::runner::rework::HUMAN;
 use crate::runner::{CHECKS_SETTLE, Runner, StepReport, step};
+use crate::test::ticket;
 use crate::test::{Rig, Scripted, git};
 
 // The same project restarted under `auto`, as the maintainer would switch
@@ -51,12 +52,12 @@ fn merged(report: Option<StepReport>) -> bool {
     matches!(
         report,
         Some(StepReport::Finished {
-            issue: 7,
+            issue,
             pull_request: Some(71),
             merged: true,
             ..
         })
-    )
+     if issue == ticket(7))
 }
 
 // The id of the ruling a report raised, whichever report carries it
@@ -110,7 +111,7 @@ fn green_gates_merge_with_no_ruling_and_one_notice_after() {
     assert_eq!(
         rig.verdict(&runner),
         Some(StepReport::MarkedReady {
-            issue: 7,
+            issue: ticket(7),
             pull_request: 71,
         })
     );
@@ -125,7 +126,7 @@ fn green_gates_merge_with_no_ruling_and_one_notice_after() {
     assert_eq!(
         step(&runner).unwrap(),
         Some(StepReport::Noticed {
-            issue: 7,
+            issue: ticket(7),
             pull_request: 71,
         })
     );
@@ -170,11 +171,11 @@ fn a_notice_the_webhook_refuses_is_tried_again_across_a_restart_and_posted_once(
     assert!(matches!(
         step(&runner).unwrap(),
         Some(StepReport::NoticeFailed {
-            issue: 7,
+            issue,
             pull_request: 71,
             ..
         })
-    ));
+     if issue == ticket(7)));
     assert_eq!(step(&runner).unwrap(), None, "not before its retry");
     drop(runner);
     rig.alerts.set_down(false);
@@ -182,7 +183,7 @@ fn a_notice_the_webhook_refuses_is_tried_again_across_a_restart_and_posted_once(
     assert_eq!(
         step(&runner).unwrap(),
         Some(StepReport::Noticed {
-            issue: 7,
+            issue: ticket(7),
             pull_request: 71,
         })
     );
@@ -242,7 +243,7 @@ fn a_merge_the_forge_refuses_is_caught_up_once_then_parks_and_a_yes_looks_again(
     assert_eq!(
         step(&runner).unwrap(),
         Some(StepReport::MergeWithdrawn {
-            issue: 7,
+            issue: ticket(7),
             pull_request: 71,
             reason: refused.into(),
         })
@@ -296,7 +297,7 @@ fn a_merge_that_lands_though_the_forge_answers_an_error_still_gets_its_notice() 
     assert_eq!(
         step(&runner).unwrap(),
         Some(StepReport::Noticed {
-            issue: 7,
+            issue: ticket(7),
             pull_request: 71,
         })
     );
@@ -494,7 +495,7 @@ fn a_head_that_moves_while_the_merge_settles_is_not_merged() {
     assert_eq!(
         step(&runner).unwrap(),
         Some(StepReport::MergeWithdrawn {
-            issue: 7,
+            issue: ticket(7),
             pull_request: 71,
             reason: format!("#71 moved to {}", &by_hand[..7]),
         })
@@ -511,7 +512,7 @@ fn a_run_that_goes_red_while_the_merge_settles_is_not_merged() {
     assert_eq!(
         step(&runner).unwrap(),
         Some(StepReport::MergeWithdrawn {
-            issue: 7,
+            issue: ticket(7),
             pull_request: 71,
             reason: "CI on #71 is no longer green".into(),
         })
@@ -534,7 +535,7 @@ fn a_merge_that_lands_after_kelpie_saw_its_error_still_gets_its_notice() {
     assert_eq!(
         step(&runner).unwrap(),
         Some(StepReport::Noticed {
-            issue: 7,
+            issue: ticket(7),
             pull_request: 71,
         })
     );
@@ -587,7 +588,7 @@ fn a_yes_that_vouches_for_a_new_head_sends_it_back_through_every_gate() {
     assert_eq!(
         step(&runner).unwrap(),
         Some(StepReport::Summoned {
-            issue: 7,
+            issue: ticket(7),
             pull_request: 71,
             head: fixed,
         })
@@ -635,7 +636,7 @@ fn a_head_a_yes_under_ask_left_unknown_is_gated_again_after_a_switch_to_auto() {
     assert_eq!(
         rig.verdict(&runner),
         Some(StepReport::Regated {
-            issue: 7,
+            issue: ticket(7),
             pull_request: 71,
             head: fixed.clone(),
         })
@@ -684,7 +685,7 @@ fn a_yes_on_a_refused_rebase_with_no_worker_turn_still_summons_coderabbit() {
     assert_eq!(
         step(&runner).unwrap(),
         Some(StepReport::Summoned {
-            issue: 7,
+            issue: ticket(7),
             pull_request: 71,
             head: fix,
         })
@@ -705,7 +706,7 @@ fn a_merge_that_landed_before_a_switch_to_ask_still_gets_its_notice() {
     assert_eq!(
         step(&runner).unwrap(),
         Some(StepReport::Noticed {
-            issue: 7,
+            issue: ticket(7),
             pull_request: 71,
         })
     );

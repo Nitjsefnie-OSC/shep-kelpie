@@ -52,7 +52,7 @@ fn a_merged_work_item_leaves_a_line_for_each_call_and_one_for_itself() {
         &json!({
             "line": "call",
             "at": Rig::EPOCH,
-            "issue": 7,
+            "issue": "7",
             "pull_request": 71,
             "role": "worker",
             "kind": "turn",
@@ -94,7 +94,7 @@ fn a_merged_work_item_leaves_a_line_for_each_call_and_one_for_itself() {
     assert_eq!(session["pull_request"], 71);
     assert_eq!(
         (&item["line"], &item["issue"], &item["pull_request"]),
-        (&json!("finished"), &json!(7), &json!(71))
+        (&json!("finished"), &json!("7"), &json!(71))
     );
     assert_eq!(
         (&item["merged"], &item["review_rounds"], &item["rulings"]),
@@ -300,7 +300,7 @@ fn a_call_still_in_flight_as_the_runner_stops_is_written_as_stopped() {
     );
     assert_eq!(
         (&line["issue"], &line["agent"]),
-        (&json!(7), &json!("sonnet-high"))
+        (&json!("7"), &json!("sonnet-high"))
     );
     let state = std::fs::read_to_string(rig.paths().state).unwrap();
     let state: Value = serde_json::from_str(&state).unwrap();

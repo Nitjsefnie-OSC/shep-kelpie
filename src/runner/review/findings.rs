@@ -269,6 +269,7 @@ pub(in crate::runner) fn still_failing_prompt(
 
 #[cfg(test)]
 mod tests {
+    use crate::test::ticket;
     use std::os::unix::fs::PermissionsExt;
     use std::sync::Mutex;
 
@@ -567,7 +568,7 @@ mod tests {
         assert_eq!(
             step(&runner).unwrap(),
             Some(StepReport::FixPushed {
-                issue: 7,
+                issue: ticket(7),
                 pull_request: 71,
                 round: 1,
                 head: fixed,
@@ -645,7 +646,7 @@ mod tests {
         assert_eq!(
             step(&runner).unwrap(),
             Some(StepReport::FixPushed {
-                issue: 7,
+                issue: ticket(7),
                 pull_request: 71,
                 round: 1,
                 head: rig.forge.head_of("kelpie/7"),
@@ -677,7 +678,7 @@ mod tests {
         assert_eq!(
             step(&runner).unwrap(),
             Some(StepReport::FindingsDeferred {
-                issue: 7,
+                issue: ticket(7),
                 pull_request: 71,
                 round: 1,
                 deferred: 1,

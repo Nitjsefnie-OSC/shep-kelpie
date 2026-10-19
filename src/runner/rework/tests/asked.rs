@@ -7,6 +7,7 @@ use crate::board::READY;
 use crate::ports::CLEAN;
 use crate::runner::report::ReworkBy;
 use crate::runner::rework::HUMAN;
+use crate::test::ticket;
 
 fn requesting_changes() -> MaintainerReview {
     MaintainerReview {
@@ -25,7 +26,7 @@ fn ready_for_agent_on_a_pull_request_kelpie_opened_starts_its_rework_and_comes_o
     rig.forge.label_pull_request(71, "design");
     let runner = running(&rig);
     let Some(StepReport::Reworked {
-        issue: 7,
+        issue,
         pull_request: 71,
         by: ReworkBy::Label,
         ..
@@ -33,6 +34,7 @@ fn ready_for_agent_on_a_pull_request_kelpie_opened_starts_its_rework_and_comes_o
     else {
         panic!("the label started no rework");
     };
+    assert_eq!(issue, ticket(7));
     assert_eq!(rig.forge.pull_request_labels(71), ["design"]);
     rig.claude.script([Scripted::Push("fix.txt", "fixed\n")]);
     step(&runner).unwrap();
@@ -122,12 +124,10 @@ fn a_rework_that_cannot_start_is_passed_over_for_the_next_and_the_board() {
     );
 
     rig.ask(&runner, "drop", None);
-    let Some(StepReport::Dispatched {
-        issue: 9, skipped, ..
-    }) = step(&runner).unwrap()
-    else {
+    let Some(StepReport::Dispatched { issue, skipped, .. }) = step(&runner).unwrap() else {
         panic!("the board never got its turn");
     };
+    assert_eq!(issue, ticket(9));
     assert_eq!(serde_json::to_value(skipped).unwrap(), skip);
 }
 

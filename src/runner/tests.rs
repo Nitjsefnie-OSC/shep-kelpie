@@ -1,10 +1,14 @@
 use serde_json::json;
 
+use std::num::NonZeroU64;
+
 use super::*;
 use crate::ports::Visibility;
 use crate::runner::step;
 use crate::state::VERSION;
-use crate::test::{Rig, git, ticket};
+use crate::test::ticket;
+use crate::test::{Rig, git};
+use crate::ticket::TicketId;
 
 // A project saved paused by an older kelpie runs once its runner starts.
 #[test]
@@ -57,8 +61,8 @@ fn a_project_saved_paused_reads_the_board_on_its_first_pass() {
     let runner = rig.open().unwrap();
     rig.forge.list_ready(7, false);
     assert!(matches!(
-        step(&runner).unwrap(),
-        Some(StepReport::Dispatched { issue: 7, .. })
+       step(&runner).unwrap(),
+       Some(StepReport::Dispatched { issue, .. }) if issue == ticket(7)
     ));
     let status = rig.ask(&runner, "status", None);
     assert_eq!(status["work_item"]["issue"], 7);
@@ -265,6 +269,39 @@ fn a_runner_logs_no_json_object_at_its_start_or_a_dispatch() {
     assert!(lines[0].starts_with("up: koji"), "{}", lines[0]);
     assert!(lines[1].starts_with("#7 dispatched to "), "{}", lines[1]);
     assert!(lines[1].ends_with(')'), "the model's effort: {}", lines[1]);
+}
+
+// A GitHub ticket's line keeps the `#` it has always had. A local ticket has
+// no issue number to show, so its id stands on its own in both logs.
+#[test]
+fn a_step_names_its_work_item_by_ticket_id_in_words_and_in_json() {
+    let rig = Rig::new("koji");
+    let opened = rig.open().unwrap();
+    let mut runner = opened.lock().unwrap();
+    let local = TicketId::Local(NonZeroU64::new(12).unwrap());
+
+    let github = StepReport::GateFailed {
+        issue: ticket(7),
+        reason: "the forge is down".to_owned(),
+    };
+    assert_eq!(
+        runner.log_step(&github),
+        "#7 gate-failed reason=the forge is down"
+    );
+    assert_eq!(serde_json::to_value(&github).unwrap()["issue"], json!("7"));
+
+    let local_item = StepReport::GateFailed {
+        issue: local,
+        reason: "the forge is down".to_owned(),
+    };
+    assert_eq!(
+        runner.log_step(&local_item),
+        "k12 gate-failed reason=the forge is down"
+    );
+    assert_eq!(
+        serde_json::to_value(&local_item).unwrap()["issue"],
+        json!("k12")
+    );
 }
 
 #[test]

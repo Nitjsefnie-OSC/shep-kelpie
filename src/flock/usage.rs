@@ -12,6 +12,7 @@ use std::path::Path;
 
 use crate::forge_ledger;
 use crate::runner::ProjectName;
+use crate::ticket::TicketId;
 use crate::usage::{self, baselines};
 
 /// What `usage` was asked for
@@ -21,7 +22,7 @@ enum Ask<'a> {
     Import { log: &'a str },
     OpenMetrics,
     Forge { since: Option<&'a str> },
-    Item { issue: u64, json: bool },
+    Item { ticket: TicketId, json: bool },
     Context { since: Option<&'a str>, json: bool },
     Reads { since: Option<&'a str>, json: bool },
 }
@@ -50,9 +51,9 @@ pub(super) fn usage(
                 .map_err(|e| format!("cannot read {}: {e}", path.display()))?;
             Ok(forge_ledger::report(&lines, since))
         }
-        Ask::Item { issue, json } => {
+        Ask::Item { ticket, json } => {
             let (project, lines, steps) = own_files(kelpie_home, project, "--item")?;
-            Ok(usage::item(&project, &lines, &steps, issue, json))
+            Ok(usage::item(&project, &lines, &steps, ticket, json))
         }
         Ask::Context { since, json } => {
             let since = since.map(since_date).transpose()?;
@@ -129,9 +130,11 @@ fn read_args<'a>(
             "--since" => since = Some(words.next().ok_or(super::USAGE)?),
             "--import" => import = Some(words.next().ok_or(super::USAGE)?),
             "--item" => {
-                let issue = words.next().ok_or(super::USAGE)?;
-                let number = issue.parse::<u64>().ok().filter(|&n| n > 0);
-                item = Some(number.ok_or_else(|| format!("{issue:?} is not an issue number"))?);
+                let word = words.next().ok_or(super::USAGE)?;
+                let ticket = word
+                    .parse::<TicketId>()
+                    .map_err(|_| format!("{word:?} is not a ticket id"))?;
+                item = Some(ticket);
             }
             "--forge" => forge = true,
             "--openmetrics" => openmetrics = true,
@@ -157,7 +160,7 @@ fn read_args<'a>(
     let ask = match (import, forge, item, context, reads, openmetrics) {
         (Some(log), ..) if since.is_none() && !json => Ask::Import { log },
         (_, true, ..) if !json => Ask::Forge { since },
-        (_, _, Some(issue), ..) if since.is_none() => Ask::Item { issue, json },
+        (_, _, Some(ticket), ..) if since.is_none() => Ask::Item { ticket, json },
         (_, _, _, true, ..) => Ask::Context { since, json },
         (_, _, _, _, true, _) => Ask::Reads { since, json },
         (.., true) if since.is_none() && !json => Ask::OpenMetrics,

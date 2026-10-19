@@ -15,6 +15,7 @@ use super::Runner;
 use super::pm::Choice;
 use super::report::{Begin, StepReport};
 use crate::board::{self, ReadyIssue, Skip};
+use crate::runner::report::ticket_of;
 use crate::state::StateError;
 use crate::ticket::{TicketId, issue_numbers, ticket_ids};
 
@@ -187,7 +188,7 @@ impl Runner {
                 Ok(agent) => {
                     self.set_skipped(skipped.clone());
                     return Ok(Begin::Report(StepReport::Dispatched {
-                        issue,
+                        issue: ticket_of(issue),
                         agent,
                         skipped,
                     }));
@@ -352,8 +353,8 @@ mod tests {
         rig.forge.close_issue(32);
         rig.next_look();
         assert!(matches!(
-            step(&runner).unwrap(),
-            Some(StepReport::Dispatched { issue: 9, .. })
+           step(&runner).unwrap(),
+           Some(StepReport::Dispatched { issue, .. }) if issue == ticket(9)
         ));
     }
 
@@ -424,8 +425,8 @@ mod tests {
         rig.forge.list_ready(7, false);
         rig.next_look();
         assert!(matches!(
-            step(&runner).unwrap(),
-            Some(StepReport::Dispatched { issue: 7, .. })
+           step(&runner).unwrap(),
+           Some(StepReport::Dispatched { issue, .. }) if issue == ticket(7)
         ));
     }
 
@@ -455,7 +456,7 @@ mod tests {
             Some(StepReport::Dispatched { issue, .. }) => Some(issue),
             _ => None,
         });
-        assert_eq!(picked, Some(8));
+        assert_eq!(picked, Some(ticket(8)));
     }
 
     #[test]
@@ -505,7 +506,7 @@ mod tests {
         assert_eq!(
             step(&runner).unwrap(),
             Some(StepReport::Dispatched {
-                issue: 9,
+                issue: ticket(9),
                 agent: sonnet_high(),
                 skipped: vec![],
             })
@@ -523,7 +524,7 @@ mod tests {
         assert_eq!(
             step(&runner).unwrap(),
             Some(StepReport::Dispatched {
-                issue: 12,
+                issue: ticket(12),
                 agent: sonnet_high(),
                 skipped: vec![],
             })
@@ -548,7 +549,7 @@ mod tests {
         assert_eq!(
             step(&runner).unwrap(),
             Some(StepReport::Dispatched {
-                issue: 5,
+                issue: ticket(5),
                 agent: sonnet_high(),
                 skipped: vec![
                     Skip::PullRequest {
@@ -695,8 +696,8 @@ mod tests {
         let runner = rig.open().unwrap();
         rig.forge.list_ready(2, false);
         assert!(matches!(
-            step(&runner).unwrap(),
-            Some(StepReport::Dispatched { issue: 2, .. })
+           step(&runner).unwrap(),
+           Some(StepReport::Dispatched { issue, .. }) if issue == ticket(2)
         ));
         assert_eq!(rig.ask(&runner, "status", None)["work_item"]["issue"], 2);
     }
@@ -717,8 +718,8 @@ mod tests {
         rig.forge.set_board_down(false);
         rig.next_look();
         assert!(matches!(
-            step(&runner).unwrap(),
-            Some(StepReport::Dispatched { issue: 2, .. })
+           step(&runner).unwrap(),
+           Some(StepReport::Dispatched { issue, .. }) if issue == ticket(2)
         ));
     }
 
@@ -752,7 +753,7 @@ mod tests {
         assert_eq!(
             step(&runner).unwrap(),
             Some(StepReport::Dispatched {
-                issue: 6,
+                issue: ticket(6),
                 agent: sonnet_high(),
                 skipped: vec![skip],
             })
@@ -803,7 +804,7 @@ mod tests {
         assert_eq!(
             step(&runner).unwrap(),
             Some(StepReport::Dispatched {
-                issue: 9,
+                issue: ticket(9),
                 agent: sonnet_high(),
                 skipped: vec![Skip::Blocked {
                     issue: ticket(8),
@@ -836,8 +837,8 @@ mod tests {
         rig.forge.close_issue(32);
         rig.next_look();
         assert!(matches!(
-            step(&runner).unwrap(),
-            Some(StepReport::Dispatched { issue: 8, .. })
+           step(&runner).unwrap(),
+           Some(StepReport::Dispatched { issue, .. }) if issue == ticket(8)
         ));
         assert_eq!(rig.ask(&runner, "status", None)["skipped"], json!([]));
     }

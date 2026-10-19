@@ -10,6 +10,7 @@ use crate::ports::CLEAN;
 use crate::review_bot::Bot;
 use crate::runner::coderabbit::tests::now;
 use crate::runner::{Runner, StepReport, step};
+use crate::test::ticket;
 use crate::test::{Rig, Scripted};
 
 const MONTH: u64 = 720 * 3600;
@@ -39,7 +40,7 @@ fn adopted_by_both(rig: &Rig) -> (Mutex<Runner>, String) {
 
 fn summoned_80(head: &str) -> Option<StepReport> {
     Some(StepReport::Summoned {
-        issue: 5,
+        issue: ticket(5),
         pull_request: 80,
         head: head.to_owned(),
     })

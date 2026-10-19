@@ -14,6 +14,7 @@
 //! counting them. Each check that got an answer is a ledger line of its own, and
 //! spends no place of a triage cap.
 
+use crate::test::ticket;
 use std::sync::Mutex;
 
 use serde_json::{Value, json};
@@ -634,7 +635,7 @@ fn each_check_is_on_the_ledger_as_a_spam_check() {
     assert_eq!(checks.len(), 2, "one line for each check");
     assert_eq!(
         checks.iter().map(|c| c.issue).collect::<Vec<_>>(),
-        [Some(30), Some(31)],
+        [Some(ticket(30)), Some(ticket(31))],
         "the issue it asked about, which is what a triager line names"
     );
     assert_eq!(
@@ -642,7 +643,7 @@ fn each_check_is_on_the_ledger_as_a_spam_check() {
             .filter(|c| c.kind == CallKind::Triage)
             .map(|c| c.issue)
             .collect::<Vec<_>>(),
-        [Some(31)],
+        [Some(ticket(31))],
         "the research line of the issue that was researched names its own the same way"
     );
     assert!(

@@ -31,6 +31,7 @@ use crate::board::{LabelError, OpenPullRequest, READY, Skip};
 use crate::ports::{
     ForgeError, Issue, MaintainerReview, PullRequestState, Reviewed, Role, Timestamp,
 };
+use crate::runner::report::ticket_of;
 use crate::settings::AgentName;
 use crate::state::{How, Ruling, RulingKind, StateError, Stuck, Waiting};
 use crate::ticket::TicketId;
@@ -240,7 +241,7 @@ impl Runner {
                 Ok((issue, agent)) => {
                     self.adopt_failing.remove(&number);
                     Begin::Report(StepReport::Adopted {
-                        issue,
+                        issue: ticket_of(issue),
                         pull_request: number,
                         agent,
                     })

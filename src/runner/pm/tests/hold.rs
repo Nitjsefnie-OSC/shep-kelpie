@@ -8,7 +8,7 @@ use crate::ports::{AgentError, CallActivity, Session, Timestamp};
 use crate::runner::flight::advance;
 use crate::runner::{Pass, Runner, StepReport, step};
 use crate::settings::Harness;
-use crate::test::{CALL_PATIENCE, Hold, Rig, Scripted, Seen};
+use crate::test::{CALL_PATIENCE, Hold, Rig, Scripted, Seen, ticket};
 
 use super::{PICK_12, answered, dispatched, past_the_window, pm_seen, step_until, with_pm};
 use crate::runner::pm::HOLD_FOR;
@@ -54,9 +54,10 @@ fn two_items_a_minute_apart(project: &str) -> (Rig, Mutex<Runner>) {
     rig.clock.advance(60);
     rig.claude.script([Scripted::Fail(failed())]);
     rig.ask(&runner, "add", Some("9"));
-    step_until(&runner, |r| {
-        matches!(r, StepReport::Failed { issue: 9, .. })
-    });
+    step_until(
+        &runner,
+        |r| matches!(r, StepReport::Failed { issue, .. } if *issue == ticket(9)),
+    );
     (rig, runner)
 }
 
@@ -146,7 +147,7 @@ fn a_free_slot_wakes_it_at_once() {
         "the free slot went at once, carrying what was held"
     );
     assert_eq!(acted, ["picked #12".to_owned()]);
-    assert_eq!(dispatched(step(&runner).unwrap()), 12);
+    assert_eq!(dispatched(step(&runner).unwrap()), ticket(12));
 }
 
 #[test]
@@ -297,7 +298,7 @@ fn an_item_that_turns_stuck_inside_the_window_is_woken_for_as_the_board_reads_it
     work.release();
     let failed = step_until(&runner, |r| matches!(r, StepReport::Failed { .. }));
     assert!(
-        matches!(failed, StepReport::Failed { issue: 7, .. }),
+        matches!(failed, StepReport::Failed { issue, .. } if issue == ticket(7)),
         "{failed:?}"
     );
 
@@ -330,9 +331,10 @@ fn a_wake_whose_session_cannot_resume_starts_a_new_one_without_waiting_again() {
     // resume. Its reason had already waited, so it waits none again.
     rig.clock.advance(60);
     rig.ask(&runner, "add", Some("9"));
-    step_until(&runner, |r| {
-        matches!(r, StepReport::Failed { issue: 9, .. })
-    });
+    step_until(
+        &runner,
+        |r| matches!(r, StepReport::Failed { issue, .. } if *issue == ticket(9)),
+    );
     past_the_window(&rig);
 
     let report = step_until(&runner, |r| {

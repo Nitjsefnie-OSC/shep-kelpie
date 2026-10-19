@@ -801,7 +801,7 @@ impl Runner {
         WorkItemStatus {
             waiting: ticket.and_then(|t| self.model_wait(t)),
             held_up: ticket.and_then(|t| self.held_up.of(t)),
-            build_bytes: self.builds.folder_bytes(item.issue),
+            build_bytes: ticket.and_then(|ticket| self.builds.folder_bytes(ticket)),
             ..WorkItemStatus::new(item, self.settings.budget.per_item_usd, split)
         }
     }

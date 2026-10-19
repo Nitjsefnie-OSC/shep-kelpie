@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::ports::{Finding, Severity, Timestamp};
 use crate::runner::StepReport;
+use crate::ticket::TicketId;
 
 /// One thing that happened
 // wire format: changing this is a breaking change to the journal
@@ -28,33 +29,40 @@ pub(in crate::runner) enum Entry {
         dropped: Vec<String>,
     },
     /// CI failed on a work item's pull request
-    CiFailed { issue: u64, checks: Vec<String> },
+    CiFailed {
+        issue: TicketId,
+        checks: Vec<String>,
+    },
     /// CI failed on a work item's pull request with a log that named no file
     /// the branch changed, and these are the tests the log shows failing
-    CiOutsideDiff { issue: u64, tests: Vec<String> },
+    CiOutsideDiff { issue: TicketId, tests: Vec<String> },
     /// A work item's branch was rebased onto `main`
-    Rebased { issue: u64 },
+    Rebased { issue: TicketId },
     /// A work item's branch conflicted with `main`
-    Conflicted { issue: u64, files: Vec<String> },
+    Conflicted { issue: TicketId, files: Vec<String> },
     /// A review round reported findings
     Round {
-        issue: u64,
+        issue: TicketId,
         round: u32,
         reviewer: String,
         findings: usize,
     },
     /// A round's findings went to the worker's fix turn
-    FindingsSent { issue: u64, round: u32, held: usize },
+    FindingsSent {
+        issue: TicketId,
+        round: u32,
+        held: usize,
+    },
     /// The findings a round sent to the worker, as the worker was sent them
     Findings {
-        issue: u64,
+        issue: TicketId,
         round: u32,
         findings: Vec<Held>,
     },
     /// What slowed a work item's worker down, from its pull request's body
-    Friction { issue: u64, text: String },
+    Friction { issue: TicketId, text: String },
     /// A batch retro started over the work items finished until now
-    Retro { issues: Vec<u64> },
+    Retro { issues: Vec<TicketId> },
 }
 
 /// A finding as the journal keeps it: where it is and what is wrong, no more
@@ -140,10 +148,10 @@ impl Entry {
         })
     }
 
-    /// Whether the entry is about work item `issue`
+    /// Whether the entry is about the work item for `ticket`
     ///
-    /// A wake is about the work items it names, as `#<issue>`.
-    pub(super) fn names(&self, issue: u64) -> bool {
+    /// A wake is about the work items it names by id.
+    pub(super) fn names(&self, ticket: TicketId) -> bool {
         match self {
             Self::Wake {
                 woke_for,
@@ -154,7 +162,7 @@ impl Entry {
                 .iter()
                 .chain(acted)
                 .chain(dropped)
-                .any(|text| mentions(text, issue)),
+                .any(|text| mentions(text, ticket)),
             Self::CiFailed { issue: n, .. }
             | Self::Rebased { issue: n }
             | Self::Conflicted { issue: n, .. }
@@ -162,18 +170,24 @@ impl Entry {
             | Self::Findings { issue: n, .. }
             | Self::Round { issue: n, .. }
             | Self::FindingsSent { issue: n, .. }
-            | Self::Friction { issue: n, .. } => *n == issue,
-            Self::Retro { issues } => issues.contains(&issue),
+            | Self::Friction { issue: n, .. } => *n == ticket,
+            Self::Retro { issues } => issues.contains(&ticket),
         }
     }
 }
 
-// Whether `text` names `#<issue>` as a whole number
-fn mentions(text: &str, issue: u64) -> bool {
-    let tag = format!("#{issue}");
+// Whether `text` names `ticket` as a whole id, and not a piece of a longer one.
+// A GitHub ticket's `#` is its own start boundary, so only its digits need
+// keeping there. A local id is letters and digits at both ends, so `disk12`
+// and `k12x` are not `k12`, and neither is `1k12`.
+fn mentions(text: &str, ticket: TicketId) -> bool {
+    let tag = ticket.shown();
+    let local = matches!(ticket, TicketId::Local(_));
+    let runs_on = |c: char| c.is_ascii_digit() || (local && c.is_ascii_alphabetic());
     text.match_indices(&tag).any(|(at, _)| {
+        let before = text[..at].chars().next_back();
         let after = text[at + tag.len()..].chars().next();
-        !after.is_some_and(|c| c.is_ascii_digit())
+        !(local && before.is_some_and(runs_on)) && !after.is_some_and(runs_on)
     })
 }
 
@@ -212,6 +226,7 @@ pub(in crate::runner) fn read(file: &Path) -> Vec<Stamped> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test::ticket;
 
     fn wake(woke_for: &str) -> Entry {
         Entry::Wake {
@@ -222,11 +237,24 @@ mod tests {
     }
 
     #[test]
-    fn a_wake_names_an_issue_only_by_its_whole_number() {
+    fn a_wake_names_a_work_item_only_by_its_whole_ticket_id() {
         let entry = wake("#12 conflicts with main");
-        assert!(entry.names(12));
-        assert!(!entry.names(1));
-        assert!(!entry.names(123));
+        assert!(entry.names(ticket(12)));
+        assert!(!entry.names(ticket(1)));
+        assert!(!entry.names(ticket(123)));
+        let entry = wake("k12 conflicts with main");
+        assert!(entry.names("k12".parse().unwrap()));
+        assert!(!entry.names("k123".parse().unwrap()));
+        // A local id is letters and digits, so a word that ends in it is not
+        // the id, and neither is an id that starts inside a longer one.
+        let entry = wake("disk12 usage is high");
+        assert!(!entry.names("k12".parse().unwrap()), "{entry:?}");
+        let entry = wake("1k12 usage is high");
+        assert!(!entry.names("k12".parse().unwrap()), "{entry:?}");
+        let entry = wake("k12x stalled and 1k12 too");
+        assert!(!entry.names("k12".parse().unwrap()), "{entry:?}");
+        let entry = wake("the k12 retro, and k12 too");
+        assert!(entry.names("k12".parse().unwrap()), "{entry:?}");
     }
 
     #[test]
@@ -234,7 +262,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("journal.jsonl");
         let at = |n| Timestamp(n);
-        append(&file, at(1), Entry::Rebased { issue: 3 }).unwrap();
+        append(&file, at(1), Entry::Rebased { issue: ticket(3) }).unwrap();
         std::fs::write(
             &file,
             format!("{}not json\n", std::fs::read_to_string(&file).unwrap()),
@@ -248,13 +276,32 @@ mod tests {
             [
                 Stamped {
                     at: at(1),
-                    entry: Entry::Rebased { issue: 3 }
+                    entry: Entry::Rebased { issue: ticket(3) }
                 },
                 Stamped {
                     at: at(2),
                     entry: wake("#3 stuck")
                 },
             ]
+        );
+    }
+
+    // The journal a kelpie that keyed its entries by issue number wrote.
+    #[test]
+    fn a_journal_line_that_kept_an_issue_number_reads_as_that_github_ticket() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("journal.jsonl");
+        std::fs::write(
+            &file,
+            "{\"at\":1,\"entry\":{\"entry\":\"rebased\",\"issue\":3}}\n",
+        )
+        .unwrap();
+        assert_eq!(
+            read(&file),
+            [Stamped {
+                at: Timestamp(1),
+                entry: Entry::Rebased { issue: ticket(3) }
+            }]
         );
     }
 

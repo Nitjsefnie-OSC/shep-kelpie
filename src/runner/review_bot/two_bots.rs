@@ -14,6 +14,7 @@ use crate::review_bot::{Bot, Reviewers};
 use crate::runner::coderabbit::tests::now;
 use crate::runner::{Runner, StepReport, step};
 use crate::settings::AgentName;
+use crate::test::ticket;
 use crate::test::{Rig, Scripted, Told};
 
 const MONTH: u64 = 720 * 3600;
@@ -94,7 +95,7 @@ pub(super) fn comments_of(rig: &Rig, text: &str) -> usize {
 
 pub(super) fn summoned(head: &str) -> Option<StepReport> {
     Some(StepReport::Summoned {
-        issue: 7,
+        issue: ticket(7),
         pull_request: 71,
         head: head.to_owned(),
     })
@@ -102,7 +103,7 @@ pub(super) fn summoned(head: &str) -> Option<StepReport> {
 
 pub(super) fn bot_reviewed(round: u32, bot: &'static str, open: usize) -> Option<StepReport> {
     Some(StepReport::BotReviewed {
-        issue: 7,
+        issue: ticket(7),
         pull_request: 71,
         round,
         reviewer: AgentName::kelpies(bot),
@@ -221,7 +222,7 @@ fn a_cubic_refusal_closes_its_window_for_its_span_and_the_pass_goes_on_to_codera
     assert_eq!(
         step(&runner).unwrap(),
         Some(StepReport::ReviewerSkipped {
-            issue: 7,
+            issue: ticket(7),
             pull_request: 71,
             round: 3,
             reviewer: AgentName::kelpies("cubic"),
@@ -303,7 +304,7 @@ fn an_adopted_pull_request_gets_a_pass_of_the_listed_bots() {
     );
     assert_eq!(status["work_item"]["phase"]["bots_only"], true);
     let summoned_80 = Some(StepReport::Summoned {
-        issue: 5,
+        issue: ticket(5),
         pull_request: 80,
         head: head.clone(),
     });
@@ -358,7 +359,7 @@ fn a_bot_dropped_mid_round_gives_its_lease_back_when_the_work_item_ends() {
     assert_eq!(
         step(&runner).unwrap(),
         Some(StepReport::Summoned {
-            issue: 8,
+            issue: ticket(8),
             pull_request: 81,
             head,
         })

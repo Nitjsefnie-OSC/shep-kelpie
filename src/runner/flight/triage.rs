@@ -21,6 +21,7 @@ use super::{End, News};
 use crate::metrics::Recorder;
 use crate::ports::{AgentCall, AgentError, Agents, Ending, Timestamp};
 use crate::state::StateError;
+use crate::ticket::TicketId;
 use crate::usage::{CallKind, Draft};
 use crate::worktree;
 
@@ -122,7 +123,7 @@ impl Runner {
         } = job;
         let now = self.ports.clock.now();
         let mut draft = Draft::of(&research.call, &agent, CallKind::Triage, now);
-        draft.issue = Some(issue);
+        draft.issue = TicketId::from_issue(issue);
         let key = KEY;
         self.flights.ledger.open(key, draft, self.pacer_lines());
         self.call_started(&research.call, &agent);

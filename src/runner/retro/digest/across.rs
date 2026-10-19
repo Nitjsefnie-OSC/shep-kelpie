@@ -7,11 +7,12 @@ use std::fmt::Write;
 use super::{Records, mine};
 use crate::runner::retro::flakes;
 use crate::runner::retro::journal::{Entry, Stamped};
+use crate::ticket::TicketId;
 
 /// The section, with a line for each of the four
 pub(super) fn section(out: &mut String, records: &Records<'_>) {
-    let items: Vec<(u64, Vec<&Stamped>)> = (records.batch.iter())
-        .map(|f| (f.issue, mine(records, f)))
+    let items: Vec<(TicketId, Vec<&Stamped>)> = (records.batch.iter())
+        .filter_map(|f| Some((f.ticket()?, mine(records, f))))
         .collect();
     let _ = writeln!(out, "## Across the batch");
     conflicts(out, &items);
@@ -22,8 +23,8 @@ pub(super) fn section(out: &mut String, records: &Records<'_>) {
 }
 
 // How often each file conflicted, and on which work items, most first
-fn conflicts(out: &mut String, items: &[(u64, Vec<&Stamped>)]) {
-    let mut files: BTreeMap<&str, (usize, BTreeSet<u64>)> = BTreeMap::new();
+fn conflicts(out: &mut String, items: &[(TicketId, Vec<&Stamped>)]) {
+    let mut files: BTreeMap<&str, (usize, BTreeSet<TicketId>)> = BTreeMap::new();
     for (issue, mine) in items {
         for stamped in mine {
             if let Entry::Conflicted { files: named, .. } = &stamped.entry {
@@ -52,17 +53,17 @@ fn conflicts(out: &mut String, items: &[(u64, Vec<&Stamped>)]) {
     }
 }
 
-fn rounds(out: &mut String, items: &[(u64, Vec<&Stamped>)]) {
+fn rounds(out: &mut String, items: &[(TicketId, Vec<&Stamped>)]) {
     let _ = writeln!(out, "- Review rounds per work item:");
     for (issue, mine) in items {
         let count = (mine.iter())
             .filter(|s| matches!(s.entry, Entry::Round { .. }))
             .count();
-        let _ = writeln!(out, "  - #{issue}: {count}");
+        let _ = writeln!(out, "  - {}: {count}", issue.shown());
     }
 }
 
-fn flaky(out: &mut String, items: &[(u64, Vec<&Stamped>)]) {
+fn flaky(out: &mut String, items: &[(TicketId, Vec<&Stamped>)]) {
     let entries = items.iter().flat_map(|(_, m)| m.iter().map(|s| &s.entry));
     let known = flakes::known(entries);
     if known.is_empty() {
@@ -71,23 +72,23 @@ fn flaky(out: &mut String, items: &[(u64, Vec<&Stamped>)]) {
     }
     let _ = writeln!(out, "- Known flakes:");
     for flake in known {
-        let issues: BTreeSet<u64> = flake.issues.into_iter().collect();
+        let issues: BTreeSet<TicketId> = flake.issues.into_iter().collect();
         let _ = writeln!(out, "  - {}: {}", flake.test, issue_list(&issues));
     }
 }
 
 // Each open known gap, with the work items whose friction or wakes name it
-fn gaps(out: &mut String, records: &Records<'_>, items: &[(u64, Vec<&Stamped>)]) {
+fn gaps(out: &mut String, records: &Records<'_>, items: &[(TicketId, Vec<&Stamped>)]) {
     if records.gaps.is_empty() {
         return;
     }
-    let texts: Vec<(u64, String)> = (items.iter())
+    let texts: Vec<(TicketId, String)> = (items.iter())
         .map(|(issue, mine)| (*issue, text_of(mine).to_lowercase()))
         .collect();
     let mut lines = String::new();
     for gap in records.gaps {
         let gap_lower = gap.to_lowercase();
-        let named: BTreeSet<u64> = (texts.iter())
+        let named: BTreeSet<TicketId> = (texts.iter())
             .filter(|(_, text)| text.contains(&gap_lower))
             .map(|(issue, _)| *issue)
             .collect();
@@ -130,7 +131,7 @@ fn text_of(mine: &[&Stamped]) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-fn issue_list(issues: &BTreeSet<u64>) -> String {
-    let named: Vec<String> = issues.iter().map(|n| format!("#{n}")).collect();
+fn issue_list(issues: &BTreeSet<TicketId>) -> String {
+    let named: Vec<String> = issues.iter().map(TicketId::shown).collect();
     named.join(", ")
 }

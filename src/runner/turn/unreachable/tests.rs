@@ -10,6 +10,7 @@ use super::super::tests::{usage, with_issue_7};
 use crate::ports::{AgentError, Cost};
 use crate::runner::{Runner, StepReport, step};
 use crate::settings::Harness;
+use crate::test::ticket;
 use crate::test::{Hold, Rig, Scripted};
 use crate::usage::{FILE, read};
 
@@ -46,8 +47,8 @@ fn a_502_then_a_reply_ends_the_turn_with_no_ruling() {
 
     rig.clock.advance(1);
     assert!(matches!(
-        step(&runner).unwrap(),
-        Some(StepReport::Ended { issue: 7, .. })
+       step(&runner).unwrap(),
+       Some(StepReport::Ended { issue, .. }) if issue == ticket(7)
     ));
     assert_eq!(rig.claude.calls().len(), 2);
     assert_eq!(rulings(&rig, &runner), 0);
@@ -113,7 +114,7 @@ fn a_host_that_stays_down_past_the_limit_raises_one_turn_failed_ruling_with_the_
     else {
         panic!("the host stayed down and nothing was raised: {report:?}");
     };
-    assert_eq!(issue, 7);
+    assert_eq!(issue, ticket(7));
     // The first retry at or after the limit, a pause of 5 minutes at the most.
     assert!((LIMIT..LIMIT + 300).contains(&waited), "{waited}s");
     let calls = rig.claude.calls().len();
@@ -143,8 +144,8 @@ fn an_error_that_is_not_about_reaching_the_engine_still_parks_at_once() {
         r#"400 "bad request""#.into(),
     ))]);
     assert!(matches!(
-        step(&runner).unwrap(),
-        Some(StepReport::Failed { issue: 7, .. })
+       step(&runner).unwrap(),
+       Some(StepReport::Failed { issue, .. }) if issue == ticket(7)
     ));
     assert_eq!(rulings(&rig, &runner), 1);
     rig.clock.advance(3600);
@@ -250,8 +251,8 @@ fn a_retry_that_ran_a_long_while_before_its_502_begins_a_new_wait() {
     );
     rig.clock.advance(30);
     assert!(matches!(
-        step(&runner).unwrap(),
-        Some(StepReport::Ended { issue: 7, .. })
+       step(&runner).unwrap(),
+       Some(StepReport::Ended { issue, .. }) if issue == ticket(7)
     ));
 }
 

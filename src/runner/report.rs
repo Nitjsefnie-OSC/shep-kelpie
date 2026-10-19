@@ -14,6 +14,7 @@ use crate::ports::{
     AgentCall, Cost, Finding, Role, RoundEnd, SessionId, Timestamp, Transcript, Usage,
 };
 use crate::settings::{AgentName, LocalRound};
+use crate::ticket::TicketId;
 use crate::work_item::{QwenTally, Spend, Split, TestCheck};
 
 fn none_left(n: &usize) -> bool {
@@ -36,8 +37,8 @@ pub enum ReworkBy {
 pub enum StepReport {
     /// The board's oldest free issue opened a work item
     Dispatched {
-        /// The work item's issue
-        issue: u64,
+        /// The work item's ticket
+        issue: TicketId,
         /// The implementer its worker runs on
         agent: AgentName,
         /// Older ready issues the board passed over, and why
@@ -63,8 +64,8 @@ pub enum StepReport {
     /// A work item's first turn waited for its model past
     /// `agents.fallback_after`, and moved to the next implementer listed
     FellBack {
-        /// The work item's issue
-        issue: u64,
+        /// The work item's ticket
+        issue: TicketId,
         /// The implementer its first turn waited on
         from: AgentName,
         /// The implementer its next turn runs on
@@ -75,8 +76,8 @@ pub enum StepReport {
     /// A pull request kelpie opened asked for a rework, which opened a work
     /// item
     Reworked {
-        /// The work item's issue
-        issue: u64,
+        /// The work item's ticket
+        issue: TicketId,
         /// The pull request
         pull_request: u64,
         /// The implementer its worker runs on
@@ -87,8 +88,8 @@ pub enum StepReport {
     },
     /// An adopted pull request opened a work item
     Adopted {
-        /// The work item's issue: the one the pull request closes
-        issue: u64,
+        /// The work item's ticket: the one its pull request closes
+        issue: TicketId,
         /// The pull request
         pull_request: u64,
         /// The implementer its worker runs on
@@ -146,8 +147,8 @@ pub enum StepReport {
     },
     /// A turn ended and its call was recorded
     Ended {
-        /// The work item's issue
-        issue: u64,
+        /// The work item's ticket
+        issue: TicketId,
         /// The worker's session
         session: SessionId,
         /// What the call used
@@ -162,8 +163,8 @@ pub enum StepReport {
     },
     /// A turn ended on the worker's question, and the worker is parked on it
     Asked {
-        /// The work item's issue
-        issue: u64,
+        /// The work item's ticket
+        issue: TicketId,
         /// The worker's session
         session: SessionId,
         /// What the call used
@@ -184,8 +185,8 @@ pub enum StepReport {
     },
     /// A turn could not run, and is parked on a ruling
     Failed {
-        /// The work item's issue
-        issue: u64,
+        /// The work item's ticket
+        issue: TicketId,
         /// The worker's draft pull request, once it has opened one
         pull_request: Option<u64>,
         /// The ruling's id
@@ -197,8 +198,8 @@ pub enum StepReport {
     },
     /// A turn ran past its ceiling, was stopped, and is parked on a ruling
     TimedOut {
-        /// The work item's issue
-        issue: u64,
+        /// The work item's ticket
+        issue: TicketId,
         /// The worker's session, which the ruling's yes resumes
         session: SessionId,
         /// The worker's draft pull request, once it has opened one
@@ -214,15 +215,15 @@ pub enum StepReport {
     /// from the worker's `pull-request.md`, and the refusal is the worker's
     /// next turn
     PullRequestNotOpened {
-        /// The work item's issue
-        issue: u64,
+        /// The work item's ticket
+        issue: TicketId,
         /// Why, as the forge, the guard or a project's hook refused it
         reason: String,
     },
     /// CI failed, and the failure is the worker's next turn
     CiFailed {
-        /// The work item's issue
-        issue: u64,
+        /// The work item's ticket
+        issue: TicketId,
         /// Its pull request
         pull_request: u64,
         /// The head CI ran on
@@ -233,8 +234,8 @@ pub enum StepReport {
     /// CI failed, its logs named no file the branch changed, and kelpie
     /// reran the failed jobs instead of sending the worker a fix turn
     CiRerun {
-        /// The work item's issue
-        issue: u64,
+        /// The work item's ticket
+        issue: TicketId,
         /// Its pull request
         pull_request: u64,
         /// The head CI ran on
@@ -244,8 +245,8 @@ pub enum StepReport {
     },
     /// The branch was rebased onto `main` and pushed, and CI runs again
     Rebased {
-        /// The work item's issue
-        issue: u64,
+        /// The work item's ticket
+        issue: TicketId,
         /// Its pull request
         pull_request: u64,
         /// The rebased head
@@ -253,8 +254,8 @@ pub enum StepReport {
     },
     /// The branch conflicts with `main`, and the conflict is the worker's next turn
     Conflicted {
-        /// The work item's issue
-        issue: u64,
+        /// The work item's ticket
+        issue: TicketId,
         /// Its pull request
         pull_request: u64,
         /// The head that conflicts
@@ -264,8 +265,8 @@ pub enum StepReport {
     },
     /// A ruling was raised, and the worker is parked on it
     Ruling {
-        /// The work item's issue
-        issue: u64,
+        /// The work item's ticket
+        issue: TicketId,
         /// Its pull request
         pull_request: u64,
         /// The ruling's id
@@ -277,15 +278,15 @@ pub enum StepReport {
     },
     /// The draft was marked ready, before a review bot's summon or after a yes
     MarkedReady {
-        /// The work item's issue
-        issue: u64,
+        /// The work item's ticket
+        issue: TicketId,
         /// Its pull request
         pull_request: u64,
     },
     /// A yes no longer held when kelpie came to merge, so CI runs again
     YesWithdrawn {
-        /// The work item's issue
-        issue: u64,
+        /// The work item's ticket
+        issue: TicketId,
         /// Its pull request
         pull_request: u64,
         /// What changed since the question
@@ -294,8 +295,8 @@ pub enum StepReport {
     /// A merge under `auto` no longer held, or the forge refused it, so CI
     /// runs again
     MergeWithdrawn {
-        /// The work item's issue
-        issue: u64,
+        /// The work item's ticket
+        issue: TicketId,
         /// Its pull request
         pull_request: u64,
         /// What changed since the gate passed, or why the forge refused
@@ -304,8 +305,8 @@ pub enum StepReport {
     /// Under `auto`, a head no gate saw goes back through the review before
     /// any merge
     Regated {
-        /// The work item's issue
-        issue: u64,
+        /// The work item's ticket
+        issue: TicketId,
         /// Its pull request
         pull_request: u64,
         /// The head adopted
@@ -313,8 +314,8 @@ pub enum StepReport {
     },
     /// The work item is gone: its worktree, branch and build folder removed
     Finished {
-        /// The work item's issue
-        issue: u64,
+        /// The work item's ticket
+        issue: TicketId,
         /// Its pull request
         pull_request: Option<u64>,
         /// Whether the pull request merged
@@ -335,8 +336,8 @@ pub enum StepReport {
     RunFinished,
     /// Findings a merged pull request left unfixed were filed
     FollowUpsFiled {
-        /// The work item's issue
-        issue: u64,
+        /// The work item's ticket
+        issue: TicketId,
         /// Its pull request
         pull_request: u64,
         /// The issues opened, one per finding
@@ -362,15 +363,15 @@ pub enum StepReport {
     },
     /// The notice of an automatic merge was sent to the webhook, or only logged where there is none
     Noticed {
-        /// The work item's issue
-        issue: u64,
+        /// The work item's ticket
+        issue: TicketId,
         /// The pull request merged
         pull_request: u64,
     },
     /// A notice could not be posted to the webhook, and is tried again later
     NoticeFailed {
-        /// The work item's issue
-        issue: u64,
+        /// The work item's ticket
+        issue: TicketId,
         /// The pull request merged
         pull_request: u64,
         /// Why, never naming the webhook's URL
@@ -461,15 +462,15 @@ pub enum StepReport {
     },
     /// The forge or git could not be asked, and the step is tried again later
     GateFailed {
-        /// The work item's issue
-        issue: u64,
+        /// The work item's ticket
+        issue: TicketId,
         /// Why
         reason: String,
     },
     /// A review round ran and reported its raw findings
     ReviewRound {
-        /// The work item's issue
-        issue: u64,
+        /// The work item's ticket
+        issue: TicketId,
         /// Its pull request
         pull_request: u64,
         /// The round
@@ -486,8 +487,8 @@ pub enum StepReport {
     /// window opens more than an hour on or it never answered its summon, so
     /// the review went on to the next reviewer without it
     ReviewerSkipped {
-        /// The work item's issue
-        issue: u64,
+        /// The work item's ticket
+        issue: TicketId,
         /// Its pull request
         pull_request: u64,
         /// The round
@@ -500,8 +501,8 @@ pub enum StepReport {
     /// A local round reviewed no file at all, so the review went on to the
     /// next reviewer
     LocalRoundFailed {
-        /// The work item's issue
-        issue: u64,
+        /// The work item's ticket
+        issue: TicketId,
         /// Its pull request
         pull_request: u64,
         /// The round
@@ -513,8 +514,8 @@ pub enum StepReport {
     },
     /// Kelpie summoned a review bot, by its label or its comment, holding its lease
     Summoned {
-        /// The work item's issue
-        issue: u64,
+        /// The work item's ticket
+        issue: TicketId,
         /// Its pull request
         pull_request: u64,
         /// The head the summon is for
@@ -523,8 +524,8 @@ pub enum StepReport {
     /// The bot gave no sign of the summon in fifteen minutes, so kelpie
     /// sent it once more, in the same round
     SummonedAgain {
-        /// The work item's issue
-        issue: u64,
+        /// The work item's ticket
+        issue: TicketId,
         /// Its pull request
         pull_request: u64,
         /// The head the summon is for
@@ -532,8 +533,8 @@ pub enum StepReport {
     },
     /// The bot refused the summon, and its label came off
     SummonRefused {
-        /// The work item's issue
-        issue: u64,
+        /// The work item's ticket
+        issue: TicketId,
         /// Its pull request
         pull_request: u64,
         /// When the bot said its window opens, or its window's span from now
@@ -542,8 +543,8 @@ pub enum StepReport {
     /// A review bot's review covered the head, and its label came off. Its
     /// open threads are the round's findings.
     BotReviewed {
-        /// The work item's issue
-        issue: u64,
+        /// The work item's ticket
+        issue: TicketId,
         /// Its pull request
         pull_request: u64,
         /// The round
@@ -556,8 +557,8 @@ pub enum StepReport {
     /// The fix moved the head, but the forge kept refusing to resolve these
     /// threads, so the review went on with them open
     ThreadsLeftOpen {
-        /// The work item's issue
-        issue: u64,
+        /// The work item's ticket
+        issue: TicketId,
         /// Its pull request
         pull_request: u64,
         /// The forge's ids of the threads still open
@@ -568,8 +569,8 @@ pub enum StepReport {
     /// The round's findings were sent to the worker's next turn, or, with
     /// none, the review moved on
     ReviewFindingsSent {
-        /// The work item's issue
-        issue: u64,
+        /// The work item's ticket
+        issue: TicketId,
         /// Its pull request
         pull_request: u64,
         /// The round
@@ -580,8 +581,8 @@ pub enum StepReport {
     /// A reviewer with a second look read once, and reads again next,
     /// shown what it found
     FirstLook {
-        /// The work item's issue
-        issue: u64,
+        /// The work item's ticket
+        issue: TicketId,
         /// Its pull request
         pull_request: u64,
         /// The round
@@ -595,8 +596,8 @@ pub enum StepReport {
     /// as a listed one was down or kept failing, so the work item is marked
     /// unreviewed and goes to CI
     Unreviewed {
-        /// The work item's issue
-        issue: u64,
+        /// The work item's ticket
+        issue: TicketId,
         /// Its pull request
         pull_request: u64,
         /// Which reviewers did not read it, and why
@@ -606,8 +607,8 @@ pub enum StepReport {
     /// sent as out of scope, so the next reviewer reads the pull request as
     /// it stands
     FindingsDeferred {
-        /// The work item's issue
-        issue: u64,
+        /// The work item's ticket
+        issue: TicketId,
         /// Its pull request
         pull_request: u64,
         /// The round whose findings it deferred
@@ -619,8 +620,8 @@ pub enum StepReport {
     /// that was not a nit to be wrong or deferred it, so the next reviewer
     /// is shown its reasons and reads the pull request as it stands
     FindingsDisputed {
-        /// The work item's issue
-        issue: u64,
+        /// The work item's ticket
+        issue: TicketId,
         /// Its pull request
         pull_request: u64,
         /// The round whose findings it disputed
@@ -633,8 +634,8 @@ pub enum StepReport {
     /// The worker's fix turn was sent only nits and pushed nothing, which
     /// declines them, so the next reviewer reads the pull request as it stands
     NitsDeclined {
-        /// The work item's issue
-        issue: u64,
+        /// The work item's ticket
+        issue: TicketId,
         /// Its pull request
         pull_request: u64,
         /// The round whose nits it declined
@@ -645,8 +646,8 @@ pub enum StepReport {
     /// The worktree was not the head on `origin` as a review round was
     /// about to run, so the worker's next turn pushes or discards first
     Unpushed {
-        /// The work item's issue
-        issue: u64,
+        /// The work item's ticket
+        issue: TicketId,
         /// Its pull request
         pull_request: u64,
         /// The round that waits
@@ -661,8 +662,8 @@ pub enum StepReport {
     /// The worker's fix turn for a round's held findings ended, and the
     /// round counts
     FixPushed {
-        /// The work item's issue
-        issue: u64,
+        /// The work item's ticket
+        issue: TicketId,
         /// Its pull request
         pull_request: u64,
         /// The round whose findings it fixed
@@ -714,9 +715,9 @@ pub enum StepReport {
     /// A call started in a session, before it ends: what `shep kelpie watch`
     /// reads to tell whose a transcript is and where to find it
     SessionStarted {
-        /// The work item's issue, or none for the project manager
+        /// The work item's ticket, or none for the project manager
         #[serde(skip_serializing_if = "Option::is_none")]
-        issue: Option<u64>,
+        issue: Option<TicketId>,
         /// The role the call is made for
         role: Role,
         /// The agent it runs on
@@ -733,8 +734,8 @@ pub enum StepReport {
     /// A worker's session was compacted before its next turn, its context
     /// past the mark
     WorkerCompacted {
-        /// The work item's issue
-        issue: u64,
+        /// The work item's ticket
+        issue: TicketId,
         /// Its session
         session: SessionId,
         /// The tokens its context held before
@@ -743,11 +744,23 @@ pub enum StepReport {
     /// A worker's session could not be compacted, so its next turn goes on
     /// in the session as it was
     WorkerCompactFailed {
-        /// The work item's issue
-        issue: u64,
+        /// The work item's ticket
+        issue: TicketId,
         /// Why
         reason: String,
     },
+}
+
+/// The ticket of a work item's issue number, for a step that names its work
+/// item while the state file still keys it by issue number
+///
+/// # Panics
+///
+/// When `number` is zero. Kelpie opens a work item only from a ticket it read,
+/// so no open item's issue is zero.
+#[track_caller]
+pub(super) fn ticket_of(number: u64) -> TicketId {
+    TicketId::from_issue(number).expect("a work item's issue is never zero")
 }
 
 impl StepReport {

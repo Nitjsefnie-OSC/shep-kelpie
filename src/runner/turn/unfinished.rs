@@ -14,6 +14,7 @@ use super::handover::{Handover, Refused};
 use crate::ports::Timestamp;
 use crate::runner::closed::end_closed;
 use crate::runner::pull_request_file;
+use crate::runner::report::ticket_of;
 use crate::runner::report::{Begin, StepReport};
 use crate::runner::ruling::park;
 use crate::runner::{Names, Runner};
@@ -122,7 +123,10 @@ impl Runner {
             Ok(open) => open,
             Err(e) => {
                 let reason = format!("cannot list open pull requests: {e}");
-                return Ok(Begin::Report(StepReport::GateFailed { issue, reason }));
+                return Ok(Begin::Report(StepReport::GateFailed {
+                    issue: ticket_of(issue),
+                    reason,
+                }));
             }
         };
         let (pushed_nothing, known) = (awaits_a_push(item), item.pull_request.is_some());
@@ -147,10 +151,15 @@ impl Runner {
             Ok(true) => {
                 end_closed(&mut next, issue);
                 self.save(next)?;
-                self.say_closed(issue, None);
+                self.say_closed(ticket_of(issue), None);
                 return self.begin_item(false);
             }
-            Err(reason) => return Ok(Begin::Report(StepReport::GateFailed { issue, reason })),
+            Err(reason) => {
+                return Ok(Begin::Report(StepReport::GateFailed {
+                    issue: ticket_of(issue),
+                    reason,
+                }));
+            }
         }
         // A hand-over worker's branch pushed with its file written is opened
         // from here, not sent back for a pull request it cannot open.
@@ -162,7 +171,7 @@ impl Runner {
                     Err(refused) => {
                         refusal = Some(pull_request_file::told(&refused));
                         self.started.push(StepReport::PullRequestNotOpened {
-                            issue,
+                            issue: ticket_of(issue),
                             reason: refused.to_string(),
                         });
                         None
@@ -302,7 +311,7 @@ pub(super) fn timed_out(names: Names, next: &mut ProjectState, issue: u64) -> St
         Stuck::TurnTimeout { phase }.into(),
     );
     StepReport::TimedOut {
-        issue,
+        issue: ticket_of(issue),
         session,
         pull_request,
         id,
@@ -340,7 +349,7 @@ pub(in crate::runner) fn failed(
     .into();
     let (id, question) = park(names, next, issue, pull_request, kind);
     StepReport::Failed {
-        issue,
+        issue: ticket_of(issue),
         pull_request,
         id,
         question,

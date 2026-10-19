@@ -57,6 +57,7 @@ impl Runner {
 
 #[cfg(test)]
 mod tests {
+    use crate::test::ticket;
     use std::sync::Mutex;
 
     use crate::runner::{Runner, StepReport, step};
@@ -81,8 +82,8 @@ mod tests {
 
         rig.forge.close_issue(32);
         assert!(matches!(
-            step(&runner).unwrap(),
-            Some(StepReport::Dispatched { issue: 8, .. })
+           step(&runner).unwrap(),
+           Some(StepReport::Dispatched { issue, .. }) if issue == ticket(8)
         ));
         assert_eq!(notes(&runner), ["#8 skip-cleared"]);
     }

@@ -5,6 +5,7 @@
 //! `over-budget`, and an answer doubles its cap.
 
 use crate::runner::Runner;
+use crate::runner::report::ticket_of;
 use crate::runner::report::{Begin, StepReport};
 use crate::runner::ruling::park;
 use crate::state::{StateError, Stuck};
@@ -30,7 +31,7 @@ impl Runner {
         let (id, question) = park(self.names(), &mut next, issue, pull_request, kind.into());
         self.save(next)?;
         let mut report = StepReport::Failed {
-            issue,
+            issue: ticket_of(issue),
             pull_request,
             id,
             question,

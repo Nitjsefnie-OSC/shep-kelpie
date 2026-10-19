@@ -5,6 +5,7 @@ use serde_json::json;
 use super::*;
 use crate::ports::{CLEAN, Checks, ReviewComment, Session};
 use crate::runner::{StepReport, step};
+use crate::test::ticket;
 use crate::test::{Rig, Scripted, git};
 
 const BODY: &str = "The timeline needs a redesign.\n\nKeep the dates, lose the cards.";
@@ -465,8 +466,8 @@ fn a_rework_turn_that_pushes_nothing_is_sent_back_once_then_parks_on_a_ruling() 
     ]);
     step(&runner).unwrap();
     assert!(matches!(
-        step(&runner).unwrap(),
-        Some(StepReport::Ended { issue: 7, .. })
+       step(&runner).unwrap(),
+       Some(StepReport::Ended { issue, .. }) if issue == ticket(7)
     ));
     let [first, again] = rig.claude.calls().try_into().unwrap();
     assert_eq!(again.session, Session::Resume(first.session.id().clone()));
@@ -484,7 +485,7 @@ fn a_rework_turn_that_pushes_nothing_is_sent_back_once_then_parks_on_a_ruling() 
     );
 
     let Some(StepReport::Failed {
-        issue: 7,
+        issue,
         pull_request: Some(71),
         question,
         ..
@@ -492,6 +493,7 @@ fn a_rework_turn_that_pushes_nothing_is_sent_back_once_then_parks_on_a_ruling() 
     else {
         panic!("the rework was not parked");
     };
+    assert_eq!(issue, ticket(7));
     assert!(
         question.contains("it ended twice with no new push and no question"),
         "{question}"

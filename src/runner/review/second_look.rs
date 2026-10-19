@@ -9,6 +9,7 @@ use crate::ports::{CLEAN, Cost, Role, SessionId, Tools, Usage};
 use crate::runner::report::{ReviewResult, Spent};
 use crate::runner::{Runner, StepReport, step};
 use crate::settings::Effort;
+use crate::test::ticket;
 use crate::test::{Rig, Scripted, Seen};
 use crate::work_item::CallKind;
 
@@ -89,7 +90,7 @@ fn defect_hunter_looks_twice_and_the_worker_gets_one_fix_turn() {
     );
     assert!(
         reports.contains(&StepReport::FirstLook {
-            issue: 7,
+            issue: ticket(7),
             pull_request: 71,
             round: 2,
             reviewer: "defect-hunter".to_owned().try_into().unwrap(),
@@ -174,7 +175,7 @@ fn two_looks_that_find_nothing_end_the_review_with_no_fix_turn() {
     assert_eq!(roles(&rig), [Role::Worker, Role::Reviewer, Role::Reviewer]);
     assert!(
         reports.contains(&StepReport::ReviewFindingsSent {
-            issue: 7,
+            issue: ticket(7),
             pull_request: 71,
             round: 2,
             held: 0,
