@@ -160,6 +160,7 @@ pub fn prepare(
     worktree: &Path,
     branch: &str,
     start: Start,
+    base: &str,
     remote: &Remote,
     build: &Path,
 ) -> Result<Worktree, WorktreeError> {
@@ -173,7 +174,7 @@ pub fn prepare(
         }
         // The worker merges `origin/main` and runs no fetch of its own, so
         // kelpie brings main to it before each of its turns.
-        main_fetch_failed = fetch_main(repo);
+        main_fetch_failed = fetch_main(repo, base);
     } else {
         let local = git(repo, ["rev-parse", "--verify", "--quiet", &full_ref]).ok();
         if local.is_some() && start == Start::Main {
@@ -182,17 +183,17 @@ pub fn prepare(
         if let Some(parent) = worktree.parent() {
             create(parent)?;
         }
-        let base = match start {
+        let start_ref = match start {
             Start::Main => {
-                git(repo, ["fetch", "--quiet", "--", "origin", BASE])?;
-                format!("origin/{BASE}")
+                git(repo, ["fetch", "--quiet", "--", "origin", base])?;
+                format!("origin/{base}")
             }
             // A branch that is already pushed needs main only for the merge
             // its worker runs, so a failed fetch of it is reported rather
             // than fatal.
             Start::Pushed => {
                 let tracking = remote.fetch(repo, branch)?;
-                main_fetch_failed = fetch_main(repo);
+                main_fetch_failed = fetch_main(repo, base);
                 tracking
             }
         };
@@ -202,7 +203,7 @@ pub fn prepare(
             // when it is at the same commit as the remote's. One ahead holds
             // work that is not kelpie's to throw away, and one behind is
             // not the pull request's branch as the remote holds it.
-            if git(repo, ["rev-parse", "--verify", "--quiet", &base])? != local {
+            if git(repo, ["rev-parse", "--verify", "--quiet", &start_ref])? != local {
                 return Err(WorktreeError::BranchTaken(branch.to_owned()));
             }
             git(
@@ -226,7 +227,7 @@ pub fn prepare(
                     "-b".as_ref(),
                     OsStr::new(branch),
                     wt,
-                    base.as_ref(),
+                    start_ref.as_ref(),
                 ],
             )?;
         }
@@ -245,8 +246,8 @@ pub fn prepare(
 // Fetch `origin/main`, and say what it failed with. A fetch that fails leaves
 // the ref where kelpie last put it, and the gate fetches main again before it
 // reads a head.
-fn fetch_main(repo: &Path) -> Option<String> {
-    git(repo, ["fetch", "--quiet", "--", "origin", BASE])
+fn fetch_main(repo: &Path, base: &str) -> Option<String> {
+    git(repo, ["fetch", "--quiet", "--", "origin", base])
         .err()
         .map(|e| e.to_string())
 }
@@ -365,18 +366,18 @@ fn make_writable(root: &Path) {
 /// # Errors
 ///
 /// [`WorktreeError`] naming the git command or folder that failed.
-pub fn view(repo: &Path, view: &Path) -> Result<(), WorktreeError> {
+pub fn view(repo: &Path, view: &Path, base: &str) -> Result<(), WorktreeError> {
     if let Some(parent) = view.parent() {
         create(parent)?;
     }
-    git(repo, ["fetch", "--quiet", "origin", BASE])?;
-    let base = format!("origin/{BASE}");
+    git(repo, ["fetch", "--quiet", "origin", base])?;
+    let tip = format!("origin/{base}");
     let args: [&OsStr; 5] = [
         "worktree".as_ref(),
         "add".as_ref(),
         "--detach".as_ref(),
         view.as_os_str(),
-        base.as_ref(),
+        tip.as_ref(),
     ];
     git(repo, args).map(drop)
 }
@@ -430,8 +431,13 @@ pub fn holder_of(repo: &Path, branch: &str, own: &Path) -> Result<Option<PathBuf
 /// # Errors
 ///
 /// [`WorktreeError`] naming the git command that failed.
-pub fn holds_work(repo: &Path, worktree: &Path, branch: &str) -> Result<bool, WorktreeError> {
-    git(repo, ["fetch", "--quiet", "origin", BASE])?;
+pub fn holds_work(
+    repo: &Path,
+    worktree: &Path,
+    branch: &str,
+    base: &str,
+) -> Result<bool, WorktreeError> {
+    git(repo, ["fetch", "--quiet", "origin", base])?;
     let mut tips = Vec::new();
     let full_ref = format!("refs/heads/{branch}");
     if has_ref(repo, &full_ref)? {
@@ -446,8 +452,8 @@ pub fn holds_work(repo: &Path, worktree: &Path, branch: &str) -> Result<bool, Wo
     if tips.is_empty() {
         return Ok(false);
     }
-    let base = format!("^origin/{BASE}");
-    let mut args = vec!["rev-list", "--count", base.as_str()];
+    let behind = format!("^origin/{base}");
+    let mut args = vec!["rev-list", "--count", behind.as_str()];
     args.extend(tips.iter().map(String::as_str));
     Ok(git(repo, args)? != "0")
 }
@@ -504,14 +510,15 @@ pub fn base_of(
     branch: &str,
     head: &str,
     remote: &Remote,
+    base: &str,
 ) -> Result<Base, WorktreeError> {
-    let tracking = remote.fetch_with_main(repo, branch)?;
+    let tracking = remote.fetch_with_main(repo, branch, base)?;
     if git(repo, ["rev-parse", "--verify", "--quiet", &tracking])? != head {
         return Ok(Base::Lagging);
     }
     // `--is-ancestor` answers no with exit 1, and fails with any other code.
-    let base = format!("origin/{BASE}");
-    let args = ["merge-base", "--is-ancestor", &base, head];
+    let tip = format!("origin/{base}");
+    let args = ["merge-base", "--is-ancestor", &tip, head];
     let output = in_repo(repo)
         .args(args)
         .stdin(Stdio::null())
@@ -545,8 +552,13 @@ pub fn origin_head(repo: &Path, branch: &str, remote: &Remote) -> Result<String,
 /// # Errors
 ///
 /// [`WorktreeError`] naming the git command that failed.
-pub fn head_with_main(repo: &Path, branch: &str, remote: &Remote) -> Result<String, WorktreeError> {
-    let tracking = remote.fetch_with_main(repo, branch)?;
+pub fn head_with_main(
+    repo: &Path,
+    branch: &str,
+    remote: &Remote,
+    base: &str,
+) -> Result<String, WorktreeError> {
+    let tracking = remote.fetch_with_main(repo, branch, base)?;
     git(repo, ["rev-parse", "--verify", "--quiet", &tracking])
 }
 

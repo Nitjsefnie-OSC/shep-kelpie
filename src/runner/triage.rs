@@ -469,6 +469,7 @@ impl Runner {
             research: Research {
                 call,
                 checkout: self.settings.git.checkout.clone(),
+                base: self.settings.git.base().to_owned(),
                 view,
                 open: listed,
                 most,

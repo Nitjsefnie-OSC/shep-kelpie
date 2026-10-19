@@ -623,6 +623,7 @@ impl Runner {
             &item.worktree,
             &item.branch,
             start,
+            self.settings.git.base(),
             &item.remote,
             &item.build,
         )
@@ -727,7 +728,11 @@ impl Runner {
             // A call in a worktree that matches `main` loads the repo's own
             // `.claude` files from it already, and must not get them twice.
             let own_loaded = call.harness.reads_claude_files()
-                && crate::fence::matches_main(&self.settings.git.checkout, &call.cwd);
+                && crate::fence::matches_main(
+                    &self.settings.git.checkout,
+                    &call.cwd,
+                    self.settings.git.base(),
+                );
             for plugin in self.repo_plugins.dirs(own_loaded) {
                 if !call.plugin_dirs.iter().any(|dir| dir == plugin) {
                     call.plugin_dirs.push(plugin.to_owned());

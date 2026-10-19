@@ -54,6 +54,7 @@ impl Docs {
             &docs.worktree,
             &docs.branch,
             Start::Main,
+            project.settings.git.base(),
             &Remote::Origin,
             &docs.build,
         );

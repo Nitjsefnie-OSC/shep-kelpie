@@ -77,6 +77,7 @@ mod tests {
                 &self.worktree(),
                 "kelpie/7",
                 Start::Main,
+                "main",
                 &Remote::Origin,
                 &self.root.join("build"),
             )

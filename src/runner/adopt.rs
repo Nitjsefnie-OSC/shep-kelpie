@@ -554,6 +554,7 @@ impl Runner {
             &fresh.worktree,
             &branch,
             Start::Pushed,
+            self.settings.git.base(),
             &remote,
             &fresh.build,
         );

@@ -54,6 +54,8 @@ pub(in crate::runner) struct Job {
     pub(in crate::runner) head: String,
     passed: Option<String>,
     checkout: PathBuf,
+    // The branch the contribution merges into
+    base: String,
     folder: PathBuf,
     settings: PathBuf,
     model: RoleModel,
@@ -117,6 +119,7 @@ impl Runner {
             head: contribution.head.clone(),
             passed: contribution.passed.clone(),
             checkout: self.settings.git.checkout.clone(),
+            base: self.settings.git.base().to_owned(),
             folder: self.paths.folder.join(FOLDER).join(number.to_string()),
             settings: (self.paths.worker).join(format!("security-settings-{number}.json")),
             model: model.clone(),
@@ -178,6 +181,7 @@ impl Job {
             &self.head,
             self.passed.as_deref(),
             MAX_DIFF,
+            &self.base,
         );
         let change = match change {
             Ok(change) => change,

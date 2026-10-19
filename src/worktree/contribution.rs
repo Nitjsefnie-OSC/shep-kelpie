@@ -14,7 +14,7 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 use std::thread;
 
-use super::{BASE, WorktreeError, git, in_repo, output, remove_view};
+use super::{WorktreeError, git, in_repo, output, remove_view};
 
 /// What a model cannot read in a change
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -81,11 +81,12 @@ pub fn change(
     head: &str,
     passed: Option<&str>,
     limit: usize,
+    base: &str,
 ) -> Result<Change, WorktreeError> {
-    fetch(repo, pull_request, head)?;
+    fetch(repo, pull_request, head, base)?;
     let since = match passed {
         Some(passed) if descends(repo, passed, head)? => format!("{passed}..{head}"),
-        _ => format!("origin/{BASE}...{head}"),
+        _ => format!("origin/{base}...{head}"),
     };
     let (diff, cut) = diff_of(repo, &[], &since, limit)?;
     if cut {
@@ -123,9 +124,10 @@ pub fn changed_paths(
     pull_request: u64,
     head: &str,
     limit: usize,
+    base: &str,
 ) -> Result<Vec<String>, WorktreeError> {
-    fetch(repo, pull_request, head)?;
-    let since = format!("origin/{BASE}...{head}");
+    fetch(repo, pull_request, head, base)?;
+    let since = format!("origin/{base}...{head}");
     let (names, cut) = diff_of(repo, &["--name-only", "-z"], &since, limit)?;
     if cut {
         return Err(WorktreeError::Git {
@@ -157,8 +159,9 @@ pub fn checkout(
     pull_request: u64,
     head: &str,
     path: &Path,
+    base: &str,
 ) -> Result<(), WorktreeError> {
-    fetch(repo, pull_request, head)?;
+    fetch(repo, pull_request, head, base)?;
     remove_view(repo, path)?;
     if let Some(parent) = path.parent() {
         super::create(parent)?;
@@ -177,7 +180,7 @@ pub fn checkout(
 // Brings `pull_request`'s head and `main` into `repo`'s objects, and checks
 // that `head` is among them. `FETCH_HEAD` is all it writes besides `main`'s
 // remote-tracking ref.
-fn fetch(repo: &Path, pull_request: u64, head: &str) -> Result<(), WorktreeError> {
+fn fetch(repo: &Path, pull_request: u64, head: &str, base: &str) -> Result<(), WorktreeError> {
     let hash = |h: &str| !h.is_empty() && h.bytes().all(|b| b.is_ascii_hexdigit());
     if !hash(head) {
         return Err(WorktreeError::Git {
@@ -188,7 +191,7 @@ fn fetch(repo: &Path, pull_request: u64, head: &str) -> Result<(), WorktreeError
     let pull = format!("refs/pull/{pull_request}/head");
     git(
         repo,
-        ["fetch", "--quiet", "--no-tags", "origin", BASE, &pull],
+        ["fetch", "--quiet", "--no-tags", "origin", base, &pull],
     )?;
     let commit = format!("{head}^{{commit}}");
     git(repo, ["rev-parse", "--verify", "--quiet", &commit]).map(drop)

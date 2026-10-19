@@ -32,6 +32,20 @@ pub struct Git {
     pub maintainer: Option<GithubLogin>,
 }
 
+/// The branch every work item is cut from and merged into, on `origin`
+///
+/// Every project's base for now.
+pub const DEFAULT_BASE: &str = "main";
+
+impl Git {
+    /// The project's base branch: what work items are cut from, compared
+    /// against and merged into, on `origin`
+    #[inline]
+    pub fn base(&self) -> &'static str {
+        DEFAULT_BASE
+    }
+}
+
 /// A GitHub login: letters, digits and hyphens, at most 39, not starting
 /// with a hyphen
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, JsonSchema)]

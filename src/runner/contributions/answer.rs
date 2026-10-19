@@ -361,6 +361,7 @@ impl Runner {
             &held.head,
             None,
             LONGEST_DIFF,
+            self.settings.git.base(),
         );
         match read {
             Ok(change) if change.cut => format!("{}\n[the diff is cut here]", change.diff),

@@ -343,7 +343,7 @@ pub fn headless(
     let folder = project.paths.issues();
     let checkout = folder.join(&session.0);
     let repo = &project.settings.git.checkout;
-    worktree::view(repo, &checkout)
+    worktree::view(repo, &checkout, project.settings.git.base())
         .map_err(|e| format!("cannot check out main for the issue writer: {e}"))?;
     // Not through the runner, so its plugins are loaded here, into a folder of
     // the run's own that the runner's `skills/repo` never shares.
@@ -438,8 +438,8 @@ fn repo_plugins(
     }
     // Its folder is a view of the default branch, which Claude Code reads the
     // repo's own files from. Codex and pi do not, so they get the plugin.
-    let own_loaded =
-        writer.model.harness.reads_claude_files() && crate::fence::matches_main(checkout, view);
+    let own_loaded = writer.model.harness.reads_claude_files()
+        && crate::fence::matches_main(checkout, view, project.settings.git.base());
     let servers = match writer.model.harness.reads_claude_files() {
         true => loaded.mcp_servers(),
         false => skills::Servers::new(),

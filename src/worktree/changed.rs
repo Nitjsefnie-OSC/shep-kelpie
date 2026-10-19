@@ -2,15 +2,15 @@
 
 use std::path::Path;
 
-use super::{BASE, WorktreeError, git};
+use super::{WorktreeError, git};
 
 /// The files `head` changes from `origin/main`, as the pull request shows them
 ///
 /// # Errors
 ///
 /// [`WorktreeError`] naming the git command that failed.
-pub fn changed_files(repo: &Path, head: &str) -> Result<Vec<String>, WorktreeError> {
-    let range = format!("origin/{BASE}...{head}");
+pub fn changed_files(repo: &Path, head: &str, base: &str) -> Result<Vec<String>, WorktreeError> {
+    let range = format!("origin/{base}...{head}");
     let names = git(repo, ["diff", "--name-only", "--no-renames", "-z", &range])?;
     Ok(names
         .split('\0')

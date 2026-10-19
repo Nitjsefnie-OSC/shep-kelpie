@@ -10,7 +10,7 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-use super::{BASE, WorktreeError, git};
+use super::{WorktreeError, git};
 
 /// Where a work item's branch is pushed, and fetched from
 // wire format: a work item saves it, so changing this is a breaking change to
@@ -84,12 +84,13 @@ impl Remote {
         &self,
         repo: &Path,
         branch: &str,
+        base: &str,
     ) -> Result<String, WorktreeError> {
         if *self == Self::Origin {
-            git(repo, ["fetch", "--quiet", "--", "origin", BASE, branch])?;
+            git(repo, ["fetch", "--quiet", "--", "origin", base, branch])?;
             return Ok(self.tracking(branch));
         }
-        git(repo, ["fetch", "--quiet", "--", "origin", BASE])?;
+        git(repo, ["fetch", "--quiet", "--", "origin", base])?;
         self.fetch(repo, branch)
     }
 }

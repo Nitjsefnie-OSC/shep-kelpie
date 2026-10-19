@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use super::{BASE, Remote, WorktreeError, git, trusted};
+use super::{Remote, WorktreeError, git, trusted};
 
 /// What a rebase onto `origin/main` came to
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -47,6 +47,7 @@ pub fn rebase(
     head: &str,
     rewrite: bool,
     remote: &Remote,
+    base: &str,
 ) -> Result<Rebase, WorktreeError> {
     let in_worktree = trusted(repo, worktree)?;
     let full_ref = format!("refs/heads/{branch}");
@@ -87,15 +88,15 @@ pub fn rebase(
     };
     let conflicted =
         || in_worktree(&["diff", "--name-only", "--diff-filter=U"]).unwrap_or_default();
-    let base = format!("origin/{BASE}");
+    let tip = format!("origin/{base}");
     // A rebase replays the branch's own commits and drops its merge commits,
     // and with them the worker's hand resolution of an earlier conflict. A
     // branch holding one is caught up by merging instead, and pushed plain.
-    let ahead = format!("{base}..HEAD");
+    let ahead = format!("{tip}..HEAD");
     let rebasing =
         rewrite && in_worktree(&["rev-list", "--merges", "--max-count=1", &ahead])?.is_empty();
     let mut rebased = false;
-    if rebasing && let Err(e) = caught_up(&["rebase", "--quiet", &base]) {
+    if rebasing && let Err(e) = caught_up(&["rebase", "--quiet", &tip]) {
         let conflicts = conflicted();
         let aborted = in_worktree(&["rebase", "--abort"]);
         if conflicts.is_empty() {
@@ -106,14 +107,14 @@ pub fn rebase(
         rebased = rebasing;
     }
     if !rebased {
-        if let Err(e) = caught_up(&["merge", "--quiet", "--no-commit", "--no-ff", &base]) {
+        if let Err(e) = caught_up(&["merge", "--quiet", "--no-commit", "--no-ff", &tip]) {
             let conflicts = conflicted();
             if conflicts.is_empty() {
                 let _ = in_worktree(&["merge", "--abort"]);
                 return Err(e);
             }
             return Ok(Rebase::Conflicts {
-                main: git(repo, ["rev-parse", &base])?,
+                main: git(repo, ["rev-parse", &tip])?,
                 files: conflicts.lines().map(str::to_owned).collect(),
             });
         }
