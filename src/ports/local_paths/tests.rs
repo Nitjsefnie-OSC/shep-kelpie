@@ -1,9 +1,10 @@
-//! What the forge port refuses, every path written as a dev server or a
-//! platform writes it. Every path is synthetic.
+//! What the guard refuses to post, on either port, every path written as a
+//! dev server or a platform writes it. Every path is synthetic.
 
 use std::path::Path;
 
 use super::*;
+use crate::ports::Tickets;
 use crate::test::FakeForge;
 
 fn slug() -> ForgeSlug {
@@ -13,7 +14,15 @@ fn slug() -> ForgeSlug {
 fn guarded() -> (Guarded, FakeForge) {
     let fake = FakeForge::new("/nowhere".into());
     let local = LocalPaths::new([Path::new("/Users/me/.kelpie")]);
-    (Guarded::new(Arc::new(fake.clone()), local), fake)
+    let source = Arc::new(fake.clone());
+    (
+        Guarded::new(
+            Arc::clone(&source) as Arc<dyn Forge>,
+            Arc::clone(&source) as Arc<dyn Tickets>,
+            local,
+        ),
+        fake,
+    )
 }
 
 #[test]

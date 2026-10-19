@@ -7,12 +7,11 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use super::coderabbit::FakeCodeRabbit;
-use crate::board::{OpenPullRequest, READY, ReadyIssue, ReviewMarks};
+use crate::board::{OpenPullRequest, ReadyIssue, ReviewMarks};
 use crate::ports::{
-    BranchRun, Checks, CommentMarks, FailedLogs, FinishedParent, FolderEntry, Forge, ForgeError,
-    Issue, IssueCloseReason, MaintainerReview, NewLabel, OpenIssue, OpenPull, PullRequest,
-    PullRequestState, QueueStanding, Reviewed, SubIssue, Talk, ThreadComment, Timestamp,
-    Visibility, Workflow,
+    BranchRun, Checks, CommentMarks, FailedLogs, FolderEntry, Forge, ForgeError, IssueCloseReason,
+    MaintainerReview, NewLabel, OpenIssue, OpenPull, PullRequest, PullRequestState, QueueStanding,
+    Reviewed, Talk, ThreadComment, Timestamp, Visibility, Workflow,
 };
 use crate::review_bot::{Activity, Login};
 use crate::settings::ForgeSlug;
@@ -417,68 +416,6 @@ impl Forge for FakeForge {
         Ok(self.bot_seen.load(Ordering::SeqCst))
     }
 
-    fn issue(&self, _repo: &ForgeSlug, number: u64) -> Result<Issue, ForgeError> {
-        self.ask()?;
-        self.wait_if_held(held::At::Issue);
-        if self.missing.lock().unwrap().contains(&number) {
-            return Err(ForgeError::Failed(format!("no issue #{number}")));
-        }
-        if let Some(allowed) = self.unread.lock().unwrap().get_mut(&number) {
-            if *allowed == 0 {
-                return Err(ForgeError::Failed(format!(
-                    "#{number} cannot be read right now"
-                )));
-            }
-            *allowed -= 1;
-        }
-        // Each read takes its own lock, so none may be held across another.
-        let open = !self.closed.lock().unwrap().contains(&number);
-        let filed = (self.issues.lock().unwrap().iter())
-            .find(|i| i.number == number)
-            .map(|i| (i.title.clone(), i.body.clone()));
-        let (title, body) = filed.unwrap_or_else(|| {
-            (
-                format!("Title of #{number}"),
-                format!("Body of #{number}.\n"),
-            )
-        });
-        Ok(Issue {
-            title,
-            body,
-            labels: self.labels_of(number),
-            open,
-            parent: self.parent_of(number),
-            blocked_by: self.blockers(number),
-        })
-    }
-
-    fn sub_issues(&self, _repo: &ForgeSlug, parent: u64) -> Result<Vec<SubIssue>, ForgeError> {
-        self.read_sub_issues(parent)
-    }
-
-    fn finished_parents(&self, _repo: &ForgeSlug) -> Result<Vec<FinishedParent>, ForgeError> {
-        self.read_finished_parents()
-    }
-
-    fn ready_issues(&self, _repo: &ForgeSlug) -> Result<Vec<ReadyIssue>, ForgeError> {
-        self.board_reads.fetch_add(1, Ordering::SeqCst);
-        self.ask()?;
-        self.board()?;
-        let ready = self.ready.lock().unwrap().clone();
-        let closed = self.closed.lock().unwrap().clone();
-        Ok(ready
-            .into_iter()
-            .filter(|i| !closed.contains(&i.number))
-            .map(|i| ReadyIssue {
-                labels: self.labels_of(i.number),
-                blocked_by: self.blockers_of(i.number),
-                parent: self.parent_of(i.number),
-                sub_issues: self.count_sub_issues(i.number),
-                ..i
-            })
-            .collect())
-    }
-
     fn open_pull_requests(&self, _repo: &ForgeSlug) -> Result<Vec<OpenPullRequest>, ForgeError> {
         self.pull_request_reads
             .listed
@@ -580,21 +517,6 @@ impl Forge for FakeForge {
         Ok(self.threads.read(since))
     }
 
-    fn issue_comments(
-        &self,
-        _repo: &ForgeSlug,
-        number: u64,
-    ) -> Result<Vec<ThreadComment>, ForgeError> {
-        self.ask()?;
-        let mut on = self.threads.on(number);
-        // An App's own comment is on the issue like anyone's: the forge lists it.
-        if let Some(github) = self.app_comments.lock().unwrap().clone() {
-            on.extend(github.posted_on(number));
-            on.sort_by_key(|c| c.id);
-        }
-        Ok(on)
-    }
-
     fn thread_replies_since(
         &self,
         _repo: &ForgeSlug,
@@ -651,79 +573,6 @@ impl Forge for FakeForge {
             .push((number, body.to_owned()));
         // Kelpie's login is a writer: the comment is on the thread like any other.
         Ok(self.threads.write_now(number, VIEWER, body))
-    }
-
-    fn open_issues(&self, _repo: &ForgeSlug) -> Result<Vec<OpenIssue>, ForgeError> {
-        self.ask()?;
-        if let Some(why) = &*self.issues_down.lock().unwrap() {
-            return Err(ForgeError::Failed(why.clone()));
-        }
-        Ok(self.issues.lock().unwrap().clone())
-    }
-
-    // Numbers start at 900, clear of every issue a test opens by hand.
-    fn create_issue(
-        &self,
-        _repo: &ForgeSlug,
-        title: &str,
-        body: &str,
-        labels: &[&str],
-    ) -> Result<u64, ForgeError> {
-        self.ask()?;
-        self.issues_up()?;
-        if let Some(left) = self.creates_left.lock().unwrap().as_mut() {
-            if *left == 0 {
-                return Err(ForgeError::Failed("issues are down".into()));
-            }
-            *left -= 1;
-        }
-        let mut created = self.created.lock().unwrap();
-        let number = 900 + created.len() as u64;
-        created.push(CreatedIssue {
-            number,
-            title: title.to_owned(),
-            body: body.to_owned(),
-            labels: labels.iter().map(|&l| l.to_owned()).collect(),
-        });
-        self.list_created(number, title, body, labels);
-        drop(created);
-        if labels.contains(&READY) {
-            self.list_ready(number, false);
-        }
-        for label in labels.iter().filter(|&&l| l != READY) {
-            self.label(number, label);
-        }
-        Ok(number)
-    }
-
-    fn close_issue(&self, _repo: &ForgeSlug, number: u64) -> Result<(), ForgeError> {
-        self.ask()?;
-        self.issues_up()?;
-        if self.closes_down.load(Ordering::SeqCst) {
-            self.closes_refused.fetch_add(1, Ordering::SeqCst);
-            return Err(ForgeError::Failed("closing is refused".into()));
-        }
-        self.closed.lock().unwrap().insert(number);
-        self.closings.lock().unwrap().push(number);
-        Ok(())
-    }
-
-    fn close_issue_as(
-        &self,
-        _repo: &ForgeSlug,
-        number: u64,
-        reason: IssueCloseReason,
-    ) -> Result<(), ForgeError> {
-        self.ask()?;
-        self.issues_up()?;
-        if self.closes_down.load(Ordering::SeqCst) {
-            self.closes_refused.fetch_add(1, Ordering::SeqCst);
-            return Err(ForgeError::Failed("closing is refused".into()));
-        }
-        self.closed.lock().unwrap().insert(number);
-        self.closings.lock().unwrap().push(number);
-        self.closed_as.lock().unwrap().insert(number, reason);
-        Ok(())
     }
 
     fn open_pulls(&self, _repo: &ForgeSlug) -> Result<Vec<OpenPull>, ForgeError> {
@@ -847,26 +696,6 @@ impl Forge for FakeForge {
             self.skipped.lock().unwrap().push(number);
         }
         self.coderabbit.set_label(number, label, on);
-        Ok(())
-    }
-
-    fn set_issue_label(
-        &self,
-        _repo: &ForgeSlug,
-        number: u64,
-        label: &str,
-        on: bool,
-    ) -> Result<(), ForgeError> {
-        self.ask()?;
-        if self.labels_down.load(Ordering::SeqCst) {
-            return Err(ForgeError::Failed("labels are down".into()));
-        }
-        let mut labels = self.labels.lock().unwrap();
-        let on_issue = labels.entry(number).or_default();
-        on_issue.retain(|l| l != label);
-        if on {
-            on_issue.push(label.to_owned());
-        }
         Ok(())
     }
 

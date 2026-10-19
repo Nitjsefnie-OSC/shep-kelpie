@@ -144,7 +144,7 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::ports::{Cost, Forge, Usage};
+    use crate::ports::{Cost, Tickets, Usage};
     use crate::runner::{CHECKS_SETTLE, step};
     use crate::test::{Rig, Scripted};
 

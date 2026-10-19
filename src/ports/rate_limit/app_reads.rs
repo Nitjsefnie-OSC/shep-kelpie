@@ -14,16 +14,16 @@ use std::sync::{Arc, Mutex, PoisonError};
 use super::{RateHeld, fallback_from, said_until, time_of, used_up};
 use crate::board::{OpenPullRequest, ReadyIssue};
 use crate::forge_ledger::{Ended, Identity, Kind};
-use crate::ports::{Forge, ForgeError, Issue, PullRequest, Reviewed, Timestamp};
+use crate::ports::{Forge, ForgeError, Issue, PullRequest, Reviewed, Tickets, Timestamp};
 use crate::review_bot::{Activity, Login};
 use crate::settings::ForgeSlug;
 
 /// The reads that run on the App's token, as the App
 pub trait AppReads: Send + Sync + fmt::Debug {
-    /// As [`Forge::issue`]
+    /// As [`Tickets::issue`]
     fn issue(&self, repo: &ForgeSlug, number: u64) -> Result<Issue, ForgeError>;
 
-    /// As [`Forge::ready_issues`]
+    /// As [`Tickets::ready_issues`]
     fn ready_issues(&self, repo: &ForgeSlug) -> Result<Vec<ReadyIssue>, ForgeError>;
 
     /// As [`Forge::open_pull_requests`]
@@ -160,14 +160,45 @@ impl RateHeld {
         app: impl FnOnce(&dyn AppReads) -> Result<T, ForgeError>,
         login: impl FnOnce(&dyn Forge) -> Result<T, ForgeError>,
     ) -> Result<T, ForgeError> {
-        if let Some(reads) = self.reads_as_app(repo, read) {
-            match self.call_as_app(read, || app(reads.as_ref())) {
-                Err(error) if lacks_permission(&error) => self.told_lacking(repo, read, &error),
-                Err(error) if used_up(&error) => {}
-                result => return result,
-            }
+        if let Some(answer) = self.app_answer(repo, read, |reads| app(reads)) {
+            return answer;
         }
         self.call(read.kind(), login)
+    }
+
+    // The same read of the ticket port, which is where a ticket is read (ADR
+    // 0014). The App's half is unchanged.
+    pub(super) fn read_tickets<T>(
+        &self,
+        repo: &ForgeSlug,
+        read: Read,
+        app: impl FnOnce(&dyn AppReads) -> Result<T, ForgeError>,
+        login: impl FnOnce(&dyn Tickets) -> Result<T, ForgeError>,
+    ) -> Result<T, ForgeError> {
+        if let Some(answer) = self.app_answer(repo, read, |reads| app(reads)) {
+            return answer;
+        }
+        self.call_tickets(read.kind(), login)
+    }
+
+    // The App's answer for `read` of `repo`, or `None` when the login must
+    // read it: the App does not cover the repo, its limit is used up, or it
+    // was refused for want of a permission, which is told once.
+    fn app_answer<T>(
+        &self,
+        repo: &ForgeSlug,
+        read: Read,
+        app: impl FnOnce(&dyn AppReads) -> Result<T, ForgeError>,
+    ) -> Option<Result<T, ForgeError>> {
+        let reads = self.reads_as_app(repo, read)?;
+        match self.call_as_app(read, || app(reads.as_ref())) {
+            Err(error) if lacks_permission(&error) => {
+                self.told_lacking(repo, read, &error);
+                None
+            }
+            Err(error) if used_up(&error) => None,
+            result => Some(result),
+        }
     }
 
     // The App's reads, when it covers the repo, its limit is not used up and

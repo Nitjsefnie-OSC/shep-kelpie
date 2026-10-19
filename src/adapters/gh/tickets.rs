@@ -1,36 +1,38 @@
 //! GitHub's issues as the ticket port (ADR 0014)
 //!
-//! A GitHub project's tickets are its issues, so every ticket read and write is
-//! the `Gh` forge's own, unchanged. The impl stands here rather than in `gh`
-//! itself, so no `gh` call site has both ports in scope at once.
+//! A GitHub project's tickets are its issues, so this is where kelpie reads
+//! and writes them: each method is the `gh` call for it, as the forge port
+//! made it before ADR 0014 took the issue half off `Forge`. The impl stands
+//! here rather than in `gh` itself, so no `gh` call site has both ports in
+//! scope at once.
 
-use super::Gh;
+use super::{Gh, board, issue, issues, thread};
 use crate::board::ReadyIssue;
 use crate::ports::{
-    FinishedParent, Forge, ForgeError, Issue, IssueCloseReason, OpenIssue, SubIssue, ThreadComment,
+    FinishedParent, ForgeError, Issue, IssueCloseReason, OpenIssue, SubIssue, ThreadComment,
     Tickets,
 };
 use crate::settings::ForgeSlug;
 
 impl Tickets for Gh {
     fn issue(&self, repo: &ForgeSlug, number: u64) -> Result<Issue, ForgeError> {
-        Forge::issue(self, repo, number)
+        issue(None, repo, number)
     }
 
     fn sub_issues(&self, repo: &ForgeSlug, parent: u64) -> Result<Vec<SubIssue>, ForgeError> {
-        Forge::sub_issues(self, repo, parent)
+        issues::sub_issues(repo, parent)
     }
 
     fn finished_parents(&self, repo: &ForgeSlug) -> Result<Vec<FinishedParent>, ForgeError> {
-        Forge::finished_parents(self, repo)
+        issues::finished_parents(repo)
     }
 
     fn ready_issues(&self, repo: &ForgeSlug) -> Result<Vec<ReadyIssue>, ForgeError> {
-        Forge::ready_issues(self, repo)
+        board::ready_issues(None, repo)
     }
 
     fn open_issues(&self, repo: &ForgeSlug) -> Result<Vec<OpenIssue>, ForgeError> {
-        Forge::open_issues(self, repo)
+        issues::open_issues(repo)
     }
 
     fn issue_comments(
@@ -38,7 +40,7 @@ impl Tickets for Gh {
         repo: &ForgeSlug,
         number: u64,
     ) -> Result<Vec<ThreadComment>, ForgeError> {
-        Forge::issue_comments(self, repo, number)
+        thread::issue_comments(&self.etags, repo, number)
     }
 
     fn create_issue(
@@ -48,11 +50,11 @@ impl Tickets for Gh {
         body: &str,
         labels: &[&str],
     ) -> Result<u64, ForgeError> {
-        Forge::create_issue(self, repo, title, body, labels)
+        issues::create_issue(repo, title, body, labels)
     }
 
     fn close_issue(&self, repo: &ForgeSlug, number: u64) -> Result<(), ForgeError> {
-        Forge::close_issue(self, repo, number)
+        issues::close_issue(repo, number)
     }
 
     fn close_issue_as(
@@ -61,7 +63,7 @@ impl Tickets for Gh {
         number: u64,
         reason: IssueCloseReason,
     ) -> Result<(), ForgeError> {
-        Forge::close_issue_as(self, repo, number, reason)
+        issues::close_issue_as(repo, number, reason)
     }
 
     fn set_issue_label(
@@ -71,6 +73,6 @@ impl Tickets for Gh {
         label: &str,
         on: bool,
     ) -> Result<(), ForgeError> {
-        Forge::set_issue_label(self, repo, number, label, on)
+        issues::set_label(repo, number, label, on)
     }
 }

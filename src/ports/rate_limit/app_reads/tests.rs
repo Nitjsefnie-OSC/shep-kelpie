@@ -69,8 +69,10 @@ impl Rig {
         }
         let said = Arc::new(Mutex::new(Vec::new()));
         let told = Arc::clone(&said);
+        let source = Arc::new(login.clone());
         let held = RateHeld::new(
-            Arc::new(login.clone()),
+            Arc::clone(&source) as Arc<dyn Forge>,
+            Arc::clone(&source) as Arc<dyn Tickets>,
             Arc::new(clock.clone()),
             ForgeHold::default(),
             Box::new(move |line| told.lock().unwrap().push(line)),

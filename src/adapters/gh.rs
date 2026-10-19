@@ -25,11 +25,11 @@ use std::process::Stdio;
 
 use serde::Deserialize;
 
-use crate::board::{OpenPullRequest, ReadyIssue};
+use crate::board::OpenPullRequest;
 use crate::ports::{
-    BranchRun, Checks, CommentMarks, FailedLogs, FinishedParent, FolderEntry, Forge, ForgeError,
-    Issue, IssueCloseReason, NewLabel, OpenIssue, OpenPull, PullRequest, PullRequestState,
-    QueueStanding, Reviewed, SubIssue, Talk, ThreadComment, Timestamp, Visibility, Workflow,
+    BranchRun, Checks, CommentMarks, FailedLogs, FolderEntry, Forge, ForgeError, Issue, NewLabel,
+    OpenPull, PullRequest, PullRequestState, QueueStanding, Reviewed, Talk, ThreadComment,
+    Timestamp, Visibility, Workflow,
 };
 use crate::review_bot::{Activity, Login};
 use crate::settings::ForgeSlug;
@@ -116,22 +116,6 @@ impl Forge for Gh {
         access::review_bot_seen(repo, login)
     }
 
-    fn issue(&self, repo: &ForgeSlug, number: u64) -> Result<Issue, ForgeError> {
-        issue(None, repo, number)
-    }
-
-    fn sub_issues(&self, repo: &ForgeSlug, parent: u64) -> Result<Vec<SubIssue>, ForgeError> {
-        issues::sub_issues(repo, parent)
-    }
-
-    fn finished_parents(&self, repo: &ForgeSlug) -> Result<Vec<FinishedParent>, ForgeError> {
-        issues::finished_parents(repo)
-    }
-
-    fn ready_issues(&self, repo: &ForgeSlug) -> Result<Vec<ReadyIssue>, ForgeError> {
-        board::ready_issues(None, repo)
-    }
-
     fn open_pull_requests(&self, repo: &ForgeSlug) -> Result<Vec<OpenPullRequest>, ForgeError> {
         board::open_pull_requests(None, repo)
     }
@@ -164,14 +148,6 @@ impl Forge for Gh {
         thread::comments_since(&self.etags, repo, since)
     }
 
-    fn issue_comments(
-        &self,
-        repo: &ForgeSlug,
-        number: u64,
-    ) -> Result<Vec<ThreadComment>, ForgeError> {
-        thread::issue_comments(&self.etags, repo, number)
-    }
-
     fn thread_replies_since(
         &self,
         repo: &ForgeSlug,
@@ -200,33 +176,6 @@ impl Forge for Gh {
         text.trim()
             .parse()
             .map_err(|_| ForgeError::Unreadable(text.into_owned()))
-    }
-
-    fn open_issues(&self, repo: &ForgeSlug) -> Result<Vec<OpenIssue>, ForgeError> {
-        issues::open_issues(repo)
-    }
-
-    fn create_issue(
-        &self,
-        repo: &ForgeSlug,
-        title: &str,
-        body: &str,
-        labels: &[&str],
-    ) -> Result<u64, ForgeError> {
-        issues::create_issue(repo, title, body, labels)
-    }
-
-    fn close_issue(&self, repo: &ForgeSlug, number: u64) -> Result<(), ForgeError> {
-        issues::close_issue(repo, number)
-    }
-
-    fn close_issue_as(
-        &self,
-        repo: &ForgeSlug,
-        number: u64,
-        reason: IssueCloseReason,
-    ) -> Result<(), ForgeError> {
-        issues::close_issue_as(repo, number, reason)
     }
 
     fn open_pulls(&self, repo: &ForgeSlug) -> Result<Vec<OpenPull>, ForgeError> {
@@ -304,16 +253,6 @@ impl Forge for Gh {
         on: bool,
     ) -> Result<(), ForgeError> {
         review_bot::label(repo, number, label, on)
-    }
-
-    fn set_issue_label(
-        &self,
-        repo: &ForgeSlug,
-        number: u64,
-        label: &str,
-        on: bool,
-    ) -> Result<(), ForgeError> {
-        issues::set_label(repo, number, label, on)
     }
 
     fn review_bot(

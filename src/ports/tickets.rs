@@ -2,9 +2,12 @@
 //!
 //! ADR 0014: a ticket lives in exactly one source, and that source is its
 //! truth. Kelpie reads a ticket and writes to it through this port. Every
-//! project's source today is GitHub issues in the pull request's own repo,
-//! where each method is the read or write the [`Forge`] already has. A local
-//! store in kelpie's home, and ClickUp, follow as other sources.
+//! project's source today is GitHub issues in the pull request's own repo.
+//! A local store in kelpie's home, and ClickUp, follow as other sources.
+//!
+//! The forge port holds none of these (`Forge`, ADR 0014): a GitHub source's
+//! `Tickets` impl is where its issues are read and written, and every wrapper
+//! of a source holds that source's ticket port beside its forge port.
 //!
 //! The board stays kelpie's whichever source the tickets come from: the saved
 //! order, the project manager's holds and picks, drops and the file-overlap
