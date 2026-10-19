@@ -359,9 +359,9 @@ pub struct Runner {
     threads: thread_replies::Reading,
     // The account kelpie acts as, read once a run when a rework first needs it
     viewer: Option<String>,
-    // The issue of the work item a step or trigger is working on, set before
+    // The ticket of the work item a step or trigger is working on, set before
     // anything reads it: every change to a work item goes to this one
-    focus: Option<u64>,
+    focus: Option<TicketId>,
     // What last did something in a step, kept in memory only, so the next
     // step starts with the one after it
     last_acted: Option<turn::Slot>,
@@ -796,9 +796,10 @@ impl Runner {
 
     fn item_status<'a>(&self, item: &'a WorkItem, now: Timestamp) -> WorkItemStatus<'a> {
         let split = item.split(now, self.timing_phase(item));
+        let ticket = item.ticket();
         WorkItemStatus {
-            waiting: self.model_wait(item.issue),
-            held_up: self.held_up.of(item.issue),
+            waiting: ticket.and_then(|t| self.model_wait(t)),
+            held_up: ticket.and_then(|t| self.held_up.of(t)),
             build_bytes: self.builds.folder_bytes(item.issue),
             ..WorkItemStatus::new(item, self.settings.budget.per_item_usd, split)
         }
@@ -875,17 +876,17 @@ impl Runner {
 
     // The work item the runner is working on, while it is open
     pub(super) fn current(&self) -> Option<&WorkItem> {
-        self.state.item(self.focus?)
+        self.state.item_by_ticket(self.focus?)
     }
 
     // The work item the runner is working on, in a state about to be saved
     pub(super) fn current_in<'a>(&self, next: &'a mut ProjectState) -> Option<&'a mut WorkItem> {
-        next.item_mut(self.focus?)
+        next.item_mut_by_ticket(self.focus?)
     }
 
-    // Works on the work item for `issue` from here on
-    pub(super) fn on(&mut self, issue: Option<u64>) -> &mut Self {
-        self.focus = issue;
+    // Works on the work item for `ticket` from here on
+    pub(super) fn on(&mut self, ticket: Option<TicketId>) -> &mut Self {
+        self.focus = ticket;
         self
     }
 

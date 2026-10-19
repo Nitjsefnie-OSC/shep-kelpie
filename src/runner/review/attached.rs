@@ -15,6 +15,7 @@ use std::path::{Path, PathBuf};
 use super::super::Runner;
 use crate::ports::{Finding, Reach};
 use crate::settings::{AgentName, Harness, RoleModel, TestCommand};
+use crate::ticket::TicketId;
 use crate::worker_folder;
 
 /// The folder in the build folder where a reviewer writes its tests
@@ -43,10 +44,11 @@ pub(in crate::runner) fn tests_folder(build: &Path) -> PathBuf {
     build.join(TESTS_FOLDER)
 }
 
-/// Where the checked copies of issue `issue`'s tests are kept, under the
+/// Where the checked copies of `ticket`'s tests are kept, under the
 /// worker folder
-pub(in crate::runner) fn kept_folder(worker: &Path, issue: u64) -> PathBuf {
-    worker.join(format!("{TESTS_FOLDER}-{issue}"))
+#[must_use]
+pub(in crate::runner) fn kept_folder(worker: &Path, ticket: TicketId) -> PathBuf {
+    worker.join(format!("{TESTS_FOLDER}-{ticket}"))
 }
 
 impl Runner {
@@ -148,10 +150,10 @@ impl Runner {
     pub(super) fn checked_tests(
         &self,
         asked: bool,
-        (issue, worktree, build): (u64, &Path, &Path),
+        (ticket, worktree, build): (TicketId, &Path, &Path),
         found: Vec<Finding>,
     ) -> Vec<Finding> {
-        let (written, kept) = (tests_folder(build), kept_folder(&self.paths.worker, issue));
+        let (written, kept) = (tests_folder(build), kept_folder(&self.paths.worker, ticket));
         let mut checked = Vec::with_capacity(found.len());
         for mut finding in found {
             let Some(test) = finding.test.take() else {
@@ -166,10 +168,10 @@ impl Runner {
                     // A pipe in the why can read as a path. With no file left, it
                     // is part of the why again.
                     Ok(false) => {
-                        self.notes.push(refused(issue, &finding, &test, NO_FILE));
+                        self.notes.push(refused(ticket, &finding, &test, NO_FILE));
                         finding.why = format!("{}|{test}", finding.why);
                     }
-                    Err(reason) => self.notes.push(refused(issue, &finding, &test, &reason)),
+                    Err(reason) => self.notes.push(refused(ticket, &finding, &test, &reason)),
                 }
             }
             checked.push(finding);
@@ -181,10 +183,12 @@ impl Runner {
 const NO_FILE: &str = "the reviewer left no such file";
 
 // The note for a test that is dropped while its finding stays.
-fn refused(issue: u64, finding: &Finding, test: &str, reason: &str) -> String {
+fn refused(ticket: TicketId, finding: &Finding, test: &str, reason: &str) -> String {
     format!(
-        "issue #{issue}: the test {test} for {}:{} is dropped and the finding stays: {reason}",
-        finding.file, finding.line
+        "{}: the test {test} for {}:{} is dropped and the finding stays: {reason}",
+        super::super::turn::ticket_name(ticket),
+        finding.file,
+        finding.line
     )
 }
 

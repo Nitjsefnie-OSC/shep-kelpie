@@ -41,12 +41,12 @@ impl Runner {
         let code = [self.paths.worktrees(), self.settings.git.checkout.clone()];
         let reach = self.fenced_reach(&folder, &code, Vec::new(), Vec::new());
         let worktree = ruling
-            .issue
-            .and_then(|n| self.state.item(n))
+            .ticket()
+            .and_then(|t| self.state.item_by_ticket(t))
             .map(|i| i.worktree.clone());
         let prompt = ask::advisor(
             ruling.id,
-            ruling.issue,
+            ruling.ticket(),
             brief,
             worktree.as_deref(),
             &self.settings.git.checkout,
@@ -87,7 +87,7 @@ impl Runner {
             .collect();
         let mut reach = self.fenced_reach(&folder, &[], Vec::new(), hosts);
         self.with_web(&agent.model.harness, &mut reach);
-        let prompt = ask::researcher(ruling.id, ruling.issue, brief, &files);
+        let prompt = ask::researcher(ruling.id, ruling.ticket(), brief, &files);
         self.expert_call(
             agent,
             Role::Researcher,
@@ -162,8 +162,9 @@ impl Runner {
         ruling: &Ruling,
         brief: &str,
     ) -> Result<AgentCall, String> {
-        let item = (ruling.issue.and_then(|n| self.state.item(n))).ok_or("it has no work item")?;
-        let prompt = ask::worker(ruling.id, ruling.issue, brief);
+        let item = (ruling.ticket().and_then(|t| self.state.item_by_ticket(t)))
+            .ok_or("it has no work item")?;
+        let prompt = ask::worker(ruling.id, ruling.ticket(), brief);
         let session = Session::Resume(item.session.clone());
         let mut call = self.worker_call(item, session, Some(prompt), false)?;
         call.tools = Tools::Retro;

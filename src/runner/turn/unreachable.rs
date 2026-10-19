@@ -19,6 +19,9 @@ use super::super::flight::Waiting;
 use super::super::report::Begin;
 use crate::ports::{AgentCall, AgentError, Timestamp, Wait};
 use crate::profile;
+use crate::ticket::TicketId;
+
+use super::ticket_name;
 
 /// Seconds the wait lasts from the first failure before the turn parks
 ///
@@ -49,45 +52,45 @@ struct Pause {
     until: Timestamp,
 }
 
-/// The turns waiting for their model host, by issue, in memory only
+/// The turns waiting for their model host, by ticket, in memory only
 #[derive(Debug, Default)]
-pub(in crate::runner) struct Unreachable(BTreeMap<u64, Pause>);
+pub(in crate::runner) struct Unreachable(BTreeMap<TicketId, Pause>);
 
 impl Unreachable {
-    /// What `issue`'s turn waits for, if it waits for its host
-    pub(in crate::runner) fn waiting(&self, issue: u64) -> Option<Waiting> {
-        self.0.get(&issue).map(|pause| Waiting {
+    /// What `ticket`'s turn waits for, if it waits for its host
+    pub(in crate::runner) fn waiting(&self, ticket: TicketId) -> Option<Waiting> {
+        self.0.get(&ticket).map(|pause| Waiting {
             since: pause.since,
             why: Wait::Unreachable,
         })
     }
 
     /// Forgets the waits of work items no longer open
-    pub(in crate::runner) fn keep_only(&mut self, open: &[u64]) {
-        self.0.retain(|issue, _| open.contains(issue));
+    pub(in crate::runner) fn keep_only(&mut self, open: &[TicketId]) {
+        self.0.retain(|ticket, _| open.contains(ticket));
     }
 }
 
 impl Runner {
-    /// Whether `issue`'s turn that just ended with `result` waits for its
+    /// Whether `ticket`'s turn that just ended with `result` waits for its
     /// host and is tried again, rather than parks on a ruling
     ///
     /// Any result but an unreachable host ends the wait. Call it while the
     /// turn's flight still stands, for the call it keeps.
     pub(in crate::runner) fn waits_for_host(
         &mut self,
-        issue: u64,
+        ticket: TicketId,
         result: &Result<crate::ports::AgentReply, AgentError>,
     ) -> bool {
         let Err(AgentError::Unreachable(_, last)) = result else {
-            if self.unreachable.0.remove(&issue).is_some() {
+            if self.unreachable.0.remove(&ticket).is_some() {
                 self.board_changed();
             }
             return false;
         };
         let now = self.ports.clock.now();
-        let held = self.unreachable.0.remove(&issue);
-        let Some((call, first, left)) = self.flights.turn_call(issue) else {
+        let held = self.unreachable.0.remove(&ticket);
+        let Some((call, first, left)) = self.flights.turn_call(ticket) else {
             // Not a worker's turn, so no call to keep and no wait to hold.
             if held.is_some() {
                 self.board_changed();
@@ -98,7 +101,7 @@ impl Runner {
         // the outage it ended is over and this failure begins another.
         let ran = self
             .flights
-            .started(issue)
+            .started(ticket)
             .map_or(0, |at| now.0.saturating_sub(at.0));
         let held = held.filter(|_| ran <= RETRY_MAX);
         let since = held.as_ref().map_or(now, |pause| pause.since);
@@ -106,7 +109,8 @@ impl Runner {
         self.board_changed();
         if now.0.saturating_sub(since.0) >= LIMIT {
             self.notes.push(format!(
-                "issue #{issue}'s model host stayed unreachable for {} minutes: {}",
+                "{}'s model host stayed unreachable for {} minutes: {}",
+                ticket_name(ticket),
                 LIMIT / 60,
                 last.trim()
             ));
@@ -115,13 +119,14 @@ impl Runner {
         let pause = backoff(RETRY_FIRST, failures, RETRY_MAX);
         if held.is_none() {
             self.notes.push(format!(
-                "issue #{issue}'s model host cannot be reached, so its turn is tried \
+                "{}'s model host cannot be reached, so its turn is tried \
                  again in {pause} seconds: {}",
+                ticket_name(ticket),
                 last.trim()
             ));
         }
         self.unreachable.0.insert(
-            issue,
+            ticket,
             Pause {
                 call,
                 first,
@@ -141,17 +146,17 @@ impl Runner {
     pub(in crate::runner) fn next_retry(&self) -> Option<Duration> {
         let now = self.ports.clock.now();
         let soonest = (self.unreachable.0.iter())
-            .filter(|(issue, _)| !self.flights.flying(**issue))
+            .filter(|(ticket, _)| !self.flights.flying(**ticket))
             .map(|(_, pause)| pause.until)
             .min()?;
         Some(Duration::from_secs(soonest.0.saturating_sub(now.0)))
     }
 
-    /// The call of `issue`'s turn waiting for its host, once its pause has
+    /// The call of `ticket`'s turn waiting for its host, once its pause has
     /// passed, or `Begin::Idle` while it holds; `None` for a turn that does
     /// not wait
-    pub(super) fn retry_for_host(&self, issue: u64) -> Option<Begin> {
-        let pause = self.unreachable.0.get(&issue)?;
+    pub(super) fn retry_for_host(&self, ticket: TicketId) -> Option<Begin> {
+        let pause = self.unreachable.0.get(&ticket)?;
         let now = self.ports.clock.now();
         if now < pause.until || self.draining() || self.token_wait.holds(now) {
             return Some(Begin::Idle);
@@ -164,7 +169,7 @@ impl Runner {
         self.token_wait.begins();
         match self.ports.voice.worker_token(&self.remote) {
             Ok(Some(token)) => {
-                if let Some(item) = self.current().filter(|item| item.issue == issue) {
+                if let Some(item) = self.current().filter(|item| item.ticket() == Some(ticket)) {
                     let _ = profile::write_login(&item.build, &token);
                 }
                 self.token_wait.ends();

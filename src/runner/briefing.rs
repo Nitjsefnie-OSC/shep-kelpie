@@ -22,6 +22,7 @@ use crate::local_paths::Surface;
 use crate::ports::{AgentCall, PaddockHolder, Timestamp, Wait};
 use crate::settings::{GatewayName, ModelHost};
 use crate::state::{ProjectState, StateError, write_atomically};
+use crate::ticket::TicketId;
 use crate::work_item::{Phase, ReviewStage, Seat, Turn, WorkItem};
 
 mod events;
@@ -229,9 +230,9 @@ impl Runner {
     fn watch_idle(&mut self, now: Timestamp) -> Vec<String> {
         let agents = std::sync::Arc::clone(&self.ports.agents);
         let mut found = Vec::new();
-        let mut stuck: Vec<(u64, String, Timestamp)> = Vec::new();
-        let mut waiting = Vec::new();
-        for (issue, watched) in self.flights.watched_mut() {
+        let mut stuck: Vec<(TicketId, String, Timestamp)> = Vec::new();
+        let mut waiting: Vec<TicketId> = Vec::new();
+        for (ticket, watched) in self.flights.watched_mut() {
             // A call that has not been granted its model's lease is never idle:
             // what it has shown nothing for is the gateway's turn, not the
             // worker's. A long wait is a wake of its own.
@@ -254,10 +255,10 @@ impl Runner {
                         _ => why.as_str(),
                     };
                     found.push(format!(
-                        "#{issue}: {who} waits {} for {for_what}",
+                        "#{ticket}: {who} waits {} for {for_what}",
                         elapsed(waited)
                     ));
-                    waiting.push(issue);
+                    waiting.push(ticket);
                 }
                 continue;
             }
@@ -272,37 +273,38 @@ impl Runner {
             if idle && !watched.idle {
                 let quiet = age(now, Timestamp(now.0.saturating_sub(quiet)));
                 found.push(format!(
-                    "#{issue}: worker idle, no tool call or output for {quiet}"
+                    "#{ticket}: worker idle, no tool call or output for {quiet}"
                 ));
-                stuck.push((issue, quiet, watched.started));
+                stuck.push((ticket, quiet, watched.started));
             } else if !idle && watched.idle {
-                found.push(format!("#{issue}: worker active again"));
+                found.push(format!("#{ticket}: worker active again"));
             }
             watched.idle = idle;
         }
-        for (issue, quiet, started) in stuck {
+        for (ticket, quiet, started) in stuck {
             let what = format!("its worker has shown no tool call or output for {quiet}");
             self.pm_due(super::pm::Wake::Stuck {
-                issue,
+                // The project manager's wake names a work item by its issue.
+                issue: ticket.github().unwrap_or_default(),
                 what,
                 state: super::pm::StuckState::Idle(started),
             });
         }
-        for issue in waiting {
-            if let Some(wake) = self.lease_wake(issue) {
+        for ticket in waiting {
+            if let Some(wake) = self.lease_wake(ticket) {
                 self.pm_due(wake);
             }
         }
         found
     }
 
-    /// `issue`'s wake for a call in flight that has waited past
+    /// `ticket`'s wake for a call in flight that has waited past
     /// [`LEASE_WAIT_AFTER`] for its model, naming who holds the lease when the
     /// wait is one for a lease and the gateway will say
     ///
     /// `None` when it waits on nothing or has not waited that long.
-    pub(super) fn lease_wake(&self, issue: u64) -> Option<super::pm::Wake> {
-        let watched = self.flights.watched(issue)?;
+    pub(super) fn lease_wake(&self, ticket: TicketId) -> Option<super::pm::Wake> {
+        let watched = self.flights.watched(ticket)?;
         let (since, why) = watched.told?;
         let now = self.ports.clock.now();
         let waited = now.0.saturating_sub(since.0);
@@ -310,7 +312,8 @@ impl Runner {
             return None;
         }
         Some(super::pm::Wake::LeaseWait {
-            issue,
+            // The project manager's wake names a work item by its issue.
+            issue: ticket.github().unwrap_or_default(),
             worker: watched.call.is_some(),
             why,
             waited: elapsed(waited),
@@ -480,7 +483,8 @@ impl Runner {
     }
 
     fn item_line(&self, item: &WorkItem, files: Files, now: Timestamp) -> Item {
-        let session = match self.flights.watched(item.issue) {
+        let ticket = item.ticket();
+        let session = match ticket.and_then(|t| self.flights.watched(t)) {
             Some(watched) => match &watched.call {
                 Some(call) => Session::Turn {
                     since: watched.started,
@@ -493,12 +497,14 @@ impl Runner {
                 },
             },
             None => {
-                let held = self.held_up.of(item.issue);
+                let held = ticket.and_then(|t| self.held_up.of(t));
                 Session::Still(still(&item.turn, now, held, &|text| self.shown(text)))
             }
         };
         Item {
-            waiting: self.model_wait(item.issue).map(|w| (w.since, w.why)),
+            waiting: ticket
+                .and_then(|t| self.model_wait(t))
+                .map(|w| (w.since, w.why)),
             issue: item.issue,
             title: events::quote(&item.title),
             phase: phase_text(&item.phase, now),
