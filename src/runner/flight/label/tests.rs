@@ -81,7 +81,7 @@ fn an_unlabelled_issue_gets_one_issue_writer_call_and_then_the_label_it_chose() 
         panic!("one line for the call: {lines:#?}")
     };
     let wanted =
-        json!({ "issue": 7, "role": "issue-writer", "kind": "issues", "agent": "issue-writer" });
+        json!({ "issue": "7", "role": "issue-writer", "kind": "issues", "agent": "issue-writer" });
     for (key, value) in wanted.as_object().unwrap() {
         assert_eq!(&line[key], value, "{key}: {line:#}");
     }

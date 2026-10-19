@@ -377,7 +377,7 @@ fn the_findings_sent_to_the_worker_are_journaled_with_their_round_for_the_retro(
     assert_eq!(
         sent,
         [serde_json::json!({
-            "entry": "findings", "issue": 7, "round": 1,
+            "entry": "findings", "issue": "7", "round": 1,
             "findings": [{"severity": "high", "file": "src/lib.rs", "line": 3, "what": "unused variable"}],
         })]
     );

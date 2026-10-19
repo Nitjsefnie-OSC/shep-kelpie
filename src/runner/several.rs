@@ -49,8 +49,19 @@ fn both_parked(project: &str) -> (Rig, Mutex<Runner>) {
         Scripted::Text(CLEAN),
         Scripted::Text(CLEAN),
     ]);
-    let acted: Vec<u64> = (0..6).map(|_| issue_of(step(&runner).unwrap())).collect();
-    assert_eq!(acted, [7, 8, 7, 8, 7, 8], "the items take turns");
+    let acted: Vec<TicketId> = (0..6).map(|_| issue_of(step(&runner).unwrap())).collect();
+    assert_eq!(
+        acted,
+        [
+            ticket(7),
+            ticket(8),
+            ticket(7),
+            ticket(8),
+            ticket(7),
+            ticket(8)
+        ],
+        "the items take turns"
+    );
     for branch in ["kelpie/7", "kelpie/8"] {
         let head = rig.forge.head_of(branch).unwrap();
         rig.forge.set_checks(&head, Checks::Passed);
@@ -81,11 +92,10 @@ fn both_parked(project: &str) -> (Rig, Mutex<Runner>) {
 const ASKS: &str = "<kelpie-question>\nWhich flag?\n</kelpie-question>\n";
 
 // The issue of the work item a step's report is about, as the runner logs it
-fn issue_of(report: Option<StepReport>) -> u64 {
+fn issue_of(report: Option<StepReport>) -> TicketId {
     let logged = serde_json::to_value(&report).unwrap();
-    logged["issue"]
-        .as_u64()
-        .unwrap_or_else(|| panic!("no work item acted: {logged}"))
+    serde_json::from_value(logged["issue"].clone())
+        .unwrap_or_else(|e| panic!("no work item acted: {logged}: {e}"))
 }
 
 fn phases(rig: &Rig, runner: &Mutex<Runner>) -> Vec<(u64, String)> {
@@ -116,11 +126,11 @@ fn seven_waits_on_the_lease(project: &str) -> (Rig, Mutex<Runner>, String) {
         Scripted::Text(CLEAN),
     ]);
     for _ in 0..3 {
-        assert_eq!(issue_of(step(&runner).unwrap()), 7);
+        assert_eq!(issue_of(step(&runner).unwrap()), ticket(7));
     }
     let seven = rig.forge.head_of("kelpie/7").unwrap();
     rig.forge.set_checks(&seven, Checks::Passed);
-    assert_eq!(issue_of(rig.verdict(&runner)), 7, "marks #71 ready");
+    assert_eq!(issue_of(rig.verdict(&runner)), ticket(7), "marks #71 ready");
     assert_eq!(step(&runner).unwrap(), None, "#7 waits on the lease");
     (rig, runner, seven)
 }
@@ -149,7 +159,7 @@ fn an_item_ending_leaves_a_grant_its_sibling_waits_for() {
 fn a_restart_leaves_no_resend_under_a_grant_another_item_took() {
     let (rig, runner, _) = seven_waits_on_the_lease("lugia");
     rig.leases.withhold(false);
-    assert_eq!(issue_of(step(&runner).unwrap()), 7, "#7 summons");
+    assert_eq!(issue_of(step(&runner).unwrap()), ticket(7), "#7 summons");
 
     // The restart clears the book of leases, and #8 takes the grant.
     let runner = rig.open().unwrap();
@@ -159,11 +169,11 @@ fn a_restart_leaves_no_resend_under_a_grant_another_item_took() {
         Scripted::Text(CLEAN),
     ]);
     for _ in 0..3 {
-        assert_eq!(issue_of(step(&runner).unwrap()), 8);
+        assert_eq!(issue_of(step(&runner).unwrap()), ticket(8));
     }
     let eight = rig.forge.head_of("kelpie/8").unwrap();
     rig.forge.set_checks(&eight, Checks::Passed);
-    assert_eq!(issue_of(rig.verdict(&runner)), 8, "marks #81 ready");
+    assert_eq!(issue_of(rig.verdict(&runner)), ticket(8), "marks #81 ready");
     assert!(matches!(
        step(&runner).unwrap(),
        Some(StepReport::Summoned { issue, .. }) if issue == ticket(8)
@@ -192,7 +202,7 @@ fn an_item_waiting_on_coderabbit_yields_to_one_implementing_and_reviewing() {
         Scripted::Text(CLEAN),
     ]);
     for _ in 0..3 {
-        assert_eq!(issue_of(step(&runner).unwrap()), 8);
+        assert_eq!(issue_of(step(&runner).unwrap()), ticket(8));
     }
     assert_eq!(
         phases(&rig, &runner),
@@ -200,12 +210,12 @@ fn an_item_waiting_on_coderabbit_yields_to_one_implementing_and_reviewing() {
     );
     let eight = rig.forge.head_of("kelpie/8").unwrap();
     rig.forge.set_checks(&eight, Checks::Passed);
-    assert_eq!(issue_of(rig.verdict(&runner)), 8, "marks #81 ready");
+    assert_eq!(issue_of(rig.verdict(&runner)), ticket(8), "marks #81 ready");
     assert_eq!(step(&runner).unwrap(), None, "both wait on the lease");
 
     // One grant is one summon, for whichever item asked first in the rotation.
     rig.leases.withhold(false);
-    assert_eq!(issue_of(step(&runner).unwrap()), 7);
+    assert_eq!(issue_of(step(&runner).unwrap()), ticket(7));
     assert_eq!(step(&runner).unwrap(), None, "#8 waits for its own grant");
     let summons: Vec<u64> = rig
         .forge
@@ -383,11 +393,19 @@ fn the_board_fills_a_free_slot_and_never_takes_an_open_issue_again() {
     rig.claude
         .script([Scripted::Say(ASKS), Scripted::Say(ASKS)]);
     assert_eq!(dispatched(step(&runner).unwrap()), (ticket(7), vec![]));
-    assert_eq!(issue_of(step(&runner).unwrap()), 7, "#7's first turn");
+    assert_eq!(
+        issue_of(step(&runner).unwrap()),
+        ticket(7),
+        "#7's first turn"
+    );
     assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 7 }));
     // #7 is still ready on the forge, and in flight here.
     assert_eq!(dispatched(step(&runner).unwrap()), (ticket(8), vec![]));
-    assert_eq!(issue_of(step(&runner).unwrap()), 8, "#8's first turn");
+    assert_eq!(
+        issue_of(step(&runner).unwrap()),
+        ticket(8),
+        "#8's first turn"
+    );
     assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 8 }));
 
     // Both workers are parked on their questions, which fills `concurrency.pending_rulings`, so #9 waits.
@@ -412,7 +430,11 @@ fn an_adoption_goes_before_the_board_into_a_free_slot() {
 
     rig.claude
         .script([Scripted::Reply(Usage::default(), Cost(1))]);
-    assert_eq!(issue_of(step(&runner).unwrap()), 7, "#7's first turn");
+    assert_eq!(
+        issue_of(step(&runner).unwrap()),
+        ticket(7),
+        "#7's first turn"
+    );
     assert!(matches!(
         step(&runner).unwrap(),
         Some(StepReport::Adopted {
@@ -436,7 +458,11 @@ fn an_adoption_for_an_issue_in_flight_waits_for_it_to_end() {
     rig.ask(&runner, "adopt", Some("90"));
 
     rig.claude.script([Scripted::Say(ASKS)]);
-    assert_eq!(issue_of(step(&runner).unwrap()), 7, "#7's first turn");
+    assert_eq!(
+        issue_of(step(&runner).unwrap()),
+        ticket(7),
+        "#7's first turn"
+    );
     assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 7 }));
     assert_eq!(step(&runner).unwrap(), None, "#90 waits for #7");
     let status = rig.ask(&runner, "status", None);

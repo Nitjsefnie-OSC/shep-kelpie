@@ -176,7 +176,7 @@ not a step at all
             serde_json::to_value(first).unwrap(),
             serde_json::json!({
                 "at": 1_790_888_012,
-                "issue": 135,
+                "issue": "135",
                 "pull_request": 271,
                 "role": "worker",
                 "kind": "turn",

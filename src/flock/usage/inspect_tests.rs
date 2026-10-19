@@ -203,7 +203,7 @@ fn item_as_json_holds_the_calls_and_the_sessions() {
     let out = rig.ask(&["koji", "--item", "7", "--json"]).unwrap();
     let json: Value = serde_json::from_str(&out.join("\n")).unwrap();
 
-    assert_eq!(json["issue"], 7);
+    assert_eq!(json["issue"], "7");
     assert_eq!(json["pull_request"], 12);
     assert_eq!(json["calls"][0]["role"], "worker");
     assert_eq!(json["calls"][0]["usage"]["cache_read"], 20_000);
@@ -581,8 +581,8 @@ fn the_new_reports_refuse_what_they_cannot_take() {
     let err = |args: &[&str]| rig.ask(args).unwrap_err();
     assert!(err(&["--item", "7"]).contains("takes the project"));
     assert!(err(&["--context"]).contains("takes the project"));
-    assert!(err(&["koji", "--item", "seven"]).contains("not an issue number"));
-    assert!(err(&["koji", "--item", "0"]).contains("not an issue number"));
+    assert!(err(&["koji", "--item", "seven"]).contains("is not a ticket id"));
+    assert!(err(&["koji", "--item", "0"]).contains("is not a ticket id"));
     // One report at a time, and `--since` means nothing to an item.
     assert!(err(&["koji", "--context", "--reads"]).contains("shep kelpie usage"));
     assert!(err(&["koji", "--item", "7", "--since", "2026-10-01"]).contains("shep kelpie usage"));

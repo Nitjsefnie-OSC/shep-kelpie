@@ -114,7 +114,7 @@ fn the_ledger_shows_the_compaction_as_its_own_call_with_the_issue_and_pull_reque
             )
         })
         .collect();
-    let line = |kind: &str| (kind.into(), 7.into(), 71.into());
+    let line = |kind: &str| (kind.into(), "7".into(), 71.into());
     assert_eq!(calls, [line("turn"), line("compact"), line("turn")]);
 }
 

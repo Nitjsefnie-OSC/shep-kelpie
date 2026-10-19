@@ -92,7 +92,7 @@ fn a_turn_logs_its_work_item_role_agent_and_session_as_its_call_starts() {
         serde_json::to_value(&started[0]).unwrap(),
         json!({
             "step": "session-started",
-            "issue": 7,
+            "issue": "7",
             "role": "worker",
             "agent": "sonnet-high",
             "harness": "claude-code",

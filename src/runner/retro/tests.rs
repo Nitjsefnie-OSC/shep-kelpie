@@ -460,7 +460,7 @@ fn a_retro_in_flight_holds_no_slot_so_the_next_issue_opens() {
         looking.join().unwrap();
         assert!(began, "the retro never began");
         assert!(
-            passes.iter().any(|p| p.contains("Dispatched { issue: 8")),
+            passes.iter().any(|p| p.contains("issue: Github(8)")),
             "{passes:#?}"
         );
     });
