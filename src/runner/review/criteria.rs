@@ -18,7 +18,7 @@ impl Runner {
     pub(super) fn criteria(&self, issue: u64) -> Result<String, String> {
         let found = self
             .ports
-            .forge
+            .tickets
             .issue(&self.remote, issue)
             .map_err(|e| format!("cannot read issue #{issue} for the review round: {e}"))?;
         Ok(format!(

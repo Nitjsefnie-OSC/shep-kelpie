@@ -59,11 +59,13 @@ impl Setup {
     // Runs the issue writer on its own, its session answering `reply`.
     fn headless(&self, reply: &'static str) -> Result<Vec<String>, String> {
         self.rig.claude.script([Scripted::Text(reply)]);
+        // The rig's one forge stands behind both ports.
         let forge = &self.rig.forge;
         headless(
             &self.project(),
             &self.writer,
             REQUEST,
+            forge,
             forge,
             &self.rig.claude,
             &self.rig.git,

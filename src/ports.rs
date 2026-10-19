@@ -122,8 +122,9 @@ pub enum Visibility {
 
 /// The forge that holds the project's issues and pull requests
 ///
-/// Its issue methods are the GitHub ticket source's [`Tickets`] (ADR 0014),
-/// which stays here until every caller of them has moved to that port.
+/// Its issue methods are the GitHub ticket source's [`Tickets`] (ADR 0014):
+/// the runner reads a ticket through that port, and each source's
+/// [`Tickets`] impl forwards here.
 pub trait Forge: Send + Sync {
     /// Who can see `repo`
     ///

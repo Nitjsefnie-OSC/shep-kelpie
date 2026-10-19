@@ -1,9 +1,9 @@
 //! Which project's ruling a reply on the topic answers
 
-use super::super::trigger::number;
 use super::super::{ProjectName, Runner};
 use crate::state::Projects;
 use crate::state::Ruling;
+use crate::ticket::TicketId;
 
 /// A reply's text without its code, read as the ruling it names and the
 /// answer's words
@@ -33,9 +33,13 @@ fn numbered(token: &str) -> Option<Reply<'_>> {
             (Some(project), digits)
         }
     };
+    let ticket: TicketId = digits.parse().ok()?;
+    // A ruling is numbered by an issue or a pull request, so a ticket from another
+    // source names none, and the reply is unreadable like any other token.
+    ticket.github()?;
     Some(Reply {
         project,
-        number: number(digits)?,
+        ticket,
         words: "",
     })
 }
@@ -45,8 +49,8 @@ fn numbered(token: &str) -> Option<Reply<'_>> {
 pub(super) struct Reply<'a> {
     /// The project it names, if it does
     pub project: Option<&'a str>,
-    /// The number of the issue or pull request a ruling is about
-    pub number: u64,
+    /// The ticket, or the number of the pull request, a ruling is about
+    pub ticket: TicketId,
     /// The answer's words
     pub words: &'a str,
 }
@@ -88,16 +92,22 @@ pub(super) struct Named {
 }
 
 impl Runner {
-    // The ruling `reply` names. A number is the number of the issue or pull
-    // request a ruling here is about, since that is what a question prints.
+    // The ruling `reply` names. A number is the id of the ticket, or the number
+    // of the pull request, a ruling here is about, since that is what a question prints.
     pub(super) fn which(&self, reply: &Reply<'_>) -> Named {
         let Reply {
             project: named,
-            number,
+            ticket,
             ..
         } = *reply;
+        // A ticket from another source has no pull request number, and no ruling
+        // is numbered 0.
+        let number = ticket.github().unwrap_or(0);
         let project = self.project.as_str();
-        let about = |r: &&Ruling| r.issue == Some(number) || r.pull_request == Some(number);
+        let about = |r: &&Ruling| {
+            r.ticket() == Some(ticket)
+                || ticket.github().is_some() && r.pull_request == Some(number)
+        };
         let mut here: Vec<&Ruling> = self.state.rulings.iter().filter(about).collect();
         // The number names the ruling that took it, not one an older kelpie
         // left beside it under its counter id.
@@ -120,7 +130,7 @@ impl Runner {
         }
         if let [first, second, ..] = here.as_slice() {
             let why = format!(
-                "#{number} has rulings {} and {} here, so answer one by its id",
+                "#{ticket} has rulings {} and {} here, so answer one by its id",
                 first.id, second.id
             );
             return named_by(Whose::Several(why), id);
@@ -134,7 +144,7 @@ impl Runner {
             }
             match state {
                 Ok(state) if state.rulings.iter().any(|r| about(&r)) => {
-                    let why = format!("#{number} also has a ruling on {other}");
+                    let why = format!("#{ticket} also has a ruling on {other}");
                     return named_by(Whose::Unsure(why), id);
                 }
                 Ok(_) => {}

@@ -278,7 +278,7 @@ impl Runner {
         marker: &str,
         after: Timestamp,
     ) -> Result<Option<ThreadComment>, ForgeError> {
-        let comments = self.ports.forge.issue_comments(&self.remote, issue)?;
+        let comments = self.ports.tickets.issue_comments(&self.remote, issue)?;
         let Some(app) = self.app_login().map(|app| plain_login(&app)) else {
             return Ok(None);
         };
@@ -550,7 +550,7 @@ impl Runner {
     // the round stays open and no comment is worded without the body. The
     // author's text is never written over.
     pub(in crate::runner) fn settled_answers(&mut self, issue: u64, settled: &str) -> Settled {
-        let body = match self.ports.forge.issue(&self.remote, issue) {
+        let body = match self.ports.tickets.issue(&self.remote, issue) {
             Ok(found) => found.body,
             Err(e) => {
                 let why = format!("cannot read its body: {e}");
@@ -575,7 +575,7 @@ impl Runner {
     pub(super) fn answers_round(&mut self, issue: u64) -> Option<(String, String)> {
         let asked = self.triage_record(issue)?.questions?;
         let answers = self.triage_tries.get(&issue)?.answers.clone()?;
-        let round = match self.ports.forge.issue_comments(&self.remote, issue) {
+        let round = match self.ports.tickets.issue_comments(&self.remote, issue) {
             Ok(comments) => {
                 (comments.iter().find(|c| c.id == asked.comment)).map(|c| c.body.clone())
             }

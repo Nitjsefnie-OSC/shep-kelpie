@@ -42,7 +42,7 @@ impl Runner {
                 "no issue or pull request of that number was in its listing".to_owned(),
             );
         }
-        let open = match self.ports.forge.open_issues(&self.remote) {
+        let open = match self.ports.tickets.open_issues(&self.remote) {
             Ok(open) => open,
             Err(e) => return self.cover_unknown(issue, &e),
         };
