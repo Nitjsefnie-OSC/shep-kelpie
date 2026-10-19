@@ -176,12 +176,18 @@ impl Entry {
     }
 }
 
-// Whether `text` names `ticket` as a whole id, and not the start of a longer one
+// Whether `text` names `ticket` as a whole id, and not a piece of a longer one.
+// A GitHub ticket's `#` is its own start boundary, so only its digits need
+// keeping. A local id is letters and digits at both ends, so `disk12` is not
+// `k12`, and neither is `1k12`.
 fn mentions(text: &str, ticket: TicketId) -> bool {
     let tag = ticket.shown();
+    let local = matches!(ticket, TicketId::Local(_));
     text.match_indices(&tag).any(|(at, _)| {
+        let before = text[..at].chars().next_back();
         let after = text[at + tag.len()..].chars().next();
-        !after.is_some_and(|c| c.is_ascii_digit())
+        !(local && before.is_some_and(|c| c.is_ascii_alphanumeric()))
+            && !after.is_some_and(|c| c.is_ascii_digit())
     })
 }
 
@@ -239,6 +245,14 @@ mod tests {
         let entry = wake("k12 conflicts with main");
         assert!(entry.names("k12".parse().unwrap()));
         assert!(!entry.names("k123".parse().unwrap()));
+        // A local id is letters and digits, so a word that ends in it is not
+        // the id, and neither is an id that starts inside a longer one.
+        let entry = wake("disk12 usage is high");
+        assert!(!entry.names("k12".parse().unwrap()), "{entry:?}");
+        let entry = wake("1k12 usage is high");
+        assert!(!entry.names("k12".parse().unwrap()), "{entry:?}");
+        let entry = wake("the k12 retro, and k12 too");
+        assert!(entry.names("k12".parse().unwrap()), "{entry:?}");
     }
 
     #[test]
