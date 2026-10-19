@@ -6,7 +6,7 @@ use std::path::Path;
 use super::{parked_with, script_all, seen, settle, state_of};
 use crate::ports::Role;
 use crate::runner::step;
-use crate::test::{Rig, write_in};
+use crate::test::{Rig, ticket, write_in};
 
 fn read(path: &Path) -> String {
     std::fs::read_to_string(path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
@@ -122,7 +122,7 @@ fn the_advisor_is_given_the_ruling_the_branchs_diff_and_where_to_read() {
     assert!(read(&advisor.join("ruling.md")).contains("| **A** | Merge |"));
     assert!(read(&advisor.join("diff.patch")).contains("+++ b/work.txt"));
     let places = read(&advisor.join("where.md"));
-    let worktree = rig.paths().worktree(7).display().to_string();
+    let worktree = rig.paths().worktree(ticket(7)).display().to_string();
     assert!(
         places.contains(&format!("`{worktree}`, on branch `kelpie/7`")),
         "{places}"

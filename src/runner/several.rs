@@ -9,7 +9,7 @@ use crate::lease::LeaseKind;
 use crate::ports::{CLEAN, Checks, Cost, Usage};
 use crate::runner::coderabbit::HEARD_WAIT;
 use crate::runner::{Runner, StepReport, step};
-use crate::test::{Rig, Scripted, Told};
+use crate::test::{Rig, Scripted, Told, ticket};
 
 // A running project that may hold two work items open, with issues 7 and 8
 // ready to open pull requests 71 and 81
@@ -264,7 +264,7 @@ fn a_ruling_answered_for_one_item_leaves_the_other_alone() {
         Some(StepReport::Ended { issue: 8, .. })
     ));
     let call = rig.claude.calls().pop().unwrap();
-    assert_eq!(call.cwd, rig.paths().worktree(8));
+    assert_eq!(call.cwd, rig.paths().worktree(ticket(8)));
     assert!(call.prompt.contains("rename the flag"), "{}", call.prompt);
     assert_eq!(phases(&rig, &runner)[0], (7, "ruling".into()));
     assert_eq!(rig.forge.merges(), []);

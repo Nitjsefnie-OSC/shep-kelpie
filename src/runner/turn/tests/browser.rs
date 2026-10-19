@@ -3,6 +3,7 @@
 use super::*;
 use crate::ports::{CLEAN, Role, Session};
 use crate::settings::AgentHarness;
+use crate::test::ticket;
 
 const OFF: &str = "[app.dogs.kelpie.browser]\nenabled = false\nheaded = false\ndomains = []";
 
@@ -329,7 +330,7 @@ fn a_bridge_that_cannot_be_opened_counts_as_a_failed_run() {
     let runner = rig.open().unwrap();
     rig.ask(&runner, "add", Some("7"));
     // A file where the work item's browser folder goes, which kelpie will not use.
-    let folder = rig.paths().browser(7);
+    let folder = rig.paths().browser(ticket(7));
     fs::create_dir_all(folder.parent().unwrap()).unwrap();
     fs::write(&folder, "").unwrap();
     let _ = step(&runner);
