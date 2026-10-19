@@ -8,8 +8,8 @@
 //! wait is measured against: the record keeps `local { at, body }`, `body` a
 //! hash of that text.
 //!
-//! Each poll reads each issue waiting on `local` through [`Forge::issue`]
-//! (`crate::ports::Forge`). A body whose hash differs is triaged again on the
+//! Each poll reads each issue waiting on `local` through [`Tickets::issue`]
+//! (`crate::ports::Tickets`). A body whose hash differs is triaged again on the
 //! new text, by a call of [`Purpose::LocalRead`] taken the way the answers
 //! call is, and its comment ends the round: `ready-for-agent` for a maintainer
 //! issue the pass is sure of, `needs-triage` for any other, with no further ask

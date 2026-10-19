@@ -1,10 +1,11 @@
 //! The guard as the ticket port, and as both ports at once (ADR 0014)
 //!
 //! A GitHub project's tickets are its issues, so a ticket read or written
-//! through the guard is the guard's own forge call: held, checked against this
-//! machine's paths and ledged exactly as the same call through the forge is.
-//! The impls stand here rather than in `local_paths` itself, so no call site
-//! there has both ports in scope at once.
+//! through the guard is the source's own call, checked against this machine's
+//! paths exactly as a post through the guard's forge port is: an issue's title
+//! and body are kelpie's text, and a post that names one is never sent. The
+//! impls stand here rather than in `local_paths` itself, so no call site there
+//! has both ports in scope at once.
 
 use std::sync::Arc;
 
@@ -17,7 +18,7 @@ use crate::ports::{
 use crate::settings::ForgeSlug;
 
 impl Guarded {
-    /// This guard as both ports a runner reads the forge through: one guard
+    /// This guard as both ports a runner reads a source through: one guard
     /// behind the forge port and behind the ticket port, so a call on either
     /// reaches the same guard, rate-limit hold and ledger
     #[must_use]
@@ -32,23 +33,23 @@ impl Guarded {
 
 impl Tickets for Guarded {
     fn issue(&self, repo: &ForgeSlug, number: u64) -> Result<Issue, ForgeError> {
-        Forge::issue(self, repo, number)
+        self.tickets.issue(repo, number)
     }
 
     fn sub_issues(&self, repo: &ForgeSlug, parent: u64) -> Result<Vec<SubIssue>, ForgeError> {
-        Forge::sub_issues(self, repo, parent)
+        self.tickets.sub_issues(repo, parent)
     }
 
     fn finished_parents(&self, repo: &ForgeSlug) -> Result<Vec<FinishedParent>, ForgeError> {
-        Forge::finished_parents(self, repo)
+        self.tickets.finished_parents(repo)
     }
 
     fn ready_issues(&self, repo: &ForgeSlug) -> Result<Vec<ReadyIssue>, ForgeError> {
-        Forge::ready_issues(self, repo)
+        self.tickets.ready_issues(repo)
     }
 
     fn open_issues(&self, repo: &ForgeSlug) -> Result<Vec<OpenIssue>, ForgeError> {
-        Forge::open_issues(self, repo)
+        self.tickets.open_issues(repo)
     }
 
     fn issue_comments(
@@ -56,7 +57,7 @@ impl Tickets for Guarded {
         repo: &ForgeSlug,
         number: u64,
     ) -> Result<Vec<ThreadComment>, ForgeError> {
-        Forge::issue_comments(self, repo, number)
+        self.tickets.issue_comments(repo, number)
     }
 
     fn create_issue(
@@ -66,11 +67,13 @@ impl Tickets for Guarded {
         body: &str,
         labels: &[&str],
     ) -> Result<u64, ForgeError> {
-        Forge::create_issue(self, repo, title, body, labels)
+        self.check(repo, "the issue's title", title)?;
+        self.check(repo, "the issue's body", body)?;
+        self.tickets.create_issue(repo, title, body, labels)
     }
 
     fn close_issue(&self, repo: &ForgeSlug, number: u64) -> Result<(), ForgeError> {
-        Forge::close_issue(self, repo, number)
+        self.tickets.close_issue(repo, number)
     }
 
     fn close_issue_as(
@@ -79,7 +82,7 @@ impl Tickets for Guarded {
         number: u64,
         reason: IssueCloseReason,
     ) -> Result<(), ForgeError> {
-        Forge::close_issue_as(self, repo, number, reason)
+        self.tickets.close_issue_as(repo, number, reason)
     }
 
     fn set_issue_label(
@@ -89,6 +92,6 @@ impl Tickets for Guarded {
         label: &str,
         on: bool,
     ) -> Result<(), ForgeError> {
-        Forge::set_issue_label(self, repo, number, label, on)
+        self.tickets.set_issue_label(repo, number, label, on)
     }
 }

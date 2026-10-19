@@ -15,11 +15,11 @@ use std::fmt;
 use std::sync::Arc;
 
 use super::{
-    BranchRun, CommentMarks, FailedLogs, FinishedParent, FolderEntry, Forge, ForgeError, Issue,
-    IssueCloseReason, LineComment, NewLabel, OpenIssue, OpenPull, PostedComment, PullRequest,
-    QueueStanding, Reviewed, SubIssue, Talk, ThreadComment, Timestamp, Visibility, Voice, Workflow,
+    BranchRun, CommentMarks, FailedLogs, FolderEntry, Forge, ForgeError, LineComment, NewLabel,
+    OpenPull, PostedComment, PullRequest, QueueStanding, Reviewed, Talk, ThreadComment, Tickets,
+    Timestamp, Visibility, Voice, Workflow,
 };
-use crate::board::{OpenPullRequest, ReadyIssue};
+use crate::board::OpenPullRequest;
 use crate::github::InstallationToken;
 use crate::hooks::{Hooks, Role};
 use crate::local_paths::{Leak, LocalPaths, Surface, names_repo};
@@ -87,20 +87,24 @@ fn check(
     (hooks.publish(role, what, text)).map_err(|refusal| ForgeError::Hook { what, refusal })
 }
 
-/// A forge that refuses to post any text naming something of this machine's
+/// The two ports of a forge, refusing to post any text naming something of
+/// this machine's
 pub struct Guarded {
     forge: Arc<dyn Forge>,
+    tickets: Arc<dyn Tickets>,
     local: LocalPaths,
     flock: Flock,
     hooks: Hooks,
 }
 
 impl Guarded {
-    /// `forge`, refusing posts that `local` finds something in
-    pub fn new(forge: Arc<dyn Forge>, local: LocalPaths) -> Self {
+    /// `forge` and `tickets`, the two ports of one source, refusing posts that
+    /// `local` finds something in
+    pub fn new(forge: Arc<dyn Forge>, tickets: Arc<dyn Tickets>, local: LocalPaths) -> Self {
         Self {
             flock: Flock::new(Arc::clone(&forge)),
             forge,
+            tickets,
             local,
             hooks: Hooks::default(),
         }
@@ -176,22 +180,6 @@ impl Forge for Guarded {
         self.forge.review_bot_seen(repo, login)
     }
 
-    fn issue(&self, repo: &ForgeSlug, number: u64) -> Result<Issue, ForgeError> {
-        self.forge.issue(repo, number)
-    }
-
-    fn sub_issues(&self, repo: &ForgeSlug, parent: u64) -> Result<Vec<SubIssue>, ForgeError> {
-        self.forge.sub_issues(repo, parent)
-    }
-
-    fn finished_parents(&self, repo: &ForgeSlug) -> Result<Vec<FinishedParent>, ForgeError> {
-        self.forge.finished_parents(repo)
-    }
-
-    fn ready_issues(&self, repo: &ForgeSlug) -> Result<Vec<ReadyIssue>, ForgeError> {
-        self.forge.ready_issues(repo)
-    }
-
     fn open_pull_requests(&self, repo: &ForgeSlug) -> Result<Vec<OpenPullRequest>, ForgeError> {
         self.forge.open_pull_requests(repo)
     }
@@ -225,14 +213,6 @@ impl Forge for Guarded {
         self.forge.comments_since(repo, since)
     }
 
-    fn issue_comments(
-        &self,
-        repo: &ForgeSlug,
-        number: u64,
-    ) -> Result<Vec<ThreadComment>, ForgeError> {
-        self.forge.issue_comments(repo, number)
-    }
-
     fn thread_replies_since(
         &self,
         repo: &ForgeSlug,
@@ -253,35 +233,6 @@ impl Forge for Guarded {
     fn comment(&self, repo: &ForgeSlug, number: u64, body: &str) -> Result<u64, ForgeError> {
         self.check(repo, "the comment", body)?;
         self.forge.comment(repo, number, body)
-    }
-
-    fn open_issues(&self, repo: &ForgeSlug) -> Result<Vec<OpenIssue>, ForgeError> {
-        self.forge.open_issues(repo)
-    }
-
-    fn create_issue(
-        &self,
-        repo: &ForgeSlug,
-        title: &str,
-        body: &str,
-        labels: &[&str],
-    ) -> Result<u64, ForgeError> {
-        self.check(repo, "the issue's title", title)?;
-        self.check(repo, "the issue's body", body)?;
-        self.forge.create_issue(repo, title, body, labels)
-    }
-
-    fn close_issue(&self, repo: &ForgeSlug, number: u64) -> Result<(), ForgeError> {
-        self.forge.close_issue(repo, number)
-    }
-
-    fn close_issue_as(
-        &self,
-        repo: &ForgeSlug,
-        number: u64,
-        reason: IssueCloseReason,
-    ) -> Result<(), ForgeError> {
-        self.forge.close_issue_as(repo, number, reason)
     }
 
     fn open_pulls(&self, repo: &ForgeSlug) -> Result<Vec<OpenPull>, ForgeError> {
@@ -363,16 +314,6 @@ impl Forge for Guarded {
         on: bool,
     ) -> Result<(), ForgeError> {
         self.forge.set_label(repo, number, label, on)
-    }
-
-    fn set_issue_label(
-        &self,
-        repo: &ForgeSlug,
-        number: u64,
-        label: &str,
-        on: bool,
-    ) -> Result<(), ForgeError> {
-        self.forge.set_issue_label(repo, number, label, on)
     }
 
     fn review_bot(

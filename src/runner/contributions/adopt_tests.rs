@@ -15,7 +15,7 @@ use super::release_tests::{
 };
 use super::ruling_tests::rule;
 use crate::github::ApiError;
-use crate::ports::Forge;
+use crate::ports::Tickets;
 use crate::runner::Runner;
 use crate::test::Rig;
 
