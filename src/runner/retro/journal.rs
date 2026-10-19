@@ -178,16 +178,16 @@ impl Entry {
 
 // Whether `text` names `ticket` as a whole id, and not a piece of a longer one.
 // A GitHub ticket's `#` is its own start boundary, so only its digits need
-// keeping. A local id is letters and digits at both ends, so `disk12` is not
-// `k12`, and neither is `1k12`.
+// keeping there. A local id is letters and digits at both ends, so `disk12`
+// and `k12x` are not `k12`, and neither is `1k12`.
 fn mentions(text: &str, ticket: TicketId) -> bool {
     let tag = ticket.shown();
     let local = matches!(ticket, TicketId::Local(_));
+    let runs_on = |c: char| c.is_ascii_digit() || (local && c.is_ascii_alphabetic());
     text.match_indices(&tag).any(|(at, _)| {
         let before = text[..at].chars().next_back();
         let after = text[at + tag.len()..].chars().next();
-        !(local && before.is_some_and(|c| c.is_ascii_alphanumeric()))
-            && !after.is_some_and(|c| c.is_ascii_digit())
+        !(local && before.is_some_and(runs_on)) && !after.is_some_and(runs_on)
     })
 }
 
@@ -250,6 +250,8 @@ mod tests {
         let entry = wake("disk12 usage is high");
         assert!(!entry.names("k12".parse().unwrap()), "{entry:?}");
         let entry = wake("1k12 usage is high");
+        assert!(!entry.names("k12".parse().unwrap()), "{entry:?}");
+        let entry = wake("k12x stalled and 1k12 too");
         assert!(!entry.names("k12".parse().unwrap()), "{entry:?}");
         let entry = wake("the k12 retro, and k12 too");
         assert!(entry.names("k12".parse().unwrap()), "{entry:?}");
