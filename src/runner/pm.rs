@@ -520,8 +520,17 @@ impl Runner {
         let told = self.state.pm_told.clone();
         let notes = self.pm_notes();
         let full = fresh || self.pm.full_prompt;
-        let text = prompt::wake(self.project.as_str(), &wakes, &told, full, &notes);
-        let call = match self.pm_call(agent, session, text, true) {
+        // The board the wake carries in its prompt, and writes to `board.md`
+        // for a re-read and for the `## Code` paths it names.
+        let board = match self.pm_board() {
+            Ok(text) => text,
+            Err(why) => {
+                self.pm.due = wakes;
+                return Err(why);
+            }
+        };
+        let text = prompt::wake(self.project.as_str(), &wakes, &told, full, &notes, &board);
+        let call = match self.pm_call(agent, session, text, Some(board)) {
             Ok(call) => call,
             Err(why) => {
                 self.pm.due = wakes;
@@ -545,12 +554,7 @@ impl Runner {
         let Some(id) = self.state.pm_session.clone() else {
             return Ok(());
         };
-        let call = self.pm_call(
-            agent,
-            Session::Resume(id.clone()),
-            COMPACT.to_owned(),
-            false,
-        )?;
+        let call = self.pm_call(agent, Session::Resume(id.clone()), COMPACT.to_owned(), None)?;
         self.pm.flying = Some(Flying {
             kind: Kind::Compact,
             wakes: Vec::new(),

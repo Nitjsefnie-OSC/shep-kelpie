@@ -153,6 +153,17 @@ that is not stuck.
     voting!()
 );
 
+/// A board this long, in bytes, goes in the prompt. A longer one stays in
+/// `board.md` alone, since the prompt is one argument to the harness and the
+/// board is a file the project manager can read
+pub(super) const BOARD_INLINE: usize = 64 * 1024;
+
+/// The board carried in the prompt, under its heading
+const BOARD_HEADING: &str = "## The board, as it stood when kelpie woke you\n\n";
+
+/// What a wake says when the board it carries is the one in its folder
+const BOARD_BELOW: &str = "The board is below, and `board.md` holds the same text.";
+
 /// What kelpie says of the project manager's three notes files
 #[derive(Debug, Clone, Default)]
 pub(super) struct Notes {
@@ -167,14 +178,18 @@ pub(super) struct Notes {
     pub condense: bool,
 }
 
-/// The prompt for a wake for `wakes`, carrying `told` and `notes`: in full
-/// for a new session, shorter for one resumed
+/// The prompt for a wake for `wakes`, carrying `told`, `notes` and `board`:
+/// in full for a new session, shorter for one resumed
+///
+/// A board past [`BOARD_INLINE`] is left out of the prompt, which then tells
+/// the project manager to read `board.md`, where kelpie writes the same text.
 pub(super) fn wake(
     project: &str,
     wakes: &[Wake],
     told: &[String],
     fresh: bool,
     notes: &Notes,
+    board: &str,
 ) -> String {
     let mut out = String::new();
     match fresh {
@@ -206,21 +221,34 @@ pub(super) fn wake(
         }
         out.push('\n');
     }
+    let carried = board.len() <= BOARD_INLINE;
+    if carried {
+        let _ = write!(out, "\n{BOARD_BELOW}\n\n{BOARD_HEADING}{board}\n");
+    }
     match fresh {
         true => {
+            let read = match carried {
+                true => "",
+                false => {
+                    "Read `board.md`, which kelpie wrote as the board stood when it woke you.\n\n"
+                }
+            };
             let _ = write!(
                 out,
-                "\nRead `board.md`, which kelpie wrote as the board stood when it woke you.\n\n\
-                 {NOTES}\n{standing}\n\nThen reply with one JSON object and nothing after \
-                 it:\n\n{ANSWER}\n",
+                "\n{read}{NOTES}\n{standing}\n\nThen reply with one JSON object and nothing \
+                 after it:\n\n{ANSWER}\n",
                 standing = standing_block(notes)
             );
         }
         false => {
+            let reread = match carried {
+                true => "",
+                false => "`board.md` has been written again for now. Reread what you need. ",
+            };
             let _ = write!(
                 out,
-                "\n`board.md` has been written again for now. Reread what you need. Then \
-                 reply with the same JSON object as before and nothing after it.\n"
+                "\n{reread}Then reply with the same JSON object as before and nothing after \
+                 it.\n"
             );
             // A session from before the key was added has not seen it.
             if notes.mine || notes.condense {
@@ -430,6 +458,10 @@ mod tests {
     use crate::ports::Timestamp;
     use crate::runner::pm::StuckState;
 
+    /// A board a test's wake carries, as kelpie writes it to `board.md`
+    const BOARD: &str =
+        "# Board for koji, at 00:00\n\n## Open work items\n\n(none)\n\n## Code\n\n(none)\n";
+
     #[test]
     fn a_first_wake_names_its_reasons_the_files_and_the_answer() {
         let wakes = [
@@ -443,6 +475,7 @@ mod tests {
             &["Hold #12 until\nthe release.".into()],
             true,
             &Notes::default(),
+            BOARD,
         );
         assert!(text.starts_with(
             "You are the project manager for koji. Kelpie woke you because:\n\n\
@@ -457,7 +490,7 @@ mod tests {
 
     #[test]
     fn the_pm_prompt_says_a_candidate_the_maintainer_carries_out_starts_with_you() {
-        let text = wake("koji", &[Wake::Told], &[], true, &Notes::default());
+        let text = wake("koji", &[Wake::Told], &[], true, &Notes::default(), BOARD);
         assert!(text.contains("starts with `You`"), "{text}");
         assert!(text.contains("`escalate`"), "{text}");
         assert!(
@@ -481,6 +514,7 @@ mod tests {
             &[],
             false,
             &Notes::default(),
+            BOARD,
         );
         assert!(
             text.starts_with("Kelpie woke you again because:\n\n- #7 is stuck: its turn failed\n")
@@ -504,11 +538,19 @@ mod tests {
                 &[],
                 fresh,
                 &Notes::default(),
+                BOARD,
             );
             assert!(text.contains("`ci/<issue>.log`"), "{text}");
             assert!(text.contains("names the failing test or step"), "{text}");
         }
-        let text = wake("koji", &[Wake::Pick(2)], &[], true, &Notes::default());
+        let text = wake(
+            "koji",
+            &[Wake::Pick(2)],
+            &[],
+            true,
+            &Notes::default(),
+            BOARD,
+        );
         assert!(!text.contains("ci/<issue>.log"), "{text}");
     }
 
@@ -519,7 +561,7 @@ mod tests {
             id: 1,
             asked: "Which flag?".into(),
         };
-        let text = wake("koji", &[ask], &[], false, &Notes::default());
+        let text = wake("koji", &[ask], &[], false, &Notes::default(), BOARD);
         assert!(text.contains("\"answer\": null or {\"item\""), "{text}");
         assert!(text.contains("`PM recommends: <choice>`"), "{text}");
         assert!(!text.contains("\"pick\""), "{text}");
@@ -551,6 +593,7 @@ mod tests {
             &[],
             true,
             &Notes::default(),
+            BOARD,
         );
         assert!(
             fresh.contains(
@@ -571,7 +614,7 @@ mod tests {
             fresh.contains("Decide the ruling with `follow_up`"),
             "{fresh}"
         );
-        let resumed = wake("koji", &[follow_up], &[], false, &Notes::default());
+        let resumed = wake("koji", &[follow_up], &[], false, &Notes::default(), BOARD);
         assert!(
             resumed.contains("\"answer\": null or {\"item\""),
             "{resumed}"
@@ -581,7 +624,14 @@ mod tests {
             "{resumed}"
         );
         assert!(resumed.contains("`PM recommends: <choice>`"), "{resumed}");
-        let other = wake("koji", &[Wake::Pick(2)], &[], false, &Notes::default());
+        let other = wake(
+            "koji",
+            &[Wake::Pick(2)],
+            &[],
+            false,
+            &Notes::default(),
+            BOARD,
+        );
         assert!(
             !other.contains("Decide the ruling with `follow_up`"),
             "{other}"
@@ -600,6 +650,7 @@ mod tests {
             &[],
             true,
             &Notes::default(),
+            BOARD,
         );
         assert!(
             fresh.contains(
@@ -609,13 +660,20 @@ mod tests {
             "{fresh}"
         );
         assert!(fresh.contains("\"votes\": [] or [{\"ruling\""), "{fresh}");
-        let resumed = wake("koji", &[vote], &[], false, &Notes::default());
+        let resumed = wake("koji", &[vote], &[], false, &Notes::default(), BOARD);
         assert!(
             resumed.contains("\"votes\": [] or [{\"ruling\""),
             "{resumed}"
         );
         assert!(resumed.contains("You vote alone"), "{resumed}");
-        let other = wake("koji", &[Wake::Pick(2)], &[], false, &Notes::default());
+        let other = wake(
+            "koji",
+            &[Wake::Pick(2)],
+            &[],
+            false,
+            &Notes::default(),
+            BOARD,
+        );
         assert!(!other.contains("\"votes\""), "{other}");
     }
 }
