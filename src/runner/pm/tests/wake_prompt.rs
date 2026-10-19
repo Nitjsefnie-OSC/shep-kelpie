@@ -4,6 +4,7 @@
 
 use super::{PICK_12, answered, pm_seen, step_until, with_pm};
 use crate::ports::AgentError;
+use crate::runner::pm::notes::PM_STANDING;
 use crate::runner::pm::prompt::BOARD_INLINE;
 use crate::runner::{StepReport, step};
 use crate::settings::Harness;
@@ -223,4 +224,30 @@ fn a_wake_that_failed_or_was_unread_adds_nothing_to_the_notes() {
         "a wake that failed, and one whose reply kelpie could not read, wrote nothing"
     );
     assert_eq!(pm_seen(&rig).len(), 2, "both wakes ran");
+}
+
+#[test]
+fn a_tell_reaches_the_notes_once_verbatim_on_the_wake_that_answers_it() {
+    let (rig, runner) = with_pm("xilriws");
+    rig.ask(&runner, "tell", Some("Hold #12 until the release"));
+    rig.claude.script([Scripted::Say("{\"pick\": null}")]);
+    answered(step(&runner).unwrap());
+
+    let standing = read(&rig, PM_STANDING);
+    assert_eq!(
+        standing, "## 2026-09-21 14:13\nHold #12 until the release\n",
+        "dated, and verbatim, whatever the project manager wrote"
+    );
+    let notes = read(&rig, "pm-notes.md");
+    assert!(
+        notes.contains("woke for: the maintainer told you something"),
+        "{notes}"
+    );
+    assert_eq!(
+        format!("{standing}{notes}")
+            .matches("Hold #12 until the release")
+            .count(),
+        1,
+        "the tell is in the notes once: {notes}"
+    );
 }
