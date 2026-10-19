@@ -452,7 +452,7 @@ fn a_failed_e2e_run_closes_the_bump_with_a_comment_and_an_issue() {
 }
 
 #[test]
-fn a_red_bump_on_a_local_store_is_closed_and_commented_but_files_no_issue() {
+fn a_red_bump_on_a_local_store_is_closed_and_filed_as_a_local_ticket() {
     let rig = Rig::new("shep");
     rig.edit_settings(|s| format!("{s}\n[app.dogs.kelpie.dependencies]\npick = \"on\"\n"));
     rig.tickets_local();
@@ -466,16 +466,15 @@ fn a_red_bump_on_a_local_store_is_closed_and_commented_but_files_no_issue() {
     assert_eq!(rig.forge.pull_request_closings(), [40]);
     let comments = rig.forge.comments();
     assert_eq!(comments.len(), 1);
-    assert!(!comments[0].1.contains("An issue follows"), "{comments:?}");
+    assert!(comments[0].1.contains("A ticket follows"), "{comments:?}");
     assert!(rig.forge.created().is_empty());
     assert_eq!(rig.forge.issue_writes(), Vec::<String>::new());
     assert!(bumps(&rig, &runner).is_empty());
+    let listed = rig.ticket_verb(&["list"]);
+    let want = "k1  open  dependencies: #40, topic/40, broke [needs-triage, dependencies]";
+    assert!(listed.contains(&want.to_owned()), "{listed:?}");
     let notes = notes(&runner);
-    assert_eq!(
-        words(&notes, "bump #40: closed, red; no issue"),
-        1,
-        "{notes:?}"
-    );
+    assert_eq!(words(&notes, "bump #40: filed ticket k1"), 1, "{notes:?}");
 }
 
 #[test]

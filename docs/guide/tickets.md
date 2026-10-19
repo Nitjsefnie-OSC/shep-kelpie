@@ -33,6 +33,7 @@ A ticket is a markdown file, `<kelpie home>/<project>/tickets/k1.md`. Its title,
 - The worker's branch is `kelpie/k1`, and its prompt carries the ticket's text rather than telling it to fetch one.
 - Its pull request has no `Resolves` line. Kelpie closes the ticket when the pull request merges, with a note on the ticket and nothing on GitHub.
 - A ticket with no `agent:` label goes to the project's default implementer. The issue writer is not asked to pick.
+- `shep kelpie issue` files local tickets, `ticket new` in the store, and a finding a merged work item deferred becomes a local ticket labelled `needs-triage`, or a comment on an open ticket that already holds it. Label one `ready-for-agent` with `ticket edit` to put it on the board.
 - `doctor` prints a `tickets` line: the source, and for `local` how many tickets the store holds, then a `repo writes` line listing what kelpie still writes to the repo: the branch, the pull request and its comments.
 
 ## What it leaves out of the repo
@@ -41,8 +42,8 @@ A project on `local` writes nothing to its repo but the branch and the pull requ
 
 - No `in-progress` or `agent:` label is made on the repo or put on an issue.
 - What kelpie would say on an issue goes on the local ticket: a ruling raised before there is a pull request, and the note when it closes a ticket or a parent.
-- A dependency bump that goes red is closed with a comment on its pull request, and no issue is filed for it.
+- A dependency bump that goes red is closed with a comment on its pull request, and a local ticket is filed for it.
 - Triage does not run: `triage.pick` must be `off`, and a settings table that turns it on is refused.
 - `adopt` is refused, and a pull request labelled `ready-for-agent` is not adopted: adoption needs GitHub issues.
 
-Not here yet: the issue writer and follow-ups filing to the local store (follow-ups still file on GitHub). Contributions stay on GitHub's pull requests.
+Contributions stay on GitHub's pull requests.

@@ -310,24 +310,14 @@ fn a_breaker_that_died_does_not_keep_a_stale_lock_from_being_broken() {
 fn a_comment_of_kelpie_s_lands_on_the_ticket_after_the_ones_before_it() {
     let (_home, tickets) = store();
     let one = file(&tickets, "One", &[]);
-    tickets
-        .comment_issue(&repo(), one, "Closing.", Timestamp(40))
-        .unwrap();
-    tickets
-        .comment_issue(&repo(), one, "Closed.", Timestamp(41))
-        .unwrap();
+    tickets.comment_ticket(&repo(), one, "Closing.").unwrap();
+    tickets.comment_ticket(&repo(), one, "Closed.").unwrap();
     let read = tickets.issue_comments(&repo(), one).unwrap();
     let said: Vec<_> = read
         .iter()
-        .map(|c| (c.author.as_str(), c.body.as_str(), c.created))
+        .map(|c| (c.author.as_str(), c.body.as_str()))
         .collect();
-    assert_eq!(
-        said,
-        [
-            ("kelpie", "Closing.", Timestamp(40)),
-            ("kelpie", "Closed.", Timestamp(41))
-        ]
-    );
+    assert_eq!(said, [("kelpie", "Closing."), ("kelpie", "Closed.")]);
 }
 
 #[test]
@@ -335,7 +325,7 @@ fn a_comment_on_a_ticket_the_store_lacks_is_no_issue() {
     let (_home, tickets) = store();
     file(&tickets, "One", &[]);
     assert!(matches!(
-        tickets.comment_issue(&repo(), id("k3"), "Hello", Timestamp(1)),
+        tickets.comment_ticket(&repo(), id("k3"), "Hello"),
         Err(ForgeError::NoIssue { .. })
     ));
 }

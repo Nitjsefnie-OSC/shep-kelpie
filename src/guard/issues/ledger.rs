@@ -2,8 +2,9 @@
 //! only its own issues
 //!
 //! A PostToolUse hook, `kelpie guard ... --record`, writes it after each of
-//! the session's commands: the issues a `gh issue create` printed, and the
-//! id a `gh api 'repos/{owner}/{repo}/issues/<n>' --jq .id` printed. The
+//! the session's commands: the issues a `gh issue create` printed, the local
+//! ticket a `shep kelpie ticket new` printed, and the id a `gh api
+//! 'repos/{owner}/{repo}/issues/<n>' --jq .id` printed. The
 //! PreToolUse guard reads it. A ledger that is missing or cannot be read
 //! holds nothing, so an edit or a link is refused rather than allowed.
 
@@ -15,12 +16,13 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::{IssueRules, cats_feed_bodies, shell};
+use crate::ticket::TicketId;
 
-/// The issues one session filed, and the ids it read for this repo's issues
+/// The tickets one session filed, and the ids it read for this repo's issues
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub(super) struct Ledger {
-    /// Each issue's number, as `gh issue create` printed it
-    filed: Vec<u64>,
+    /// Each ticket's id, as `gh issue create` or `ticket new` printed it
+    filed: Vec<TicketId>,
     /// Each issue's database id, by its number, as `gh api ... --jq .id` printed it
     ids: BTreeMap<u64, u64>,
 }
@@ -33,16 +35,21 @@ impl Ledger {
             .unwrap_or_default()
     }
 
-    /// Whether this session filed issue `number`
-    pub(super) fn filed(&self, number: u64) -> bool {
-        self.filed.contains(&number)
+    /// Whether this session filed `ticket`
+    pub(super) fn filed(&self, ticket: TicketId) -> bool {
+        self.filed.contains(&ticket)
+    }
+
+    /// Whether this session filed GitHub issue `number`
+    pub(super) fn filed_issue(&self, number: u64) -> bool {
+        TicketId::from_issue(number).is_some_and(|ticket| self.filed(ticket))
     }
 
     /// Whether `id` is the id of an issue this session filed
     pub(super) fn filed_id(&self, id: u64) -> bool {
         self.ids
             .iter()
-            .any(|(number, read)| *read == id && self.filed(*number))
+            .any(|(number, read)| *read == id && self.filed_issue(*number))
     }
 
     /// Whether `id` is one this session read for an issue of this repo
@@ -51,9 +58,9 @@ impl Ledger {
     }
 }
 
-/// The issues the session with the ledger at `path` filed, in the order it
+/// The tickets the session with the ledger at `path` filed, in the order it
 /// filed them, none when the ledger is missing or cannot be read
-pub fn filed_in(path: &Path) -> Vec<u64> {
+pub fn filed_in(path: &Path) -> Vec<TicketId> {
     Ledger::read(Some(path)).filed
 }
 
@@ -62,7 +69,8 @@ pub fn filed_in(path: &Path) -> Vec<u64> {
 ///
 /// Only a line that is one lone `gh issue create`, with at most the `cat`
 /// its `--body` reads, adds an issue, and only when it printed one URL and
-/// nothing else. Only one lone `gh api` read of an issue with `--jq .id`
+/// nothing else. A lone `shep kelpie ticket new` does the same on a local
+/// project, when it printed one local id and nothing else. Only one lone `gh api` read of an issue with `--jq .id`
 /// adds the id it printed. Anything else changes nothing.
 pub fn record_issues(input: impl Read, rules: &IssueRules) {
     let Some(path) = &rules.ledger else {
@@ -93,16 +101,28 @@ pub fn record_issues(input: impl Read, rules: &IssueRules) {
     let [gh] = others.as_slice() else {
         return;
     };
-    let Some(words) = (gh.words[0] == "gh").then(|| &gh.words[1..]) else {
+    let words = &gh.words[1..];
+    let ticket_new = rules.tickets.is_some()
+        && gh.words[0] == "shep"
+        && matches!(words, [k, t, n, ..] if k == "kelpie" && t == "ticket" && n == "new");
+    if gh.words[0] != "gh" && !ticket_new {
         return;
-    };
+    }
     let printed: Vec<&str> = stdout.lines().filter(|l| !l.trim().is_empty()).collect();
     let mut ledger = Ledger::read(Some(path));
     let creates = matches!(words, [i, c, ..] if i == "issue" && (c == "create" || c == "new"));
-    match (creates, printed.as_slice()) {
+    let created = |line: &str| match ticket_new {
+        // `ticket new` prints the new ticket's id alone.
+        true => match line.trim().parse::<TicketId>() {
+            Ok(ticket @ TicketId::Local(_)) => Some(ticket),
+            _ => None,
+        },
+        false => issue_url(line).and_then(TicketId::from_issue),
+    };
+    match (creates || ticket_new, printed.as_slice()) {
         // gh prints the new issue's URL alone; anything more is not trusted.
-        (true, [line]) => match issue_url(line) {
-            Some(number) => ledger.filed.push(number),
+        (true, [line]) => match created(line) {
+            Some(ticket) => ledger.filed.push(ticket),
             None => return,
         },
         (false, [line]) if cats.is_empty() => {
@@ -154,6 +174,14 @@ mod tests {
             status: "ready-for-human".into(),
             agents: vec!["sonnet-high".into()],
             ledger: Some(ledger.to_owned()),
+            tickets: None,
+        }
+    }
+
+    fn local_rules(ledger: &Path) -> IssueRules {
+        IssueRules {
+            tickets: Some("koji".into()),
+            ..rules(ledger)
         }
     }
 
@@ -204,8 +232,8 @@ mod tests {
             "8\n",
         );
         let ledger = Ledger::read(Some(&path));
-        assert!(ledger.filed(41));
-        assert!(!ledger.filed(7) && !ledger.filed(8));
+        assert!(ledger.filed_issue(41));
+        assert!(!ledger.filed_issue(7) && !ledger.filed_issue(8));
         assert!(ledger.filed_id(9041) && !ledger.filed_id(9007));
         assert!(ledger.read_id(9007) && !ledger.read_id(8));
     }
@@ -233,7 +261,27 @@ mod tests {
         // The body's own `cat` is the one a create may carry.
         let body = "gh issue create --title x --body \"$(cat <<'EOF'\nbody\nEOF\n)\"";
         ran(&rules, body, &format!("{}\n", url(44)));
-        assert!(Ledger::read(Some(&path)).filed(44));
+        assert!(Ledger::read(Some(&path)).filed_issue(44));
+    }
+
+    #[test]
+    fn a_local_project_records_the_id_a_lone_ticket_new_printed() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("ledger.json");
+        let rules = local_rules(&path);
+        let new = "shep kelpie ticket new 'x' -p koji --body \"$(cat <<'EOF'\nbody\nEOF\n)\"";
+        ran(&rules, new, "k4\n");
+        // A GitHub number, a second line and a project with no local store
+        // file nothing.
+        ran(&rules, new, "5\n");
+        ran(&rules, new, "k5\nk6\n");
+        ran(&self::rules(&path), new, "k7\n");
+        ran(&rules, "shep kelpie ticket show k9 -p koji", "k9\n");
+        let ledger = Ledger::read(Some(&path));
+        let local = |n: &str| n.parse::<TicketId>().unwrap();
+        assert!(ledger.filed(local("k4")));
+        assert!(!ledger.filed(local("k5")) && !ledger.filed(local("k7")));
+        assert!(!ledger.filed(local("k9")) && !ledger.filed(local("5")));
     }
 
     #[test]

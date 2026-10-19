@@ -33,6 +33,11 @@ impl Gh<'_> {
     pub(super) fn judge(&self, args: &[String]) -> Result<(), String> {
         let word = |at: usize| args.get(at).map(String::as_str);
         match (word(0), word(1)) {
+            (Some("issue"), Some("create" | "new")) if self.rules.tickets.is_some() => Err(
+                "this project's tickets are local, not GitHub issues: file with `shep kelpie \
+                 ticket new`, which the issue writer may run."
+                    .into(),
+            ),
             (Some("issue"), Some("create" | "new")) => {
                 create(&args[2..], self.heredocs, self.rules, self.home)
             }
@@ -40,12 +45,12 @@ impl Gh<'_> {
             (Some("issue"), Some("view")) => view(&args[2..]),
             (Some("issue"), Some("list")) => list(&args[2..]),
             (Some("api"), _) => api(&args[1..], self.ledger),
-            _ => Err(format!("{ONLY}.")),
+            _ => Err(super::only(self.rules)),
         }
     }
 }
 
-fn number(word: &str) -> Option<u64> {
+pub(super) fn number(word: &str) -> Option<u64> {
     word.bytes()
         .all(|b| b.is_ascii_digit())
         .then(|| word.parse().ok())
@@ -54,14 +59,14 @@ fn number(word: &str) -> Option<u64> {
 
 // A command's flags, each by its long name, and its other words.
 #[derive(Debug, Default)]
-struct Flags {
-    values: Vec<(&'static str, String)>,
-    bare: Vec<&'static str>,
-    words: Vec<String>,
+pub(super) struct Flags {
+    pub(super) values: Vec<(&'static str, String)>,
+    pub(super) bare: Vec<&'static str>,
+    pub(super) words: Vec<String>,
 }
 
 impl Flags {
-    fn all(&self, long: &str) -> impl Iterator<Item = &str> {
+    pub(super) fn all(&self, long: &str) -> impl Iterator<Item = &str> {
         self.values
             .iter()
             .filter(move |(name, _)| *name == long)
@@ -72,6 +77,15 @@ impl Flags {
 // `args` read against `known`, each flag's long name, its short one if any,
 // and whether it takes a value. An unknown flag is refused by name.
 fn flags(args: &[String], known: &[(&'static str, Option<&str>, bool)]) -> Result<Flags, String> {
+    flags_of("gh", args, known)
+}
+
+// ... for the command `command`, which an unknown flag's refusal names.
+pub(super) fn flags_of(
+    command: &str,
+    args: &[String],
+    known: &[(&'static str, Option<&str>, bool)],
+) -> Result<Flags, String> {
     let mut flags = Flags::default();
     let mut args = args.iter();
     while let Some(arg) = args.next() {
@@ -89,7 +103,7 @@ fn flags(args: &[String], known: &[(&'static str, Option<&str>, bool)]) -> Resul
         let Some(&(long, _, takes)) = found else {
             let shown: String = arg.chars().take(SHOWN_CHARS).collect();
             return Err(format!(
-                "the issue writer's gh does not take `{shown}`. {ONLY}."
+                "the issue writer's {command} does not take `{shown}`. {ONLY}."
             ));
         };
         match (takes, inline) {
@@ -142,10 +156,23 @@ fn create(
         (None, Some("-")) if !heredocs.is_empty() => heredocs.join("\n"),
         _ => return Err(format!("{PLAIN}.")),
     };
+    let labels = labels(flags.all("--label"))?;
+    check_filed(title, &body, &labels, rules, home)
+}
+
+// What a ticket the issue writer files carries, however it files it: a plain
+// title, one status label and at most one listed `agent:` label, acceptance
+// criteria, and nothing that names this machine or the project's hooks refuse.
+pub(super) fn check_filed(
+    title: &str,
+    body: &str,
+    labels: &[String],
+    rules: &IssueRules,
+    home: &Home,
+) -> Result<(), String> {
     if !plain(title) {
         return Err(format!("{PLAIN}."));
     }
-    let labels = labels(flags.all("--label"))?;
     let agents: Vec<&str> = labels.iter().filter_map(|l| agent_of(l)).collect();
     // No `agent:` label leaves the issue to the default implementer.
     if agents.len() > 1 {
@@ -160,19 +187,19 @@ fn create(
     if !labels.iter().any(|l| l.eq_ignore_ascii_case(&rules.status)) {
         return Err(format!("file the issue with the label `{}`.", rules.status));
     }
-    other_status(&labels, rules)?;
-    if !has_criteria(&body) {
+    other_status(labels, rules)?;
+    if !has_criteria(body) {
         return Err(
             "an issue's body has a `## Acceptance criteria` section, with a `- [ ]` \
                     line for each criterion."
                 .into(),
         );
     }
-    if let Some(leak) = home.find_in_prose([title.to_string(), body.clone()]) {
+    if let Some(leak) = home.find_in_prose([title.to_string(), body.to_owned()]) {
         return Err(home.refusal("this issue", leak, WRITE));
     }
     // The project's own hooks judge what the guard let through.
-    for (field, text) in [("the issue's title", *title), ("the issue's body", &body)] {
+    for (field, text) in [("the issue's title", title), ("the issue's body", body)] {
         if let Some(why) = home.publish(Role::IssueWriter, field, text) {
             return Err(why);
         }
@@ -194,10 +221,22 @@ fn edit(args: &[String], rules: &IssueRules, ledger: &Ledger) -> Result<(), Stri
                 .into(),
         );
     };
-    if let Some(n) = numbers.iter().find(|n| !ledger.filed(**n)) {
+    if let Some(n) = numbers.iter().find(|n| !ledger.filed_issue(**n)) {
         return Err(format!("{NOT_FILED}, and #{n} is not one."));
     }
     let added = labels(flags.all("--add-label"))?;
+    let removed = labels(flags.all("--remove-label"))?;
+    check_relabel(&added, &removed, rules)
+}
+
+// What an edit of labels may add and remove: at most one listed `agent:`
+// label and no status label but the one the rules name on, and only `agent:`
+// labels off.
+pub(super) fn check_relabel(
+    added: &[String],
+    removed: &[String],
+    rules: &IssueRules,
+) -> Result<(), String> {
     let agents: Vec<&str> = added.iter().filter_map(|l| agent_of(l)).collect();
     if agents.len() > 1 {
         return Err(format!(
@@ -207,8 +246,7 @@ fn edit(args: &[String], rules: &IssueRules, ledger: &Ledger) -> Result<(), Stri
     for agent in agents {
         named_agent(agent, rules)?;
     }
-    other_status(&added, rules)?;
-    let removed = labels(flags.all("--remove-label"))?;
+    other_status(added, rules)?;
     if let Some(label) = removed.iter().find(|l| agent_of(l).is_none()) {
         return Err(format!(
             "the issue writer takes off only `{AGENT_LABEL}` labels, not `{label}`."
@@ -318,7 +356,7 @@ fn api(args: &[String], ledger: &Ledger) -> Result<(), String> {
         }
         _ => return Err(format!("{ONLY}.")),
     };
-    if !ledger.filed(issue) {
+    if !ledger.filed_issue(issue) {
         return Err(format!("{NOT_FILED}, and #{issue} is not one."));
     }
     // A sub-issue is one the session filed; a blocker is any issue of this
@@ -337,7 +375,7 @@ fn api(args: &[String], ledger: &Ledger) -> Result<(), String> {
 }
 
 // Each label named, split at commas, refused when one is not plain.
-fn labels<'a>(values: impl Iterator<Item = &'a str>) -> Result<Vec<String>, String> {
+pub(super) fn labels<'a>(values: impl Iterator<Item = &'a str>) -> Result<Vec<String>, String> {
     let mut out = Vec::new();
     for value in values {
         if !plain(value) {
@@ -355,14 +393,14 @@ fn labels<'a>(values: impl Iterator<Item = &'a str>) -> Result<Vec<String>, Stri
 }
 
 // The name an `agent:` label gives, its prefix in any case, as the board reads it.
-fn agent_of(label: &str) -> Option<&str> {
+pub(super) fn agent_of(label: &str) -> Option<&str> {
     let prefix = label.get(..AGENT_LABEL.len())?;
     prefix
         .eq_ignore_ascii_case(AGENT_LABEL)
         .then(|| &label[AGENT_LABEL.len()..])
 }
 
-fn named_agent(agent: &str, rules: &IssueRules) -> Result<(), String> {
+pub(super) fn named_agent(agent: &str, rules: &IssueRules) -> Result<(), String> {
     match rules.agents.iter().any(|a| a == agent) {
         true => Ok(()),
         false => Err(format!(
@@ -372,7 +410,7 @@ fn named_agent(agent: &str, rules: &IssueRules) -> Result<(), String> {
     }
 }
 
-fn other_status(labels: &[String], rules: &IssueRules) -> Result<(), String> {
+pub(super) fn other_status(labels: &[String], rules: &IssueRules) -> Result<(), String> {
     let other = labels.iter().find(|l| {
         !l.eq_ignore_ascii_case(&rules.status)
             && STATUS_LABELS.iter().any(|s| l.eq_ignore_ascii_case(s))
@@ -386,7 +424,7 @@ fn other_status(labels: &[String], rules: &IssueRules) -> Result<(), String> {
     }
 }
 
-fn listed(rules: &IssueRules) -> String {
+pub(super) fn listed(rules: &IssueRules) -> String {
     let names: Vec<String> = rules.agents.iter().map(|a| format!("`{a}`")).collect();
     match names.as_slice() {
         [] => "an implementer the project lists".to_owned(),

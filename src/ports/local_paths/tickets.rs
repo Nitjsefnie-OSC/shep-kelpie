@@ -12,8 +12,8 @@ use std::sync::Arc;
 use super::Guarded;
 use crate::board::ReadyIssue;
 use crate::ports::{
-    FinishedParent, Forge, ForgeError, Issue, IssueCloseReason, OpenIssue, SubIssue, ThreadComment,
-    Tickets, Timestamp,
+    FinishedParent, Forge, ForgeError, Issue, IssueCloseReason, OpenIssue, OpenTicket, SubIssue,
+    ThreadComment, Tickets,
 };
 use crate::settings::ForgeSlug;
 use crate::ticket::TicketId;
@@ -53,12 +53,38 @@ impl Tickets for Guarded {
         self.tickets.open_issues(repo)
     }
 
+    fn open_tickets(&self, repo: &ForgeSlug) -> Result<Vec<OpenTicket>, ForgeError> {
+        self.tickets.open_tickets(repo)
+    }
+
     fn issue_comments(
         &self,
         repo: &ForgeSlug,
         ticket: TicketId,
     ) -> Result<Vec<ThreadComment>, ForgeError> {
         self.tickets.issue_comments(repo, ticket)
+    }
+
+    fn file_ticket(
+        &self,
+        repo: &ForgeSlug,
+        title: &str,
+        body: &str,
+        labels: &[&str],
+    ) -> Result<TicketId, ForgeError> {
+        self.check(repo, "the issue's title", title)?;
+        self.check(repo, "the issue's body", body)?;
+        self.tickets.file_ticket(repo, title, body, labels)
+    }
+
+    fn comment_ticket(
+        &self,
+        repo: &ForgeSlug,
+        ticket: TicketId,
+        body: &str,
+    ) -> Result<(), ForgeError> {
+        self.check(repo, "the comment", body)?;
+        self.tickets.comment_ticket(repo, ticket, body)
     }
 
     fn create_issue(
@@ -84,16 +110,6 @@ impl Tickets for Guarded {
         reason: IssueCloseReason,
     ) -> Result<(), ForgeError> {
         self.tickets.close_issue_as(repo, ticket, reason)
-    }
-
-    fn comment_issue(
-        &self,
-        repo: &ForgeSlug,
-        ticket: TicketId,
-        body: &str,
-        at: Timestamp,
-    ) -> Result<(), ForgeError> {
-        self.tickets.comment_issue(repo, ticket, body, at)
     }
 
     fn set_issue_label(

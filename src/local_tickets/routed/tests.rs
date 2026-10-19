@@ -176,3 +176,30 @@ fn a_follow_up_is_filed_on_github_even_for_a_local_project() {
     );
     assert!(local.all().unwrap().is_empty());
 }
+
+#[test]
+fn a_ticket_for_the_project_is_filed_listed_and_commented_in_its_own_source() {
+    let (_home, github, routed, local) = stand_up(TicketSource::Local);
+    let filed = routed
+        .file_ticket(&repo(), "Follow up", "Seen twice.", &["needs-triage"])
+        .unwrap();
+    assert_eq!(filed, id("k1"));
+    let open = routed.open_tickets(&repo()).unwrap();
+    let held: Vec<_> = open.iter().map(|t| (t.ticket, t.title.as_str())).collect();
+    assert_eq!(held, [(id("k1"), "Follow up")]);
+    routed.comment_ticket(&repo(), filed, "Again.").unwrap();
+    assert_eq!(local.get(filed).unwrap().comments.len(), 1);
+    assert!(github.calls.lock().unwrap().is_empty());
+
+    let (_home, github, on_github, local) = stand_up(TicketSource::Github);
+    let filed = on_github
+        .file_ticket(&repo(), "Follow up", "", &[])
+        .unwrap();
+    on_github.open_tickets(&repo()).unwrap();
+    assert_eq!(filed, id("900"));
+    assert_eq!(
+        *github.calls.lock().unwrap(),
+        ["create_issue Follow up", "open_issues"]
+    );
+    assert!(local.all().unwrap().is_empty());
+}

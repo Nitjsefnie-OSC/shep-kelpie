@@ -818,6 +818,7 @@ mod tests {
             status: "ready".to_owned(),
             agents: vec!["claude".to_owned()],
             ledger: None,
+            tickets: None,
         });
 
         let s = settings(Tools::Work, &reach);

@@ -462,14 +462,12 @@ impl Runner {
     }
 
     fn comment_red(&self, bump: &Bump, red: &Red) -> Result<(), ForgeError> {
-        // A local-store project files no issue on its repo, so the comment is
-        // the whole record.
         let follows = match self.local_store() {
-            true => "",
-            false => "\n\nAn issue follows.",
+            true => "A ticket follows.",
+            false => "An issue follows.",
         };
         let body = format!(
-            "Kelpie is closing this pull request because it broke at `{}`:\n\n{}{follows}",
+            "Kelpie is closing this pull request because it broke at `{}`:\n\n{}\n\n{follows}",
             short(&red.head),
             lines_of(&red.why),
         );
@@ -484,16 +482,11 @@ impl Runner {
     }
 
     // Files the issue for a closed bump, which ends its record.
-    // A project on the local store writes no issue and no label to its repo,
-    // so the comment on the closed pull request is all it leaves.
+    // Files the issue for a closed bump, which ends its record. A project on
+    // the local store files a ticket in the store instead, and makes no label
+    // on its repo.
     fn file_red(&mut self, bump: &Bump, red: &Red) -> Result<(), StateError> {
         let number = bump.pull_request;
-        if self.local_store() {
-            self.notes.push(format!(
-                "bump #{number}: closed, red; no issue filed, the project's tickets are local"
-            ));
-            return self.drop_bump(number);
-        }
         let title = format!("dependencies: #{number}, {}, broke", bump.branch);
         let body = format!(
             "Kelpie closed pull request #{number} from `{}`, branch `{}`, because it broke \
@@ -503,17 +496,23 @@ impl Runner {
             short(&red.head),
             lines_of(&red.why),
         );
-        let made = self
-            .make_missing_labels([TRIAGE_LABEL, DEPENDENCIES_LABEL])
-            .map_err(|e| e.to_string())
-            .and_then(|()| {
-                (self.open_issue(&title, &body, &[TRIAGE, DEPENDENCIES_LABEL.name]))
-                    .map_err(|e| e.to_string())
-            });
+        let labels = [TRIAGE, DEPENDENCIES_LABEL.name];
+        let made = match self.local_store() {
+            true => (self.file_ticket(&title, &body, &labels))
+                .map(|ticket| format!("ticket {ticket}"))
+                .map_err(|e| e.to_string()),
+            false => {
+                (self.make_missing_labels([TRIAGE_LABEL, DEPENDENCIES_LABEL])).and_then(|()| {
+                    (self.open_issue(&title, &body, &labels))
+                        .map(|issue| format!("issue #{issue}"))
+                        .map_err(|e| e.to_string())
+                })
+            }
+        };
         match made {
             Ok(issue) => {
                 self.notes
-                    .push(format!("bump #{number}: filed issue #{issue} for it"));
+                    .push(format!("bump #{number}: filed {issue} for it"));
                 self.drop_bump(number)
             }
             Err(e) => self.stand(
