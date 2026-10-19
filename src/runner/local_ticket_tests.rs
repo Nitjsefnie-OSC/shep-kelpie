@@ -199,3 +199,24 @@ fn a_github_ticket_still_opens_a_work_item_on_a_local_project() {
         json!("12")
     );
 }
+
+#[test]
+fn a_queue_of_adoptions_saved_before_the_local_store_is_let_go_at_the_next_start() {
+    let rig = Rig::new("koji");
+    rig.push_by_hand("fix/timeline", "work.txt");
+    rig.forge.open_pull_request(80, "fix/timeline", &[5]);
+    let runner = rig.open().unwrap();
+    rig.ask(&runner, "adopt", Some("80"));
+    assert_eq!(
+        rig.ask(&runner, "status", None)["adopted"],
+        json!([{ "pull_request": 80, "by_label": false }])
+    );
+    drop(runner);
+
+    rig.tickets_local();
+    let runner = rig.open().unwrap();
+    step(&runner).unwrap();
+    let status = rig.ask(&runner, "status", None);
+    assert_eq!(status["adopted"], json!([]));
+    assert_eq!(status["work_item"], json!(null));
+}

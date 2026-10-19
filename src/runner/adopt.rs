@@ -225,6 +225,20 @@ impl Runner {
         open: &[OpenPullRequest],
     ) -> Result<(Option<Begin>, Vec<Skip>), StateError> {
         let mut skipped = Vec::new();
+        // A queue saved before the project moved to the local store is let go,
+        // since an adopted pull request closes a GitHub issue.
+        if self.local_store() {
+            for waiting in self
+                .state
+                .adopted
+                .iter()
+                .map(|w| w.pull_request)
+                .collect::<Vec<_>>()
+            {
+                self.let_go(waiting)?;
+            }
+            return Ok((None, skipped));
+        }
         if let Some(mut labelled) = self.labelled_for_adoption(open) {
             labelled.sort_unstable();
             let mut next = self.state.clone();
