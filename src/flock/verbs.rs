@@ -599,16 +599,16 @@ mod tests {
     #[tokio::test]
     async fn board_prints_the_numbered_list_with_titles_and_priorities() {
         let list = r#"{"project":"koji","board":[
-            {"position":1,"issue":284,"title":"Add the list","priority":"P0","blocked":false,"held":false},
-            {"position":2,"issue":282,"title":"Order it","priority":null,"blocked":true,"held":false},
-            {"position":3,"issue":285,"title":"Show it","priority":"P2","blocked":false,"held":true}]}"#;
+            {"position":1,"issue":"284","title":"Add the list","priority":"P0","blocked":false,"held":false},
+            {"position":2,"issue":"282","title":"Order it","priority":null,"blocked":true,"held":false},
+            {"position":3,"issue":"k12","title":"Show it","priority":"P2","blocked":false,"held":true}]}"#;
         let (plain, json) = both("board", "", list).await;
         assert_eq!(
             plain,
             [
                 "1. #284 Add the list (P0)",
                 "2. #282 Order it (no priority, blocked)",
-                "3. #285 Show it (P2, held)",
+                "3. k12 Show it (P2, held)",
             ]
         );
         assert_eq!(json, [list]);
@@ -620,8 +620,8 @@ mod tests {
     #[tokio::test]
     async fn board_top_and_board_move_print_the_list_as_it_now_stands() {
         let list = r#"{"project":"koji","board":[
-            {"position":1,"issue":282,"title":"Order it","priority":null,"blocked":false,"held":false},
-            {"position":2,"issue":284,"title":"Add the list","priority":"P0","blocked":false,"held":false}]}"#;
+            {"position":1,"issue":"282","title":"Order it","priority":null,"blocked":false,"held":false},
+            {"position":2,"issue":"284","title":"Add the list","priority":"P0","blocked":false,"held":false}]}"#;
         for args in ["top 282", "move 282 1"] {
             let (plain, _) = both("board", args, list).await;
             assert_eq!(

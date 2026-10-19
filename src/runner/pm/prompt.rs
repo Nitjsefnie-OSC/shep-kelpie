@@ -4,6 +4,7 @@
 use std::fmt::Write as _;
 
 use super::{Wake, diffs};
+use crate::board::briefing::ticket_ref;
 use crate::ports::Wait;
 
 /// The `answer` key as the answer shows it, which a wake with a question
@@ -359,12 +360,14 @@ pub(super) fn reason(wake: &Wake) -> String {
              start nothing now"
         ),
         Wake::Conflict(a, b, files) => format!(
-            "the branches of #{a} and #{b} conflict in {}",
+            "the branches of {} and {} conflict in {}",
+            ticket_ref(*a),
+            ticket_ref(*b),
             files.join(", ")
         ),
-        Wake::Stuck { issue, what, .. } => format!("#{issue} is stuck: {what}"),
+        Wake::Stuck { ticket, what, .. } => format!("{} is stuck: {what}", ticket_ref(*ticket)),
         Wake::LeaseWait {
-            issue,
+            ticket,
             worker,
             why,
             waited,
@@ -391,8 +394,9 @@ pub(super) fn reason(wake: &Wake) -> String {
                 _ => "",
             };
             format!(
-                "#{issue} has waited {waited} for {}{held}. Its {who} is not stuck: it has had \
+                "{} has waited {waited} for {}{held}. Its {who} is not stuck: it has had \
                  no model to show anything through, and kelpie leaves {run} running.{release}",
+                ticket_ref(*ticket),
                 why.as_str()
             )
         }
@@ -410,19 +414,20 @@ pub(super) fn reason(wake: &Wake) -> String {
             out
         }
         Wake::FollowUp {
-            issue,
+            ticket,
             id,
             pull_request,
             findings,
         } => {
+            let named = ticket_ref(*ticket);
             let mut out = format!(
-                "pull request #{pull_request} of #{issue} merged with {} confirmed \
+                "pull request #{pull_request} of {named} merged with {} confirmed \
                  finding(s) left unfixed, and ruling {id} asks the maintainer whether to \
-                 file them as issues. Its merged diff is `{}`, unless #{issue}'s line \
+                 file them as issues. Its merged diff is `{}`, unless {named}'s line \
                  under `## Code` in `board.md` says there is no diff, when you say so in \
                  your `why`:\n",
                 findings.len(),
-                diffs::diff_file(*issue)
+                diffs::diff_file(*ticket)
             );
             // A finding is a reviewer's text, so each is kept to one line.
             let one_line = |text: &str| text.split_whitespace().collect::<Vec<_>>().join(" ");
@@ -440,8 +445,8 @@ pub(super) fn reason(wake: &Wake) -> String {
             }
             out
         }
-        Wake::Question { issue, id, asked } => {
-            let mut out = format!("#{issue}'s worker asks, on ruling {id}:\n");
+        Wake::Question { ticket, id, asked } => {
+            let mut out = format!("{}'s worker asks, on ruling {id}:\n", ticket_ref(*ticket));
             for line in asked.lines() {
                 match line.is_empty() {
                     true => out.push_str("\n>"),
@@ -460,6 +465,7 @@ mod tests {
     use super::*;
     use crate::ports::Timestamp;
     use crate::runner::pm::StuckState;
+    use crate::test::ticket;
 
     /// A board a test's wake carries, as kelpie writes it to `board.md`
     const BOARD: &str =
@@ -469,7 +475,11 @@ mod tests {
     fn a_first_wake_names_its_reasons_the_files_and_the_answer() {
         let wakes = [
             Wake::Pick(3),
-            Wake::Conflict(7, 9, vec!["src/a.rs".into(), "src/b.rs".into()]),
+            Wake::Conflict(
+                ticket(7),
+                ticket(9),
+                vec!["src/a.rs".into(), "src/b.rs".into()],
+            ),
             Wake::Told,
         ];
         let text = wake(
@@ -512,7 +522,7 @@ mod tests {
         let text = wake(
             "koji",
             &[Wake::Stuck {
-                issue: 7,
+                ticket: ticket(7),
                 what: "its turn failed".into(),
                 state: StuckState::Ruling {
                     id: 7,
@@ -535,7 +545,7 @@ mod tests {
     #[test]
     fn a_wake_for_a_stuck_item_says_to_read_its_ci_log_before_passing_it_on() {
         let stuck = Wake::Stuck {
-            issue: 7,
+            ticket: ticket(7),
             what: "CI failed".into(),
             state: StuckState::Idle(Timestamp(1)),
         };
@@ -565,7 +575,7 @@ mod tests {
     #[test]
     fn a_resumed_wake_for_a_question_shows_the_answer_key_again() {
         let ask = Wake::Question {
-            issue: 7,
+            ticket: ticket(7),
             id: 1,
             asked: "Which flag?".into(),
         };
@@ -587,7 +597,7 @@ mod tests {
             )
         };
         let follow_up = Wake::FollowUp {
-            issue: 7,
+            ticket: ticket(7),
             id: 4,
             pull_request: 71,
             findings: vec![

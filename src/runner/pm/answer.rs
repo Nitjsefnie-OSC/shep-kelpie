@@ -7,6 +7,7 @@
 use serde_json::{Map, Value};
 
 use crate::board::{READY, TRIAGE};
+use crate::ticket::TicketId;
 
 /// The keys an answer takes, an object with none of them being none: `why`
 /// is left out, since an unstick inside an answer has one of its own
@@ -31,9 +32,9 @@ const UNSTICK: &str = "`item`, an `action` of retry, re-scope, ask or none, and 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(super) struct Answer {
     /// The ready issue to start next, or none to start nothing now
-    pub(super) pick: Option<u64>,
+    pub(super) pick: Option<TicketId>,
     /// The ready issues to hold until an open work item closes
-    pub(super) hold: Vec<u64>,
+    pub(super) hold: Vec<TicketId>,
     /// What to do about each stuck work item the wake carried
     pub(super) unstick: Vec<Unstick>,
     /// What to do about one worker's question
@@ -56,8 +57,8 @@ pub(super) struct Answer {
 /// The project manager's call on one stuck work item
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct Unstick {
-    /// The work item's issue
-    pub(super) item: u64,
+    /// The work item's ticket
+    pub(super) item: TicketId,
     /// What to do
     pub(super) action: Action,
     /// Why, which a ruling it raises carries
@@ -67,8 +68,8 @@ pub(super) struct Unstick {
 /// The project manager's call on one worker's question
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct Settle {
-    /// The work item's issue, parked on the question's ruling
-    pub(super) item: u64,
+    /// The work item's ticket, parked on the question's ruling
+    pub(super) item: TicketId,
     /// Whether it answers or passes the question on
     pub(super) how: How,
     /// Why, in its own words
@@ -86,8 +87,8 @@ pub(super) struct Settle {
 /// The project manager's call on one follow-up ruling
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct Decide {
-    /// The work item's issue, parked on the follow-up ruling
-    pub(super) item: u64,
+    /// The work item's ticket, parked on the follow-up ruling
+    pub(super) item: TicketId,
     /// Whether the findings are filed or dropped
     pub(super) call: Call,
     /// Why, in its own words
@@ -146,24 +147,24 @@ pub(super) fn read(text: &str) -> Option<Answer> {
         match key.as_str() {
             "pick" => match &value {
                 Value::Null => {}
-                value => match number(value) {
-                    Some(n) => answer.pick = Some(n),
-                    None => answer.unread.push(unread("an issue number or null")),
+                value => match ticket(value) {
+                    Some(t) => answer.pick = Some(t),
+                    None => answer.unread.push(unread("a ticket id or null")),
                 },
             },
             "hold" => match &value {
                 Value::Null => {}
                 Value::Array(items) => {
                     for item in items {
-                        match number(item) {
-                            Some(n) => answer.hold.push(n),
+                        match ticket(item) {
+                            Some(t) => answer.hold.push(t),
                             None => answer
                                 .unread
-                                .push(format!("`hold`: an issue number, not {item}")),
+                                .push(format!("`hold`: a ticket id, not {item}")),
                         }
                     }
                 }
-                _ => answer.unread.push(unread("a list of issue numbers")),
+                _ => answer.unread.push(unread("a list of ticket ids")),
             },
             "unstick" => match &value {
                 Value::Null => {}
@@ -296,8 +297,17 @@ fn number(value: &Value) -> Option<u64> {
     (n > 0).then_some(n)
 }
 
+// A ticket id, as a JSON number or as text: `9`, `#9` or `k12`.
+fn ticket(value: &Value) -> Option<TicketId> {
+    match value {
+        Value::Number(n) => TicketId::from_issue(n.as_u64()?),
+        Value::String(text) => text.trim().trim_start_matches('#').parse::<TicketId>().ok(),
+        _ => None,
+    }
+}
+
 fn unstick(value: &Value) -> Option<Unstick> {
-    let item = number(value.get("item")?)?;
+    let item = ticket(value.get("item")?)?;
     let action = match value.get("action")?.as_str()? {
         "retry" => Action::Retry,
         "re-scope" => Action::ReScope,
@@ -314,7 +324,7 @@ fn unstick(value: &Value) -> Option<Unstick> {
 }
 
 fn settle(value: &Value) -> Option<Settle> {
-    let item = number(value.get("item")?)?;
+    let item = ticket(value.get("item")?)?;
     let text = value.get("text").filter(|v| !v.is_null());
     let escalate = value.get("escalate").filter(|v| !v.is_null());
     let candidates: Vec<String> = match value.get("candidates") {
@@ -354,7 +364,7 @@ fn settle(value: &Value) -> Option<Settle> {
 }
 
 fn decide(value: &Value) -> Option<Decide> {
-    let item = number(value.get("item")?)?;
+    let item = ticket(value.get("item")?)?;
     let label = match value.get("label") {
         None | Some(Value::Null) => None,
         Some(label) => Some(label.as_str()?.trim().to_ascii_lowercase()),
@@ -379,6 +389,7 @@ fn decide(value: &Value) -> Option<Decide> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test::ticket;
 
     #[test]
     fn the_last_object_after_the_reasoning_is_the_answer() {
@@ -390,10 +401,10 @@ mod tests {
         assert_eq!(
             answer,
             Answer {
-                pick: Some(12),
-                hold: vec![4, 9],
+                pick: Some(ticket(12)),
+                hold: vec![ticket(4), ticket(9)],
                 unstick: vec![Unstick {
-                    item: 7,
+                    item: ticket(7),
                     action: Action::ReScope,
                     why: "split the parser out".into(),
                 }],
@@ -415,7 +426,7 @@ mod tests {
         assert_eq!(
             text.unwrap().answer,
             Some(Settle {
-                item: 7,
+                item: ticket(7),
                 how: How::Text("Use it.".into()),
                 why: "r".into(),
                 problem: None,
@@ -481,23 +492,23 @@ mod tests {
         };
         assert_eq!(
             call("{\"follow_up\": {\"item\": \"#7\", \"decision\": \" Yes \", \"why\": \" r \"}}"),
-            Some((7, Call::File { unread: false }, "r".into()))
+            Some((ticket(7), Call::File { unread: false }, "r".into()))
         );
         assert_eq!(
             call(
                 "{\"follow_up\": {\"item\": 7, \"decision\": \"yes\", \"label\": \"needs-triage\"}}"
             ),
-            Some((7, Call::File { unread: true }, String::new()))
+            Some((ticket(7), Call::File { unread: true }, String::new()))
         );
         assert_eq!(
             call(
                 "{\"follow_up\": {\"item\": 7, \"decision\": \"yes\", \"label\": \"ready-for-agent\"}}"
             ),
-            Some((7, Call::File { unread: false }, String::new()))
+            Some((ticket(7), Call::File { unread: false }, String::new()))
         );
         assert_eq!(
             call("{\"follow_up\": {\"item\": 7, \"decision\": \"no\", \"why\": \"fixed\"}}"),
-            Some((7, Call::Drop, "fixed".into()))
+            Some((ticket(7), Call::Drop, "fixed".into()))
         );
         for bad in [
             "{\"follow_up\": {\"item\": 7, \"decision\": \"maybe\"}}",
@@ -514,7 +525,7 @@ mod tests {
     #[test]
     fn braces_inside_the_answers_text_are_not_an_answer_of_their_own() {
         let text = "{\"pick\": 12, \"why\": \"not {\\\"pick\\\": 3} as before\"} {unfinished";
-        assert_eq!(read(text).unwrap().pick, Some(12));
+        assert_eq!(read(text).unwrap().pick, Some(ticket(12)));
         let inner = "{\"reply\": \"{\\\"pick\\\": 3}\", \"pick\": null}";
         assert_eq!(read(inner).unwrap().pick, None);
     }
@@ -559,12 +570,12 @@ mod tests {
              {\"item\": 9, \"action\": \"none\"}, {\"item\": 11, \"action\": \"reboot\"}]}",
         )
         .unwrap();
-        let items: Vec<u64> = (many.unstick.iter()).map(|u| u.item).collect();
-        assert_eq!(items, [7, 9]);
+        let items: Vec<TicketId> = (many.unstick.iter()).map(|u| u.item).collect();
+        assert_eq!(items, [ticket(7), ticket(9)]);
         assert_eq!(
             many.unstick[1],
             Unstick {
-                item: 9,
+                item: ticket(9),
                 action: Action::Leave,
                 why: String::new(),
             }
@@ -593,14 +604,14 @@ mod tests {
                 &answer.unstick,
                 answer.reply.as_deref()
             ),
-            (None, &vec![5], &Vec::new(), Some("On it."))
+            (None, &vec![ticket(5)], &Vec::new(), Some("On it."))
         );
         assert_eq!(
             answer.unread,
             [
-                "`hold`: an issue number, not true",
+                "`hold`: a ticket id, not true",
                 "`merge_order` is not a field kelpie acts on",
-                "`pick`: an issue number or null, not \"soon\"",
+                "`pick`: a ticket id or null, not \"soon\"",
                 "`unstick`: `item`, an `action` of retry, re-scope, ask or none, and `why`, \
                  not {\"action\":\"reboot\",\"item\":7}",
             ]
@@ -638,7 +649,7 @@ mod tests {
         );
 
         let bad = read("{\"pick\": 3, \"standing\": 4, \"merge_order\": [1]}").unwrap();
-        assert_eq!((bad.pick, bad.standing), (Some(3), None));
+        assert_eq!((bad.pick, bad.standing), (Some(ticket(3)), None));
         assert_eq!(
             bad.unread,
             [

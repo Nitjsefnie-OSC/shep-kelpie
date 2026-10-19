@@ -8,7 +8,7 @@
 
 use std::collections::BTreeMap;
 
-use crate::board::briefing::{age, elapsed};
+use crate::board::briefing::{age, elapsed, ticket_ref};
 
 use super::{Pick, StuckState, Wake, answer};
 use crate::panel::{Tier, Voter};
@@ -16,7 +16,7 @@ use crate::ports::{AgentError, AgentReply, Timestamp};
 use crate::runner::Runner;
 use crate::settings::RulingName;
 use crate::state::{ProjectState, Ruling, RulingKind, Stuck};
-use crate::ticket::TicketId;
+use crate::ticket::{TicketId, ticket_ids};
 use crate::usage::VoteMark;
 use crate::work_item::Phase;
 
@@ -70,12 +70,13 @@ impl Runner {
     pub(super) fn still_due(&mut self) {
         let mut wakes = Vec::new();
         for item in &self.state.work_items {
-            let issue = item.issue;
-            let ticket = item.ticket();
-            match self.stuck_now(issue) {
+            let Some(ticket) = item.ticket() else {
+                continue;
+            };
+            match self.stuck_now(ticket) {
                 Some(wake) => wakes.push(wake),
                 None => {
-                    if let Some(wake) = ticket.and_then(|t| self.lease_wake(t)) {
+                    if let Some(wake) = self.lease_wake(ticket) {
                         wakes.push(wake);
                     }
                 }
@@ -89,21 +90,20 @@ impl Runner {
         }
     }
 
-    // The stuck wake `issue` deserves as the board stands: the ruling it is
-    // parked on, its idle call, or nothing.
-    fn stuck_now(&self, issue: u64) -> Option<Wake> {
-        let ticket = TicketId::from_issue(issue)?;
+    // The stuck wake `ticket`'s work item deserves as the board stands: the
+    // ruling it is parked on, its idle call, or nothing.
+    fn stuck_now(&self, ticket: TicketId) -> Option<Wake> {
         let item = self.state.item_by_ticket(ticket)?;
         let parked = match item.phase {
             Phase::Ruling { id } => self.state.rulings.iter().find(|r| r.id == id),
             _ => None,
         };
-        if let Some(wake) = parked.and_then(|r| stuck_wake(issue, r)) {
+        if let Some(wake) = parked.and_then(|r| stuck_wake(ticket, r)) {
             return Some(wake);
         }
         let watched = self.flights.watched(ticket).filter(|w| w.idle)?;
         Some(Wake::Stuck {
-            issue,
+            ticket,
             what: IDLE_WHAT.to_owned(),
             state: StuckState::Idle(watched.started),
         })
@@ -115,34 +115,33 @@ impl Runner {
     /// window never asks about is one it never drops.
     pub(super) fn wake_holds(&self, wake: &Wake) -> bool {
         match wake {
-            Wake::Stuck { issue, state, .. } => matches!(
-                self.stuck_now(*issue),
+            Wake::Stuck { ticket, state, .. } => matches!(
+                self.stuck_now(*ticket),
                 Some(Wake::Stuck { state: now, .. }) if now == *state
             ),
-            Wake::LeaseWait { issue, .. } => {
-                TicketId::from_issue(*issue).is_some_and(|ticket| self.lease_wake(ticket).is_some())
-            }
+            Wake::LeaseWait { ticket, .. } => self.lease_wake(*ticket).is_some(),
             Wake::Conflict(a, b, _) => self.pm.conflicts.contains_key(&(*a, *b)),
             _ => true,
         }
     }
 
-    // Whether `issue` is still held by the state it was left alone in, naming
-    // each drop in the log
-    pub(super) fn left_alone_holds(&mut self, issue: u64, state: StuckState) -> bool {
-        let Some(entry) = self.pm.left_alone.get(&issue).cloned() else {
+    // Whether `ticket`'s work item is still held by the state it was left
+    // alone in, naming each drop in the log
+    pub(super) fn left_alone_holds(&mut self, ticket: TicketId, state: StuckState) -> bool {
+        let Some(entry) = self.pm.left_alone.get(&ticket).cloned() else {
             return false;
         };
         if entry.state != state {
             return false;
         }
         let now = self.ports.clock.now();
+        let named = ticket_ref(ticket);
         match state {
             // The ruling already asks the maintainer: there is nothing to wait
             // for but its answer.
             StuckState::Ruling { id, .. } => {
                 self.notes.push(format!(
-                    "#{issue} is parked on ruling {id}, which the project manager left alone, \
+                    "{named} is parked on ruling {id}, which the project manager left alone, \
                      so it is not woken for it again"
                 ));
                 true
@@ -154,7 +153,7 @@ impl Runner {
                 let held = now < until;
                 if held {
                     self.notes.push(format!(
-                        "#{issue} is idle on the turn the project manager left alone {}, so it \
+                        "{named} is idle on the turn the project manager left alone {}, so it \
                          is not woken for it again for {}",
                         age(now, entry.at),
                         elapsed(until.0.saturating_sub(now.0))
@@ -165,10 +164,10 @@ impl Runner {
         }
     }
 
-    /// Records that the project manager left `issue` alone in `state`, once
-    /// more in a row on the same state or new to it
-    pub(super) fn pm_left_alone(&mut self, issue: u64, state: StuckState, at: Timestamp) {
-        let nones = match self.pm.left_alone.get(&issue) {
+    /// Records that the project manager left `ticket`'s work item alone in
+    /// `state`, once more in a row on the same state or new to it
+    pub(super) fn pm_left_alone(&mut self, ticket: TicketId, state: StuckState, at: Timestamp) {
+        let nones = match self.pm.left_alone.get(&ticket) {
             Some(entry) if entry.state == state => entry.nones.saturating_add(1),
             _ => 1,
         };
@@ -177,7 +176,7 @@ impl Runner {
             StuckState::Idle(..) => Some(Timestamp(at.0.saturating_add(quiet_backoff(nones)))),
         };
         self.pm.left_alone.insert(
-            issue,
+            ticket,
             LeftAlone {
                 state,
                 at,
@@ -199,21 +198,21 @@ impl Runner {
     /// state the entry names loses it, being in a new one.
     pub(super) fn pm_holds_over(&mut self) {
         let now = self.ports.clock.now();
-        let over: Vec<u64> = self
+        let over: Vec<TicketId> = self
             .pm
             .left_alone
             .iter()
             .filter(|(_, entry)| !entry.asked && entry.until.is_some_and(|until| now >= until))
-            .map(|(issue, _)| *issue)
+            .map(|(ticket, _)| *ticket)
             .collect();
-        for issue in over {
-            let Some(entry) = self.pm.left_alone.remove(&issue) else {
+        for ticket in over {
+            let Some(entry) = self.pm.left_alone.remove(&ticket) else {
                 continue;
             };
-            match self.stuck_now(issue) {
+            match self.stuck_now(ticket) {
                 Some(wake @ Wake::Stuck { state, .. }) if state == entry.state => {
                     self.pm.left_alone.insert(
-                        issue,
+                        ticket,
                         LeftAlone {
                             asked: true,
                             ..entry
@@ -280,9 +279,9 @@ impl Runner {
         let raised = (now.rulings.iter()).filter(|r| !was.rulings.iter().any(|w| w.id == r.id));
         let stuck: Vec<Wake> = raised
             .filter_map(|ruling| {
-                let issue = ruling.issue?;
-                let ended = self.pm.after_end.contains_key(&issue);
-                stuck_wake(issue, ruling).filter(|_| !ended)
+                let ticket = ruling.ticket()?;
+                let ended = self.pm.after_end.contains_key(&ticket);
+                stuck_wake(ticket, ruling).filter(|_| !ended)
             })
             .collect();
         let closed = (was.work_items.iter()).any(|i| now.item(i.issue).is_none());
@@ -300,9 +299,9 @@ impl Runner {
             if matches!(self.pm.pick, Some(Pick::Nothing(_))) {
                 self.pm.pick = None;
             }
-            let open = now.open_issues();
-            self.pm.after_end.retain(|issue, _| open.contains(issue));
-            (self.pm.left_alone).retain(|issue, _| open.contains(issue));
+            let open = ticket_ids(&now.open_issues());
+            self.pm.after_end.retain(|ticket, _| open.contains(ticket));
+            (self.pm.left_alone).retain(|ticket, _| open.contains(ticket));
             (self.pm.conflicts).retain(|(a, b), _| open.contains(a) && open.contains(b));
         }
     }
@@ -321,9 +320,9 @@ impl Runner {
         for ruling in &now.rulings {
             let new = !self.state.rulings.iter().any(|r| r.id == ruling.id);
             let id = ruling.id;
-            let wake = match (&ruling.kind, ruling.issue, ruling.pull_request, new) {
-                (RulingKind::Question { asked, .. }, Some(issue), _, true) => Wake::Question {
-                    issue,
+            let wake = match (&ruling.kind, ruling.ticket(), ruling.pull_request, new) {
+                (RulingKind::Question { asked, .. }, Some(ticket), _, true) => Wake::Question {
+                    ticket,
                     id,
                     asked: asked.clone(),
                 },
@@ -333,11 +332,11 @@ impl Runner {
                         findings,
                         refused: None,
                     },
-                    Some(issue),
+                    Some(ticket),
                     Some(pull_request),
                     true,
                 ) => Wake::FollowUp {
-                    issue,
+                    ticket,
                     id,
                     pull_request,
                     findings: findings.clone(),
@@ -351,7 +350,10 @@ impl Runner {
 
     /// Wakes the project manager for each pair of open branches newly in
     /// conflict, given every pair in conflict now
-    pub(in crate::runner) fn pm_conflicts(&mut self, now: BTreeMap<(u64, u64), Vec<String>>) {
+    pub(in crate::runner) fn pm_conflicts(
+        &mut self,
+        now: BTreeMap<(TicketId, TicketId), Vec<String>>,
+    ) {
         if self.agents.pm.is_none() {
             return;
         }
@@ -364,11 +366,12 @@ impl Runner {
     }
 }
 
-// The wake for `issue`, parked on `ruling`, if that is a stuck item's.
-fn stuck_wake(issue: u64, ruling: &Ruling) -> Option<Wake> {
+// The wake for `ticket`'s work item, parked on `ruling`, if that is a stuck
+// item's.
+fn stuck_wake(ticket: TicketId, ruling: &Ruling) -> Option<Wake> {
     let what = stuck_on(&ruling.kind)?;
     Some(Wake::Stuck {
-        issue,
+        ticket,
         what: format!("{what}, and ruling {} asks the maintainer", ruling.id),
         state: StuckState::Ruling {
             id: ruling.id,

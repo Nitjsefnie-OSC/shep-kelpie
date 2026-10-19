@@ -60,10 +60,10 @@ impl Runner {
             .filter_map(|i| Some((i.issue, i.ticket()?)))
             .collect();
         for (issue, ticket) in items {
-            let file = diff_file(issue);
+            let file = diff_file(ticket);
             let read = match self.merged_branch(issue) {
                 Some(branch) => Some(self.merged_patch(&branch, ticket)),
-                None => self.brief_patch(issue).cloned(),
+                None => self.brief_patch(ticket).cloned(),
             };
             let written = match read {
                 Some(Ok(diff)) => std::fs::write(folder.join(&file), diff)
@@ -112,6 +112,6 @@ impl Runner {
 }
 
 /// The diff of `issue`'s work item, in the project manager's folder
-pub(super) fn diff_file(issue: u64) -> String {
-    format!("{DIFFS}/{issue}.diff")
+pub(super) fn diff_file(ticket: TicketId) -> String {
+    format!("{DIFFS}/{ticket}.diff")
 }

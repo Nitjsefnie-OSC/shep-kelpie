@@ -14,6 +14,7 @@ use std::fmt::Write as _;
 use crate::ports::{CallActivity, Cost, Timestamp, Wait};
 use crate::runner::Run;
 use crate::state::BoardEvent;
+use crate::ticket::TicketId;
 
 /// How long a call in flight may show nothing before the board calls it idle
 pub const IDLE_AFTER: u64 = 10 * 60;
@@ -64,8 +65,8 @@ pub struct Briefing<'a> {
     /// Whether unread events were dropped for being old
     pub dropped: bool,
     /// What `git merge-tree` finds merging two open work items' branches,
-    /// by their issues, the lower first. A pair not listed merges cleanly.
-    pub conflicts: BTreeMap<(u64, u64), Merge>,
+    /// by their tickets, the lower first. A pair not listed merges cleanly.
+    pub conflicts: BTreeMap<(TicketId, TicketId), Merge>,
 }
 
 /// What merging two open branches finds, when it is not a clean merge
@@ -81,8 +82,8 @@ pub enum Merge {
 /// An open work item
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Item {
-    /// Its issue
-    pub issue: u64,
+    /// Its ticket
+    pub ticket: TicketId,
     /// The issue's title
     pub title: String,
     /// Where it stands, in words
@@ -193,8 +194,8 @@ pub struct Ready {
 /// A ready issue
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReadyLine {
-    /// Its number
-    pub number: u64,
+    /// Its ticket
+    pub ticket: TicketId,
     /// Its title
     pub title: String,
     /// Its priority, such as `P1`
@@ -271,8 +272,11 @@ fn open_work(out: &mut String, board: &Briefing<'_>) {
         };
         let _ = writeln!(
             out,
-            "- #{} \"{}\": {}; {pr}{opened}, on {}; {touches}",
-            item.issue, item.title, item.phase, item.agent
+            "- {} \"{}\": {}; {pr}{opened}, on {}; {touches}",
+            ticket_ref(item.ticket),
+            item.title,
+            item.phase,
+            item.agent
         );
         let _ = writeln!(out, "  - Session: {}", session(&item.session, board.now));
         let _ = writeln!(
@@ -407,9 +411,9 @@ fn ready_queue(out: &mut String, ready: Option<&Ready>, now: Timestamp) {
         };
         let _ = writeln!(
             out,
-            "{}. #{} [{}] \"{}\"{waits}; {named}",
+            "{}. {} [{}] \"{}\"{waits}; {named}",
             n + 1,
-            issue.number,
+            ticket_ref(issue.ticket),
             issue.priority.unwrap_or("no priority"),
             issue.title
         );
@@ -444,7 +448,7 @@ fn overlap(out: &mut String, board: &Briefing<'_>) {
     let mut rows = Vec::new();
     for (i, a) in board.items.iter().enumerate() {
         for b in &board.items[i + 1..] {
-            let key = (a.issue.min(b.issue), a.issue.max(b.issue));
+            let key = (a.ticket.min(b.ticket), a.ticket.max(b.ticket));
             let merge = match board.conflicts.get(&key) {
                 Some(Merge::Conflicts(files)) => files.join(", "),
                 Some(Merge::Unknown) => "conflict check unavailable".to_owned(),
@@ -464,7 +468,7 @@ fn overlap(out: &mut String, board: &Briefing<'_>) {
         for item in &board.items {
             let both = shared(&issue.named, item.files.list());
             if !both.is_empty() {
-                let a = format!("#{} (ready)", issue.number);
+                let a = format!("{} (ready)", ticket_ref(issue.ticket));
                 rows.push((a, label(item), String::new(), both.join(", ")));
             }
         }
@@ -482,9 +486,19 @@ fn overlap(out: &mut String, board: &Briefing<'_>) {
 }
 
 fn label(item: &Item) -> String {
+    let ticket = ticket_ref(item.ticket);
     match item.pull_request {
-        Some(pr) => format!("#{} (PR #{pr})", item.issue),
-        None => format!("#{}", item.issue),
+        Some(pr) => format!("{ticket} (PR #{pr})"),
+        None => ticket,
+    }
+}
+
+// How a ticket is named on the board: `#9` for a GitHub issue, `k12` for a
+// local ticket, which has no issue to point at.
+pub(crate) fn ticket_ref(ticket: TicketId) -> String {
+    match ticket {
+        TicketId::Github(number) => format!("#{number}"),
+        TicketId::Local(_) => ticket.to_string(),
     }
 }
 
@@ -513,8 +527,8 @@ fn files(out: &mut String, items: &[Item]) {
         };
         let _ = writeln!(
             out,
-            "- #{} ({}{how}): {}",
-            item.issue,
+            "- {} ({}{how}): {}",
+            ticket_ref(item.ticket),
             item.branch,
             item.files.list().join(", ")
         );
@@ -537,7 +551,12 @@ fn excerpts(out: &mut String, ready: Option<&Ready>) {
     );
     for issue in quoted {
         let text = issue.excerpt.as_deref().unwrap_or_default();
-        let _ = writeln!(out, "### #{} {}\n\n{text}\n", issue.number, issue.title);
+        let _ = writeln!(
+            out,
+            "### {} {}\n\n{text}\n",
+            ticket_ref(issue.ticket),
+            issue.title
+        );
     }
 }
 

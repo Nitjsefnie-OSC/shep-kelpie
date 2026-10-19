@@ -17,11 +17,12 @@ use crate::forge_ledger::{Ended, Identity, Kind};
 use crate::ports::{Forge, ForgeError, Issue, PullRequest, Reviewed, Tickets, Timestamp};
 use crate::review_bot::{Activity, Login};
 use crate::settings::ForgeSlug;
+use crate::ticket::TicketId;
 
 /// The reads that run on the App's token, as the App
 pub trait AppReads: Send + Sync + fmt::Debug {
     /// As [`Tickets::issue`]
-    fn issue(&self, repo: &ForgeSlug, number: u64) -> Result<Issue, ForgeError>;
+    fn issue(&self, repo: &ForgeSlug, ticket: TicketId) -> Result<Issue, ForgeError>;
 
     /// As [`Tickets::ready_issues`]
     fn ready_issues(&self, repo: &ForgeSlug) -> Result<Vec<ReadyIssue>, ForgeError>;

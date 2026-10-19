@@ -42,6 +42,7 @@ use crate::profile::CREDENTIALS;
 use crate::runner::{HUMAN, ProjectPaths};
 use crate::settings::{AgentName, ForgeSlug, RoleAgents, RoleModel, Settings};
 use crate::skills;
+use crate::ticket::TicketId;
 use crate::usage;
 use crate::worktree;
 
@@ -528,7 +529,14 @@ fn report(
     };
     let mut wrong = false;
     for &number in &filed.filed {
-        let issue = match tickets.issue(repo, number) {
+        let Some(ticket) = TicketId::from_issue(number) else {
+            wrong = true;
+            lines.push(format!(
+                "#{number}: the forge numbered it zero, so it cannot be read back"
+            ));
+            continue;
+        };
+        let issue = match tickets.issue(repo, ticket) {
             Ok(issue) => issue,
             Err(e) => {
                 wrong = true;

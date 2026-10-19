@@ -9,6 +9,7 @@ use super::{Check, Label, checks, gh_as, unreadable};
 use crate::board::{Blocker, OpenPullRequest, READY, ReadyIssue, ReviewMarks, SubIssues};
 use crate::ports::ForgeError;
 use crate::settings::ForgeSlug;
+use crate::ticket::TicketId;
 
 // `gh` lists newest first and stops at its limit, so a short limit would
 // hide the oldest item. A list this long is not expected.
@@ -135,30 +136,34 @@ fn parse_ready_issues(stdout: &[u8]) -> Result<Vec<ReadyIssue>, ForgeError> {
     let listed: Vec<Listed> = serde_json::from_slice(stdout).map_err(|_| unreadable(stdout))?;
     Ok(listed
         .into_iter()
-        .map(|i| ReadyIssue {
-            number: i.number,
-            title: i.title,
-            body: i.body,
-            assigned: !i.assignees.is_empty(),
-            labels: i.labels.into_iter().map(|l| l.name).collect(),
-            parent: i.parent.map(|p| p.number),
-            sub_issues: SubIssues {
-                total: i.sub_issues_summary.total,
-                closed: i.sub_issues_summary.completed,
-            },
-            unlisted_blockers: i
-                .blocked_by
-                .total_count
-                .saturating_sub(i.blocked_by.nodes.len() as u64),
-            blocked_by: i
-                .blocked_by
-                .nodes
-                .into_iter()
-                .map(|b| Blocker {
-                    number: b.number,
-                    open: b.state == State::Open,
-                })
-                .collect(),
+        .filter_map(|i| {
+            Some(ReadyIssue {
+                ticket: TicketId::from_issue(i.number)?,
+                title: i.title,
+                body: i.body,
+                assigned: !i.assignees.is_empty(),
+                labels: i.labels.into_iter().map(|l| l.name).collect(),
+                parent: i.parent.and_then(|p| TicketId::from_issue(p.number)),
+                sub_issues: SubIssues {
+                    total: i.sub_issues_summary.total,
+                    closed: i.sub_issues_summary.completed,
+                },
+                unlisted_blockers: i
+                    .blocked_by
+                    .total_count
+                    .saturating_sub(i.blocked_by.nodes.len() as u64),
+                blocked_by: i
+                    .blocked_by
+                    .nodes
+                    .into_iter()
+                    .filter_map(|b| {
+                        Some(Blocker {
+                            ticket: TicketId::from_issue(b.number)?,
+                            open: b.state == State::Open,
+                        })
+                    })
+                    .collect(),
+            })
         })
         .collect())
 }
@@ -315,6 +320,7 @@ mod tests {
     use crate::ports::Checks;
     use crate::runner::is_bump;
     use crate::settings::Dependencies;
+    use crate::test::ticket;
 
     // Recorded from gh 2.96 on this repo with the `ready_issues` arguments.
     const READY_LIST: &str = include_str!("../../../fixtures/gh-issue-list.json");
@@ -336,14 +342,17 @@ mod tests {
     const OPEN_LIST: &str = include_str!("../../../fixtures/gh-graphql-open-pull-requests.json");
 
     fn blocker(number: u64, open: bool) -> Blocker {
-        Blocker { number, open }
+        Blocker {
+            ticket: ticket(number),
+            open,
+        }
     }
 
     #[test]
     fn ready_issues_are_read() {
         let issues = parse_ready_issues(READY_LIST.as_bytes()).unwrap();
-        let numbers: Vec<u64> = issues.iter().map(|i| i.number).collect();
-        assert_eq!(numbers, [40, 38, 37, 33, 32, 30, 27, 19, 5]);
+        let ids: Vec<TicketId> = issues.iter().map(|i| i.ticket).collect();
+        assert_eq!(ids, [40, 38, 37, 33, 32, 30, 27, 19, 5].map(ticket));
         assert!(issues.iter().all(|i| !i.assigned));
         assert_eq!(issues[0].labels, ["bug", "ready-for-agent"]);
     }
@@ -375,17 +384,17 @@ mod tests {
     #[test]
     fn each_ready_issue_carries_its_parent_and_its_sub_issues() {
         let issues = parse_ready_issues(SUB_ISSUES.as_bytes()).unwrap();
-        let read: Vec<(u64, Option<u64>, SubIssues)> = issues
+        let read: Vec<(TicketId, Option<TicketId>, SubIssues)> = issues
             .iter()
-            .map(|i| (i.number, i.parent, i.sub_issues))
+            .map(|i| (i.ticket, i.parent, i.sub_issues))
             .collect();
         let count = |total, closed| SubIssues { total, closed };
         assert_eq!(
             read,
             [
-                (14529, None, count(6, 0)),
-                (14528, Some(14529), count(0, 0)),
-                (12438, None, count(3, 2)),
+                (ticket(14529), None, count(6, 0)),
+                (ticket(14528), Some(ticket(14529)), count(0, 0)),
+                (ticket(12438), None, count(3, 2)),
             ]
         );
     }

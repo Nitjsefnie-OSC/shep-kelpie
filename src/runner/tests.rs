@@ -359,8 +359,8 @@ fn the_tickets_port_and_the_forge_port_are_one_wrapped_source() {
     };
 
     let (asked, ledged) = (rig.forge.asked(), ledger(Kind::Issue));
-    let read = runner.ports.tickets.issue(&repo, 7).unwrap();
-    let again = runner.ports.tickets.issue(&repo, 7).unwrap();
+    let read = runner.ports.tickets.issue(&repo, ticket(7)).unwrap();
+    let again = runner.ports.tickets.issue(&repo, ticket(7)).unwrap();
     assert_eq!(read, again);
     assert_eq!(
         rig.forge.asked(),
@@ -372,7 +372,7 @@ fn the_tickets_port_and_the_forge_port_are_one_wrapped_source() {
     // What the rig's forge no longer has is gone
     rig.forge.remove_issue(7);
     assert_eq!(
-        runner.ports.tickets.issue(&repo, 7).unwrap_err(),
+        runner.ports.tickets.issue(&repo, ticket(7)).unwrap_err(),
         ForgeError::Failed("no issue #7".into()),
     );
 

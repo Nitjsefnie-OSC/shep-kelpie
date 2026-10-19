@@ -13,6 +13,7 @@
 use super::act::{WORDS, plain};
 use super::answer::{Call, Decide, How, Settle};
 use super::maintainer::Settled;
+use crate::board::briefing::ticket_ref;
 use crate::board::{READY, TRIAGE};
 use crate::ports::Finding;
 use crate::runner::ruling::question;
@@ -20,6 +21,7 @@ use crate::runner::thread_replies::Settler;
 use crate::runner::voice::{ASK_THE_MAINTAINER, BOARD, PROBLEM, asks_the_maintainer, effect_of};
 use crate::runner::{Answer as Ruled, RuleError, Runner};
 use crate::state::{RulingKind, StateError};
+use crate::ticket::TicketId;
 use crate::work_item::Phase;
 
 /// How many settled questions `status` keeps
@@ -52,17 +54,18 @@ impl Runner {
         &mut self,
         settle: &Settle,
     ) -> Result<Result<String, String>, StateError> {
-        let n = settle.item;
-        let id = match self.asked_on(n) {
+        let ticket = settle.item;
+        let named = ticket_ref(ticket);
+        let id = match self.asked_on(ticket) {
             Asked::On(id) => id,
             Asked::Alerted(id) => {
                 return Ok(Err(format!(
-                    "answer #{n}: ruling {id} already went to the maintainer"
+                    "answer {named}: ruling {id} already went to the maintainer"
                 )));
             }
             Asked::Not => {
                 return Ok(Err(format!(
-                    "answer #{n}: not a work item parked on a question or follow-up ruling"
+                    "answer {named}: not a work item parked on a question or follow-up ruling"
                 )));
             }
         };
@@ -70,7 +73,7 @@ impl Runner {
         let (done, outcome, recommends) = match &settle.how {
             How::Text(_) if self.follow_up_ruling(id) => {
                 return Ok(Err(format!(
-                    "answer #{n}: ruling {id} is a follow-up, which the project manager \
+                    "answer {named}: ruling {id} is a follow-up, which the project manager \
                      decides with `follow_up` or passes on with a recommendation, not with text"
                 )));
             }
@@ -83,15 +86,15 @@ impl Runner {
                 match self.rule_by(id, Ruled::Text(format!("{ANSWERED} {text}")), by) {
                     Ok(()) => {}
                     Err(RuleError::State(e)) => return Err(e),
-                    Err(e) => return Ok(Err(format!("answer #{n}: {e}"))),
+                    Err(e) => return Ok(Err(format!("answer {named}: {e}"))),
                 }
-                (format!("answered ruling {id} on #{n}"), "answered", None)
+                (format!("answered ruling {id} on {named}"), "answered", None)
             }
             How::Escalate(choice)
                 if self.follow_up_ruling(id) && !Self::yes_or_no(choice.as_deref()) =>
             {
                 return Ok(Err(format!(
-                    "answer #{n}: ruling {id} is a follow-up, whose recommendation is `yes` or \
+                    "answer {named}: ruling {id} is a follow-up, whose recommendation is `yes` or \
                      `no`"
                 )));
             }
@@ -114,7 +117,7 @@ impl Runner {
                 };
                 self.recommend(id, &passed)?;
                 (
-                    format!("put ruling {id} on #{n} to the maintainer"),
+                    format!("put ruling {id} on {named} to the maintainer"),
                     "passed on",
                     choice,
                 )
@@ -123,10 +126,10 @@ impl Runner {
         let said = recommends
             .as_ref()
             .map_or_else(String::new, |c| format!(", recommending {c}"));
-        let line = format!("ruling {id} on #{n}: the project manager {outcome} it{said}: {why}");
+        let line = format!("ruling {id} on {named}: the project manager {outcome} it{said}: {why}");
         let settled = Settled {
             ruling: id,
-            issue: n,
+            issue: ticket,
             how: outcome,
             recommends,
             why,
@@ -146,28 +149,29 @@ impl Runner {
         &mut self,
         decide: &Decide,
     ) -> Result<Result<String, String>, StateError> {
-        let n = decide.item;
-        let id = match self.asked_on(n) {
+        let ticket = decide.item;
+        let named = ticket_ref(ticket);
+        let id = match self.asked_on(ticket) {
             Asked::On(id) if self.follow_up_ruling(id) => id,
             Asked::On(id) => {
                 return Ok(Err(format!(
-                    "follow_up #{n}: ruling {id} is a worker's question, not a follow-up"
+                    "follow_up {named}: ruling {id} is a worker's question, not a follow-up"
                 )));
             }
             Asked::Alerted(id) => {
                 return Ok(Err(format!(
-                    "follow_up #{n}: ruling {id} already went to the maintainer"
+                    "follow_up {named}: ruling {id} already went to the maintainer"
                 )));
             }
             Asked::Not => {
                 return Ok(Err(format!(
-                    "follow_up #{n}: not a work item parked on a follow-up ruling"
+                    "follow_up {named}: not a work item parked on a follow-up ruling"
                 )));
             }
         };
         if self.refused_ruling(id) {
             return Ok(Err(format!(
-                "follow_up #{n}: ruling {id} asks whether to try the forge again, which is \
+                "follow_up {named}: ruling {id} asks whether to try the forge again, which is \
                  the maintainer's to decide"
             )));
         }
@@ -195,22 +199,22 @@ impl Runner {
         match self.rule_by(id, answer, by) {
             Ok(()) => {}
             Err(RuleError::State(e)) => return Err(e),
-            Err(e) => return Ok(Err(format!("follow_up #{n}: {e}"))),
+            Err(e) => return Ok(Err(format!("follow_up {named}: {e}"))),
         }
         let how = if label.is_some() { "filed" } else { "dropped" };
         let line = format!(
-            "ruling {id} on #{n}: the project manager {how} {count}{as_label}: {at}: {why}"
+            "ruling {id} on {named}: the project manager {how} {count}{as_label}: {at}: {why}"
         );
         let settled = Settled {
             ruling: id,
-            issue: n,
+            issue: ticket,
             how,
             recommends: None,
             why,
         };
         self.keep_settled(settled, line)?;
         Ok(Ok(format!(
-            "{verb} {count} of ruling {id} on #{n}{as_label}: {at}"
+            "{verb} {count} of ruling {id} on {named}{as_label}: {at}"
         )))
     }
 
@@ -242,11 +246,12 @@ impl Runner {
         findings.iter().map(place).collect()
     }
 
-    // The question or follow-up ruling the work item for `issue` is parked
+    // The question or follow-up ruling the work item for `ticket` is parked
     // on, if any. One the maintainer was alerted of is theirs to answer,
     // however late the project manager's word comes.
-    fn asked_on(&self, issue: u64) -> Asked {
-        let Some(Phase::Ruling { id }) = self.state.item(issue).map(|i| i.phase.clone()) else {
+    fn asked_on(&self, ticket: TicketId) -> Asked {
+        let Some(Phase::Ruling { id }) = self.state.item_by_ticket(ticket).map(|i| i.phase.clone())
+        else {
             return Asked::Not;
         };
         let held = |kind: &RulingKind| {

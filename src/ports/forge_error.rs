@@ -5,6 +5,7 @@ use std::fmt;
 use super::{Timestamp, rate_limit};
 use crate::hooks::Refusal;
 use crate::local_paths::Leak;
+use crate::ticket::TicketId;
 
 /// The longest, in seconds, a rate-limited answer's own wait is believed
 const LONGEST_WAIT: u64 = 60 * 60;
@@ -86,6 +87,12 @@ pub enum ForgeError {
     /// The GitHub App could not be asked just now, such as with GitHub out of
     /// reach, busy or rate limited, with why: asking again later may work
     AppBusy(String),
+    /// The ticket is not one this source holds, such as a local ticket asked
+    /// of a project whose tickets are GitHub issues
+    NoIssue {
+        /// The ticket it was asked for
+        ticket: TicketId,
+    },
 }
 
 impl fmt::Display for ForgeError {
@@ -104,6 +111,9 @@ impl fmt::Display for ForgeError {
             Self::Limited { said, .. } => f.write_str(said),
             Self::App(why) => write!(f, "the GitHub App could not post: {why}"),
             Self::AppBusy(why) => write!(f, "the GitHub App is not answering: {why}"),
+            Self::NoIssue { ticket } => {
+                write!(f, "ticket {ticket} is not an issue on this forge")
+            }
         }
     }
 }

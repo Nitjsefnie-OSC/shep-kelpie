@@ -3,6 +3,7 @@
 
 use super::FakeForge;
 use crate::board::{Blocker, SubIssues};
+use crate::test::ticket;
 
 impl FakeForge {
     /// Issue `number`'s labels, in the order they went on
@@ -27,7 +28,7 @@ impl FakeForge {
         let by = blockers.get(&number).map(Vec::as_slice).unwrap_or_default();
         by.iter()
             .map(|&number| Blocker {
-                number,
+                ticket: ticket(number),
                 open: !closed.contains(&number),
             })
             .collect()

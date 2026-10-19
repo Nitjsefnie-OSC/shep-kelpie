@@ -17,6 +17,7 @@ use crate::ports::{
     Tickets,
 };
 use crate::settings::ForgeSlug;
+use crate::ticket::TicketId;
 
 impl RateHeld {
     /// This hold as both ports a runner reads a source through: one hold
@@ -33,16 +34,16 @@ impl RateHeld {
 }
 
 impl Tickets for RateHeld {
-    fn issue(&self, repo: &ForgeSlug, number: u64) -> Result<Issue, ForgeError> {
+    fn issue(&self, repo: &ForgeSlug, ticket: TicketId) -> Result<Issue, ForgeError> {
         self.read_tickets(
             repo,
             Read::Issue,
-            |a| a.issue(repo, number),
-            |t| t.issue(repo, number),
+            |a| a.issue(repo, ticket),
+            |t| t.issue(repo, ticket),
         )
     }
 
-    fn sub_issues(&self, repo: &ForgeSlug, parent: u64) -> Result<Vec<SubIssue>, ForgeError> {
+    fn sub_issues(&self, repo: &ForgeSlug, parent: TicketId) -> Result<Vec<SubIssue>, ForgeError> {
         // Stays on the login: the App's token reaches one repo, and a parent's
         // sub-issues may sit in another, so a list from the App could be short.
         self.call_tickets(Kind::SubIssues, |t| t.sub_issues(repo, parent))
@@ -70,9 +71,9 @@ impl Tickets for RateHeld {
     fn issue_comments(
         &self,
         repo: &ForgeSlug,
-        number: u64,
+        ticket: TicketId,
     ) -> Result<Vec<ThreadComment>, ForgeError> {
-        self.call_tickets(Kind::IssueComments, |t| t.issue_comments(repo, number))
+        self.call_tickets(Kind::IssueComments, |t| t.issue_comments(repo, ticket))
     }
 
     fn create_issue(
@@ -81,36 +82,36 @@ impl Tickets for RateHeld {
         title: &str,
         body: &str,
         labels: &[&str],
-    ) -> Result<u64, ForgeError> {
+    ) -> Result<TicketId, ForgeError> {
         self.call_tickets(Kind::CreateIssue, |t| {
             t.create_issue(repo, title, body, labels)
         })
     }
 
-    fn close_issue(&self, repo: &ForgeSlug, number: u64) -> Result<(), ForgeError> {
-        self.call_tickets(Kind::CloseIssue, |t| t.close_issue(repo, number))
+    fn close_issue(&self, repo: &ForgeSlug, ticket: TicketId) -> Result<(), ForgeError> {
+        self.call_tickets(Kind::CloseIssue, |t| t.close_issue(repo, ticket))
     }
 
     fn close_issue_as(
         &self,
         repo: &ForgeSlug,
-        number: u64,
+        ticket: TicketId,
         reason: IssueCloseReason,
     ) -> Result<(), ForgeError> {
         self.call_tickets(Kind::CloseIssueAs, |t| {
-            t.close_issue_as(repo, number, reason)
+            t.close_issue_as(repo, ticket, reason)
         })
     }
 
     fn set_issue_label(
         &self,
         repo: &ForgeSlug,
-        number: u64,
+        ticket: TicketId,
         label: &str,
         on: bool,
     ) -> Result<(), ForgeError> {
         self.call_tickets(Kind::SetIssueLabel, |t| {
-            t.set_issue_label(repo, number, label, on)
+            t.set_issue_label(repo, ticket, label, on)
         })
     }
 }

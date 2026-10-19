@@ -580,7 +580,7 @@ impl Runner {
                 let issue = self
                     .ports
                     .tickets
-                    .issue(&self.remote, item.issue)
+                    .issue(&self.remote, ticket)
                     .map_err(|e| format!("cannot read issue #{}: {e}", item.issue))?;
                 self.skills
                     .invoke(Step::Implement, &first_prompt(ticket, &issue))

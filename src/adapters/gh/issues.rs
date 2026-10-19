@@ -10,6 +10,7 @@ use crate::ports::{
     SubIssueState, Timestamp,
 };
 use crate::settings::ForgeSlug;
+use crate::ticket::TicketId;
 
 // The same ceiling the board's lists use, since `gh` lists newest first and
 // stops at its limit.
@@ -117,9 +118,11 @@ fn parse_finished_parents(stdout: &[u8]) -> Result<Vec<FinishedParent>, ForgeErr
         .into_iter()
         .filter(|i| i.sub_issues_summary.total > 0)
         .filter(|i| i.sub_issues_summary.completed >= i.sub_issues_summary.total)
-        .map(|i| FinishedParent {
-            number: i.number,
-            sub_issues: i.sub_issues_summary.total,
+        .filter_map(|i| {
+            Some(FinishedParent {
+                ticket: TicketId::from_issue(i.number)?,
+                sub_issues: i.sub_issues_summary.total,
+            })
         })
         .collect())
 }
@@ -129,7 +132,7 @@ pub(super) fn create_issue(
     title: &str,
     body: &str,
     labels: &[&str],
-) -> Result<u64, ForgeError> {
+) -> Result<TicketId, ForgeError> {
     let mut args = vec![
         "issue",
         "create",
@@ -359,24 +362,27 @@ fn parse_sub_issues(stdout: &[u8]) -> Result<Vec<SubIssue>, ForgeError> {
     let listed: Vec<Listed> = serde_json::from_slice(stdout).map_err(|_| unreadable(stdout))?;
     Ok(listed
         .into_iter()
-        .map(|sub| SubIssue {
-            number: sub.number,
-            state: match (sub.state.as_str(), sub.state_reason.as_deref()) {
-                ("closed", Some("not_planned" | "duplicate")) => SubIssueState::NotPlanned,
-                ("closed", _) => SubIssueState::Completed,
-                _ => SubIssueState::Open,
-            },
+        .filter_map(|sub| {
+            Some(SubIssue {
+                ticket: TicketId::from_issue(sub.number)?,
+                state: match (sub.state.as_str(), sub.state_reason.as_deref()) {
+                    ("closed", Some("not_planned" | "duplicate")) => SubIssueState::NotPlanned,
+                    ("closed", _) => SubIssueState::Completed,
+                    _ => SubIssueState::Open,
+                },
+            })
         })
         .collect())
 }
 
 // `gh issue create` prints the new issue's URL, which ends in its number.
-fn parse_created(stdout: &[u8]) -> Result<u64, ForgeError> {
+fn parse_created(stdout: &[u8]) -> Result<TicketId, ForgeError> {
     let text = String::from_utf8_lossy(stdout);
     text.trim()
         .rsplit('/')
         .next()
         .and_then(|number| number.parse().ok())
+        .and_then(TicketId::from_issue)
         .ok_or_else(|| unreadable(stdout))
 }
 
@@ -384,6 +390,7 @@ fn parse_created(stdout: &[u8]) -> Result<u64, ForgeError> {
 mod tests {
     use super::*;
     use crate::ports::Timestamp;
+    use crate::test::ticket;
 
     // One page of the listing's answer, as the runner would have it: the issues,
     // the pull requests left out
@@ -510,7 +517,7 @@ mod tests {
         assert_eq!(
             parse_finished_parents(out).unwrap(),
             [FinishedParent {
-                number: 3,
+                ticket: ticket(3),
                 sub_issues: 2
             }]
         );
@@ -687,7 +694,7 @@ mod tests {
     #[test]
     fn a_created_issues_number_is_the_end_of_the_url_gh_prints() {
         let out = b"https://github.com/shep-pm/shep-kelpie/issues/143\n";
-        assert_eq!(parse_created(out).unwrap(), 143);
+        assert_eq!(parse_created(out).unwrap().github(), Some(143));
     }
 
     #[test]

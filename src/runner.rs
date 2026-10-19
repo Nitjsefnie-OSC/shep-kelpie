@@ -832,7 +832,7 @@ impl Runner {
         let found = self
             .ports
             .tickets
-            .issue(&self.remote, issue)
+            .issue(&self.remote, ticket)
             .map_err(AddError::Forge)?;
         let (agent, note) = self
             .labelled_agent(issue, &found.labels)

@@ -664,15 +664,15 @@ fn a_plain_status_says_how_long_a_contribution_has_waited_on_its_contributor() {
 #[test]
 fn a_plain_board_numbers_each_issue_with_its_title_priority_and_why_it_waits() {
     let list = r#"{"project":"koji","board":[
-        {"position":1,"issue":284,"title":"Add the list","priority":"P0","blocked":false,"held":false},
-        {"position":2,"issue":282,"title":"Order it","priority":null,"blocked":true,"held":false},
-        {"position":3,"issue":285,"title":"Show it","priority":"P2","blocked":true,"held":true}]}"#;
+        {"position":1,"issue":"284","title":"Add the list","priority":"P0","blocked":false,"held":false},
+        {"position":2,"issue":"282","title":"Order it","priority":null,"blocked":true,"held":false},
+        {"position":3,"issue":"k12","title":"Show it","priority":"P2","blocked":true,"held":true}]}"#;
     assert_eq!(
         plain_reply("koji", "board", None, list),
         [
             "1. #284 Add the list (P0)",
             "2. #282 Order it (no priority, blocked)",
-            "3. #285 Show it (P2, blocked, held)",
+            "3. k12 Show it (P2, blocked, held)",
         ]
     );
     assert_eq!(

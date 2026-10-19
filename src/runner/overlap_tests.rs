@@ -43,8 +43,8 @@ fn seven_parked_on_src_seven(project: &str) -> (Rig, Mutex<Runner>) {
 
 fn overlap_9() -> Skip {
     Skip::Overlap {
-        issue: 9,
-        with: 7,
+        issue: ticket(9),
+        with: ticket(7),
         files: vec!["src/seven.rs".into()],
     }
 }
@@ -76,7 +76,7 @@ fn a_body_edited_after_its_paths_were_read_is_read_again_before_dispatch() {
     rig.forge.set_ready_body(9, "Change `src/nine.rs`.");
     assert_eq!(step(&runner).unwrap(), None, "#9's paths are read");
     let unread = Skip::PathsUnread {
-        issue: 9,
+        issue: ticket(9),
         unknown: None,
     };
     assert_eq!(
@@ -132,8 +132,8 @@ fn a_parked_branch_whose_files_are_unknown_holds_every_ready_issue() {
         assert_eq!(step(&runner).unwrap(), None, "#10 waits on #7's files");
     }
     let waits = Skip::PathsUnread {
-        issue: 10,
-        unknown: Some(7),
+        issue: ticket(10),
+        unknown: Some(ticket(7)),
     };
     assert_eq!(
         skipped(&rig, &runner),

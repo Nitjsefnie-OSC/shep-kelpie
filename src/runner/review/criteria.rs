@@ -27,7 +27,7 @@ impl Runner {
         let found = self
             .ports
             .tickets
-            .issue(&self.remote, issue)
+            .issue(&self.remote, ticket)
             .map_err(|e| format!("cannot read issue #{issue} for the review round: {e}"))?;
         Ok(format!(
             "#{issue} {}\n\n{}",

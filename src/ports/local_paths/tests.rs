@@ -60,7 +60,9 @@ fn every_encoding_of_a_local_path_is_refused_at_every_post() {
 #[test]
 fn a_refusal_names_the_field_and_what_it_found() {
     let (forge, _) = guarded();
-    let refusal = |result: Result<u64, ForgeError>| result.unwrap_err().to_string();
+    fn refusal<T: core::fmt::Debug>(result: Result<T, ForgeError>) -> String {
+        result.unwrap_err().to_string()
+    }
     assert_eq!(
         refusal(forge.create_issue(&slug(), "a title", "see /private/tmp/x", &[])),
         "not posted: the issue's body names a path on this machine, which names its user"

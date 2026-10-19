@@ -15,6 +15,7 @@ use std::path::Path;
 
 use crate::runner::Runner;
 use crate::state::Ruling;
+use crate::ticket::TicketId;
 use crate::transcripts::{self, Keep};
 
 /// How far back the issue's and the pull request's comments are read, in seconds
@@ -94,7 +95,7 @@ impl Runner {
             "- The project's checkout: `{}`, on its default branch",
             self.settings.git.checkout.display()
         );
-        match item.and_then(|i| self.brief_patch(i.issue)) {
+        match item.and_then(|i| self.brief_patch(i.ticket()?)) {
             Some(Ok(diff)) => {
                 put(folder, "diff.patch", diff)?;
                 where_.push_str("- The branch's diff from main: `diff.patch`\n");
@@ -194,13 +195,16 @@ impl Runner {
         };
         let mut pieces = Vec::new();
         if let Some(n) = issue {
-            let heading = match tickets.issue(&self.remote, n) {
-                Ok(found) => format!(
-                    "Issue #{n}: {}\n\n{}",
-                    found.title,
-                    clip(found.body.trim(), COMMENT * 2)
-                ),
-                Err(e) => format!("Issue #{n} (it could not be read: {e})"),
+            let heading = match TicketId::from_issue(n) {
+                Some(ticket) => match tickets.issue(&self.remote, ticket) {
+                    Ok(found) => format!(
+                        "Issue #{n}: {}\n\n{}",
+                        found.title,
+                        clip(found.body.trim(), COMMENT * 2)
+                    ),
+                    Err(e) => format!("Issue #{n} (it could not be read: {e})"),
+                },
+                None => format!("Issue #{n} (it has no ticket id)"),
             };
             pieces.push((format!("issue-{n}.md"), heading, n));
         }

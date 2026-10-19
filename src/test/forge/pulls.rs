@@ -3,6 +3,7 @@
 
 use super::FakeForge;
 use crate::board::{READY, ReadyIssue, SubIssues};
+use crate::test::ticket;
 
 impl FakeForge {
     /// Adds `label` to pull request `number`, as someone other than kelpie would
@@ -24,7 +25,7 @@ impl FakeForge {
     pub(crate) fn list_ready(&self, number: u64, assigned: bool) {
         self.label(number, READY);
         self.ready.lock().unwrap().push(ReadyIssue {
-            number,
+            ticket: ticket(number),
             title: format!("Title of #{number}"),
             body: format!("Body of #{number}.\n"),
             assigned,
@@ -38,7 +39,10 @@ impl FakeForge {
 
     /// Takes `ready-for-agent` off issue `number`, so the board no longer lists it
     pub(crate) fn unlist_ready(&self, number: u64) {
-        self.ready.lock().unwrap().retain(|i| i.number != number);
+        self.ready
+            .lock()
+            .unwrap()
+            .retain(|i| i.ticket != ticket(number));
         let mut labels = self.labels.lock().unwrap();
         labels.entry(number).or_default().retain(|l| l != READY);
     }
@@ -46,13 +50,11 @@ impl FakeForge {
     /// Gives ready issue `number` the body `body`, as its author wrote it
     pub(crate) fn set_ready_body(&self, number: u64, body: &str) {
         let mut ready = self.ready.lock().unwrap();
-        let issue = ready.iter_mut().find(|i| i.number == number).unwrap();
+        let issue = ready
+            .iter_mut()
+            .find(|i| i.ticket == ticket(number))
+            .unwrap();
         issue.body = body.to_owned();
-    }
-
-    /// The issues issue `number` is blocked by, open or closed
-    pub(crate) fn blockers(&self, number: u64) -> Vec<u64> {
-        self.blockers_of(number).iter().map(|b| b.number).collect()
     }
 
     /// Marks issue `number` blocked by issue `by`, which is open until closed

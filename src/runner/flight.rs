@@ -842,7 +842,7 @@ fn hear_news(runner: &Mutex<Runner>, news: News) -> Result<Option<StepReport>, S
             if let (Some(line), Ok(_)) = (line, &ended) {
                 runner.append_call(line, unreported);
             }
-            runner.pm_after_end(issue)?;
+            runner.pm_after_end(ticket)?;
             ended
         }
         End::Review(reviewed) => {

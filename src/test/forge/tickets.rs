@@ -18,9 +18,18 @@ use crate::ports::{
     Tickets,
 };
 use crate::settings::ForgeSlug;
+use crate::test::ticket;
+use crate::ticket::TicketId;
+
+// The issue number of a ticket the rig is asked for. Every test's project has
+// GitHub issues as its tickets, so every ticket the rig is asked for is one.
+fn number(ticket: TicketId) -> u64 {
+    ticket.github().expect("a test's ticket is a GitHub issue")
+}
 
 impl Tickets for FakeForge {
-    fn issue(&self, _repo: &ForgeSlug, number: u64) -> Result<Issue, ForgeError> {
+    fn issue(&self, _repo: &ForgeSlug, id: TicketId) -> Result<Issue, ForgeError> {
+        let number = number(id);
         self.ask()?;
         self.wait_if_held(held::At::Issue);
         if self.missing.lock().unwrap().contains(&number) {
@@ -50,13 +59,17 @@ impl Tickets for FakeForge {
             body,
             labels: self.labels_of(number),
             open,
-            parent: self.parent_of(number),
-            blocked_by: self.blockers(number),
+            parent: self.parent_of(number).map(ticket),
+            blocked_by: self
+                .blockers_of(number)
+                .into_iter()
+                .map(|b| b.ticket)
+                .collect(),
         })
     }
 
-    fn sub_issues(&self, _repo: &ForgeSlug, parent: u64) -> Result<Vec<SubIssue>, ForgeError> {
-        self.read_sub_issues(parent)
+    fn sub_issues(&self, _repo: &ForgeSlug, parent: TicketId) -> Result<Vec<SubIssue>, ForgeError> {
+        self.read_sub_issues(number(parent))
     }
 
     fn finished_parents(&self, _repo: &ForgeSlug) -> Result<Vec<FinishedParent>, ForgeError> {
@@ -71,13 +84,16 @@ impl Tickets for FakeForge {
         let closed = self.closed.lock().unwrap().clone();
         Ok(ready
             .into_iter()
-            .filter(|i| !closed.contains(&i.number))
-            .map(|i| ReadyIssue {
-                labels: self.labels_of(i.number),
-                blocked_by: self.blockers_of(i.number),
-                parent: self.parent_of(i.number),
-                sub_issues: self.count_sub_issues(i.number),
-                ..i
+            .filter(|i| !closed.contains(&number(i.ticket)))
+            .map(|i| {
+                let number = number(i.ticket);
+                ReadyIssue {
+                    labels: self.labels_of(number),
+                    blocked_by: self.blockers_of(number),
+                    parent: self.parent_of(number).map(ticket),
+                    sub_issues: self.count_sub_issues(number),
+                    ..i
+                }
             })
             .collect())
     }
@@ -93,8 +109,9 @@ impl Tickets for FakeForge {
     fn issue_comments(
         &self,
         _repo: &ForgeSlug,
-        number: u64,
+        id: TicketId,
     ) -> Result<Vec<ThreadComment>, ForgeError> {
+        let number = number(id);
         self.ask()?;
         let mut on = self.threads.on(number);
         // An App's own comment is on the issue like anyone's: the forge lists it.
@@ -112,7 +129,7 @@ impl Tickets for FakeForge {
         title: &str,
         body: &str,
         labels: &[&str],
-    ) -> Result<u64, ForgeError> {
+    ) -> Result<TicketId, ForgeError> {
         self.ask()?;
         self.issues_up()?;
         if let Some(left) = self.creates_left.lock().unwrap().as_mut() {
@@ -137,10 +154,11 @@ impl Tickets for FakeForge {
         for label in labels.iter().filter(|&&l| l != READY) {
             self.label(number, label);
         }
-        Ok(number)
+        Ok(ticket(number))
     }
 
-    fn close_issue(&self, _repo: &ForgeSlug, number: u64) -> Result<(), ForgeError> {
+    fn close_issue(&self, _repo: &ForgeSlug, id: TicketId) -> Result<(), ForgeError> {
+        let number = number(id);
         self.ask()?;
         self.issues_up()?;
         if self.closes_down.load(Ordering::SeqCst) {
@@ -155,9 +173,10 @@ impl Tickets for FakeForge {
     fn close_issue_as(
         &self,
         _repo: &ForgeSlug,
-        number: u64,
+        id: TicketId,
         reason: IssueCloseReason,
     ) -> Result<(), ForgeError> {
+        let number = number(id);
         self.ask()?;
         self.issues_up()?;
         if self.closes_down.load(Ordering::SeqCst) {
@@ -173,10 +192,11 @@ impl Tickets for FakeForge {
     fn set_issue_label(
         &self,
         _repo: &ForgeSlug,
-        number: u64,
+        id: TicketId,
         label: &str,
         on: bool,
     ) -> Result<(), ForgeError> {
+        let number = number(id);
         self.ask()?;
         if self.labels_down.load(Ordering::SeqCst) {
             return Err(ForgeError::Failed("labels are down".into()));

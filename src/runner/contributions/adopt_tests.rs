@@ -17,7 +17,7 @@ use super::ruling_tests::rule;
 use crate::github::ApiError;
 use crate::ports::Tickets;
 use crate::runner::Runner;
-use crate::test::Rig;
+use crate::test::{Rig, ticket};
 
 // Pull request 30, asked once and quiet through the whole window, so it is
 // released and kelpie takes it over
@@ -419,7 +419,7 @@ fn a_released_pull_request_whose_issue_names_an_unlisted_agent_is_ruled_on() {
 
     let repo = rig.settings().git.remote.unwrap();
     rig.forge
-        .set_issue_label(&repo, 5, "agent:nope", false)
+        .set_issue_label(&repo, ticket(5), "agent:nope", false)
         .unwrap();
     later(&rig, &runner, 1);
 

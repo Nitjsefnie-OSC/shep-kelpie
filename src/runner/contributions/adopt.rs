@@ -32,6 +32,7 @@ use super::ruling::{raise_cannot_adopt, raise_no_edits};
 use crate::issues::AgentLabel;
 use crate::ports::Reviewed;
 use crate::state::{Adopting, Held, How, Ruling, RulingKind, StateError, Waiting};
+use crate::ticket::TicketId;
 use crate::worktree::BASE;
 
 impl Runner {
@@ -175,7 +176,11 @@ impl Runner {
     // more than one. A forge that cannot show the issue is no answer, and the
     // board tries the adoption and skips it, as it does now.
     fn issue_label_refuses(&self, issue: u64) -> Option<String> {
-        let found = self.ports.tickets.issue(&self.remote, issue).ok()?;
+        let found = self
+            .ports
+            .tickets
+            .issue(&self.remote, TicketId::from_issue(issue)?)
+            .ok()?;
         self.labelled_agent(issue, &found.labels)
             .err()
             .map(|why| why.to_string())

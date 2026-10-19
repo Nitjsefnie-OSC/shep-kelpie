@@ -6,7 +6,7 @@ use super::*;
 use crate::forge_ledger::{self, Ledger, Line};
 use crate::ports::Warnings;
 use crate::ports::{Cooldown, ForgeHold};
-use crate::test::{FakeClock, FakeForge};
+use crate::test::{FakeClock, FakeForge, ticket};
 
 fn repo() -> ForgeSlug {
     ForgeSlug::try_from("shep-pm/koji".to_owned()).unwrap()
@@ -149,7 +149,7 @@ fn what_the_app_does_not_read_stays_on_the_login() {
     rig.held.set_label(&repo(), 7, "ready", true).unwrap();
     // The App's token reaches one repo, and a parent's sub-issues can sit in
     // another, so the list is the login's.
-    rig.held.sub_issues(&repo(), 7).unwrap();
+    rig.held.sub_issues(&repo(), ticket(7)).unwrap();
 
     assert_eq!((rig.app.asked(), rig.login.asked()), (0, 4));
 }
