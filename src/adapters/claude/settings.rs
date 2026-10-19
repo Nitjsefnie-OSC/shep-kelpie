@@ -94,6 +94,18 @@ pub(crate) const WORK_TOOLS: &str = "Bash,Read,Edit,Write,Glob,Grep,Skill";
 /// it reads the worktree and runs no command, which [`REVIEW_DENY`] holds it to
 pub(crate) const REVIEW_TOOLS: &str = "Read,Glob,Grep";
 
+/// The only tools an issue writer's session starts with, as `--tools` takes
+/// them
+///
+/// `Bash` is there because its commands are its guard's (`gh issue` reads,
+/// creates, and label and link edits), and headless a command nothing allows
+/// is refused. `Read`, `Glob` and `Grep` are how it researches the repo.
+/// `Skill` stays because the repo's plugins reach this call on purpose and
+/// carry skills. It writes no file and fetches nothing, so no writer and no
+/// web tool is here. [`ISSUES_DENY`] stays as the second fence, as
+/// [`PM_DENY`] does for the project manager.
+pub(crate) const ISSUES_TOOLS: &str = "Bash,Read,Glob,Grep,Skill";
+
 /// The only tools the project manager's session has, as `--tools` takes them
 pub(crate) const PM_TOOLS: &str = "Read,Glob,Grep,Edit,Write";
 
