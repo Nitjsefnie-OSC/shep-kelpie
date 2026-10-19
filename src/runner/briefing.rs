@@ -215,7 +215,7 @@ impl Runner {
             bodies: self.brief.bodies.clone(),
             patches: (self.agents.pm.is_some() || self.panel_enabled()).then(|| {
                 (self.state.work_items.iter())
-                    .map(|item| (item.issue, self.paths.worktree(item.issue)))
+                    .filter_map(|item| Some((item.issue, self.paths.worktree(item.ticket()?))))
                     .collect()
             }),
         })
@@ -229,7 +229,7 @@ impl Runner {
     fn watch_idle(&mut self, now: Timestamp) -> Vec<String> {
         let agents = std::sync::Arc::clone(&self.ports.agents);
         let mut found = Vec::new();
-        let mut stuck = Vec::new();
+        let mut stuck: Vec<(u64, String, Timestamp)> = Vec::new();
         let mut waiting = Vec::new();
         for (issue, watched) in self.flights.watched_mut() {
             // A call that has not been granted its model's lease is never idle:
@@ -274,15 +274,19 @@ impl Runner {
                 found.push(format!(
                     "#{issue}: worker idle, no tool call or output for {quiet}"
                 ));
-                stuck.push((issue, quiet));
+                stuck.push((issue, quiet, watched.started));
             } else if !idle && watched.idle {
                 found.push(format!("#{issue}: worker active again"));
             }
             watched.idle = idle;
         }
-        for (issue, quiet) in stuck {
+        for (issue, quiet, started) in stuck {
             let what = format!("its worker has shown no tool call or output for {quiet}");
-            self.pm_due(super::pm::Wake::Stuck(issue, what));
+            self.pm_due(super::pm::Wake::Stuck {
+                issue,
+                what,
+                state: super::pm::StuckState::Idle(started),
+            });
         }
         for issue in waiting {
             if let Some(wake) = self.lease_wake(issue) {

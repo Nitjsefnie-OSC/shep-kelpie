@@ -33,6 +33,7 @@ use crate::ports::{
 };
 use crate::settings::AgentName;
 use crate::state::{How, Ruling, RulingKind, StateError, Stuck, Waiting};
+use crate::ticket::TicketId;
 use crate::work_item::{Known, Phase, Review, Turn, WorkItem, new_session_id};
 use crate::worktree::{self, Remote, Start};
 
@@ -439,6 +440,8 @@ impl Runner {
             (Some(issue), _) | (None, Some(issue)) => issue,
             (None, None) => return Err(AdoptError::NoIssue(number)),
         };
+        // Adoption is GitHub's alone, so the ticket is the issue's number.
+        let ticket = TicketId::from_issue(issue).ok_or(AdoptError::NoIssue(number))?;
         // A fork's branch is named by its contributor, so it could be `main`:
         // the worktree's branch is kelpie's own for the issue.
         let (branch, remote) = match (&pr.head_clone_url, pr.from_fork) {
@@ -453,7 +456,7 @@ impl Runner {
         };
         // The worktree kelpie keeps for the issue is cleared at the start, so
         // only another one holding the branch stops it.
-        let own = self.paths.worktree(issue);
+        let own = self.paths.worktree(ticket);
         let holder = worktree::holder_of(&self.settings.git.checkout, &branch, &own);
         if let Some(holder) = holder.map_err(|e| AdoptError::Holder(e.to_string()))? {
             return Err(AdoptError::Worktree(format!(
@@ -486,6 +489,7 @@ impl Runner {
             remote,
             released,
         } = self.adoptable(number, &pr)?;
+        let ticket = TicketId::from_issue(issue).ok_or(AdoptError::NoIssue(number))?;
         if self.state.item(issue).is_some() {
             return Err(AdoptError::InFlight(issue));
         }
@@ -498,7 +502,9 @@ impl Runner {
             .labelled_agent(issue, &found.labels)
             .map_err(AdoptError::Label)?;
         let session = new_session_id().map_err(|e| AdoptError::Session(e.to_string()))?;
-        let fresh = self.fresh(issue, found.title.clone(), agent.clone(), session);
+        let fresh = self
+            .fresh(issue, found.title.clone(), agent.clone(), session)
+            .map_err(|e| AdoptError::Issue(issue, e))?;
         // A start that failed part way leaves a worktree on a head `origin`
         // may have moved past, so each start begins from a fresh one.
         let removed = worktree::remove(
@@ -509,7 +515,7 @@ impl Runner {
             None,
         );
         removed.map_err(|e| AdoptError::Worktree(e.to_string()))?;
-        self.remove_code_graph(issue)
+        self.remove_code_graph(ticket)
             .map_err(AdoptError::Worktree)?;
         let prepared = worktree::prepare(
             &self.settings.git.checkout,

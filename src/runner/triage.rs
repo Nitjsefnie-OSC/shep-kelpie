@@ -25,6 +25,7 @@ use crate::board::TRIAGE;
 use crate::ports::{AgentCall, AuthorAssociation, OpenIssue, Role, Timestamp, Tools};
 use crate::settings::{ExpertAgent, Settings, TriagePick};
 use crate::state::{ProjectState, StateError, TriageState, TriageStep, Triaged};
+use crate::ticket::TicketId;
 use research::{Listed, ListedPull};
 
 use ask::Purpose;
@@ -438,7 +439,11 @@ impl Runner {
             },
         };
         let prompt = research::prompt(&subject, &listed, &listed_pulls, most, settling.as_ref());
-        let view = self.paths.triage(issue);
+        let Some(ticket) = TicketId::from_issue(issue) else {
+            self.triage_failed(issue, "no forge numbers an issue zero", true);
+            return None;
+        };
+        let view = self.paths.triage(ticket);
         let call = match self.triage_call(issue, &agent, &view, prompt) {
             Ok(call) => call,
             Err(why) => {

@@ -342,7 +342,9 @@ impl Runner {
             .labelled_agent(issue, &found.labels)
             .map_err(ReworkError::Label)?;
         let session = new_session_id().map_err(|e| ReworkError::Session(e.to_string()))?;
-        let fresh = self.fresh(issue, found.title, agent.clone(), session);
+        let fresh = self
+            .fresh(issue, found.title, agent.clone(), session)
+            .map_err(|e| ReworkError::Issue(issue, e))?;
         // A rework stays on its pull request, so a listed bot's `rounds`
         // counts the reviews it gave it before. As an adoption does, it
         // leaves out a review of the current head, which the bot's round
