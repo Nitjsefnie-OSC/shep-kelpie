@@ -1,6 +1,6 @@
 # Log lines
 
-What the runner's out log (stdout and stderr) and the dog's log say about what kelpie is doing between steps. A step is one line, `<ticket> <name> key=value`, the ticket shown as `#340` for a GitHub ticket and `k12` for a local one (`workers.md`, #1009); the lines here are notes, which `src/sheep.rs` prints each pass. #854
+What the runner's out log (stdout and stderr) and the dog's log say about what kelpie is doing between steps. A step is one line, `<ticket> <name> key=value`, the ticket shown as `#340` for a GitHub ticket and `k12` for a local one (`workers.md`, #1009); the lines here are notes, which `src/sheep.rs` prints each pass. The step's `steps.jsonl` object names the same ticket, as the string `"340"` or `"k12"`. #854, #1009
 
 ## Runner
 
