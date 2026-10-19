@@ -142,9 +142,19 @@ fn a_number_another_project_s_ruling_has_answers_nothing_here() {
 }
 
 #[test]
-fn a_local_ticket_s_id_names_no_ruling_here() {
-    let (rig, runner, _) = alerted("koji");
-    rig.reply("k71 yes");
-    assert_eq!(step(&runner).unwrap(), Some(StepReport::ReplyIgnored));
-    assert_eq!(phase(&rig, &runner), json!({ "state": "ruling", "id": 71 }));
+fn a_local_ticket_s_id_names_no_ruling_so_its_code_is_spent_with_a_line() {
+    for reply in ["k71 yes", "koji k71 yes", "koji#k71 yes"] {
+        let (rig, runner, _) = alerted("koji");
+        rig.reply(reply);
+        assert_eq!(
+            step(&runner).unwrap(),
+            Some(StepReport::ReplyUnreadable { line_failed: None }),
+            "{reply}"
+        );
+        assert_eq!(
+            phase(&rig, &runner),
+            json!({ "state": "ruling", "id": 71 }),
+            "{reply}"
+        );
+    }
 }

@@ -33,9 +33,13 @@ fn numbered(token: &str) -> Option<Reply<'_>> {
             (Some(project), digits)
         }
     };
+    let ticket: TicketId = digits.parse().ok()?;
+    // A ruling is numbered by an issue or a pull request, so a ticket from another
+    // source names none, and the reply is unreadable like any other token.
+    ticket.github()?;
     Some(Reply {
         project,
-        ticket: digits.parse().ok()?,
+        ticket,
         words: "",
     })
 }
