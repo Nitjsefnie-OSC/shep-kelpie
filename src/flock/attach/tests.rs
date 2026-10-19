@@ -5,7 +5,7 @@ use serde_json::json;
 
 use super::*;
 use crate::terminal::Foreground;
-use crate::test::write_script;
+use crate::test::{ticket, write_script};
 
 // The runner as `attach` reaches it: each answer in turn, and every action
 // it was sent.
@@ -22,6 +22,8 @@ impl Runner {
         }
     }
 
+    // Each answer is one an older kelpie wrote, with a bare issue number,
+    // which reads as that GitHub ticket.
     fn ask(&mut self, action: &str, session: Option<u32>) -> Result<String, String> {
         match session {
             Some(pid) => self.sent.push(format!("{action} {pid}")),
@@ -52,7 +54,7 @@ fn ready(claude: &Path, worktree: &Path) -> Result<String, String> {
         env: BTreeMap::from([("CLAUDE_CODE_TMPDIR".to_owned(), Some("/k/tmp".to_owned()))]),
     };
     let answer = Attaching::Ready {
-        issue: 7,
+        issue: ticket(7),
         session: crate::ports::SessionId("s-7".into()),
         worktree: worktree.to_owned(),
         command,
