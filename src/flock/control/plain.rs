@@ -104,9 +104,10 @@ fn board(sheep: &str, list: &Value) -> Vec<String> {
 }
 
 // A board line's ticket, as the answer names it: `#284` for a GitHub issue,
-// `k12` for a local ticket, and `?` for an answer that names none.
+// `k12` for a local ticket, and `?` for an answer that names none. A runner
+// from before ticket ids writes a number, which reads as GitHub's.
 fn board_id(issue: &Value) -> String {
-    issue.as_str().map_or_else(|| "?".to_owned(), ticket_name)
+    ticket_id(issue).unwrap_or_else(|| "?".to_owned())
 }
 
 fn draining(sheep: &str, draining: &Value) -> String {

@@ -5,7 +5,7 @@ use super::*;
 
 // A runner finishing with #7 and #9 still open
 const FINISHING: &str = r#"{"project":"koji","run":"finishing",
-    "work_items":[{"issue":7},{"issue":9}]}"#;
+    "work_items":[{"issue":"7"},{"issue":"9"}]}"#;
 
 // `finish` against the fake shepherd, and what it said while it waited
 async fn finished(shepherd: &FakeShepherd) -> (Result<Vec<String>, String>, Vec<String>) {
@@ -41,7 +41,7 @@ async fn finish_sends_the_runner_finish_and_names_the_items_still_open() {
 async fn finish_names_the_adoptions_left_waiting_for_the_next_start() {
     let shepherd = FakeShepherd::new();
     runner(&shepherd, "koji", Path::new("/src/koji"), true);
-    let waiting = r#"{"project":"koji","run":"finishing","work_items":[{"issue":7}],
+    let waiting = r#"{"project":"koji","run":"finishing","work_items":[{"issue":"7"}],
         "adopted":[{"pull_request":40,"by_label":false},{"pull_request":41,"by_label":true}]}"#;
     shepherd.says("koji", &[waiting]);
     let (lines, _) = finished(&shepherd).await;
@@ -163,7 +163,7 @@ async fn start_passes_on_a_runner_still_stopping_itself() {
 async fn pause_clears_finishing_just_before_its_stop() {
     let mut shepherd = FakeShepherd::new();
     runner(&shepherd, "koji", Path::new("/src/koji"), true);
-    let drained = r#"{"run":"finishing","work_items":[{"issue":7,"phase":{"state":"implement"}}],
+    let drained = r#"{"run":"finishing","work_items":[{"issue":"7","phase":{"state":"implement"}}],
         "draining":{"calls":[],"ceiling":3600}}"#;
     shepherd.says("koji", &[drained]);
     let client = client(&shepherd).await;

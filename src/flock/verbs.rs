@@ -641,8 +641,7 @@ mod tests {
 
     #[tokio::test]
     async fn drain_names_the_calls_still_running_and_undrain_says_calls_start() {
-        let running =
-            r#"{"draining":{"calls":[{"issue":7,"role":"worker"},{"role":"pm"}],"ceiling":3600}}"#;
+        let running = r#"{"draining":{"calls":[{"issue":"7","role":"worker"},{"role":"pm"}],"ceiling":3600}}"#;
         let (plain, json) = both("drain", "", running).await;
         assert_eq!(
             plain,

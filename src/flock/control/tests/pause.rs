@@ -5,26 +5,26 @@ use super::*;
 
 // A runner draining with #7's worker turn still running, whose calls are
 // ended within the ceiling it gives
-const RUNNING_7: &str = r#"{"work_items":[{"issue":7,"phase":{"state":"implement"}}],
-    "draining":{"calls":[{"issue":7,"role":"worker"}],"ceiling":0}}"#;
+const RUNNING_7: &str = r#"{"work_items":[{"issue":"7","phase":{"state":"implement"}}],
+    "draining":{"calls":[{"issue":"7","role":"worker"}],"ceiling":0}}"#;
 
 // A runner draining with no call left
-const DRAINED: &str = r#"{"work_items":[{"issue":7,"phase":{"state":"implement"}}],
+const DRAINED: &str = r#"{"work_items":[{"issue":"7","phase":{"state":"implement"}}],
     "draining":{"calls":[],"ceiling":3600}}"#;
 
 // The same, with #7 held by the maintainer's own attached session
-const ATTACHED: &str = r#"{"work_items":[{"issue":7,"phase":{"state":"implement"},
+const ATTACHED: &str = r#"{"work_items":[{"issue":"7","phase":{"state":"implement"},
     "attached":{"pid":4242,"started":"Mon Oct  5 09:00:00 2026"}}],
     "draining":{"calls":[],"ceiling":3600}}"#;
 
 // Merging #7 with no call running
-const MERGING: &str = r#"{"work_items":[{"issue":7,"phase":{"state":"merge","head":"abc"}}],
+const MERGING: &str = r#"{"work_items":[{"issue":"7","phase":{"state":"merge","head":"abc"}}],
     "draining":{"calls":[],"ceiling":3600}}"#;
 
 // Draining with #7's worker turn ending at its next tool call, which it has
 // not reached
-pub(super) const IN_TOOL_7: &str = r#"{"work_items":[{"issue":7,"phase":{"state":"implement"}}],
-    "draining":{"calls":[{"issue":7,"role":"worker"}],"ceiling":3600,"at_tool":[7]}}"#;
+pub(super) const IN_TOOL_7: &str = r#"{"work_items":[{"issue":"7","phase":{"state":"implement"}}],
+    "draining":{"calls":[{"issue":"7","role":"worker"}],"ceiling":3600,"at_tool":["7"]}}"#;
 
 // What a runner from before `drain pause` answers it
 const NO_PARAMS: &str = r#"{"error":"`drain` takes no params"}"#;
