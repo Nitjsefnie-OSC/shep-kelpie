@@ -27,6 +27,7 @@ use crate::settings::{
 };
 use crate::skills::{RepoPlugins, Skills};
 use crate::state::{ProjectState, Ruling, StateError, StateStore};
+use crate::ticket::TicketId;
 use crate::webhook::{KelpieSettings, Webhook};
 use crate::work_item::{ReviewCallState, Seat, WorkItem, new_session_id};
 
@@ -235,6 +236,8 @@ impl From<StateError> for OpenError {
 /// Why `add` was refused
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AddError {
+    /// The ticket is not a GitHub issue, which is the only source kelpie reads
+    NotGithub(TicketId),
     /// No slot is free under `concurrency.active_items`, counting the items waiting for
     /// one, or one for this issue is open already: the issues of those in
     /// the way
@@ -261,6 +264,12 @@ impl fmt::Display for AddError {
             }
             Self::InFlight(issues) => {
                 write!(f, "the work items for {} are in flight", issue_list(issues))
+            }
+            Self::NotGithub(ticket) => {
+                write!(
+                    f,
+                    "{ticket} is not a GitHub issue, the only tickets kelpie reads"
+                )
             }
             Self::Forge(e) => write!(f, "cannot read the issue: {e}"),
             Self::Label(e) => e.fmt(f),
@@ -795,16 +804,17 @@ impl Runner {
         }
     }
 
-    /// Opens a work item for `issue`, and returns the implementer its
+    /// Opens a work item for `ticket`, and returns the implementer its
     /// worker runs on. Its first turn runs on a later pass.
     ///
     /// # Errors
     ///
-    /// [`AddError`] when the runner is finishing, the project has
+    /// [`AddError`] when the ticket is not a GitHub issue, the runner is finishing, the project has
     /// `concurrency.active_items` working or one for this issue open
     /// already, the issue cannot be read or its `agent:` label names no
     /// listed implementer, or the change cannot be saved. Nothing changes then.
-    pub fn add(&mut self, issue: u64) -> Result<AgentName, AddError> {
+    pub fn add(&mut self, ticket: TicketId) -> Result<AgentName, AddError> {
+        let issue = ticket.github().ok_or(AddError::NotGithub(ticket))?;
         if !self.picks() {
             return Err(AddError::Finishing);
         }

@@ -21,6 +21,7 @@ use super::trigger::WhichItem;
 use crate::ports::{Role, Session, SessionId};
 use crate::state::StateError;
 use crate::terminal::Foreground;
+use crate::ticket::TicketId;
 use crate::work_item::{Attached, Holder, Phase, Review, Seat, Turn, WorkItem};
 
 /// What `attach` answers
@@ -128,7 +129,7 @@ impl fmt::Display for AttachError {
 impl core::error::Error for AttachError {}
 
 impl Runner {
-    /// Holds the work item for `issue` for process `pid`, and hands back
+    /// Holds the work item for `ticket` for process `pid`, and hands back
     /// its worker's session once no call for it is in flight
     ///
     /// Asking again from the same process while it waits keeps the hold.
@@ -141,11 +142,12 @@ impl Runner {
     /// what to do instead. It is not held then.
     pub fn attach(
         &mut self,
-        issue: u64,
+        ticket: TicketId,
         pid: u32,
         session: Option<u32>,
     ) -> Result<Attaching, AttachError> {
-        self.choose(Some(issue)).map_err(AttachError::Which)?;
+        self.choose(Some(ticket)).map_err(AttachError::Which)?;
+        let issue = self.current().expect("the work item chosen").issue;
         let me = running(pid)?;
         let attached = self.current().and_then(|item| item.attached.clone());
         if let Some(session) = session {
@@ -194,16 +196,17 @@ impl Runner {
         ready
     }
 
-    /// Lets go of the work item for `issue` that process `pid` attached,
+    /// Lets go of the work item for `ticket` that process `pid` attached,
     /// with what its session pushed as the worker's own. One not attached
     /// is left as it is.
     ///
     /// # Errors
     ///
-    /// [`AttachError`] when no work item is open for `issue`, another
+    /// [`AttachError`] when no work item is open for `ticket`, another
     /// process holds it, or the change cannot be saved.
-    pub fn detach(&mut self, issue: u64, pid: u32) -> Result<(), AttachError> {
-        self.choose(Some(issue)).map_err(AttachError::Which)?;
+    pub fn detach(&mut self, ticket: TicketId, pid: u32) -> Result<(), AttachError> {
+        self.choose(Some(ticket)).map_err(AttachError::Which)?;
+        let issue = self.current().expect("the work item chosen").issue;
         let held = self.current().and_then(|item| item.attached.as_ref());
         match held.map(|a| a.by.pid) {
             None => Ok(()),
