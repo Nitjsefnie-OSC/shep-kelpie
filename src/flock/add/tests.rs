@@ -4,8 +4,8 @@ use shep_client::shep_core::config::AppConfig;
 use shep_client::shep_core::values::UpDuration;
 
 use super::*;
+use crate::home::ProjectPaths;
 use crate::ports::Visibility;
-use crate::runner::ProjectPaths;
 use crate::settings::{AgentName, ForgeSlug};
 use crate::state::STATE_FILE;
 use crate::test::{CALL_PATIENCE, FakeForge, FakeShepherd, ticket};

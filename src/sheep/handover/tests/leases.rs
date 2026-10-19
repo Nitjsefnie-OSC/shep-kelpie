@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::adapters::ShepLeases;
+use crate::home::ProjectName;
 use crate::lease::saved::{
     BookFile, SavedBook, SavedHeld, SavedHolder, SavedLease, SavedRun, SavedTotals,
 };
@@ -9,7 +10,6 @@ use crate::lease::wire::grant_params;
 use crate::lease::{Epoch, LeaseKind};
 use crate::ports::Leases;
 use crate::ports::Timestamp;
-use crate::runner::ProjectName;
 use crate::test::{DogStandIn, short_tempdir};
 
 const EPOCH: Epoch = Epoch(4242);

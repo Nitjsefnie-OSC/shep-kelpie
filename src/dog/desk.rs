@@ -8,6 +8,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 use std::sync::Arc;
 
+use crate::home::ProjectName;
 use crate::lease::book::{Asked, Grant, LeaseBook};
 use crate::lease::counted::{CARGO_TEST_CAPACITY, CountedLease, Taken, Taker, Ticket};
 use crate::lease::saved::{SavedBook, SavedRun, SavedRunId, SavedTotals};
@@ -16,7 +17,6 @@ use crate::lease::{Epoch, Holder, LeaseKind};
 use crate::metrics::Recorder;
 use crate::ports::{Clock, Timestamp};
 use crate::review_bot::Reviewers;
-use crate::runner::ProjectName;
 
 use super::watch::Watch;
 

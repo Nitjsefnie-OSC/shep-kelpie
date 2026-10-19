@@ -14,7 +14,7 @@ use shep_client::shep_core::protocol::request::{Request, SelectorSpec};
 
 use super::*;
 use crate::flock::Launch;
-use crate::runner::ProjectName;
+use crate::home::ProjectName;
 use crate::shepherd::Dial;
 use crate::test::ticket;
 use crate::test::{CALL_PATIENCE, FakeShepherd, write_script};

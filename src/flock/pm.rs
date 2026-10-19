@@ -13,7 +13,8 @@ use std::time::Duration;
 use crate::shepherd::Connection;
 
 use super::control;
-use crate::runner::{PmAttaching, ProjectName};
+use crate::home::ProjectName;
+use crate::runner::PmAttaching;
 use crate::terminal;
 
 /// How often `pm` asks again while a wake is in flight

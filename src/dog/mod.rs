@@ -522,11 +522,11 @@ mod tests {
     use std::collections::BTreeMap;
 
     use super::*;
+    use crate::home::ProjectName;
     use crate::lease::wire::Asker;
     use crate::lease::{Epoch, LeaseKind};
     use crate::ports::{Pace, Timestamp};
     use crate::review_bot::{Bot, ReviewWindow};
-    use crate::runner::ProjectName;
     use crate::test::{EPOCH, FakeClock, RecordedSink};
 
     fn opened(file: BookFile) -> Kept {
