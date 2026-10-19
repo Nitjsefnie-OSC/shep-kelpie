@@ -12,15 +12,13 @@ use crate::coderabbit::CodeRabbit;
 use crate::codex::Codex;
 use crate::cubic::Cubic;
 use crate::github::AppVoice;
+use crate::home::{ProjectName, ProjectPaths};
 use crate::ports::{
     Agents, CLEAN, CallPacer, Checks, Clock, Cost, Forge, LocalPace, Meter, MeterError, Pace,
     Ports, Role, SessionId, Tickets, Timestamp, Usage, Utilization, Window,
 };
 use crate::review_bot::Profile;
-use crate::runner::{
-    CHECKS_SETTLE, OpenError, ProjectName, ProjectPaths, Runner, SETTLE_LEAST, StepReport, answer,
-    step,
-};
+use crate::runner::{CHECKS_SETTLE, OpenError, Runner, SETTLE_LEAST, StepReport, answer, step};
 use crate::settings::SettingsError;
 use crate::webhook::{KelpieSettings, Webhook};
 use crate::work_item::{CallRecord, Known, Phase, Seconds, TimingPhase, Timings, Turn, WorkItem};

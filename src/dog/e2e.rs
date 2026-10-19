@@ -19,9 +19,9 @@ use tokio::sync::{mpsc, oneshot};
 use super::desk::Desk;
 use super::door::{Place, heard, say};
 use super::lock_desk;
+use crate::home::{ProjectName, ProjectPaths};
 use crate::lease::counted::{CountedLease, Taken, Taker, Ticket};
 use crate::lease::door::{Answer, Ask, E2E, NO_E2E_HOST, TIMED_OUT};
-use crate::runner::{ProjectName, ProjectPaths};
 use crate::settings::E2e;
 
 mod run;

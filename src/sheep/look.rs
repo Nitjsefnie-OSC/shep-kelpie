@@ -216,7 +216,7 @@ mod tests {
     use shep_client::shep_core::protocol::request::Response;
 
     use super::*;
-    use crate::runner::ProjectName;
+    use crate::home::ProjectName;
     use crate::runner::{StepReport, step};
     use crate::settings::Merging;
     use crate::shepherd::SHEP_VERSION;

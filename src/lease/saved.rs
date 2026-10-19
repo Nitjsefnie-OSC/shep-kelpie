@@ -17,8 +17,8 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use super::{Epoch, Holder, LeaseKind};
+use crate::home::ProjectName;
 use crate::ports::Timestamp;
-use crate::runner::ProjectName;
 use crate::state::write_atomically;
 
 /// The book file's format version

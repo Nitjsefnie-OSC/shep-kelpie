@@ -15,7 +15,8 @@ use shep_client::shep_core::protocol::request::Response;
 use super::send;
 use super::share::share_none;
 use crate::agents::Agents;
-use crate::runner::{ProjectName, ProjectPaths, check_gateway_shapes};
+use crate::home::{ProjectName, ProjectPaths};
+use crate::runner::check_gateway_shapes;
 use crate::settings::{Settings, SettingsError, source};
 use crate::shepherd::{self, Connection, DOG, Tables};
 

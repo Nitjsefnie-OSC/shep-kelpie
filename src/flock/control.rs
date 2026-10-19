@@ -23,7 +23,8 @@ use shep_client::shep_core::status::ProcStatus;
 use crate::shepherd::Connection;
 
 use super::{Checkout, flock, halt, kelpie_sheep, resume, tables};
-use crate::runner::{ProjectName, leave_answer};
+use crate::home::ProjectName;
+use crate::runner::leave_answer;
 use crate::settings::{ForgeSlug, Settings};
 use crate::shepherd;
 use crate::upgrade::drain::{self, Purpose};

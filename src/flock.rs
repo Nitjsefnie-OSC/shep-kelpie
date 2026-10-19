@@ -31,7 +31,7 @@ use shep_client::shep_core::protocol::request::{DogSource, ProcessInfo, Response
 use shep_client::shep_core::protocol::{Request, SelectorSpec};
 use shep_client::shep_core::status::ProcStatus;
 
-use crate::runner::ProjectName;
+use crate::home::ProjectName;
 use crate::settings::ForgeSlug;
 use crate::shepherd::{Connection, DOG};
 

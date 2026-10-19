@@ -8,7 +8,7 @@ use std::fs;
 use std::io;
 use std::path::Path;
 
-use super::ProjectPaths;
+use crate::home::ProjectPaths;
 use crate::settings::E2e;
 use crate::state::write_atomically;
 
@@ -62,7 +62,7 @@ pub(super) fn dog_cannot_find(e2e: Option<&E2e>, paths: &ProjectPaths) -> Option
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::runner::ProjectName;
+    use crate::home::ProjectName;
 
     #[test]
     fn a_runner_whose_home_is_not_where_the_dog_looks_says_so() {

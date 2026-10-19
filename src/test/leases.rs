@@ -8,12 +8,12 @@ use std::sync::{Arc, Mutex};
 
 use super::FakeClock;
 use crate::adapters::{Notes, ShepLeases};
+use crate::home::ProjectName;
 use crate::lease::book::LeaseBook;
 use crate::lease::wire::{Total, TotalName, WindowFact, grant_params};
 use crate::lease::{Epoch, Holder, LeaseKind};
 use crate::ports::{Leases, Timestamp};
 use crate::review_bot::{ReviewWindow, Reviewers};
-use crate::runner::ProjectName;
 
 /// What the runner told the dog
 #[derive(Debug, Clone, PartialEq, Eq)]
