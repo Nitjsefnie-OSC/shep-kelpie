@@ -5,6 +5,10 @@
 //! itself on `origin` instead, and reuses a local branch left behind that
 //! matches it exactly. Preparing is idempotent, so a restarted runner
 //! finds the worktree it made before and keeps it.
+//!
+//! `main` and `origin/main` in these docs are the project's base branch, which
+//! each function takes as `base`: `main` unless the project's settings name
+//! another.
 
 use std::ffi::OsStr;
 use std::fmt;
@@ -29,9 +33,6 @@ pub use contribution::{
     checkout as contribution_checkout,
 };
 pub use remote::Remote;
-
-/// The branch every work item is cut from, on `origin`
-pub const BASE: &str = "main";
 
 /// Where a new worktree's branch starts
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

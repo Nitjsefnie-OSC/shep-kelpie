@@ -433,7 +433,14 @@ fn repo_plugins(
     }
     let paths = project.paths;
     let checkout = &project.settings.git.checkout;
-    let loaded = skills::RepoPlugins::load(checkout, &paths.kelpie_home, skills, git, setup);
+    let loaded = skills::RepoPlugins::load(
+        checkout,
+        project.settings.git.base(),
+        &paths.kelpie_home,
+        skills,
+        git,
+        setup,
+    );
     for notice in loaded.notices() {
         eprintln!("{notice}");
     }

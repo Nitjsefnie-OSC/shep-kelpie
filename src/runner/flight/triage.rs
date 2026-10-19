@@ -304,7 +304,7 @@ fn researched(
     // A view a crash left behind would stop the new one.
     let _ = worktree::remove_view(checkout, view);
     if let Err(e) = worktree::view(checkout, view, base) {
-        let reason = format!("cannot make a view of origin/main: {e}");
+        let reason = format!("cannot make a view of origin/{base}: {e}");
         return (End::Turn(Err(AgentError::Setup(reason))), None);
     }
     indexed(call, notes, metrics, ending);

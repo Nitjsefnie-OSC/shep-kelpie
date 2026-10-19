@@ -9,6 +9,7 @@ use crate::settings::{Implementer, RoleAgents, TicketSource};
 /// project's implementers, the commands it has and how `mode` ends
 pub fn instructions(writer: &Writer, project: &Project<'_>, mode: Mode) -> String {
     let status = mode.status();
+    let base = project.settings.git.base();
     let local =
         (project.settings.tickets.source == TicketSource::Local).then(|| project.paths.name());
     let ending = match mode {
@@ -58,7 +59,7 @@ pub fn instructions(writer: &Writer, project: &Project<'_>, mode: Mode) -> Strin
              default implementer. File only what the maintainer agrees, with `{status}`, \
              which puts it on kelpie's board, and only the agent labels they agreed. \
              Then list what you filed, by number.\n\n\
-             You are in a checkout of a docs branch cut from `origin/main`. As decisions \
+             You are in a checkout of a docs branch cut from `origin/{base}`. As decisions \
              settle, `domain-modeling` writes terms to `GLOSSARY.md` and records ADRs \
              in `docs/adr/`: write them here. Those are the only files you may write, \
              and your file tools refuse any other. Do not commit or push. When the \

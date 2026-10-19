@@ -628,16 +628,17 @@ impl Runner {
             &item.build,
         )
         .map_err(|e| e.to_string())?;
-        // The worker merges `origin/main` and runs no fetch of its own, so a
-        // fetch that failed leaves it merging a main kelpie last fetched.
+        // The worker merges `origin/<base>` and runs no fetch of its own, so a
+        // fetch that failed leaves it merging a base kelpie last fetched.
         let key = main_fetch_key(item.issue);
         match &dirs.main_fetch_failed {
             Some(why) => self.notes.standing(
                 &key,
                 format!(
-                    "issue #{}'s worker runs with `origin/main` where kelpie last fetched it: \
+                    "issue #{}'s worker runs with `origin/{}` where kelpie last fetched it: \
                      {why}",
-                    item.issue
+                    item.issue,
+                    self.settings.git.base()
                 ),
             ),
             None => self.notes.ends(&key),

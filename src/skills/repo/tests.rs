@@ -455,7 +455,7 @@ fn inspecting_lists_what_a_runner_would_load_and_why_it_would_not() {
     });
 
     let setup = crate::settings::RepoSetup::default();
-    let plugins = super::inspect(&rig.repo(), &rig.paths().kelpie_home, &setup);
+    let plugins = super::inspect(&rig.repo(), "main", &rig.paths().kelpie_home, &setup);
 
     let seen: Vec<_> = plugins
         .iter()

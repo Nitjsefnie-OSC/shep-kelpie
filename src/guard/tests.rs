@@ -390,56 +390,6 @@ fn a_push_with_a_redirect_is_judged_as_without_it() {
 }
 
 #[test]
-fn a_push_to_the_projects_base_branch_is_refused_whichever_it_is() {
-    let tree = WorkerTree::new();
-    tree.git(&["branch", "kelpie/51"]);
-    tree.git(&["update-ref", "refs/remotes/origin/v2", "HEAD"]);
-    for command in [
-        "git push origin v2",
-        "git push origin HEAD:v2",
-        "git push origin HEAD:refs/heads/v2",
-        "git push origin heads/v2",
-    ] {
-        let why = refusal(tree.bash_on("v2", &tree.path(), command));
-        assert!(why.contains("changes `v2`"), "{command}: {why}");
-    }
-    // `main` is a branch like another once the project's base is `v2`.
-    assert_eq!(
-        tree.bash_on("v2", &tree.path(), "git push origin HEAD:main"),
-        Verdict::Allow
-    );
-    assert_eq!(
-        tree.bash_on("v2", &tree.path(), "git push origin kelpie/51"),
-        Verdict::Allow
-    );
-    // The default base stays `main`.
-    let why = refusal(tree.bash("git push origin main"));
-    assert!(why.contains("changes `main`"), "{why}");
-}
-
-#[test]
-fn a_fetch_answered_names_the_projects_base_branch() {
-    let tree = WorkerTree::new();
-    let why = refusal(tree.bash_on("v2", &tree.path(), "git fetch origin"));
-    assert!(why.contains("git merge origin/v2"), "{why}");
-}
-
-#[test]
-fn the_base_branch_rides_the_guards_command_line_only_when_it_is_not_the_default() {
-    assert_eq!(base_flag("main"), None);
-    let flag = base_flag("release/2.x").unwrap();
-    let words = [
-        "--folder=/k".to_owned(),
-        flag.clone(),
-        "--pin-folder".to_owned(),
-    ];
-    let (base, rest) = take_base(&words);
-    assert_eq!(base, "release/2.x");
-    assert_eq!(rest, ["--folder=/k", "--pin-folder"]);
-    assert_eq!(take_base(&rest).0, "main");
-}
-
-#[test]
 fn a_commit_with_a_redirect_keeps_its_message_and_its_heredoc() {
     let tree = WorkerTree::new();
     tree.write("a.md", "a\n");
@@ -980,6 +930,7 @@ fn an_unreadable_call_is_refused() {
 }
 
 mod agents;
+mod base;
 mod fetch;
 mod hooks;
 mod killing;

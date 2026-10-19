@@ -96,12 +96,13 @@ impl RepoPlugins {
     /// Nothing here fails: a plugin that cannot load is skipped.
     pub fn load(
         checkout: &Path,
+        base: &str,
         kelpie_home: &Path,
         skills: &Path,
         git: &dyn Git,
         setup: &RepoSetup,
     ) -> Self {
-        Self::plan(checkout, kelpie_home, skills, git, setup).install(skills)
+        Self::plan(checkout, base, kelpie_home, skills, git, setup).install(skills)
     }
 
     /// What [`Self::load`] would load, with the marketplaces fetched and
@@ -111,17 +112,18 @@ impl RepoPlugins {
     /// the runner is using as they were.
     pub fn plan(
         checkout: &Path,
+        base: &str,
         kelpie_home: &Path,
         skills: &Path,
         git: &dyn Git,
         setup: &RepoSetup,
     ) -> Self {
         let into = skills.join(FOLDER);
-        let mut plugins: Vec<RepoPlugin> = resolve(checkout, kelpie_home, git, true, setup)
+        let mut plugins: Vec<RepoPlugin> = resolve(checkout, base, kelpie_home, git, true, setup)
             .into_iter()
             .map(|resolved| plan_one(resolved, &into, setup))
             .collect();
-        plugins.extend(own::plan(checkout, &into, setup));
+        plugins.extend(own::plan(checkout, base, &into, setup));
         Self { plugins }
     }
 
@@ -302,6 +304,7 @@ pub(crate) struct Skipped {
 /// adds comes after them.
 pub(crate) fn resolve(
     checkout: &Path,
+    base: &str,
     kelpie_home: &Path,
     git: &dyn Git,
     refresh: bool,
@@ -310,7 +313,7 @@ pub(crate) fn resolve(
     let mut resolved = Vec::new();
     // The branch is read even where no plugin of the repo's loads, so the
     // checkout is as fresh for the plugins `setup` adds.
-    let read = settings_on_default_branch(checkout, refresh);
+    let read = settings_on_default_branch(checkout, base, refresh);
     let (settings, mut enabled) = match read {
         Ok(Some(read)) if setup.plugins => read,
         Err(reason) if setup.plugins => {
@@ -380,7 +383,7 @@ pub(crate) fn resolve(
         }
         let root = markets
             .entry(market.to_owned())
-            .or_insert_with(|| marketplace(market, known, checkout, kelpie_home, git));
+            .or_insert_with(|| marketplace(market, known, checkout, base, kelpie_home, git));
         let found = match root {
             Ok((root, stale)) => plugin_in(root, name).map(|folder| Found {
                 id: id.clone(),
@@ -443,14 +446,18 @@ struct Listed {
 
 // `.claude/settings.json` as the default branch has it, read from the
 // checkout's `origin` so a worker's branch never reaches it.
-fn settings_on_default_branch(checkout: &Path, refresh: bool) -> Result<Option<Read>, String> {
-    use crate::worktree::{BASE, git};
+fn settings_on_default_branch(
+    checkout: &Path,
+    base: &str,
+    refresh: bool,
+) -> Result<Option<Read>, String> {
+    use crate::worktree::git;
     // The checkout may be behind a merge that turned a plugin on; failing
     // to fetch leaves what it has.
     if refresh {
-        let _ = git(checkout, ["fetch", "--quiet", "origin", BASE]);
+        let _ = git(checkout, ["fetch", "--quiet", "origin", base]);
     }
-    let spec = format!("origin/{BASE}:{SETTINGS}");
+    let spec = format!("origin/{base}:{SETTINGS}");
     if git(checkout, ["cat-file", "-e", &spec]).is_err() {
         return Ok(None);
     }
@@ -464,16 +471,16 @@ fn settings_on_default_branch(checkout: &Path, refresh: bool) -> Result<Option<R
                 .map_or_else(Vec::new, |in_order| in_order.0);
             Ok(Some((settings, enabled)))
         }
-        Ok(_) => Err(format!("{SETTINGS} on {BASE} is not a JSON object")),
-        Err(e) => Err(format!("{SETTINGS} on {BASE} is not valid JSON: {e}")),
+        Ok(_) => Err(format!("{SETTINGS} on {base} is not a JSON object")),
+        Err(e) => Err(format!("{SETTINGS} on {base} is not valid JSON: {e}")),
     }
 }
 
 /// The default branch's commit as the checkout last fetched it, which a
 /// runner compares to know the plugins may have changed
-pub fn default_head(checkout: &Path) -> Option<String> {
-    use crate::worktree::{BASE, git};
-    let spec = format!("origin/{BASE}");
+pub fn default_head(checkout: &Path, base: &str) -> Option<String> {
+    use crate::worktree::git;
+    let spec = format!("origin/{base}");
     git(checkout, ["rev-parse", "--verify", "--quiet", &spec]).ok()
 }
 
@@ -483,6 +490,7 @@ fn marketplace(
     name: &str,
     known: Option<&Map<String, Value>>,
     checkout: &Path,
+    base: &str,
     kelpie_home: &Path,
     git: &dyn Git,
 ) -> Result<(PathBuf, Option<String>), String> {
@@ -515,7 +523,7 @@ fn marketplace(
         }
         // From the default branch, not the working tree, which kelpie never moves.
         let into = kelpie_home.join(MARKETPLACES).join(name);
-        return export(checkout, Path::new(path), &into)
+        return export(checkout, base, Path::new(path), &into)
             .map(|()| (into, None))
             .map_err(|e| {
                 format!("its directory {path} cannot be read from the default branch: {e}")
@@ -547,8 +555,8 @@ fn marketplace(
 // Writes the folder `relative` as `origin`'s default branch holds it into
 // `into`, replacing what was there. Only regular files come across: a link in
 // the tree is left out, so nothing a marketplace holds leads out of it.
-fn export(checkout: &Path, relative: &Path, into: &Path) -> Result<(), String> {
-    use crate::worktree::{BASE, in_repo};
+fn export(checkout: &Path, base: &str, relative: &Path, into: &Path) -> Result<(), String> {
+    use crate::worktree::in_repo;
     let plain = relative
         .components()
         .all(|c| matches!(c, Component::Normal(_) | Component::CurDir));
@@ -568,7 +576,7 @@ fn export(checkout: &Path, relative: &Path, into: &Path) -> Result<(), String> {
         "ls-tree".into(),
         "-r".into(),
         "-z".into(),
-        format!("origin/{BASE}").into(),
+        format!("origin/{base}").into(),
         "--".into(),
         folder.clone().into_os_string(),
     ])?;
@@ -694,12 +702,17 @@ fn skills_in(folder: &Path) -> Vec<String> {
 /// What a runner starting now would load of the checkout's plugins, from the
 /// marketplaces already fetched, fetching nothing and writing only the copy of a
 /// `directory` marketplace under kelpie's home
-pub fn inspect(checkout: &Path, kelpie_home: &Path, setup: &RepoSetup) -> Vec<RepoPlugin> {
-    let mut plugins: Vec<RepoPlugin> = resolve(checkout, kelpie_home, &Fetched, false, setup)
+pub fn inspect(
+    checkout: &Path,
+    base: &str,
+    kelpie_home: &Path,
+    setup: &RepoSetup,
+) -> Vec<RepoPlugin> {
+    let mut plugins: Vec<RepoPlugin> = resolve(checkout, base, kelpie_home, &Fetched, false, setup)
         .into_iter()
         .map(|resolved| plan_one(resolved, Path::new(""), setup))
         .collect();
-    plugins.extend(own::plan(checkout, Path::new(""), setup));
+    plugins.extend(own::plan(checkout, base, Path::new(""), setup));
     plugins
 }
 
