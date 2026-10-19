@@ -20,6 +20,8 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use crate::ticket::TicketId;
+
 use super::super::Runner;
 use super::super::report::Begin;
 use super::super::review::calls::build_call;
@@ -206,7 +208,13 @@ impl Job {
             return fail(e, Cost::default());
         }
         let prompt = prompt(&self.instructions, diff);
-        let mut call = match build_call(Role::Reviewer, number, &self.folder, &self.model, prompt) {
+        let mut call = match build_call(
+            Role::Reviewer,
+            TicketId::from_issue(number),
+            &self.folder,
+            &self.model,
+            prompt,
+        ) {
             Ok(call) => call,
             Err(e) => return fail(e, Cost::default()),
         };

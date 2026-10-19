@@ -109,7 +109,7 @@ pub(crate) enum Scripted {
 }
 
 /// A held call's issue, and what the runner noted of it
-type Holding = (u64, Option<Flying>);
+type Holding = (Option<crate::ticket::TicketId>, Option<Flying>);
 
 /// What is queued for one role's calls
 type RoleScript = (Role, VecDeque<Scripted>);

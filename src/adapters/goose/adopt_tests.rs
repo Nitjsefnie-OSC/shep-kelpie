@@ -89,7 +89,7 @@ fn a_call_with_no_note_refuses_naming_why() {
         pid: std::process::id(),
         pgid: std::process::id(),
         role: Role::Worker,
-        issue: Some(7),
+        issue: crate::ticket::TicketId::from_issue(7),
         stdout: files.stdout,
         stderr: files.stderr,
         ending: false,

@@ -122,7 +122,7 @@ mod tests {
 
     fn call(harness: AgentHarness) -> AgentCall {
         AgentCall {
-            issue: 7,
+            issue: crate::ticket::TicketId::from_issue(7),
             settings: PathBuf::from("/k/worker/settings.json"),
             ..AgentCall::new(
                 Role::Worker,

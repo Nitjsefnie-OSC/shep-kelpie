@@ -107,7 +107,7 @@ fn fresh() -> Session {
 
 fn call(role: Role, session: Session) -> AgentCall {
     AgentCall {
-        issue: 6,
+        issue: crate::ticket::TicketId::from_issue(6),
         settings: PathBuf::from("/k/worker/settings.json"),
         instructions: Some(PathBuf::from("/k/worker/instructions.md")),
         ..AgentCall::new(

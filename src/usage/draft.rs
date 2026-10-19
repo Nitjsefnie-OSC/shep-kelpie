@@ -53,7 +53,7 @@ impl Draft {
     pub fn of(call: &AgentCall, agent: &str, kind: CallKind, started: Timestamp) -> Self {
         Self {
             issue: (matches!(call.role, Role::Worker | Role::Reviewer))
-                .then(|| TicketId::from_issue(call.issue))
+                .then_some(call.issue)
                 .flatten(),
             pull_request: None,
             role: call.role,

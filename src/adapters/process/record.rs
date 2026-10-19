@@ -10,6 +10,8 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::ticket::TicketId;
+
 use crate::ports::{AgentCall, Ending, Flying, Role};
 
 /// The files one call keeps beside its settings path
@@ -49,7 +51,7 @@ pub(crate) struct Record {
     pub role: Role,
     /// The issue of the work item it is made for, and none for the project
     /// manager's call
-    pub issue: Option<u64>,
+    pub issue: Option<TicketId>,
     /// Where its stdout and stderr go
     pub stdout: PathBuf,
     pub stderr: PathBuf,
@@ -87,7 +89,7 @@ impl Recorded {
             pid,
             pgid: pid,
             role: call.role,
-            issue: (call.role != Role::Pm).then_some(call.issue),
+            issue: call.issue.filter(|_| call.role != Role::Pm),
             stdout,
             stderr,
             ending: ending.asked(),

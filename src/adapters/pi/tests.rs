@@ -873,7 +873,7 @@ impl World {
 
     pub(super) fn call(&self, url: &str, role: Role, session: Session) -> AgentCall {
         AgentCall {
-            issue: 7,
+            issue: crate::ticket::TicketId::from_issue(7),
             settings: self.path("settings.json"),
             ..AgentCall::new(
                 role,

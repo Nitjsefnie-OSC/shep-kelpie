@@ -59,7 +59,7 @@ impl World {
 
     fn call(&self) -> AgentCall {
         AgentCall {
-            issue: 7,
+            issue: crate::ticket::TicketId::from_issue(7),
             settings: self.path("worker/settings.json"),
             ..AgentCall::new(
                 Role::Worker,
@@ -144,7 +144,7 @@ fn a_running_call_has_a_record_and_an_ended_call_has_none() {
     assert_eq!(record["pid"], pid);
     assert_eq!(record["pgid"], pid);
     assert_eq!(record["role"], "worker");
-    assert_eq!(record["issue"], 7);
+    assert_eq!(record["issue"], "7");
     assert_eq!(record["ending"], false);
     assert_eq!(record["flying"]["left"], 600);
     assert_eq!(record["flying"]["began"], 1_000);

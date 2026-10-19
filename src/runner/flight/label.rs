@@ -149,7 +149,7 @@ impl Runner {
         let checkout = &self.settings.git.checkout;
         let mut call = build_call(
             Role::IssueWriter,
-            number,
+            TicketId::from_issue(number),
             checkout,
             &writer.model,
             label_prompt(self, issue),

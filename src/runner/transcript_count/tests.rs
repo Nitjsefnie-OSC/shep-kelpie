@@ -119,7 +119,7 @@ fn pi_call(folder: &Path) -> AgentCall {
         folder.join("worktree"),
         "go on",
     );
-    call.issue = 7;
+    call.issue = crate::ticket::TicketId::from_issue(7);
     call.reach.code_graph = Some(CodeGraph {
         binary: folder.join("codebase-memory-mcp"),
         index: folder.join("graph"),
@@ -417,7 +417,7 @@ fn a_hook_that_is_not_kelpies_is_named_in_a_note_and_in_no_label() {
         recorded: CLAUDE_ERRORS,
     });
     let mut call = claude_call(folder.path());
-    call.issue = 794;
+    call.issue = crate::ticket::TicketId::from_issue(794);
 
     counted.run(&call, &Ending::default()).unwrap();
 

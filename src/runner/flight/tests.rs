@@ -337,7 +337,10 @@ fn a_restart_with_calls_in_flight_resumes_each_work_item_from_its_session() {
     assert_eq!(ended, [ticket(7), ticket(8)]);
     let calls = rig.claude.calls();
     for issue in [7, 8] {
-        let mine: Vec<_> = calls.iter().filter(|c| c.issue == issue).collect();
+        let mine: Vec<_> = calls
+            .iter()
+            .filter(|c| c.issue == Some(crate::test::ticket(issue)))
+            .collect();
         let [first, again] = mine.as_slice() else {
             panic!("#{issue} made {} calls, not two", mine.len());
         };

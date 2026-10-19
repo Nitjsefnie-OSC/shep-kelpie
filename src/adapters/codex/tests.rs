@@ -738,7 +738,7 @@ impl World {
 
     pub(super) fn call(&self, role: Role, session: Session) -> AgentCall {
         AgentCall {
-            issue: 7,
+            issue: crate::ticket::TicketId::from_issue(7),
             settings: self.path("worker/settings.json"),
             ..AgentCall::new(
                 role,

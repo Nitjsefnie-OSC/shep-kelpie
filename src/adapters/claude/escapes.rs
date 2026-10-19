@@ -54,7 +54,7 @@ impl World {
             token: None,
         };
         AgentCall {
-            issue: 7,
+            issue: crate::ticket::TicketId::from_issue(7),
             settings: self.path("worker/settings.json"),
             reach: profile.reach(),
             ..AgentCall::new(
@@ -315,7 +315,7 @@ fn a_live_worker_turn_runs_inside_the_sandbox_and_resumes() {
     let cli = ClaudeCli::default().sandboxed(Arc::new(SandboxRuntime::new(tools)), home.clone());
     let id = crate::work_item::new_session_id().unwrap();
     let mut call = AgentCall {
-        issue: 7,
+        issue: crate::ticket::TicketId::from_issue(7),
         settings: worker.join("settings.json"),
         reach: profile.reach(),
         ..AgentCall::new(

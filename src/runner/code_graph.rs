@@ -58,8 +58,8 @@ impl Runner {
             return;
         }
         self.notes.ends(NOT_INSTALLED);
-        // Only a call that works an issue reads code, and none numbers one zero.
-        let Some(ticket) = TicketId::from_issue(call.issue) else {
+        // Only a call that works an issue reads code.
+        let Some(ticket) = call.issue else {
             return;
         };
         // A work item of the same ticket would share the index of a triage view.
@@ -139,7 +139,10 @@ fn reads_code(call: &AgentCall, worker: bool) -> bool {
 }
 
 pub(super) fn who(call: &AgentCall) -> String {
-    format!("issue #{}'s {}", call.issue, name(call.role))
+    match call.issue {
+        Some(ticket) => format!("{}'s {}", ticket.named().to_lowercase(), name(call.role)),
+        None => format!("issue #0's {}", name(call.role)),
+    }
 }
 
 // The note's owner for a worker's turn a previous image began, which carries its issue and

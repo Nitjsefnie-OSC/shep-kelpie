@@ -191,7 +191,7 @@ impl Runner {
         super::turn::write(&self.paths.worker, &instructions, text)
             .map_err(RepresentError::Setup)?;
         let call = AgentCall {
-            issue: post.pull_request,
+            issue: TicketId::from_issue(post.pull_request),
             settings: (self.paths.worker).join("representative-settings.json"),
             instructions: Some(instructions),
             ..AgentCall::new(

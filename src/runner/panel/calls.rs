@@ -189,7 +189,7 @@ impl Runner {
         let text = agent.prompt.as_deref().unwrap_or_default();
         crate::runner::turn::write(&self.paths.worker, &instructions, text)?;
         self.prepared(AgentCall {
-            issue: ruling.issue.and_then(|t| t.github()).unwrap_or(0),
+            issue: ruling.issue,
             settings: self.paths.worker.join(format!("{name}-settings.json")),
             instructions: Some(instructions),
             reach,

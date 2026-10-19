@@ -219,7 +219,7 @@ impl Runner {
     /// the call has a browser to open it
     pub(super) fn dev_run(&self, call: &AgentCall) -> Option<DevRun> {
         call.reach.browser.as_ref()?;
-        (TicketId::from_issue(call.issue)).and_then(|ticket| self.planned.get(ticket))
+        call.issue.and_then(|ticket| self.planned.get(ticket))
     }
 
     /// The current work item's turn is over: its dev server's plan goes
