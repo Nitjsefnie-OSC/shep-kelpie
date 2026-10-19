@@ -46,10 +46,8 @@ fn a_local_ticket_goes_from_ticket_new_to_a_merge_that_closes_it() {
     drop(runner);
     let runner = rig.open().unwrap();
     rig.forge.open_pull_request(71, "kelpie/k1", &[]);
-    rig.claude.script([
-        Scripted::Push("work.txt", "work\n"),
-        Scripted::Text(CLEAN),
-    ]);
+    rig.claude
+        .script([Scripted::Push("work.txt", "work\n"), Scripted::Text(CLEAN)]);
 
     let (issue, skipped) = dispatched(step(&runner).unwrap());
     assert_eq!((issue, skipped), (local("k1"), vec![]));
@@ -79,13 +77,19 @@ fn a_local_ticket_goes_from_ticket_new_to_a_merge_that_closes_it() {
     }
     let head = head.expect("the review never reached CI");
     rig.forge.set_checks(&head, Checks::Passed);
-    assert!(rig.verdict(&runner).is_some(), "the pull request was marked ready");
+    assert!(
+        rig.verdict(&runner).is_some(),
+        "the pull request was marked ready"
+    );
     rig.clock.advance(CHECKS_SETTLE);
     step(&runner).unwrap();
 
     assert_eq!(rig.forge.merges(), [(71, head)]);
     assert_eq!(state_of(&rig, "k1"), "closed");
-    assert!(rig.forge.comments().is_empty(), "nothing was said on GitHub");
+    assert!(
+        rig.forge.comments().is_empty(),
+        "nothing was said on GitHub"
+    );
 }
 
 // Tickets `k1`, which `k2` blocks, and `k2`, both ready

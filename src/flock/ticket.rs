@@ -33,7 +33,11 @@ pub fn run(folder: &Path, args: &[&str]) -> Result<Vec<String>, String> {
     let refused = |e: LocalError| e.to_string();
     match args {
         ["new", rest @ ..] => {
-            let flags = Flags::of(rest, &["--body", "--label", "--parent", "--blocked-by"], &[])?;
+            let flags = Flags::of(
+                rest,
+                &["--body", "--label", "--parent", "--blocked-by"],
+                &[],
+            )?;
             let [title] = flags.words.as_slice() else {
                 return Err(format!("`ticket new` takes one title\n\n{USAGE}"));
             };
@@ -125,10 +129,14 @@ pub fn run(folder: &Path, args: &[&str]) -> Result<Vec<String>, String> {
                 (true, false) => Standing::NotPlanned,
                 (false, true) => Standing::Duplicate,
                 (true, true) => {
-                    return Err("`--not-planned` and `--duplicate` contradict each other".to_owned());
+                    return Err(
+                        "`--not-planned` and `--duplicate` contradict each other".to_owned()
+                    );
                 }
             };
-            store.update(ticket, |s| s.standing = standing).map_err(refused)?;
+            store
+                .update(ticket, |s| s.standing = standing)
+                .map_err(refused)?;
             Ok(vec![ticket.to_string()])
         }
         _ => Err(USAGE.to_owned()),
@@ -153,7 +161,9 @@ fn ids(flags: &Flags<'_>, flag: &str) -> Result<Vec<TicketId>, String> {
 fn no_words(flags: &Flags<'_>) -> Result<(), String> {
     match flags.words.first() {
         None => Ok(()),
-        Some(word) => Err(format!("{word:?} is not an argument of this verb\n\n{USAGE}")),
+        Some(word) => Err(format!(
+            "{word:?} is not an argument of this verb\n\n{USAGE}"
+        )),
     }
 }
 
@@ -225,7 +235,14 @@ mod tests {
     fn new_files_a_ticket_and_prints_its_id() {
         let home = short_tempdir();
         let folder = home.path().join("tickets");
-        let args = ["new", "Add a thing", "--body", "Do it.", "--label", "ready-for-agent"];
+        let args = [
+            "new",
+            "Add a thing",
+            "--body",
+            "Do it.",
+            "--label",
+            "ready-for-agent",
+        ];
         assert_eq!(ticket(&folder, &args).unwrap(), ["k1"]);
         assert_eq!(ticket(&folder, &["new", "Another"]).unwrap(), ["k2"]);
         let shown = ticket(&folder, &["show", "k1"]).unwrap().join("\n");
@@ -255,16 +272,32 @@ mod tests {
         ticket(&folder, &["new", "One"]).unwrap();
         ticket(&folder, &["new", "Two", "--label", "a", "--label", "b"]).unwrap();
         let edit = [
-            "edit", "k2", "--title", "Second", "--unlabel", "a", "--label", "c", "--blocked-by", "k1",
+            "edit",
+            "k2",
+            "--title",
+            "Second",
+            "--unlabel",
+            "a",
+            "--label",
+            "c",
+            "--blocked-by",
+            "k1",
         ];
         ticket(&folder, &edit).unwrap();
         let shown = ticket(&folder, &["show", "k2"]).unwrap().join("\n");
         assert!(shown.contains("title: \"Second\""), "{shown}");
         assert!(shown.contains("labels: [\"b\", \"c\"]"), "{shown}");
         assert!(shown.contains("blocked_by: [\"k1\"]"), "{shown}");
-        ticket(&folder, &["edit", "k2", "--unblock", "k1", "--parent", "k1"]).unwrap();
+        ticket(
+            &folder,
+            &["edit", "k2", "--unblock", "k1", "--parent", "k1"],
+        )
+        .unwrap();
         let shown = ticket(&folder, &["show", "k2"]).unwrap().join("\n");
-        assert!(shown.contains("parent: \"k1\"") && !shown.contains("blocked_by"), "{shown}");
+        assert!(
+            shown.contains("parent: \"k1\"") && !shown.contains("blocked_by"),
+            "{shown}"
+        );
         ticket(&folder, &["edit", "k2", "--no-parent"]).unwrap();
         let shown = ticket(&folder, &["show", "k2"]).unwrap().join("\n");
         assert!(!shown.contains("parent"), "{shown}");

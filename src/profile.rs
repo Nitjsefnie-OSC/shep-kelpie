@@ -34,8 +34,10 @@ const HAND_OVER: &str = "When the work is done, push the branch with `git push o
 
 // What a worker's pull request body ends with when its ticket is a GitHub issue,
 // which merging the pull request then closes
-const RESOLVES: &str = " End the body with the line `Resolves #<issue>`, naming your work item's issue.";
-const ENDS_WITH_RESOLVES: &str = ", which ends with the line `Resolves #<issue>`, naming your work item's issue";
+const RESOLVES: &str =
+    " End the body with the line `Resolves #<issue>`, naming your work item's issue.";
+const ENDS_WITH_RESOLVES: &str =
+    ", which ends with the line `Resolves #<issue>`, naming your work item's issue";
 
 /// Kelpie's own worker instructions, naming `kelpie`, the binary a worker
 /// runs its tests under the machine's test lease with

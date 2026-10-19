@@ -524,6 +524,31 @@ mod tests {
     }
 
     #[test]
+    fn a_local_tickets_worker_is_never_told_to_end_its_body_with_resolves() {
+        let dir = tempfile::tempdir().unwrap();
+        let skills = Skills::load(&StepSkills::default(), &dir.path().join("skills"));
+        let file = dir.path().join("pull-request.md");
+        let told = |local_ticket: bool, handed_over: bool| {
+            let extra = Extra {
+                local_ticket,
+                pull_request_file: handed_over.then_some(file.as_path()),
+                ..Extra::default()
+            };
+            compose(extra, dir.path(), &skills, Path::new(Rig::KELPIE))
+        };
+        for handed_over in [false, true] {
+            let github = told(false, handed_over);
+            assert!(github.contains("`Resolves #<issue>`"), "{github}");
+            let local = told(true, handed_over);
+            assert!(!local.contains("Resolves"), "{local}");
+        }
+        fs::write(dir.path().join("pull_request_template.md"), "## Summary\n").unwrap();
+        let local = told(true, false);
+        assert!(!local.contains("Resolves"), "{local}");
+        assert!(local.contains("instead of writing your own.\n"), "{local}");
+    }
+
+    #[test]
     fn the_template_line_comes_before_the_projects_instructions() {
         let dir = tempfile::tempdir().unwrap();
         fs::write(dir.path().join("pull_request_template.md"), "## Summary\n").unwrap();

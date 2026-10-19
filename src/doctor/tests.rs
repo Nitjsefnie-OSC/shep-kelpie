@@ -13,6 +13,8 @@ use crate::test::{
 };
 use crate::tools::Tools;
 
+mod tickets;
+
 const EXAMPLE: &str = include_str!("../../settings.example.toml");
 
 // A URL no test would print by chance, so finding it in a report is a leak.
@@ -243,6 +245,7 @@ async fn a_machine_with_everything_in_place_passes_and_changes_nothing() {
             "shepherd",
             "dog",
             "golbat: checkout",
+            "golbat: tickets",
             "golbat: implementers",
             "golbat: push access",
             "golbat: labels",
@@ -255,6 +258,7 @@ async fn a_machine_with_everything_in_place_passes_and_changes_nothing() {
             "golbat: reviewers",
             "golbat: rulings",
             "koji: checkout",
+            "koji: tickets",
             "koji: implementers",
             "koji: push access",
             "koji: labels",

@@ -83,9 +83,9 @@ mod ledger_tests;
 mod left;
 #[cfg(test)]
 mod limits_tests;
+mod lineup;
 #[cfg(test)]
 mod local_ticket_tests;
-mod lineup;
 mod login_refresh;
 mod looks;
 mod main_ci;

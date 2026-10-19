@@ -8,13 +8,14 @@ use serde_json::{Map, Value};
 use super::{Here, Line, Probes, rulings};
 use crate::agents::Agents;
 use crate::flock::add::LABELS;
+use crate::local_tickets::LocalTickets;
 use crate::ports::{NewLabel, Visibility};
 use crate::runner::{
     NO_ORIGIN, ProjectName, ProjectPaths, SUMMON_LABEL, check_checkout, check_instructions,
     source_of,
 };
 use crate::settings::{
-    Account, AgentHarness, ForgeSlug, Limit, Pick, RoleModel, Settings, SettingsError,
+    Account, AgentHarness, ForgeSlug, Limit, Pick, RoleModel, Settings, SettingsError, TicketSource,
 };
 use crate::webhook::KelpieSettings;
 
@@ -113,7 +114,7 @@ pub(super) fn checks(
         Err(e) => return wrong(e.to_string()),
     };
     let (line, remote) = checkout(at("checkout"), &settings);
-    let mut lines = vec![line];
+    let mut lines = vec![line, tickets(at("tickets"), &settings, &paths)];
     lines.extend(super::ci::drafts(at("ci on drafts"), &settings));
     if settings.worker.instructions_file.is_some() {
         lines.push(instructions(at("instructions"), &settings));
@@ -205,6 +206,34 @@ fn repo_plugins(subject: String, settings: &Settings, here: Here<'_>) -> Option<
         parts.join("; "),
         "correct the repo's .claude/settings.json on its default branch, or let a runner fetch the marketplace by starting it",
     ))
+}
+
+// Where the project's tickets live, and for a local store how many it holds
+fn tickets(subject: String, settings: &Settings, paths: &ProjectPaths) -> Line {
+    match settings.tickets.source {
+        TicketSource::Github => Line::ok(subject, "github: the repo's issues"),
+        TicketSource::Local => {
+            let folder = paths.tickets();
+            match LocalTickets::new(folder.clone()).all() {
+                Ok(held) => Line::ok(
+                    subject,
+                    format!("local: {} in {}", count(held.len()), folder.display()),
+                ),
+                Err(e) => Line::missing(
+                    subject,
+                    format!("cannot read the local tickets: {e}"),
+                    "repair or remove the file it names",
+                ),
+            }
+        }
+    }
+}
+
+fn count(tickets: usize) -> String {
+    match tickets {
+        1 => "1 ticket".to_owned(),
+        n => format!("{n} tickets"),
+    }
 }
 
 // Push access, the labels, and the review bot where CodeRabbit is listed:
