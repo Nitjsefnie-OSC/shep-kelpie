@@ -5,6 +5,7 @@
 //! few times at most, and then the maintainer's ruling.
 
 use crate::runner::Runner;
+use crate::runner::report::ticket_of;
 use crate::runner::report::{Begin, StepReport};
 use crate::state::{StateError, Stuck};
 use crate::work_item::{Conflict, Phase, Turn};
@@ -43,7 +44,7 @@ impl Runner {
                     item.phase = Phase::Ci { head: seen, since };
                 })?;
                 Ok(Begin::Report(StepReport::Rebased {
-                    issue,
+                    issue: ticket_of(issue),
                     pull_request: number,
                     head: rebased,
                 }))
@@ -95,7 +96,7 @@ impl Runner {
             item.phase = Phase::Implement;
         })?;
         Ok(Begin::Report(StepReport::Conflicted {
-            issue,
+            issue: ticket_of(issue),
             pull_request: number,
             head,
             files,
@@ -116,6 +117,7 @@ fn conflict_prompt(number: u64, files: &[String]) -> String {
 
 #[cfg(test)]
 mod tests {
+    use crate::test::ticket;
     use serde_json::json;
 
     use super::super::tests::ruling_report;
@@ -130,7 +132,7 @@ mod tests {
         assert_eq!(
             step(&runner).unwrap(),
             Some(StepReport::Conflicted {
-                issue: 7,
+                issue: ticket(7),
                 pull_request: 71,
                 head: head.clone(),
                 files: vec!["work.txt".into()],

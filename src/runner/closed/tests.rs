@@ -7,6 +7,7 @@ use crate::ports::{Cost, PullRequestState, Usage};
 use crate::runner::follow_up::tests::{ask_after_the_merge, racy};
 use crate::runner::report::StepReport;
 use crate::runner::{Runner, step};
+use crate::test::ticket;
 use crate::test::{CALL_PATIENCE, Hold, Rig, Scripted, git, write_in};
 
 const ASKS: &str = "<kelpie-question>\nThis is already fixed on main. Shall I close it?\n\
@@ -37,13 +38,13 @@ fn closed_with_no_change(report: Option<StepReport>) -> bool {
     matches!(
         report,
         Some(StepReport::Finished {
-            issue: 7,
+            issue,
             pull_request: None,
             merged: false,
             closed: true,
             ..
         })
-    )
+     if issue == ticket(7))
 }
 
 fn alert_texts(rig: &Rig) -> Vec<String> {
@@ -106,11 +107,11 @@ fn a_closed_issue_whose_branch_holds_a_commit_is_still_sent_back_then_parked() {
     assert!(matches!(
         step(&runner).unwrap(),
         Some(StepReport::Failed {
-            issue: 7,
+            issue,
             id: 7,
             ..
         })
-    ));
+     if issue == ticket(7)));
 
     // Parked, it stays: the commit is work the maintainer decides on.
     assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 7 }));
@@ -131,9 +132,10 @@ fn an_issue_the_forge_cannot_read_at_a_turns_end_is_tried_again_next_step() {
     rig.claude.script([reply(), reply()]);
     step(&runner).unwrap();
     rig.forge.remove_issue(7);
-    let Some(StepReport::GateFailed { issue: 7, reason }) = step(&runner).unwrap() else {
+    let Some(StepReport::GateFailed { issue, reason }) = step(&runner).unwrap() else {
         panic!("the unread issue did not fail the step");
     };
+    assert_eq!(issue, ticket(7));
     assert_eq!(reason, "cannot read issue #7: gh failed: no issue #7");
     assert_eq!(rig.claude.calls().len(), 1, "nothing was sent back yet");
 }
@@ -345,13 +347,13 @@ fn finished_merged(report: &StepReport) -> bool {
     matches!(
         report,
         StepReport::Finished {
-            issue: 7,
+            issue,
             pull_request: Some(71),
             merged: true,
             closed: false,
             ..
         }
-    )
+     if *issue == ticket(7))
 }
 
 // The reports of the next few steps. An ended item is cleaned up on a pass
@@ -361,7 +363,8 @@ fn steps(runner: &Mutex<Runner>) -> Vec<StepReport> {
 }
 
 fn dispatched_9(reports: &[StepReport]) -> bool {
-    let opened = |r: &StepReport| matches!(r, StepReport::Dispatched { issue: 9, .. });
+    let opened =
+        |r: &StepReport| matches!(r, StepReport::Dispatched { issue, .. } if *issue == ticket(9));
     reports.iter().any(opened)
 }
 

@@ -4,6 +4,7 @@ use serde_json::json;
 
 use crate::ports::{CLEAN, Checks, Finding, Severity};
 use crate::runner::{StepReport, step};
+use crate::test::ticket;
 use crate::test::{Rig, Scripted, ScriptedRound};
 
 fn nit() -> Finding {
@@ -43,7 +44,7 @@ fn a_nit_fix_that_pushes_nothing_goes_on_to_the_next_reviewer_with_no_ruling() {
     assert_eq!(
         step(&runner).unwrap(),
         Some(StepReport::NitsDeclined {
-            issue: 7,
+            issue: ticket(7),
             pull_request: 71,
             round: 1,
             nits: 1,
@@ -69,7 +70,7 @@ fn a_push_by_someone_else_during_a_nit_fix_is_not_a_nit_fixs_head() {
     assert_eq!(
         step(&runner).unwrap(),
         Some(StepReport::FixPushed {
-            issue: 7,
+            issue: ticket(7),
             pull_request: 71,
             round: 1,
             head: Some(by_hand.clone()),
@@ -90,7 +91,7 @@ fn a_round_of_nits_gets_one_fix_turn_and_the_pass_goes_on_to_the_next_reviewer()
     assert_eq!(
         step(&runner).unwrap(),
         Some(StepReport::ReviewFindingsSent {
-            issue: 7,
+            issue: ticket(7),
             pull_request: 71,
             round: 1,
             held: 1,
@@ -108,7 +109,7 @@ fn a_round_of_nits_gets_one_fix_turn_and_the_pass_goes_on_to_the_next_reviewer()
     assert_eq!(
         step(&runner).unwrap(),
         Some(StepReport::FixPushed {
-            issue: 7,
+            issue: ticket(7),
             pull_request: 71,
             round: 1,
             head: Some(fixed.clone()),

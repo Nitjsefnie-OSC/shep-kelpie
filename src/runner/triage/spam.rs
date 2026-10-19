@@ -33,6 +33,7 @@ use crate::usage::{CallKind, CallLine, Ended, Line};
 use super::super::contributions::post::forge_is_busy;
 use super::Runner;
 use super::limits::{DAY, cut_body};
+use crate::ticket::TicketId;
 
 /// The name of the label an issue the classifier read as spam gets, and the only
 /// thing it gets
@@ -189,7 +190,7 @@ impl Runner {
     fn spam_line(&self, issue: u64, at: Timestamp) -> CallLine {
         CallLine {
             at,
-            issue: Some(issue),
+            issue: TicketId::from_issue(issue),
             pull_request: None,
             role: Role::Triager,
             kind: CallKind::SpamCheck,

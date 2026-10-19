@@ -88,8 +88,8 @@ fn a_session_past_150k_is_compacted_before_the_fix_round_s_prompt() {
     let compacted = step(&runner).unwrap();
     assert!(
         matches!(
-            compacted,
-            Some(StepReport::WorkerCompacted { issue: 7, .. })
+           compacted,
+           Some(StepReport::WorkerCompacted { issue, .. }) if issue == ticket(7)
         ),
         "{compacted:?}"
     );
@@ -152,7 +152,7 @@ fn the_ledger_shows_the_compaction_as_its_own_call_with_the_issue_and_pull_reque
             )
         })
         .collect();
-    let line = |kind: &str| (kind.into(), 7.into(), 71.into());
+    let line = |kind: &str| (kind.into(), "7".into(), 71.into());
     assert_eq!(calls, [line("turn"), line("compact"), line("turn")]);
 }
 
@@ -208,8 +208,8 @@ fn a_compaction_that_fails_sends_the_turn_on_as_it_was() {
     let report = step(&runner).unwrap();
     assert!(
         matches!(
-            report,
-            Some(StepReport::WorkerCompactFailed { issue: 7, .. })
+           report,
+           Some(StepReport::WorkerCompactFailed { issue, .. }) if issue == ticket(7)
         ),
         "{report:?}"
     );

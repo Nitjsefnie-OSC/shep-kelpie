@@ -147,7 +147,10 @@ impl Runner {
     fn withdraw_pauses(&mut self) {
         for item in &self.state.work_items {
             // A pause the build limits set for a turn in flight stands.
-            if !self.builds.holds_pause(item.issue) {
+            let held = item
+                .ticket()
+                .is_some_and(|ticket| self.builds.holds_pause(ticket));
+            if !held {
                 Pause::in_build(&item.build).withdraw();
             }
         }

@@ -13,6 +13,7 @@ use super::super::gate::short;
 use super::super::report::{Begin, StepReport};
 use super::super::turn::named_files;
 use crate::ports::PullRequestState;
+use crate::runner::report::ticket_of;
 use crate::state::{StateError, Stuck};
 use crate::work_item::{Phase, Review, ReviewStage, Turn};
 use crate::worktree;
@@ -63,7 +64,7 @@ impl Runner {
             item.phase = Phase::Review(pushing);
         })?;
         Ok(Some(Begin::Report(StepReport::Unpushed {
-            issue,
+            issue: ticket_of(issue),
             pull_request,
             round: review.round,
             files: off.files,

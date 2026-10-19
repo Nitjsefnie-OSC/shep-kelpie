@@ -11,6 +11,7 @@ use crate::lease::wire::WindowFact;
 use crate::ports::{AgentError, CLEAN, Checks, Timestamp};
 use crate::runner::{CHECKS_SETTLE, Runner, StepReport, step};
 use crate::settings::AgentName;
+use crate::test::ticket;
 use crate::test::{Rig, Scripted, Told, git};
 
 mod again;
@@ -72,14 +73,14 @@ pub(in crate::runner) fn summoned_with(
     assert_eq!(
         step(&runner).unwrap(),
         Some(StepReport::MarkedReady {
-            issue: 7,
+            issue: ticket(7),
             pull_request: 71,
         })
     );
     assert_eq!(
         step(&runner).unwrap(),
         Some(StepReport::Summoned {
-            issue: 7,
+            issue: ticket(7),
             pull_request: 71,
             head: head.clone(),
         })
@@ -112,7 +113,7 @@ fn phase(rig: &Rig, runner: &Mutex<Runner>) -> serde_json::Value {
 
 fn reviewed(open_threads: usize) -> Option<StepReport> {
     Some(StepReport::BotReviewed {
-        issue: 7,
+        issue: ticket(7),
         pull_request: 71,
         round: 3,
         reviewer: coderabbit(),
@@ -252,7 +253,7 @@ fn a_draft_is_marked_ready_before_the_label_goes_on_and_the_summon_waits_a_pass(
     assert_eq!(
         step(&runner).unwrap(),
         Some(StepReport::MarkedReady {
-            issue: 7,
+            issue: ticket(7),
             pull_request: 71,
         })
     );
@@ -351,7 +352,7 @@ fn a_later_pass_on_a_ready_pull_request_summons_at_once() {
     assert_eq!(
         step(&runner).unwrap(),
         Some(StepReport::Summoned {
-            issue: 7,
+            issue: ticket(7),
             pull_request: 71,
             head: fixed,
         })
@@ -388,7 +389,7 @@ fn a_refusal_gives_the_lease_back_with_its_quoted_wait_and_the_label_comes_off()
     assert_eq!(
         step(&runner).unwrap(),
         Some(StepReport::SummonRefused {
-            issue: 7,
+            issue: ticket(7),
             pull_request: 71,
             opens: Timestamp(refused_at + 12 * 60),
         })
@@ -407,7 +408,7 @@ fn a_refusal_gives_the_lease_back_with_its_quoted_wait_and_the_label_comes_off()
     assert_eq!(
         step(&runner).unwrap(),
         Some(StepReport::Summoned {
-            issue: 7,
+            issue: ticket(7),
             pull_request: 71,
             head
         })
@@ -417,7 +418,7 @@ fn a_refusal_gives_the_lease_back_with_its_quoted_wait_and_the_label_comes_off()
 
 fn skipped(reason: &str) -> Option<StepReport> {
     Some(StepReport::ReviewerSkipped {
-        issue: 7,
+        issue: ticket(7),
         pull_request: 71,
         round: 3,
         reviewer: coderabbit(),
@@ -557,7 +558,7 @@ fn a_bot_alone_that_never_answers_leaves_the_pass_unreviewed() {
     assert_eq!(
         step(&runner).unwrap(),
         Some(StepReport::Unreviewed {
-            issue: 7,
+            issue: ticket(7),
             pull_request: 71,
             reason: why.clone(),
         })
@@ -586,7 +587,7 @@ fn every_open_thread_goes_to_the_worker_and_is_resolved_once_its_fix_moves_the_h
     assert_eq!(
         step(&runner).unwrap(),
         Some(StepReport::ReviewFindingsSent {
-            issue: 7,
+            issue: ticket(7),
             pull_request: 71,
             round: 3,
             held: 2,
@@ -619,7 +620,7 @@ fn every_open_thread_goes_to_the_worker_and_is_resolved_once_its_fix_moves_the_h
     assert_eq!(
         step(&runner).unwrap(),
         Some(StepReport::FixPushed {
-            issue: 7,
+            issue: ticket(7),
             pull_request: 71,
             round: 3,
             head: Some(fixed.clone()),
@@ -733,7 +734,7 @@ fn a_fix_turn_that_pushes_nothing_parks_and_a_yes_sends_the_threads_again() {
     assert_eq!(
         step(&runner).unwrap(),
         Some(StepReport::FixPushed {
-            issue: 7,
+            issue: ticket(7),
             pull_request: 71,
             round: 3,
             head: fixed,
@@ -832,7 +833,7 @@ fn a_restart_between_the_label_and_its_save_does_not_summon_twice() {
     assert_eq!(
         step(&runner).unwrap(),
         Some(StepReport::Summoned {
-            issue: 7,
+            issue: ticket(7),
             pull_request: 71,
             head: head.clone()
         })
@@ -937,7 +938,7 @@ fn a_yes_on_a_commit_pushed_by_hand_runs_the_review_and_coderabbit_on_it() {
     assert_eq!(
         step(&runner).unwrap(),
         Some(StepReport::Summoned {
-            issue: 7,
+            issue: ticket(7),
             pull_request: 71,
             head: by_hand,
         })

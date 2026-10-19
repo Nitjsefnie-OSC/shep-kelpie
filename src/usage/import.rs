@@ -12,6 +12,7 @@ use serde::Deserialize;
 
 use super::{CallKind, CallLine, Ended, Line, append_to, read, units};
 use crate::ports::{Role, Timestamp, Usage};
+use crate::ticket::TicketId;
 
 /// Seconds apart a logged call and a ledger line of the same session may
 /// end and still be the same call: the step is logged just after it is
@@ -33,7 +34,7 @@ pub struct Imported {
 struct Step {
     at: String,
     step: String,
-    issue: Option<u64>,
+    issue: Option<TicketId>,
     session: Option<String>,
     #[serde(default)]
     usage: Option<LoggedUsage>,
@@ -175,7 +176,7 @@ not a step at all
             serde_json::to_value(first).unwrap(),
             serde_json::json!({
                 "at": 1_790_888_012,
-                "issue": 135,
+                "issue": "135",
                 "pull_request": 271,
                 "role": "worker",
                 "kind": "turn",

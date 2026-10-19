@@ -17,6 +17,7 @@ use super::trigger::{self, issue_list};
 use super::turn;
 use crate::board::{LabelError, OpenPullRequest, READY, Skip};
 use crate::ports::{ForgeError, MaintainerReview, PullRequestState, Reviewed};
+use crate::runner::report::ticket_of;
 use crate::settings::AgentName;
 use crate::state::StateError;
 use crate::work_item::{Known, Phase, Review, WorkItem, new_session_id};
@@ -220,7 +221,7 @@ impl Runner {
             let review = pr.review.as_ref().map(|r| r.id.clone());
             let begin = match self.start_rework(number, pr) {
                 Ok(agent) => Begin::Report(StepReport::Reworked {
-                    issue,
+                    issue: ticket_of(issue),
                     pull_request: number,
                     agent,
                     by,

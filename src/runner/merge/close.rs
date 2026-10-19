@@ -6,6 +6,7 @@ use super::tests::{finished, ready_then_merge};
 use crate::ports::PullRequestState;
 use crate::runner::{StepReport, step};
 use crate::test::Rig;
+use crate::test::ticket;
 
 #[test]
 fn a_pull_request_merged_without_a_closing_reference_gets_its_issue_closed() {
@@ -24,8 +25,8 @@ fn a_pull_request_merged_without_a_closing_reference_gets_its_issue_closed() {
     assert!(comments[0].1.contains("#71"), "{comments:?}");
     rig.next_look();
     assert!(matches!(
-        step(&runner).unwrap(),
-        Some(StepReport::Dispatched { issue: 8, .. })
+       step(&runner).unwrap(),
+       Some(StepReport::Dispatched { issue, .. }) if issue == ticket(8)
     ));
 }
 
@@ -75,8 +76,10 @@ fn a_close_the_forge_refuses_is_tried_once_in_each_step_and_then_given_up() {
 
     let first = ready_then_merge(&rig, &runner);
     assert!(
-        matches!(&first, Some(StepReport::GateFailed { issue: 7, reason })
-            if reason.contains("cannot close issue #7") && reason.contains("closing is refused")),
+        matches!(&first, Some(StepReport::GateFailed { issue, reason })
+            if *issue == ticket(7)
+                && reason.contains("cannot close issue #7")
+                && reason.contains("closing is refused")),
         "{first:?}"
     );
     assert_eq!(rig.forge.closes_refused(), 1);
@@ -85,8 +88,8 @@ fn a_close_the_forge_refuses_is_tried_once_in_each_step_and_then_given_up() {
     // The step runs again after its backoff, and tries the close once.
     rig.clock.advance(15);
     assert!(matches!(
-        step(&runner).unwrap(),
-        Some(StepReport::GateFailed { issue: 7, .. })
+       step(&runner).unwrap(),
+       Some(StepReport::GateFailed { issue, .. }) if issue == ticket(7)
     ));
     assert_eq!(rig.forge.closes_refused(), 2);
 

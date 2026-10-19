@@ -460,7 +460,7 @@ fn a_retro_in_flight_holds_no_slot_so_the_next_issue_opens() {
         looking.join().unwrap();
         assert!(began, "the retro never began");
         assert!(
-            passes.iter().any(|p| p.contains("Dispatched { issue: 8")),
+            passes.iter().any(|p| p.contains("issue: Github(8)")),
             "{passes:#?}"
         );
     });
@@ -658,7 +658,7 @@ fn friction(rig: &Rig, issue: u64, text: &str) {
     let journal = rig.paths().journal;
     fs::create_dir_all(journal.parent().unwrap()).unwrap();
     let entry = journal::Entry::Friction {
-        issue,
+        issue: ticket(issue),
         text: text.to_owned(),
     };
     journal::append(&journal, Timestamp(Rig::EPOCH - 1500), entry).unwrap();

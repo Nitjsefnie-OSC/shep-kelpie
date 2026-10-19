@@ -17,6 +17,7 @@ use super::report::StepReport;
 use super::trigger::lock;
 use crate::board::briefing::elapsed;
 use crate::ports::{Alert, AlertError, Alerts, ReplyWith, Timestamp};
+use crate::runner::report::ticket_of;
 use crate::state::{MainNotice, MergeNotice, Notice, StateError};
 use crate::webhook::Webhook;
 
@@ -170,7 +171,7 @@ impl Runner {
                     issue,
                     pull_request,
                 } => StepReport::NoticeFailed {
-                    issue,
+                    issue: ticket_of(issue),
                     pull_request,
                     reason,
                     retry_at: at,
@@ -200,7 +201,7 @@ impl Runner {
                 next.notices
                     .retain(|n| !matches!(n, Notice::Merged(n) if n.pull_request == pull_request));
                 StepReport::Noticed {
-                    issue,
+                    issue: ticket_of(issue),
                     pull_request,
                 }
             }

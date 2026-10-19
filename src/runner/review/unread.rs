@@ -9,6 +9,7 @@ use serde_json::json;
 use crate::ports::{AgentError, Checks};
 use crate::runner::{Runner, StepReport, step};
 use crate::settings::Harness;
+use crate::test::ticket;
 use crate::test::{Rig, Scripted};
 
 // Pull request 71 for issue 7 is open, its worker's first turn done, on a
@@ -57,7 +58,7 @@ fn a_pass_whose_only_reviewer_kept_failing_marks_the_work_item_unreviewed() {
     assert_eq!(
         reports.last(),
         Some(&StepReport::Unreviewed {
-            issue: 7,
+            issue: ticket(7),
             pull_request: 71,
             reason: DOWN.into(),
         })
@@ -158,7 +159,7 @@ fn a_pass_whose_local_reviewer_reviewed_no_file_is_marked_unreviewed() {
     assert_eq!(
         reports.last(),
         Some(&StepReport::Unreviewed {
-            issue: 7,
+            issue: ticket(7),
             pull_request: 71,
             reason: "qwen reviewed no file".into(),
         })

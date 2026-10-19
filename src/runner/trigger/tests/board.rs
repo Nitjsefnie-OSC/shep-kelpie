@@ -19,6 +19,10 @@ fn listed(rig: &Rig, runner: &Mutex<Runner>, params: Option<&str>) -> Vec<u64> {
     list.iter().map(|e| e["issue"].as_u64().unwrap()).collect()
 }
 
+fn t(number: u64) -> TicketId {
+    crate::test::ticket(number)
+}
+
 #[test]
 fn board_move_makes_the_runner_take_the_issue_at_its_new_place() {
     let rig = Rig::new("koji");
@@ -37,7 +41,7 @@ fn board_move_makes_the_runner_take_the_issue_at_its_new_place() {
         taken.push(issue);
         rig.ask(&runner, "drop", Some(&issue.to_string()));
     }
-    assert_eq!(taken, [284, 285, 282]);
+    assert_eq!(taken, [t(284), t(285), t(282)]);
 }
 
 #[test]

@@ -43,7 +43,7 @@ fn release(runner: &Mutex<Runner>) {
 
 fn adopted() -> StepReport {
     StepReport::Adopted {
-        issue: 5,
+        issue: ticket(5),
         pull_request: 80,
         agent: "sonnet-high".to_owned().try_into().unwrap(),
     }

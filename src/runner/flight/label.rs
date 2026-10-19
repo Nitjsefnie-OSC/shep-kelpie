@@ -23,6 +23,7 @@ use crate::issues::Writer;
 use crate::ports::{AgentError, AgentReply, Ending, Role, Timestamp, Tools};
 use crate::settings::AgentName;
 use crate::state::{Ruling, RulingKind, StateError, Stuck};
+use crate::ticket::TicketId;
 use crate::usage::{CallKind, Draft};
 
 /// How long the issue writer gets to label one issue, in seconds
@@ -89,7 +90,7 @@ impl Runner {
         };
         let now = self.ports.clock.now();
         let mut draft = Draft::of(&call, name.as_str(), CallKind::Issues, now);
-        draft.issue = Some(issue.number);
+        draft.issue = TicketId::from_issue(issue.number);
         let key = Some(issue.number);
         self.flights.ledger.open(key, draft, self.pacer_lines());
         self.call_started(&call, name.as_str());

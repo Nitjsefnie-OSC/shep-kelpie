@@ -14,6 +14,7 @@ use super::journal::{Entry, Stamped};
 use crate::panel::work_of;
 use crate::runner::panel::{Answerer, Record};
 use crate::state::Finished;
+use crate::ticket::TicketId;
 use crate::usage::{CallKind, CallLine, FinishedLine, Line};
 
 mod across;
@@ -60,11 +61,7 @@ fn name(value: &impl Serialize) -> String {
 
 /// The digest of `records`, in markdown
 pub(super) fn build(records: &Records<'_>) -> String {
-    let issues: Vec<String> = records
-        .batch
-        .iter()
-        .map(|f| format!("#{}", f.issue))
-        .collect();
+    let issues: Vec<String> = records.batch.iter().map(shown).collect();
     let mut out = format!(
         "# Batch digest: {}, {} finished work items ({})\n",
         records.project,
@@ -81,10 +78,16 @@ pub(super) fn build(records: &Records<'_>) -> String {
     out
 }
 
+// The work item as a digest line names it
+fn shown(finished: &Finished) -> String {
+    finished
+        .ticket()
+        .map_or_else(|| format!("#{}", finished.issue), |t| t.shown())
+}
+
 fn item(out: &mut String, records: &Records<'_>, finished: &Finished) {
-    let issue = finished.issue;
     let work = work_of(Some(&finished.title)).kind;
-    let _ = writeln!(out, "## #{issue}: {} ({work})", finished.title);
+    let _ = writeln!(out, "## {}: {} ({work})", shown(finished), finished.title);
     let end = match (finished.merged, finished.closed) {
         (true, _) => "merged",
         (_, true) => "closed with no change",
@@ -130,14 +133,14 @@ fn item(out: &mut String, records: &Records<'_>, finished: &Finished) {
 // The journal's entries about the work item, up to its finish
 fn mine<'a>(records: &Records<'a>, finished: &Finished) -> Vec<&'a Stamped> {
     (records.journal.iter())
-        .filter(|s| s.at <= finished.at && s.entry.names(finished.issue))
+        .filter(|s| s.at <= finished.at && finished.ticket().is_some_and(|t| s.entry.names(t)))
         .collect()
 }
 
 // The item's line in the ledger: the last written at its finish
 fn ledger_line<'a>(ledger: &'a [Line], finished: &Finished) -> Option<&'a FinishedLine> {
     ledger.iter().rev().find_map(|line| match line {
-        Line::Finished(l) if l.issue == finished.issue && l.at == finished.at => Some(l),
+        Line::Finished(l) if Some(l.issue) == finished.ticket() && l.at == finished.at => Some(l),
         _ => None,
     })
 }
@@ -236,7 +239,8 @@ fn reviews(out: &mut String, mine: &[&Stamped]) {
         let sent = sent.map_or(String::new(), |held| format!(", {held} sent to the worker"));
         let _ = writeln!(
             out,
-            "  - #{issue} round {round} by {reviewer}: {findings} findings{sent}"
+            "  - {} round {round} by {reviewer}: {findings} findings{sent}",
+            issue.shown()
         );
     }
 }
@@ -312,7 +316,7 @@ fn fixes(out: &mut String, mine: &[&Stamped]) {
 
 fn totals(out: &mut String, records: &Records<'_>) {
     let _ = writeln!(out, "## Batch totals");
-    let batch: Vec<u64> = records.batch.iter().map(|f| f.issue).collect();
+    let batch: Vec<TicketId> = records.batch.iter().filter_map(|f| f.ticket()).collect();
     let until = records
         .batch
         .iter()
@@ -361,11 +365,19 @@ fn totals(out: &mut String, records: &Records<'_>) {
         wakes.len()
     );
     let waits: Vec<u64> = (records.rulings.iter())
-        .filter(|r| r.issue.is_some_and(|n| batch.contains(&n)))
+        .filter(|r| {
+            r.issue.is_some_and(|n| {
+                TicketId::from_issue(n).is_some_and(|ticket| batch.contains(&ticket))
+            })
+        })
         .filter_map(|r| r.raised.map(|raised| r.at.0.saturating_sub(raised.0)))
         .collect();
     let asked = (records.rulings.iter())
-        .filter(|r| r.issue.is_some_and(|n| batch.contains(&n)))
+        .filter(|r| {
+            r.issue.is_some_and(|n| {
+                TicketId::from_issue(n).is_some_and(|ticket| batch.contains(&ticket))
+            })
+        })
         .count();
     let _ = writeln!(
         out,

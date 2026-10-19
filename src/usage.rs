@@ -21,6 +21,7 @@ use crate::metrics::Recorder;
 use crate::panel::{Tier, Voter};
 use crate::ports::{Cost, Role, SessionId, Timestamp, Usage};
 use crate::settings::RulingName;
+use crate::ticket::TicketId;
 use crate::work_item::RoleTally;
 
 pub mod baselines;
@@ -173,8 +174,8 @@ pub struct VoteMark {
 pub struct CallLine {
     /// When it ended
     pub at: Timestamp,
-    /// The issue of the work item it was for, if any
-    pub issue: Option<u64>,
+    /// The ticket of the work item it was for, if any
+    pub issue: Option<TicketId>,
     /// The work item's pull request, once it had one
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pull_request: Option<u64>,

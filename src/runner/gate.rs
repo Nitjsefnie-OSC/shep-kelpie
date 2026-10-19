@@ -19,10 +19,11 @@ use super::talk::At;
 use super::turn::KEEP_BODY_TRUE;
 use crate::board::READY;
 use crate::ports::{Checks, PullRequestState, Timestamp};
+use crate::runner::report::ticket_of;
 use crate::settings::Merging;
 use crate::skills::Step;
 use crate::state::{RulingKind, StateError, Stuck};
-use crate::work_item::{Phase, Review, Turn, foreign_change};
+use crate::work_item::{Phase, Review, Turn, WorkItem, foreign_change};
 use crate::worktree::{self, Base};
 
 // GitHub registers the checks a push or a ready pull request starts within
@@ -304,7 +305,7 @@ impl Runner {
             item.phase = Phase::Implement;
         })?;
         Ok(Begin::Report(StepReport::CiFailed {
-            issue,
+            issue: ticket_of(issue),
             pull_request: number,
             head,
             checks,
@@ -336,14 +337,16 @@ impl Runner {
             return Ok(self.gate_failed(reason));
         }
         Ok(Begin::Report(StepReport::Regated {
-            issue,
+            issue: ticket_of(issue),
             pull_request: number,
             head: head.to_owned(),
         }))
     }
 
     pub(super) fn gate_failed(&self, reason: String) -> Begin {
-        let issue = self.current().map_or(0, |item| item.issue);
+        let Some(issue) = self.current().and_then(WorkItem::ticket) else {
+            return Begin::Idle;
+        };
         Begin::Report(StepReport::GateFailed { issue, reason })
     }
 }
@@ -376,6 +379,7 @@ fn red_prompt(number: u64, head: &str, checks: &[String], help: &str, repeated: 
 
 #[cfg(test)]
 pub(super) mod tests {
+    use crate::test::ticket;
     use serde_json::json;
 
     use super::*;
@@ -457,7 +461,7 @@ pub(super) mod tests {
         assert_eq!(
             rig.verdict(&runner),
             Some(StepReport::CiFailed {
-                issue: 7,
+                issue: ticket(7),
                 pull_request: 71,
                 head: head.clone(),
                 checks: failed,
@@ -507,8 +511,8 @@ pub(super) mod tests {
         ]);
         step(&runner).unwrap();
         assert!(matches!(
-            step(&runner).unwrap(),
-            Some(StepReport::Ended { issue: 7, .. })
+           step(&runner).unwrap(),
+           Some(StepReport::Ended { issue, .. }) if issue == ticket(7)
         ));
         let [first, _, again] = rig.claude.calls().try_into().unwrap();
         assert_eq!(again.session, Session::Resume(first.session.id().clone()));
@@ -656,11 +660,11 @@ pub(super) mod tests {
         assert!(matches!(
             step(&runner).unwrap(),
             Some(StepReport::Finished {
-                issue: 7,
+                issue,
                 pull_request: Some(71),
                 merged: true,
                 ..
-            })
+            }) if issue == ticket(7)
         ));
         assert_eq!(rig.forge.merges(), [(71, head)]);
     }
@@ -687,11 +691,11 @@ pub(super) mod tests {
         assert!(matches!(
             step(&runner).unwrap(),
             Some(StepReport::Finished {
-                issue: 7,
+                issue,
                 pull_request: Some(71),
                 merged: true,
                 ..
-            })
+            }) if issue == ticket(7)
         ));
         assert_eq!(rig.forge.merges(), []);
         assert!(!rig.worktree_7().exists());
@@ -719,11 +723,11 @@ pub(super) mod tests {
         assert!(matches!(
             step(&runner).unwrap(),
             Some(StepReport::Finished {
-                issue: 7,
+                issue,
                 pull_request: Some(71),
                 merged: false,
                 ..
-            })
+            }) if issue == ticket(7)
         ));
         assert_eq!(rig.forge.head_of("kelpie/7"), Some(head));
         assert!(!rig.worktree_7().exists());

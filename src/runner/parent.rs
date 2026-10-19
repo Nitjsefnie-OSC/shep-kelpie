@@ -135,6 +135,7 @@ impl Runner {
 
 #[cfg(test)]
 mod tests {
+    use crate::test::ticket;
     use std::sync::Mutex;
 
     use serde_json::json;
@@ -158,8 +159,8 @@ mod tests {
         rig.forge.link_sub_issue(5, 7);
         rig.forge.close_issue(7);
         assert!(matches!(
-            step(&runner).unwrap(),
-            Some(StepReport::Dispatched { issue: 6, .. })
+           step(&runner).unwrap(),
+           Some(StepReport::Dispatched { issue, .. }) if issue == ticket(6)
         ));
         assert!(rig.forge.closings().is_empty());
 
@@ -211,8 +212,8 @@ mod tests {
         assert_eq!(step(&runner).unwrap(), Some(refused(true)));
         rig.next_look();
         assert!(matches!(
-            step(&runner).unwrap(),
-            Some(StepReport::Dispatched { issue: 6, .. })
+           step(&runner).unwrap(),
+           Some(StepReport::Dispatched { issue, .. }) if issue == ticket(6)
         ));
         assert!(rig.forge.closings().is_empty());
         // Told once, on the first try, however often the forge refused.

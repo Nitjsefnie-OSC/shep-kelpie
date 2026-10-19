@@ -12,6 +12,7 @@ use crate::runner::review_bot::two_bots::{bot_reviewed, listing, reviewed, summo
 use crate::runner::rework::HUMAN;
 use crate::runner::slots_tests::{issue_of, slots};
 use crate::runner::{Runner, StepReport, step};
+use crate::test::ticket;
 use crate::test::{Rig, Scripted};
 
 const FINDING: &str = "P2: `bleats` loses a stamped prefix. Strip only files shep stamped.";
@@ -271,8 +272,8 @@ fn a_withdrawn_merge_ruling_waits_for_a_slot() {
     // #7's branch touches a file, so #8 waits for the board to read its paths.
     assert_eq!(step(&runner).unwrap(), None);
     assert!(matches!(
-        step(&runner).unwrap(),
-        Some(StepReport::Dispatched { issue: 8, .. })
+       step(&runner).unwrap(),
+       Some(StepReport::Dispatched { issue, .. }) if issue == ticket(8)
     ));
     rig.forge.open_pull_request(81, "kelpie/8", &[8]);
     rig.claude.script([
@@ -281,18 +282,18 @@ fn a_withdrawn_merge_ruling_waits_for_a_slot() {
     ]);
     // #8's turn, its qwen and Claude reads once its run is green, and its
     // draft marked ready.
-    assert_eq!(issue_of(step(&runner).unwrap()), 8);
+    assert_eq!(issue_of(step(&runner).unwrap()), ticket(8));
     let eight = rig.forge.head_of("kelpie/8").unwrap();
     rig.forge.set_checks(&eight, Checks::Passed);
     assert_eq!(step(&runner).unwrap(), None, "#8's run is waited for");
     rig.clock.advance(crate::runner::CHECKS_SETTLE);
     for _ in 0..3 {
-        assert_eq!(issue_of(step(&runner).unwrap()), 8);
+        assert_eq!(issue_of(step(&runner).unwrap()), ticket(8));
     }
     rig.forge.set_checks(&eight, Checks::Pending);
     assert!(matches!(
-        step(&runner).unwrap(),
-        Some(StepReport::Summoned { issue: 8, .. })
+       step(&runner).unwrap(),
+       Some(StepReport::Summoned { issue, .. }) if issue == ticket(8)
     ));
     assert_eq!(slots(&rig, &runner), [json!([8]), json!([]), json!([7])]);
 
@@ -313,11 +314,15 @@ fn a_withdrawn_merge_ruling_waits_for_a_slot() {
     rig.clock.advance(10);
     assert_eq!(step(&runner).unwrap(), None, "#8's threads read once");
     rig.clock.advance(super::SETTLE_LEAST);
-    assert_eq!(issue_of(step(&runner).unwrap()), 8, "cubic's read of #8");
+    assert_eq!(
+        issue_of(step(&runner).unwrap()),
+        ticket(8),
+        "cubic's read of #8"
+    );
     rig.forge.set_checks(&eight, Checks::Passed);
     assert!(matches!(
-        rig.verdict(&runner),
-        Some(StepReport::Ruling { issue: 8, .. })
+       rig.verdict(&runner),
+       Some(StepReport::Ruling { issue, .. }) if issue == ticket(8)
     ));
     assert_eq!(slots(&rig, &runner), [json!([7]), json!([]), json!([8])]);
 }

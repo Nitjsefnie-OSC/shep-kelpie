@@ -11,7 +11,9 @@ use super::super::tests::{CEILING, CODER, Driven};
 use crate::ports::{AgentError, CallActivity, Session, Timestamp};
 use crate::runner::{Runner, StepReport};
 use crate::settings::Harness;
+use crate::test::ticket;
 use crate::test::{CALL_PATIENCE, Hold, Rig, Scripted};
+use crate::ticket::TicketId;
 
 /// The time of day `at` is, as the board writes it
 fn clock(at: u64) -> String {
@@ -129,7 +131,7 @@ fn a_first_turn_waiting_past_fallback_after_moves_to_the_next_implementer() {
     rig.clock.advance(1);
     driven.pass();
     let moved = StepReport::FellBack {
-        issue: 7,
+        issue: ticket(7),
         from: "coder".to_owned().try_into().unwrap(),
         to: "sonnet-high".to_owned().try_into().unwrap(),
         waited: 15 * 60,
@@ -189,8 +191,8 @@ fn a_pinned_item_never_falls_back() {
     rig.clock.advance(CEILING);
     driven.pass();
     assert!(matches!(
-        driven.landed(),
-        Some(StepReport::TimedOut { issue: 7, .. })
+       driven.landed(),
+       Some(StepReport::TimedOut { issue, .. }) if issue == ticket(7)
     ));
     queue.release();
 }
@@ -238,8 +240,8 @@ fn a_later_turn_never_falls_back() {
     let driven = Driven::new(&runner);
     driven.started();
     assert!(matches!(
-        driven.landed(),
-        Some(StepReport::Ended { issue: 7, .. })
+       driven.landed(),
+       Some(StepReport::Ended { issue, .. }) if issue == ticket(7)
     ));
     let queue = queued(&rig, Scripted::Say("done"));
     driven.started();
@@ -255,15 +257,15 @@ fn a_later_turn_never_falls_back() {
     rig.clock.advance(CEILING);
     driven.pass();
     assert!(matches!(
-        driven.landed(),
-        Some(StepReport::TimedOut { issue: 7, .. })
+       driven.landed(),
+       Some(StepReport::TimedOut { issue, .. }) if issue == ticket(7)
     ));
     queue.release();
 }
 
 // Two first turns on `labels`' agents, both queued for their lease past
 // `fallback_after`, and the moves the one pass that follows makes
-fn both_waiting(labels: [&str; 2]) -> (Rig, Mutex<Runner>, BTreeSet<(u64, String, String)>) {
+fn both_waiting(labels: [&str; 2]) -> (Rig, Mutex<Runner>, BTreeSet<(TicketId, String, String)>) {
     let rig = rig("acme", &["coder", "coder2", "sonnet-high"], Some(15));
     rig.edit_settings(|s| s.replace("active_items = 1", "active_items = 2"));
     rig.forge.label(7, labels[0]);
@@ -302,8 +304,8 @@ fn both_waiting(labels: [&str; 2]) -> (Rig, Mutex<Runner>, BTreeSet<(u64, String
     (rig, runner, moves)
 }
 
-fn moved(issue: u64, from: &str, to: &str) -> (u64, String, String) {
-    (issue, from.to_owned(), to.to_owned())
+fn moved(number: u64, from: &str, to: &str) -> (TicketId, String, String) {
+    (ticket(number), from.to_owned(), to.to_owned())
 }
 
 #[test]
@@ -346,8 +348,8 @@ fn a_first_turn_with_no_implementer_after_its_own_waits_on() {
     rig.clock.advance(CEILING);
     driven.pass();
     assert!(matches!(
-        driven.landed(),
-        Some(StepReport::TimedOut { issue: 7, .. })
+       driven.landed(),
+       Some(StepReport::TimedOut { issue, .. }) if issue == ticket(7)
     ));
     queue.release();
 }
@@ -364,8 +366,8 @@ fn a_first_turn_stopped_at_its_ceiling_times_out_rather_than_falling_back() {
     rig.clock.advance(CEILING);
     driven.pass();
     assert!(matches!(
-        driven.landed(),
-        Some(StepReport::TimedOut { issue: 7, .. })
+       driven.landed(),
+       Some(StepReport::TimedOut { issue, .. }) if issue == ticket(7)
     ));
     assert_eq!(item(&rig, &runner, 7)["agent"], "coder");
     queue.release();
@@ -398,8 +400,8 @@ fn a_first_turn_whose_agent_is_no_longer_listed_waits_on() {
     rig.clock.advance(CEILING);
     driven.pass();
     assert!(matches!(
-        driven.landed(),
-        Some(StepReport::TimedOut { issue: 7, .. })
+       driven.landed(),
+       Some(StepReport::TimedOut { issue, .. }) if issue == ticket(7)
     ));
     queue.release();
 }
@@ -413,8 +415,8 @@ fn a_later_turn_restarted_on_a_new_session_never_falls_back() {
     let driven = Driven::new(&runner);
     driven.started();
     assert!(matches!(
-        driven.landed(),
-        Some(StepReport::Ended { issue: 7, .. })
+       driven.landed(),
+       Some(StepReport::Ended { issue, .. }) if issue == ticket(7)
     ));
     let session = serde_json::from_value(item(&rig, &runner, 7)["session"].clone()).unwrap();
     let (hold, again) = (Hold::default(), Hold::default());
@@ -437,7 +439,7 @@ fn a_later_turn_restarted_on_a_new_session_never_falls_back() {
     assert_eq!(now["waiting"]["why"], "silent");
     again.release();
     assert!(matches!(
-        driven.landed(),
-        Some(StepReport::Ended { issue: 7, .. })
+       driven.landed(),
+       Some(StepReport::Ended { issue, .. }) if issue == ticket(7)
     ));
 }

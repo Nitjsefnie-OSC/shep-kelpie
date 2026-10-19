@@ -6,6 +6,7 @@ use std::time::Duration;
 use crate::ports::{CallPacer, Clock, LocalPace, Timestamp};
 use crate::runner::{BOARD_POLL, Pass, StepReport, advance, step};
 use crate::test::Rig;
+use crate::test::ticket;
 
 // The first wait of a failed step, in seconds
 const RETRY_FIRST: u64 = 15;
@@ -58,7 +59,7 @@ fn a_work_item_ending_lets_the_board_be_read_at_once() {
 
     assert_eq!(rig.forge.board_reads(), before + 1);
     assert!(
-        matches!(report, Some(StepReport::Dispatched { issue: 8, .. })),
+        matches!(report, Some(StepReport::Dispatched { issue, .. }) if issue == ticket(8)),
         "{report:?}"
     );
 }
@@ -67,7 +68,8 @@ fn a_work_item_ending_lets_the_board_be_read_at_once() {
 fn a_failing_gate_is_retried_on_a_growing_wait_that_a_success_ends() {
     let (rig, runner, _) = Rig::with_pull_request("acme");
     rig.forge.set_down(true);
-    let failed = |report| matches!(report, Some(StepReport::GateFailed { issue: 7, .. }));
+    let failed =
+        |report| matches!(report, Some(StepReport::GateFailed { issue, .. }) if issue == ticket(7));
     assert!(failed(step(&runner).unwrap()));
 
     for wait in [15, 30, 60] {
@@ -292,8 +294,8 @@ fn the_wait_of_a_work_item_that_ended_sets_no_wait() {
     let (rig, runner, _) = Rig::with_pull_request("acme");
     rig.forge.set_down(true);
     assert!(matches!(
-        step(&runner).unwrap(),
-        Some(StepReport::GateFailed { issue: 7, .. })
+       step(&runner).unwrap(),
+       Some(StepReport::GateFailed { issue, .. }) if issue == ticket(7)
     ));
     rig.forge.set_down(false);
     rig.ask(&runner, "drop", Some("7"));

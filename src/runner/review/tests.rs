@@ -4,6 +4,7 @@ use super::*;
 use crate::ports::{AgentError, CLEAN, Cost, Role, Session, SessionId, Severity, Timestamp, Usage};
 use crate::runner::report::Spent;
 use crate::runner::step;
+use crate::test::ticket;
 use crate::test::{Rig, Scripted, ScriptedRound};
 
 // `drop` refuses while a call is running (see merge.rs's own test for
@@ -140,7 +141,7 @@ fn a_round_above_a_nit_sends_every_finding_for_one_fix_and_the_next_reviewer_rea
     assert_eq!(
         step(&runner).unwrap(),
         Some(StepReport::ReviewFindingsSent {
-            issue: 7,
+            issue: ticket(7),
             pull_request: 71,
             round: 1,
             held: 2,
@@ -172,7 +173,7 @@ fn a_round_above_a_nit_sends_every_finding_for_one_fix_and_the_next_reviewer_rea
     assert_eq!(
         step(&runner).unwrap(),
         Some(StepReport::FixPushed {
-            issue: 7,
+            issue: ticket(7),
             pull_request: 71,
             round: 1,
             head: fixed,
@@ -203,7 +204,7 @@ fn a_round_the_script_could_not_finish_is_reported_and_retried() {
     assert_eq!(
         step(&runner).unwrap(),
         Some(StepReport::GateFailed {
-            issue: 7,
+            issue: ticket(7),
             reason: "the local round left no completion marker".into(),
         })
     );
@@ -223,7 +224,7 @@ fn a_round_the_script_could_not_finish_is_reported_and_retried() {
     assert_eq!(
         step(&runner).unwrap(), // clean by default this time
         Some(StepReport::ReviewFindingsSent {
-            issue: 7,
+            issue: ticket(7),
             pull_request: 71,
             round: 1,
             held: 0,
@@ -249,7 +250,7 @@ fn a_reviewer_whose_call_fails_three_times_in_a_row_is_passed_over_for_the_pass(
     assert_eq!(
         step(&runner).unwrap(),
         Some(StepReport::ReviewerSkipped {
-            issue: 7,
+            issue: ticket(7),
             pull_request: 71,
             round: 1,
             reviewer: AgentName::try_from("qwen".to_owned()).unwrap(),
@@ -384,7 +385,7 @@ fn a_qwen_round_stopped_with_the_runner_runs_again_on_restart() {
     assert_eq!(
         step(&runner).unwrap(), // clean by default this time
         Some(StepReport::ReviewFindingsSent {
-            issue: 7,
+            issue: ticket(7),
             pull_request: 71,
             round: 1,
             held: 0,
@@ -487,7 +488,7 @@ fn a_local_round_does_not_start_past_the_cap() {
     spend(&runner, 6);
 
     let Some(StepReport::Failed {
-        issue: 7,
+        issue,
         pull_request: Some(71),
         id: 71,
         ..
@@ -495,6 +496,7 @@ fn a_local_round_does_not_start_past_the_cap() {
     else {
         panic!("the round was not parked");
     };
+    assert_eq!(issue, ticket(7));
     assert!(
         rig.reviewer.seen().is_empty(),
         "the local round did not run"
@@ -518,8 +520,8 @@ fn a_session_round_does_not_start_past_the_cap_and_a_yes_resumes_that_round() {
     spend(&runner, 6);
 
     assert!(matches!(
-        step(&runner).unwrap(),
-        Some(StepReport::Failed { issue: 7, .. })
+       step(&runner).unwrap(),
+       Some(StepReport::Failed { issue, .. }) if issue == ticket(7)
     ));
     assert_eq!(reviewer_calls(&rig), 0, "round 2 did not start");
 

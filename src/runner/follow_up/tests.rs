@@ -9,6 +9,7 @@ use crate::ports::{CLEAN, Checks, Finding, Severity};
 use crate::runner::coderabbit::tests::{fixed, hold_a_finding, summoned};
 use crate::runner::thread_replies::Settler;
 use crate::runner::{Answer, CHECKS_SETTLE, Runner, StepReport, step};
+use crate::test::ticket;
 use crate::test::{Rig, Scripted, ScriptedRound};
 
 fn finding(file: &str, what: &str) -> Finding {
@@ -102,7 +103,7 @@ pub(in crate::runner) fn after_merge(runner: &Mutex<Runner>) -> Option<StepRepor
 
 fn filed(opened: &[u64], commented: &[u64], skipped: usize) -> Option<StepReport> {
     Some(StepReport::FollowUpsFiled {
-        issue: 7,
+        issue: ticket(7),
         pull_request: 71,
         opened: opened.to_vec(),
         commented: commented.to_vec(),
@@ -114,12 +115,12 @@ fn finished(report: Option<StepReport>) -> bool {
     matches!(
         report,
         Some(StepReport::Finished {
-            issue: 7,
+            issue,
             pull_request: Some(71),
             merged: true,
             ..
         })
-    )
+     if issue == ticket(7))
 }
 
 #[test]
@@ -451,9 +452,10 @@ fn a_forge_that_cannot_open_issues_holds_the_work_item_and_the_retry_files_once(
     let (rig, runner) = auto_ready_to_merge(&found, &lines(&found));
     rig.forge.set_issues_down(true);
 
-    let Some(StepReport::GateFailed { issue: 7, reason }) = after_merge(&runner) else {
+    let Some(StepReport::GateFailed { issue, reason }) = after_merge(&runner) else {
         panic!("the failure was not reported");
     };
+    assert_eq!(issue, ticket(7));
     assert!(reason.contains("issues are down"), "{reason}");
     assert!(
         rig.ask(&runner, "status", None)["work_item"].is_object(),
@@ -733,8 +735,8 @@ fn a_merged_item_on_its_follow_up_ruling_holds_back_no_new_work() {
     rig.forge.list_ready(8, false);
     rig.next_look();
     assert!(matches!(
-        step(&runner).unwrap(),
-        Some(StepReport::Dispatched { issue: 8, .. })
+       step(&runner).unwrap(),
+       Some(StepReport::Dispatched { issue, .. }) if issue == ticket(8)
     ));
     let status = rig.ask(&runner, "status", None);
     assert_eq!(status["parked"], json!([7]));
@@ -744,7 +746,9 @@ fn a_merged_item_on_its_follow_up_ruling_holds_back_no_new_work() {
 // and ready: an item answered into its end holds no slot
 fn ends_beside_900(runner: &Mutex<Runner>) -> bool {
     match after_merge(runner) {
-        Some(StepReport::Dispatched { issue: 900, .. }) => finished(after_merge(runner)),
+        Some(StepReport::Dispatched { issue, .. }) if issue == ticket(900) => {
+            finished(after_merge(runner))
+        }
         other => finished(other),
     }
 }

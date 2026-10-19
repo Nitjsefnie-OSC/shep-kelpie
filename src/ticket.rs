@@ -63,6 +63,24 @@ impl TicketId {
             Self::Local(_) => None,
         }
     }
+
+    /// The ticket as a log line names it: `#340` for a GitHub ticket, `k12`
+    /// with no `#` for a local one, which no GitHub number carries
+    pub fn shown(&self) -> String {
+        match self {
+            Self::Github(number) => format!("#{number}"),
+            Self::Local(counter) => format!("k{counter}"),
+        }
+    }
+
+    /// The ticket as a sentence names it, at its start: `Issue #340`, or
+    /// `Ticket k12`
+    pub fn named(&self) -> String {
+        match self {
+            Self::Github(_) => format!("Issue {}", self.shown()),
+            Self::Local(_) => format!("Ticket {}", self.shown()),
+        }
+    }
 }
 
 impl fmt::Display for TicketId {
@@ -222,6 +240,16 @@ mod tests {
         ] {
             assert!(text.parse::<TicketId>().is_err(), "{text:?} parsed");
         }
+    }
+
+    // A GitHub project's lines keep the `#` they have always had. A local
+    // ticket has no issue number to show, so its id stands on its own.
+    #[test]
+    fn a_ticket_shows_and_names_as_its_source_marks_it() {
+        assert_eq!(id("340").shown(), "#340");
+        assert_eq!(id("k12").shown(), "k12");
+        assert_eq!(id("340").named(), "Issue #340");
+        assert_eq!(id("k12").named(), "Ticket k12");
     }
 
     #[test]
