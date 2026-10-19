@@ -282,3 +282,26 @@ fn a_lock_left_by_a_process_that_died_does_not_block_edits() {
     tickets.close_issue(&repo(), one).unwrap();
     assert!(!tickets.issue(&repo(), one).unwrap().open);
 }
+
+#[test]
+fn a_lock_another_change_just_took_is_not_broken_by_one_that_saw_the_old_lock() {
+    let (_home, tickets) = store();
+    file(&tickets, "One", &[]);
+    let lock = tickets.folder().join("k1.md.lock");
+    std::fs::File::create(&lock).unwrap();
+    Lock::break_stale(&lock);
+    assert!(lock.exists());
+}
+
+#[test]
+fn a_breaker_that_died_does_not_keep_a_stale_lock_from_being_broken() {
+    let (_home, tickets) = store();
+    let one = file(&tickets, "One", &[]);
+    let long_ago = std::time::SystemTime::now() - std::time::Duration::from_secs(3600);
+    for name in ["k1.md.lock", "k1.md.lock.break"] {
+        let held = std::fs::File::create(tickets.folder().join(name)).unwrap();
+        held.set_modified(long_ago).unwrap();
+    }
+    tickets.close_issue(&repo(), one).unwrap();
+    assert!(!tickets.issue(&repo(), one).unwrap().open);
+}

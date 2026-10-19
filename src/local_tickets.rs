@@ -296,15 +296,10 @@ impl Lock {
             {
                 Ok(_) => return Ok(Self(path.to_owned())),
                 Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {
-                    let age = std::fs::metadata(path)
-                        .and_then(|m| m.modified())
-                        .ok()
-                        .and_then(|at| at.elapsed().ok());
-                    match age {
-                        Some(age) if age > STALE_LOCK => {
-                            let _ = std::fs::remove_file(path);
-                        }
-                        _ => std::thread::sleep(LOCK_WAIT),
+                    if Self::stale(path) {
+                        Self::break_stale(path);
+                    } else {
+                        std::thread::sleep(LOCK_WAIT);
                     }
                 }
                 Err(e) => return Err(Self::io(path, e)),
@@ -312,6 +307,35 @@ impl Lock {
         }
         let held = io::Error::new(io::ErrorKind::TimedOut, "another change holds the ticket");
         Err(Self::io(path, held))
+    }
+
+    fn stale(path: &Path) -> bool {
+        let age = std::fs::metadata(path).and_then(|m| m.modified());
+        age.ok()
+            .and_then(|at| at.elapsed().ok())
+            .is_some_and(|age| age > STALE_LOCK)
+    }
+
+    // Looking at a lock's age and removing it are two steps, so a caller that saw it
+    // stale may find another has since replaced it. One caller at a time breaks, and
+    // looks again before it removes.
+    fn break_stale(path: &Path) {
+        let mut guard = path.as_os_str().to_owned();
+        guard.push(".break");
+        let guard = PathBuf::from(guard);
+        if Self::stale(&guard) {
+            let _ = std::fs::remove_file(&guard);
+        }
+        let made = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&guard);
+        if made.is_ok() {
+            if Self::stale(path) {
+                let _ = std::fs::remove_file(path);
+            }
+            let _ = std::fs::remove_file(&guard);
+        }
     }
 
     fn io(path: &Path, error: io::Error) -> LocalError {
