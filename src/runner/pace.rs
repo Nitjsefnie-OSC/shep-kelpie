@@ -251,6 +251,7 @@ impl Runner {
 
 #[cfg(test)]
 mod tests {
+    use crate::test::ticket;
     use std::panic::{AssertUnwindSafe, catch_unwind};
     use std::sync::Mutex;
 
@@ -307,11 +308,11 @@ mod tests {
     }
 
     fn dispatched(report: &Option<StepReport>) -> bool {
-        matches!(report, Some(StepReport::Dispatched { issue: 7, .. }))
+        matches!(report, Some(StepReport::Dispatched { issue, .. }) if *issue == ticket(7))
     }
 
     fn ended(report: &Option<StepReport>) -> bool {
-        matches!(report, Some(StepReport::Ended { issue: 7, .. }))
+        matches!(report, Some(StepReport::Ended { issue, .. }) if *issue == ticket(7))
     }
 
     #[test]

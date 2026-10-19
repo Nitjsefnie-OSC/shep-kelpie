@@ -4,6 +4,7 @@ use super::*;
 use crate::ports::{CLEAN, Cost, Usage};
 use crate::request_use::{After, Request};
 use crate::runner::{CHECKS_SETTLE, Runner, StepReport, step};
+use crate::test::ticket;
 use crate::test::{RecordedSink, Rig, Scripted, write_script};
 use crate::usage::Line;
 
@@ -186,8 +187,8 @@ fn a_work_item_s_calls_spend_and_finish_reach_the_metrics_endpoint() {
     rig.clock.advance(CHECKS_SETTLE);
     let finished = step(&runner).unwrap();
     assert!(matches!(
-        finished,
-        Some(StepReport::Finished { issue: 7, .. })
+       finished,
+       Some(StepReport::Finished { issue, .. }) if issue == ticket(7)
     ));
     let merged = [("outcome", "merged")];
     assert_eq!(

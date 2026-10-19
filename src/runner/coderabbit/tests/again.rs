@@ -3,12 +3,13 @@
 use super::super::{HEARD_WAIT, REVIEW_WAIT};
 use super::{cr, labels, now, off, on, summoned};
 use crate::lease::wire::WindowFact;
+use crate::runner::report::ticket_of;
 use crate::runner::{StepReport, step};
 use crate::test::Told;
 
 fn again(head: &str) -> Option<StepReport> {
     Some(StepReport::SummonedAgain {
-        issue: 7,
+        issue: ticket_of(7),
         pull_request: 71,
         head: head.to_owned(),
     })

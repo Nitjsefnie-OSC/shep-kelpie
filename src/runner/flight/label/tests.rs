@@ -10,6 +10,7 @@ use crate::runner::{Pass, StepReport, advance, step};
 use crate::settings::Harness;
 use crate::test::{CALL_PATIENCE, Hold, Rig, Scripted};
 
+use crate::test::ticket;
 use crate::usage::{FILE, read};
 
 /// A file for an issue writer on Sonnet, named for the test
@@ -25,9 +26,9 @@ fn ledger(rig: &Rig) -> Vec<Value> {
 
 fn dispatched_on(report: Option<StepReport>) -> String {
     match report {
-        Some(StepReport::Dispatched {
-            issue: 7, agent, ..
-        }) => agent.to_string(),
+        Some(StepReport::Dispatched { issue, agent, .. }) if issue == ticket(7) => {
+            agent.to_string()
+        }
         other => panic!("issue 7 was not dispatched: {other:?}"),
     }
 }
@@ -128,8 +129,8 @@ fn with_one_implementer_listed_an_unlabelled_issue_opens_on_it_with_no_call() {
     assert_eq!(rig.claude.calls(), [], "no issue writer call");
     rig.claude.script([Scripted::Say("done")]);
     assert!(matches!(
-        step(&runner).unwrap(),
-        Some(StepReport::Ended { issue: 7, .. })
+       step(&runner).unwrap(),
+       Some(StepReport::Ended { issue, .. }) if issue == ticket(7)
     ));
     let call = &rig.claude.calls()[0];
     assert_eq!(

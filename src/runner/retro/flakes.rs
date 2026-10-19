@@ -9,6 +9,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::journal::{self, Entry, Stamped};
 use crate::runner::Runner;
+use crate::ticket::TicketId;
 
 /// How many seconds of journal the fix turns' list reads: a flake that has
 /// not failed for this long is let go
@@ -19,12 +20,12 @@ const WINDOW: u64 = 7 * 24 * 3600;
 pub(in crate::runner) struct Flake {
     pub(super) test: String,
     /// The work items it failed on, lowest first
-    pub(super) issues: Vec<u64>,
+    pub(super) issues: Vec<TicketId>,
 }
 
 /// The known flakes among `entries`, the most widespread first
 pub(in crate::runner) fn known<'a>(entries: impl Iterator<Item = &'a Entry>) -> Vec<Flake> {
-    let mut seen: BTreeMap<&str, BTreeSet<u64>> = BTreeMap::new();
+    let mut seen: BTreeMap<&str, BTreeSet<TicketId>> = BTreeMap::new();
     for entry in entries {
         if let Entry::CiOutsideDiff { issue, tests } = entry {
             for test in tests {
@@ -95,12 +96,15 @@ pub(in crate::runner) fn note(flakes: &[Flake]) -> String {
 }
 
 impl Runner {
-    /// Journals the tests `log` shows failing on the work item `issue`, as
-    /// failing outside its changes
-    pub(in crate::runner) fn journal_outside_diff(&mut self, issue: u64, log: &str) {
+    /// Journals the tests `log` shows failing on the work item for `ticket`,
+    /// as failing outside its changes
+    pub(in crate::runner) fn journal_outside_diff(&mut self, ticket: TicketId, log: &str) {
         let tests = failed_tests(log);
         if !tests.is_empty() {
-            self.journal(Entry::CiOutsideDiff { issue, tests });
+            self.journal(Entry::CiOutsideDiff {
+                issue: ticket,
+                tests,
+            });
         }
     }
 
@@ -119,8 +123,9 @@ impl Runner {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test::ticket;
 
-    fn outside(issue: u64, tests: &[&str]) -> Entry {
+    fn outside(issue: TicketId, tests: &[&str]) -> Entry {
         Entry::CiOutsideDiff {
             issue,
             tests: tests.iter().map(|t| (*t).to_owned()).collect(),
@@ -153,9 +158,9 @@ mod tests {
     #[test]
     fn a_test_on_one_work_item_is_not_a_flake_and_one_on_two_is() {
         let entries = [
-            outside(3, &["a::flaky", "b::once"]),
-            outside(4, &["a::flaky"]),
-            outside(4, &["a::flaky"]),
+            outside(ticket(3), &["a::flaky", "b::once"]),
+            outside(ticket(4), &["a::flaky"]),
+            outside(ticket(4), &["a::flaky"]),
         ];
 
         let flakes = known(entries.iter());
@@ -164,7 +169,7 @@ mod tests {
             flakes,
             [Flake {
                 test: "a::flaky".into(),
-                issues: vec![3, 4]
+                issues: vec![ticket(3), ticket(4)]
             }]
         );
     }

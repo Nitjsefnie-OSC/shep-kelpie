@@ -292,10 +292,10 @@ mod tests {
         assert!(matches!(
             step(&runner).unwrap(),
             Some(StepReport::Finished {
-                issue: 7,
+                issue,
                 merged: false,
                 ..
-            })
+            }) if issue == ticket(7)
         ));
         assert_eq!(rig.claude.all_calls().len(), 1);
     }

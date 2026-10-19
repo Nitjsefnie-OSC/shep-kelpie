@@ -12,6 +12,7 @@ use crate::board::READY;
 use crate::ports::{CLEAN, Cost, MaintainerReview};
 use crate::runner::rework::HUMAN;
 use crate::runner::{Pass, Runner, StepReport, advance, step};
+use crate::test::ticket;
 use crate::test::{CALL_PATIENCE, Hold, Rig, Scripted};
 
 fn write(folder: &Path, file: &str, text: &str) {
@@ -101,8 +102,8 @@ fn a_contribution_holds_no_slot_while_it_waits_on_the_contributor() {
     rig.forge.list_ready(8, false);
     rig.next_look();
     assert!(matches!(
-        step(&runner).unwrap(),
-        Some(StepReport::Dispatched { issue: 8, .. })
+       step(&runner).unwrap(),
+       Some(StepReport::Dispatched { issue, .. }) if issue == ticket(8)
     ));
 }
 
@@ -118,8 +119,8 @@ fn a_due_contribution_call_starts_before_a_new_issue() {
     assert_eq!(rig.ask(&runner, "status", None)["work_items"], json!([]));
 
     assert!(matches!(
-        step(&runner).unwrap(),
-        Some(StepReport::Dispatched { issue: 8, .. })
+       step(&runner).unwrap(),
+       Some(StepReport::Dispatched { issue, .. }) if issue == ticket(8)
     ));
 }
 

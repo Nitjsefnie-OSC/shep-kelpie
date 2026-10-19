@@ -56,6 +56,7 @@ use super::voice::Round;
 use crate::agents::{DEFECT_HUNTER, QWEN};
 use crate::pacer::Scope;
 use crate::ports::{Finding, RoundEnd};
+use crate::runner::report::ticket_of;
 use crate::settings::{AgentName, ListedReviewer};
 use crate::state::{Fix, StateError, Stuck};
 use crate::work_item::{CallKind, Phase, Review, ReviewCallState, ReviewStage, Turn, WorkItem};
@@ -289,7 +290,7 @@ impl Runner {
         })?;
         match (reason, number) {
             (Some(reason), Some(pull_request)) => Ok(Begin::Report(StepReport::Unreviewed {
-                issue,
+                issue: ticket_of(issue),
                 pull_request,
                 reason,
             })),
@@ -421,13 +422,13 @@ impl Runner {
         }
         Ok(Begin::Report(match left_open {
             Some((threads, reason)) => StepReport::ThreadsLeftOpen {
-                issue,
+                issue: ticket_of(issue),
                 pull_request: number,
                 threads,
                 reason,
             },
             None => StepReport::FixPushed {
-                issue,
+                issue: ticket_of(issue),
                 pull_request: number,
                 round,
                 head: pushed,
@@ -462,7 +463,7 @@ impl Runner {
         self.update(|item| item.phase = next)?;
         if let Some((threads, reason)) = left_open {
             return Ok(Begin::Report(StepReport::ThreadsLeftOpen {
-                issue,
+                issue: ticket_of(issue),
                 pull_request: number,
                 threads,
                 reason,
@@ -470,20 +471,20 @@ impl Runner {
         }
         Ok(Begin::Report(match unfixed {
             Unfixed::Deferred(deferred) => StepReport::FindingsDeferred {
-                issue,
+                issue: ticket_of(issue),
                 pull_request: number,
                 round,
                 deferred,
             },
             Unfixed::Disputed { disputes, deferred } => StepReport::FindingsDisputed {
-                issue,
+                issue: ticket_of(issue),
                 pull_request: number,
                 round,
                 disputed: disputes.len(),
                 deferred,
             },
             Unfixed::NitsDeclined(nits) => StepReport::NitsDeclined {
-                issue,
+                issue: ticket_of(issue),
                 pull_request: number,
                 round,
                 nits,
@@ -570,7 +571,7 @@ impl Runner {
             let next = self.after_round(review, self.ports.clock.now());
             self.update(|item| item.phase = next)?;
             return Ok(Begin::Report(StepReport::ReviewFindingsSent {
-                issue,
+                issue: ticket_of(issue),
                 pull_request: number,
                 round,
                 held: 0,
@@ -618,12 +619,12 @@ impl Runner {
             });
         })?;
         self.journal(Entry::Findings {
-            issue,
+            issue: ticket_of(issue),
             round,
             findings: kept,
         });
         Ok(Begin::Report(StepReport::ReviewFindingsSent {
-            issue,
+            issue: ticket_of(issue),
             pull_request: number,
             round,
             held,
@@ -757,7 +758,10 @@ impl Runner {
             (_, Err(reason)) if review.failures + 1 < ROUND_FAILURES => {
                 let failures = review.failures + 1;
                 item.phase = Phase::Review(Review { failures, ..review });
-                StepReport::GateFailed { issue, reason }
+                StepReport::GateFailed {
+                    issue: ticket_of(issue),
+                    reason,
+                }
             }
             // A second look that keeps failing leaves the first's findings to go alone.
             (ReviewStage::SecondLook { first }, Err(reason)) => {
@@ -772,7 +776,7 @@ impl Runner {
                     ..review
                 });
                 StepReport::GateFailed {
-                    issue,
+                    issue: ticket_of(issue),
                     reason: format!(
                         "{reviewer}'s second look on #{number} failed {ROUND_FAILURES} times, \
                          so its first look's findings go on alone: {reason}"
@@ -785,7 +789,7 @@ impl Runner {
                 }
                 item.phase = self.after_round(review, now);
                 StepReport::ReviewerSkipped {
-                    issue,
+                    issue: ticket_of(issue),
                     pull_request: number,
                     round,
                     reviewer,
@@ -805,7 +809,7 @@ impl Runner {
                     ..review
                 });
                 StepReport::FirstLook {
-                    issue,
+                    issue: ticket_of(issue),
                     pull_request: number,
                     round,
                     reviewer,
@@ -826,7 +830,7 @@ impl Runner {
                     item.local_unreviewed_by = Some(reviewer.clone());
                     item.phase = self.after_round(review, now);
                     StepReport::LocalRoundFailed {
-                        issue,
+                        issue: ticket_of(issue),
                         pull_request: number,
                         round,
                         reviewer,
@@ -850,7 +854,7 @@ impl Runner {
                     if findings.is_empty() {
                         item.phase = self.after_round(review, now);
                         StepReport::ReviewFindingsSent {
-                            issue,
+                            issue: ticket_of(issue),
                             pull_request: number,
                             round,
                             held: 0,
@@ -866,7 +870,7 @@ impl Runner {
                             ..review
                         });
                         StepReport::ReviewRound {
-                            issue,
+                            issue: ticket_of(issue),
                             pull_request: number,
                             round,
                             reviewer,

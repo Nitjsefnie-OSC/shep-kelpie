@@ -13,6 +13,7 @@ use crate::review_bot::{Activity, Bot, Comment, Login, Profile, Reading, Review,
 use crate::runner::coderabbit::tests::now;
 use crate::runner::{Runner, StepReport, step};
 use crate::settings::AgentName;
+use crate::test::ticket;
 use crate::test::{DogStandIn, Rig, Scripted, Told};
 
 const LABEL: &str = "stand-in please";
@@ -243,7 +244,7 @@ fn a_stand_in_bot_runs_a_whole_round_through_to_the_worker() {
     assert_eq!(
         rig.threads_read(&runner),
         Some(StepReport::BotReviewed {
-            issue: 7,
+            issue: ticket(7),
             pull_request: 71,
             round: 3,
             reviewer: AgentName::kelpies("coderabbit"),
@@ -305,7 +306,7 @@ fn a_stand_in_refusal_reschedules_its_own_window_and_takes_its_label_off() {
     assert_eq!(
         step(&runner).unwrap(),
         Some(StepReport::SummonRefused {
-            issue: 7,
+            issue: ticket(7),
             pull_request: 71,
             opens: Timestamp(opens),
         })
@@ -330,7 +331,7 @@ fn a_stand_in_summon_with_no_sign_goes_out_once_more_by_its_label() {
     assert_eq!(
         step(&runner).unwrap(),
         Some(StepReport::SummonedAgain {
-            issue: 7,
+            issue: ticket(7),
             pull_request: 71,
             head,
         })

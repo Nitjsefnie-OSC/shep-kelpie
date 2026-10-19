@@ -17,6 +17,7 @@ use super::talk::with_thread_lines;
 use super::thread_replies::Settler;
 use super::{Names, Runner};
 use crate::ports::Timestamp;
+use crate::runner::report::ticket_of;
 use crate::settings::Merging;
 use crate::state::{Fix, Held, ProjectState, Resume, Ruling, RulingKind, StateError, Stuck};
 use crate::work_item::{Known, Phase, Review, ReviewStage, Turn, WorkItem, foreign_change};
@@ -538,7 +539,7 @@ impl Runner {
         self.word_effects(id)?;
         let comment_failed = self.post_ruling(Some(number), id);
         Ok(Begin::Report(StepReport::Ruling {
-            issue,
+            issue: ticket_of(issue),
             pull_request: number,
             id,
             question,

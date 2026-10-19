@@ -1,6 +1,7 @@
 use crate::ports::Checks;
 use crate::runner::{CHECKS_SETTLE, Runner, StepReport, step};
 use crate::test::Rig;
+use crate::test::ticket;
 use std::sync::Mutex;
 
 const NO_WEBHOOK: &str = "";
@@ -47,7 +48,7 @@ fn a_merge_notice_with_no_webhook_is_logged_and_dropped() {
     assert_eq!(
         step(&runner).unwrap(),
         Some(StepReport::Noticed {
-            issue: 7,
+            issue: ticket(7),
             pull_request: 71,
         })
     );

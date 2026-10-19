@@ -7,6 +7,7 @@
 
 use super::{Runner, StepReport};
 use crate::ports::{AgentCall, Role};
+use crate::runner::report::ticket_of;
 
 impl Runner {
     /// The steps of what happened in the middle of a pass since the last call,
@@ -22,7 +23,7 @@ impl Runner {
     /// Records that `call`, on the agent named `agent`, is starting
     pub(super) fn call_started(&mut self, call: &AgentCall, agent: &str) {
         self.started.push(StepReport::SessionStarted {
-            issue: (call.role != Role::Pm).then_some(call.issue),
+            issue: (call.role != Role::Pm).then(|| ticket_of(call.issue)),
             role: call.role,
             agent: agent.to_owned(),
             harness: call.harness.harness().as_str(),

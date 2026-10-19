@@ -11,6 +11,7 @@ use crate::runner::review_bot::two_bots::{
 };
 use crate::runner::{StepReport, step};
 use crate::settings::AgentName;
+use crate::test::ticket;
 use crate::test::{Rig, Scripted, Told};
 
 const WEEK: u64 = 168 * 3600;
@@ -103,7 +104,7 @@ fn a_usage_limit_reply_passes_codex_over_for_its_week_and_the_pass_goes_on() {
     assert_eq!(
         step(&runner).unwrap(),
         Some(StepReport::ReviewerSkipped {
-            issue: 7,
+            issue: ticket(7),
             pull_request: 71,
             round: 3,
             reviewer: AgentName::kelpies("codex"),
@@ -221,7 +222,7 @@ fn a_thumbs_up_alone_is_a_review_with_nothing_in_it() {
 
 fn summoned_again(head: &str) -> Option<StepReport> {
     Some(StepReport::SummonedAgain {
-        issue: 7,
+        issue: ticket(7),
         pull_request: 71,
         head: head.to_owned(),
     })
@@ -270,7 +271,7 @@ fn a_second_failed_review_passes_codex_over_with_the_reason() {
     assert_eq!(
         step(&runner).unwrap(),
         Some(StepReport::ReviewerSkipped {
-            issue: 7,
+            issue: ticket(7),
             pull_request: 71,
             round: 3,
             reviewer: AgentName::kelpies("codex"),

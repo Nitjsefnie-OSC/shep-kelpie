@@ -658,7 +658,7 @@ fn friction(rig: &Rig, issue: u64, text: &str) {
     let journal = rig.paths().journal;
     fs::create_dir_all(journal.parent().unwrap()).unwrap();
     let entry = journal::Entry::Friction {
-        issue,
+        issue: ticket(issue),
         text: text.to_owned(),
     };
     journal::append(&journal, Timestamp(Rig::EPOCH - 1500), entry).unwrap();

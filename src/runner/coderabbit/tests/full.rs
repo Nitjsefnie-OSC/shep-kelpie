@@ -10,6 +10,7 @@ use super::super::{DONE_SETTLE, FAR, FULL_REVIEW, HEARD_WAIT, LABEL, REVIEW_WAIT
 use super::{coderabbit, cr, fixed, hold_a_finding, labels, now, off, on, reviewed, summoned};
 use crate::lease::wire::WindowFact;
 use crate::ports::{CLEAN, Checks, Timestamp};
+use crate::runner::report::ticket_of;
 use crate::runner::{Runner, StepReport, step};
 use crate::test::{Rig, Scripted, Told};
 
@@ -19,7 +20,7 @@ fn full_review(number: u64) -> Vec<(u64, String)> {
 
 fn summoned_80(head: &str) -> Option<StepReport> {
     Some(StepReport::Summoned {
-        issue: 5,
+        issue: ticket_of(5),
         pull_request: 80,
         head: head.to_owned(),
     })
@@ -157,7 +158,7 @@ fn an_owed_summon_marked_done_with_nothing_posted_asks_once_for_a_full_review_th
 
 fn read_80(open_threads: usize) -> Option<StepReport> {
     Some(StepReport::BotReviewed {
-        issue: 5,
+        issue: ticket_of(5),
         pull_request: 80,
         round: 1,
         reviewer: coderabbit(),
@@ -193,7 +194,7 @@ fn a_full_review_with_no_sign_is_asked_for_once_more_by_comment() {
     assert_eq!(
         step(&runner).unwrap(),
         Some(StepReport::SummonedAgain {
-            issue: 5,
+            issue: ticket_of(5),
             pull_request: 80,
             head: head.clone(),
         })
@@ -259,7 +260,7 @@ fn the_summon_after_kelpie_catches_the_branch_up_asks_for_a_full_review() {
     assert_eq!(
         step(&runner).unwrap(),
         Some(StepReport::Summoned {
-            issue: 7,
+            issue: ticket_of(7),
             pull_request: 71,
             head: noted,
         })
@@ -322,7 +323,7 @@ fn a_catch_up_before_coderabbits_first_read_is_summoned_by_the_label_alone() {
     assert_eq!(
         step(&runner).unwrap(),
         Some(StepReport::Summoned {
-            issue: 7,
+            issue: ticket_of(7),
             pull_request: 71,
             head: noted,
         })

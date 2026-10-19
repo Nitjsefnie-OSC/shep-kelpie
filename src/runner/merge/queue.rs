@@ -113,6 +113,7 @@ fn queue_prompt(number: u64, head: &str, reason: &str, help: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use crate::test::ticket;
     use std::sync::Mutex;
 
     use serde_json::json;
@@ -151,11 +152,11 @@ mod tests {
         assert!(matches!(
             step(&runner).unwrap(),
             Some(StepReport::Finished {
-                issue: 7,
+                issue,
                 merged: true,
                 ..
             })
-        ));
+         if issue == ticket(7)));
         assert_eq!(rig.forge.merges().len(), 1, "queued once, not again");
         let status = rig.ask(&runner, "status", None);
         assert_eq!(status["work_item"], json!(null));
@@ -209,7 +210,7 @@ mod tests {
         assert_eq!(
             step(&runner).unwrap(),
             Some(StepReport::CiFailed {
-                issue: 7,
+                issue: ticket(7),
                 pull_request: 71,
                 head: head.clone(),
                 checks: vec!["merge queue".into()],

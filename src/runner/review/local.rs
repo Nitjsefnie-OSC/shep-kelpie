@@ -9,6 +9,7 @@ use crate::runner::report::StepReport;
 use crate::runner::{Runner, step};
 use crate::settings::AgentName;
 use crate::settings::LocalRound;
+use crate::test::ticket;
 use crate::test::{
     Answer, CALL_PATIENCE, Hold, Rig, Scripted, ScriptedRound, StandInEndpoint, Take,
     unreachable_url,
@@ -52,7 +53,7 @@ fn with_no_local_round_listed_one_clean_claude_round_reaches_ci() {
     assert_eq!(
         step(&runner).unwrap(), // round 1, claude: scripted clean above
         Some(StepReport::ReviewFindingsSent {
-            issue: 7,
+            issue: ticket(7),
             pull_request: 71,
             round: 1,
             held: 0,
@@ -250,7 +251,7 @@ fn a_session_that_says_neither_findings_nor_clean_fails() {
         assert_eq!(
             step(&runner).unwrap(),
             Some(StepReport::GateFailed {
-                issue: 7,
+                issue: ticket(7),
                 reason: format!("the reviewer's reply is neither findings nor {CLEAN}: {said}"),
             })
         );
@@ -347,7 +348,7 @@ fn a_local_round_that_reviewed_nothing_goes_on_to_the_next_reviewer() {
     assert_eq!(
         step(&runner).unwrap(),
         Some(StepReport::LocalRoundFailed {
-            issue: 7,
+            issue: ticket(7),
             pull_request: 71,
             round: 1,
             reviewer: qwen(),
@@ -400,7 +401,7 @@ fn a_round_with_some_files_unreviewed_keeps_its_real_findings() {
     assert_eq!(
         step(&runner).unwrap(),
         Some(StepReport::ReviewRound {
-            issue: 7,
+            issue: ticket(7),
             pull_request: 71,
             round: 1,
             reviewer: qwen(),
@@ -498,7 +499,7 @@ fn a_file_skipped_for_its_size_stays_a_finding_and_is_not_unreviewed() {
     assert_eq!(
         step(&runner).unwrap(),
         Some(StepReport::ReviewRound {
-            issue: 7,
+            issue: ticket(7),
             pull_request: 71,
             round: 1,
             reviewer: qwen(),
@@ -513,7 +514,7 @@ fn a_file_skipped_for_its_size_stays_a_finding_and_is_not_unreviewed() {
     assert_eq!(
         step(&runner).unwrap(),
         Some(StepReport::ReviewFindingsSent {
-            issue: 7,
+            issue: ticket(7),
             pull_request: 71,
             round: 1,
             held: 0,
@@ -535,7 +536,7 @@ fn a_file_skipped_for_its_size_is_left_out_of_a_fix_turn_sent_other_findings() {
     assert_eq!(
         step(&runner).unwrap(),
         Some(StepReport::ReviewFindingsSent {
-            issue: 7,
+            issue: ticket(7),
             pull_request: 71,
             round: 1,
             held: 1,

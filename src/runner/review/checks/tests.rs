@@ -7,6 +7,7 @@ use serde_json::json;
 use crate::ports::TestOutcome::{self, Failed, NotRun, Passed, TimedOut};
 use crate::ports::{Finding, Severity};
 use crate::runner::{Runner, StepReport, step};
+use crate::test::ticket;
 use crate::test::{Rig, Scripted};
 use crate::work_item::{Reading, TestCheck};
 
@@ -92,7 +93,7 @@ fn a_test_that_fails_before_and_passes_after_is_recorded_verified() {
     assert_eq!(
         report,
         StepReport::FixPushed {
-            issue: 7,
+            issue: ticket(7),
             pull_request: 71,
             round: 2,
             head,
@@ -347,7 +348,7 @@ fn the_after_run_waits_for_the_workers_own_head() {
     assert_eq!(
         report,
         StepReport::FixPushed {
-            issue: 7,
+            issue: ticket(7),
             pull_request: 71,
             round: 2,
             head: Some(by_hand),

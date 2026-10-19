@@ -296,6 +296,7 @@ fn run(
 
 #[cfg(test)]
 mod tests {
+    use crate::test::ticket;
     use std::path::PathBuf;
     use std::sync::Mutex;
 
@@ -635,8 +636,8 @@ mod tests {
         rig.clock.advance(CHECKS_SETTLE);
         let finished = step(&runner).unwrap();
         assert!(matches!(
-            finished,
-            Some(crate::runner::StepReport::Finished { issue: 7, .. })
+           finished,
+           Some(crate::runner::StepReport::Finished { issue, .. }) if issue == ticket(7)
         ));
         assert!(!index.exists());
         assert!(!runtime.exists(), "the daemon's folder goes with it");

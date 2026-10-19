@@ -9,7 +9,9 @@ use crate::ports::{CLEAN, Checks, Cost, Usage};
 use crate::runner::contributions::security_tests::{contribute, contribution, reviews};
 use crate::runner::contributions::tests::{picking, poll};
 use crate::runner::{Runner, StepReport, step};
+use crate::test::ticket;
 use crate::test::{Rig, Scripted};
+use crate::ticket::TicketId;
 
 // A worker's reply that ends on a question, which parks its work item
 pub(super) const ASKS: &str = "<kelpie-question>\nWhich flag?\n</kelpie-question>\n";
@@ -20,7 +22,7 @@ pub(super) fn running(project: &str) -> (Rig, Mutex<Runner>) {
     (rig, runner)
 }
 
-pub(super) fn dispatched(report: Option<StepReport>) -> (u64, Vec<Skip>) {
+pub(super) fn dispatched(report: Option<StepReport>) -> (TicketId, Vec<Skip>) {
     match report {
         Some(StepReport::Dispatched { issue, skipped, .. }) => (issue, skipped),
         other => panic!("nothing was dispatched: {other:?}"),
@@ -28,11 +30,10 @@ pub(super) fn dispatched(report: Option<StepReport>) -> (u64, Vec<Skip>) {
 }
 
 // The issue of the work item a step's report is about
-pub(super) fn issue_of(report: Option<StepReport>) -> u64 {
+pub(super) fn issue_of(report: Option<StepReport>) -> TicketId {
     let logged = serde_json::to_value(&report).unwrap();
-    logged["issue"]
-        .as_u64()
-        .unwrap_or_else(|| panic!("no work item acted: {logged}"))
+    serde_json::from_value(logged["issue"].clone())
+        .unwrap_or_else(|e| panic!("no work item acted: {logged}: {e}"))
 }
 
 // The status's working, waiting and parked issues
@@ -46,7 +47,11 @@ fn seven_asks(project: &str) -> (Rig, Mutex<Runner>) {
     let (rig, runner) = running(project);
     rig.ask(&runner, "add", Some("7"));
     rig.claude.script([Scripted::Say(ASKS)]);
-    assert_eq!(issue_of(step(&runner).unwrap()), 7, "#7's first turn");
+    assert_eq!(
+        issue_of(step(&runner).unwrap()),
+        ticket(7),
+        "#7's first turn"
+    );
     assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 7 }));
     (rig, runner)
 }
@@ -55,7 +60,7 @@ fn seven_asks(project: &str) -> (Rig, Mutex<Runner>) {
 fn an_item_parked_on_a_ruling_frees_its_slot_for_the_next_ready_issue() {
     let (rig, runner) = seven_asks("acme");
     rig.forge.list_ready(8, false);
-    assert_eq!(dispatched(step(&runner).unwrap()), (8, vec![]));
+    assert_eq!(dispatched(step(&runner).unwrap()), (ticket(8), vec![]));
     assert_eq!(slots(&rig, &runner), [json!([8]), json!([]), json!([7])]);
     let status = rig.ask(&runner, "status", None);
     assert_eq!(status["work_items"].as_array().unwrap().len(), 2);
@@ -71,8 +76,12 @@ fn a_full_pending_rulings_opens_nothing_and_its_alert_counts_the_rulings() {
         rig.forge.list_ready(issue, false);
     }
     rig.claude.script([Scripted::Say(ASKS)]);
-    assert_eq!(dispatched(step(&runner).unwrap()), (8, vec![]));
-    assert_eq!(issue_of(step(&runner).unwrap()), 8, "#8's first turn");
+    assert_eq!(dispatched(step(&runner).unwrap()), (ticket(8), vec![]));
+    assert_eq!(
+        issue_of(step(&runner).unwrap()),
+        ticket(8),
+        "#8's first turn"
+    );
     assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 8 }));
     let (_, filled) = rig.alerts.posts().pop().unwrap();
     assert!(
@@ -90,7 +99,11 @@ fn a_full_pending_rulings_opens_nothing_and_its_alert_counts_the_rulings() {
 
     rig.ask(&runner, "rule", Some("7 answer the short one"));
     rig.claude.script([Scripted::Say(ASKS)]);
-    assert_eq!(issue_of(step(&runner).unwrap()), 7, "#7 takes the slot");
+    assert_eq!(
+        issue_of(step(&runner).unwrap()),
+        ticket(7),
+        "#7 takes the slot"
+    );
 }
 
 #[test]
@@ -100,9 +113,13 @@ fn pending_rulings_0_opens_nothing_while_any_ruling_waits() {
     let runner = rig.open().unwrap();
     // With no ruling waiting, the board opens work as ever.
     rig.forge.list_ready(7, false);
-    assert_eq!(dispatched(step(&runner).unwrap()), (7, vec![]));
+    assert_eq!(dispatched(step(&runner).unwrap()), (ticket(7), vec![]));
     rig.claude.script([Scripted::Say(ASKS)]);
-    assert_eq!(issue_of(step(&runner).unwrap()), 7, "#7's first turn");
+    assert_eq!(
+        issue_of(step(&runner).unwrap()),
+        ticket(7),
+        "#7's first turn"
+    );
     assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 7 }));
     let (_, alert) = rig.alerts.posts().pop().unwrap();
     assert!(
@@ -119,7 +136,7 @@ fn pending_rulings_0_opens_nothing_while_any_ruling_waits() {
 fn a_larger_active_items_gives_a_waiting_item_its_slot() {
     let (rig, runner) = seven_asks("acme");
     rig.forge.list_ready(8, false);
-    assert_eq!(dispatched(step(&runner).unwrap()), (8, vec![]));
+    assert_eq!(dispatched(step(&runner).unwrap()), (ticket(8), vec![]));
     rig.ask(&runner, "rule", Some("7 answer the short one"));
     assert_eq!(slots(&rig, &runner), [json!([8]), json!([7]), json!([])]);
 
@@ -131,14 +148,18 @@ fn a_larger_active_items_gives_a_waiting_item_its_slot() {
         .reread(next, rig.kelpie_settings())
         .unwrap();
     rig.claude.script([Scripted::Say(ASKS)]);
-    assert_eq!(issue_of(step(&runner).unwrap()), 7, "#7's answered turn");
+    assert_eq!(
+        issue_of(step(&runner).unwrap()),
+        ticket(7),
+        "#7's answered turn"
+    );
 }
 
 #[test]
 fn an_answered_ruling_waits_for_the_slot_and_goes_before_a_new_issue() {
     let (rig, runner) = seven_asks("acme");
     rig.forge.list_ready(8, false);
-    assert_eq!(dispatched(step(&runner).unwrap()), (8, vec![]));
+    assert_eq!(dispatched(step(&runner).unwrap()), (ticket(8), vec![]));
     rig.forge.list_ready(9, false);
 
     // #8 holds the one slot, so #7's answer waits for it.
@@ -155,7 +176,11 @@ fn an_answered_ruling_waits_for_the_slot_and_goes_before_a_new_issue() {
     assert!(rig.ask(&runner, "status", None)["work_item"]["attached"].is_null());
     rig.claude
         .script([Scripted::Say(ASKS), Scripted::Say(ASKS)]);
-    assert_eq!(issue_of(step(&runner).unwrap()), 8, "#8's first turn");
+    assert_eq!(
+        issue_of(step(&runner).unwrap()),
+        ticket(8),
+        "#8's first turn"
+    );
     let calls = rig.claude.calls();
     assert_eq!(calls.len(), 2, "#7's turn did not run");
     assert!(calls[1].prompt.contains("issue #8"), "{}", calls[1].prompt);
@@ -163,7 +188,11 @@ fn an_answered_ruling_waits_for_the_slot_and_goes_before_a_new_issue() {
     // #8 parked on its question, so #7 takes the slot, ahead of #9.
     assert_eq!(slots(&rig, &runner), [json!([7]), json!([]), json!([8])]);
     assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 8 }));
-    assert_eq!(issue_of(step(&runner).unwrap()), 7, "#7's answered turn");
+    assert_eq!(
+        issue_of(step(&runner).unwrap()),
+        ticket(7),
+        "#7's answered turn"
+    );
     let call = rig.claude.calls().pop().unwrap();
     assert!(call.prompt.contains("the short one"), "{}", call.prompt);
     assert_eq!(
@@ -183,7 +212,7 @@ fn seven_on_its_merge_ruling_and_eight_working(project: &str) -> (Rig, Mutex<Run
     rig.forge.list_ready(8, false);
     // #7's branch touches a file, so #8 waits for the board to read its paths.
     assert_eq!(step(&runner).unwrap(), None);
-    assert_eq!(dispatched(step(&runner).unwrap()), (8, vec![]));
+    assert_eq!(dispatched(step(&runner).unwrap()), (ticket(8), vec![]));
     (rig, runner, head)
 }
 
@@ -198,10 +227,10 @@ fn a_merge_yes_merges_at_once_with_every_slot_taken() {
     for _ in 0..4 {
         match step(&runner).unwrap() {
             Some(StepReport::Finished {
-                issue: 7,
+                issue,
                 merged: true,
                 ..
-            }) => {
+            }) if issue == ticket(7) => {
                 merged = true;
                 break;
             }
@@ -220,7 +249,7 @@ fn a_merge_no_is_a_fix_turn_and_waits_for_the_slot() {
     rig.claude.script([Scripted::Say(ASKS)]);
     assert_eq!(
         issue_of(step(&runner).unwrap()),
-        8,
+        ticket(8),
         "#8's turn, not #7's fix"
     );
     let calls = rig.claude.calls();
@@ -233,20 +262,20 @@ pub(super) fn eight_reaches_ci(rig: &Rig, runner: &Mutex<Runner>) -> String {
     rig.forge.list_ready(8, false);
     // #7's branch touches a file, so #8 waits for the board to read its paths.
     assert_eq!(step(runner).unwrap(), None);
-    assert_eq!(dispatched(step(runner).unwrap()), (8, vec![]));
+    assert_eq!(dispatched(step(runner).unwrap()), (ticket(8), vec![]));
     rig.forge.open_pull_request(81, "kelpie/8", &[8]);
     rig.claude.script([
         Scripted::Push("eight.txt", "eight\n"),
         Scripted::Text(CLEAN),
     ]);
-    assert_eq!(issue_of(step(runner).unwrap()), 8, "a turn");
+    assert_eq!(issue_of(step(runner).unwrap()), ticket(8), "a turn");
     // Its review reads the head once its run is green.
     let eight = rig.forge.head_of("kelpie/8").unwrap();
     rig.forge.set_checks(&eight, Checks::Passed);
     assert_eq!(step(runner).unwrap(), None, "its run is waited for");
     rig.clock.advance(crate::runner::CHECKS_SETTLE);
     for _ in 0..2 {
-        assert_eq!(issue_of(step(runner).unwrap()), 8, "its review");
+        assert_eq!(issue_of(step(runner).unwrap()), ticket(8), "its review");
     }
     rig.forge.set_checks(&eight, Checks::Pending);
     eight
@@ -262,19 +291,19 @@ fn a_merge_yes_sent_back_to_a_fix_turn_waits_for_the_slot() {
     // The yes is withdrawn for a `main` that moved, and the caught-up head goes red.
     rig.ask(&runner, "rule", Some("71 yes"));
     assert!(matches!(
-        step(&runner).unwrap(),
-        Some(StepReport::YesWithdrawn { issue: 7, .. })
+       step(&runner).unwrap(),
+       Some(StepReport::YesWithdrawn { issue, .. }) if issue == ticket(7)
     ));
     assert!(matches!(
-        step(&runner).unwrap(),
-        Some(StepReport::Rebased { issue: 7, .. })
+       step(&runner).unwrap(),
+       Some(StepReport::Rebased { issue, .. }) if issue == ticket(7)
     ));
     let seven = rig.forge.head_of("kelpie/7").unwrap();
     rig.forge
         .set_checks(&seven, Checks::Failed(vec!["test".into()]));
     assert!(matches!(
-        rig.verdict(&runner),
-        Some(StepReport::CiFailed { issue: 7, .. })
+       rig.verdict(&runner),
+       Some(StepReport::CiFailed { issue, .. }) if issue == ticket(7)
     ));
     assert_eq!(slots(&rig, &runner), [json!([8]), json!([7]), json!([])]);
     let calls = rig.claude.calls().len();
@@ -286,15 +315,15 @@ fn a_merge_yes_sent_back_to_a_fix_turn_waits_for_the_slot() {
     assert!(matches!(
         rig.verdict(&runner),
         Some(StepReport::Ruling {
-            issue: 8,
+            issue,
             id: 81,
             ..
         })
-    ));
+     if issue == ticket(8)));
     assert_eq!(slots(&rig, &runner), [json!([7]), json!([]), json!([8])]);
     assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 81 }));
     rig.claude.script([Scripted::Push("fix.txt", "fixed\n")]);
-    assert_eq!(issue_of(step(&runner).unwrap()), 7, "#7's fix turn");
+    assert_eq!(issue_of(step(&runner).unwrap()), ticket(7), "#7's fix turn");
     let fix = rig.claude.calls().pop().unwrap();
     assert!(fix.prompt.contains("CI failed"), "{}", fix.prompt);
 }
@@ -312,11 +341,11 @@ fn seven_still_red_and_eight_in_ci(project: &str) -> (Rig, Mutex<Runner>) {
     assert!(matches!(
         rig.verdict(&runner),
         Some(StepReport::Ruling {
-            issue: 7,
+            issue,
             id: 71,
             ..
         })
-    ));
+     if issue == ticket(7)));
     assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 71 }));
     eight_reaches_ci(&rig, &runner);
     (rig, runner)
@@ -340,11 +369,12 @@ fn a_still_red_yes_goes_to_ci_with_every_slot_taken() {
     );
     rig.forge.set_checks(&fixed, Checks::Passed);
     let Some(StepReport::Ruling {
-        issue: 7, question, ..
+        issue, question, ..
     }) = rig.verdict(&runner)
     else {
         panic!("#7 never reached its merge ruling");
     };
+    assert_eq!(issue, ticket(7));
     assert!(question.starts_with("Merge pull request #71"), "{question}");
 }
 
@@ -389,11 +419,11 @@ fn an_attach_takes_a_free_slot_for_an_item_going_on_without_one() {
     assert!(matches!(
         rig.verdict(&runner),
         Some(StepReport::Ruling {
-            issue: 7,
+            issue,
             id: 71,
             ..
         })
-    ));
+     if issue == ticket(7)));
     assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 71 }));
     // The yes sends #7 to CI without a slot, so the one slot is free.
     rig.push_by_hand("kelpie/7", "lint.txt");
@@ -422,7 +452,11 @@ fn a_contribution_waits_for_a_free_slot_under_active_items_1() {
     rig.forge.list_ready(8, false);
 
     // #7 holds the one slot, so no review starts on the contribution.
-    assert_eq!(issue_of(step(&runner).unwrap()), 7, "#7's first turn");
+    assert_eq!(
+        issue_of(step(&runner).unwrap()),
+        ticket(7),
+        "#7's first turn"
+    );
     assert!(reviews(&rig).is_empty());
     assert_eq!(slots(&rig, &runner), [json!([]), json!([]), json!([7])]);
 
@@ -437,7 +471,7 @@ fn a_contribution_waits_for_a_free_slot_under_active_items_1() {
     assert_eq!(status["work_items"].as_array().unwrap().len(), 1);
 
     // With the slot given back, #8 opens.
-    assert_eq!(dispatched(step(&runner).unwrap()), (8, vec![]));
+    assert_eq!(dispatched(step(&runner).unwrap()), (ticket(8), vec![]));
 }
 
 #[test]
@@ -449,11 +483,19 @@ fn a_contribution_is_read_while_parked_rulings_close_the_board() {
         Scripted::Text(CLEAN),
     ]);
     rig.ask(&runner, "add", Some("7"));
-    assert_eq!(issue_of(step(&runner).unwrap()), 7, "#7's first turn");
+    assert_eq!(
+        issue_of(step(&runner).unwrap()),
+        ticket(7),
+        "#7's first turn"
+    );
     assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 7 }));
     rig.forge.list_ready(8, false);
-    assert_eq!(dispatched(step(&runner).unwrap()), (8, vec![]));
-    assert_eq!(issue_of(step(&runner).unwrap()), 8, "#8's first turn");
+    assert_eq!(dispatched(step(&runner).unwrap()), (ticket(8), vec![]));
+    assert_eq!(
+        issue_of(step(&runner).unwrap()),
+        ticket(8),
+        "#8's first turn"
+    );
     assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 8 }));
     assert!(!runner.lock().unwrap().board_open(), "two rulings wait");
 

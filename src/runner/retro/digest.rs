@@ -60,11 +60,7 @@ fn name(value: &impl Serialize) -> String {
 
 /// The digest of `records`, in markdown
 pub(super) fn build(records: &Records<'_>) -> String {
-    let issues: Vec<String> = records
-        .batch
-        .iter()
-        .map(|f| format!("#{}", f.issue))
-        .collect();
+    let issues: Vec<String> = records.batch.iter().map(|f| shown(f)).collect();
     let mut out = format!(
         "# Batch digest: {}, {} finished work items ({})\n",
         records.project,
@@ -81,10 +77,16 @@ pub(super) fn build(records: &Records<'_>) -> String {
     out
 }
 
+// The work item as a digest line names it
+fn shown(finished: &Finished) -> String {
+    finished
+        .ticket()
+        .map_or_else(|| format!("#{}", finished.issue), |t| t.shown())
+}
+
 fn item(out: &mut String, records: &Records<'_>, finished: &Finished) {
-    let issue = finished.issue;
     let work = work_of(Some(&finished.title)).kind;
-    let _ = writeln!(out, "## #{issue}: {} ({work})", finished.title);
+    let _ = writeln!(out, "## {}: {} ({work})", shown(finished), finished.title);
     let end = match (finished.merged, finished.closed) {
         (true, _) => "merged",
         (_, true) => "closed with no change",
@@ -130,7 +132,7 @@ fn item(out: &mut String, records: &Records<'_>, finished: &Finished) {
 // The journal's entries about the work item, up to its finish
 fn mine<'a>(records: &Records<'a>, finished: &Finished) -> Vec<&'a Stamped> {
     (records.journal.iter())
-        .filter(|s| s.at <= finished.at && s.entry.names(finished.issue))
+        .filter(|s| s.at <= finished.at && finished.ticket().is_some_and(|t| s.entry.names(t)))
         .collect()
 }
 
@@ -236,7 +238,8 @@ fn reviews(out: &mut String, mine: &[&Stamped]) {
         let sent = sent.map_or(String::new(), |held| format!(", {held} sent to the worker"));
         let _ = writeln!(
             out,
-            "  - #{issue} round {round} by {reviewer}: {findings} findings{sent}"
+            "  - {} round {round} by {reviewer}: {findings} findings{sent}",
+            issue.shown()
         );
     }
 }

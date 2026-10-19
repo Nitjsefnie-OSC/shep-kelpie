@@ -12,6 +12,8 @@ use crate::ports::Finding;
 use crate::runner::Runner;
 use crate::runner::voice::finding_line;
 use crate::state::StateError;
+#[cfg(test)]
+use crate::test::ticket;
 use crate::work_item::{Dispute, ThreadAnswer, WorkItem};
 
 /// What a fix turn that pushed nothing said of the findings it was sent that
@@ -382,7 +384,7 @@ fn a_fix_turn_that_disputes_every_finding_with_a_reason_goes_on_to_the_next_revi
     assert_eq!(
         step(&runner).unwrap(),
         Some(StepReport::FindingsDisputed {
-            issue: 7,
+            issue: ticket(7),
             pull_request: 71,
             round: 1,
             disputed: 1,
@@ -451,7 +453,7 @@ fn a_turn_that_defers_some_findings_and_disputes_the_rest_goes_on() {
     assert_eq!(
         step(&runner).unwrap(),
         Some(StepReport::FindingsDisputed {
-            issue: 7,
+            issue: ticket(7),
             pull_request: 71,
             round: 1,
             disputed: 1,

@@ -11,6 +11,7 @@ use crate::profile;
 use crate::runner::step;
 use crate::runner::turn::paused::PAUSED;
 use crate::settings::Effort;
+use crate::test::ticket;
 use crate::test::{Hold, LEFT_BEHIND, Rig, Scripted, assert_reads, git, write_in};
 
 pub(super) fn usage(n: u64) -> Usage {
@@ -216,7 +217,7 @@ fn status_shows_the_session_and_what_the_work_item_has_cost() {
     assert_eq!(
         report,
         StepReport::Ended {
-            issue: 7,
+            issue: ticket(7),
             session: session.clone(),
             usage: usage(2),
             cost_usd: Some(0.0200853),
@@ -354,7 +355,7 @@ fn a_failed_turn_raises_a_ruling_carrying_why_and_alerts_like_the_rest() {
     else {
         panic!("the failed turn raised no ruling");
     };
-    assert_eq!((issue, pull_request, id), (7, None, 7));
+    assert_eq!((issue, pull_request, id), (ticket(7), None, 7));
     assert!(
         question.starts_with("The worker's turn on issue #7 failed: claude failed: overloaded."),
         "{question}"
@@ -437,12 +438,12 @@ fn a_no_on_a_failed_turn_stops_the_work_item_the_way_a_timed_out_one_does() {
     assert!(matches!(
         step(&runner).unwrap(),
         Some(StepReport::Finished {
-            issue: 7,
+            issue,
             pull_request: None,
             merged: false,
             ..
         })
-    ));
+     if issue == ticket(7)));
     assert!(!rig.worktree_7().exists());
     assert_eq!(rig.ask(&runner, "status", None)["work_item"], json!(null));
 }
@@ -464,7 +465,7 @@ fn a_turn_past_its_ceiling_is_stopped_and_a_yes_resumes_its_session() {
     else {
         panic!("the timed-out turn raised no ruling");
     };
-    assert_eq!((issue, pull_request, id), (7, None, 7));
+    assert_eq!((issue, pull_request, id), (ticket(7), None, 7));
     assert!(
         question.starts_with(
             "The worker on issue #7 has been running past its turn's ceiling, \
@@ -503,12 +504,12 @@ fn a_no_on_a_timed_out_turn_stops_the_work_item_keeping_nothing_of_its_own() {
     assert!(matches!(
         step(&runner).unwrap(),
         Some(StepReport::Finished {
-            issue: 7,
+            issue,
             pull_request: None,
             merged: false,
             ..
         })
-    ));
+     if issue == ticket(7)));
     assert!(!rig.worktree_7().exists());
     assert_eq!(rig.ask(&runner, "status", None)["work_item"], json!(null));
 }
@@ -601,8 +602,8 @@ fn a_turn_that_ends_with_no_pull_request_and_no_question_sends_the_worker_back_o
     ]);
     step(&runner).unwrap();
     assert!(matches!(
-        step(&runner).unwrap(),
-        Some(StepReport::Ended { issue: 7, .. })
+       step(&runner).unwrap(),
+       Some(StepReport::Ended { issue, .. }) if issue == ticket(7)
     ));
     let [first, again] = rig.claude.calls().try_into().unwrap();
     assert_eq!(again.session, Session::Resume(first.session.id().clone()));
@@ -618,8 +619,8 @@ fn a_turn_that_ends_with_uncommitted_files_and_no_push_is_sent_back_naming_them(
     ]);
     step(&runner).unwrap();
     assert!(matches!(
-        step(&runner).unwrap(),
-        Some(StepReport::Ended { issue: 7, .. })
+       step(&runner).unwrap(),
+       Some(StepReport::Ended { issue, .. }) if issue == ticket(7)
     ));
     let [first, again] = rig.claude.calls().try_into().unwrap();
     assert_eq!(again.session, Session::Resume(first.session.id().clone()));
@@ -703,7 +704,7 @@ fn a_worktree_git_cannot_be_read_in_ends_the_turn_without_a_follow_up() {
         hold.release();
         turn.join().unwrap().unwrap()
     });
-    assert!(matches!(ended, Some(StepReport::Ended { issue: 7, .. })));
+    assert!(matches!(ended, Some(StepReport::Ended { issue, .. }) if issue == ticket(7)));
     let _ = step(&runner);
     for call in rig.claude.calls() {
         assert!(
@@ -752,7 +753,7 @@ fn a_second_turn_that_stops_short_parks_the_worker_on_a_ruling() {
     step(&runner).unwrap();
     step(&runner).unwrap();
     let Some(StepReport::Failed {
-        issue: 7,
+        issue,
         pull_request: None,
         id: 7,
         question,
@@ -761,6 +762,7 @@ fn a_second_turn_that_stops_short_parks_the_worker_on_a_ruling() {
     else {
         panic!("the worker was not parked");
     };
+    assert_eq!(issue, ticket(7));
     assert!(
         question.starts_with(
             "The worker's turn on issue #7 failed: \
@@ -796,11 +798,11 @@ fn a_no_on_a_worker_that_stopped_short_stops_the_work_item() {
     assert!(matches!(
         step(&runner).unwrap(),
         Some(StepReport::Finished {
-            issue: 7,
+            issue,
             merged: false,
             ..
         })
-    ));
+     if issue == ticket(7)));
     assert_eq!(rig.ask(&runner, "status", None)["work_item"], json!(null));
 }
 
@@ -812,8 +814,8 @@ fn a_pull_request_the_turns_end_missed_goes_to_review_instead() {
     step(&runner).unwrap();
     // The forge cannot be asked, so nothing is sent back yet.
     assert!(matches!(
-        step(&runner).unwrap(),
-        Some(StepReport::GateFailed { issue: 7, .. })
+       step(&runner).unwrap(),
+       Some(StepReport::GateFailed { issue, .. }) if issue == ticket(7)
     ));
     rig.forge.set_board_down(false);
     rig.forge.open_pull_request(70, "kelpie/7", &[7]);

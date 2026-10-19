@@ -10,6 +10,7 @@ use crate::ports::{CLEAN, Checks, Cost, Usage};
 use crate::runner::coderabbit::HEARD_WAIT;
 use crate::runner::{Runner, StepReport, step};
 use crate::test::{Rig, Scripted, Told, ticket};
+use crate::ticket::TicketId;
 
 // A running project that may hold two work items open, with issues 7 and 8
 // ready to open pull requests 71 and 81
@@ -57,20 +58,20 @@ fn both_parked(project: &str) -> (Rig, Mutex<Runner>) {
     assert!(matches!(
         rig.verdict(&runner),
         Some(StepReport::Ruling {
-            issue: 7,
+            issue,
             id: 71,
             ..
         })
-    ));
+     if issue == ticket(7)));
     assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 71 }));
     assert!(matches!(
         step(&runner).unwrap(),
         Some(StepReport::Ruling {
-            issue: 8,
+            issue,
             id: 81,
             ..
         })
-    ));
+     if issue == ticket(8)));
     assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 81 }));
     (rig, runner)
 }
@@ -139,8 +140,8 @@ fn an_item_ending_leaves_a_grant_its_sibling_waits_for() {
             .contains(&Told::Return(LeaseKind::coderabbit()))
     );
     assert!(matches!(
-        step(&runner).unwrap(),
-        Some(StepReport::Summoned { issue: 7, .. })
+       step(&runner).unwrap(),
+       Some(StepReport::Summoned { issue, .. }) if issue == ticket(7)
     ));
 }
 
@@ -164,8 +165,8 @@ fn a_restart_leaves_no_resend_under_a_grant_another_item_took() {
     rig.forge.set_checks(&eight, Checks::Passed);
     assert_eq!(issue_of(rig.verdict(&runner)), 8, "marks #81 ready");
     assert!(matches!(
-        step(&runner).unwrap(),
-        Some(StepReport::Summoned { issue: 8, .. })
+       step(&runner).unwrap(),
+       Some(StepReport::Summoned { issue, .. }) if issue == ticket(8)
     ));
 
     // #7's fifteen minutes pass with no sign; the grant is #8's.
@@ -173,7 +174,7 @@ fn a_restart_leaves_no_resend_under_a_grant_another_item_took() {
     for _ in 0..4 {
         if let Some(report) = step(&runner).unwrap() {
             assert!(
-                !matches!(report, StepReport::SummonedAgain { issue: 7, .. }),
+                !matches!(report, StepReport::SummonedAgain { issue, .. } if issue == ticket(7)),
                 "re-sent under another item's grant: {report:?}"
             );
         }
@@ -234,7 +235,8 @@ fn an_item_waiting_on_coderabbit_yields_to_one_implementing_and_reviewing() {
     assert_eq!(returned(&rig), 1);
     let mut summoned_8 = false;
     for _ in 0..4 {
-        if let Some(StepReport::Summoned { issue: 8, .. }) = step(&runner).unwrap() {
+        let report = step(&runner).unwrap();
+        if matches!(&report, Some(StepReport::Summoned { issue, .. }) if *issue == ticket(8)) {
             summoned_8 = true;
             break;
         }
@@ -260,8 +262,8 @@ fn a_ruling_answered_for_one_item_leaves_the_other_alone() {
     rig.claude
         .script([Scripted::Push("renamed.txt", "renamed\n")]);
     assert!(matches!(
-        step(&runner).unwrap(),
-        Some(StepReport::Ended { issue: 8, .. })
+       step(&runner).unwrap(),
+       Some(StepReport::Ended { issue, .. }) if issue == ticket(8)
     ));
     let call = rig.claude.calls().pop().unwrap();
     assert_eq!(call.cwd, rig.paths().worktree(ticket(8)));
@@ -279,10 +281,10 @@ fn a_merge_of_one_item_sends_the_other_to_catch_up_with_main() {
     for _ in 0..4 {
         match step(&runner).unwrap() {
             Some(StepReport::Finished {
-                issue: 7,
+                issue,
                 merged: true,
                 ..
-            }) => {
+            }) if issue == ticket(7) => {
                 finished = true;
                 break;
             }
@@ -299,12 +301,12 @@ fn a_merge_of_one_item_sends_the_other_to_catch_up_with_main() {
     rig.ask(&runner, "rule", Some("81 yes"));
     assert!(matches!(
         step(&runner).unwrap(),
-        Some(StepReport::YesWithdrawn { issue: 8, reason, .. })
-            if reason == "main moved since the question"
+        Some(StepReport::YesWithdrawn { issue, reason, .. })
+            if reason == "main moved since the question" && issue == ticket(8)
     ));
     assert!(matches!(
-        step(&runner).unwrap(),
-        Some(StepReport::Rebased { issue: 8, .. })
+       step(&runner).unwrap(),
+       Some(StepReport::Rebased { issue, .. }) if issue == ticket(8)
     ));
 }
 
@@ -359,7 +361,7 @@ fn with_one_slot_a_second_add_is_refused_as_before() {
     assert_eq!(rig.ask(&runner, "drop", None)["work_items"], json!([]));
 }
 
-fn dispatched(report: Option<StepReport>) -> (u64, Vec<Skip>) {
+fn dispatched(report: Option<StepReport>) -> (TicketId, Vec<Skip>) {
     match report {
         Some(StepReport::Dispatched { issue, skipped, .. }) => (issue, skipped),
         other => panic!("nothing was dispatched: {other:?}"),
@@ -380,11 +382,11 @@ fn the_board_fills_a_free_slot_and_never_takes_an_open_issue_again() {
     }
     rig.claude
         .script([Scripted::Say(ASKS), Scripted::Say(ASKS)]);
-    assert_eq!(dispatched(step(&runner).unwrap()), (7, vec![]));
+    assert_eq!(dispatched(step(&runner).unwrap()), (ticket(7), vec![]));
     assert_eq!(issue_of(step(&runner).unwrap()), 7, "#7's first turn");
     assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 7 }));
     // #7 is still ready on the forge, and in flight here.
-    assert_eq!(dispatched(step(&runner).unwrap()), (8, vec![]));
+    assert_eq!(dispatched(step(&runner).unwrap()), (ticket(8), vec![]));
     assert_eq!(issue_of(step(&runner).unwrap()), 8, "#8's first turn");
     assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 8 }));
 
@@ -394,7 +396,7 @@ fn the_board_fills_a_free_slot_and_never_takes_an_open_issue_again() {
 
     rig.ask(&runner, "drop", Some("7"));
     let (issue, skipped) = dispatched(step(&runner).unwrap());
-    assert_eq!(issue, 9);
+    assert_eq!(issue, ticket(9));
     assert_eq!(skipped, [Skip::Dropped { issue: 7 }]);
     assert_eq!(open_items(&rig, &runner), [8, 9]);
 }
@@ -414,11 +416,11 @@ fn an_adoption_goes_before_the_board_into_a_free_slot() {
     assert!(matches!(
         step(&runner).unwrap(),
         Some(StepReport::Adopted {
-            issue: 5,
+            issue,
             pull_request: 80,
             ..
         })
-    ));
+     if issue == ticket(5)));
     let status = rig.ask(&runner, "status", None);
     assert_eq!(status["adopted"], json!([]));
     assert_eq!(status["work_items"][1]["phase"]["state"], "ci");
