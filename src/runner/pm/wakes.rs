@@ -34,13 +34,24 @@ const QUIET_SECOND: u64 = 60 * 60;
 /// The most an idle call left alone is dropped for, in seconds
 const QUIET_MOST: u64 = 2 * 60 * 60;
 
-/// What the project manager left a work item alone in, when it said so, and
-/// how many `none`s in a row on that state
+/// What a wake says for a call in flight the board reads idle, when nothing
+/// measured its quiet length
+const IDLE_WHAT: &str = "its worker has shown no tool call or output for 10 minutes or more";
+
+/// What the project manager left a work item alone in, when it said so, how
+/// many `none`s in a row on that state, when its hold ends, and whether the
+/// wake its hold ended for has gone out
 #[derive(Debug, Clone)]
 pub(super) struct LeftAlone {
     state: StuckState,
     at: Timestamp,
+    /// When its wake may go out again. `None` for an item parked on a ruling,
+    /// which waits on the maintainer's answer and not on a clock
+    until: Option<Timestamp>,
     nones: u32,
+    /// Its hold ended and the wake was queued, so the same hold does not wake
+    /// the project manager on every pass. A new `none` for the item clears it
+    asked: bool,
 }
 
 // How long `nones` in a row on one idle call hold its wake back.
@@ -59,21 +70,13 @@ impl Runner {
         let mut wakes = Vec::new();
         for item in &self.state.work_items {
             let issue = item.issue;
-            let parked = match item.phase {
-                Phase::Ruling { id } => self.state.rulings.iter().find(|r| r.id == id),
-                _ => None,
-            };
-            if let Some(wake) = parked.and_then(|r| stuck_wake(issue, r)) {
-                wakes.push(wake);
-            } else if let Some(watched) = self.flights.watched(issue).filter(|w| w.idle) {
-                let what = "its worker has shown no tool call or output for 10 minutes or more";
-                wakes.push(Wake::Stuck {
-                    issue,
-                    what: what.to_owned(),
-                    state: StuckState::Idle(watched.started),
-                });
-            } else if let Some(wake) = self.lease_wake(issue) {
-                wakes.push(wake);
+            match self.stuck_now(issue) {
+                Some(wake) => wakes.push(wake),
+                None => {
+                    if let Some(wake) = self.lease_wake(issue) {
+                        wakes.push(wake);
+                    }
+                }
             }
         }
         for (&(a, b), files) in &self.pm.conflicts {
@@ -82,6 +85,25 @@ impl Runner {
         for wake in wakes {
             self.pm_due(wake);
         }
+    }
+
+    // The stuck wake `issue` deserves as the board stands: the ruling it is
+    // parked on, its idle call, or nothing.
+    fn stuck_now(&self, issue: u64) -> Option<Wake> {
+        let item = self.state.item(issue)?;
+        let parked = match item.phase {
+            Phase::Ruling { id } => self.state.rulings.iter().find(|r| r.id == id),
+            _ => None,
+        };
+        if let Some(wake) = parked.and_then(|r| stuck_wake(issue, r)) {
+            return Some(wake);
+        }
+        let watched = self.flights.watched(issue).filter(|w| w.idle)?;
+        Some(Wake::Stuck {
+            issue,
+            what: IDLE_WHAT.to_owned(),
+            state: StuckState::Idle(watched.started),
+        })
     }
 
     // Whether `issue` is still held by the state it was left alone in, naming
@@ -105,15 +127,16 @@ impl Runner {
                 true
             }
             StuckState::Idle(..) => {
-                let back = quiet_backoff(entry.nones);
-                let gone = now.0.saturating_sub(entry.at.0);
-                let held = gone < back;
+                let Some(until) = entry.until else {
+                    return false;
+                };
+                let held = now < until;
                 if held {
                     self.notes.push(format!(
                         "#{issue} is idle on the turn the project manager left alone {}, so it \
                          is not woken for it again for {}",
                         age(now, entry.at),
-                        elapsed(back - gone)
+                        elapsed(until.0.saturating_sub(now.0))
                     ));
                 }
                 held
@@ -128,9 +151,59 @@ impl Runner {
             Some(entry) if entry.state == state => entry.nones.saturating_add(1),
             _ => 1,
         };
-        self.pm
+        let until = match state {
+            StuckState::Ruling { .. } => None,
+            StuckState::Idle(..) => Some(Timestamp(at.0.saturating_add(quiet_backoff(nones)))),
+        };
+        self.pm.left_alone.insert(
+            issue,
+            LeftAlone {
+                state,
+                at,
+                until,
+                nones,
+                asked: false,
+            },
+        );
+    }
+
+    /// Queues each stuck wake whose back-off has ended, which is what makes
+    /// "woken for again when its back-off ends" happen for a worker that shows
+    /// nothing more: the board flips an idle call only after new output, and
+    /// `still_due` runs only after a lapse. Called from `wake_pm`, where its
+    /// agent is set up.
+    ///
+    /// Each hold is queued once, so an item the project manager says nothing
+    /// about is not woken for on every pass. An item no longer stuck in the
+    /// state the entry names loses it, being in a new one.
+    pub(super) fn pm_holds_over(&mut self) {
+        let now = self.ports.clock.now();
+        let over: Vec<u64> = self
+            .pm
             .left_alone
-            .insert(issue, LeftAlone { state, at, nones });
+            .iter()
+            .filter(|(_, entry)| !entry.asked && entry.until.is_some_and(|until| now >= until))
+            .map(|(issue, _)| *issue)
+            .collect();
+        for issue in over {
+            let Some(entry) = self.pm.left_alone.remove(&issue) else {
+                continue;
+            };
+            match self.stuck_now(issue) {
+                Some(wake @ Wake::Stuck { state, .. }) if state == entry.state => {
+                    self.pm.left_alone.insert(
+                        issue,
+                        LeftAlone {
+                            asked: true,
+                            ..entry
+                        },
+                    );
+                    self.pm_due(wake);
+                }
+                Some(wake) => self.pm_due(wake),
+                None => {}
+            }
+        }
     }
 
     /// The votes the wake in flight casts, for its line in the usage ledger:

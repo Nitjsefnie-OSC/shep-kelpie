@@ -231,7 +231,8 @@ pub(super) struct Desk {
     // What it decided for an idle worker whose call it had ended
     after_end: BTreeMap<u64, (Action, String)>,
     // Each work item it left to resolve itself, with the state it was in, when
-    // it said so, and how many `none`s in a row on that state
+    // it said so, how many `none`s in a row on that state, and when its hold
+    // ends
     left_alone: BTreeMap<u64, LeftAlone>,
     // Each question ruling held back from the maintainer for its answer, with
     // when it was raised
@@ -363,7 +364,9 @@ impl Runner {
     ///
     /// A compaction owed goes first. One that cannot run gives the
     /// reasons up: a pick falls to the board rule, and a stuck item keeps
-    /// its ruling. What the maintainer told it waits for the next wake.
+    /// its ruling. What the maintainer told it waits for the next wake. A
+    /// stuck item it left alone is due once its back-off ends, whether the
+    /// board flipped its idle call again or not.
     pub(super) fn wake_pm(&mut self) -> bool {
         let Some(agent) = self.agents.pm.clone() else {
             return false;
@@ -379,6 +382,7 @@ impl Runner {
             self.pm.lapsed = false;
             self.still_due();
         }
+        self.pm_holds_over();
         if self.pm.due.is_empty() && !self.pm.compact {
             return false;
         }

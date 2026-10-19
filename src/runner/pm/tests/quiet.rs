@@ -174,6 +174,71 @@ fn an_idle_call_answered_none_does_not_wake_it_while_it_goes_quiet_again() {
 }
 
 #[test]
+fn an_idle_call_held_out_wakes_it_when_the_back_off_ends() {
+    let (rig, runner, work) = idle_turn("nibblical");
+    rig.claude.script([
+        Scripted::Say(NONE_7),
+        Scripted::Say(NONE_7),
+        Scripted::Say(NONE_7),
+    ]);
+
+    // 11m from its start: idle, and the project manager leaves it alone.
+    rig.clock.advance(11 * 60);
+    let (woke_for, acted, _) = answered(step(&runner).unwrap());
+    assert_eq!(
+        woke_for,
+        ["#7 is stuck: its worker has shown no tool call or output for 11m"]
+    );
+    assert_eq!(acted, ["left #7 to resolve itself"]);
+    assert_eq!(pm_seen(&rig).len(), 1);
+
+    // Its worker shows output once, goes quiet, and is hung from there. The
+    // flip at 21m is dropped inside the back-off, and no output comes to flip
+    // it again.
+    shows_output(&rig, &runner);
+    rig.clock.advance(10 * 60);
+    assert_eq!(
+        step(&runner).unwrap(),
+        None,
+        "the same idle call woke it again"
+    );
+    rig.clock.advance(19 * 60);
+    assert_eq!(
+        step(&runner).unwrap(),
+        None,
+        "it woke before its back-off ended"
+    );
+    assert_eq!(pm_seen(&rig).len(), 1);
+
+    // 31m after the none, past the 30 minutes it was held for, the hung worker
+    // is put to it once even though the board showed nothing more.
+    rig.clock.advance(2 * 60);
+    let (woke_for, acted, _) = answered(step(&runner).unwrap());
+    assert_eq!(
+        woke_for,
+        ["#7 is stuck: its worker has shown no tool call or output for 10 minutes or more"]
+    );
+    assert_eq!(acted, ["left #7 to resolve itself"]);
+    assert_eq!(pm_seen(&rig).len(), 2);
+
+    // The second none holds it for 60 minutes more, and it is not woken for on
+    // every pass while it is held.
+    rig.clock.advance(59 * 60);
+    assert_eq!(step(&runner).unwrap(), None, "a second none woke it early");
+    assert_eq!(pm_seen(&rig).len(), 2);
+    rig.clock.advance(2 * 60);
+    let (woke_for, ..) = answered(step(&runner).unwrap());
+    assert_eq!(
+        woke_for,
+        ["#7 is stuck: its worker has shown no tool call or output for 10 minutes or more"]
+    );
+    assert_eq!(pm_seen(&rig).len(), 3);
+
+    work.release();
+    assert!(work.answered(CALL_PATIENCE), "the turn never answered");
+}
+
+#[test]
 fn a_new_turn_after_a_none_is_woken_for_at_once() {
     let (rig, runner) = turn_failed("oddish");
     let work = Hold::default();
