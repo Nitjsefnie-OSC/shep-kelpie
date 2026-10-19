@@ -10,7 +10,7 @@ The agent kelpie wakes to pick, answer and unstick, and the board file it reads.
 - Code wakes it, never a timer: free slot with 2+ choices, new conflict, stuck item, a lease wait past 10 min, worker question, `shep kelpie tell`. #327, #964
 - Reads project worktrees + each item's diff (messages alone miss defects); secret-shaped files and kelpie secrets stay denied. #413, `src/runner/pm/call.rs`
 - No git or gh: kelpie writes diffs (64 KiB each) + a `still-red` item's CI log. #452
-- Tools `Read,Glob,Grep,Edit,Write`; writes only to append-only `pm-notes.md` via `kelpie confine --append`. #327
+- Tools `Read,Glob,Grep,Edit,Write`; writes only to the end of `pm-notes.md` via `kelpie confine --append`. Kelpie rolls that log past 32 KiB into `pm-archive.md` at a wake, and keeps what a later wake must remember in `pm-standing.md`, which only kelpie writes. #327, #988
 - Answer is one JSON object (`pick`, `hold`, `unstick`, `answer`, `follow_up`, `reply`) checked against the board; anything else dropped + logged. #327
 - Pick of none lasts 30 min with nothing open; hold ends when an item closes. #327
 - One session resumed per wake, compacted past 100k; failed call passed over 10 min, board rule picks meanwhile. #327

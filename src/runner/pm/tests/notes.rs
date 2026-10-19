@@ -18,6 +18,9 @@ fn log_of(n: usize) -> String {
         .collect()
 }
 
+/// What a wake says when the standing notes are past their limit
+const CONDENSE: &str = "`pm-standing.md` is past 4 KiB. Condense it";
+
 fn read(rig: &Rig, name: &str) -> String {
     std::fs::read_to_string(rig.paths().pm.join(name)).unwrap_or_default()
 }
@@ -251,15 +254,27 @@ fn standing_notes_past_their_limit_are_condensed_on_the_next_wake() {
         "y".repeat(STANDING_MAX + 1),
     )
     .unwrap();
-    rig.ask(&runner, "tell", Some("Release is out"));
-    rig.claude.script([Scripted::Say("{\"pick\": null}")]);
+    rig.ask(&runner, "tell", Some("first"));
+    rig.claude.script([
+        Scripted::Say("{\"pick\": null}"),
+        Scripted::Say("{\"pick\": null}"),
+    ]);
     answered(step(&runner).unwrap());
-
-    let [wake] = pm_seen(&rig).try_into().unwrap();
-    let prompt = &wake.call.prompt;
+    let [first] = pm_seen(&rig).try_into().unwrap();
     assert!(
-        prompt.contains("`pm-standing.md` is past 4 KiB. Condense it"),
+        first.call.prompt.contains(CONDENSE),
+        "{}",
+        first.call.prompt
+    );
+
+    rig.ask(&runner, "tell", Some("second"));
+    answered(step(&runner).unwrap());
+    let [_, second] = pm_seen(&rig).try_into().unwrap();
+    let prompt = &second.call.prompt;
+    assert!(
+        prompt.starts_with("Kelpie woke you again because:"),
         "{prompt}"
     );
+    assert!(prompt.contains(CONDENSE), "{prompt}");
     assert!(prompt.contains("\"standing\": null or"), "{prompt}");
 }
