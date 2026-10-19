@@ -7,7 +7,7 @@ use super::*;
 use crate::coderabbit::LABEL;
 use crate::ports::{CLEAN, Checks, PullRequestState, Session};
 use crate::runner::{StepReport, step};
-use crate::test::{Hold, Rig, Scripted, git};
+use crate::test::{Hold, Rig, Scripted, git, ticket};
 
 // Pull request 80 on `fix/timeline`, opened by kelpie's account from another
 // session: two commits pushed by hand, closing issue 5. Returns its head.
@@ -39,7 +39,7 @@ fn waiting(numbers: &[u64], by_label: bool) -> serde_json::Value {
 }
 
 fn file_5(rig: &Rig) -> PathBuf {
-    rig.paths().build(5).join("adopted-pull-request.md")
+    rig.paths().build(ticket(5)).join("adopted-pull-request.md")
 }
 
 #[test]
@@ -82,7 +82,7 @@ fn adopt_starts_at_ci_and_the_first_turn_names_the_file_ahead_of_the_red_run() {
     step(&runner).unwrap();
     let [seen] = rig.claude.seen().try_into().unwrap();
     assert!(matches!(seen.call.session, Session::New(_)));
-    assert_eq!(seen.call.cwd, rig.paths().worktree(5));
+    assert_eq!(seen.call.cwd, rig.paths().worktree(ticket(5)));
     let named = format!(
         "/mattpocock:diagnosing-bugs Your work item adopts pull request #80 for issue #5: \
          Title of #5\n\n\
@@ -102,7 +102,7 @@ fn adopt_starts_at_ci_and_the_first_turn_names_the_file_ahead_of_the_red_run() {
     rig.assert_worker_reads(&seen, &file_5(&rig));
 
     let fixed = rig.forge.head_of("fix/timeline").unwrap();
-    let worktree = rig.paths().worktree(5);
+    let worktree = rig.paths().worktree(ticket(5));
     assert_eq!(
         git(&worktree, &["rev-parse", &format!("{fixed}~1")]),
         head,
@@ -431,7 +431,7 @@ fn a_branch_behind_main_is_caught_up_by_a_merge_never_a_rewrite() {
     let Some(StepReport::Rebased { head: merged, .. }) = step(&runner).unwrap() else {
         panic!("the branch was not caught up");
     };
-    let worktree = rig.paths().worktree(5);
+    let worktree = rig.paths().worktree(ticket(5));
     assert_eq!(
         git(
             &worktree,
@@ -590,7 +590,7 @@ fn a_start_retried_after_a_failure_begins_at_the_head_origin_holds_now() {
             agent: "sonnet-high".to_owned().try_into().unwrap(),
         })
     );
-    let worktree = rig.paths().worktree(5);
+    let worktree = rig.paths().worktree(ticket(5));
     assert_eq!(git(&worktree, &["rev-parse", "HEAD"]), moved);
     assert!(matches!(
         step(&runner).unwrap(),

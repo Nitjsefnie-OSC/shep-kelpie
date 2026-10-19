@@ -19,7 +19,7 @@ use crate::local_paths::LocalPaths;
 use crate::pacer::Assessment;
 use crate::ports::{
     Forge, ForgeError, ForgeHold, Guarded, GuardedVoice, KeychainBlocked, PacedVoice, Ports,
-    RateHeld, RecordedVoice, Say, SessionId, Timestamp,
+    RateHeld, RecordedVoice, Say, Timestamp,
 };
 use crate::review_bot::{Bot, Profile};
 use crate::settings::{
@@ -28,7 +28,7 @@ use crate::settings::{
 use crate::skills::{RepoPlugins, Skills};
 use crate::state::{ProjectState, Ruling, StateError, StateStore};
 use crate::webhook::{KelpieSettings, Webhook};
-use crate::work_item::{ReviewCallState, Seat, Timings, WorkItem, new_session_id};
+use crate::work_item::{ReviewCallState, Seat, WorkItem, new_session_id};
 
 mod adopt;
 #[cfg(test)]
@@ -58,6 +58,7 @@ mod effects;
 mod finishing;
 mod flight;
 mod follow_up;
+mod fresh;
 mod friction;
 mod gate;
 mod gpu;
@@ -827,7 +828,9 @@ impl Runner {
         let session = new_session_id().map_err(|e| AddError::Session(e.to_string()))?;
         let mut next = self.state.clone();
         let pinned = pinned(&found.labels);
-        let mut item = self.fresh(issue, found.title, agent.clone(), session);
+        let mut item = self
+            .fresh(issue, found.title, agent.clone(), session)
+            .map_err(AddError::Forge)?;
         item.pinned = pinned;
         next.work_items.push(item);
         Self::label_ruled(&mut next, issue);
@@ -858,23 +861,6 @@ impl Runner {
             )
         });
         Ok((agent, note))
-    }
-
-    // A work item on `kelpie/<issue>` whose first turn is due, with nothing
-    // recorded yet
-    fn fresh(&self, issue: u64, title: String, agent: AgentName, session: SessionId) -> WorkItem {
-        WorkItem {
-            timings: Some(Timings::starting(self.ports.clock.now())),
-            ..WorkItem::new(
-                issue,
-                title,
-                format!("kelpie/{issue}"),
-                self.paths.worktree(issue),
-                self.paths.build(issue),
-                agent,
-                session,
-            )
-        }
     }
 
     // The work item the runner is working on, while it is open

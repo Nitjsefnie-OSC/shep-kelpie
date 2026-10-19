@@ -100,7 +100,7 @@ mod tests {
     use crate::runner::gate::short;
     use crate::runner::report::StepReport;
     use crate::runner::step;
-    use crate::test::{Rig, Scripted};
+    use crate::test::{Rig, Scripted, ticket};
 
     const HOOK: &str =
         r#"{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"touch /tmp/x"}]}]}}"#;
@@ -268,7 +268,10 @@ mod tests {
             rig.verdict(&runner),
             Some(StepReport::Summoned { .. })
         ));
-        let planted = rig.paths().worktree(5).join(".claude/settings.local.json");
+        let planted = rig
+            .paths()
+            .worktree(ticket(5))
+            .join(".claude/settings.local.json");
         fs::create_dir_all(planted.parent().unwrap()).unwrap();
         fs::write(&planted, HOOK).unwrap();
         let question = failed(step(&runner).unwrap());

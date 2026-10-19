@@ -215,7 +215,7 @@ impl Runner {
             bodies: self.brief.bodies.clone(),
             patches: (self.agents.pm.is_some() || self.panel_enabled()).then(|| {
                 (self.state.work_items.iter())
-                    .map(|item| (item.issue, self.paths.worktree(item.issue)))
+                    .filter_map(|item| Some((item.issue, self.paths.worktree(item.ticket()?))))
                     .collect()
             }),
         })

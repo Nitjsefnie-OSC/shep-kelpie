@@ -13,7 +13,7 @@ use crate::runner::retro::journal;
 use crate::runner::{CHECKS_SETTLE, Runner, StepReport, step};
 use crate::settings::Harness;
 use crate::state::{Finished, ProjectState, StateStore};
-use crate::test::{CALL_PATIENCE, Hold, NO_RETRO, Rig, Scripted, Seen};
+use crate::test::{CALL_PATIENCE, Hold, NO_RETRO, Rig, Scripted, Seen, ticket};
 use crate::usage::{FILE, read};
 use crate::work_item::Seconds;
 
@@ -496,7 +496,7 @@ fn a_drain_waits_on_a_retro_already_running_for_its_own_ceiling() {
 #[test]
 fn the_friction_a_worker_reported_in_its_pull_request_reaches_the_retro() {
     let (rig, runner) = parked_after(9);
-    let file = rig.paths().build(7).join("pull-request.md");
+    let file = rig.paths().build(ticket(7)).join("pull-request.md");
     fs::create_dir_all(file.parent().unwrap()).unwrap();
     let body = "feat: the thing\n\n## Friction\n\nThe lockfile fought me twice.\n\nResolves #7\n";
     fs::write(&file, body).unwrap();
@@ -518,7 +518,7 @@ fn the_friction_a_worker_reported_in_its_pull_request_reaches_the_retro() {
 #[test]
 fn a_pull_request_file_that_does_not_parse_falls_back_to_the_forges_body() {
     let (rig, runner) = parked_after(9);
-    let file = rig.paths().build(7).join("pull-request.md");
+    let file = rig.paths().build(ticket(7)).join("pull-request.md");
     fs::create_dir_all(file.parent().unwrap()).unwrap();
     fs::write(&file, "\n\n").unwrap();
     let (remote, number) = {
