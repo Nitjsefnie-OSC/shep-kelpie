@@ -159,6 +159,8 @@ pub(super) struct Notes {
     pub standing: String,
     /// This wake moved the older part of `pm-notes.md` into `pm-archive.md`
     pub rolled: bool,
+    /// This wake's roll was the first one, whatever the standing file holds
+    pub first_roll: bool,
     /// `pm-standing.md` is past its limit, so the wake asks for a shorter one
     pub condense: bool,
 }
@@ -291,7 +293,7 @@ fn notes_note(notes: &Notes) -> String {
         out.push_str(
             "Kelpie moved the older part of `pm-notes.md` to the end of `pm-archive.md`.\n",
         );
-        if notes.standing.trim().is_empty() {
+        if notes.first_roll || notes.standing.trim().is_empty() {
             out.push_str(
                 "Grep `pm-archive.md` for what the maintainer told you and any rule \
  a later wake must keep, and give them in `standing`.\n",

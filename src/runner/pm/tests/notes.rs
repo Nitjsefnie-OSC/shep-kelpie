@@ -278,3 +278,40 @@ fn standing_notes_past_their_limit_are_condensed_on_the_next_wake() {
     assert!(prompt.contains(CONDENSE), "{prompt}");
     assert!(prompt.contains("\"standing\": null or"), "{prompt}");
 }
+
+#[test]
+fn a_tell_answered_before_the_first_roll_does_not_hide_the_first_roll() {
+    let (rig, runner) = with_pm("koji");
+    rig.ask(&runner, "tell", Some("Never merge a head with CI red"));
+    rig.claude.script([
+        Scripted::Say("{\"pick\": null}"),
+        Scripted::Say("{\"pick\": null}"),
+    ]);
+    answered(step(&runner).unwrap());
+    assert!(
+        read(&rig, PM_STANDING).contains("Never merge a head with CI red"),
+        "the answered tell created the standing notes, which is no proof that nothing has \
+         been rolled away yet"
+    );
+
+    std::fs::write(rig.paths().pm.join(crate::ports::PM_NOTES), log_of(40)).unwrap();
+    rig.ask(&runner, "tell", Some("Release is out"));
+    answered(step(&runner).unwrap());
+
+    let [_, second] = pm_seen(&rig).try_into().unwrap();
+    let prompt = &second.call.prompt;
+    assert!(
+        prompt.starts_with("You are the project manager for koji."),
+        "the wake that rolls for the first time is still a full one: {prompt}"
+    );
+    assert!(
+        prompt.contains("Grep `pm-archive.md` for what the maintainer told you"),
+        "{prompt}"
+    );
+    assert!(!read(&rig, PM_ARCHIVE).is_empty());
+    let standing = read(&rig, PM_STANDING);
+    assert!(
+        standing.contains("Never merge a head with CI red"),
+        "what a tell already kept stays kept: {standing}"
+    );
+}

@@ -122,31 +122,42 @@ impl Runner {
         let folder = self.paths.pm.clone();
         let standing = std::fs::read_to_string(folder.join(PM_STANDING)).unwrap_or_default();
         let condense = standing.len() > STANDING_MAX;
-        let rolled = match roll(&folder.join(PM_NOTES), &folder.join(PM_ARCHIVE)) {
+        let archive = folder.join(PM_ARCHIVE);
+        // The archive is what a roll creates, so its absence is the first roll.
+        // The standing file is no proof of one: an answered tell creates it.
+        let first = !archive.exists();
+        let rolled = match roll(&folder.join(PM_NOTES), &archive) {
             Ok(moved) => moved.is_some(),
             Err(why) => {
                 self.notes.push(format!("cannot roll the notes: {why}"));
                 false
             }
         };
-        if rolled && !folder.join(PM_STANDING).exists() {
+        let first_roll = rolled && first;
+        if first_roll {
             self.first_roll(&folder);
         }
         prompt::Notes {
             standing,
             rolled,
+            first_roll,
             condense,
         }
     }
 
-    // The first roll: nothing has been kept out of the log yet, so this wake
-    // is told in full and mines the standing decisions out of the archive.
+    // The first roll: nothing has been moved out of the log before, so this
+    // wake is told in full and mines the standing decisions out of the
+    // archive. What a tell already put in the standing notes stays there.
     fn first_roll(&mut self, folder: &Path) {
-        if let Err(e) = std::fs::write(folder.join(PM_STANDING), "") {
+        self.pm.full_prompt = true;
+        let standing = folder.join(PM_STANDING);
+        if standing.exists() {
+            return;
+        }
+        if let Err(e) = std::fs::write(&standing, "") {
             self.notes
                 .push(format!("cannot write {PM_STANDING}: {}", e.kind()));
         }
-        self.pm.full_prompt = true;
     }
 
     /// Writes `text` as the whole of the standing notes, or says why they
