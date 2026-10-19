@@ -61,10 +61,10 @@ pub(super) fn roll(notes: &Path, archive: &Path) -> Result<Option<usize>, String
 }
 
 // The byte a roll cuts at: the latest `## ` entry's start that leaves at
-// least [`NOTES_KEEP] in the notes, else the latest line's start that does,
+// least [`NOTES_KEEP`] in the notes, else the latest line's start that does,
 // else the byte that leaves that much.
 fn cut_at(text: &str) -> usize {
-    let last = text.len() - NOTES_KEEP;
+    let last = text.len().saturating_sub(NOTES_KEEP);
     let mut line = 0;
     let mut entry = 0;
     for at in line_starts(text) {
