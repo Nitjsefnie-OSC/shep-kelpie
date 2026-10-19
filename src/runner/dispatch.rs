@@ -21,7 +21,9 @@ impl Runner {
     // The step runs this only while the board may open a work item, and it
     // opens at most one, so nothing here checks `concurrency.active_items` again.
     pub(super) fn dispatch(&mut self) -> Result<Begin, StateError> {
-        let listed = (self.ports.forge)
+        let listed = self
+            .ports
+            .tickets
             .ready_issues(&self.remote)
             .and_then(|ready| self.open_listed().map(|open| (ready, open)));
         let (mut ready, open) = match listed {
@@ -234,7 +236,7 @@ impl Runner {
             .iter()
             .copied()
             .filter(|&n| !ready.iter().any(|r| r.number == n))
-            .filter(|&n| self.ports.forge.issue(repo, n).is_ok_and(|i| !i.open))
+            .filter(|&n| self.ports.tickets.issue(repo, n).is_ok_and(|i| !i.open))
             .collect();
         if closed.is_empty() {
             return Ok(());
@@ -262,7 +264,7 @@ impl Runner {
         let gone: Vec<u64> = (self.state.dropped.iter().copied())
             .filter(|&n| {
                 self.ports
-                    .forge
+                    .tickets
                     .issue(repo, n)
                     .is_ok_and(|i| unlabelled(&i))
             })

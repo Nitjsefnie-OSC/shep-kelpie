@@ -818,7 +818,7 @@ impl Runner {
         }
         let found = self
             .ports
-            .forge
+            .tickets
             .issue(&self.remote, issue)
             .map_err(AddError::Forge)?;
         let (agent, note) = self

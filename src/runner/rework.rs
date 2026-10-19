@@ -335,7 +335,7 @@ impl Runner {
             .ok_or(ReworkError::NothingToRework(number))?;
         let found = self
             .ports
-            .forge
+            .tickets
             .issue(repo, issue)
             .map_err(|e| ReworkError::Issue(issue, e))?;
         let (agent, note) = self

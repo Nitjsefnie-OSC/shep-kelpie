@@ -540,7 +540,7 @@ impl Runner {
             None => {
                 let issue = self
                     .ports
-                    .forge
+                    .tickets
                     .issue(&self.remote, item.issue)
                     .map_err(|e| format!("cannot read issue #{}: {e}", item.issue))?;
                 self.skills
