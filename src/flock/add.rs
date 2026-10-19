@@ -24,7 +24,7 @@ use crate::dog;
 use crate::home::ProjectName;
 use crate::ports::{Forge, NewLabel};
 use crate::runner::{HUMAN, IN_PROGRESS, SUMMON_LABEL as SUMMON};
-use crate::settings::{Settings, table_of};
+use crate::settings::{DEFAULT_BASE, Settings, table_of};
 use crate::shepherd::{Connection, DOG};
 
 /// The labels kelpie reads and sets on a project's issues and pull requests
@@ -129,10 +129,10 @@ pub async fn add(
     let branch = forge
         .default_branch(repo)
         .map_err(|e| asked("default branch", &e))?;
-    if branch != "main" {
+    if branch != DEFAULT_BASE {
         return Err(format!(
             "{slug}'s default branch is {branch}, and kelpie cuts and merges every branch \
-             against `main`"
+             against `{DEFAULT_BASE}`"
         ));
     }
     let rows = flock(client).await?;

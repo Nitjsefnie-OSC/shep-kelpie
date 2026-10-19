@@ -577,12 +577,13 @@ impl Runner {
         let skills = Skills::load(&settings.skills, &paths.skills);
         let repo_plugins = RepoPlugins::load(
             checkout,
+            settings.git.base(),
             &paths.kelpie_home,
             &paths.skills,
             ports.git.as_ref(),
             &settings.repo_setup,
         );
-        let plugins_head = crate::skills::default_head(checkout);
+        let plugins_head = crate::skills::default_head(checkout, settings.git.base());
         check_coderabbit(&remote, &lineup, &ports)?;
         check_local(&lineup, &ports)?;
         let mut state = store.load()?.unwrap_or_default();

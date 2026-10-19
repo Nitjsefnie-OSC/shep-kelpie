@@ -80,6 +80,7 @@ impl Runner {
         browser: Option<BrowserProof>,
     ) -> bool {
         let repo = self.settings.git.checkout.clone();
+        let base = self.settings.git.base();
         let (worktree, door) = (
             self.paths.bump_worktree(pull_request),
             self.paths.door.clone(),
@@ -89,8 +90,13 @@ impl Runner {
         let head_run = head.to_owned();
         let run = move || {
             let verdict = catch_unwind(AssertUnwindSafe(|| {
-                let fetched =
-                    worktree::contribution_checkout(&repo, pull_request, &head_run, &worktree);
+                let fetched = worktree::contribution_checkout(
+                    &repo,
+                    pull_request,
+                    &head_run,
+                    &worktree,
+                    base,
+                );
                 let verdict = match fetched {
                     Ok(()) => prove(browser, &worktree, || {
                         runner.run(&E2eRun {

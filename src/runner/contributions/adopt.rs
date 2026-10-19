@@ -33,7 +33,6 @@ use crate::issues::AgentLabel;
 use crate::ports::Reviewed;
 use crate::state::{Adopting, Held, How, Ruling, RulingKind, StateError, Waiting};
 use crate::ticket::TicketId;
-use crate::worktree::BASE;
 
 impl Runner {
     // Whether the release stage stops for the pull request this poll: the
@@ -107,10 +106,11 @@ impl Runner {
         // kelpie can start: the board would refuse it every poll and post the
         // refusal on the contributor's pull request. Nothing is filed for it
         // while that stands.
-        if pr.base != BASE {
+        let base = self.settings.git.base();
+        if pr.base != base {
             return self.ask_adopt(
                 number,
-                format!("it merges into `{}`, not `{}`", pr.base, BASE),
+                format!("it merges into `{}`, not `{base}`", pr.base),
             );
         }
         // The issue its work item hangs on: the one an earlier poll filed for

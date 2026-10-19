@@ -40,7 +40,12 @@ impl Runner {
         {
             return Ok(false);
         }
-        match worktree::holds_work(&self.settings.git.checkout, &tree, &branch) {
+        match worktree::holds_work(
+            &self.settings.git.checkout,
+            &tree,
+            &branch,
+            self.settings.git.base(),
+        ) {
             Ok(held) => Ok(!held),
             Err(e) => {
                 let note = format!(

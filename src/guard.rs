@@ -64,7 +64,7 @@ use serde::Deserialize;
 use crate::confine::Verdict;
 use crate::hooks::{Hooks, Role};
 use crate::local_paths::{Leak, LocalPaths, Surface};
-use crate::settings::HookPoint;
+use crate::settings::{DEFAULT_BASE, HookPoint};
 use judging::{CallState, Judging};
 
 /// Where the worker's own git lives
@@ -74,6 +74,8 @@ pub struct Checkout<'a> {
     pub git_common_dir: &'a Path,
     /// The work item's worktree
     pub worktree: &'a Path,
+    /// The project's base branch, which only the project manager changes
+    pub base: &'a str,
 }
 
 // A message file larger than this is not a message.
@@ -92,6 +94,10 @@ const MAX_COMMANDS: usize = 200;
 /// How the hook's command line names one more folder to keep off the forge
 pub const FOLDER_FLAG: &str = "--folder=";
 
+/// How the hook's command line names the project's base branch, when it is
+/// not the default
+pub const BASE_FLAG: &str = "--base=";
+
 /// How the hook's command line asks for an allowed command to be handed
 /// back to run only where it has been judged
 ///
@@ -104,6 +110,22 @@ pub const PIN_FLAG: &str = "--pin-folder";
 /// stdin again in the folder it runs in, when that is not the one the hook
 /// judged it in
 pub const HERE_FLAG: &str = "--judge-here";
+
+/// The flag that names `base` on the hook's command line: none for the
+/// default, which a guard without it takes
+pub fn base_flag(base: &str) -> Option<String> {
+    (base != DEFAULT_BASE).then(|| format!("{BASE_FLAG}{base}"))
+}
+
+/// The base branch `args` names, the default without one, and the rest of them
+pub fn take_base(args: &[String]) -> (String, Vec<String>) {
+    let named = args.iter().rev().find_map(|a| a.strip_prefix(BASE_FLAG));
+    let rest = args.iter().filter(|a| !a.starts_with(BASE_FLAG));
+    (
+        named.unwrap_or(DEFAULT_BASE).to_owned(),
+        rest.cloned().collect(),
+    )
+}
 
 /// Whether `args` asks for [`PIN_FLAG`], and the rest of them
 pub fn pin_flag(args: &[String]) -> (bool, Vec<String>) {

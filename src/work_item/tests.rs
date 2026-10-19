@@ -261,9 +261,9 @@ fn a_work_item_saved_before_phases_reads_as_implementing() {
 #[test]
 fn the_review_diffs_from_main_unless_a_pull_request_arrived_at_a_head() {
     let mut item = a_work_item();
-    assert_eq!(item.review_base(), "origin/main");
+    assert_eq!(item.review_base("main"), "origin/main");
     item.arrived = Some("c0ffee".into());
-    assert_eq!(item.review_base(), "c0ffee");
+    assert_eq!(item.review_base("main"), "c0ffee");
 }
 
 #[test]

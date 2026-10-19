@@ -403,6 +403,7 @@ fn judged(judge: Judging, tool: &str) -> Verdict {
             Checkout {
                 git_common_dir: Path::new("/nowhere"),
                 worktree: Path::new("/k/wt"),
+                base: "main",
             },
             Path::new("/k/build"),
             &[],

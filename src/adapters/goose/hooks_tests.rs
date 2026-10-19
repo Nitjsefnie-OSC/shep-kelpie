@@ -122,6 +122,7 @@ fn the_hook_carries_the_guard_arguments_the_worker_s_fence_names() {
     fence.guard.kelpie = kelpie;
     fence.guard.folders = vec![PathBuf::from("/k/home"), PathBuf::from("/k/o'brien")];
     fence.guard.hooks = hooks.clone();
+    fence.guard.base = "v2".to_owned();
     let guard = fence.guard.clone();
     stand_in(&w, FRESH).prepare(&call).unwrap();
 
@@ -142,6 +143,7 @@ fn the_hook_carries_the_guard_arguments_the_worker_s_fence_names() {
             "--folder=/k/home".to_owned(),
             "--folder=/k/o'brien".to_owned(),
             hooks.flag().unwrap(),
+            "--base=v2".to_owned(),
             format!("--goose={}", guard.build.display()),
         ]
     );

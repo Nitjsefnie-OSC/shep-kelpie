@@ -118,6 +118,7 @@ fn a_plugin_hook_runs_and_kelpies_guard_still_blocks_what_it_blocks() {
     let checkout = || Checkout {
         git_common_dir: git_dir,
         worktree,
+        base: "main",
     };
     let local = || guard::local_paths(None, &words[4..]).unwrap();
     let verdict = guard::judge(merge.as_bytes(), None, local(), checkout());

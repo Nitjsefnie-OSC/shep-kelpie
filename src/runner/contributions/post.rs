@@ -24,7 +24,6 @@ use super::super::review::calls::diff_against;
 use super::pass::FOLDER;
 use crate::ports::{Finding, ForgeError, LineComment, Severity};
 use crate::state::StateError;
-use crate::worktree::BASE;
 
 /// What kind of post the representative is asked for
 const REVIEW: &str = "Write a pull request review of the contributor's latest push from the \
@@ -312,7 +311,7 @@ impl Runner {
     // cannot be read shows none, so every finding goes in the body.
     fn shown_lines(&self, work: &Work) -> BTreeMap<String, BTreeSet<u32>> {
         let worktree = (self.paths.folder.join(FOLDER)).join(work.number.to_string());
-        let base = format!("origin/{BASE}");
+        let base = format!("origin/{}", self.settings.git.base());
         match diff_against(&self.settings.git.checkout, &worktree, &base) {
             Ok(diff) => lines_shown(&diff),
             Err(why) => {

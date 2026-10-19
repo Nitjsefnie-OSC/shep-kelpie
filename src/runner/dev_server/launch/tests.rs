@@ -12,19 +12,19 @@ fn two() -> String {
 
 #[test]
 fn a_configuration_is_picked_by_name_else_the_first() {
-    let first = select(&two(), None).unwrap().unwrap();
+    let first = select(&two(), None, "main").unwrap().unwrap();
     assert_eq!(first.name.as_deref(), Some("api"));
-    let web = select(&two(), Some("web")).unwrap().unwrap();
+    let web = select(&two(), Some("web"), "main").unwrap().unwrap();
     assert_eq!(web.runtime_executable, "npm");
     assert_eq!(web.port, Some(3000));
     assert!(!web.auto_port);
-    let err = select(&two(), Some("worker")).unwrap_err();
+    let err = select(&two(), Some("worker"), "main").unwrap_err();
     assert!(err.contains("worker"), "{err}");
 }
 
 #[test]
 fn shep_launch_file_reads_with_its_fields() {
-    let shep = select(SHEP, None).unwrap().unwrap();
+    let shep = select(SHEP, None, "main").unwrap().unwrap();
     assert_eq!(shep.name.as_deref(), Some("shep-web"));
     assert_eq!(shep.runtime_executable, "npm");
     assert_eq!(shep.runtime_args, ["run", "dev", "--", "--port", "4421"]);
@@ -35,9 +35,9 @@ fn shep_launch_file_reads_with_its_fields() {
 
 #[test]
 fn a_file_with_no_configuration_or_no_json_starts_nothing_or_is_refused() {
-    assert_eq!(select(r#"{"configurations":[]}"#, None), Ok(None));
-    assert_eq!(select("{}", None), Ok(None));
-    assert!(select("not json", None).is_err());
+    assert_eq!(select(r#"{"configurations":[]}"#, None, "main"), Ok(None));
+    assert_eq!(select("{}", None, "main"), Ok(None));
+    assert!(select("not json", None, "main").is_err());
 }
 
 fn worktree_with(dirs: &[&str]) -> tempfile::TempDir {
@@ -103,7 +103,7 @@ fn main_without_the_file_has_none() {
             .unwrap()
             .success()
     );
-    assert_eq!(read(dir.path()), Ok(None));
+    assert_eq!(read(dir.path(), "main"), Ok(None));
 }
 
 fn git(dir: &Path, args: &[&str]) {
@@ -131,5 +131,8 @@ fn the_file_is_main_s_and_not_the_one_in_the_working_tree() {
     );
     std::fs::write(&file, r#"{"configurations":[{"runtimeExecutable":"sh"}]}"#).unwrap();
 
-    assert_eq!(read(dir.path()).unwrap().as_deref(), Some(SHEP.trim()));
+    assert_eq!(
+        read(dir.path(), "main").unwrap().as_deref(),
+        Some(SHEP.trim())
+    );
 }

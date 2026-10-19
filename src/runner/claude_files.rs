@@ -45,6 +45,7 @@ impl Runner {
             &item.branch,
             &item.remote,
             accepted,
+            self.settings.git.base(),
         ) {
             Ok((_, files)) if files.is_empty() => Ok(None),
             Ok((head, files)) => {
@@ -62,7 +63,12 @@ impl Runner {
     pub(super) fn claude_files_refusal(&self) -> Option<String> {
         let item = self.current()?;
         let accepted = item.claude_files_accepted.as_deref();
-        match fence::differ(&self.settings.git.checkout, &item.worktree, accepted) {
+        match fence::differ(
+            &self.settings.git.checkout,
+            &item.worktree,
+            accepted,
+            self.settings.git.base(),
+        ) {
             Ok(files) if files.is_empty() => None,
             Ok(files) => Some(format!(
                 "agents' own files in the worktree differ from main's: {}",

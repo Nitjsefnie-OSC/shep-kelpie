@@ -294,6 +294,7 @@ fn reach(
             worktree: checkout.to_owned(),
             build: checkout.to_owned(),
             git_common_dir: PathBuf::from(common),
+            base: settings.git.base().to_owned(),
             folders: vec![paths.kelpie_home.clone(), settings.git.checkout.clone()],
             issues: Some(rules),
             hooks: Hooks::new(
@@ -344,7 +345,7 @@ pub fn headless(
     let folder = project.paths.issues();
     let checkout = folder.join(&session.0);
     let repo = &project.settings.git.checkout;
-    worktree::view(repo, &checkout)
+    worktree::view(repo, &checkout, project.settings.git.base())
         .map_err(|e| format!("cannot check out main for the issue writer: {e}"))?;
     // Not through the runner, so its plugins are loaded here, into a folder of
     // the run's own that the runner's `skills/repo` never shares.
@@ -433,14 +434,21 @@ fn repo_plugins(
     }
     let paths = project.paths;
     let checkout = &project.settings.git.checkout;
-    let loaded = skills::RepoPlugins::load(checkout, &paths.kelpie_home, skills, git, setup);
+    let loaded = skills::RepoPlugins::load(
+        checkout,
+        project.settings.git.base(),
+        &paths.kelpie_home,
+        skills,
+        git,
+        setup,
+    );
     for notice in loaded.notices() {
         eprintln!("{notice}");
     }
     // Its folder is a view of the default branch, which Claude Code reads the
     // repo's own files from. Codex and pi do not, so they get the plugin.
-    let own_loaded =
-        writer.model.harness.reads_claude_files() && crate::fence::matches_main(checkout, view);
+    let own_loaded = writer.model.harness.reads_claude_files()
+        && crate::fence::matches_main(checkout, view, project.settings.git.base());
     let servers = match writer.model.harness.reads_claude_files() {
         true => loaded.mcp_servers(),
         false => skills::Servers::new(),

@@ -15,7 +15,6 @@ use crate::local_paths::Leak;
 use crate::panel::work_of;
 use crate::ports::ForgeError;
 use crate::worker_folder;
-use crate::worktree::BASE;
 
 /// The file the worker writes its pull request in, in its build folder
 pub(super) const FILE: &str = "pull-request.md";
@@ -166,7 +165,13 @@ impl Runner {
             }
         };
         let number = (self.ports.forge)
-            .create_pull_request(&self.remote, branch, BASE, &text.title, &text.body)
+            .create_pull_request(
+                &self.remote,
+                branch,
+                self.settings.git.base(),
+                &text.title,
+                &text.body,
+            )
             .inspect_err(|e| {
                 self.notes
                     .push(format!("cannot open a pull request from {branch}: {e}"));

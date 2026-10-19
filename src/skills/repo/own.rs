@@ -45,12 +45,17 @@ pub(super) struct Own {
 /// The repo's own files as `setup` loads them, or none where it loads none or the repo has none
 ///
 /// Reads `origin`'s default branch as the checkout last fetched it.
-pub(super) fn plan(checkout: &Path, into: &Path, setup: &RepoSetup) -> Option<RepoPlugin> {
+pub(super) fn plan(
+    checkout: &Path,
+    base: &str,
+    into: &Path,
+    setup: &RepoSetup,
+) -> Option<RepoPlugin> {
     if !setup.own {
         return None;
     }
-    super::default_head(checkout)?;
-    let read = read(checkout, setup);
+    super::default_head(checkout, base)?;
+    let read = read(checkout, base, setup);
     let own = match read {
         Ok(own) => own,
         Err(reason) => return Some(RepoPlugin::skipped(ID.to_owned(), reason)),
@@ -72,18 +77,18 @@ pub(super) fn plan(checkout: &Path, into: &Path, setup: &RepoSetup) -> Option<Re
     })
 }
 
-fn read(checkout: &Path, setup: &RepoSetup) -> Result<Own, String> {
+fn read(checkout: &Path, base: &str, setup: &RepoSetup) -> Result<Own, String> {
     let mut own = Own::default();
     for part in FOLDERS.into_iter().filter(|part| setup.loads(*part)) {
         let folder = format!("{}/{}", ".claude", part.as_str());
-        for (path, blob) in tree(checkout, &folder)? {
+        for (path, blob) in tree(checkout, base, &folder)? {
             own.files.insert(Path::new(part.as_str()).join(path), blob);
         }
     }
     if setup.loads(Part::Hooks) {
         // The file was read for the repo's plugins already; a file that is not
         // JSON is told there, and holds no hooks here.
-        if let Ok(Some((settings, _))) = settings_on_default_branch(checkout, false) {
+        if let Ok(Some((settings, _))) = settings_on_default_branch(checkout, base, false) {
             own.hooks = settings["hooks"]
                 .as_object()
                 .filter(|hooks| !hooks.is_empty())
@@ -91,16 +96,16 @@ fn read(checkout: &Path, setup: &RepoSetup) -> Result<Own, String> {
         }
     }
     if setup.loads(Part::Mcp) {
-        own.mcp = mcp_json(checkout);
+        own.mcp = mcp_json(checkout, base);
     }
     Ok(own)
 }
 
 // The servers of `.mcp.json` on `origin`'s default branch, none where the file is absent or
 // unreadable. The worktree's copy is a worker's to change, so it is never read.
-fn mcp_json(checkout: &Path) -> Servers {
-    use crate::worktree::{BASE, git};
-    let spec = format!("origin/{BASE}:{MCP_JSON}");
+fn mcp_json(checkout: &Path, base: &str) -> Servers {
+    use crate::worktree::git;
+    let spec = format!("origin/{base}:{MCP_JSON}");
     if git(checkout, ["cat-file", "-e", &spec]).is_err() {
         return Servers::new();
     }
@@ -111,8 +116,8 @@ fn mcp_json(checkout: &Path) -> Servers {
 
 // The regular files under `folder` on `origin`'s default branch, by path from `folder`. A link in
 // the tree is left out, so nothing the branch holds leads out of the plugin.
-fn tree(checkout: &Path, folder: &str) -> Result<Vec<(PathBuf, Vec<u8>)>, String> {
-    use crate::worktree::{BASE, in_repo};
+fn tree(checkout: &Path, base: &str, folder: &str) -> Result<Vec<(PathBuf, Vec<u8>)>, String> {
+    use crate::worktree::in_repo;
     let run = |args: &[&str]| -> Result<Vec<u8>, String> {
         let output = in_repo(checkout)
             .args(args)
@@ -123,7 +128,7 @@ fn tree(checkout: &Path, folder: &str) -> Result<Vec<(PathBuf, Vec<u8>)>, String
         }
         Err(String::from_utf8_lossy(&output.stderr).trim().to_owned())
     };
-    let branch = format!("origin/{BASE}");
+    let branch = format!("origin/{base}");
     let listing = run(&[
         "--literal-pathspecs",
         "ls-tree",
@@ -133,7 +138,7 @@ fn tree(checkout: &Path, folder: &str) -> Result<Vec<(PathBuf, Vec<u8>)>, String
         "--",
         folder,
     ])
-    .map_err(|e| format!("cannot read {folder} on {BASE}: {e}"))?;
+    .map_err(|e| format!("cannot read {folder} on {base}: {e}"))?;
     let mut files = Vec::new();
     for entry in listing.split(|b| *b == 0).filter(|e| !e.is_empty()) {
         let text = String::from_utf8_lossy(entry);
@@ -151,7 +156,7 @@ fn tree(checkout: &Path, folder: &str) -> Result<Vec<(PathBuf, Vec<u8>)>, String
             continue;
         };
         let blob = run(&["cat-file", "blob", sha])
-            .map_err(|e| format!("cannot read {path} on {BASE}: {e}"))?;
+            .map_err(|e| format!("cannot read {path} on {base}: {e}"))?;
         files.push((rest.to_owned(), blob));
     }
     Ok(files)

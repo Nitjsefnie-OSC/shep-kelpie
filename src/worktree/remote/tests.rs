@@ -66,6 +66,7 @@ impl Rig {
             &self.worktree(),
             branch,
             start,
+            "main",
             remote,
             &self.build(),
         )
@@ -94,6 +95,7 @@ impl Rig {
             &self.worktree(),
             branch,
             start,
+            "main",
             remote,
             &self.build(),
         )
@@ -244,6 +246,7 @@ fn a_new_worktree_on_main_without_main_is_an_error() {
         &rig.worktree(),
         "kelpie/7",
         Start::Main,
+        "main",
         &Remote::Origin,
         &rig.build(),
     )
@@ -311,7 +314,7 @@ fn a_fork_remote_cannot_move_origins_main() {
 
     let tip = origin_head(&rig.repo(), "kelpie/7", &hostile).unwrap();
     rig.prepare("kelpie/7", Start::Pushed, &hostile);
-    let base = base_of(&rig.repo(), "kelpie/7", &tip, &hostile).unwrap();
+    let base = base_of(&rig.repo(), "kelpie/7", &tip, &hostile, "main").unwrap();
 
     assert_eq!(tip, rig.rev("fork.git", "main"));
     assert_eq!(base, Base::Current);
@@ -334,7 +337,7 @@ fn rebase_and_remove_on_origin_behave_as_before() {
     git(&rig.repo(), &["push", "--quiet", "origin", "main"]);
     let work = head(&rig.repo(), &rig.worktree()).unwrap();
     assert_eq!(
-        base_of(&rig.repo(), "kelpie/7", &work, &origin).unwrap(),
+        base_of(&rig.repo(), "kelpie/7", &work, &origin, "main").unwrap(),
         Base::Behind
     );
 
@@ -345,6 +348,7 @@ fn rebase_and_remove_on_origin_behave_as_before() {
         &work,
         true,
         &origin,
+        "main",
     )
     .unwrap();
 
@@ -353,7 +357,7 @@ fn rebase_and_remove_on_origin_behave_as_before() {
     };
     assert_eq!(caught, rig.rev("origin.git", "kelpie/7"));
     assert_eq!(
-        base_of(&rig.repo(), "kelpie/7", &caught, &origin).unwrap(),
+        base_of(&rig.repo(), "kelpie/7", &caught, &origin, "main").unwrap(),
         Base::Current
     );
 
@@ -388,11 +392,20 @@ fn rebase_and_remove_on_a_fork_remote_push_and_delete_on_the_fork() {
     rig.prepare("kelpie/7", Start::Pushed, &fork);
     let work = head(&rig.repo(), &rig.worktree()).unwrap();
     assert_eq!(
-        base_of(&rig.repo(), "kelpie/7", &work, &fork).unwrap(),
+        base_of(&rig.repo(), "kelpie/7", &work, &fork, "main").unwrap(),
         Base::Behind
     );
 
-    let rebased = rebase(&rig.repo(), &rig.worktree(), "kelpie/7", &work, true, &fork).unwrap();
+    let rebased = rebase(
+        &rig.repo(),
+        &rig.worktree(),
+        "kelpie/7",
+        &work,
+        true,
+        &fork,
+        "main",
+    )
+    .unwrap();
 
     let Rebase::Pushed(caught) = rebased else {
         panic!("expected a push, got {rebased:?}");

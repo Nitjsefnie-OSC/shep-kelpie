@@ -35,6 +35,7 @@ impl WorkerTree {
         let checkout = Checkout {
             git_common_dir: &common,
             worktree: &worktree,
+            base: "main",
         };
         judge_with(
             call.to_string().as_bytes(),

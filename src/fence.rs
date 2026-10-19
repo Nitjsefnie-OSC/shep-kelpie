@@ -13,7 +13,7 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Component, Path, PathBuf};
 
-use crate::worktree::{self, BASE, Remote, WorktreeError, git};
+use crate::worktree::{self, Remote, WorktreeError, git};
 
 mod nested;
 
@@ -201,8 +201,9 @@ pub fn changed(
     branch: &str,
     remote: &Remote,
     accepted: Option<&str>,
+    base: &str,
 ) -> Result<(String, Vec<String>), WorktreeError> {
-    let head = worktree::head_with_main(repo, branch, remote)?;
+    let head = worktree::head_with_main(repo, branch, remote, base)?;
     let between = |range: &str| -> Result<Vec<String>, WorktreeError> {
         let names = git(repo, ["diff", "--name-only", "--no-renames", "-z", range])?;
         Ok(names
@@ -211,7 +212,7 @@ pub fn changed(
             .map(str::to_owned)
             .collect())
     };
-    let from_main = between(&format!("origin/{BASE}...{head}"))?;
+    let from_main = between(&format!("origin/{base}...{head}"))?;
     if from_main.is_empty() {
         return Ok((head, from_main));
     }
@@ -236,14 +237,15 @@ pub fn differ(
     repo: &Path,
     worktree: &Path,
     accepted: Option<&str>,
+    base: &str,
 ) -> Result<Vec<String>, WorktreeError> {
     let disk = on_disk(worktree)?;
     let hashes = hashed(repo, &disk)?;
-    let main = format!("origin/{BASE}");
+    let main = format!("origin/{base}");
     let head = worktree::head(repo, worktree)?;
-    let base = git(repo, ["merge-base", &head, &main])?;
+    let cut_at = git(repo, ["merge-base", &head, &main])?;
     let mut first = None;
-    for commit in [Some(main.as_str()), Some(base.as_str()), accepted]
+    for commit in [Some(main.as_str()), Some(cut_at.as_str()), accepted]
         .into_iter()
         .flatten()
     {
@@ -263,14 +265,14 @@ pub fn differ(
 /// maintainer accepted does not count: a call in such a worktree loads
 /// `main`'s own files and nothing else. A folder that is no worktree matches
 /// when `main` holds no such files. Any error counts as a mismatch.
-pub fn matches_main(repo: &Path, worktree: &Path) -> bool {
+pub fn matches_main(repo: &Path, worktree: &Path, base: &str) -> bool {
     let Ok(disk) = on_disk(worktree) else {
         return false;
     };
     let Ok(hashes) = hashed(repo, &disk) else {
         return false;
     };
-    let main = format!("origin/{BASE}");
+    let main = format!("origin/{base}");
     in_commit(repo, &main)
         .and_then(|trusted| compare(repo, &disk, &hashes, &trusted))
         .is_ok_and(|differing| differing.is_empty())
@@ -509,11 +511,11 @@ mod tests {
         }
 
         fn differ(&self, accepted: Option<&str>) -> Vec<String> {
-            differ(&self.repo(), &self.wt(), accepted).unwrap()
+            differ(&self.repo(), &self.wt(), accepted, "main").unwrap()
         }
 
         fn changed(&self, accepted: Option<&str>) -> Vec<String> {
-            changed(&self.repo(), "kelpie/7", &Remote::Origin, accepted)
+            changed(&self.repo(), "kelpie/7", &Remote::Origin, accepted, "main")
                 .unwrap()
                 .1
         }
@@ -817,22 +819,22 @@ mod tests {
     #[test]
     fn a_worktree_matches_main_only_when_its_files_are_origin_mains_now() {
         let w = World::new();
-        assert!(matches_main(&w.repo(), &w.wt()));
+        assert!(matches_main(&w.repo(), &w.wt(), "main"));
 
         // Cut before main changed its settings: it passes the check, but is not main's.
         w.commit(&w.repo(), SETTINGS, "{\"model\":\"x\"}\n");
         git(&w.repo(), &["push", "--quiet", "origin", "main"]);
         git(&w.repo(), &["fetch", "--quiet", "origin"]);
-        assert!(!matches_main(&w.repo(), &w.wt()));
+        assert!(!matches_main(&w.repo(), &w.wt(), "main"));
 
         let w = World::new();
         w.write(".claude/agents/a.md", "hi\n");
-        assert!(!matches_main(&w.repo(), &w.wt()));
+        assert!(!matches_main(&w.repo(), &w.wt(), "main"));
 
         // A folder with none of the files differs from a main that holds some.
         let bare = w.root.join("bare");
         fs::create_dir(&bare).unwrap();
-        assert!(!matches_main(&w.repo(), &bare));
+        assert!(!matches_main(&w.repo(), &bare, "main"));
     }
 
     #[test]

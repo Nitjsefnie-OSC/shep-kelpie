@@ -2,7 +2,7 @@
 //!
 //! `grill-with-docs` runs `domain-modeling`, which writes glossary terms and
 //! ADRs as decisions settle. Those go on a branch of their own, cut from
-//! `origin/main` into a worktree the session runs in, where its file tools
+//! `origin/<base>` into a worktree the session runs in, where its file tools
 //! may write `GLOSSARY.md` and `docs/adr/` and nothing else. When the session
 //! ends, kelpie commits what it wrote, pushes the branch, opens a draft pull
 //! request and links it from the GitHub issues the session filed.
@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use crate::ports::Forge;
 use crate::settings::ForgeSlug;
 use crate::ticket::TicketId;
-use crate::worktree::{self, BASE, Remote, Start, WorktreeError};
+use crate::worktree::{self, Remote, Start, WorktreeError};
 
 use super::Project;
 
@@ -34,7 +34,7 @@ pub struct Docs {
 }
 
 impl Docs {
-    /// Cuts a branch named for `run` from a fresh `origin/main`, in a worktree
+    /// Cuts a branch named for `run` from a fresh `origin/<base>`, in a worktree
     /// under the project's issues folder
     ///
     /// # Errors
@@ -54,6 +54,7 @@ impl Docs {
             &docs.worktree,
             &docs.branch,
             Start::Main,
+            project.settings.git.base(),
             &Remote::Origin,
             &docs.build,
         );
@@ -64,7 +65,10 @@ impl Docs {
             if !matches!(e, WorktreeError::Foreign(_) | WorktreeError::BranchTaken(_)) {
                 docs.discard(project);
             }
-            return Err(format!("cannot cut a docs branch from main: {e}"));
+            return Err(format!(
+                "cannot cut a docs branch from {}: {e}",
+                project.settings.git.base()
+            ));
         }
         Ok(docs)
     }
@@ -95,7 +99,7 @@ impl Docs {
     }
 
     /// Commits what the session wrote, pushes the branch, opens a draft pull
-    /// request into `main` and links it from the issues `filed`, then removes
+    /// request into the base branch and links it from the issues `filed`, then removes
     /// the worktree. Nothing written leaves nothing to do.
     ///
     /// Returns the lines to tell the maintainer.
@@ -142,7 +146,13 @@ impl Docs {
         pushed.map_err(|e| self.kept(format!("cannot commit and push it: {e}")))?;
         let remote = project.remote;
         let number = forge
-            .create_pull_request(remote, &self.branch, BASE, &title, &body)
+            .create_pull_request(
+                remote,
+                &self.branch,
+                project.settings.git.base(),
+                &title,
+                &body,
+            )
             .map_err(|e| {
                 // Nothing links the pushed branch, so take it off the remote
                 // again; the commit stays in the local branch.

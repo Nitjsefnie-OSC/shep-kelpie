@@ -688,6 +688,7 @@ fn guard_extension(fence: &Fence, web: bool) -> String {
             .map(|p| format!("{FOLDER_FLAG}{}", p.display())),
     );
     commands.extend(guard.hooks.flag());
+    commands.extend(guard.base_flag());
     // The project's `write` hooks ride on `confine`, and its `after_command` ones on
     // the guard again, run on each command's result.
     let mut confine = vec![

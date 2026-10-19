@@ -230,7 +230,13 @@ impl Runner {
     // Where `bump`, whose listing is `pr`, stands, and what to do about it.
     fn prove(&mut self, bump: &Bump, pr: &OpenPullRequest, now: Timestamp) -> Next {
         let repo = &self.settings.git.checkout;
-        match worktree::base_of(repo, &bump.branch, &bump.head, &Remote::Origin) {
+        match worktree::base_of(
+            repo,
+            &bump.branch,
+            &bump.head,
+            &Remote::Origin,
+            self.settings.git.base(),
+        ) {
             Err(e) => return Next::Waiting(format!("cannot tell where it stands on main: {e}")),
             Ok(Base::Lagging) => {
                 return Next::Waiting("waiting for its branch to match the forge's head".into());
@@ -310,7 +316,13 @@ impl Runner {
             return Next::Merge;
         }
         let repo = &self.settings.git.checkout;
-        let paths = worktree::changed_paths(repo, number, &bump.head, PATHS_LIMIT);
+        let paths = worktree::changed_paths(
+            repo,
+            number,
+            &bump.head,
+            PATHS_LIMIT,
+            self.settings.git.base(),
+        );
         let web = match paths {
             Ok(paths) => paths.iter().any(|p| self.settings.dependencies.is_web(p)),
             Err(e) => return Next::Waiting(format!("cannot list the files it changes: {e}")),

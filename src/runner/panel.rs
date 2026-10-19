@@ -536,7 +536,7 @@ impl Runner {
             return false;
         };
         let (repo, worktree) = (&self.settings.git.checkout, &item.worktree);
-        let base = format!("origin/{}", crate::worktree::BASE);
+        let base = format!("origin/{}", self.settings.git.base());
         let changed = super::review::changed_files(repo, worktree, &base);
         match changed {
             Ok(files) => files

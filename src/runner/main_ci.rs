@@ -13,7 +13,6 @@ use serde::Serialize;
 use super::Runner;
 use crate::ports::{BranchRun, ForgeError, Timestamp, WorkflowState};
 use crate::state::{MainNotice, Notice, RedWorkflow};
-use crate::worktree::BASE;
 
 /// A workflow red on `main`, as `status` shows it
 #[derive(Debug, Serialize)]
@@ -72,7 +71,10 @@ impl Runner {
     // forge's list of workflows is what drops one that can no longer run;
     // it is asked only while something is red.
     fn read_red(&self) -> Result<Read, ForgeError> {
-        let runs = self.ports.forge.branch_runs(&self.remote, BASE)?;
+        let runs = self
+            .ports
+            .forge
+            .branch_runs(&self.remote, self.settings.git.base())?;
         let mut read = still_red(&self.state.red, &runs);
         if !read.red.is_empty() {
             let workflows = self.ports.forge.workflows(&self.remote)?;

@@ -417,7 +417,7 @@ impl Runner {
                 return Ok(Pass::Started);
             }
             Begin::Triage(job) => {
-                self.launch_triage(job);
+                self.launch_triage(*job);
                 self.post();
                 return Ok(Pass::Started);
             }

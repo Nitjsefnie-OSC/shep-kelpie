@@ -27,7 +27,7 @@ use std::path::Path;
 use super::shell::Quoting;
 use super::wrap::Reach;
 use super::{Checkout, Home, REWRITE, SHOWN_CHARS, WRITE, files, moved, values};
-use crate::worktree::{self, BASE, WorktreeError};
+use crate::worktree::{self, WorktreeError};
 use front::{BUILTINS, front};
 pub(super) use runs::{bisect_run, makes_repo, scripts};
 
@@ -171,7 +171,7 @@ pub(super) fn judge(
         && !git.after_new_repo
         && fetch_reaches_clone(checkout.worktree, dir.as_deref())
     {
-        out.push(fetch_answered());
+        out.push(fetch_answered(checkout.base));
         return out;
     }
     if sub == "config"
@@ -188,8 +188,8 @@ pub(super) fn judge(
     // Where a push goes is judged wherever it runs from.
     let pushed = if sub == "push" {
         match refspecs(args) {
-            Ok(specs) if specs.iter().any(Refspec::to_base) => {
-                out.push(to_base());
+            Ok(specs) if specs.iter().any(|spec| spec.to_base(checkout.base)) => {
+                out.push(to_base(checkout.base));
                 return out;
             }
             Ok(specs) => specs,
@@ -272,7 +272,7 @@ pub(super) fn judge(
             .entry(key.clone())
             .or_insert_with(|| {
                 worktree::trusted(checkout.git_common_dir, checkout.worktree)
-                    .and_then(|run| read(&key, home, run))
+                    .and_then(|run| read(&key, home, checkout.base, run))
                     .map_err(|e| e.to_string())
             })
             .clone();
@@ -357,10 +357,10 @@ struct Refspec {
 impl Refspec {
     // Git matches `main`, `heads/main` and `refs/heads/main` to the remote's
     // branch. A source alone goes to the branch of its own name.
-    fn to_base(&self) -> bool {
+    fn to_base(&self, base: &str) -> bool {
         let named = self.destination.as_deref().unwrap_or(&self.source);
-        let full = format!("refs/heads/{BASE}");
-        [BASE, &full["refs/".len()..], &full].contains(&named)
+        let full = format!("refs/heads/{base}");
+        [base, &full["refs/".len()..], &full].contains(&named)
     }
 
     // `HEAD` or `@` alone goes to the branch checked out.
@@ -370,17 +370,18 @@ impl Refspec {
 }
 
 // What a worker is told instead of a fetch of the shared clone
-fn fetch_answered() -> String {
-    "kelpie fetches `origin/main` in this repo before each of your turns, and the \
-     clone's other refs are not yours to write, so a fetch here fails. To take main \
-     into your branch, run `git merge origin/main`."
-        .to_owned()
+fn fetch_answered(base: &str) -> String {
+    format!(
+        "kelpie fetches `origin/{base}` in this repo before each of your turns, and the \
+         clone's other refs are not yours to write, so a fetch here fails. To take {base} \
+         into your branch, run `git merge origin/{base}`."
+    )
 }
 
 /// The refusal for a push to the base branch
-fn to_base() -> String {
+fn to_base(base: &str) -> String {
     format!(
-        "only the project manager changes `{BASE}`, on the maintainer's ruling: push your own \
+        "only the project manager changes `{base}`, on the maintainer's ruling: push your own \
          branch with `git push origin HEAD`."
     )
 }
@@ -464,6 +465,7 @@ const PLAIN: [&str; 4] = [
 fn read(
     key: &Read,
     home: &Home,
+    base: &str,
     run: impl Fn(&[&str]) -> Result<String, WorktreeError>,
 ) -> Result<Vec<String>, WorktreeError> {
     // `--unified` alone makes `git log` print patches, so only patch reads take these.
@@ -472,8 +474,8 @@ fn read(
     match key {
         Read::Branch => {
             let branch = run(&["rev-parse", "--symbolic-full-name", "HEAD"])?;
-            if branch.trim() == format!("refs/heads/{BASE}") {
-                out.push(to_base());
+            if branch.trim() == format!("refs/heads/{base}") {
+                out.push(to_base(base));
             }
         }
         Read::PushConfig => {
@@ -495,13 +497,13 @@ fn read(
             // A file written and committed in one call is not staged when the
             // commit is judged, so the push reads what it sends. The base is
             // `origin`'s, which the worker cannot move, unlike its own branch's.
-            let base = format!("refs/remotes/origin/{BASE}");
-            let log = run(&["log", "--format=%B", source, "--not", &base])?;
+            let tip = format!("refs/remotes/origin/{base}");
+            let log = run(&["log", "--format=%B", source, "--not", &tip])?;
             if let Some(leak) = home.find_in_prose([log]) {
                 let what = "a message in the commits this push sends";
                 out.push(home.refusal(what, leak, REWRITE));
             }
-            let sent = patches(&["log", "-p", "--format=", source, "--not", &base])?;
+            let sent = patches(&["log", "-p", "--format=", source, "--not", &tip])?;
             for (file, leak) in home.added(&sent) {
                 let what = format!("{file} in the commits this push sends");
                 out.push(home.refusal(&what, leak, REWRITE));

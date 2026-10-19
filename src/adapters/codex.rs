@@ -724,6 +724,7 @@ fn hooks(fence: &Fence, tools: Tools) -> toml::Value {
             .map(|p| shell_quote(&format!("{FOLDER_FLAG}{}", p.display()))),
     )
     .chain(guard.hooks.flag().map(|flag| shell_quote(&flag)))
+    .chain(guard.base_flag().map(|flag| shell_quote(&flag)))
     .collect();
     let patch = match reading::patches_nothing(tools, fence) {
         true => refuse_patch(),

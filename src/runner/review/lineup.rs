@@ -82,7 +82,11 @@ impl Runner {
         let Some(item) = self.current() else {
             return Phase::Review(next);
         };
-        match self.choose_reviewer(&next, &item.worktree, &item.review_base()) {
+        match self.choose_reviewer(
+            &next,
+            &item.worktree,
+            &item.review_base(self.settings.git.base()),
+        ) {
             Ok(None) if !next.unread && item.bots_skipped.is_empty() => Phase::Ci {
                 head: None,
                 since: now,

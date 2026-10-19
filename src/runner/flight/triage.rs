@@ -55,6 +55,7 @@ pub(in crate::runner) struct Job {
 pub(in crate::runner) struct Research {
     pub(in crate::runner) call: AgentCall,
     pub(in crate::runner) checkout: PathBuf,
+    pub(in crate::runner) base: String,
     pub(in crate::runner) view: PathBuf,
     pub(in crate::runner) open: Vec<Listed>,
     pub(in crate::runner) most: usize,
@@ -295,14 +296,15 @@ fn researched(
     let Research {
         call,
         checkout,
+        base,
         view,
         open,
         most,
     } = research;
     // A view a crash left behind would stop the new one.
     let _ = worktree::remove_view(checkout, view);
-    if let Err(e) = worktree::view(checkout, view) {
-        let reason = format!("cannot make a view of origin/main: {e}");
+    if let Err(e) = worktree::view(checkout, view, base) {
+        let reason = format!("cannot make a view of origin/{base}: {e}");
         return (End::Turn(Err(AgentError::Setup(reason))), None);
     }
     indexed(call, notes, metrics, ending);

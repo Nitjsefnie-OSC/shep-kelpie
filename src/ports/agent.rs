@@ -239,6 +239,8 @@ pub struct Guard {
     pub build: PathBuf,
     /// The project repo's common git dir
     pub git_common_dir: PathBuf,
+    /// The project's base branch, which only the project manager changes
+    pub base: String,
     /// Folders besides the home folder whose paths stay off the forge: kelpie's
     /// home and the project's checkout
     pub folders: Vec<PathBuf>,
@@ -248,6 +250,14 @@ pub struct Guard {
     /// The project's own hooks, which the guard runs on a commit, a push and
     /// the text of a `gh` command, whatever the harness
     pub hooks: Hooks,
+}
+
+impl Guard {
+    /// The flag that names the base branch on `kelpie guard`'s command line,
+    /// none for the default
+    pub fn base_flag(&self) -> Option<String> {
+        crate::guard::base_flag(&self.base)
+    }
 }
 
 /// The prompt that asks a session to compact itself, which Claude Code runs as

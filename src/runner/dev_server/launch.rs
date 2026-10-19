@@ -1,13 +1,14 @@
-//! The project's launch configuration: `.claude/launch.json` as `main` has it
+//! The project's launch configuration: `.claude/launch.json` as its base
+//! branch has it
 //!
-//! It is read from `origin/main`, never the worktree, so a worker cannot widen
+//! It is read from `origin/<base>`, never the worktree, so a worker cannot widen
 //! its own dev server's sandbox by editing it.
 
 use std::path::{Component, Path, PathBuf};
 
 use serde::Deserialize;
 
-use crate::worktree::{BASE, git};
+use crate::worktree::git;
 
 /// The file, relative to the repo's root
 pub(super) const FILE: &str = ".claude/launch.json";
@@ -32,25 +33,25 @@ pub(super) struct Configuration {
     pub(super) auto_port: bool,
 }
 
-/// Whether `origin/main` of `checkout` has the file
-fn exists(checkout: &Path) -> bool {
-    let spec = format!("origin/{BASE}:{FILE}");
+/// Whether `origin/<base>` of `checkout` has the file
+fn exists(checkout: &Path, base: &str) -> bool {
+    let spec = format!("origin/{base}:{FILE}");
     git(checkout, ["cat-file", "-e", &spec]).is_ok()
 }
 
-/// The file's text on `origin/main` of `checkout`, or `None` when `main` has none
+/// The file's text on `origin/<base>` of `checkout`, or `None` when `base` has none
 ///
 /// # Errors
 ///
 /// Why git could not show a file that `main` has.
-pub(super) fn read(checkout: &Path) -> Result<Option<String>, String> {
-    if !exists(checkout) {
+pub(super) fn read(checkout: &Path, base: &str) -> Result<Option<String>, String> {
+    if !exists(checkout, base) {
         return Ok(None);
     }
-    let spec = format!("origin/{BASE}:{FILE}");
+    let spec = format!("origin/{base}:{FILE}");
     git(checkout, ["show", &spec])
         .map(Some)
-        .map_err(|e| format!("cannot read {FILE} on {BASE}: {e}"))
+        .map_err(|e| format!("cannot read {FILE} on {base}: {e}"))
 }
 
 /// The configuration `name` picks in `text`, or the first when `name` is `None`
@@ -60,16 +61,20 @@ pub(super) fn read(checkout: &Path) -> Result<Option<String>, String> {
 /// # Errors
 ///
 /// Why `text` is not a launch file, or that it has no configuration `name`.
-pub(super) fn select(text: &str, name: Option<&str>) -> Result<Option<Configuration>, String> {
+pub(super) fn select(
+    text: &str,
+    name: Option<&str>,
+    base: &str,
+) -> Result<Option<Configuration>, String> {
     let file: File = serde_json::from_str(text)
-        .map_err(|e| format!("{FILE} on {BASE} is not a launch file: {e}"))?;
+        .map_err(|e| format!("{FILE} on {base} is not a launch file: {e}"))?;
     let mut configurations = file.configurations.into_iter();
     match name {
         None => Ok(configurations.next()),
         Some(name) => configurations
             .find(|c| c.name.as_deref() == Some(name))
             .map(Some)
-            .ok_or_else(|| format!("{FILE} on {BASE} has no configuration named `{name}`")),
+            .ok_or_else(|| format!("{FILE} on {base} has no configuration named `{name}`")),
     }
 }
 

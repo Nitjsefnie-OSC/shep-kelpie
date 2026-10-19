@@ -70,12 +70,14 @@ impl Runner {
             return Ok(None);
         }
         let browser = &self.settings.browser;
-        let text = match launch::read(&self.settings.git.checkout)? {
+        let text = match launch::read(&self.settings.git.checkout, self.settings.git.base())? {
             Some(text) => text,
             None => return Ok(None),
         };
         let named = browser.configuration.as_ref();
-        let Some(configuration) = launch::select(&text, named.map(|n| n.as_str()))? else {
+        let Some(configuration) =
+            launch::select(&text, named.map(|n| n.as_str()), self.settings.git.base())?
+        else {
             return Ok(None);
         };
         let (port, picked) = self

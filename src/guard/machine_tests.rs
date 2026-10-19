@@ -19,6 +19,7 @@ fn judged(command: &str, home: &str) -> Verdict {
     let checkout = Checkout {
         git_common_dir: Path::new("/nowhere"),
         worktree: Path::new("/nowhere"),
+        base: "main",
     };
     judge(
         call.to_string().as_bytes(),
@@ -148,6 +149,7 @@ fn commit_of(text: &str) -> Verdict {
     let checkout = Checkout {
         git_common_dir: &common,
         worktree: &wt,
+        base: "main",
     };
     judge(
         call.to_string().as_bytes(),
@@ -192,6 +194,7 @@ fn the_folders_the_hook_is_given_are_kept_off_the_forge_too() {
         let checkout = Checkout {
             git_common_dir: Path::new("/nowhere"),
             worktree: Path::new("/nowhere"),
+            base: "main",
         };
         judge(
             call.to_string().as_bytes(),

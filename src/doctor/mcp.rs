@@ -17,6 +17,7 @@ use crate::settings::{NonBlank, Settings};
 pub(super) fn hosts(subject: String, settings: &Settings, here: Here<'_>) -> Option<Line> {
     let plugins = crate::skills::inspect(
         &settings.git.checkout,
+        settings.git.base(),
         here.kelpie_home,
         &settings.repo_setup,
     );

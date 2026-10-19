@@ -491,10 +491,12 @@ fn hooks(fence: &Fence) -> Value {
         .map(|flag| shell_quote(&flag));
     // The project's own hooks, which the guard runs on a commit, a push and a post.
     let hooks = guard.hooks.flag().map(|flag| shell_quote(&flag));
+    let base = guard.base_flag().map(|flag| shell_quote(&flag));
     let commands: Vec<String> = (commands.into_iter())
         .chain(folders)
         .chain(issues)
         .chain(hooks)
+        .chain(base)
         .collect();
     let mut guarded = entry(Some(GUARDED_TOOLS), &commands.join(" "));
     // Claude Code lets a call through when its hook outlasts the hook's
@@ -686,6 +688,7 @@ mod tests {
                     worktree: "/k/wt".into(),
                     build: "/k/build".into(),
                     git_common_dir: "/k/git".into(),
+                    base: "main".into(),
                     folders: Vec::new(),
                     issues: None,
                     hooks: Hooks::default(),
@@ -727,6 +730,20 @@ mod tests {
         );
     }
 
+    #[test]
+    fn the_guard_is_told_the_base_branch_only_when_it_is_not_the_default() {
+        let guard_command = |base: &str| {
+            let mut reach = reach_with(Hooks::default());
+            reach.fence.as_mut().unwrap().guard.base = base.to_owned();
+            let pre = settings(Tools::Work, &reach)["hooks"]["PreToolUse"].clone();
+            let pre = pre.as_array().unwrap();
+            let bash = pre.iter().find(|e| e["matcher"] == GUARDED_TOOLS).unwrap();
+            bash["hooks"][0]["command"].as_str().unwrap().to_owned()
+        };
+        assert!(guard_command("v2").ends_with(" '--base=v2'"));
+        assert!(!guard_command("main").contains("--base"));
+    }
+
     // A fenced worker's reach with `hooks` as the project's own.
     fn reach_with(hooks: Hooks) -> Reach {
         Reach {
@@ -745,6 +762,7 @@ mod tests {
                     worktree: "/k/wt".into(),
                     build: "/k/build".into(),
                     git_common_dir: "/k/git".into(),
+                    base: "main".into(),
                     folders: Vec::new(),
                     issues: None,
                     hooks,

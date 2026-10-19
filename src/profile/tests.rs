@@ -42,6 +42,7 @@ fn profile<'a>(hooks: &'a [GuardHook], domains: &'a [NonBlank]) -> WorkerProfile
         git_common_dir: Path::new("/k/repos/shep/.git"),
         git_dir: Path::new("/k/repos/shep/.git/worktrees/7"),
         branch: "kelpie/7",
+        base: "main",
         kelpie: Path::new("/opt/kelpie's bin/kelpie"),
         kelpie_home: Path::new("/k"),
         repo: Path::new("/k/repos/shep"),
@@ -160,6 +161,7 @@ fn a_kelpie_home_outside_the_shepherds_is_denied_around_the_workers_own() {
         git_common_dir: Path::new("/r/.git"),
         git_dir: Path::new("/r/.git/worktrees/7"),
         branch: "kelpie/7",
+        base: "main",
         kelpie: Path::new("/opt/kelpie"),
         kelpie_home: &kelpie,
         repo: Path::new("/r"),
@@ -285,6 +287,7 @@ fn build_env_points_into_the_build_folder_beside_cargo() {
         git_common_dir: Path::new("/k/repos/lab/.git"),
         git_dir: Path::new("/k/repos/lab/.git/worktrees/7"),
         branch: "kelpie/7",
+        base: "main",
         kelpie: Path::new("/opt/kelpie"),
         kelpie_home: Path::new("/k"),
         repo: Path::new("/k/repos/shep"),
@@ -470,6 +473,30 @@ fn a_push_to_the_base_branch_or_with_a_forcing_flag_is_denied() {
             "Bash(git push * +*)",
         ]
     );
+}
+
+#[test]
+fn another_base_branch_is_denied_in_place_of_main() {
+    let on_v2 = WorkerProfile {
+        base: "v2",
+        ..profile(&[], &[])
+    };
+    let s = on_v2.settings();
+    let deny = strings(&s["permissions"]["deny"]);
+    assert!(deny.contains(&"Bash(git push * v2)"), "{deny:?}");
+    assert!(!deny.contains(&"Bash(git push * main)"), "{deny:?}");
+    let no_write = strings(&s["sandbox"]["filesystem"]["denyWrite"]);
+    assert!(
+        no_write.contains(&"/k/repos/shep/.git/refs/heads/v2"),
+        "{no_write:?}"
+    );
+    assert!(
+        !no_write.contains(&"/k/repos/shep/.git/refs/heads/main"),
+        "{no_write:?}"
+    );
+    let reach = on_v2.reach();
+    let guard = &reach.fence.unwrap().guard;
+    assert_eq!(guard.base_flag().as_deref(), Some("--base=v2"));
 }
 
 #[test]

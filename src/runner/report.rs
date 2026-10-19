@@ -786,7 +786,7 @@ pub(super) enum Begin {
     /// it, which takes a slot while it runs
     Secure(super::contributions::Job),
     /// The triager's research of an untouched issue, which takes a slot while it runs
-    Triage(super::flight::triage::Job),
+    Triage(Box<super::flight::triage::Job>),
 }
 
 /// A review call, which runs in flight like a turn

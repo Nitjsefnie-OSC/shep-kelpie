@@ -773,6 +773,7 @@ fn worker_in(wt: &Path, build: &Path, kelpie: &Path, root: &Path, call: AgentCal
         git_common_dir: &git,
         git_dir: &git,
         branch: "kelpie/34",
+        base: "main",
         kelpie,
         kelpie_home: &root.join("kelpie"),
         repo: &root.join("repo"),

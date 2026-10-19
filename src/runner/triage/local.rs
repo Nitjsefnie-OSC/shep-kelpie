@@ -366,7 +366,7 @@ impl Runner {
             }
             self.flights.triage_try(issue);
             if let Some(job) = self.triage_job(issue, purpose, limited) {
-                return Ok(Some(Begin::Triage(job)));
+                return Ok(Some(Begin::Triage(Box::new(job))));
             }
         }
         Ok(None)

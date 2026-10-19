@@ -136,12 +136,13 @@ impl Runner {
         // fails leaves the plugin folders the runner is using as they were.
         let repo_plugins = RepoPlugins::plan(
             &self.settings.git.checkout,
+            self.settings.git.base(),
             &self.paths.kelpie_home,
             &self.paths.skills,
             self.ports.git.as_ref(),
             &settings.repo_setup,
         );
-        let plugins_head = default_head(&self.settings.git.checkout);
+        let plugins_head = default_head(&self.settings.git.checkout, self.settings.git.base());
         if repo_plugins != self.repo_plugins {
             changed.push("repo plugins");
         }
@@ -223,18 +224,19 @@ impl Runner {
     /// Returns a line for the log when the plugins changed.
     pub fn reread_plugins(&mut self) -> Option<String> {
         let checkout = &self.settings.git.checkout;
-        if default_head(checkout) == self.plugins_head {
+        if default_head(checkout, self.settings.git.base()) == self.plugins_head {
             return None;
         }
         let planned = RepoPlugins::plan(
             checkout,
+            self.settings.git.base(),
             &self.paths.kelpie_home,
             &self.paths.skills,
             self.ports.git.as_ref(),
             &self.settings.repo_setup,
         );
         // The plan fetched the branch, so this is the commit it read.
-        self.plugins_head = default_head(checkout);
+        self.plugins_head = default_head(checkout, self.settings.git.base());
         // A launch file the branch gained or lost turns the dev server on or off.
         self.refresh_features();
         if planned == self.repo_plugins {

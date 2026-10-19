@@ -42,7 +42,7 @@ pub(super) fn push(home: &Home, checkout: Checkout<'_>, sources: &[String]) -> V
     let mut out = Vec::new();
     for source in sources {
         let read = |run: &dyn Fn(&[&str]) -> Result<String, WorktreeError>| {
-            Ok(crate::hooks::commits_past_base(run, source)?.unwrap_or(Value::Null))
+            Ok(crate::hooks::commits_past_base(run, source, checkout.base)?.unwrap_or(Value::Null))
         };
         out.extend(judged("push", checkout, home, HookPoint::Push, read));
     }

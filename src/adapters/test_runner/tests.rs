@@ -65,6 +65,7 @@ impl World {
             git_common_dir: Path::new("/k/repo/.git"),
             git_dir: Path::new("/k/repo/.git/worktrees/7"),
             branch: "kelpie/7",
+            base: "main",
             kelpie: Path::new("/k/kelpie"),
             kelpie_home: Path::new("/k"),
             repo: Path::new("/k/repo"),

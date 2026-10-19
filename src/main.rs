@@ -106,10 +106,6 @@ fn main() -> ExitCode {
         [command, rest @ ..] if command == "lease" => shep_kelpie::lease::cli::main(rest),
         [role, git_common_dir, worktree, local @ ..] if role == "guard" => {
             let home = std::env::var_os("HOME").map(PathBuf::from);
-            let checkout = Checkout {
-                git_common_dir: Path::new(git_common_dir),
-                worktree: Path::new(worktree),
-            };
             let (issues, local) = guard::issue_rules(local);
             let (record, local) = guard::record_flag(&local);
             let (pin, local) = guard::pin_flag(&local);
@@ -120,8 +116,15 @@ fn main() -> ExitCode {
             let (goose, local) = guard::goose_flag(&local);
             let (goose_write, local) = guard::goose_write_flag(&local);
             let (servers, local) = guard::goose_server_flags(&local);
-            // `local` keeps the hooks' flag, which a pinned command judges with again.
-            let (hooks, folders) = match Hooks::take(&local) {
+            // `local` keeps the hooks' and the base's flags, which a pinned command
+            // judges with again.
+            let (base, named) = guard::take_base(&local);
+            let checkout = Checkout {
+                git_common_dir: Path::new(git_common_dir),
+                worktree: Path::new(worktree),
+                base: &base,
+            };
+            let (hooks, folders) = match Hooks::take(&named) {
                 Ok(taken) => taken,
                 Err(why) => return hook(Verdict::Refuse(why)),
             };

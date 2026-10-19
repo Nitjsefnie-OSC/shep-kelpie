@@ -81,7 +81,7 @@ impl Runner {
             .pull_request
             .expect("review starts once a pull request is known");
         let (ticket, worktree) = (item.issue, item.worktree.clone());
-        let base = item.review_base();
+        let base = item.review_base(self.settings.git.base());
         let build = item.build.clone();
         // A new pass reviews new code, so no fix of the last one will
         // resolve the bot threads it sent, its bots are asked afresh, and a
@@ -201,7 +201,11 @@ impl Runner {
             return Ok(held);
         }
         let item = self.current().expect("a review is a work item's");
-        let (ticket, worktree, base) = (item.issue, item.worktree.clone(), item.review_base());
+        let (ticket, worktree, base) = (
+            item.issue,
+            item.worktree.clone(),
+            item.review_base(self.settings.git.base()),
+        );
         let build = item.build.clone();
         let criteria = match self.criteria(ticket) {
             Ok(criteria) => criteria,

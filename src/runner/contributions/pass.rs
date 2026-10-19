@@ -40,7 +40,7 @@ use crate::settings::{AgentName, ListedReviewer};
 use crate::state::{Contribution, Pass, StateError, Walking};
 use crate::ticket::TicketId;
 use crate::work_item::LOCAL_FAILURES_DOWN;
-use crate::worktree::{self, BASE, Linked};
+use crate::worktree::{self, Linked};
 
 /// The folder under the project's folder where each contribution's pass is
 /// checked out, one folder each
@@ -52,6 +52,8 @@ pub(in crate::runner) struct Job {
     pub(in crate::runner) pull_request: u64,
     pub(in crate::runner) head: String,
     repo: PathBuf,
+    // The branch the contribution merges into
+    base: String,
     worktree: PathBuf,
     out: PathBuf,
     settings: PathBuf,
@@ -195,6 +197,7 @@ impl Runner {
             pull_request: number,
             head: contribution.head.clone(),
             repo: self.settings.git.checkout.clone(),
+            base: self.settings.git.base().to_owned(),
             home: self.home.clone(),
             worktree: folder.join(number.to_string()),
             out: folder.join(format!("{number}-out")),
@@ -297,14 +300,19 @@ impl Job {
             eprintln!("contribution #{number}: the pass left it unreviewed: {why}");
             Walked::default()
         };
-        let checkout =
-            worktree::contribution_checkout(&self.repo, number, &self.head, &self.worktree);
+        let checkout = worktree::contribution_checkout(
+            &self.repo,
+            number,
+            &self.head,
+            &self.worktree,
+            &self.base,
+        );
         if let Err(e) = checkout {
             return fail(format!("cannot check out {}: {e}", self.head));
         }
         // A harness loads its own files from the folder it runs in, and they
         // run code, so a head that changes them is read by no one.
-        match fence::differ(&self.repo, &self.worktree, None) {
+        match fence::differ(&self.repo, &self.worktree, None, &self.base) {
             Ok(files) if files.is_empty() => {}
             Ok(files) => {
                 let why = format!(
@@ -316,7 +324,7 @@ impl Job {
             }
             Err(e) => return fail(format!("cannot check its agents' own files: {e}")),
         }
-        let base = format!("origin/{BASE}");
+        let base = format!("origin/{}", self.base);
         let changed = match (self.reviewers.iter().any(|r| !r.paths.is_empty()))
             .then(|| changed_files(&self.repo, &self.worktree, &base))
         {
@@ -470,7 +478,7 @@ impl Job {
             repo: &self.repo,
             worktree: &self.worktree,
         };
-        let base = format!("origin/{BASE}");
+        let base = format!("origin/{}", self.base);
         let found = reviewer.round_watched(local, linked, &base, &self.out, 1, "", &|_| {});
         match found {
             Err(ReviewerError::Stopped) => Err(Stop::Stopped),
@@ -500,7 +508,7 @@ impl Job {
         };
         let diff = diff.get().map_err(Stop::Failed)?;
         let body = r.prompt.as_deref().unwrap_or_default();
-        let base = format!("origin/{BASE}");
+        let base = format!("origin/{}", self.base);
         let prompt = prompts::reviewer_prompt(
             body,
             &base,

@@ -623,20 +623,22 @@ impl Runner {
             &item.worktree,
             &item.branch,
             start,
+            self.settings.git.base(),
             &item.remote,
             &item.build,
         )
         .map_err(|e| e.to_string())?;
-        // The worker merges `origin/main` and runs no fetch of its own, so a
-        // fetch that failed leaves it merging a main kelpie last fetched.
+        // The worker merges `origin/<base>` and runs no fetch of its own, so a
+        // fetch that failed leaves it merging a base kelpie last fetched.
         let key = main_fetch_key(item.issue);
         match &dirs.main_fetch_failed {
             Some(why) => self.notes.standing(
                 &key,
                 format!(
-                    "issue #{}'s worker runs with `origin/main` where kelpie last fetched it: \
+                    "issue #{}'s worker runs with `origin/{}` where kelpie last fetched it: \
                      {why}",
-                    item.issue
+                    item.issue,
+                    self.settings.git.base()
                 ),
             ),
             None => self.notes.ends(&key),
@@ -656,6 +658,7 @@ impl Runner {
             git_common_dir: &dirs.git_common_dir,
             git_dir: &dirs.git_dir,
             branch: &item.branch,
+            base: self.settings.git.base(),
             kelpie: &self.kelpie,
             guard_hooks: &self.settings.worker.guard_hooks,
             kelpie_home: &self.paths.kelpie_home,
@@ -727,7 +730,11 @@ impl Runner {
             // A call in a worktree that matches `main` loads the repo's own
             // `.claude` files from it already, and must not get them twice.
             let own_loaded = call.harness.reads_claude_files()
-                && crate::fence::matches_main(&self.settings.git.checkout, &call.cwd);
+                && crate::fence::matches_main(
+                    &self.settings.git.checkout,
+                    &call.cwd,
+                    self.settings.git.base(),
+                );
             for plugin in self.repo_plugins.dirs(own_loaded) {
                 if !call.plugin_dirs.iter().any(|dir| dir == plugin) {
                     call.plugin_dirs.push(plugin.to_owned());

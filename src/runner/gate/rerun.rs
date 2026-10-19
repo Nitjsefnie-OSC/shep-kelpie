@@ -30,7 +30,9 @@ impl Runner {
 
     // Whether `logs` name no file the branch changed at `head`
     fn unrelated(&self, head: &str, logs: &str) -> bool {
-        let Ok(changed) = worktree::changed_files(&self.settings.git.checkout, head) else {
+        let Ok(changed) =
+            worktree::changed_files(&self.settings.git.checkout, head, self.settings.git.base())
+        else {
             return false;
         };
         let related = logs.trim().is_empty() || changed.is_empty() || names_any(logs, &changed);

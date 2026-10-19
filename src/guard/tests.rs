@@ -32,6 +32,7 @@ fn nowhere() -> Checkout<'static> {
     Checkout {
         git_common_dir: Path::new("/nowhere"),
         worktree: Path::new("/nowhere"),
+        base: "main",
     }
 }
 
@@ -107,11 +108,16 @@ impl WorkerTree {
     }
 
     fn bash_in(&self, cwd: &Path, command: &str) -> Verdict {
+        self.bash_on("main", cwd, command)
+    }
+
+    fn bash_on(&self, base: &str, cwd: &Path, command: &str) -> Verdict {
         let common = self.repo().join(".git");
         let worktree = self.path();
         let checkout = Checkout {
             git_common_dir: &common,
             worktree: &worktree,
+            base,
         };
         call(cwd, command, checkout)
     }
@@ -560,6 +566,7 @@ fn a_project_subagent_defined_with_isolation_is_refused() {
         let checkout = Checkout {
             git_common_dir: &common,
             worktree: &worktree,
+            base: "main",
         };
         judge(
             call.to_string().as_bytes(),
@@ -665,6 +672,7 @@ fn a_commit_from_the_home_folder_by_tilde_reads_the_worktree() {
     let checkout = Checkout {
         git_common_dir: &common,
         worktree: &worktree,
+        base: "main",
     };
     for command in [
         "cd ~/wt && git commit -m 'docs: notes'",
@@ -922,6 +930,7 @@ fn an_unreadable_call_is_refused() {
 }
 
 mod agents;
+mod base;
 mod fetch;
 mod hooks;
 mod killing;

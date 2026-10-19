@@ -189,6 +189,7 @@ pub(super) fn checks(
 fn repo_plugins(subject: String, settings: &Settings, here: Here<'_>) -> Option<Line> {
     let plugins = crate::skills::inspect(
         &settings.git.checkout,
+        settings.git.base(),
         here.kelpie_home,
         &settings.repo_setup,
     );
