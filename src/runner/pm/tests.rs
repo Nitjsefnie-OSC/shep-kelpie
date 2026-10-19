@@ -13,9 +13,12 @@ use crate::runner::{Pass, Runner, StepReport, step};
 use crate::settings::Harness;
 use crate::test::{CALL_PATIENCE, Hold, Rig, Scripted, Seen};
 
+use super::HOLD_FOR;
+
 mod attach;
 mod code;
 mod follow_up;
+mod hold;
 mod lease;
 mod notes;
 mod question;
@@ -52,6 +55,15 @@ fn name_pm(rig: &Rig) {
 fn pm_seen(rig: &Rig) -> Vec<Seen> {
     let all = rig.claude.all_seen().into_iter();
     all.filter(|s| s.call.role == Role::Pm).collect()
+}
+
+/// Moves the fake clock past [`HOLD_FOR`]
+///
+/// A held reason is queued as the pass that noticed it ends, and its window
+/// ends on a later one, so a test calls this once the reason is due, and waits
+/// for the wake after it.
+fn past_the_window(rig: &Rig) {
+    rig.clock.advance(HOLD_FOR);
 }
 
 fn answered(report: Option<StepReport>) -> (Vec<String>, Vec<String>, Vec<String>) {
@@ -104,6 +116,9 @@ fn a_worker_queued_for_its_lease_is_woken_for_the_wait_and_never_as_stuck() {
     );
     assert_eq!(driven.heard(), None, "the wait is no report");
     rig.clock.advance(11 * 60);
+    // The board tells the wait on this pass, which opens its window.
+    assert_eq!(step(&runner).unwrap(), None, "the wait is no report");
+    past_the_window(&rig);
 
     let (woke_for, acted, dropped) = answered(step(&runner).unwrap());
     assert_eq!(
@@ -117,7 +132,7 @@ fn a_worker_queued_for_its_lease_is_woken_for_the_wait_and_never_as_stuck() {
     assert_eq!((acted, dropped), (vec![], vec![]));
     let board = std::fs::read_to_string(rig.paths().board).unwrap();
     assert!(
-        board.contains("worker turn running for 11m, waiting for its model\n"),
+        board.contains("worker turn running for 14m, waiting for its model\n"),
         "{board}"
     );
     assert!(
@@ -137,7 +152,7 @@ fn a_worker_queued_for_its_lease_is_woken_for_the_wait_and_never_as_stuck() {
     assert_eq!(pm_seen(&rig).len(), 1, "the wait woke it a second time");
     let board = std::fs::read_to_string(rig.paths().board).unwrap();
     assert!(
-        board.contains("worker turn running for 30m, waiting for its model\n"),
+        board.contains("worker turn running for 33m, waiting for its model\n"),
         "{board}"
     );
     assert!(!board.contains("worker idle"), "{board}");
@@ -150,7 +165,7 @@ fn a_worker_queued_for_its_lease_is_woken_for_the_wait_and_never_as_stuck() {
     driven.pass();
     let board = std::fs::read_to_string(rig.paths().board).unwrap();
     assert!(
-        board.contains("#7: worker has its model's lease, after waiting 30m\n"),
+        board.contains("#7: worker has its model's lease, after waiting 33m\n"),
         "{board}"
     );
     work.release();
@@ -181,6 +196,9 @@ fn a_worker_quiet_ten_minutes_past_its_grant_is_stuck_as_ever() {
     assert_eq!(driven.heard(), None, "the grant is no report");
     assert!(work.entered(CALL_PATIENCE), "the turn never began");
     rig.clock.advance(10 * 60);
+    // The board tells the worker idle on this pass, which opens its window.
+    assert_eq!(step(&runner).unwrap(), None, "the idle line is no report");
+    past_the_window(&rig);
 
     let (woke_for, _, _) = answered(step(&runner).unwrap());
     assert_eq!(
@@ -188,7 +206,7 @@ fn a_worker_quiet_ten_minutes_past_its_grant_is_stuck_as_ever() {
         ["#7 is stuck: its worker has shown no tool call or output for 10m"]
     );
     let board = std::fs::read_to_string(rig.paths().board).unwrap();
-    let idle = "  - Session: worker turn running for 12m, idle: no tool call or output for 10m\n";
+    let idle = "  - Session: worker turn running for 15m, idle: no tool call or output for 13m\n";
     assert!(board.contains(idle), "{board}");
     work.release();
     assert!(work.answered(CALL_PATIENCE), "the turn never answered");
@@ -437,6 +455,7 @@ fn a_failed_turn_wakes_it_and_its_retry_runs_the_turn_again() {
         step(&runner).unwrap(),
         Some(StepReport::Failed { .. })
     ));
+    past_the_window(&rig);
     let report = step_until(&runner, |r| matches!(r, StepReport::PmAnswered { .. }));
     let (woke_for, acted, _) = answered(Some(report));
     assert_eq!(
@@ -468,6 +487,7 @@ fn a_re_scope_or_ask_goes_to_the_maintainer_on_the_items_ruling() {
         ),
     ]);
     step(&runner).unwrap();
+    past_the_window(&rig);
     let report = step_until(&runner, |r| matches!(r, StepReport::PmAnswered { .. }));
     let (_, acted, _) = answered(Some(report));
     assert_eq!(acted, ["put #7 to the maintainer on ruling 7"]);
@@ -500,6 +520,7 @@ fn its_words_reach_a_ruling_on_one_line_and_cut_short() {
     rig.claude
         .script([Scripted::Fail(failed), Scripted::Say(answer)]);
     step(&runner).unwrap();
+    past_the_window(&rig);
     step_until(&runner, |r| matches!(r, StepReport::PmAnswered { .. }));
     let ruling = &rig.ask(&runner, "status", None)["rulings"][0];
     let question = ruling["question"].as_str().unwrap();
@@ -628,6 +649,9 @@ fn an_idle_worker_wakes_it_and_a_retry_ends_the_call_and_resumes_it() {
     rig.claude
         .set_activity(CallActivity::At(Timestamp(Rig::EPOCH)));
     rig.clock.advance(11 * 60);
+    // The board tells the worker idle on this pass, which opens its window.
+    assert_eq!(step(&runner).unwrap(), None, "the idle line is no report");
+    past_the_window(&rig);
 
     let (woke_for, acted, _) = answered(step(&runner).unwrap());
     assert_eq!(

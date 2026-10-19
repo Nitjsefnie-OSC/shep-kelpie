@@ -4,7 +4,7 @@
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-use super::{answered, pm_seen, step_until, with_pm};
+use super::{answered, past_the_window, pm_seen, step_until, with_pm};
 use crate::ports::AgentError;
 use crate::profile::CREDENTIALS;
 use crate::runner::pm::call::SECRET_SHAPED;
@@ -32,6 +32,10 @@ fn with_open_commit(project: &str, commit: Scripted) -> (Rig, Mutex<Runner>, See
     let failed = AgentError::Failed(Harness::ClaudeCode, "it crashed".into());
     rig.claude
         .script([commit, Scripted::Fail(failed), Scripted::Say(NOTHING)]);
+    step_until(&runner, |r| {
+        matches!(r, StepReport::Failed { issue: 7, .. })
+    });
+    past_the_window(&rig);
     answered(Some(step_until(&runner, |r| {
         matches!(r, StepReport::PmAnswered { .. })
     })));

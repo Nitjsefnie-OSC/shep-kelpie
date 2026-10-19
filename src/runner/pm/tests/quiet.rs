@@ -6,10 +6,10 @@ use std::time::{Duration, Instant};
 
 use serde_json::json;
 
-use super::{answered, pm_on, pm_seen, step_until};
+use super::{answered, past_the_window, pm_on, pm_seen, step_until};
 use crate::ports::{AgentError, CallActivity, Clock};
 use crate::runner::flight::advance;
-use crate::runner::pm::DOWN_FOR;
+use crate::runner::pm::{DOWN_FOR, HOLD_FOR};
 use crate::runner::{Pass, Runner, StepReport, step};
 use crate::settings::Harness;
 use crate::test::{CALL_PATIENCE, Hold, Rig, Scripted};
@@ -118,7 +118,11 @@ fn an_idle_call_answered_none_does_not_wake_it_while_it_goes_quiet_again() {
 
     // 11m from its start: idle, and the project manager leaves it alone.
     rig.clock.advance(11 * 60);
+    // The pass that notices it queues it, and its wake waits the window.
+    assert_eq!(step(&runner).unwrap(), None, "the wake waits its window");
+    past_the_window(&rig);
     let (woke_for, acted, _) = answered(step(&runner).unwrap());
+
     assert_eq!(
         woke_for,
         ["#7 is stuck: its worker has shown no tool call or output for 11m"]
@@ -146,7 +150,11 @@ fn an_idle_call_answered_none_does_not_wake_it_while_it_goes_quiet_again() {
     // Output, quiet again, and past 30 minutes from the none it wakes once more.
     shows_output(&rig, &runner);
     rig.clock.advance(21 * 60);
+    // The pass that notices it queues it, and its wake waits the window.
+    assert_eq!(step(&runner).unwrap(), None, "the wake waits its window");
+    past_the_window(&rig);
     let (woke_for, acted, _) = answered(step(&runner).unwrap());
+
     assert_eq!(
         woke_for,
         ["#7 is stuck: its worker has shown no tool call or output for 21m"]
@@ -162,7 +170,11 @@ fn an_idle_call_answered_none_does_not_wake_it_while_it_goes_quiet_again() {
     assert_eq!(pm_seen(&rig).len(), 2);
     shows_output(&rig, &runner);
     rig.clock.advance(11 * 60);
+    // The pass that notices it queues it, and its wake waits the window.
+    assert_eq!(step(&runner).unwrap(), None, "the wake waits its window");
+    past_the_window(&rig);
     let (woke_for, ..) = answered(step(&runner).unwrap());
+
     assert_eq!(
         woke_for,
         ["#7 is stuck: its worker has shown no tool call or output for 11m"]
@@ -184,7 +196,11 @@ fn an_idle_call_held_out_wakes_it_when_the_back_off_ends() {
 
     // 11m from its start: idle, and the project manager leaves it alone.
     rig.clock.advance(11 * 60);
+    // The pass that notices it queues it, and its wake waits the window.
+    assert_eq!(step(&runner).unwrap(), None, "the wake waits its window");
+    past_the_window(&rig);
     let (woke_for, acted, _) = answered(step(&runner).unwrap());
+
     assert_eq!(
         woke_for,
         ["#7 is stuck: its worker has shown no tool call or output for 11m"]
@@ -213,7 +229,11 @@ fn an_idle_call_held_out_wakes_it_when_the_back_off_ends() {
     // 31m after the none, past the 30 minutes it was held for, the hung worker
     // is put to it once even though the board showed nothing more.
     rig.clock.advance(2 * 60);
+    // The pass that notices it queues it, and its wake waits the window.
+    assert_eq!(step(&runner).unwrap(), None, "the wake waits its window");
+    past_the_window(&rig);
     let (woke_for, acted, _) = answered(step(&runner).unwrap());
+
     assert_eq!(
         woke_for,
         ["#7 is stuck: its worker has shown no tool call or output for 10 minutes or more"]
@@ -227,7 +247,11 @@ fn an_idle_call_held_out_wakes_it_when_the_back_off_ends() {
     assert_eq!(step(&runner).unwrap(), None, "a second none woke it early");
     assert_eq!(pm_seen(&rig).len(), 2);
     rig.clock.advance(2 * 60);
+    // The pass that notices it queues it, and its wake waits the window.
+    assert_eq!(step(&runner).unwrap(), None, "the wake waits its window");
+    past_the_window(&rig);
     let (woke_for, ..) = answered(step(&runner).unwrap());
+
     assert_eq!(
         woke_for,
         ["#7 is stuck: its worker has shown no tool call or output for 10 minutes or more"]
@@ -248,7 +272,9 @@ fn a_new_turn_after_a_none_is_woken_for_at_once() {
         Scripted::Say(NOTHING),
     ]);
 
-    // Left alone on the ruling its failed turn parked it on.
+    // Left alone on the ruling its failed turn parked it on, past the
+    // 3-minute window that wake waits (#987).
+    rig.clock.advance(HOLD_FOR);
     let report = step_until(&runner, |r| matches!(r, StepReport::PmAnswered { .. }));
     let (woke_for, acted, _) = answered(Some(report));
     assert_eq!(woke_for, [parked_wake(7, 7)]);
@@ -259,7 +285,11 @@ fn a_new_turn_after_a_none_is_woken_for_at_once() {
     until_in_flight(&runner, &work);
     rig.claude.set_activity(CallActivity::Nothing);
     rig.clock.advance(11 * 60);
+    // The pass that notices it queues it, and its wake waits the window.
+    assert_eq!(step(&runner).unwrap(), None, "the wake waits its window");
+    past_the_window(&rig);
     let (woke_for, ..) = answered(step(&runner).unwrap());
+
     assert_eq!(
         woke_for,
         ["#7 is stuck: its worker has shown no tool call or output for 11m"]
@@ -283,7 +313,11 @@ fn a_retry_clears_the_item_so_its_next_idle_wakes_at_once() {
 
     // 11m from its start: idle, and left alone.
     rig.clock.advance(11 * 60);
+    // The pass that notices it queues it, and its wake waits the window.
+    assert_eq!(step(&runner).unwrap(), None, "the wake waits its window");
+    past_the_window(&rig);
     let (_, acted, _) = answered(step(&runner).unwrap());
+
     assert_eq!(acted, ["left #7 to resolve itself"]);
 
     // A later wake ends its call instead, which is an action on the item.
@@ -299,7 +333,11 @@ fn a_retry_clears_the_item_so_its_next_idle_wakes_at_once() {
     until_in_flight(&runner, &again);
     rig.claude.set_activity(CallActivity::Nothing);
     rig.clock.advance(11 * 60);
+    // The pass that notices it queues it, and its wake waits the window.
+    assert_eq!(step(&runner).unwrap(), None, "the wake waits its window");
+    past_the_window(&rig);
     let (woke_for, ..) = answered(step(&runner).unwrap());
+
     assert_eq!(
         woke_for,
         ["#7 is stuck: its worker has shown no tool call or output for 11m"]
@@ -314,6 +352,8 @@ fn a_retry_clears_the_item_so_its_next_idle_wakes_at_once() {
 fn an_item_parked_on_a_stuck_ruling_and_left_alone_is_not_sent_again_when_it_is_back() {
     let (rig, runner) = turn_failed("quillava");
     rig.claude.script([Scripted::Say(NONE_7)]);
+    // Its wake waits the 3-minute window (#987).
+    rig.clock.advance(HOLD_FOR);
     let report = step_until(&runner, |r| matches!(r, StepReport::PmAnswered { .. }));
     let (_, acted, _) = answered(Some(report));
     assert_eq!(acted, ["left #7 to resolve itself"]);
@@ -329,6 +369,8 @@ fn an_item_parked_on_a_stuck_ruling_and_left_alone_is_not_sent_again_when_it_is_
         step(&runner).unwrap(),
         Some(StepReport::Failed { .. })
     ));
+    // Its wake waits the 3-minute window (#987).
+    rig.clock.advance(HOLD_FOR);
     let failed = step_until(&runner, |r| matches!(r, StepReport::PmFailed { .. }));
     assert_eq!(
         failed,
@@ -339,6 +381,9 @@ fn an_item_parked_on_a_stuck_ruling_and_left_alone_is_not_sent_again_when_it_is_
 
     // Once it is back it is asked again about what it missed: #9, and not #7.
     rig.clock.advance(DOWN_FOR + 60);
+    // What it missed is queued on this pass, and its wake waits the window.
+    assert_eq!(step(&runner).unwrap(), None, "the wake waits its window");
+    past_the_window(&rig);
     rig.claude.script([Scripted::Say(NOTHING)]);
     let report = step_until(&runner, |r| matches!(r, StepReport::PmAnswered { .. }));
     let (woke_for, _, _) = answered(Some(report));
@@ -354,6 +399,8 @@ fn an_item_parked_on_a_stuck_ruling_and_left_alone_is_not_sent_again_when_it_is_
 fn a_new_stuck_ruling_on_the_same_item_wakes_it() {
     let (rig, runner) = turn_failed("poochy");
     rig.claude.script([Scripted::Say(NONE_7)]);
+    // Its wake waits the 3-minute window (#987).
+    rig.clock.advance(HOLD_FOR);
     let report = step_until(&runner, |r| matches!(r, StepReport::PmAnswered { .. }));
     let (_, acted, _) = answered(Some(report));
     assert_eq!(acted, ["left #7 to resolve itself"]);
@@ -371,6 +418,8 @@ fn a_new_stuck_ruling_on_the_same_item_wakes_it() {
         step(&runner).unwrap(),
         Some(StepReport::Failed { .. })
     ));
+    // Its wake waits the 3-minute window (#987).
+    rig.clock.advance(HOLD_FOR);
     let report = step_until(&runner, |r| matches!(r, StepReport::PmAnswered { .. }));
     let (woke_for, _, _) = answered(Some(report));
     assert_eq!(woke_for, [parked_wake(7, 7)]);
@@ -381,6 +430,8 @@ fn a_new_stuck_ruling_on_the_same_item_wakes_it() {
 fn a_none_for_one_item_leaves_another_items_wake_alone() {
     let (rig, runner) = turn_failed("delcatty");
     rig.claude.script([Scripted::Say(NONE_7)]);
+    // Its wake waits the 3-minute window (#987).
+    rig.clock.advance(HOLD_FOR);
     let report = step_until(&runner, |r| matches!(r, StepReport::PmAnswered { .. }));
     let (_, acted, _) = answered(Some(report));
     assert_eq!(acted, ["left #7 to resolve itself"]);
@@ -395,6 +446,8 @@ fn a_none_for_one_item_leaves_another_items_wake_alone() {
         step(&runner).unwrap(),
         Some(StepReport::Failed { .. })
     ));
+    // Its wake waits the 3-minute window (#987).
+    rig.clock.advance(HOLD_FOR);
     let report = step_until(&runner, |r| matches!(r, StepReport::PmAnswered { .. }));
     let (woke_for, acted, _) = answered(Some(report));
     assert_eq!(woke_for, [parked_wake(9, 9)]);
@@ -410,6 +463,9 @@ fn a_wake_that_failed_leaves_its_item_to_be_woken_for_again() {
 
     // 11m from its start: idle, and the wake for it fails, so it records nothing.
     rig.clock.advance(11 * 60);
+    // The pass that notices it queues it, and its wake waits the window.
+    assert_eq!(step(&runner).unwrap(), None, "the wake waits its window");
+    past_the_window(&rig);
     let failed = step_until(&runner, |r| matches!(r, StepReport::PmFailed { .. }));
     assert_eq!(
         failed,
@@ -420,6 +476,10 @@ fn a_wake_that_failed_leaves_its_item_to_be_woken_for_again() {
 
     // Once it is back, the same idle call wakes it again.
     rig.clock.advance(DOWN_FOR + 60);
+    // The same idle call is queued again on this pass, and its wake waits the
+    // window.
+    assert_eq!(step(&runner).unwrap(), None, "the wake waits its window");
+    past_the_window(&rig);
     let report = step_until(&runner, |r| matches!(r, StepReport::PmAnswered { .. }));
     let (woke_for, acted, _) = answered(Some(report));
     assert_eq!(

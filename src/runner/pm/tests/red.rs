@@ -3,7 +3,7 @@
 
 use std::sync::Mutex;
 
-use super::{answered, pm_seen, step_until};
+use super::{answered, past_the_window, pm_seen, step_until};
 use crate::ports::Checks;
 use crate::runner::{Runner, StepReport};
 use crate::test::{Rig, Scripted, ticket};
@@ -30,6 +30,7 @@ fn parked_red(project: &str, setup: impl FnOnce(&Rig)) -> (Rig, Mutex<Runner>, S
         Some(StepReport::Ruling { id: 71, .. })
     ));
     rig.claude.script([Scripted::Say(NOTHING)]);
+    past_the_window(&rig);
     answered(Some(step_until(&runner, |r| {
         matches!(r, StepReport::PmAnswered { .. })
     })));
