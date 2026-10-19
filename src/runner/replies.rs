@@ -444,7 +444,7 @@ impl Runner {
             return (report, self.line(None, text));
         };
         let Named { whose, id } = self.which(&read);
-        let (number, words) = (read.number, read.words);
+        let (number, words) = (read.ticket, read.words);
         if whose == Whose::Theirs {
             return ignored;
         }
@@ -484,7 +484,7 @@ impl Runner {
                 id,
                 line_failed: None,
             };
-            return (report, self.line(Some(number), text));
+            return (report, self.line(number.github(), text));
         };
         // A number can name a new ruling on the same issue or pull request,
         // so a reply from before this one was raised may answer another question.
