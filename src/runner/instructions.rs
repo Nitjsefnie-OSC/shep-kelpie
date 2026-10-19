@@ -61,6 +61,9 @@ pub(super) struct Extra<'a> {
     pub(super) browser: Option<&'a [NonBlank]>,
     /// The project's dev server kelpie runs for the turn, or why it runs none
     pub(super) dev_server: Option<&'a DevServer>,
+    /// The work item's ticket is a local one, whose pull request has no
+    /// `Resolves` line: kelpie closes the ticket when it merges
+    pub(super) local_ticket: bool,
 }
 
 /// What a worker with a browser is told of the project's dev server
@@ -86,7 +89,8 @@ pub(super) fn e2e_command(kelpie: &Path) -> String {
 /// the worker as a file it reads. A worker that writes `pull-request.md` is
 /// also told the wording skill that words it.
 pub(super) fn compose(extra: Extra<'_>, worktree: &Path, skills: &Skills, kelpie: &Path) -> String {
-    let mut text = profile::instructions(kelpie, extra.pull_request_file);
+    let resolves = !extra.local_ticket;
+    let mut text = profile::instructions_for(kelpie, extra.pull_request_file, resolves);
     let mut lines = Vec::new();
     if let Some(tdd) = skills.command(Step::Tests) {
         lines.push(format!(
@@ -95,11 +99,11 @@ pub(super) fn compose(extra: Extra<'_>, worktree: &Path, skills: &Skills, kelpie
     }
     let own = template(worktree);
     match (own, extra.owner_template, skills.command(Step::Pr)) {
-        (Some(template), _, _) => lines.push(template_line(&template)),
-        (None, Some((owners, file)), _) => lines.push(owners.line(file)),
+        (Some(template), _, _) => lines.push(template_line(&template, resolves)),
+        (None, Some((owners, file)), _) => lines.push(owners.line(file, resolves)),
         (None, None, Some(pr)) => lines.push(format!(
-            "Write your pull request's body with the `{pr}` skill, and still end it with \
-             `Resolves #<issue>`.\n"
+            "Write your pull request's body with the `{pr}` skill{}.\n",
+            still_end(resolves, "it"),
         )),
         (None, None, None) => {}
     }
@@ -112,7 +116,7 @@ pub(super) fn compose(extra: Extra<'_>, worktree: &Path, skills: &Skills, kelpie
         ));
     }
     if !skills.off(Step::Retro) {
-        lines.push(FRICTION.to_owned());
+        lines.push(friction(resolves));
     }
     if let Some(e2e) = extra.e2e {
         lines.push(format!(
@@ -192,20 +196,36 @@ fn dev_server_line(server: &DevServer) -> String {
 
 // Told while the retro runs, so the project manager's batch retro has the
 // worker's own account of what slowed it down
-const FRICTION: &str = "If something slowed you down, add a `## Friction` section to your pull \
-    request's body above the `Resolves #<issue>` line: a line or two on what cost you time or \
-    tokens. Leave the section out when nothing did. The project manager's batch retro reads it.\n";
+fn friction(resolves: bool) -> String {
+    let above = match resolves {
+        true => " above the `Resolves #<issue>` line",
+        false => "",
+    };
+    format!(
+        "If something slowed you down, add a `## Friction` section to your pull request's \
+         body{above}: a line or two on what cost you time or tokens. Leave the section out \
+         when nothing did. The project manager's batch retro reads it.\n"
+    )
+}
 
-fn template_line(template: &Template) -> String {
+// What ends a body kelpie closes no ticket from: nothing, for a local ticket
+fn still_end(resolves: bool, what: &str) -> String {
+    match resolves {
+        true => format!(", and still end {what} with `Resolves #<issue>`"),
+        false => String::new(),
+    }
+}
+
+fn template_line(template: &Template, resolves: bool) -> String {
+    let end = still_end(resolves, "the body");
     match template {
         Template::File(path) => format!(
             "The repo has a pull request template, `{path}`. Fill it in for your pull request's \
-             body instead of writing your own, and still end the body with `Resolves #<issue>`.\n"
+             body instead of writing your own{end}.\n"
         ),
         Template::Folder(path) => format!(
             "The repo has pull request templates in `{path}`. Fill in the one that fits for your \
-             pull request's body instead of writing your own, and still end the body with \
-             `Resolves #<issue>`.\n"
+             pull request's body instead of writing your own{end}.\n"
         ),
     }
 }
@@ -501,6 +521,31 @@ mod tests {
         assert!(text.contains("in the foreground"), "{text}");
         assert!(told(Some(&[])).contains("no host, since the project lists none"));
         assert!(!told(None).contains("playwright"));
+    }
+
+    #[test]
+    fn a_local_tickets_worker_is_never_told_to_end_its_body_with_resolves() {
+        let dir = tempfile::tempdir().unwrap();
+        let skills = Skills::load(&StepSkills::default(), &dir.path().join("skills"));
+        let file = dir.path().join("pull-request.md");
+        let told = |local_ticket: bool, handed_over: bool| {
+            let extra = Extra {
+                local_ticket,
+                pull_request_file: handed_over.then_some(file.as_path()),
+                ..Extra::default()
+            };
+            compose(extra, dir.path(), &skills, Path::new(Rig::KELPIE))
+        };
+        for handed_over in [false, true] {
+            let github = told(false, handed_over);
+            assert!(github.contains("`Resolves #<issue>`"), "{github}");
+            let local = told(true, handed_over);
+            assert!(!local.contains("Resolves"), "{local}");
+        }
+        fs::write(dir.path().join("pull_request_template.md"), "## Summary\n").unwrap();
+        let local = told(true, false);
+        assert!(!local.contains("Resolves"), "{local}");
+        assert!(local.contains("instead of writing your own.\n"), "{local}");
     }
 
     #[test]

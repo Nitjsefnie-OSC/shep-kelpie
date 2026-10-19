@@ -140,23 +140,12 @@ impl Runner {
                     return Ok(Begin::Idle);
                 }
             };
-            // The issue writer's call, its label and the ruling it raises each
-            // name a GitHub issue, which is what every project's tickets are
-            // today. A ticket of another source waits for its own label step.
-            let Some(issue) = ticket.github() else {
-                failed.push(Skip::Failed {
-                    issue: ticket,
-                    error: format!(
-                        "ticket {ticket} is not a GitHub issue, so kelpie cannot take it"
-                    ),
-                });
-                ready.retain(|i| i.ticket != ticket);
-                continue;
-            };
             // An issue the issue writer is labelling waits for it, even one
-            // labelled by hand meanwhile.
+            // labelled by hand meanwhile. A local ticket has no issue writer's
+            // label: its `agent:` label, or the project's only implementer, sets its agent.
             let labelling = self.flights.labelling() == Some(ticket);
             if let Some(found) = ready.iter().find(|i| i.ticket == ticket)
+                && ticket.github().is_some()
                 && (labelling || self.needs_label(found))
             {
                 let ruling = self.unlabelled_ruling(ticket);
@@ -200,7 +189,7 @@ impl Runner {
                 Err(e) => {
                     self.set_skipped(skipped);
                     return Ok(Begin::Report(StepReport::BoardFailed {
-                        reason: format!("cannot dispatch #{issue}: {e}"),
+                        reason: format!("cannot dispatch {}: {e}", ticket.shown()),
                     }));
                 }
             }

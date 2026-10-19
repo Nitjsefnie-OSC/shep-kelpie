@@ -557,6 +557,7 @@ impl Runner {
                 owner_template: owners.zip(template_file.as_deref()),
                 browser: hosts,
                 dev_server: dev.as_ref(),
+                local_ticket: item.issue.github().is_none(),
             },
             &item.worktree,
             &self.skills,

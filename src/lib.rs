@@ -31,6 +31,7 @@ pub mod hooks;
 pub mod issues;
 pub mod lease;
 pub mod local_paths;
+pub mod local_tickets;
 mod mcp_use;
 pub mod metrics;
 pub mod pacer;

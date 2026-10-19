@@ -26,6 +26,7 @@ pub(super) fn names((old, was): Reach<'_>, (new, now): Reach<'_>) -> Vec<&'stati
         contributions: _, // waits for the next start, when the runner checks it
         dependencies: _,  // waits for the next start, like `contributions`
         triage: _,        // waits for the next start, like `contributions`
+        tickets: _,       // waits for the next start, when the runner picks the port
         hooks: _,         // waits for the next start, so `reread` keeps the old
         skills: old_skills,
         repo_setup: old_repo_setup,
@@ -48,6 +49,7 @@ pub(super) fn names((old, was): Reach<'_>, (new, now): Reach<'_>) -> Vec<&'stati
         contributions: _,
         dependencies: _,
         triage: _,
+        tickets: _,
         hooks: _,
         skills: new_skills,
         repo_setup: new_repo_setup,

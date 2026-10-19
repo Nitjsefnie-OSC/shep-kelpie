@@ -16,10 +16,11 @@ use crate::board::{LabelError, Skip, agent_label, old_worker_label, pinned};
 use crate::forge_ledger::Ledger as ForgeLedger;
 use crate::hooks::Hooks;
 use crate::local_paths::LocalPaths;
+use crate::local_tickets::{LocalTickets, Routed};
 use crate::pacer::Assessment;
 use crate::ports::{
     ForgeError, ForgeHold, Guarded, GuardedVoice, KeychainBlocked, PacedVoice, Ports, RateHeld,
-    RecordedVoice, Say, Timestamp,
+    RecordedVoice, Say, Tickets, Timestamp,
 };
 use crate::review_bot::{Bot, Profile};
 use crate::settings::{
@@ -82,6 +83,8 @@ mod left;
 #[cfg(test)]
 mod limits_tests;
 mod lineup;
+#[cfg(test)]
+mod local_ticket_tests;
 mod login_refresh;
 mod looks;
 mod main_ci;
@@ -236,8 +239,6 @@ impl From<StateError> for OpenError {
 /// Why `add` was refused
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AddError {
-    /// The ticket is not a GitHub issue, which is the only source kelpie reads
-    NotGithub(TicketId),
     /// No slot is free under `concurrency.active_items`, counting the items waiting for
     /// one, or one for this ticket is open already: the tickets of those in
     /// the way
@@ -264,12 +265,6 @@ impl fmt::Display for AddError {
             }
             Self::InFlight(issues) => {
                 write!(f, "the work items for {} are in flight", issue_list(issues))
-            }
-            Self::NotGithub(ticket) => {
-                write!(
-                    f,
-                    "{ticket} is not a GitHub issue, the only tickets kelpie reads"
-                )
             }
             Self::Forge(e) => write!(f, "cannot read the issue: {e}"),
             Self::Label(e) => e.fmt(f),
@@ -542,6 +537,13 @@ impl Runner {
                 .with_standing(Arc::new(told.clone()));
         }
         let (held_forge, held_tickets) = rate_held.into_ports();
+        // A local store is files in kelpie's home, which spend no forge call, so
+        // the hold and the ledger stay out of it. The guard still checks what it writes.
+        let held_tickets: Arc<dyn Tickets> = Arc::new(Routed::new(
+            held_tickets,
+            LocalTickets::new(paths.tickets()),
+            settings.tickets.source,
+        ));
         let recorded =
             RecordedVoice::new(ports.voice, Arc::clone(&clock), Arc::clone(&forge_ledger));
         let paced = PacedVoice::new(
@@ -812,13 +814,11 @@ impl Runner {
     ///
     /// # Errors
     ///
-    /// [`AddError`] when the ticket is not a GitHub issue, the runner is finishing, the project has
+    /// [`AddError`] when the runner is finishing, the project has
     /// `concurrency.active_items` working or one for this issue open
     /// already, the issue cannot be read or its `agent:` label names no
     /// listed implementer, or the change cannot be saved. Nothing changes then.
     pub fn add(&mut self, ticket: TicketId) -> Result<AgentName, AddError> {
-        // Only a GitHub issue can be added: kelpie reads its title and labels.
-        ticket.github().ok_or(AddError::NotGithub(ticket))?;
         if !self.picks() {
             return Err(AddError::Finishing);
         }

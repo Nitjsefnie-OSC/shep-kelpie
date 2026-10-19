@@ -197,6 +197,12 @@ impl ProjectPaths {
         self.folder.join("e2e.json")
     }
 
+    /// The project's local tickets, one markdown file each, which the project
+    /// has only when its `tickets.source` is `local`
+    pub fn tickets(&self) -> PathBuf {
+        self.folder.join("tickets")
+    }
+
     /// The folder holding every work item's worktree
     pub fn worktrees(&self) -> PathBuf {
         self.worktrees.clone()

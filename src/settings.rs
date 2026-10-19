@@ -40,6 +40,7 @@ mod repo_setup;
 mod reviewers;
 mod rulings;
 mod skills;
+mod tickets;
 mod triage;
 
 pub use agents::{
@@ -65,6 +66,7 @@ pub use repo_setup::{CallRole, MarketplaceSource, Part, PluginId, RepoSetup};
 pub use reviewers::{ListedReviewer, default_reviewers};
 pub use rulings::{Decide, RulingName, Rulings};
 pub use skills::{SkillChoice, SkillName, StepSkills};
+pub use tickets::{TicketSource, Tickets};
 pub use triage::{ClassifierPath, Triage, TriagePick, TriageSpam};
 
 /// Everything kelpie reads about one project
@@ -126,6 +128,10 @@ pub struct Settings {
     /// every call, when absent.
     #[serde(default)]
     pub repo_setup: RepoSetup,
+    /// Where the project's tickets live: GitHub issues, or local files in
+    /// kelpie's home. GitHub when absent.
+    #[serde(default)]
+    pub tickets: Tickets,
     /// Whether workers and reviewers get a code graph of the worktree. Off
     /// when absent.
     #[serde(default)]

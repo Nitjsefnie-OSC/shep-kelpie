@@ -3,7 +3,8 @@
 //! A pull request merged with no closing reference in its body leaves its
 //! issue open, however the merge came about, and anything the issue blocks
 //! then waits on it. Once a work item's merge is recorded, a step reads the
-//! issue and closes it if the forge still shows it open.
+//! issue and closes it if the forge still shows it open. A local ticket's pull
+//! request has no closing reference, so the step always closes it.
 
 use super::Runner;
 use crate::ports::{SubIssue, SubIssueState};
@@ -40,9 +41,11 @@ impl Runner {
         ticket: TicketId,
         pull_request: u64,
     ) -> Option<String> {
-        // Only a GitHub issue has a pull request to merge, so a ticket with no
-        // GitHub number is nothing this closes.
-        let issue = ticket.github()?;
+        // A local ticket's pull request names no issue for the forge to close, so
+        // kelpie closes the ticket, and says nothing on GitHub.
+        let Some(issue) = ticket.github() else {
+            return self.close_local(ticket, pull_request);
+        };
         // The forge closes a named issue a moment after the merge, so one that
         // still reads as open then is left to it.
         let named = (self.ports.forge).reviewed(&self.remote, pull_request);
@@ -69,13 +72,38 @@ impl Runner {
                 "cannot comment on issue #{issue} before closing it: {e}"
             ));
         }
+        self.close_after_merge(ticket, pull_request)
+    }
+
+    // Closes a local ticket that is still open after `pull_request` merged
+    fn close_local(&mut self, ticket: TicketId, pull_request: u64) -> Option<String> {
+        match self.ports.tickets.issue(&self.remote, ticket) {
+            Ok(read) if !read.open => {
+                self.close_refused.remove(&ticket);
+                return None;
+            }
+            Ok(_) => {}
+            Err(e) => {
+                self.notes.push(format!(
+                    "cannot read {} after merging #{pull_request}: {e}",
+                    ticket.shown()
+                ));
+                return None;
+            }
+        }
+        self.close_after_merge(ticket, pull_request)
+    }
+
+    // The close itself, with the count of refusals the step gives up on
+    fn close_after_merge(&mut self, ticket: TicketId, pull_request: u64) -> Option<String> {
         let Err(e) = self.ports.tickets.close_issue(&self.remote, ticket) else {
             self.close_refused.remove(&ticket);
             return None;
         };
         let failures = self.close_refused.entry(ticket).or_default();
         *failures += 1;
-        let reason = format!("cannot close issue #{issue} after merging #{pull_request}: {e}");
+        let name = super::turn::ticket_name(ticket);
+        let reason = format!("cannot close {name} after merging #{pull_request}: {e}");
         if *failures < TRIES {
             return Some(reason);
         }
@@ -142,17 +170,17 @@ impl Runner {
         if !(done && built) {
             return;
         }
-        if let Err(e) = self.comment_on_issue(
-            parent.github().unwrap_or_default(),
-            &last_sub_issue_merged(pull_request),
-        ) {
+        if let Some(issue) = parent.github()
+            && let Err(e) = self.comment_on_issue(issue, &last_sub_issue_merged(pull_request))
+        {
             self.notes.push(format!(
                 "cannot comment on issue #{parent} before closing it: {e}"
             ));
         }
         if let Err(e) = self.ports.tickets.close_issue(&self.remote, parent) {
             self.notes.push(format!(
-                "cannot close issue #{parent} after merging #{pull_request}: {e}"
+                "cannot close {} after merging #{pull_request}: {e}",
+                super::turn::ticket_name(parent)
             ));
         }
     }

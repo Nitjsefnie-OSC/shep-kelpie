@@ -28,9 +28,16 @@ pub const INSTRUCTIONS: &str = include_str!("worker-instructions.md");
 
 // How a worker is told to get its pull request opened: by itself, as the
 // maintainer's login, or by writing its text where kelpie opens it from.
-const OPEN_YOURSELF: &str = "When the work is done, push the branch with `git push origin HEAD`. Unless the branch already has a pull request, open a draft one with `gh pr create --draft`, giving it your own body and a `--title` that is a conventional commit subject. End the body with the line `Resolves #<issue>`, naming your work item's issue. When a later turn changes the branch, change the open pull request's body with `gh pr edit --body`.";
+const OPEN_YOURSELF: &str = "When the work is done, push the branch with `git push origin HEAD`. Unless the branch already has a pull request, open a draft one with `gh pr create --draft`, giving it your own body and a `--title` that is a conventional commit subject.{resolves} When a later turn changes the branch, change the open pull request's body with `gh pr edit --body`.";
 
-const HAND_OVER: &str = "When the work is done, push the branch with `git push origin HEAD`. Do not open or edit the pull request yourself: your credential cannot, and kelpie does it. Write its title and body in `{file}`. The first line is the title, a conventional commit subject such as `fix(parser): keep the last line`, above any template's text: a template's heading is never the title, and kelpie opens nothing from a file whose first line is not a conventional commit subject. The rest is the body, which ends with the line `Resolves #<issue>`, naming your work item's issue. Write the file before you end your turn, and write it again to change the title or body; kelpie opens the draft when a turn ends with the branch pushed, and sets the title and body to what the file says.";
+const HAND_OVER: &str = "When the work is done, push the branch with `git push origin HEAD`. Do not open or edit the pull request yourself: your credential cannot, and kelpie does it. Write its title and body in `{file}`. The first line is the title, a conventional commit subject such as `fix(parser): keep the last line`, above any template's text: a template's heading is never the title, and kelpie opens nothing from a file whose first line is not a conventional commit subject. The rest is the body{ends}. Write the file before you end your turn, and write it again to change the title or body; kelpie opens the draft when a turn ends with the branch pushed, and sets the title and body to what the file says.";
+
+// What a worker's pull request body ends with when its ticket is a GitHub issue,
+// which merging the pull request then closes
+const RESOLVES: &str =
+    " End the body with the line `Resolves #<issue>`, naming your work item's issue.";
+const ENDS_WITH_RESOLVES: &str =
+    ", which ends with the line `Resolves #<issue>`, naming your work item's issue";
 
 /// Kelpie's own worker instructions, naming `kelpie`, the binary a worker
 /// runs its tests under the machine's test lease with
@@ -38,9 +45,22 @@ const HAND_OVER: &str = "When the work is done, push the branch with `git push o
 /// With `pull_request_file`, the worker holds a credential that opens no
 /// pull request, and is told to write its text there for kelpie to open.
 pub fn instructions(kelpie: &Path, pull_request_file: Option<&Path>) -> String {
+    instructions_for(kelpie, pull_request_file, true)
+}
+
+/// [`instructions`] for a work item whose ticket is a GitHub issue when `resolves`, else a
+/// local ticket, whose pull request has no `Resolves` line because kelpie closes the ticket
+/// when it merges
+pub fn instructions_for(kelpie: &Path, pull_request_file: Option<&Path>, resolves: bool) -> String {
+    let (resolves, ends) = match resolves {
+        true => (RESOLVES, ENDS_WITH_RESOLVES),
+        false => ("", ""),
+    };
     let pull_request = match pull_request_file {
-        Some(file) => HAND_OVER.replace("{file}", &file.display().to_string()),
-        None => OPEN_YOURSELF.to_owned(),
+        Some(file) => HAND_OVER
+            .replace("{file}", &file.display().to_string())
+            .replace("{ends}", ends),
+        None => OPEN_YOURSELF.replace("{resolves}", resolves),
     };
     INSTRUCTIONS
         .replace("{pull_request}", &pull_request)
