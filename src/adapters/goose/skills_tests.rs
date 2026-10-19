@@ -131,6 +131,47 @@ fn the_wording_skill_is_linked_with_the_step_skills_on_a_worker_call() {
 }
 
 #[test]
+fn a_worker_links_only_the_skills_its_steps_use_and_those_they_call() {
+    let w = World::new();
+    let skills =
+        crate::skills::Skills::load(&crate::settings::StepSkills::default(), &w.path("skills"));
+    let call = with_plugins(&w, skills.plugin_dirs().to_vec());
+    // Every skill folder the call's plugins hold is linked, and no other.
+    assert_eq!(
+        crate::adapters::skills::skill_dirs(&call),
+        [
+            w.path("skills/mattpocock/skills"),
+            w.path("skills/kelpie-wording/skills")
+        ]
+    );
+
+    stand_in(&w, FRESH).prepare(&call).unwrap();
+
+    let mattpocock = w.path("skills/mattpocock/skills");
+    assert_eq!(
+        linked(&w),
+        BTreeMap::from([
+            ("code-review".to_owned(), mattpocock.join("code-review")),
+            (
+                "codebase-design".to_owned(),
+                mattpocock.join("codebase-design")
+            ),
+            (
+                "diagnosing-bugs".to_owned(),
+                mattpocock.join("diagnosing-bugs")
+            ),
+            ("implement".to_owned(), mattpocock.join("implement")),
+            ("pr".to_owned(), mattpocock.join("pr")),
+            ("tdd".to_owned(), mattpocock.join("tdd")),
+            (
+                "wording".to_owned(),
+                w.path("skills/kelpie-wording/skills/wording")
+            ),
+        ])
+    );
+}
+
+#[test]
 fn two_skills_with_one_name_are_linked_once_and_the_first_plugin_wins() {
     let w = World::new();
     // The folder names differ from the `name` lines, which are what goose lists.

@@ -156,6 +156,47 @@ mod tests {
         );
     }
 
+    #[test]
+    fn a_worker_links_only_the_skills_its_steps_use_and_those_they_call() {
+        let w = World::new();
+        let skills =
+            crate::skills::Skills::load(&crate::settings::StepSkills::default(), &w.path("skills"));
+        let call = worker(&w, skills.plugin_dirs().to_vec());
+        // Every skill folder the call's plugins hold is linked, and no other.
+        assert_eq!(
+            skill_dirs(&call),
+            [
+                w.path("skills/mattpocock/skills"),
+                w.path("skills/kelpie-wording/skills")
+            ]
+        );
+
+        cli(&w).prepare(&call).unwrap();
+
+        let mattpocock = w.path("skills/mattpocock/skills");
+        assert_eq!(
+            linked(&w),
+            [
+                ("code-review".to_owned(), mattpocock.join("code-review")),
+                (
+                    "codebase-design".to_owned(),
+                    mattpocock.join("codebase-design")
+                ),
+                (
+                    "diagnosing-bugs".to_owned(),
+                    mattpocock.join("diagnosing-bugs")
+                ),
+                ("implement".to_owned(), mattpocock.join("implement")),
+                ("pr".to_owned(), mattpocock.join("pr")),
+                ("tdd".to_owned(), mattpocock.join("tdd")),
+                (
+                    "wording".to_owned(),
+                    w.path("skills/kelpie-wording/skills/wording")
+                ),
+            ]
+        );
+    }
+
     // A call has links exactly when Codex is given a shell, whatever
     // `agent_tools` says, since Claude Code alone reads that.
     #[test]

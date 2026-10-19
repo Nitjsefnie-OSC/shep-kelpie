@@ -215,6 +215,30 @@ fn each_plugin_folder_is_its_own_plugin_dir() {
 }
 
 #[test]
+fn a_worker_gets_kelpies_own_plugins_by_folder_as_it_gets_any_other() {
+    let dir = tempfile::tempdir().unwrap();
+    let skills = crate::skills::Skills::load(
+        &crate::settings::StepSkills::default(),
+        &dir.path().join("skills"),
+    );
+    let mut worker = call(Role::Worker, fresh());
+    worker.plugin_dirs = skills.plugin_dirs().to_vec();
+    let argv = strings(&worker);
+    let dirs: Vec<&str> = argv
+        .windows(2)
+        .filter(|pair| pair[0] == "--plugin-dir")
+        .map(|pair| pair[1].as_str())
+        .collect();
+    assert_eq!(
+        dirs,
+        [
+            dir.path().join("skills/mattpocock").to_str().unwrap(),
+            dir.path().join("skills/kelpie-wording").to_str().unwrap(),
+        ]
+    );
+}
+
+#[test]
 fn only_a_worker_bypasses_permissions() {
     let argv = strings(&call(Role::Reviewer, fresh()));
     assert!(!argv.iter().any(|a| a == "--permission-mode"));
