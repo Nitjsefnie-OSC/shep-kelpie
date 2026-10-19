@@ -18,8 +18,8 @@ use crate::hooks::Hooks;
 use crate::local_paths::LocalPaths;
 use crate::pacer::Assessment;
 use crate::ports::{
-    Forge, ForgeError, ForgeHold, Guarded, GuardedVoice, KeychainBlocked, PacedVoice, Ports,
-    RateHeld, RecordedVoice, Say, SessionId, Timestamp,
+    ForgeError, ForgeHold, Guarded, GuardedVoice, KeychainBlocked, PacedVoice, Ports, RateHeld,
+    RecordedVoice, Say, Timestamp,
 };
 use crate::review_bot::{Bot, Profile};
 use crate::settings::{
@@ -27,8 +27,9 @@ use crate::settings::{
 };
 use crate::skills::{RepoPlugins, Skills};
 use crate::state::{ProjectState, Ruling, StateError, StateStore};
+use crate::ticket::TicketId;
 use crate::webhook::{KelpieSettings, Webhook};
-use crate::work_item::{ReviewCallState, Seat, Timings, WorkItem, new_session_id};
+use crate::work_item::{ReviewCallState, Seat, WorkItem, new_session_id};
 
 mod adopt;
 #[cfg(test)]
@@ -58,6 +59,7 @@ mod effects;
 mod finishing;
 mod flight;
 mod follow_up;
+mod fresh;
 mod friction;
 mod gate;
 mod gpu;
@@ -234,6 +236,8 @@ impl From<StateError> for OpenError {
 /// Why `add` was refused
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AddError {
+    /// The ticket is not a GitHub issue, which is the only source kelpie reads
+    NotGithub(TicketId),
     /// No slot is free under `concurrency.active_items`, counting the items waiting for
     /// one, or one for this issue is open already: the issues of those in
     /// the way
@@ -260,6 +264,12 @@ impl fmt::Display for AddError {
             }
             Self::InFlight(issues) => {
                 write!(f, "the work items for {} are in flight", issue_list(issues))
+            }
+            Self::NotGithub(ticket) => {
+                write!(
+                    f,
+                    "{ticket} is not a GitHub issue, the only tickets kelpie reads"
+                )
             }
             Self::Forge(e) => write!(f, "cannot read the issue: {e}"),
             Self::Label(e) => e.fmt(f),
@@ -349,9 +359,9 @@ pub struct Runner {
     threads: thread_replies::Reading,
     // The account kelpie acts as, read once a run when a rework first needs it
     viewer: Option<String>,
-    // The issue of the work item a step or trigger is working on, set before
+    // The ticket of the work item a step or trigger is working on, set before
     // anything reads it: every change to a work item goes to this one
-    focus: Option<u64>,
+    focus: Option<TicketId>,
     // What last did something in a step, kept in memory only, so the next
     // step starts with the one after it
     last_acted: Option<turn::Slot>,
@@ -517,6 +527,7 @@ impl Runner {
         let forge_ledger = Arc::new(ForgeLedger::in_home(&paths.kelpie_home, project.as_str()));
         let mut rate_held = RateHeld::new(
             ports.forge,
+            ports.tickets,
             Arc::clone(&clock),
             forge_hold.clone(),
             say_to(&told),
@@ -529,7 +540,7 @@ impl Runner {
                 .with_app_reads(app_reads)
                 .with_standing(Arc::new(told.clone()));
         }
-        let held: Arc<dyn Forge> = Arc::new(rate_held);
+        let (held_forge, held_tickets) = rate_held.into_ports();
         let recorded =
             RecordedVoice::new(ports.voice, Arc::clone(&clock), Arc::clone(&forge_ledger));
         let paced = PacedVoice::new(
@@ -540,13 +551,13 @@ impl Runner {
             say_to(&told),
         );
         let voice = GuardedVoice::new(Arc::new(paced), local.clone())
-            .with_flock(ports.flock.clone(), Arc::clone(&held))
+            .with_flock(ports.flock.clone(), Arc::clone(&held_forge))
             .with_hooks(hooks.clone());
         ports.voice = Arc::new(voice);
-        let guarded = Guarded::new(held, local.clone())
+        (ports.forge, ports.tickets) = Guarded::new(held_forge, held_tickets, local.clone())
             .with_flock(ports.flock.clone())
-            .with_hooks(hooks.clone());
-        ports.forge = Arc::new(guarded);
+            .with_hooks(hooks.clone())
+            .into_ports();
         let voice = Arc::clone(&ports.voice);
         ports.agents = Arc::new(KeychainBlocked::new(ports.agents, voice, remote.clone()));
         let extra_instructions = instructions::read_extra(&settings)?;
@@ -786,24 +797,26 @@ impl Runner {
 
     fn item_status<'a>(&self, item: &'a WorkItem, now: Timestamp) -> WorkItemStatus<'a> {
         let split = item.split(now, self.timing_phase(item));
+        let ticket = item.ticket();
         WorkItemStatus {
-            waiting: self.model_wait(item.issue),
-            held_up: self.held_up.of(item.issue),
-            build_bytes: self.builds.folder_bytes(item.issue),
+            waiting: ticket.and_then(|t| self.model_wait(t)),
+            held_up: ticket.and_then(|t| self.held_up.of(t)),
+            build_bytes: ticket.and_then(|ticket| self.builds.folder_bytes(ticket)),
             ..WorkItemStatus::new(item, self.settings.budget.per_item_usd, split)
         }
     }
 
-    /// Opens a work item for `issue`, and returns the implementer its
+    /// Opens a work item for `ticket`, and returns the implementer its
     /// worker runs on. Its first turn runs on a later pass.
     ///
     /// # Errors
     ///
-    /// [`AddError`] when the runner is finishing, the project has
+    /// [`AddError`] when the ticket is not a GitHub issue, the runner is finishing, the project has
     /// `concurrency.active_items` working or one for this issue open
     /// already, the issue cannot be read or its `agent:` label names no
     /// listed implementer, or the change cannot be saved. Nothing changes then.
-    pub fn add(&mut self, issue: u64) -> Result<AgentName, AddError> {
+    pub fn add(&mut self, ticket: TicketId) -> Result<AgentName, AddError> {
+        let issue = ticket.github().ok_or(AddError::NotGithub(ticket))?;
         if !self.picks() {
             return Err(AddError::Finishing);
         }
@@ -818,8 +831,8 @@ impl Runner {
         }
         let found = self
             .ports
-            .forge
-            .issue(&self.remote, issue)
+            .tickets
+            .issue(&self.remote, ticket)
             .map_err(AddError::Forge)?;
         let (agent, note) = self
             .labelled_agent(issue, &found.labels)
@@ -827,7 +840,9 @@ impl Runner {
         let session = new_session_id().map_err(|e| AddError::Session(e.to_string()))?;
         let mut next = self.state.clone();
         let pinned = pinned(&found.labels);
-        let mut item = self.fresh(issue, found.title, agent.clone(), session);
+        let mut item = self
+            .fresh(issue, found.title, agent.clone(), session)
+            .map_err(AddError::Forge)?;
         item.pinned = pinned;
         next.work_items.push(item);
         Self::label_ruled(&mut next, issue);
@@ -860,36 +875,19 @@ impl Runner {
         Ok((agent, note))
     }
 
-    // A work item on `kelpie/<issue>` whose first turn is due, with nothing
-    // recorded yet
-    fn fresh(&self, issue: u64, title: String, agent: AgentName, session: SessionId) -> WorkItem {
-        WorkItem {
-            timings: Some(Timings::starting(self.ports.clock.now())),
-            ..WorkItem::new(
-                issue,
-                title,
-                format!("kelpie/{issue}"),
-                self.paths.worktree(issue),
-                self.paths.build(issue),
-                agent,
-                session,
-            )
-        }
-    }
-
     // The work item the runner is working on, while it is open
     pub(super) fn current(&self) -> Option<&WorkItem> {
-        self.state.item(self.focus?)
+        self.state.item_by_ticket(self.focus?)
     }
 
     // The work item the runner is working on, in a state about to be saved
     pub(super) fn current_in<'a>(&self, next: &'a mut ProjectState) -> Option<&'a mut WorkItem> {
-        next.item_mut(self.focus?)
+        next.item_mut_by_ticket(self.focus?)
     }
 
-    // Works on the work item for `issue` from here on
-    pub(super) fn on(&mut self, issue: Option<u64>) -> &mut Self {
-        self.focus = issue;
+    // Works on the work item for `ticket` from here on
+    pub(super) fn on(&mut self, ticket: Option<TicketId>) -> &mut Self {
+        self.focus = ticket;
         self
     }
 

@@ -16,7 +16,13 @@ fn three_ready(rig: &Rig, runner: &Mutex<Runner>) {
 fn listed(rig: &Rig, runner: &Mutex<Runner>, params: Option<&str>) -> Vec<u64> {
     let answer = rig.ask(runner, "board", params);
     let list = answer["board"].as_array().expect("a list");
-    list.iter().map(|e| e["issue"].as_u64().unwrap()).collect()
+    list.iter()
+        .map(|e| e["issue"].as_str().unwrap().parse().unwrap())
+        .collect()
+}
+
+fn t(number: u64) -> TicketId {
+    crate::test::ticket(number)
 }
 
 #[test]
@@ -37,7 +43,7 @@ fn board_move_makes_the_runner_take_the_issue_at_its_new_place() {
         taken.push(issue);
         rig.ask(&runner, "drop", Some(&issue.to_string()));
     }
-    assert_eq!(taken, [284, 285, 282]);
+    assert_eq!(taken, [t(284), t(285), t(282)]);
 }
 
 #[test]
@@ -78,11 +84,11 @@ fn board_lists_each_issue_with_its_place_title_priority_and_why_it_waits() {
         json!({
             "project": "koji",
             "board": [
-                { "position": 1, "issue": 284, "title": "Title of #284",
+                { "position": 1, "issue": "284", "title": "Title of #284",
                   "priority": "P0", "blocked": true, "held": false },
-                { "position": 2, "issue": 282, "title": "Title of #282",
+                { "position": 2, "issue": "282", "title": "Title of #282",
                   "priority": null, "blocked": true, "held": false },
-                { "position": 3, "issue": 285, "title": "Title of #285",
+                { "position": 3, "issue": "285", "title": "Title of #285",
                   "priority": null, "blocked": true, "held": false },
             ],
         })

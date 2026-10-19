@@ -13,7 +13,7 @@ use crate::runner::retro::journal;
 use crate::runner::{CHECKS_SETTLE, Runner, StepReport, step};
 use crate::settings::Harness;
 use crate::state::{Finished, ProjectState, StateStore};
-use crate::test::{CALL_PATIENCE, Hold, NO_RETRO, Rig, Scripted, Seen};
+use crate::test::{CALL_PATIENCE, Hold, NO_RETRO, Rig, Scripted, Seen, ticket};
 use crate::usage::{FILE, read};
 use crate::work_item::Seconds;
 
@@ -160,6 +160,24 @@ fn the_tenth_finished_work_item_starts_one_retro_with_the_project_managers_agent
     ] {
         assert!(denied.contains(&tool), "{tool}: {denied:?}");
     }
+}
+
+#[test]
+fn the_retros_skill_command_comes_with_the_plugin_folder_it_is_in() {
+    let (rig, runner) = parked_after(9);
+    rig.claude.script_for(Role::Pm, [Scripted::Say(REPORT)]);
+    merge(&rig, &runner);
+
+    let [retro] = retros(&rig).try_into().unwrap();
+    assert!(
+        retro.call.prompt.starts_with("/mattpocock:retro"),
+        "{}",
+        retro.call.prompt
+    );
+    assert_eq!(
+        retro.call.plugin_dirs,
+        [rig.paths().skills.join("mattpocock")]
+    );
 }
 
 #[test]
@@ -442,7 +460,7 @@ fn a_retro_in_flight_holds_no_slot_so_the_next_issue_opens() {
         looking.join().unwrap();
         assert!(began, "the retro never began");
         assert!(
-            passes.iter().any(|p| p.contains("Dispatched { issue: 8")),
+            passes.iter().any(|p| p.contains("issue: Github(8)")),
             "{passes:#?}"
         );
     });
@@ -478,7 +496,7 @@ fn a_drain_waits_on_a_retro_already_running_for_its_own_ceiling() {
 #[test]
 fn the_friction_a_worker_reported_in_its_pull_request_reaches_the_retro() {
     let (rig, runner) = parked_after(9);
-    let file = rig.paths().build(7).join("pull-request.md");
+    let file = rig.paths().build(ticket(7)).join("pull-request.md");
     fs::create_dir_all(file.parent().unwrap()).unwrap();
     let body = "feat: the thing\n\n## Friction\n\nThe lockfile fought me twice.\n\nResolves #7\n";
     fs::write(&file, body).unwrap();
@@ -500,7 +518,7 @@ fn the_friction_a_worker_reported_in_its_pull_request_reaches_the_retro() {
 #[test]
 fn a_pull_request_file_that_does_not_parse_falls_back_to_the_forges_body() {
     let (rig, runner) = parked_after(9);
-    let file = rig.paths().build(7).join("pull-request.md");
+    let file = rig.paths().build(ticket(7)).join("pull-request.md");
     fs::create_dir_all(file.parent().unwrap()).unwrap();
     fs::write(&file, "\n\n").unwrap();
     let (remote, number) = {
@@ -640,7 +658,7 @@ fn friction(rig: &Rig, issue: u64, text: &str) {
     let journal = rig.paths().journal;
     fs::create_dir_all(journal.parent().unwrap()).unwrap();
     let entry = journal::Entry::Friction {
-        issue,
+        issue: ticket(issue),
         text: text.to_owned(),
     };
     journal::append(&journal, Timestamp(Rig::EPOCH - 1500), entry).unwrap();

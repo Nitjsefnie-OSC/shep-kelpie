@@ -33,3 +33,13 @@ How Claude Code and pi write down a tool call that failed, and how often each ki
 - pi's `grep` and `find` tools failed 22 times with `ripgrep (rg) is not available and could not be downloaded` and once with the same for `fd`. Neither was on the maintainer's `PATH` in that time, and an interactive Claude Code session has `rg` only through its own bundled copy. Homebrew installed `ripgrep` 15.2.0 and `fd` 10.5.0 there on 2026-10-16, so both are on the `PATH` now.
 - Those two tools run `rg` and `fd`. pi looks for each in its own agent folder's `bin` first, then on `PATH` (`fd` under either name `fd` or `fdfind`), then downloads it from GitHub (`dist/utils/tools-manager.js`, pi 1.1.0). With `PI_OFFLINE` set, or `--offline` passed, the download is skipped and the tool answers with the message above. Every kelpie pi call has a pi home of its own, so its `bin` is always empty. kelpie sets `PI_OFFLINE=1` in each pi call's environment, so the download is never tried, and `doctor` reports a project with an agent on pi whose `PATH` lacks either program (#972).
 - `fixtures/claude-transcript-tool-errors.jsonl` and `fixtures/pi-session-tool-errors.jsonl` hold one real failed result for each kind each harness had, the shortest found, with the call that made it. Each record is trimmed to those two blocks, with long text cut at 1500 characters and the home folder written `/Users/me`. The pi guard-block record is the recorded reason with `kelpie guard: ` on the front, as the guard extension writes it since #968.
+
+## The alert's expression (2026-10-19)
+
+- `KelpieToolErrorTakesOver` in `assets/prometheus/kelpie-rules.yml` was checked with `promtool test rules` (promtool 3.15.0, the maintainer's Homebrew install) against synthetic series, each read at 7h over 6h of 1h samples. `promtool test rules` starts no server and binds no socket, so it runs in a worker's sandbox. promtool is not in CI, so no test here runs it.
+  - 7 `guard-block` over 7 calls: one alert, at 100% of the role's calls, with `kind` kept as a label of it.
+  - 1 `edit-miss` over 1 call: no alert, which is the floor on calls holding it.
+  - 20 `other` over 5 calls: no alert.
+  - 2 `timeout` over 10 calls: no alert, under the share.
+  - 7 `hook-block` and 7 `git-ref-lock` over 7 calls, with 7 `other` on the same role: two alerts, one per kind, and no third for `other`.
+- Whether the share of 0.5 sits above or below what the maintainer's machine really runs is unmeasured: `guard-block`, and pi's `edit-miss`, are the two kinds of the table above that could sit near it, and only live series say whether the alert is a signal or a standing one.

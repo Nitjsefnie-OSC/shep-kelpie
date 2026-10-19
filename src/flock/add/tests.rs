@@ -8,7 +8,7 @@ use crate::ports::Visibility;
 use crate::runner::ProjectPaths;
 use crate::settings::{AgentName, ForgeSlug};
 use crate::state::STATE_FILE;
-use crate::test::{CALL_PATIENCE, FakeForge, FakeShepherd};
+use crate::test::{CALL_PATIENCE, FakeForge, FakeShepherd, ticket};
 
 /// A scratch checkout of a private repo with CI, a home with no qwen
 /// script, a forge with one label of its own, and a flock holding only the
@@ -187,8 +187,14 @@ async fn add_from_a_checkout_puts_its_worktrees_under_the_project_s_folder() {
     assert!(!runner.env.contains_key("KELPIE_HOME"), "{:?}", runner.env);
     assert_eq!(scene.settings().git.checkout, scene.checkout.root);
     let paths = ProjectPaths::under(&crate::home::under(shep_home), shep_home, &scene.name);
-    assert_eq!(paths.worktree(7), shep_home.join("kelpie/koji/worktrees/7"));
-    assert_eq!(paths.build(7), shep_home.join("kelpie/koji/builds/7"));
+    assert_eq!(
+        paths.worktree(ticket(7)),
+        shep_home.join("kelpie/koji/worktrees/7")
+    );
+    assert_eq!(
+        paths.build(ticket(7)),
+        shep_home.join("kelpie/koji/builds/7")
+    );
     assert_eq!(paths.state, shep_home.join("kelpie/koji/state.json"));
 }
 

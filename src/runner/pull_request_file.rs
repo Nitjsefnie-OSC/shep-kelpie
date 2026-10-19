@@ -238,6 +238,7 @@ mod tests {
     use crate::ports::{Cost, Forge, Usage};
     use crate::runner::{StepReport, step};
     use crate::settings::ForgeSlug;
+    use crate::test::ticket;
     use crate::test::{Asked, Rig, Scripted};
 
     fn usage() -> Usage {
@@ -415,9 +416,10 @@ Resolves #7"
 
         assert_eq!(rig.forge.text_of(500), None);
         let logged = runner.lock().unwrap().take_started();
-        let Some(StepReport::PullRequestNotOpened { issue: 7, reason }) = logged.last() else {
+        let Some(StepReport::PullRequestNotOpened { issue, reason }) = logged.last() else {
             panic!("the refusal was not logged as a step: {logged:?}");
         };
+        assert_eq!(*issue, ticket(7));
         assert_eq!(reason, HOME_PATH_REFUSED);
         std::fs::write(path(&rig.build_7()), "feat: x\n\nWhy.\n\nResolves #7\n").unwrap();
         rig.claude.script([Scripted::Say("fixed the file")]);
@@ -717,9 +719,10 @@ body
 
         assert_eq!(rig.forge.text_of(500), None);
         let logged = runner.lock().unwrap().take_started();
-        let Some(StepReport::PullRequestNotOpened { issue: 7, reason }) = logged.last() else {
+        let Some(StepReport::PullRequestNotOpened { issue, reason }) = logged.last() else {
             panic!("the refusal was not logged as a step: {logged:?}");
         };
+        assert_eq!(*issue, ticket(7));
         assert!(reason.contains("`Short summary`"), "{reason}");
         std::fs::write(path(&rig.build_7()), format!("feat: x\n\n{TEMPLATE}")).unwrap();
         rig.claude.script([Scripted::Say("fixed the file")]);

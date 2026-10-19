@@ -4,13 +4,16 @@
   - The board rule got 5 of 18 picks and holds right and avoided 4 of 15 avoidable conflicts, where every PM arm avoided 9 to 12 of 11 to 15, since most ready issues name no file and the rule cannot see a conflict.
   - Opus 5.5 at medium, briefed from the board, got 27.5 of 33 decisions right, avoided 10 of 15 and 9 of 14 in two runs, at 28,914 units ($0.114) and 12.9 seconds a wake; the same model looking for itself with git and a stand-in `gh` got 28 at 53,919 units ($0.197) and 25.9 seconds.
   - Units weigh cache reads 0.1, cache writes 2, output 5 and input 1.
+- Measured 2026-10-17, the same day as above (shep-pm/shep-kelpie#987): 71 of 134 project manager wakes began less than 5 minutes after that project's previous wake, and each wake pays for its whole starting context, median 54k tokens. Holding the reasons nobody waits on for 3 minutes sends those in one call.
 - The session shape on the day, Opus at medium:
   - A fresh session every wake cost 52,891 units ($0.204) a wake, $8.16 a day.
   - One resumed and replaced by a fresh one past 100k cost 35,585 ($0.106), $4.23.
   - One kept all day and compacted past 100k cost 28,917 ($0.083), $3.31, and answered all 15 probes of what it knew in both runs.
   - A board that day ran 17k to 30k characters, which a fresh session writes to cache on every wake.
 - A resumed session's context reached 100k after 14 to 27 wakes. One `/compact` cost 25k to 36k units, 65k to 108k with the wake after it, and left 9k to 13k of context. A fresh session's first wake after a resumed one cost 41k to 73k.
+- Measured on the maintainer's running day of 24 hours to 17 October 2026, Opus 5.5 at medium: 134 wakes, $14.48 and 5.0M units. 99 of them named a stuck item, 70% of the day's units, and 89 of those held nothing else. Its answers to those 89 were 76 `none` for a worker waiting on its model's lease (the cause #974 fixed), 10 `none` for an idle alarm it read as false, and 1 action. The same item woke it again about every 10 minutes: one 15 times, another 14, whose turn ran past its ceiling with its ruling waiting on the maintainer, and one item on a second project 8 times.
 - A fresh Opus session that did not write the maintainer's `tell` into its notes missed it at 3 of 8 checkpoints; every resumed or compacted session kept it.
+- The same day's tool calls: 153 Reads, 139 Edits and 139 Greps over 134 wakes. A routine wake costs 3.5 model requests (Read `board.md`, Read `pm-notes.md`, Edit `pm-notes.md`, and the answer), and each request re-reads the whole context from cache. Output is about 15% of the day's units.
 - The measured PM missed a worker hung on a prompt in 7 of 8 tries, because the board said only "busy".
 - Sonnet 5.5 at high decided as well as Opus 5.5 at medium at about half the dollars a wake from a fresh session, but in the session shape kelpie runs, one compacted as it goes, it spent more tokens and cost about the same ($0.079 against $0.083 a wake).
 - Every arm unstuck 12 or 13 of 15 stuck items right. Nearly all missed a worker hung on a permission prompt for an hour while its status read "busy", which the board's idle line now shows, and a review loop whose findings narrowed each round, which the maintainer kept running.

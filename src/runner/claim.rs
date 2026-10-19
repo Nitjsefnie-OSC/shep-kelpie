@@ -144,9 +144,9 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::ports::{Cost, Forge, Usage};
+    use crate::ports::{Cost, Tickets, Usage};
     use crate::runner::{CHECKS_SETTLE, step};
-    use crate::test::{Rig, Scripted};
+    use crate::test::{Rig, Scripted, ticket};
 
     fn running(project: &str) -> (Rig, Mutex<Runner>) {
         let rig = Rig::new(project);
@@ -258,7 +258,7 @@ mod tests {
         rig.ask(&runner, "add", Some("7"));
         let repo = rig.settings().git.remote.unwrap();
         rig.forge
-            .set_issue_label(&repo, 7, IN_PROGRESS, false)
+            .set_issue_label(&repo, ticket(7), IN_PROGRESS, false)
             .unwrap();
         drop(runner);
 

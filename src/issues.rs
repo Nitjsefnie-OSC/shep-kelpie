@@ -5,7 +5,8 @@
 //! as `ready-for-human` for the maintainer to read. Its session reads the
 //! repo, and its guard runs only the commands that file, label and link
 //! issues, and git's read-only ones. It ends with a list of what it filed,
-//! which kelpie reads back from the forge and checks before printing.
+//! which kelpie reads back through the ticket port and checks before
+//! printing.
 //! It has no one to grill, so an issue ends with an "Open questions"
 //! section for each decision it could not settle, with a recommended answer.
 //! `--interactive` starts `claude` in the maintainer's terminal instead, with
@@ -35,12 +36,13 @@ use crate::hooks::Hooks;
 use crate::ports::Clock;
 use crate::ports::{
     self, AgentCall, Ending, Fence, Forge, ForgeError, Guard, NewLabel, Reach, Session, SessionId,
-    Tools,
+    Tickets, Tools,
 };
 use crate::profile::CREDENTIALS;
 use crate::runner::{HUMAN, ProjectPaths};
 use crate::settings::{AgentName, ForgeSlug, RoleAgents, RoleModel, Settings};
 use crate::skills;
+use crate::ticket::TicketId;
 use crate::usage;
 use crate::worktree;
 
@@ -304,9 +306,9 @@ fn reach(
 /// Runs the issue writer on its own on `request`, and says what it filed
 ///
 /// It works in a fresh detached checkout of `origin/main`, removed once its
-/// reply is read. Each issue it lists is read back from the forge and
-/// checked for its status label, one `agent:` label naming a listed
-/// implementer, and acceptance criteria.
+/// reply is read. Each issue it lists is read back through the project's
+/// ticket port and checked for its status label, one `agent:` label naming a
+/// listed implementer, and acceptance criteria.
 ///
 /// # Errors
 ///
@@ -319,6 +321,7 @@ pub fn headless(
     writer: &Writer,
     request: &str,
     forge: &dyn Forge,
+    tickets: &dyn Tickets,
     agents: &dyn ports::Agents,
     git: &dyn ports::Git,
 ) -> Result<Vec<String>, String> {
@@ -366,7 +369,7 @@ pub fn headless(
     {
         let _ = std::fs::remove_file(file);
     }
-    report(project, forge, &filed)
+    report(project, tickets, &filed)
 }
 
 // Adds the run's line to the project's usage ledger. One that cannot be
@@ -508,8 +511,12 @@ fn tail(text: &str) -> String {
     }
 }
 
-// Each filed issue as the forge holds it, with what it lacks.
-fn report(project: &Project<'_>, forge: &dyn Forge, filed: &Filed) -> Result<Vec<String>, String> {
+// Each filed issue as its ticket source holds it, with what it lacks.
+fn report(
+    project: &Project<'_>,
+    tickets: &dyn Tickets,
+    filed: &Filed,
+) -> Result<Vec<String>, String> {
     let repo = project.remote;
     let slug = repo.as_str();
     let status = Mode::Headless.status();
@@ -522,7 +529,14 @@ fn report(project: &Project<'_>, forge: &dyn Forge, filed: &Filed) -> Result<Vec
     };
     let mut wrong = false;
     for &number in &filed.filed {
-        let issue = match forge.issue(repo, number) {
+        let Some(ticket) = TicketId::from_issue(number) else {
+            wrong = true;
+            lines.push(format!(
+                "#{number}: the forge numbered it zero, so it cannot be read back"
+            ));
+            continue;
+        };
+        let issue = match tickets.issue(repo, ticket) {
             Ok(issue) => issue,
             Err(e) => {
                 wrong = true;

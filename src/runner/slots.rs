@@ -19,6 +19,7 @@ use super::Runner;
 use crate::board::briefing::{Files, shared};
 use crate::board::{ReadyIssue, Skip};
 use crate::state::{ProjectState, RulingKind, StateError};
+use crate::ticket::TicketId;
 use crate::work_item::{Phase, Seat, WorkItem};
 
 /// Seats the work items in `next`, then gives the slots free under `max`
@@ -205,12 +206,12 @@ impl Runner {
     // stands. Both are read with the board's next write. A merged pull
     // request's branch changes nothing more.
     pub(super) fn parked_overlap(&self, ready: &[ReadyIssue]) -> Vec<Skip> {
-        let parked: Vec<(u64, Files)> = (self.state.work_items.iter())
+        let parked: Vec<(TicketId, Files)> = (self.state.work_items.iter())
             .filter(|i| self.held_back(i))
-            .map(|i| (i.issue, self.item_files(i.issue)))
+            .filter_map(|i| Some((i.ticket()?, self.item_files(i.ticket()?))))
             .collect();
         let unread = |issue: &ReadyIssue, unknown| Skip::PathsUnread {
-            issue: issue.number,
+            issue: issue.ticket,
             unknown,
         };
         if let Some((with, _)) = parked.iter().find(|(_, f)| matches!(f, Files::Unknown)) {
@@ -221,7 +222,7 @@ impl Runner {
             return skips;
         }
         for issue in ready {
-            let Some(named) = self.brief_named(issue.number) else {
+            let Some(named) = self.brief_named(issue.ticket) else {
                 skips.push(unread(issue, None));
                 continue;
             };
@@ -231,7 +232,7 @@ impl Runner {
             });
             if let Some((with, files)) = found {
                 skips.push(Skip::Overlap {
-                    issue: issue.number,
+                    issue: issue.ticket,
                     with,
                     files: files.into_iter().map(str::to_owned).collect(),
                 });

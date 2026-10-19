@@ -15,6 +15,7 @@ pub(crate) mod review_bot;
 mod runs;
 mod talk;
 mod thread;
+mod tickets;
 
 pub use app::GhApps;
 pub use conditional::Etags;
@@ -24,14 +25,15 @@ use std::process::Stdio;
 
 use serde::Deserialize;
 
-use crate::board::{OpenPullRequest, ReadyIssue};
+use crate::board::OpenPullRequest;
 use crate::ports::{
-    BranchRun, Checks, CommentMarks, FailedLogs, FinishedParent, FolderEntry, Forge, ForgeError,
-    Issue, IssueCloseReason, NewLabel, OpenIssue, OpenPull, PullRequest, PullRequestState,
-    QueueStanding, Reviewed, SubIssue, Talk, ThreadComment, Timestamp, Visibility, Workflow,
+    BranchRun, Checks, CommentMarks, FailedLogs, FolderEntry, Forge, ForgeError, Issue, NewLabel,
+    OpenPull, PullRequest, PullRequestState, QueueStanding, Reviewed, Talk, ThreadComment,
+    Timestamp, Visibility, Workflow,
 };
 use crate::review_bot::{Activity, Login};
 use crate::settings::ForgeSlug;
+use crate::ticket::TicketId;
 
 /// GitHub, through the `gh` command line
 ///
@@ -115,22 +117,6 @@ impl Forge for Gh {
         access::review_bot_seen(repo, login)
     }
 
-    fn issue(&self, repo: &ForgeSlug, number: u64) -> Result<Issue, ForgeError> {
-        issue(None, repo, number)
-    }
-
-    fn sub_issues(&self, repo: &ForgeSlug, parent: u64) -> Result<Vec<SubIssue>, ForgeError> {
-        issues::sub_issues(repo, parent)
-    }
-
-    fn finished_parents(&self, repo: &ForgeSlug) -> Result<Vec<FinishedParent>, ForgeError> {
-        issues::finished_parents(repo)
-    }
-
-    fn ready_issues(&self, repo: &ForgeSlug) -> Result<Vec<ReadyIssue>, ForgeError> {
-        board::ready_issues(None, repo)
-    }
-
     fn open_pull_requests(&self, repo: &ForgeSlug) -> Result<Vec<OpenPullRequest>, ForgeError> {
         board::open_pull_requests(None, repo)
     }
@@ -163,14 +149,6 @@ impl Forge for Gh {
         thread::comments_since(&self.etags, repo, since)
     }
 
-    fn issue_comments(
-        &self,
-        repo: &ForgeSlug,
-        number: u64,
-    ) -> Result<Vec<ThreadComment>, ForgeError> {
-        thread::issue_comments(&self.etags, repo, number)
-    }
-
     fn thread_replies_since(
         &self,
         repo: &ForgeSlug,
@@ -199,33 +177,6 @@ impl Forge for Gh {
         text.trim()
             .parse()
             .map_err(|_| ForgeError::Unreadable(text.into_owned()))
-    }
-
-    fn open_issues(&self, repo: &ForgeSlug) -> Result<Vec<OpenIssue>, ForgeError> {
-        issues::open_issues(repo)
-    }
-
-    fn create_issue(
-        &self,
-        repo: &ForgeSlug,
-        title: &str,
-        body: &str,
-        labels: &[&str],
-    ) -> Result<u64, ForgeError> {
-        issues::create_issue(repo, title, body, labels)
-    }
-
-    fn close_issue(&self, repo: &ForgeSlug, number: u64) -> Result<(), ForgeError> {
-        issues::close_issue(repo, number)
-    }
-
-    fn close_issue_as(
-        &self,
-        repo: &ForgeSlug,
-        number: u64,
-        reason: IssueCloseReason,
-    ) -> Result<(), ForgeError> {
-        issues::close_issue_as(repo, number, reason)
     }
 
     fn open_pulls(&self, repo: &ForgeSlug) -> Result<Vec<OpenPull>, ForgeError> {
@@ -303,16 +254,6 @@ impl Forge for Gh {
         on: bool,
     ) -> Result<(), ForgeError> {
         review_bot::label(repo, number, label, on)
-    }
-
-    fn set_issue_label(
-        &self,
-        repo: &ForgeSlug,
-        number: u64,
-        label: &str,
-        on: bool,
-    ) -> Result<(), ForgeError> {
-        issues::set_label(repo, number, label, on)
     }
 
     fn review_bot(
@@ -517,8 +458,11 @@ fn parse_issue(stdout: &[u8]) -> Result<Issue, ForgeError> {
         body: view.body.unwrap_or_default(),
         labels: view.labels.into_iter().map(|l| l.name).collect(),
         open: view.state != "CLOSED",
-        parent: view.parent.map(|p| p.number),
-        blocked_by: blocked_by.into_iter().map(|b| b.number).collect(),
+        parent: view.parent.and_then(|p| TicketId::from_issue(p.number)),
+        blocked_by: blocked_by
+            .into_iter()
+            .filter_map(|b| TicketId::from_issue(b.number))
+            .collect(),
     })
 }
 
@@ -633,6 +577,7 @@ fn checks(rollup: &[Check]) -> Checks {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test::ticket;
 
     // Recorded from gh 2.96 on this repo: `gh issue view 6 --json title,body,labels,state`.
     const ISSUE: &str = include_str!("../../fixtures/gh-issue-view.json");
@@ -644,11 +589,14 @@ mod tests {
     #[test]
     fn an_issue_is_read_with_its_parent_and_blockers() {
         let issue = parse_issue(SUB_ISSUE.as_bytes()).unwrap();
-        assert_eq!((issue.parent, issue.blocked_by), (Some(14529), vec![]));
+        assert_eq!(
+            (issue.parent, issue.blocked_by),
+            (Some(ticket(14529)), vec![])
+        );
         let blocked = br#"{"title":"t","body":"","labels":[],"state":"OPEN","parent":null,
             "blockedBy":{"nodes":[{"number":3,"state":"OPEN"}],"totalCount":1}}"#;
         let issue = parse_issue(blocked).unwrap();
-        assert_eq!((issue.parent, issue.blocked_by), (None, vec![3]));
+        assert_eq!((issue.parent, issue.blocked_by), (None, vec![ticket(3)]));
     }
 
     #[test]

@@ -190,6 +190,16 @@ fn a_retro_runs_on_an_allow_list_of_tools_and_no_mcp_server() {
 }
 
 #[test]
+fn a_retro_loads_the_plugin_folder_its_skill_is_in() {
+    let mut retro = call(Role::Pm, fresh());
+    retro.tools = crate::ports::Tools::Retro;
+    retro.plugin_dirs = vec!["/k/skills/mattpocock".into()];
+    let argv = strings(&retro);
+    let at = argv.iter().position(|a| a == "--plugin-dir").unwrap();
+    assert_eq!(argv[at + 1], "/k/skills/mattpocock");
+}
+
+#[test]
 fn each_plugin_folder_is_its_own_plugin_dir() {
     let mut with = call(Role::Reviewer, fresh());
     with.plugin_dirs = vec!["/k/skills/mattpocock".into(), "/k/skills/review".into()];

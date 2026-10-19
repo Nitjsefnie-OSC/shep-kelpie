@@ -1,10 +1,14 @@
 use serde_json::json;
 
+use std::num::NonZeroU64;
+
 use super::*;
 use crate::ports::Visibility;
 use crate::runner::step;
 use crate::state::VERSION;
+use crate::test::ticket;
 use crate::test::{Rig, git};
+use crate::ticket::TicketId;
 
 // A project saved paused by an older kelpie runs once its runner starts.
 #[test]
@@ -57,8 +61,8 @@ fn a_project_saved_paused_reads_the_board_on_its_first_pass() {
     let runner = rig.open().unwrap();
     rig.forge.list_ready(7, false);
     assert!(matches!(
-        step(&runner).unwrap(),
-        Some(StepReport::Dispatched { issue: 7, .. })
+       step(&runner).unwrap(),
+       Some(StepReport::Dispatched { issue, .. }) if issue == ticket(7)
     ));
     let status = rig.ask(&runner, "status", None);
     assert_eq!(status["work_item"]["issue"], 7);
@@ -267,6 +271,39 @@ fn a_runner_logs_no_json_object_at_its_start_or_a_dispatch() {
     assert!(lines[1].ends_with(')'), "the model's effort: {}", lines[1]);
 }
 
+// A GitHub ticket's line keeps the `#` it has always had. A local ticket has
+// no issue number to show, so its id stands on its own in both logs.
+#[test]
+fn a_step_names_its_work_item_by_ticket_id_in_words_and_in_json() {
+    let rig = Rig::new("koji");
+    let opened = rig.open().unwrap();
+    let mut runner = opened.lock().unwrap();
+    let local = TicketId::Local(NonZeroU64::new(12).unwrap());
+
+    let github = StepReport::GateFailed {
+        issue: ticket(7),
+        reason: "the forge is down".to_owned(),
+    };
+    assert_eq!(
+        runner.log_step(&github),
+        "#7 gate-failed reason=the forge is down"
+    );
+    assert_eq!(serde_json::to_value(&github).unwrap()["issue"], json!("7"));
+
+    let local_item = StepReport::GateFailed {
+        issue: local,
+        reason: "the forge is down".to_owned(),
+    };
+    assert_eq!(
+        runner.log_step(&local_item),
+        "k12 gate-failed reason=the forge is down"
+    );
+    assert_eq!(
+        serde_json::to_value(&local_item).unwrap()["issue"],
+        json!("k12")
+    );
+}
+
 #[test]
 fn the_steps_a_runner_logs_are_in_steps_jsonl_one_object_per_line() {
     let rig = Rig::new("koji");
@@ -299,4 +336,81 @@ fn the_steps_a_runner_logs_are_in_steps_jsonl_one_object_per_line() {
         let want = want.as_object_mut().unwrap();
         assert_eq!(&line, &*want);
     }
+}
+
+// The tickets port is a source's ticket half (ADR 0014). One wrapped source
+// stands behind it and behind the forge port, so a ticket read or write
+// reaches the rig's forge, is held and ledged there, and is refused by the
+// same guard.
+#[test]
+fn the_tickets_port_and_the_forge_port_are_one_wrapped_source() {
+    use crate::forge_ledger::{self, Kind};
+
+    let rig = Rig::new("koji");
+    let runner = rig.open().unwrap();
+    let runner = runner.lock().unwrap();
+    let repo = runner.remote.clone();
+    let ledger = |kind: Kind| {
+        forge_ledger::read(&rig.paths().kelpie_home.join(forge_ledger::FILE))
+            .unwrap()
+            .iter()
+            .filter(|line| line.kind == kind)
+            .count()
+    };
+
+    let (asked, ledged) = (rig.forge.asked(), ledger(Kind::Issue));
+    let read = runner.ports.tickets.issue(&repo, ticket(7)).unwrap();
+    let again = runner.ports.tickets.issue(&repo, ticket(7)).unwrap();
+    assert_eq!(read, again);
+    assert_eq!(
+        rig.forge.asked(),
+        asked + 2,
+        "each read reached the rig's forge"
+    );
+    assert_eq!(ledger(Kind::Issue), ledged + 2, "each read is ledged");
+
+    // What the rig's forge no longer has is gone
+    rig.forge.remove_issue(7);
+    assert_eq!(
+        runner.ports.tickets.issue(&repo, ticket(7)).unwrap_err(),
+        ForgeError::Failed("no issue #7".into()),
+    );
+
+    // What the ticket port opens, the ticket port reads back
+    let opened = runner
+        .ports
+        .tickets
+        .create_issue(&repo, "A ticket", "Its body", &[])
+        .unwrap();
+    assert_eq!(
+        runner.ports.tickets.issue(&repo, opened).unwrap().title,
+        "A ticket",
+    );
+
+    // The forge port keeps the pull requests, and reaches the same rig forge
+    // through the same hold
+    let (asked, ledged) = (rig.forge.asked(), ledger(Kind::OpenPullRequests));
+    runner.ports.forge.open_pull_requests(&repo).unwrap();
+    assert_eq!(rig.forge.asked(), asked + 1, "one call on one forge");
+    assert_eq!(
+        ledger(Kind::OpenPullRequests),
+        ledged + 1,
+        "the forge read is ledged too"
+    );
+
+    // And the ticket port stands behind the same guard, so a body naming this
+    // machine's folders never reaches the forge
+    let asked = rig.forge.asked();
+    let refused = runner
+        .ports
+        .tickets
+        .create_issue(
+            &repo,
+            "A ticket",
+            &rig.home.path().display().to_string(),
+            &[],
+        )
+        .unwrap_err();
+    assert!(matches!(refused, ForgeError::LocalPath { .. }), "{refused}");
+    assert_eq!(rig.forge.asked(), asked, "the forge was never asked");
 }

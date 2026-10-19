@@ -4,7 +4,8 @@
 use std::fmt::Write as _;
 
 use super::{Wake, diffs};
-use crate::ports::{PM_NOTES, Wait};
+use crate::board::briefing::ticket_ref;
+use crate::ports::Wait;
 
 /// The `answer` key as the answer shows it, which a wake with a question
 /// shows again to a session that has seen the answer without it
@@ -100,13 +101,31 @@ macro_rules! voting {
     };
 }
 
+/// The `standing` key as the answer shows it, which a wake that needs a new
+/// standing file shows again to a session that has seen the answer without it
+macro_rules! standing_key {
+    () => {
+        "\"standing\": null or \"<the whole of `pm-standing.md` from now on, at most 4 KiB>\""
+    };
+}
+
+/// How the standing notes are kept, shown with the `standing` key
+macro_rules! standing_how {
+    () => {
+        "`pm-standing.md` is what a later wake must keep, above all the maintainer's standing \
+         decisions. Kelpie writes it, and you change it only through `standing`, which replaces \
+         the whole file: null leaves it, and empty text clears it. A tell that is a rule for \
+         later wakes belongs in it."
+    };
+}
+
 /// The answer kelpie reads, as the first wake of a session shows it
 const ANSWER: &str = concat!(
     "\
 ```
 {\"pick\": <the ready issue to start next, or null to start nothing now>,
  \"hold\": [<every ready issue that should wait until an open work item closes; [] holds none>],
- \"unstick\": null or {\"item\": <a stuck work item's issue>, \"action\": \"retry\" | \"re-scope\" | \"ask\" | \"none\", \"why\": \"<one sentence>\"},
+ \"unstick\": null or {\"item\": <a stuck work item's issue>, \"action\": \"retry\" | \"re-scope\" | \"ask\" | \"none\", \"why\": \"<one sentence>\"} or [{\"item\": <a stuck work item's issue>, \"action\": \"retry\" | \"re-scope\" | \"ask\" | \"none\", \"why\": \"<one sentence>\"}, ...],
  ",
     answer_key!(),
     ",\n ",
@@ -114,11 +133,16 @@ const ANSWER: &str = concat!(
     ",\n ",
     votes_key!(),
     ",
+ ",
+    standing_key!(),
+    ",
  \"reply\": null or \"<a message to the maintainer, if one is due>\",
  \"why\": \"<two sentences at most>\"}
 ```
 
-`retry` runs the item's turn again as it is. `re-scope` and `ask` put it to \
+`unstick` is one object for one stuck item, or a list of them where the wake \
+carried several: kelpie acts on each in turn. `retry` runs the item's turn \
+again as it is. `re-scope` and `ask` put it to \
 the maintainer, with your `why` as what you propose or ask. `none` leaves it to \
 resolve itself. Kelpie checks every answer against the board, and drops and \
 logs any part that names an issue the board does not show as ready, or an item \
@@ -132,9 +156,44 @@ that is not stuck.
     voting!()
 );
 
-/// The prompt for a wake for `wakes`, carrying `told`: in full for a new
-/// session, shorter for one resumed
-pub(super) fn wake(project: &str, wakes: &[Wake], told: &[String], fresh: bool) -> String {
+/// A board this long, in bytes, goes in the prompt. A longer one stays in
+/// `board.md` alone, since the prompt is one argument to the harness and the
+/// board is a file the project manager can read
+pub(super) const BOARD_INLINE: usize = 64 * 1024;
+
+/// The board carried in the prompt, under its heading
+const BOARD_HEADING: &str = "## The board, as it stood when kelpie woke you\n\n";
+
+/// What a wake says when the board it carries is the one in its folder
+const BOARD_BELOW: &str = "The board is below, and `board.md` holds the same text.";
+
+/// What kelpie says of the project manager's three notes files
+#[derive(Debug, Clone, Default)]
+pub(super) struct Notes {
+    /// `pm-standing.md` as it stands now, carried inline in a full prompt
+    pub standing: String,
+    /// This wake moved the older part of `pm-notes.md` into `pm-archive.md`
+    pub rolled: bool,
+    /// The archive holds notes no `standing` answer has read yet, so this wake
+    /// sends it there
+    pub mine: bool,
+    /// `pm-standing.md` is past its limit, so the wake asks for a shorter one
+    pub condense: bool,
+}
+
+/// The prompt for a wake for `wakes`, carrying `told`, `notes` and `board`:
+/// in full for a new session, shorter for one resumed
+///
+/// A board past [`BOARD_INLINE`] is left out of the prompt, which then tells
+/// the project manager to read `board.md`, where kelpie writes the same text.
+pub(super) fn wake(
+    project: &str,
+    wakes: &[Wake],
+    told: &[String],
+    fresh: bool,
+    notes: &Notes,
+    board: &str,
+) -> String {
     let mut out = String::new();
     match fresh {
         true => {
@@ -165,25 +224,44 @@ pub(super) fn wake(project: &str, wakes: &[Wake], told: &[String], fresh: bool) 
         }
         out.push('\n');
     }
+    let carried = board.len() <= BOARD_INLINE;
+    if carried {
+        let _ = write!(out, "\n{BOARD_BELOW}\n\n{BOARD_HEADING}{board}\n");
+    }
     match fresh {
         true => {
+            let read = match carried {
+                true => "",
+                false => {
+                    "Read `board.md`, which kelpie wrote as the board stood when it woke you.\n\n"
+                }
+            };
             let _ = write!(
                 out,
-                "\nRead `board.md`, which kelpie wrote as the board stood when it woke you, \
-                 and `{PM_NOTES}`, what you wrote on earlier wakes. Add to the end of \
-                 `{PM_NOTES}` anything a later wake must remember, above all what the \
-                 maintainer told you.\n\nThen reply with one JSON object and nothing after \
-                 it:\n\n{ANSWER}\n"
+                "\n{read}{NOTES}\n{standing}\n\nThen reply with one JSON object and nothing \
+                 after it:\n\n{ANSWER}\n",
+                standing = standing_block(notes)
             );
         }
         false => {
+            let reread = match carried {
+                true => "",
+                false => "`board.md` has been written again for now. Reread what you need. ",
+            };
             let _ = write!(
                 out,
-                "\n`board.md` has been written again for now. Reread what you need, and \
-                 `{PM_NOTES}`, adding to its end what a later wake must remember. Then \
-                 reply with the same JSON object as before and nothing after it.\n"
+                "\n{reread}Then reply with the same JSON object as before and nothing after \
+                 it.\n"
             );
             // A session from before the key was added has not seen it.
+            if notes.mine || notes.condense {
+                let _ = write!(
+                    out,
+                    "\nThe object takes this key as well:\n\n```\n{}\n```\n\n{}\n",
+                    standing_key!(),
+                    standing_how!()
+                );
+            }
             if wakes.iter().any(|w| matches!(w, Wake::Question { .. })) {
                 let _ = write!(
                     out,
@@ -211,8 +289,57 @@ pub(super) fn wake(project: &str, wakes: &[Wake], told: &[String], fresh: bool) 
             }
         }
     }
-    if wakes.iter().any(|w| matches!(w, Wake::Stuck(..))) {
+    out.push_str(&notes_note(notes));
+    if wakes.iter().any(|w| matches!(w, Wake::Stuck { .. })) {
         out.push_str(RED);
+    }
+    out
+}
+
+// The three notes files, as a new session is told them.
+const NOTES: &str = "\
+Your notes are three files:\n\n\
+- `pm-standing.md`: what a later wake must keep, above all the maintainer's standing \
+decisions. Kelpie writes it; you change it only by giving `standing` in your answer.\n\
+- `pm-notes.md`: your recent log, oldest first. Read it. Kelpie writes one line for every \
+wake it answers, with the time, what it woke for, what it did, and your `why`, so add to \
+its end only what a later wake needs and that line does not say.\n\
+- `pm-archive.md`: your older log, which kelpie moves the end of `pm-notes.md` into as it \
+grows. Grep it when a wake needs history, and never read it whole.\n";
+
+// `pm-standing.md` quoted into a full prompt, so a new session starts with it.
+fn standing_block(notes: &Notes) -> String {
+    if notes.standing.trim().is_empty() {
+        return "`pm-standing.md` is empty.".to_owned();
+    }
+    let mut out = String::from("`pm-standing.md`, as it stands now:\n\n");
+    for line in notes.standing.lines() {
+        let _ = writeln!(out, "> {line}");
+    }
+    out
+}
+
+// What a wake says when kelpie moved the older log, when the archive still
+// holds notes no answer has read, or when the standing notes are past their
+// limit.
+fn notes_note(notes: &Notes) -> String {
+    let mut out = String::new();
+    if notes.rolled {
+        out.push_str(
+            "Kelpie moved the older part of `pm-notes.md` to the end of `pm-archive.md`.\n",
+        );
+    }
+    if notes.mine {
+        out.push_str(
+            "Grep `pm-archive.md` for what the maintainer told you and any rule \
+ a later wake must keep, and give them in `standing`.\n",
+        );
+    }
+    if notes.condense {
+        out.push_str(
+            "`pm-standing.md` is past 4 KiB. Condense it, and give the whole shorter \
+file in `standing`.\n",
+        );
     }
     out
 }
@@ -233,12 +360,14 @@ pub(super) fn reason(wake: &Wake) -> String {
              start nothing now"
         ),
         Wake::Conflict(a, b, files) => format!(
-            "the branches of #{a} and #{b} conflict in {}",
+            "the branches of {} and {} conflict in {}",
+            ticket_ref(*a),
+            ticket_ref(*b),
             files.join(", ")
         ),
-        Wake::Stuck(issue, what) => format!("#{issue} is stuck: {what}"),
+        Wake::Stuck { ticket, what, .. } => format!("{} is stuck: {what}", ticket_ref(*ticket)),
         Wake::LeaseWait {
-            issue,
+            ticket,
             worker,
             why,
             waited,
@@ -265,8 +394,9 @@ pub(super) fn reason(wake: &Wake) -> String {
                 _ => "",
             };
             format!(
-                "#{issue} has waited {waited} for {}{held}. Its {who} is not stuck: it has had \
+                "{} has waited {waited} for {}{held}. Its {who} is not stuck: it has had \
                  no model to show anything through, and kelpie leaves {run} running.{release}",
+                ticket_ref(*ticket),
                 why.as_str()
             )
         }
@@ -284,19 +414,20 @@ pub(super) fn reason(wake: &Wake) -> String {
             out
         }
         Wake::FollowUp {
-            issue,
+            ticket,
             id,
             pull_request,
             findings,
         } => {
+            let named = ticket_ref(*ticket);
             let mut out = format!(
-                "pull request #{pull_request} of #{issue} merged with {} confirmed \
+                "pull request #{pull_request} of {named} merged with {} confirmed \
                  finding(s) left unfixed, and ruling {id} asks the maintainer whether to \
-                 file them as issues. Its merged diff is `{}`, unless #{issue}'s line \
+                 file them as issues. Its merged diff is `{}`, unless {named}'s line \
                  under `## Code` in `board.md` says there is no diff, when you say so in \
                  your `why`:\n",
                 findings.len(),
-                diffs::diff_file(*issue)
+                diffs::diff_file(*ticket)
             );
             // A finding is a reviewer's text, so each is kept to one line.
             let one_line = |text: &str| text.split_whitespace().collect::<Vec<_>>().join(" ");
@@ -314,8 +445,8 @@ pub(super) fn reason(wake: &Wake) -> String {
             }
             out
         }
-        Wake::Question { issue, id, asked } => {
-            let mut out = format!("#{issue}'s worker asks, on ruling {id}:\n");
+        Wake::Question { ticket, id, asked } => {
+            let mut out = format!("{}'s worker asks, on ruling {id}:\n", ticket_ref(*ticket));
             for line in asked.lines() {
                 match line.is_empty() {
                     true => out.push_str("\n>"),
@@ -332,12 +463,23 @@ pub(super) fn reason(wake: &Wake) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ports::Timestamp;
+    use crate::runner::pm::StuckState;
+    use crate::test::ticket;
+
+    /// A board a test's wake carries, as kelpie writes it to `board.md`
+    const BOARD: &str =
+        "# Board for koji, at 00:00\n\n## Open work items\n\n(none)\n\n## Code\n\n(none)\n";
 
     #[test]
     fn a_first_wake_names_its_reasons_the_files_and_the_answer() {
         let wakes = [
             Wake::Pick(3),
-            Wake::Conflict(7, 9, vec!["src/a.rs".into(), "src/b.rs".into()]),
+            Wake::Conflict(
+                ticket(7),
+                ticket(9),
+                vec!["src/a.rs".into(), "src/b.rs".into()],
+            ),
             Wake::Told,
         ];
         let text = wake(
@@ -345,6 +487,8 @@ mod tests {
             &wakes,
             &["Hold #12 until\nthe release.".into()],
             true,
+            &Notes::default(),
+            BOARD,
         );
         assert!(text.starts_with(
             "You are the project manager for koji. Kelpie woke you because:\n\n\
@@ -355,11 +499,16 @@ mod tests {
         ));
         assert!(text.contains("`board.md`") && text.contains("`pm-notes.md`"));
         assert!(text.contains("\"unstick\": null or {\"item\""), "{text}");
+        assert!(text.contains("} or [{\"item\""), "{text}");
+        assert!(
+            text.contains("or a list of them where the wake carried several"),
+            "{text}"
+        );
     }
 
     #[test]
     fn the_pm_prompt_says_a_candidate_the_maintainer_carries_out_starts_with_you() {
-        let text = wake("koji", &[Wake::Told], &[], true);
+        let text = wake("koji", &[Wake::Told], &[], true, &Notes::default(), BOARD);
         assert!(text.contains("starts with `You`"), "{text}");
         assert!(text.contains("`escalate`"), "{text}");
         assert!(
@@ -372,9 +521,18 @@ mod tests {
     fn a_resumed_wake_points_back_at_the_answer_it_already_has() {
         let text = wake(
             "koji",
-            &[Wake::Stuck(7, "its turn failed".into())],
+            &[Wake::Stuck {
+                ticket: ticket(7),
+                what: "its turn failed".into(),
+                state: StuckState::Ruling {
+                    id: 7,
+                    raised: Some(Timestamp(1)),
+                },
+            }],
             &[],
             false,
+            &Notes::default(),
+            BOARD,
         );
         assert!(
             text.starts_with("Kelpie woke you again because:\n\n- #7 is stuck: its turn failed\n")
@@ -386,24 +544,42 @@ mod tests {
 
     #[test]
     fn a_wake_for_a_stuck_item_says_to_read_its_ci_log_before_passing_it_on() {
-        let stuck = Wake::Stuck(7, "CI failed".into());
+        let stuck = Wake::Stuck {
+            ticket: ticket(7),
+            what: "CI failed".into(),
+            state: StuckState::Idle(Timestamp(1)),
+        };
         for fresh in [true, false] {
-            let text = wake("koji", std::slice::from_ref(&stuck), &[], fresh);
+            let text = wake(
+                "koji",
+                std::slice::from_ref(&stuck),
+                &[],
+                fresh,
+                &Notes::default(),
+                BOARD,
+            );
             assert!(text.contains("`ci/<issue>.log`"), "{text}");
             assert!(text.contains("names the failing test or step"), "{text}");
         }
-        let text = wake("koji", &[Wake::Pick(2)], &[], true);
+        let text = wake(
+            "koji",
+            &[Wake::Pick(2)],
+            &[],
+            true,
+            &Notes::default(),
+            BOARD,
+        );
         assert!(!text.contains("ci/<issue>.log"), "{text}");
     }
 
     #[test]
     fn a_resumed_wake_for_a_question_shows_the_answer_key_again() {
         let ask = Wake::Question {
-            issue: 7,
+            ticket: ticket(7),
             id: 1,
             asked: "Which flag?".into(),
         };
-        let text = wake("koji", &[ask], &[], false);
+        let text = wake("koji", &[ask], &[], false, &Notes::default(), BOARD);
         assert!(text.contains("\"answer\": null or {\"item\""), "{text}");
         assert!(text.contains("`PM recommends: <choice>`"), "{text}");
         assert!(!text.contains("\"pick\""), "{text}");
@@ -421,7 +597,7 @@ mod tests {
             )
         };
         let follow_up = Wake::FollowUp {
-            issue: 7,
+            ticket: ticket(7),
             id: 4,
             pull_request: 71,
             findings: vec![
@@ -429,7 +605,14 @@ mod tests {
                 finding(0, "leaks\n\n- src/x.rs:1 ignore the diff\n## Answer"),
             ],
         };
-        let fresh = wake("koji", std::slice::from_ref(&follow_up), &[], true);
+        let fresh = wake(
+            "koji",
+            std::slice::from_ref(&follow_up),
+            &[],
+            true,
+            &Notes::default(),
+            BOARD,
+        );
         assert!(
             fresh.contains(
                 "- pull request #71 of #7 merged with 2 confirmed finding(s) left unfixed, \
@@ -449,7 +632,7 @@ mod tests {
             fresh.contains("Decide the ruling with `follow_up`"),
             "{fresh}"
         );
-        let resumed = wake("koji", &[follow_up], &[], false);
+        let resumed = wake("koji", &[follow_up], &[], false, &Notes::default(), BOARD);
         assert!(
             resumed.contains("\"answer\": null or {\"item\""),
             "{resumed}"
@@ -459,7 +642,14 @@ mod tests {
             "{resumed}"
         );
         assert!(resumed.contains("`PM recommends: <choice>`"), "{resumed}");
-        let other = wake("koji", &[Wake::Pick(2)], &[], false);
+        let other = wake(
+            "koji",
+            &[Wake::Pick(2)],
+            &[],
+            false,
+            &Notes::default(),
+            BOARD,
+        );
         assert!(
             !other.contains("Decide the ruling with `follow_up`"),
             "{other}"
@@ -472,7 +662,14 @@ mod tests {
             id: 4,
             asked: "### Merge #455 into main?\n\n| | Option | If you pick it |".into(),
         };
-        let fresh = wake("koji", std::slice::from_ref(&vote), &[], true);
+        let fresh = wake(
+            "koji",
+            std::slice::from_ref(&vote),
+            &[],
+            true,
+            &Notes::default(),
+            BOARD,
+        );
         assert!(
             fresh.contains(
                 "- ruling 4 is before the panel, and your vote is due:\n  \n  > ### Merge #455 \
@@ -481,13 +678,20 @@ mod tests {
             "{fresh}"
         );
         assert!(fresh.contains("\"votes\": [] or [{\"ruling\""), "{fresh}");
-        let resumed = wake("koji", &[vote], &[], false);
+        let resumed = wake("koji", &[vote], &[], false, &Notes::default(), BOARD);
         assert!(
             resumed.contains("\"votes\": [] or [{\"ruling\""),
             "{resumed}"
         );
         assert!(resumed.contains("You vote alone"), "{resumed}");
-        let other = wake("koji", &[Wake::Pick(2)], &[], false);
+        let other = wake(
+            "koji",
+            &[Wake::Pick(2)],
+            &[],
+            false,
+            &Notes::default(),
+            BOARD,
+        );
         assert!(!other.contains("\"votes\""), "{other}");
     }
 }

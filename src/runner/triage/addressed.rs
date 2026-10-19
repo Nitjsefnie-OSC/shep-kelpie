@@ -42,7 +42,7 @@ impl Runner {
                 "no issue or pull request of that number was in its listing".to_owned(),
             );
         }
-        let open = match self.ports.forge.open_issues(&self.remote) {
+        let open = match self.ports.tickets.open_issues(&self.remote) {
             Ok(open) => open,
             Err(e) => return self.cover_unknown(issue, &e),
         };
@@ -69,11 +69,12 @@ impl Runner {
     // Closes `issue` as a duplicate of `of`, from a record at the `closed`
     // step: what a restart leaves after the comment is already up
     pub(super) fn close_duplicate(&mut self, issue: u64, of: u64) -> Result<(), StateError> {
-        match self
-            .ports
-            .forge
-            .close_issue_as(&self.remote, issue, IssueCloseReason::Duplicate)
-        {
+        let closed = super::ticket(issue).and_then(|ticket| {
+            self.ports
+                .tickets
+                .close_issue_as(&self.remote, ticket, IssueCloseReason::Duplicate)
+        });
+        match closed {
             Ok(()) => {
                 self.triage_stepped(issue, TriageStep::Done)?;
                 self.triage_tries.remove(&issue);

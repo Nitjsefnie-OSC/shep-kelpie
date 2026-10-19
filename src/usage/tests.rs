@@ -1,3 +1,4 @@
+use crate::test::ticket;
 use serde_json::json;
 
 use super::*;
@@ -44,7 +45,7 @@ fn finished(issue: u64, merged: bool, worker: u64, reviewer: u64, wall: u64) -> 
     };
     Line::Finished(FinishedLine {
         at: Timestamp(1000 + issue),
-        issue,
+        issue: ticket(issue),
         title: format!("Issue {issue}"),
         pull_request: Some(issue + 100),
         merged,
@@ -519,4 +520,31 @@ fn the_ledger_comes_out_as_the_counters_the_runner_sends_each_at_its_lines_time(
     assert!(out.contains(&moves.to_owned()), "{out:#?}");
     assert!(out.contains(&"# TYPE kelpie_calls counter".to_owned()));
     assert_eq!(out.last().unwrap(), "# EOF");
+}
+
+#[test]
+fn a_report_names_an_unrecorded_work_item_by_its_ticket_id() {
+    let mut lines = vec![
+        finished(1, true, 3000, 1000, 3600),
+        call(1000, Some(1), Role::Worker, CallKind::Turn, 4000),
+        call(1001, Some(9), Role::Worker, CallKind::Turn, 70),
+    ];
+    // A call line for a ticket from another source, with no finished line for
+    // it: open still, or run before the ledger kept finished lines.
+    let local: CallLine = serde_json::from_value(json!({
+        "at": 1002, "issue": "k12", "role": "worker", "kind": "turn",
+        "usage": { "input": 60, "cache_write": 0, "cache_read": 0, "output": 0 },
+        "units": 60, "cost_usd": 0.3, "ended": "answered",
+    }))
+    .unwrap();
+    lines.push(Line::Call(local));
+    let out = report("koji", &lines, None, &[]);
+    assert!(
+        out.contains(&"  #9 (#109): 1 call, 70 units, $0.50".to_owned()),
+        "{out:#?}"
+    );
+    assert!(
+        out.contains(&"  k12: 1 call, 60 units, $0.30".to_owned()),
+        "{out:#?}"
+    );
 }

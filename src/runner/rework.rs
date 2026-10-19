@@ -17,8 +17,10 @@ use super::trigger::{self, issue_list};
 use super::turn;
 use crate::board::{LabelError, OpenPullRequest, READY, Skip};
 use crate::ports::{ForgeError, MaintainerReview, PullRequestState, Reviewed};
+use crate::runner::report::ticket_of;
 use crate::settings::AgentName;
 use crate::state::StateError;
+use crate::ticket::TicketId;
 use crate::work_item::{Known, Phase, Review, WorkItem, new_session_id};
 use crate::worktree::{self, Remote};
 
@@ -154,13 +156,13 @@ impl Runner {
     ) -> Result<(Option<Begin>, Vec<Skip>), StateError> {
         let mut skipped = Vec::new();
         // A second ask waits for the work item in flight on its issue to end.
-        let mut ours: Vec<(u64, u64)> = open
+        let mut ours: Vec<(u64, TicketId)> = open
             .iter()
             .filter_map(|pr| {
                 let issue = pr.head.strip_prefix("kelpie/").and_then(trigger::number)?;
-                Some((pr.number, issue))
+                Some((pr.number, TicketId::from_issue(issue)?))
             })
-            .filter(|&(_, issue)| self.state.item(issue).is_none())
+            .filter(|&(_, ticket)| self.state.item_by_ticket(ticket).is_none())
             .collect();
         ours.sort_unstable();
         // One pull request that fails holds up none of the others, nor the board.
@@ -170,7 +172,12 @@ impl Runner {
             error: error.to_string(),
         };
         self.snapshot.keep_only(open);
-        for (number, issue) in ours {
+        for (number, ticket) in ours {
+            // A rework is kelpie's own `kelpie/<issue>` branch, whose name holds
+            // a GitHub issue number.
+            let Some(issue) = ticket.github() else {
+                continue;
+            };
             let listed = open
                 .iter()
                 .find(|pr| pr.number == number)
@@ -189,7 +196,7 @@ impl Runner {
             let pr = match self.ports.forge.reviewed(&self.remote, number) {
                 Ok(pr) => pr,
                 Err(e) => {
-                    skipped.push(skip(issue, number, ReworkError::PullRequest(number, e)));
+                    skipped.push(skip(ticket, number, ReworkError::PullRequest(number, e)));
                     continue;
                 }
             };
@@ -210,7 +217,7 @@ impl Runner {
                     continue;
                 }
                 Err(e) => {
-                    skipped.push(skip(issue, number, ReworkError::Viewer(e)));
+                    skipped.push(skip(ticket, number, ReworkError::Viewer(e)));
                     continue;
                 }
             }
@@ -220,7 +227,7 @@ impl Runner {
             let review = pr.review.as_ref().map(|r| r.id.clone());
             let begin = match self.start_rework(number, pr) {
                 Ok(agent) => Begin::Report(StepReport::Reworked {
-                    issue,
+                    issue: ticket_of(issue),
                     pull_request: number,
                     agent,
                     by,
@@ -229,12 +236,12 @@ impl Runner {
                 Err(e) if e.settled() => match self.refuse_rework(number, labelled, review, &e)? {
                     Ok(begin) => begin,
                     Err(e) => {
-                        skipped.push(skip(issue, number, e));
+                        skipped.push(skip(ticket, number, e));
                         continue;
                     }
                 },
                 Err(e) => {
-                    skipped.push(skip(issue, number, e));
+                    skipped.push(skip(ticket, number, e));
                     continue;
                 }
             };
@@ -326,6 +333,10 @@ impl Runner {
             .and_then(trigger::number)
             .filter(|_| !pr.from_fork && pr.author == me)
             .ok_or(ReworkError::NotKelpies(number))?;
+        // The branch's name holds a GitHub issue number, which is a ticket id.
+        let Some(ticket) = TicketId::from_issue(issue) else {
+            return Err(ReworkError::NotKelpies(number));
+        };
         if self.state.item(issue).is_some() {
             return Err(ReworkError::InFlight(vec![issue]));
         }
@@ -335,14 +346,16 @@ impl Runner {
             .ok_or(ReworkError::NothingToRework(number))?;
         let found = self
             .ports
-            .forge
-            .issue(repo, issue)
+            .tickets
+            .issue(repo, ticket)
             .map_err(|e| ReworkError::Issue(issue, e))?;
         let (agent, note) = self
             .labelled_agent(issue, &found.labels)
             .map_err(ReworkError::Label)?;
         let session = new_session_id().map_err(|e| ReworkError::Session(e.to_string()))?;
-        let fresh = self.fresh(issue, found.title, agent.clone(), session);
+        let fresh = self
+            .fresh(issue, found.title, agent.clone(), session)
+            .map_err(|e| ReworkError::Issue(issue, e))?;
         // A rework stays on its pull request, so a listed bot's `rounds`
         // counts the reviews it gave it before. As an adoption does, it
         // leaves out a review of the current head, which the bot's round

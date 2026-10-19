@@ -15,6 +15,7 @@ use std::path::Path;
 
 use crate::runner::Runner;
 use crate::state::Ruling;
+use crate::ticket::TicketId;
 use crate::transcripts::{self, Keep};
 
 /// How far back the issue's and the pull request's comments are read, in seconds
@@ -77,7 +78,7 @@ impl Runner {
             format!("# Ruling {}\n\n{brief}\n", ruling.id).as_bytes(),
         )?;
         let mut where_ = String::from("# Where to read\n\n");
-        let item = ruling.issue.and_then(|n| self.state.item(n));
+        let item = ruling.ticket().and_then(|t| self.state.item_by_ticket(t));
         match item {
             Some(item) => {
                 let _ = writeln!(
@@ -94,7 +95,7 @@ impl Runner {
             "- The project's checkout: `{}`, on its default branch",
             self.settings.git.checkout.display()
         );
-        match item.and_then(|i| self.brief_patch(i.issue)) {
+        match item.and_then(|i| self.brief_patch(i.ticket()?)) {
             Some(Ok(diff)) => {
                 put(folder, "diff.patch", diff)?;
                 where_.push_str("- The branch's diff from main: `diff.patch`\n");
@@ -134,7 +135,7 @@ impl Runner {
             "rulings.md",
             super::history::read(&self.paths.rulings).as_bytes(),
         )?;
-        let item = ruling.issue.and_then(|n| self.state.item(n));
+        let item = ruling.ticket().and_then(|t| self.state.item_by_ticket(t));
         let pull_request = ruling.pull_request.or(item.and_then(|i| i.pull_request));
         let threads = self.threads_text(ruling.issue, pull_request);
         if !threads.is_empty() {
@@ -162,6 +163,7 @@ impl Runner {
     // The issue's and the pull request's threads, each a file's name and text.
     fn threads_text(&self, issue: Option<u64>, pull_request: Option<u64>) -> Vec<(String, String)> {
         let forge = &self.ports.forge;
+        let tickets = &self.ports.tickets;
         let mut files = Vec::new();
         let now = self.ports.clock.now();
         let since = crate::ports::Timestamp(now.0.saturating_sub(THREADS_BACK));
@@ -193,13 +195,16 @@ impl Runner {
         };
         let mut pieces = Vec::new();
         if let Some(n) = issue {
-            let heading = match forge.issue(&self.remote, n) {
-                Ok(found) => format!(
-                    "Issue #{n}: {}\n\n{}",
-                    found.title,
-                    clip(found.body.trim(), COMMENT * 2)
-                ),
-                Err(e) => format!("Issue #{n} (it could not be read: {e})"),
+            let heading = match TicketId::from_issue(n) {
+                Some(ticket) => match tickets.issue(&self.remote, ticket) {
+                    Ok(found) => format!(
+                        "Issue #{n}: {}\n\n{}",
+                        found.title,
+                        clip(found.body.trim(), COMMENT * 2)
+                    ),
+                    Err(e) => format!("Issue #{n} (it could not be read: {e})"),
+                },
+                None => format!("Issue #{n} (it has no ticket id)"),
             };
             pieces.push((format!("issue-{n}.md"), heading, n));
         }

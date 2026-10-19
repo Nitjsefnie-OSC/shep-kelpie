@@ -12,6 +12,7 @@ use serde_json::Value;
 
 use super::Runner;
 use super::report::StepReport;
+use crate::ticket::TicketId;
 
 /// The file in a project's folder that holds one JSON object per step
 pub const FILE: &str = "steps.jsonl";
@@ -105,8 +106,11 @@ fn plain(report: &StepReport, ran_on: Option<String>) -> String {
         .and_then(|name| name.as_str().map(str::to_owned))
         .unwrap_or_default();
     let mut parts = Vec::new();
-    if let Some(issue) = fields.remove("issue").and_then(|issue| issue.as_u64()) {
-        parts.push(format!("#{issue}"));
+    if let Some(ticket) = fields
+        .remove("issue")
+        .and_then(|issue| serde_json::from_value::<TicketId>(issue).ok())
+    {
+        parts.push(ticket.shown());
     }
     parts.push(name);
     if let Some(ran_on) = ran_on {

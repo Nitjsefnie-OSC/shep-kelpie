@@ -15,6 +15,7 @@ use crate::runner::{ProjectName, ProjectPaths};
 use crate::settings::source;
 use crate::shepherd::{self, Connection, Dial, Socket};
 use crate::state::Projects;
+use crate::ticket::TicketId;
 use crate::tools::Tools;
 use crate::upgrade::restart::{Interrupt, Patience};
 
@@ -38,14 +39,14 @@ const JSON_VERBS: [&str; 10] = [
 /// What the verbs take, as their help says
 pub const USAGE: &str = "\
 usage: shep kelpie add [<project>]       registers this checkout as a project
-       shep kelpie add <issue>           puts an issue on the project's board
+       shep kelpie add <ticket>          puts a ticket on the project's board
        shep kelpie start | pause         runs the project, or stops it once its calls end
        shep kelpie finish                ends the open work items, picks nothing new, stops
        shep kelpie status [--json]       every project, or one with -p, as a short
                                          block each, or the runner's JSON object
        shep kelpie rule [<id> <answer>]
        shep kelpie rework <pr> | adopt <pr>
-       shep kelpie gate [<issue>] | drop [<issue>]
+       shep kelpie gate [<ticket>] | drop [<ticket>]
        shep kelpie triage <issue>        triages an issue next, past the pick rule
        shep kelpie board                 the ready issues in the order the board takes them
        shep kelpie board move <issue> <position> | board top <issue>
@@ -54,7 +55,7 @@ usage: shep kelpie add [<project>]       registers this checkout as a project
        shep kelpie issue \"<request>\"     files issues for it, for you to read
        shep kelpie issue --interactive \"<request>\"
                                          plans them with you in claude
-       shep kelpie attach <issue>        steers its worker's session here
+       shep kelpie attach <ticket>       steers its worker's session here
        shep kelpie tell \"<note>\"         a note for the project manager's next wake
        shep kelpie pm                    steers the project manager's session here
        shep kelpie drain | undrain       holds back every new call, or lets them start
@@ -189,9 +190,7 @@ async fn run(
         (None, named) => Ok(named.clone()),
     };
     match (command, args.as_slice()) {
-        ("add", [issue]) if !issue.is_empty() && issue.bytes().all(|b| b.is_ascii_digit()) => {
-            change("add", Some(issue)).await
-        }
+        ("add", [ticket]) if is_ticket(ticket) => change("add", Some(ticket)).await,
         // Registering a checkout has no JSON form.
         ("add", _) if json => Err(USAGE.to_owned()),
         ("add", [] | [_]) => {
@@ -200,6 +199,7 @@ async fn run(
                 Some(name) => name,
                 None => ProjectName::try_from(checkout.forge.name()).map_err(|e| e.to_string())?,
             };
+            not_a_ticket(&name)?;
             let launch = Launch {
                 kelpie: std::env::current_exe()
                     .map_err(|e| format!("cannot find kelpie itself: {e}"))?,
@@ -261,11 +261,10 @@ async fn run(
         ("timings", []) => print("timings", None).await,
         ("timings", [count]) => print("timings", Some(count)).await,
         ("drain" | "undrain", []) => change(command, None).await,
-        ("attach", [issue]) => {
-            let number = (issue.parse::<u64>().ok())
-                .filter(|&n| n > 0 && issue.bytes().all(|b| b.is_ascii_digit()));
-            let issue = number.ok_or_else(|| format!("{issue:?} is not an issue number"))?;
-            attach::attach(&client, &project().await?, issue).await
+        ("attach", [text]) => {
+            let ticket = text.parse::<TicketId>();
+            let ticket = ticket.map_err(|_| format!("{text:?} is not a ticket id"))?;
+            attach::attach(&client, &project().await?, ticket).await
         }
         ("tell", [_, ..]) => {
             let project = project().await?;
@@ -298,6 +297,24 @@ async fn run(
 // Whether `text` is digits only, as an issue or a position is.
 fn is_number(text: &str) -> bool {
     !text.is_empty() && text.bytes().all(|b| b.is_ascii_digit())
+}
+
+// A project's name may not read as a ticket id, since `add <name>` would add
+// the ticket.
+fn not_a_ticket(name: &ProjectName) -> Result<(), String> {
+    if !is_ticket(name.as_str()) {
+        return Ok(());
+    }
+    Err(format!(
+        "{name:?} reads as a ticket id, so it cannot name a project: register this checkout \
+         under another name with `add <project>`"
+    ))
+}
+
+// Whether `text` is shaped like a ticket id, digits or `k` and digits, for the
+// runner to refuse a zero or a leading zero.
+fn is_ticket(text: &str) -> bool {
+    is_number(text.strip_prefix('k').unwrap_or(text))
 }
 
 // Where `issue` finds the project's settings and files.
@@ -362,14 +379,8 @@ async fn issue(here: Here<'_>, name: &ProjectName, args: &[&str]) -> Result<Vec<
     let claude = ClaudeCli::default()
         .in_runtime(tools, here.home.to_owned(), &codex_home, secret_vars)
         .with_login(LoginToken::take());
-    issues::headless(
-        &project,
-        &writer,
-        &request,
-        &Gh::default(),
-        &claude,
-        &SystemGit,
-    )
+    let gh = Gh::default();
+    issues::headless(&project, &writer, &request, &gh, &gh, &claude, &SystemGit)
 }
 
 // `rule`: the ruling and its answer read first, asking in a terminal, so
@@ -588,16 +599,16 @@ mod tests {
     #[tokio::test]
     async fn board_prints_the_numbered_list_with_titles_and_priorities() {
         let list = r#"{"project":"koji","board":[
-            {"position":1,"issue":284,"title":"Add the list","priority":"P0","blocked":false,"held":false},
-            {"position":2,"issue":282,"title":"Order it","priority":null,"blocked":true,"held":false},
-            {"position":3,"issue":285,"title":"Show it","priority":"P2","blocked":false,"held":true}]}"#;
+            {"position":1,"issue":"284","title":"Add the list","priority":"P0","blocked":false,"held":false},
+            {"position":2,"issue":"282","title":"Order it","priority":null,"blocked":true,"held":false},
+            {"position":3,"issue":"k12","title":"Show it","priority":"P2","blocked":false,"held":true}]}"#;
         let (plain, json) = both("board", "", list).await;
         assert_eq!(
             plain,
             [
                 "1. #284 Add the list (P0)",
                 "2. #282 Order it (no priority, blocked)",
-                "3. #285 Show it (P2, held)",
+                "3. k12 Show it (P2, held)",
             ]
         );
         assert_eq!(json, [list]);
@@ -609,8 +620,8 @@ mod tests {
     #[tokio::test]
     async fn board_top_and_board_move_print_the_list_as_it_now_stands() {
         let list = r#"{"project":"koji","board":[
-            {"position":1,"issue":282,"title":"Order it","priority":null,"blocked":false,"held":false},
-            {"position":2,"issue":284,"title":"Add the list","priority":"P0","blocked":false,"held":false}]}"#;
+            {"position":1,"issue":"282","title":"Order it","priority":null,"blocked":false,"held":false},
+            {"position":2,"issue":"284","title":"Add the list","priority":"P0","blocked":false,"held":false}]}"#;
         for args in ["top 282", "move 282 1"] {
             let (plain, _) = both("board", args, list).await;
             assert_eq!(
@@ -673,6 +684,9 @@ mod tests {
             ("drop", "", "koji: dropped the open work item"),
             ("drop", "7", "koji: dropped #7"),
             ("add", "7", "koji: opened a work item for #7"),
+            ("gate", "k12", "koji: sent k12 to the review gate"),
+            ("drop", "k12", "koji: dropped k12"),
+            ("add", "k12", "koji: opened a work item for k12"),
         ] {
             let (plain, json) = both(command, args, status).await;
             assert_eq!(plain, [line], "{command} {args}");
@@ -762,6 +776,30 @@ mod tests {
         for line in ["--yaml", "--json --yaml", "-p koji --yaml", "--jsn"] {
             let err = status(line).await.unwrap_err();
             assert!(err.starts_with("usage: shep kelpie add"), "{line}: {err}");
+        }
+    }
+
+    #[test]
+    fn a_project_named_like_a_ticket_cannot_be_registered() {
+        for name in ["7", "k12", "k0"] {
+            let name = ProjectName::try_from(name).unwrap();
+            let refused = not_a_ticket(&name).unwrap_err();
+            assert!(
+                refused.contains("reads as a ticket id"),
+                "{name}: {refused}"
+            );
+        }
+        for name in ["koji", "k", "k12x", "kk12", "k-12"] {
+            let name = ProjectName::try_from(name).unwrap();
+            assert_eq!(not_a_ticket(&name), Ok(()), "{name}");
+        }
+    }
+
+    #[tokio::test]
+    async fn attach_refuses_what_is_no_ticket_id() {
+        for bad in ["#7", "0", "k0", "x"] {
+            let refused = verb("attach", bad, None).await.unwrap_err();
+            assert_eq!(refused, format!("{bad:?} is not a ticket id"));
         }
     }
 }

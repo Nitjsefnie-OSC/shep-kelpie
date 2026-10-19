@@ -37,7 +37,7 @@ pub(super) fn reply(sheep: &str, action: &str, params: Option<&str>, body: &str)
         return vec![body.to_owned()];
     };
     let of = || match params {
-        Some(issue) => format!("#{issue}"),
+        Some(ticket) => ticket_name(ticket),
         None => "the open work item".to_owned(),
     };
     match action {
@@ -57,10 +57,19 @@ pub(super) fn reply(sheep: &str, action: &str, params: Option<&str>, body: &str)
         "gate" => vec![format!("{sheep}: sent {} to the review gate", of())],
         "drop" => vec![format!("{sheep}: dropped {}", of())],
         "add" => vec![format!(
-            "{sheep}: opened a work item for #{}",
-            params.unwrap_or("?")
+            "{sheep}: opened a work item for {}",
+            params.map_or_else(|| "?".to_owned(), ticket_name)
         )],
         _ => vec![body.to_owned()],
+    }
+}
+
+// A ticket as the maintainer writes it: an issue number is `#7`, a local
+// ticket's id `k12` stands as it is.
+fn ticket_name(id: &str) -> String {
+    match id.strip_prefix('k') {
+        Some(_) => id.to_owned(),
+        None => format!("#{id}"),
     }
 }
 
@@ -84,14 +93,20 @@ fn board(sheep: &str, list: &Value) -> Vec<String> {
             );
             notes.extend(place["held"].as_bool().unwrap_or(false).then_some("held"));
             format!(
-                "{}. #{} {} ({})",
+                "{}. {} {} ({})",
                 place["position"],
-                place["issue"],
+                board_id(&place["issue"]),
                 place["title"].as_str().unwrap_or_default(),
                 notes.join(", ")
             )
         })
         .collect()
+}
+
+// A board line's ticket, as the answer names it: `#284` for a GitHub issue,
+// `k12` for a local ticket, and `?` for an answer that names none.
+fn board_id(issue: &Value) -> String {
+    issue.as_str().map_or_else(|| "?".to_owned(), ticket_name)
 }
 
 fn draining(sheep: &str, draining: &Value) -> String {

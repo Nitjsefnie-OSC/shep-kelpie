@@ -6,6 +6,7 @@ use super::*;
 use crate::ports::CLEAN;
 use crate::runner::{CHECKS_SETTLE, step};
 use crate::test::Rig;
+use crate::test::ticket;
 
 // Issue 7 parked on merge ruling 71 in a project with two slots, so the
 // board could open ready issue 9 beside it
@@ -46,18 +47,18 @@ fn finish_lets_an_open_item_reach_its_merge_with_no_new_dispatch_then_stops() {
 
     rig.ask(&runner, "rule", Some("71 yes"));
     assert!(matches!(
-        step(&runner).unwrap(),
-        Some(StepReport::MarkedReady { issue: 7, .. })
+       step(&runner).unwrap(),
+       Some(StepReport::MarkedReady { issue, .. }) if issue == ticket(7)
     ));
     rig.clock.advance(CHECKS_SETTLE);
     assert!(matches!(
         step(&runner).unwrap(),
         Some(StepReport::Finished {
-            issue: 7,
+            issue,
             merged: true,
             ..
         })
-    ));
+     if issue == ticket(7)));
     assert_eq!(rig.forge.merges(), [(71, head)]);
     assert!(
         !take_stop(&runner),
@@ -126,8 +127,8 @@ fn start_while_finishing_lets_the_board_pick_again() {
     // The board reads #9's paths against the parked branch on its first pass.
     assert_eq!(step(&runner).unwrap(), None);
     assert!(matches!(
-        step(&runner).unwrap(),
-        Some(StepReport::Dispatched { issue: 9, .. })
+       step(&runner).unwrap(),
+       Some(StepReport::Dispatched { issue, .. }) if issue == ticket(9)
     ));
 }
 
@@ -142,8 +143,8 @@ fn start_after_the_runner_finished_lets_the_board_pick_again() {
     assert_eq!(rig.ask(&runner, "start", None).get("run"), None);
     assert!(!take_stop(&runner), "a stop not taken goes with the start");
     assert!(matches!(
-        step(&runner).unwrap(),
-        Some(StepReport::Dispatched { issue: 4, .. })
+       step(&runner).unwrap(),
+       Some(StepReport::Dispatched { issue, .. }) if issue == ticket(4)
     ));
 }
 

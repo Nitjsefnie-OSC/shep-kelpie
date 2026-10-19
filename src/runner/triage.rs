@@ -22,9 +22,10 @@ use super::Runner;
 use super::report::Begin;
 use super::review::calls::build_call;
 use crate::board::TRIAGE;
-use crate::ports::{AgentCall, AuthorAssociation, OpenIssue, Role, Timestamp, Tools};
+use crate::ports::{AgentCall, AuthorAssociation, ForgeError, OpenIssue, Role, Timestamp, Tools};
 use crate::settings::{ExpertAgent, Settings, TriagePick};
 use crate::state::{ProjectState, StateError, TriageState, TriageStep, Triaged};
+use crate::ticket::TicketId;
 use research::{Listed, ListedPull};
 
 use ask::Purpose;
@@ -54,6 +55,14 @@ pub(super) const TRIAGE_LABELS: [&str; 6] = [
     "wontfix",
     POSSIBLE_SPAM,
 ];
+
+/// The ticket of an issue triage is working on. Triage reads and writes only
+/// GitHub issues, whose numbers are ticket ids, so a number that is not one is
+/// a bug in the caller.
+pub(super) fn ticket(issue: u64) -> Result<TicketId, ForgeError> {
+    TicketId::from_issue(issue)
+        .ok_or_else(|| ForgeError::Unreadable(format!("{issue} is not an issue number")))
+}
 
 /// What one runner's triage holds for its own run only: the account ages it
 /// read from the forge, and what its spam check answered. The next start reads
@@ -152,7 +161,7 @@ impl Runner {
             return Ok(());
         }
         self.flights.triage_retry();
-        let Ok(open) = self.ports.forge.open_issues(&self.remote) else {
+        let Ok(open) = self.ports.tickets.open_issues(&self.remote) else {
             return Ok(());
         };
         // A record that names no author, which is what a file saved before the
@@ -345,7 +354,7 @@ impl Runner {
     // Everything the research on `issue` needs, or `None` when it cannot be
     // had: the issue is no longer open, or what it needs cannot be read or built.
     fn triage_job(&mut self, issue: u64, purpose: Purpose, limited: bool) -> Option<Job> {
-        let open = match self.ports.forge.open_issues(&self.remote) {
+        let open = match self.ports.tickets.open_issues(&self.remote) {
             Ok(open) => open,
             Err(e) => {
                 let why = format!("cannot list the open issues: {e}");
@@ -438,7 +447,11 @@ impl Runner {
             },
         };
         let prompt = research::prompt(&subject, &listed, &listed_pulls, most, settling.as_ref());
-        let view = self.paths.triage(issue);
+        let Some(ticket) = TicketId::from_issue(issue) else {
+            self.triage_failed(issue, "no forge numbers an issue zero", true);
+            return None;
+        };
+        let view = self.paths.triage(ticket);
         let call = match self.triage_call(issue, &agent, &view, prompt) {
             Ok(call) => call,
             Err(why) => {
@@ -509,7 +522,7 @@ impl Runner {
         if self.flights.triaging() == Some(issue) {
             return Err(format!("the triage call on #{issue} is in flight"));
         }
-        let open = (self.ports.forge.open_issues(&self.remote))
+        let open = (self.ports.tickets.open_issues(&self.remote))
             .map_err(|e| format!("cannot read the open issues: {e}"))?;
         let Some(found) = open.iter().find(|i| i.number == issue) else {
             return Err(format!("#{issue} is not an open issue"));

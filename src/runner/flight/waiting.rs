@@ -14,8 +14,10 @@ use super::super::Runner;
 use super::super::report::{ReviewCall, StepReport};
 use super::Launch;
 use crate::ports::{AgentError, AgentReply, CallActivity, SessionId, Timestamp, Wait};
+use crate::runner::report::ticket_of;
 use crate::settings::{AgentHarness, AgentName, GatewayName, LocalRound, ModelHost};
 use crate::state::StateError;
+use crate::ticket::TicketId;
 use crate::work_item::{Turn, new_session_id};
 
 /// How long a turn shows no output before it is marked waiting, in seconds,
@@ -44,12 +46,12 @@ pub(super) enum Fallback {
 }
 
 impl Runner {
-    /// `issue`'s worker turn in flight, if it waits for its model
-    pub(in crate::runner) fn model_wait(&self, issue: u64) -> Option<Waiting> {
-        if !self.flights.flying.contains_key(&issue) {
-            return self.unreachable.waiting(issue);
+    /// `ticket`'s worker turn in flight, if it waits for its model
+    pub(in crate::runner) fn model_wait(&self, ticket: TicketId) -> Option<Waiting> {
+        if !self.flights.flying.contains_key(&ticket) {
+            return self.unreachable.waiting(ticket);
         }
-        let waiting = self.quiet_since(issue)?;
+        let waiting = self.quiet_since(ticket)?;
         if waiting.why != Wait::Silent {
             return Some(waiting);
         }
@@ -58,11 +60,11 @@ impl Runner {
         (quiet >= self.silent_after()).then_some(waiting)
     }
 
-    // Since when `issue`'s worker turn in flight has shown no output, and
+    // Since when `ticket`'s worker turn in flight has shown no output, and
     // what it said it waits for, however short the wait. `None` once it
     // has shown output, or when its harness keeps no record to read.
-    fn quiet_since(&self, issue: u64) -> Option<Waiting> {
-        let flight = self.flights.flying.get(&issue)?;
+    fn quiet_since(&self, ticket: TicketId) -> Option<Waiting> {
+        let flight = self.flights.flying.get(&ticket)?;
         flight.deadline?;
         let call = flight.watched.call.as_ref()?;
         let started = flight.watched.started;
@@ -80,10 +82,10 @@ impl Runner {
         })
     }
 
-    // Records that `issue`'s call waits for `wait`, keeping when it first did.
-    pub(super) fn told(&mut self, issue: u64, wait: Wait) {
+    // Records that `ticket`'s call waits for `wait`, keeping when it first did.
+    pub(super) fn told(&mut self, ticket: TicketId, wait: Wait) {
         let now = self.ports.clock.now();
-        if let Some(flight) = self.flights.flying.get_mut(&issue) {
+        if let Some(flight) = self.flights.flying.get_mut(&ticket) {
             let since = flight.watched.told.map_or(now, |(since, _)| since);
             flight.watched.told = Some((since, wait));
         }
@@ -103,8 +105,12 @@ impl Runner {
         let after = self.settings.agents.fallback_after?;
         (self.flights.flying.iter())
             .filter(|(_, f)| f.first && f.fallback == Fallback::Stays && !f.ending.asked())
-            .filter(|(issue, _)| self.state.item(**issue).is_some_and(|i| !i.pinned))
-            .filter_map(|(&issue, _)| self.quiet_since(issue))
+            .filter(|(ticket, _)| {
+                self.state
+                    .item_by_ticket(**ticket)
+                    .is_some_and(|i| !i.pinned)
+            })
+            .filter_map(|(&ticket, _)| self.quiet_since(ticket))
             .map(|quiet| Timestamp(quiet.since.0.saturating_add(u64::from(after.get()) * 60)))
             .min()
     }
@@ -116,30 +122,30 @@ impl Runner {
             return;
         };
         let now = self.ports.clock.now();
-        let due: Vec<(u64, AgentName)> = (self.flights.flying.iter())
+        let due: Vec<(TicketId, AgentName)> = (self.flights.flying.iter())
             .filter(|(_, f)| f.first && f.fallback == Fallback::Stays && !f.ending.asked())
-            .filter_map(|(&issue, _)| {
-                let waiting = self.model_wait(issue)?;
+            .filter_map(|(&ticket, _)| {
+                let waiting = self.model_wait(ticket)?;
                 let waited = now.0.saturating_sub(waiting.since.0);
-                let item = self.state.item(issue)?;
+                let item = self.state.item_by_ticket(ticket)?;
                 (waited >= u64::from(after.get()) * 60 && !item.pinned)
-                    .then(|| (issue, item.agent.clone()))
+                    .then(|| (ticket, item.agent.clone()))
             })
             .collect();
-        for (issue, from) in due {
-            let to = self.next_free(issue, &from);
+        for (ticket, from) in due {
+            let to = self.next_free(ticket, &from);
             // Drawn before the call stops, so a move never fails half done.
             let session = match to.as_ref().map(|_| new_session_id()) {
                 Some(Err(e)) => {
                     self.notes.push(format!(
-                        "#{issue}: cannot draw a session id to move its first turn: {e}"
+                        "#{ticket}: cannot draw a session id to move its first turn: {e}"
                     ));
                     continue;
                 }
                 Some(Ok(session)) => Some(session),
                 None => None,
             };
-            let Some(flight) = self.flights.flying.get_mut(&issue) else {
+            let Some(flight) = self.flights.flying.get_mut(&ticket) else {
                 continue;
             };
             match to.zip(session) {
@@ -150,7 +156,7 @@ impl Runner {
                 None => {
                     flight.fallback = Fallback::Nowhere;
                     self.notes.push(format!(
-                        "#{issue}: its first turn on {from} waits for its model, and no \
+                        "#{ticket}: its first turn on {from} waits for its model, and no \
                          implementer listed after {from} is free to take it, so it waits on"
                     ));
                 }
@@ -160,12 +166,15 @@ impl Runner {
 
     // The implementer listed after `from` that no other turn waits on, or
     // is moving to.
-    fn next_free(&self, issue: u64, from: &AgentName) -> Option<AgentName> {
+    fn next_free(&self, ticket: TicketId, from: &AgentName) -> Option<AgentName> {
         let listed = self.agents.implementer_names();
         // An agent no longer listed has no implementers after it.
         let after = listed.iter().position(|n| n == from)? + 1;
         let waited_on = (self.state.work_items.iter())
-            .filter(|i| i.issue != issue && self.model_wait(i.issue).is_some())
+            .filter(|i| {
+                i.ticket()
+                    .is_some_and(|t| t != ticket && self.model_wait(t).is_some())
+            })
             .map(|i| &i.agent);
         let moving_to = (self.flights.flying.values()).filter_map(|f| match &f.fallback {
             Fallback::Moving(to, _) => Some(to),
@@ -178,15 +187,15 @@ impl Runner {
             .cloned()
     }
 
-    // Moves `issue`'s work item to the implementer its fallback chose, once
+    // Moves `ticket`'s work item to the implementer its fallback chose, once
     // the turn it stopped has ended, with a new session for its first turn.
     // `None` when it was not moving, or its turn answered after all.
     pub(super) fn fell_back(
         &mut self,
-        issue: u64,
+        ticket: TicketId,
         result: &Result<AgentReply, AgentError>,
     ) -> Option<Result<Option<StepReport>, StateError>> {
-        let flight = self.flights.flying.get(&issue)?;
+        let flight = self.flights.flying.get(&ticket)?;
         let Fallback::Moving(to, session) = &flight.fallback else {
             return None;
         };
@@ -194,18 +203,19 @@ impl Runner {
             return None;
         }
         let (to, session) = (to.clone(), session.clone());
-        let waited = self.model_wait(issue).map(|w| w.since);
+        let waited = self.model_wait(ticket).map(|w| w.since);
         let now = self.ports.clock.now();
         // Saved while its flight still runs, so the wait is charged as the
         // worker's time, as any turn's is.
         let mut next = self.state.clone();
-        let item = next.item_mut(issue)?;
+        let item = next.item_mut_by_ticket(ticket)?;
         let from = std::mem::replace(&mut item.agent, to.clone());
         item.session = session;
         item.turn = Turn::Due;
+        let issue = item.issue;
         let since = waited.unwrap_or(flight.watched.started);
         let report = StepReport::FellBack {
-            issue,
+            issue: ticket_of(issue),
             from,
             to,
             waited: now.0.saturating_sub(since.0),

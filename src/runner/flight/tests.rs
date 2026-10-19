@@ -10,7 +10,9 @@ use super::*;
 use crate::ports::{Cost, Session, Usage};
 use crate::runner::answer;
 use crate::runner::step;
+use crate::test::ticket;
 use crate::test::{CALL_PATIENCE, Hold, Rig, Scripted};
+use crate::ticket::TicketId;
 
 // One hour, the rig's `turn_timeout`
 pub(super) const CEILING: u64 = 3600;
@@ -131,7 +133,7 @@ fn turns(rig: &Rig, runner: &Mutex<Runner>) -> Vec<(u64, String)> {
         .collect()
 }
 
-fn ended_issue(report: Option<StepReport>) -> u64 {
+fn ended_issue(report: Option<StepReport>) -> TicketId {
     match report {
         Some(StepReport::Ended { issue, .. }) => issue,
         other => panic!("no turn ended: {other:?}"),
@@ -159,11 +161,11 @@ fn two_work_items_calls_run_at_once_and_end_in_their_own_order() {
     );
 
     eight.release();
-    assert_eq!(ended_issue(driven.landed()), 8);
+    assert_eq!(ended_issue(driven.landed()), ticket(8));
     assert!(!seven.returned(), "#8's end waited for #7's");
     assert_eq!(turns(&rig, &runner)[0], (7, "running".to_owned()));
     seven.release();
-    assert_eq!(ended_issue(driven.landed()), 7);
+    assert_eq!(ended_issue(driven.landed()), ticket(7));
     assert_eq!(rig.claude.calls().len(), 2);
 }
 
@@ -191,7 +193,7 @@ fn triggers_are_answered_while_calls_run() {
     eight.release();
     let mut ended = vec![ended_issue(driven.landed()), ended_issue(driven.landed())];
     ended.sort_unstable();
-    assert_eq!(ended, [7, 8]);
+    assert_eq!(ended, [ticket(7), ticket(8)]);
     assert!(matches!(driven.pass(), Pass::Idle));
     assert_eq!(rig.claude.calls().len(), 2);
 }
@@ -214,7 +216,7 @@ fn the_pacer_reads_usage_at_each_calls_start() {
     assert_eq!(rig.claude.calls().len(), 1);
     assert!(!seven.returned(), "the hold ended the call in flight");
     seven.release();
-    assert_eq!(ended_issue(driven.landed()), 7);
+    assert_eq!(ended_issue(driven.landed()), ticket(7));
 }
 
 #[test]
@@ -235,9 +237,10 @@ fn a_turn_past_its_ceiling_is_ended_and_parked() {
         hold.answered(CALL_PATIENCE),
         "the turn ran on past its ceiling"
     );
-    let Some(StepReport::TimedOut { issue: 7, id, .. }) = driven.landed() else {
+    let Some(StepReport::TimedOut { issue, id, .. }) = driven.landed() else {
         panic!("a turn past its ceiling raised no ruling");
     };
+    assert_eq!(issue, ticket(7));
     assert_eq!(
         rig.ask(&runner, "status", None)["work_item"]["phase"],
         json!({ "state": "ruling", "id": id })
@@ -266,8 +269,8 @@ fn a_retried_turn_gets_a_whole_ceiling_however_long_the_ruling_waited() {
     rig.clock.advance(1);
     driven.pass();
     assert!(matches!(
-        driven.landed(),
-        Some(StepReport::TimedOut { issue: 7, .. })
+       driven.landed(),
+       Some(StepReport::TimedOut { issue, .. }) if issue == ticket(7)
     ));
 }
 
@@ -295,8 +298,8 @@ fn a_restart_before_the_ceiling_passes_resumes_with_only_the_time_left() {
         "the restart reset the ceiling to a fresh hour"
     );
     assert!(matches!(
-        driven.landed(),
-        Some(StepReport::TimedOut { issue: 7, .. })
+       driven.landed(),
+       Some(StepReport::TimedOut { issue, .. }) if issue == ticket(7)
     ));
 }
 
@@ -328,7 +331,7 @@ fn a_restart_with_calls_in_flight_resumes_each_work_item_from_its_session() {
         ended_issue(step(&runner).unwrap()),
     ];
     ended.sort_unstable();
-    assert_eq!(ended, [7, 8]);
+    assert_eq!(ended, [ticket(7), ticket(8)]);
     let calls = rig.claude.calls();
     for issue in [7, 8] {
         let mine: Vec<_> = calls.iter().filter(|c| c.issue == issue).collect();
@@ -365,8 +368,8 @@ fn a_turn_queued_for_its_lease_gets_its_whole_ceiling_from_the_grant() {
     rig.clock.advance(1);
     driven.pass();
     assert!(matches!(
-        driven.landed(),
-        Some(StepReport::TimedOut { issue: 7, .. })
+       driven.landed(),
+       Some(StepReport::TimedOut { issue, .. }) if issue == ticket(7)
     ));
 }
 
@@ -378,8 +381,8 @@ fn a_turn_still_queued_at_its_ceiling_leaves_the_queue_without_running() {
     rig.clock.advance(CEILING);
     driven.pass();
     assert!(matches!(
-        driven.landed(),
-        Some(StepReport::TimedOut { issue: 7, .. })
+       driven.landed(),
+       Some(StepReport::TimedOut { issue, .. }) if issue == ticket(7)
     ));
     assert_eq!(rig.claude.calls(), [], "it spawned only to be ended");
 }

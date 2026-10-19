@@ -13,8 +13,10 @@ fn runner(
     project: &str,
     ledger: &Arc<Ledger>,
 ) -> RateHeld {
+    let source = Arc::new(forge.clone());
     RateHeld::new(
-        Arc::new(forge.clone()),
+        Arc::clone(&source) as Arc<dyn Forge>,
+        Arc::clone(&source) as Arc<dyn Tickets>,
         Arc::new(clock.clone()),
         hold.clone(),
         Box::new(|_| {}),
@@ -91,8 +93,10 @@ fn a_runner_with_no_project_to_pace_still_sees_the_hold() {
     let clock = FakeClock::at(1_000_000);
     let hold = ForgeHold::shared(Arc::new(LocalPace::new()));
     let forge = FakeForge::new(home.path().join("koji"));
+    let source = Arc::new(forge.clone());
     let unpaced = RateHeld::new(
-        Arc::new(forge.clone()),
+        Arc::clone(&source) as Arc<dyn Forge>,
+        Arc::clone(&source) as Arc<dyn Tickets>,
         Arc::new(clock.clone()),
         hold.clone(),
         Box::new(|_| {}),

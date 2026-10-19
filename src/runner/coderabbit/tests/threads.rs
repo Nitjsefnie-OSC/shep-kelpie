@@ -3,6 +3,7 @@
 
 use super::{hold_a_finding, now, phase, summoned};
 use crate::ports::{CLEAN, Checks};
+use crate::runner::report::ticket_of;
 use crate::runner::{StepReport, step};
 use crate::test::Scripted;
 
@@ -30,7 +31,7 @@ fn a_forge_that_keeps_refusing_to_resolve_lets_the_pass_go_on_after_three_steps(
     assert_eq!(
         step(&runner).unwrap(),
         Some(StepReport::ThreadsLeftOpen {
-            issue: 7,
+            issue: ticket_of(7),
             pull_request: 71,
             threads: vec!["PRRT_71_0".into()],
             reason: "cannot resolve a thread on #71: gh failed: resolving is down".into(),

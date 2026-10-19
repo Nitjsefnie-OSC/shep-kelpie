@@ -1,7 +1,8 @@
-//! An issue as the forge holds it, the open ones the follow-up check reads, and
-//! a parent's sub-issues
+//! A ticket as the forge holds it, the open ones the follow-up check reads,
+//! and a parent's sub-issues
 
 use super::Timestamp;
+use crate::ticket::TicketId;
 
 /// How a sub-issue stands
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -14,25 +15,25 @@ pub enum SubIssueState {
     NotPlanned,
 }
 
-/// A sub-issue of an issue
+/// A sub-issue of a ticket
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SubIssue {
-    /// Its number
-    pub number: u64,
+    /// Its id
+    pub ticket: TicketId,
     /// How it stands
     pub state: SubIssueState,
 }
 
-/// An open issue whose sub-issues are all closed, as the forge counts them
+/// An open ticket whose sub-issues are all closed, as the forge counts them
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FinishedParent {
-    /// Its number
-    pub number: u64,
+    /// Its id
+    pub ticket: TicketId,
     /// How many sub-issues it has, all closed
     pub sub_issues: u64,
 }
 
-/// An issue as the forge holds it
+/// A ticket as its source holds it
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Issue {
     /// Its title
@@ -43,10 +44,10 @@ pub struct Issue {
     pub labels: Vec<String>,
     /// Whether it is still open
     pub open: bool,
-    /// The issue it is a sub-issue of, if any
-    pub parent: Option<u64>,
-    /// The issues it is blocked by, as far as the forge lists them
-    pub blocked_by: Vec<u64>,
+    /// The ticket it is a sub-issue of, if any
+    pub parent: Option<TicketId>,
+    /// The tickets it is blocked by, as far as its source lists them
+    pub blocked_by: Vec<TicketId>,
 }
 
 /// Why an issue was closed, which the forge records alongside the close

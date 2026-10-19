@@ -10,11 +10,13 @@
 //! and writes only by adding to its notes, which a hook enforces.
 
 use std::collections::BTreeMap;
+use std::path::Path;
 
 use crate::hooks::Hooks;
 use crate::ports::{AgentCall, Fence, Guard, PM_NOTES, Reach, Role, Session, Tools};
 use crate::runner::Runner;
 use crate::settings::PmAgent;
+use crate::skills::Step;
 
 /// `gh`'s config, its token with it, which a worker reads to open its pull
 /// request and the project manager never needs
@@ -34,31 +36,35 @@ pub(in crate::runner) const SECRET_SHAPED: [&str; 7] = [
 ];
 
 impl Runner {
-    // The call, with its folder, notes, settings and prompt on disk, and
-    // the board and diffs where it `reads` them: a compaction reads neither.
+    // The call, with its folder, notes, settings and prompt on disk, and the
+    // `board` where it `reads` it: a compaction or a retro reads neither.
     pub(super) fn pm_call(
         &mut self,
         agent: &PmAgent,
         session: Session,
         prompt: String,
-        reads: bool,
+        board: Option<String>,
     ) -> Result<AgentCall, String> {
-        let call = self.pm_call_made(agent, session, prompt, reads)?;
+        let call = self.pm_call_made(agent, session, prompt, board)?;
         self.prepared(call)
     }
 
     /// The batch retro's call: the project manager's agent in its folder, with
-    /// no standing instructions and tools that read and search only
+    /// no standing instructions, tools that read and search only, and the plugin
+    /// folder its skill is in
     pub(in crate::runner) fn pm_retro_call(
         &mut self,
         agent: &PmAgent,
         session: Session,
         prompt: String,
     ) -> Result<AgentCall, String> {
-        let mut call = self.pm_call_made(agent, session, prompt, false)?;
+        let mut call = self.pm_call_made(agent, session, prompt, None)?;
         call.tools = Tools::Retro;
         call.instructions = None;
         call.settings = self.paths.worker.join("pm-retro-settings.json");
+        call.plugin_dirs = (self.skills.plugin_dir(Step::Retro).into_iter())
+            .map(Path::to_owned)
+            .collect();
         self.prepared(call)
     }
 
@@ -67,7 +73,7 @@ impl Runner {
         agent: &PmAgent,
         session: Session,
         prompt: String,
-        reads: bool,
+        board: Option<String>,
     ) -> Result<AgentCall, String> {
         let folder = self.paths.pm.clone();
         let failed = |what: &std::path::Path, e: std::io::Error| {
@@ -78,16 +84,11 @@ impl Runner {
         if !notes.exists() {
             std::fs::write(&notes, "").map_err(|e| failed(&notes, e))?;
         }
-        // A copy, so the board it reads holds still while it reads, with the code to read.
-        if reads {
-            let board = folder.join("board.md");
-            let mut text = match std::fs::read_to_string(&self.paths.board) {
-                Ok(text) => text,
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
-                Err(e) => return Err(failed(&board, e)),
-            };
-            text.push_str(&format!("\n{}", self.pm_diffs(&folder)));
-            std::fs::write(&board, text).map_err(|e| failed(&board, e))?;
+        // A copy, so the board it reads holds still while it reads, with the
+        // code to read. It is the same text the wake's prompt carried.
+        if let Some(text) = &board {
+            let path = folder.join("board.md");
+            std::fs::write(&path, text).map_err(|e| failed(&path, e))?;
         }
         let instructions = self.paths.worker.join("pm-instructions.md");
         let text = agent.prompt.as_deref().unwrap_or_default();
@@ -107,6 +108,31 @@ impl Runner {
                 prompt,
             )
         })
+    }
+
+    /// The board a wake carries in its prompt and `board.md` in its folder
+    /// holds: the board as the runner last wrote it, with the section naming
+    /// each open work item's worktree and its diff
+    ///
+    /// # Errors
+    ///
+    /// A message naming the file that could not be read.
+    pub(super) fn pm_board(&mut self) -> Result<String, String> {
+        let folder = self.paths.pm.clone();
+        std::fs::create_dir_all(&folder)
+            .map_err(|e| format!("cannot make {}: {}", folder.display(), e.kind()))?;
+        let mut text = match std::fs::read_to_string(&self.paths.board) {
+            Ok(text) => text,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+            Err(e) => {
+                return Err(format!(
+                    "cannot read the board for the project manager: {}",
+                    e.kind()
+                ));
+            }
+        };
+        text.push_str(&format!("\n{}", self.pm_diffs(&folder)));
+        Ok(text)
     }
 
     // Its folder to read and write, the worktrees and checkout to read;

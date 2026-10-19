@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::state::STATE_FILE;
+use crate::ticket::TicketId;
 use crate::tools::Tools;
 
 /// A project's name, which is also its sheep's name
@@ -68,6 +69,11 @@ impl fmt::Display for ProjectNameError {
 }
 
 impl core::error::Error for ProjectNameError {}
+
+/// The branch kelpie makes for the work item for `ticket`
+pub(super) fn work_branch(ticket: TicketId) -> String {
+    format!("kelpie/{ticket}")
+}
 
 /// Where a project's files live under kelpie's home
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -196,9 +202,9 @@ impl ProjectPaths {
         self.worktrees.clone()
     }
 
-    /// The worktree for the work item that resolves `issue`
-    pub fn worktree(&self, issue: u64) -> PathBuf {
-        self.worktrees.join(issue.to_string())
+    /// The worktree for the work item for `ticket`
+    pub fn worktree(&self, ticket: TicketId) -> PathBuf {
+        self.worktrees.join(ticket.to_string())
     }
 
     /// The worktree a bump's head is checked out in for its e2e run, in the
@@ -213,15 +219,15 @@ impl ProjectPaths {
     }
 
     /// The folder holding the code graph index of the view the triager reads
-    /// for `issue`, which goes when its call ends
-    pub fn triage_graph(&self, issue: u64) -> PathBuf {
-        self.graphs.join(format!("triage-{issue}"))
+    /// for `ticket`, which goes when its call ends
+    pub fn triage_graph(&self, ticket: TicketId) -> PathBuf {
+        self.graphs.join(format!("triage-{ticket}"))
     }
 
     /// The folder the code graph daemon of the triager's view for `issue`
     /// binds its socket in, which goes when its call ends
-    pub fn triage_graph_runtime(&self, issue: u64) -> PathBuf {
-        self.graph_runtimes.join(format!("triage-{issue}"))
+    pub fn triage_graph_runtime(&self, ticket: TicketId) -> PathBuf {
+        self.graph_runtimes.join(format!("triage-{ticket}"))
     }
 
     /// The folder holding the browser server's config and output for a bump's proof
@@ -229,33 +235,33 @@ impl ProjectPaths {
         self.browsers.join(format!("bump-{pull_request}"))
     }
 
-    /// The build folder for the work item that resolves `issue`
-    pub fn build(&self, issue: u64) -> PathBuf {
-        self.builds.join(issue.to_string())
+    /// The build folder for the work item for `ticket`
+    pub fn build(&self, ticket: TicketId) -> PathBuf {
+        self.builds.join(ticket.to_string())
     }
 
     /// The folder holding the code graph index of the worktree that resolves
     /// `issue`, which goes when the worktree does
-    pub fn code_graph(&self, issue: u64) -> PathBuf {
-        self.graphs.join(issue.to_string())
+    pub fn code_graph(&self, ticket: TicketId) -> PathBuf {
+        self.graphs.join(ticket.to_string())
     }
 
-    /// The folder the code graph daemon of the worktree that resolves `issue`
+    /// The folder the code graph daemon of the worktree for `ticket`
     /// binds its socket in, which goes with the index. Short, as a socket's path must be.
-    pub fn code_graph_runtime(&self, issue: u64) -> PathBuf {
-        self.graph_runtimes.join(issue.to_string())
+    pub fn code_graph_runtime(&self, ticket: TicketId) -> PathBuf {
+        self.graph_runtimes.join(ticket.to_string())
     }
 
     /// The folder holding the browser server's config and output for the work
-    /// item that resolves `issue`, which the worker cannot write
-    pub fn browser(&self, issue: u64) -> PathBuf {
-        self.browsers.join(issue.to_string())
+    /// item for `ticket`, which the worker cannot write
+    pub fn browser(&self, ticket: TicketId) -> PathBuf {
+        self.browsers.join(ticket.to_string())
     }
 
-    /// The view of `origin/main` the triager researches issue `issue` in,
+    /// The view of `origin/main` the triager researches `ticket` in,
     /// which is removed when the call ends
-    pub fn triage(&self, issue: u64) -> PathBuf {
-        self.triage.join(issue.to_string())
+    pub fn triage(&self, ticket: TicketId) -> PathBuf {
+        self.triage.join(ticket.to_string())
     }
 
     /// The folder for the issue writer's settings, prompt and checkouts,
@@ -290,6 +296,40 @@ mod tests {
             error.contains(&paths.worker.display().to_string()),
             "{error}"
         );
+    }
+
+    #[test]
+    fn a_ticket_names_its_branch_and_folders() {
+        let koji = ProjectName::try_from("koji").unwrap();
+        let paths = ProjectPaths::under(Path::new("/s/kelpie"), Path::new("/s"), &koji);
+        // id, then its branch, worktree and build
+        let cases = [
+            ("340", "kelpie/340", "worktrees/340", "builds/340"),
+            ("k12", "kelpie/k12", "worktrees/k12", "builds/k12"),
+        ];
+        for (id, branch, worktree, build) in cases {
+            let ticket: TicketId = id.parse().unwrap();
+            assert_eq!(work_branch(ticket), branch, "{id}");
+            let folder = Path::new("/s/kelpie/koji");
+            assert_eq!(paths.worktree(ticket), folder.join(worktree), "{id}");
+            assert_eq!(paths.build(ticket), folder.join(build), "{id}");
+            assert_eq!(
+                paths.browser(ticket),
+                folder.join("browser").join(id),
+                "{id}"
+            );
+            assert_eq!(
+                paths.code_graph(ticket),
+                folder.join("code-graphs").join(id),
+                "{id}"
+            );
+            assert_eq!(
+                paths.code_graph_runtime(ticket),
+                folder.join("cbm").join(id),
+                "{id}"
+            );
+            assert_eq!(paths.triage(ticket), folder.join("triage").join(id), "{id}");
+        }
     }
 
     #[test]

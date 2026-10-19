@@ -10,9 +10,7 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
-#[cfg(doc)]
-use crate::board::READY;
-use crate::board::{OpenPullRequest, ReadyIssue};
+use crate::board::OpenPullRequest;
 use crate::lease::LeaseKind;
 use crate::lease::wire::{AskerCarry, WindowFact};
 use crate::review_bot::{Activity, Login, Profile, ReviewWindow};
@@ -48,6 +46,7 @@ mod sandbox;
 mod talk;
 mod test_runner;
 mod thread;
+mod tickets;
 mod voice;
 
 pub use agent::{
@@ -88,6 +87,7 @@ pub use sandbox::{Forward, Policy, Sandbox, SandboxError, Unreadable};
 pub use talk::{Remark, Standing, Talk, TalkThread};
 pub use test_runner::{CEILING, OUTPUT_KEPT, TestOutcome, TestRun, TestRunner, tail};
 pub use thread::{CommentMarks, LineComment, PostedComment, ThreadComment, Thumb};
+pub use tickets::Tickets;
 pub use voice::{UNREAD_ID, Voice};
 
 /// Seconds since the Unix epoch
@@ -118,7 +118,12 @@ pub enum Visibility {
     Internal,
 }
 
-/// The forge that holds the project's issues and pull requests
+/// The forge: the project's pull requests, their CI, and the repo's facts
+///
+/// A project's tickets are not here. The runner reads a ticket and writes to
+/// it through [`Tickets`] (ADR 0014). What kelpie posts stays here: only
+/// [`Forge::comment`] records the id of a comment, on an issue or a pull
+/// request alike.
 pub trait Forge: Send + Sync {
     /// Who can see `repo`
     ///
@@ -177,36 +182,6 @@ pub trait Forge: Send + Sync {
     ///
     /// [`ForgeError`] when the forge cannot be asked or its answer read.
     fn review_bot_seen(&self, repo: &ForgeSlug, login: Login<'_>) -> Result<bool, ForgeError>;
-
-    /// Issue `number` on `repo`
-    ///
-    /// # Errors
-    ///
-    /// [`ForgeError`] when the forge cannot be asked, has no such issue, or
-    /// its answer cannot be read.
-    fn issue(&self, repo: &ForgeSlug, number: u64) -> Result<Issue, ForgeError>;
-
-    /// The sub-issues of issue `parent` on `repo`, with how each stands
-    ///
-    /// # Errors
-    ///
-    /// [`ForgeError`] when the forge cannot be asked or its answer cannot be read.
-    fn sub_issues(&self, repo: &ForgeSlug, parent: u64) -> Result<Vec<SubIssue>, ForgeError>;
-
-    /// The open issues on `repo`, ready or not, that have sub-issues and whose
-    /// sub-issues are all closed, whatever they closed as
-    ///
-    /// # Errors
-    ///
-    /// [`ForgeError`] when the forge cannot be asked or its answer read.
-    fn finished_parents(&self, repo: &ForgeSlug) -> Result<Vec<FinishedParent>, ForgeError>;
-
-    /// The open issues on `repo` labelled [`READY`]
-    ///
-    /// # Errors
-    ///
-    /// [`ForgeError`] when the forge cannot be asked or its answer read.
-    fn ready_issues(&self, repo: &ForgeSlug) -> Result<Vec<ReadyIssue>, ForgeError>;
 
     /// The open pull requests on `repo`
     ///
@@ -287,17 +262,6 @@ pub trait Forge: Send + Sync {
         since: Timestamp,
     ) -> Result<Vec<ThreadComment>, ForgeError>;
 
-    /// Every comment on issue `number` of `repo`, oldest first
-    ///
-    /// # Errors
-    ///
-    /// [`ForgeError`] when the forge cannot be asked or its answer read.
-    fn issue_comments(
-        &self,
-        repo: &ForgeSlug,
-        number: u64,
-    ) -> Result<Vec<ThreadComment>, ForgeError>;
-
     /// Whether `login` has write access to `repo`
     ///
     /// # Errors
@@ -323,46 +287,6 @@ pub trait Forge: Send + Sync {
     ///
     /// [`ForgeError`] when the comment cannot be posted or its id read.
     fn comment(&self, repo: &ForgeSlug, number: u64, body: &str) -> Result<u64, ForgeError>;
-
-    /// The open issues on `repo`, for telling a finding already filed
-    ///
-    /// # Errors
-    ///
-    /// [`ForgeError`] when the forge cannot be asked or its answer read.
-    fn open_issues(&self, repo: &ForgeSlug) -> Result<Vec<OpenIssue>, ForgeError>;
-
-    /// Opens an issue on `repo` with these labels, and returns its number
-    ///
-    /// # Errors
-    ///
-    /// [`ForgeError`] when the forge refuses, or its answer names no number.
-    fn create_issue(
-        &self,
-        repo: &ForgeSlug,
-        title: &str,
-        body: &str,
-        labels: &[&str],
-    ) -> Result<u64, ForgeError>;
-
-    /// Closes issue `number`, with no comment: a comment would be posted as the
-    /// login `gh` acts as, and only [`Forge::comment`] records the id of one
-    ///
-    /// # Errors
-    ///
-    /// [`ForgeError`] when the forge refuses or cannot be asked.
-    fn close_issue(&self, repo: &ForgeSlug, number: u64) -> Result<(), ForgeError>;
-
-    /// Closes issue `number` for `reason`, which the forge records on it
-    ///
-    /// # Errors
-    ///
-    /// [`ForgeError`] when the forge refuses or cannot be asked.
-    fn close_issue_as(
-        &self,
-        repo: &ForgeSlug,
-        number: u64,
-        reason: IssueCloseReason,
-    ) -> Result<(), ForgeError>;
 
     /// The open pull requests on `repo`, each with its title and the issues its
     /// body names, for telling one that already covers an issue
@@ -489,19 +413,6 @@ pub trait Forge: Send + Sync {
     ///
     /// [`ForgeError`] when the forge refuses or cannot be asked.
     fn set_label(
-        &self,
-        repo: &ForgeSlug,
-        number: u64,
-        label: &str,
-        on: bool,
-    ) -> Result<(), ForgeError>;
-
-    /// Adds `label` to issue `number`, or takes it off
-    ///
-    /// # Errors
-    ///
-    /// [`ForgeError`] when the forge refuses or cannot be asked.
-    fn set_issue_label(
         &self,
         repo: &ForgeSlug,
         number: u64,
@@ -855,8 +766,12 @@ pub trait Leases: Send + Sync {
 pub struct Ports {
     /// The agents every role runs on, shared so a turn runs without holding the runner
     pub agents: Arc<dyn Agents>,
-    /// The forge
+    /// The forge: the project's pull requests, their CI, and the repo's facts
     pub forge: Arc<dyn Forge>,
+    /// The project's tickets, as their source holds them (ADR 0014). The
+    /// runner sets this to the same wrapped source as `forge`, so a call
+    /// through either reaches the same guard, rate-limit hold and ledger
+    pub tickets: Arc<dyn Tickets>,
     /// Which repos the forge's reads go through the App's token for, where it has one
     pub app_reads: Option<Arc<dyn AppForges>>,
     /// The tally the forge's conditional reads add a 304 to, for the ledger

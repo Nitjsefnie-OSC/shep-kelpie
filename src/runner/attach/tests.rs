@@ -102,7 +102,7 @@ fn an_attached_item_runs_nothing_and_its_push_is_the_worker_s_once_it_detaches()
         answer,
         json!({
             "attach": "ready",
-            "issue": 7,
+            "issue": "7",
             "session": session,
             "worktree": rig.worktree_7(),
             "command": {
@@ -176,7 +176,7 @@ fn attach_waits_for_the_call_in_flight_and_no_call_starts_after_it() {
     let me = Live::new();
     assert_eq!(
         attach(&rig, &runner, me.pid()),
-        json!({ "attach": "waiting", "issue": 7 })
+        json!({ "attach": "waiting", "issue": "7" })
     );
     assert_eq!(attached(&rig, &runner)["by"]["pid"], me.pid());
     hold.release();
@@ -246,7 +246,7 @@ fn an_item_with_no_session_or_parked_on_a_ruling_says_what_to_do_and_stays_as_it
         let refused = rig.ask(&runner, "attach", bad);
         let why = refused["error"].as_str().unwrap();
         assert!(
-            why.starts_with("`attach` takes an issue number and the attaching process's pid"),
+            why.starts_with("`attach` takes a ticket id and the attaching process's pid"),
             "{why}"
         );
     }
@@ -379,7 +379,7 @@ fn the_session_s_process_holds_the_item_after_the_attach_command_dies() {
     let session = format!("7 {} {}", cli.pid(), claude.pid());
     assert_eq!(
         rig.ask(&runner, "attach", Some(&session)),
-        json!({ "attach": "running", "issue": 7 })
+        json!({ "attach": "running", "issue": "7" })
     );
     assert_eq!(attached(&rig, &runner)["session"]["pid"], claude.pid());
     drop(cli);
@@ -512,7 +512,7 @@ fn attach_waits_for_a_pi_call_in_flight_and_no_call_starts_after_it() {
     let me = Live::new();
     assert_eq!(
         attach(&rig, &runner, me.pid()),
-        json!({ "attach": "waiting", "issue": 7 })
+        json!({ "attach": "waiting", "issue": "7" })
     );
     assert_eq!(attached(&rig, &runner)["by"]["pid"], me.pid());
     assert!(
@@ -584,7 +584,7 @@ fn attach_waits_for_a_goose_call_in_flight_and_no_call_starts_after_it() {
     let me = Live::new();
     assert_eq!(
         attach(&rig, &runner, me.pid()),
-        json!({ "attach": "waiting", "issue": 7 })
+        json!({ "attach": "waiting", "issue": "7" })
     );
     assert_eq!(attached(&rig, &runner)["by"]["pid"], me.pid());
     assert!(

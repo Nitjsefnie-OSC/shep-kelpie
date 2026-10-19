@@ -14,7 +14,7 @@ use crate::ports::{AgentError, CLEAN, Checks, Finding, PullRequestState, Role, S
 use crate::runner::words::NO_NOTE;
 use crate::runner::{Runner, StepReport, step};
 use crate::settings::Harness;
-use crate::test::{Rig, Scripted, ScriptedRound};
+use crate::test::{Rig, Scripted, ScriptedRound, ticket};
 
 const PASSED: &str = "The local reviewer found nothing. The maintainer has it now.";
 const THANKS: &str = "Thank you for the pull request. It is merged now.";
@@ -389,7 +389,10 @@ fn a_rework_answer_to_the_merge_ruling_adopts_at_once_and_runs_the_full_pass() {
     // with the pull request, its issue and the maintainer's note.
     let [worker] = rig.claude.calls().try_into().unwrap();
     let issue = status["work_item"]["issue"].as_u64().unwrap();
-    let named = rig.paths().build(issue).join("adopted-pull-request.md");
+    let named = rig
+        .paths()
+        .build(ticket(issue))
+        .join("adopted-pull-request.md");
     assert!(
         worker.prompt.contains(&named.display().to_string()),
         "{}",
@@ -451,8 +454,12 @@ fn a_rework_answer_with_the_note_a_tick_gives_sends_the_worker_none() {
     let issue = rig.ask(&runner, "status", None)["work_item"]["issue"]
         .as_u64()
         .unwrap();
-    let text =
-        std::fs::read_to_string(rig.paths().build(issue).join("adopted-pull-request.md")).unwrap();
+    let text = std::fs::read_to_string(
+        rig.paths()
+            .build(ticket(issue))
+            .join("adopted-pull-request.md"),
+    )
+    .unwrap();
     assert!(
         !text.contains("The maintainer's note"),
         "no note for the worker: {text}"
@@ -522,8 +529,12 @@ fn a_new_head_after_a_rework_answer_keeps_the_maintainers_note_for_the_worker() 
     let issue = status["work_item"]["issue"].as_u64().unwrap();
     assert_eq!(status["work_item"]["pull_request"], 30);
     assert_eq!(rulings(&rig, &runner), Vec::<Value>::new());
-    let text =
-        std::fs::read_to_string(rig.paths().build(issue).join("adopted-pull-request.md")).unwrap();
+    let text = std::fs::read_to_string(
+        rig.paths()
+            .build(ticket(issue))
+            .join("adopted-pull-request.md"),
+    )
+    .unwrap();
     assert!(
         text.contains(
             "# The maintainer's note on pull request #30\n\nAdd the test the review asked for."
@@ -595,7 +606,10 @@ fn a_rework_answer_after_the_release_landed_takes_the_pull_request_over_with_the
     let seen = rig.claude.seen();
     let [worker] = seen.try_into().unwrap();
     let issue = status["work_item"]["issue"].as_u64().unwrap();
-    let named = rig.paths().build(issue).join("adopted-pull-request.md");
+    let named = rig
+        .paths()
+        .build(ticket(issue))
+        .join("adopted-pull-request.md");
     assert!(
         worker.call.prompt.contains(&named.display().to_string()),
         "{}",

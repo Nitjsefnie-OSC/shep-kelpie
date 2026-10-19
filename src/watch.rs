@@ -22,6 +22,7 @@ mod tests;
 
 use std::path::PathBuf;
 
+use crate::ticket::TicketId;
 use jiff::tz::TimeZone;
 use jiff::{Span, Timestamp};
 
@@ -104,7 +105,7 @@ pub enum Scope {
     /// Every line of the project
     Project,
     /// One work item's sessions and steps
-    Issue(u64),
+    Issue(TicketId),
     /// The project manager's sessions and steps
     Pm,
 }

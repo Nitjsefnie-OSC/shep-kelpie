@@ -17,6 +17,7 @@ Each ADR below is one decision that is hard to reverse. A later ADR can reopen p
 - 0011 [A worker sees the UI through a browser outside its sandbox](0011-a-worker-sees-the-ui-through-a-browser-outside-its-sandbox.md): a worker's `Work` turn on Claude Code or pi drives a Playwright MCP server that kelpie runs outside the sandbox, behind a socket that passes only an allow-list of tools and listed domains.
 - 0012 [Kelpie's numbers go out on the shepherd channel](0012-kelpie-s-numbers-go-out-on-the-shepherd-channel.md): the runner and the dog send `kelpie_*` series as channel samples to shep's metrics dog, with bounded labels, and detail by work item stays in the ledger.
 - 0013 [Runners tell the dog in notes, not metric samples](0013-runners-tell-the-dog-in-notes-not-metric-samples.md): a runner's lease and window totals go up as shep notes, which the metrics dog never reads, and the dog reads an older runner's samples for one release.
+- 0014 [Tickets come from a source, and the board stays in kelpie](0014-tickets-come-from-a-source-the-board-stays-in-kelpie.md): each project names one ticket source, GitHub issues by default or a local store, read and written through a `Tickets` port by opaque id, while the order, holds, picks and overlap check stay kelpie's.
 
 ## Decided against
 
@@ -61,6 +62,9 @@ Check this list before proposing an option. Where a later ADR reopened the decis
 - keep lease totals as metric samples and have shep's metrics dog skip kelpie's names (0013)
 - rename lease totals to names the metrics dog takes (0013)
 - a socket of kelpie's own between runner and dog, for lease totals (0013)
+- kelpie owns the tickets and GitHub or ClickUp sync into them (0014)
+- a `shep-kanban` dog holding the local ticket store, for now (0014)
+- more than one ticket source per project (0014)
 
 ### Decided against without an ADR
 

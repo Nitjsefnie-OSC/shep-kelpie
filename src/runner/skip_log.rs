@@ -9,6 +9,7 @@
 use super::Runner;
 use super::briefing::passed_over;
 use crate::board::Skip;
+use crate::ticket::TicketId;
 
 impl Runner {
     // Takes `skipped` as the issues the board passes over now, and notes
@@ -16,10 +17,9 @@ impl Runner {
     pub(super) fn set_skipped(&mut self, skipped: Vec<Skip>) {
         let reason = |skip: &Skip| passed_over(skip, &|text| text).0;
         // An adopted pull request has no issue, and its refusal is a report.
-        let named = |skips: &[Skip]| -> Vec<(u64, String)> {
+        let named = |skips: &[Skip]| -> Vec<(TicketId, String)> {
             (skips.iter())
-                .filter(|skip| skip.issue() != 0)
-                .map(|skip| (skip.issue(), reason(skip)))
+                .filter_map(|skip| skip.issue().map(|ticket| (ticket, reason(skip))))
                 .collect()
         };
         let (before, after) = (named(&self.skipped), named(&skipped));
@@ -57,6 +57,7 @@ impl Runner {
 
 #[cfg(test)]
 mod tests {
+    use crate::test::ticket;
     use std::sync::Mutex;
 
     use crate::runner::{Runner, StepReport, step};
@@ -81,8 +82,8 @@ mod tests {
 
         rig.forge.close_issue(32);
         assert!(matches!(
-            step(&runner).unwrap(),
-            Some(StepReport::Dispatched { issue: 8, .. })
+           step(&runner).unwrap(),
+           Some(StepReport::Dispatched { issue, .. }) if issue == ticket(8)
         ));
         assert_eq!(notes(&runner), ["#8 skip-cleared"]);
     }

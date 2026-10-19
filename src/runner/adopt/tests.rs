@@ -7,7 +7,7 @@ use super::*;
 use crate::coderabbit::LABEL;
 use crate::ports::{CLEAN, Checks, PullRequestState, Session};
 use crate::runner::{StepReport, step};
-use crate::test::{Hold, Rig, Scripted, git};
+use crate::test::{Hold, Rig, Scripted, git, ticket};
 
 // Pull request 80 on `fix/timeline`, opened by kelpie's account from another
 // session: two commits pushed by hand, closing issue 5. Returns its head.
@@ -24,7 +24,7 @@ fn running(rig: &Rig) -> Mutex<Runner> {
 
 fn adopted_80() -> StepReport {
     StepReport::Adopted {
-        issue: 5,
+        issue: ticket(5),
         pull_request: 80,
         agent: "sonnet-high".to_owned().try_into().unwrap(),
     }
@@ -39,7 +39,7 @@ fn waiting(numbers: &[u64], by_label: bool) -> serde_json::Value {
 }
 
 fn file_5(rig: &Rig) -> PathBuf {
-    rig.paths().build(5).join("adopted-pull-request.md")
+    rig.paths().build(ticket(5)).join("adopted-pull-request.md")
 }
 
 #[test]
@@ -82,7 +82,7 @@ fn adopt_starts_at_ci_and_the_first_turn_names_the_file_ahead_of_the_red_run() {
     step(&runner).unwrap();
     let [seen] = rig.claude.seen().try_into().unwrap();
     assert!(matches!(seen.call.session, Session::New(_)));
-    assert_eq!(seen.call.cwd, rig.paths().worktree(5));
+    assert_eq!(seen.call.cwd, rig.paths().worktree(ticket(5)));
     let named = format!(
         "/mattpocock:diagnosing-bugs Your work item adopts pull request #80 for issue #5: \
          Title of #5\n\n\
@@ -102,7 +102,7 @@ fn adopt_starts_at_ci_and_the_first_turn_names_the_file_ahead_of_the_red_run() {
     rig.assert_worker_reads(&seen, &file_5(&rig));
 
     let fixed = rig.forge.head_of("fix/timeline").unwrap();
-    let worktree = rig.paths().worktree(5);
+    let worktree = rig.paths().worktree(ticket(5));
     assert_eq!(
         git(&worktree, &["rev-parse", &format!("{fixed}~1")]),
         head,
@@ -283,14 +283,14 @@ fn an_adopted_pull_request_skips_the_other_reviewers_and_reaches_coderabbit() {
     assert_eq!(
         step(&runner).unwrap(),
         Some(StepReport::MarkedReady {
-            issue: 5,
+            issue: ticket(5),
             pull_request: 80,
         })
     );
     assert_eq!(
         step(&runner).unwrap(),
         Some(StepReport::Summoned {
-            issue: 5,
+            issue: ticket(5),
             pull_request: 80,
             head,
         })
@@ -381,7 +381,7 @@ fn an_adopted_turn_that_pushes_nothing_is_sent_back_once_then_parks_on_a_ruling(
         again.prompt
     );
     let Some(StepReport::Failed {
-        issue: 5,
+        issue,
         pull_request: Some(80),
         question,
         ..
@@ -389,6 +389,7 @@ fn an_adopted_turn_that_pushes_nothing_is_sent_back_once_then_parks_on_a_ruling(
     else {
         panic!("the adopted work item was not parked");
     };
+    assert_eq!(issue, ticket(5));
     assert!(
         question.contains("it ended twice with no new push and no question"),
         "{question}"
@@ -431,7 +432,7 @@ fn a_branch_behind_main_is_caught_up_by_a_merge_never_a_rewrite() {
     let Some(StepReport::Rebased { head: merged, .. }) = step(&runner).unwrap() else {
         panic!("the branch was not caught up");
     };
-    let worktree = rig.paths().worktree(5);
+    let worktree = rig.paths().worktree(ticket(5));
     assert_eq!(
         git(
             &worktree,
@@ -462,7 +463,7 @@ fn adopted_pull_requests_wait_for_the_work_item_in_flight_across_a_restart() {
     assert_eq!(
         step(&runner).unwrap(),
         Some(StepReport::Adopted {
-            issue: 6,
+            issue: ticket(6),
             pull_request: 81,
             agent: "sonnet-high".to_owned().try_into().unwrap(),
         })
@@ -585,12 +586,12 @@ fn a_start_retried_after_a_failure_begins_at_the_head_origin_holds_now() {
     assert_eq!(
         step(&runner).unwrap(),
         Some(StepReport::Adopted {
-            issue: 5,
+            issue: ticket(5),
             pull_request: 80,
             agent: "sonnet-high".to_owned().try_into().unwrap(),
         })
     );
-    let worktree = rig.paths().worktree(5);
+    let worktree = rig.paths().worktree(ticket(5));
     assert_eq!(git(&worktree, &["rev-parse", "HEAD"]), moved);
     assert!(matches!(
         step(&runner).unwrap(),
@@ -683,7 +684,7 @@ fn a_clean_review_from_before_the_adoption_never_stands_for_the_bots_read() {
     assert_eq!(
         rig.verdict(&runner),
         Some(StepReport::Summoned {
-            issue: 5,
+            issue: ticket(5),
             pull_request: 80,
             head: head.clone(),
         })

@@ -1,9 +1,10 @@
-//! What the forge port refuses, every path written as a dev server or a
-//! platform writes it. Every path is synthetic.
+//! What the guard refuses to post, on either port, every path written as a
+//! dev server or a platform writes it. Every path is synthetic.
 
 use std::path::Path;
 
 use super::*;
+use crate::ports::Tickets;
 use crate::test::FakeForge;
 
 fn slug() -> ForgeSlug {
@@ -13,7 +14,15 @@ fn slug() -> ForgeSlug {
 fn guarded() -> (Guarded, FakeForge) {
     let fake = FakeForge::new("/nowhere".into());
     let local = LocalPaths::new([Path::new("/Users/me/.kelpie")]);
-    (Guarded::new(Arc::new(fake.clone()), local), fake)
+    let source = Arc::new(fake.clone());
+    (
+        Guarded::new(
+            Arc::clone(&source) as Arc<dyn Forge>,
+            Arc::clone(&source) as Arc<dyn Tickets>,
+            local,
+        ),
+        fake,
+    )
 }
 
 #[test]
@@ -51,7 +60,9 @@ fn every_encoding_of_a_local_path_is_refused_at_every_post() {
 #[test]
 fn a_refusal_names_the_field_and_what_it_found() {
     let (forge, _) = guarded();
-    let refusal = |result: Result<u64, ForgeError>| result.unwrap_err().to_string();
+    fn refusal<T: core::fmt::Debug>(result: Result<T, ForgeError>) -> String {
+        result.unwrap_err().to_string()
+    }
     assert_eq!(
         refusal(forge.create_issue(&slug(), "a title", "see /private/tmp/x", &[])),
         "not posted: the issue's body names a path on this machine, which names its user"

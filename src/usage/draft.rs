@@ -7,13 +7,14 @@ use serde::{Deserialize, Serialize};
 use super::{CallKind, CallLine, Ended, PacerLine, units};
 use crate::ports::{AgentCall, AgentError, AgentReply, Cost, Role, SessionId, Timestamp, Usage};
 use crate::settings::LocalRound;
+use crate::ticket::TicketId;
 
 /// What a call's line says from its start: who made it, on what, and when
 // wire format: changing this is a change to the handover's state format
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Draft {
-    /// The issue of the work item it is for, if any
-    pub issue: Option<u64>,
+    /// The ticket of the work item it is for, if any
+    pub issue: Option<TicketId>,
     /// The work item's pull request, once it has one
     pub pull_request: Option<u64>,
     role: Role,
@@ -51,7 +52,9 @@ impl Draft {
     /// `call`, on the agent named `agent`, starting at `started`
     pub fn of(call: &AgentCall, agent: &str, kind: CallKind, started: Timestamp) -> Self {
         Self {
-            issue: matches!(call.role, Role::Worker | Role::Reviewer).then_some(call.issue),
+            issue: (matches!(call.role, Role::Worker | Role::Reviewer))
+                .then(|| TicketId::from_issue(call.issue))
+                .flatten(),
             pull_request: None,
             role: call.role,
             kind,
@@ -64,14 +67,15 @@ impl Draft {
         }
     }
 
-    /// A local round for `issue`, of the reviewer named `agent`, starting at `started`
-    pub fn local(local: &LocalRound, issue: u64, agent: &str, started: Timestamp) -> Self {
+    /// A local round for the ticket `ticket`, of the reviewer named `agent`,
+    /// starting at `started`
+    pub fn local(local: &LocalRound, ticket: TicketId, agent: &str, started: Timestamp) -> Self {
         let model = match local {
             LocalRound::Endpoint(endpoint) => Some(endpoint.model.as_str().to_owned()),
             LocalRound::Command(_) => None,
         };
         Self {
-            issue: Some(issue),
+            issue: Some(ticket),
             pull_request: None,
             role: Role::Reviewer,
             kind: CallKind::LocalRound,

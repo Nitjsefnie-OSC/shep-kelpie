@@ -8,8 +8,8 @@
 //! wait is measured against: the record keeps `local { at, body }`, `body` a
 //! hash of that text.
 //!
-//! Each poll reads each issue waiting on `local` through [`Forge::issue`]
-//! (`crate::ports::Forge`). A body whose hash differs is triaged again on the
+//! Each poll reads each issue waiting on `local` through [`Tickets::issue`]
+//! (`crate::ports::Tickets`). A body whose hash differs is triaged again on the
 //! new text, by a call of [`Purpose::LocalRead`] taken the way the answers
 //! call is, and its comment ends the round: `ready-for-agent` for a maintainer
 //! issue the pass is sure of, `needs-triage` for any other, with no further ask
@@ -99,7 +99,9 @@ impl Runner {
             .get(&issue)
             .and_then(|t| t.author.clone())
             .unwrap_or_default();
-        let found = match self.ports.forge.issue(&self.remote, issue) {
+        let read =
+            super::ticket(issue).and_then(|ticket| self.ports.tickets.issue(&self.remote, ticket));
+        let found = match read {
             Ok(found) => found,
             Err(e) => {
                 let why = format!("cannot read its body: {e}");
@@ -155,7 +157,9 @@ impl Runner {
         // rewrite the body while it runs. The wait is measured against the body
         // the prompt goes up against, so it is read again here rather than
         // hashed from the read made before the call.
-        let found = match self.ports.forge.issue(&self.remote, issue) {
+        let read =
+            super::ticket(issue).and_then(|ticket| self.ports.tickets.issue(&self.remote, ticket));
+        let found = match read {
             Ok(found) => found,
             Err(e) => {
                 let why = format!("cannot read its body: {e}");
@@ -228,7 +232,9 @@ impl Runner {
             if self.flights.triaging() == Some(issue) || self.triage_given_up(issue) {
                 continue;
             }
-            let body = match self.ports.forge.issue(&self.remote, issue) {
+            let read = super::ticket(issue)
+                .and_then(|ticket| self.ports.tickets.issue(&self.remote, ticket));
+            let body = match read {
                 Ok(found) => found.body,
                 Err(e) => {
                     let why = format!("cannot read its body: {e}");
@@ -275,7 +281,9 @@ impl Runner {
         let Some(owed) = owed else {
             return Ok(false);
         };
-        let found = match self.ports.forge.issue(&self.remote, issue) {
+        let read =
+            super::ticket(issue).and_then(|ticket| self.ports.tickets.issue(&self.remote, ticket));
+        let found = match read {
             Ok(found) => found,
             Err(e) => {
                 let why = format!("cannot read its body: {e}");

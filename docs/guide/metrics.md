@@ -68,6 +68,10 @@ The dog's series are sent from the dog's own tick, so a hold that has ended read
 
 A runner's counters start at zero when it starts, as Prometheus expects of a restart: read them with `rate` or `increase`. When a runner stops, its series go from the endpoint until it starts again.
 
+## The dashboard
+
+**Tool errors by kind and role** counts each kind over the dashboard's own time range, per role and project, sorted by the count, so the row at the top is the friction to fix. `other` is usually the largest, and is the worker's own command failing rather than anything around it.
+
 ## The alerts
 
 - **KelpieFeatureNeverWorks**: a feature that is on has failed or been skipped since the runner started and has never worked once. Its calls run without it. The runner's log says why, in a line with `runs without`.
@@ -75,6 +79,7 @@ A runner's counters start at zero when it starts, as Prometheus expects of a res
 - **KelpieMcpServerFailing**: an MCP server failed to connect in over half the calls given it in the last 6 hours, so those calls ran without its tools. The runner's log names the server, the call and the error code, in a line with `failed to connect`, and `shep kelpie status` lists it under `standing` until a call finds it connected.
 - **KelpiePlanNearlyUsed**: an account's weekly window is over 90% used with more than a day to its reset.
 - **KelpieCallsFailing**: over a quarter of a role's calls in 6 hours failed, timed out or came back unreadable.
+- **KelpieToolErrorTakesOver**: one kind of tool error, `other` left out, reached over half the calls a role made in the last 6 hours, over at least 4 calls. The kind in the alert is what made them fail, and the panel above is the same series read over a longer stretch.
 - **KelpieSeriesDropped**: a runner holds back series past its cap, so some panels miss data. Its log names the series.
 
 ## Loading history

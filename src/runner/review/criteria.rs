@@ -4,22 +4,30 @@
 //! without gives its whole body, since a ticket's bullets are its criteria.
 
 use super::super::Runner;
+use crate::ticket::TicketId;
 
 /// The most of an issue a round's prompt carries, in bytes, so a long one
 /// leaves a small local model room for the diff
 const MOST: usize = 4000;
 
 impl Runner {
-    /// Issue `issue`'s title and acceptance criteria, for a round's prompt
+    /// `ticket`'s issue title and acceptance criteria, for a round's prompt
     ///
     /// # Errors
     ///
     /// The forge's message when the issue cannot be read.
-    pub(super) fn criteria(&self, issue: u64) -> Result<String, String> {
+    pub(super) fn criteria(&self, ticket: TicketId) -> Result<String, String> {
+        // Only a ticket from GitHub has an issue to read.
+        let Some(issue) = ticket.github() else {
+            return Err(format!(
+                "{} has no issue to read for the review round",
+                super::super::turn::ticket_name(ticket)
+            ));
+        };
         let found = self
             .ports
-            .forge
-            .issue(&self.remote, issue)
+            .tickets
+            .issue(&self.remote, ticket)
             .map_err(|e| format!("cannot read issue #{issue} for the review round: {e}"))?;
         Ok(format!(
             "#{issue} {}\n\n{}",

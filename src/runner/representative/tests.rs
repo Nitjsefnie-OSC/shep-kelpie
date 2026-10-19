@@ -1,3 +1,4 @@
+use crate::test::ticket;
 use std::fs;
 use std::sync::Mutex;
 use std::time::Duration;
@@ -415,7 +416,7 @@ fn an_issue_post_says_issue_and_records_the_issue_on_its_ledger_line() {
         .collect();
     assert_eq!(mine.len(), 1, "{mine:?}");
     assert_eq!(mine[0].kind, CallKind::Post);
-    assert_eq!(mine[0].issue, Some(9));
+    assert_eq!(mine[0].issue, Some(ticket(9)));
     assert_eq!(mine[0].pull_request, None);
 }
 

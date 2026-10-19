@@ -1,10 +1,10 @@
-//! Holding every forge call while the forge's rate limit is used up
+//! Holding every call on a source while its rate limit is used up
 //!
-//! A runner's forge goes through [`RateHeld`]. A call the forge answers
-//! with its rate limit used up holds every later call until the limit
-//! resets, read once from the forge, or for [`FALLBACK`] when the forge
-//! cannot say. A held call fails at once with [`ForgeError::Held`], and
-//! each hold is said once, as it begins, through [`RateHeld`]'s [`Say`].
+//! A runner's forge and tickets go through [`RateHeld`]. A call the source
+//! answers with its rate limit used up holds every later call until the limit
+//! resets, read once from the source, or for [`FALLBACK`] when the source
+//! cannot say. A held call fails at once with [`ForgeError::Held`], and each
+//! hold is said once, as it begins, through [`RateHeld`]'s [`Say`].
 
 use std::fmt;
 use std::sync::Arc;
@@ -12,11 +12,11 @@ use std::time::Instant;
 
 use super::Revalidated;
 use super::{
-    BranchRun, Clock, CommentMarks, FailedLogs, FinishedParent, FolderEntry, Forge, ForgeError,
-    Issue, IssueCloseReason, LocalPace, NewLabel, OpenIssue, OpenPull, Pace, PullRequest,
-    QueueStanding, Reviewed, SubIssue, Talk, ThreadComment, Timestamp, Visibility, Workflow, pace,
+    BranchRun, Clock, CommentMarks, FailedLogs, FolderEntry, Forge, ForgeError, LocalPace,
+    NewLabel, OpenPull, Pace, PullRequest, QueueStanding, Reviewed, Talk, ThreadComment, Tickets,
+    Timestamp, Visibility, Workflow, pace,
 };
-use crate::board::{OpenPullRequest, ReadyIssue};
+use crate::board::OpenPullRequest;
 use crate::forge_ledger::{Ended, Identity, Kind, Ledger};
 use crate::review_bot::{Activity, Login};
 use crate::settings::ForgeSlug;
@@ -24,6 +24,8 @@ use crate::settings::ForgeSlug;
 mod app_reads;
 pub use app_reads::{AppForges, AppReads, Reading};
 use app_reads::{AppReader, Read};
+
+mod tickets;
 
 /// How long a hold lasts when the forge cannot say when its limit resets
 pub(super) const FALLBACK: u64 = 10 * 60;
@@ -107,9 +109,11 @@ pub trait Warnings: Send + Sync {
     fn ends(&self, key: &str);
 }
 
-/// A forge whose calls are held while its rate limit is used up
+/// The two ports of a source, whose calls are held while its rate limit is
+/// used up
 pub struct RateHeld {
     forge: Arc<dyn Forge>,
+    tickets: Arc<dyn Tickets>,
     clock: Arc<dyn Clock>,
     hold: ForgeHold,
     say: Say,
@@ -125,11 +129,18 @@ pub struct RateHeld {
 }
 
 impl RateHeld {
-    /// `forge`, holding its calls in `hold` by `clock`'s time, and telling
-    /// `say` as each hold begins
-    pub fn new(forge: Arc<dyn Forge>, clock: Arc<dyn Clock>, hold: ForgeHold, say: Say) -> Self {
+    /// `forge` and `tickets`, the two ports of one source, holding its calls in
+    /// `hold` by `clock`'s time, and telling `say` as each hold begins
+    pub fn new(
+        forge: Arc<dyn Forge>,
+        tickets: Arc<dyn Tickets>,
+        clock: Arc<dyn Clock>,
+        hold: ForgeHold,
+        say: Say,
+    ) -> Self {
         Self {
             forge,
+            tickets,
             clock,
             hold,
             say,
@@ -177,6 +188,23 @@ impl RateHeld {
         kind: Kind,
         call: impl FnOnce(&dyn Forge) -> Result<T, ForgeError>,
     ) -> Result<T, ForgeError> {
+        self.spent(kind, || call(self.forge.as_ref()))
+    }
+
+    // The same hold, pace and ledger around a call on the ticket port.
+    fn call_tickets<T>(
+        &self,
+        kind: Kind,
+        call: impl FnOnce(&dyn Tickets) -> Result<T, ForgeError>,
+    ) -> Result<T, ForgeError> {
+        self.spent(kind, || call(self.tickets.as_ref()))
+    }
+
+    fn spent<T>(
+        &self,
+        kind: Kind,
+        call: impl FnOnce() -> Result<T, ForgeError>,
+    ) -> Result<T, ForgeError> {
         let held = match &self.project {
             Some(project) => self.hold.admit(self.clock.as_ref(), project).err(),
             None => self.hold.until(self.clock.now()),
@@ -187,7 +215,7 @@ impl RateHeld {
             return Err(ForgeError::Held(until));
         }
         let started = Instant::now();
-        let result = call(self.forge.as_ref());
+        let result = call();
         let millis = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
         let ended = match &result {
             Ok(_) => Ended::Ok,
@@ -305,36 +333,6 @@ impl Forge for RateHeld {
         self.call(Kind::ReviewBotSeen, |f| f.review_bot_seen(repo, login))
     }
 
-    fn issue(&self, repo: &ForgeSlug, number: u64) -> Result<Issue, ForgeError> {
-        self.read(
-            repo,
-            Read::Issue,
-            |a| a.issue(repo, number),
-            |f| f.issue(repo, number),
-        )
-    }
-
-    fn sub_issues(&self, repo: &ForgeSlug, parent: u64) -> Result<Vec<SubIssue>, ForgeError> {
-        // Stays on the login: the App's token reaches one repo, and a parent's
-        // sub-issues may sit in another, so a list from the App could be short.
-        self.call(Kind::SubIssues, |f| f.sub_issues(repo, parent))
-    }
-
-    fn finished_parents(&self, repo: &ForgeSlug) -> Result<Vec<FinishedParent>, ForgeError> {
-        // Stays on the login, as `sub_issues` does: it names parents for the
-        // runner to close, and the App's token reaches one repo.
-        self.call(Kind::FinishedParents, |f| f.finished_parents(repo))
-    }
-
-    fn ready_issues(&self, repo: &ForgeSlug) -> Result<Vec<ReadyIssue>, ForgeError> {
-        self.read(
-            repo,
-            Read::ReadyIssues,
-            |a| a.ready_issues(repo),
-            |f| f.ready_issues(repo),
-        )
-    }
-
     fn open_pull_requests(&self, repo: &ForgeSlug) -> Result<Vec<OpenPullRequest>, ForgeError> {
         self.read(
             repo,
@@ -382,14 +380,6 @@ impl Forge for RateHeld {
         self.call(Kind::CommentsSince, |f| f.comments_since(repo, since))
     }
 
-    fn issue_comments(
-        &self,
-        repo: &ForgeSlug,
-        number: u64,
-    ) -> Result<Vec<ThreadComment>, ForgeError> {
-        self.call(Kind::IssueComments, |f| f.issue_comments(repo, number))
-    }
-
     fn thread_replies_since(
         &self,
         repo: &ForgeSlug,
@@ -411,37 +401,6 @@ impl Forge for RateHeld {
 
     fn comment(&self, repo: &ForgeSlug, number: u64, body: &str) -> Result<u64, ForgeError> {
         self.call(Kind::Comment, |f| f.comment(repo, number, body))
-    }
-
-    fn open_issues(&self, repo: &ForgeSlug) -> Result<Vec<OpenIssue>, ForgeError> {
-        self.call(Kind::OpenIssues, |f| f.open_issues(repo))
-    }
-
-    fn create_issue(
-        &self,
-        repo: &ForgeSlug,
-        title: &str,
-        body: &str,
-        labels: &[&str],
-    ) -> Result<u64, ForgeError> {
-        self.call(Kind::CreateIssue, |f| {
-            f.create_issue(repo, title, body, labels)
-        })
-    }
-
-    fn close_issue(&self, repo: &ForgeSlug, number: u64) -> Result<(), ForgeError> {
-        self.call(Kind::CloseIssue, |f| f.close_issue(repo, number))
-    }
-
-    fn close_issue_as(
-        &self,
-        repo: &ForgeSlug,
-        number: u64,
-        reason: IssueCloseReason,
-    ) -> Result<(), ForgeError> {
-        self.call(Kind::CloseIssueAs, |f| {
-            f.close_issue_as(repo, number, reason)
-        })
     }
 
     fn open_pulls(&self, repo: &ForgeSlug) -> Result<Vec<OpenPull>, ForgeError> {
@@ -528,18 +487,6 @@ impl Forge for RateHeld {
         on: bool,
     ) -> Result<(), ForgeError> {
         self.call(Kind::SetLabel, |f| f.set_label(repo, number, label, on))
-    }
-
-    fn set_issue_label(
-        &self,
-        repo: &ForgeSlug,
-        number: u64,
-        label: &str,
-        on: bool,
-    ) -> Result<(), ForgeError> {
-        self.call(Kind::SetIssueLabel, |f| {
-            f.set_issue_label(repo, number, label, on)
-        })
     }
 
     fn review_bot(
@@ -636,8 +583,10 @@ mod tests {
         }
 
         fn held_on(forge: &FakeForge, clock: &FakeClock) -> RateHeld {
+            let source = Arc::new(forge.clone());
             RateHeld::new(
-                Arc::new(forge.clone()),
+                Arc::clone(&source) as Arc<dyn Forge>,
+                Arc::clone(&source) as Arc<dyn Tickets>,
                 Arc::new(clock.clone()),
                 ForgeHold::default(),
                 Box::new(|_| {}),
@@ -725,8 +674,10 @@ mod tests {
         }
 
         fn held_on(forge: &FakeForge, clock: &FakeClock) -> RateHeld {
+            let source = Arc::new(forge.clone());
             RateHeld::new(
-                Arc::new(forge.clone()),
+                Arc::clone(&source) as Arc<dyn Forge>,
+                Arc::clone(&source) as Arc<dyn Tickets>,
                 Arc::new(clock.clone()),
                 ForgeHold::default(),
                 Box::new(|_| {}),
@@ -808,8 +759,10 @@ mod tests {
                 let home = tempfile::tempdir().unwrap();
                 let forge = FakeForge::new(home.path().join("origin"));
                 let clock = FakeClock::at(1_000);
+                let source = Arc::new(forge.clone());
                 let held = RateHeld::new(
-                    Arc::new(forge.clone()),
+                    Arc::clone(&source) as Arc<dyn Forge>,
+                    Arc::clone(&source) as Arc<dyn Tickets>,
                     Arc::new(clock.clone()),
                     ForgeHold::default(),
                     Box::new(|_| {}),

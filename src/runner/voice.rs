@@ -17,6 +17,7 @@ use super::ruling::stuck_comment;
 use crate::issues::make_missing_with;
 use crate::ports::{Finding, ForgeError, NewLabel, Severity};
 use crate::state::{Heard, MergeNotice, ProjectState, Ruling, RulingKind};
+use crate::ticket::TicketId;
 
 /// Where a ruling's posted comment is kept in the state
 pub(super) enum Placed {
@@ -158,7 +159,10 @@ impl Runner {
     ) -> Result<u64, ForgeError> {
         match self.app_covers() {
             true => (self.ports.voice).create_issue(&self.remote, title, body, labels),
-            false => (self.ports.forge).create_issue(&self.remote, title, body, labels),
+            // `gh` files a GitHub issue, so its ticket has an issue number.
+            false => (self.ports.tickets)
+                .create_issue(&self.remote, title, body, labels)
+                .and_then(|ticket| ticket.github().ok_or(ForgeError::NoIssue { ticket })),
         }
     }
 
@@ -175,7 +179,15 @@ impl Runner {
     pub(super) fn label_issue(&self, number: u64, label: &str, on: bool) -> Result<(), ForgeError> {
         match self.app_covers() {
             true => (self.ports.voice).set_issue_label(&self.remote, number, label, on),
-            false => (self.ports.forge).set_issue_label(&self.remote, number, label, on),
+            // `gh` labels a GitHub issue, whose number is a ticket id.
+            false => (self.ports.tickets).set_issue_label(
+                &self.remote,
+                TicketId::from_issue(number).ok_or(ForgeError::Unreadable(format!(
+                    "{number} is not an issue number"
+                )))?,
+                label,
+                on,
+            ),
         }
     }
 

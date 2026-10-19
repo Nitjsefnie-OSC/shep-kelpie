@@ -16,6 +16,7 @@ use std::path::{Path, PathBuf};
 use crate::dep_sources::{self, grant, machine_sources};
 use crate::ports::{AgentCall, Role, Tools};
 use crate::runner::Runner;
+use crate::ticket::TicketId;
 
 impl Runner {
     // Every call that reads code reads the installed sources and docs of its
@@ -28,7 +29,9 @@ impl Runner {
         }
         // Only a call that works a work item has a build folder of its own.
         let build = matches!(call.role, Role::Worker | Role::Reviewer)
-            .then(|| self.paths.build(call.issue));
+            .then(|| TicketId::from_issue(call.issue))
+            .flatten()
+            .map(|ticket| self.paths.build(ticket));
         grant(call, &self.dep_reads(build.as_deref()));
     }
 

@@ -16,8 +16,10 @@ use super::report::{Begin, StepReport};
 use super::retro::journal::Entry;
 use super::trigger::WhichItem;
 use crate::ports::{Checks, PullRequestState};
+use crate::runner::report::ticket_of;
 use crate::settings::Merging;
 use crate::state::{Finished, MergeNotice, Notice, RulingKind, StateError, Stuck};
+use crate::ticket::TicketId;
 use crate::work_item::{Phase, Review, ReviewCallState, ReviewStage, Turn};
 use crate::worktree::{self, Base, Remote};
 
@@ -64,7 +66,7 @@ impl fmt::Display for DropError {
 impl core::error::Error for DropError {}
 
 impl Runner {
-    /// Ends a work item without merging it, the one `issue` names or the
+    /// Ends a work item without merging it, the one `ticket` names or the
     /// only one open
     ///
     /// Its worktree, local branch and build folder go, and its issue is
@@ -76,8 +78,8 @@ impl Runner {
     ///
     /// [`DropError`] when nothing is in flight, a turn, a review round or a
     /// merge is under way, or the cleanup fails. The work item stays then.
-    pub fn drop_work_item(&mut self, issue: Option<u64>) -> Result<(), DropError> {
-        self.choose(issue).map_err(DropError::Which)?;
+    pub fn drop_work_item(&mut self, ticket: Option<TicketId>) -> Result<(), DropError> {
+        self.choose(ticket).map_err(DropError::Which)?;
         let item = self.current().expect("the work item chosen");
         if matches!(item.turn, Turn::Running { .. }) {
             return Err(DropError::TurnRunning(item.issue));
@@ -208,7 +210,7 @@ impl Runner {
                 item.known.ready = true;
             })?;
             return Ok(Begin::Report(StepReport::MarkedReady {
-                issue,
+                issue: ticket_of(issue),
                 pull_request: number,
             }));
         }
@@ -316,13 +318,13 @@ impl Runner {
         self.update(|item| item.phase = Phase::Ci { head: None, since })?;
         Ok(Begin::Report(if auto {
             StepReport::MergeWithdrawn {
-                issue,
+                issue: ticket_of(issue),
                 pull_request: number,
                 reason,
             }
         } else {
             StepReport::YesWithdrawn {
-                issue,
+                issue: ticket_of(issue),
                 pull_request: number,
                 reason,
             }
@@ -391,7 +393,9 @@ impl Runner {
             merged.then_some(&Remote::Origin),
         );
         let removed = removed.map_err(|e| e.to_string());
-        if let Err(e) = removed.and_then(|()| self.remove_code_graph(item.issue)) {
+        if let Err(e) =
+            removed.and_then(|()| item.ticket().map_or(Ok(()), |t| self.remove_code_graph(t)))
+        {
             return Ok(self.gate_failed(format!("cannot clean up: {e}")));
         }
         // The item is gone, so a main it could not fetch warns about nothing.
@@ -410,14 +414,14 @@ impl Runner {
             seconds: timings.seconds.clone(),
             spend: Some(item.tally()),
         };
-        let mut line = crate::usage::FinishedLine::of(&record, item);
+        let mut line = crate::usage::FinishedLine::of(&record, item, ticket_of(item.issue));
         if let Ok(agent) = self.worker_agent(item) {
             line.harness = Some(agent.harness.harness().as_str().to_owned());
             line.model = Some(agent.model);
         }
         let ended = record.clone();
         let report = StepReport::Finished {
-            issue: item.issue,
+            issue: ticket_of(item.issue),
             pull_request: item.pull_request,
             merged,
             closed,
@@ -445,7 +449,13 @@ impl Runner {
         self.save(next)?;
         self.ledger.append(&crate::usage::Line::Finished(line));
         if let Some(text) = friction {
-            self.journal_at(now, Entry::Friction { issue, text });
+            self.journal_at(
+                now,
+                Entry::Friction {
+                    issue: ticket_of(issue),
+                    text,
+                },
+            );
         }
         self.tell_done(&ended);
         self.mark_held(issue, false);
@@ -467,6 +477,7 @@ mod close;
 
 #[cfg(test)]
 mod tests {
+    use crate::test::ticket;
     use std::panic::{AssertUnwindSafe, catch_unwind};
     use std::sync::Mutex;
 
@@ -480,19 +491,19 @@ mod tests {
 
     pub(super) fn finished(report: Option<StepReport>) -> bool {
         matches!(
-            report,
-            Some(StepReport::Finished {
-                issue: 7,
-                pull_request: Some(71),
-                merged: true,
-                ..
-            })
+           report,
+           Some(StepReport::Finished {
+               issue,
+               pull_request: Some(71),
+               merged: true,
+               ..
+           }) if issue == ticket(7)
         )
     }
 
     fn marked_ready() -> Option<StepReport> {
         Some(StepReport::MarkedReady {
-            issue: 7,
+            issue: ticket(7),
             pull_request: 71,
         })
     }
@@ -605,7 +616,7 @@ mod tests {
         assert_eq!(
             step(&runner).unwrap(),
             Some(StepReport::YesWithdrawn {
-                issue: 7,
+                issue: ticket(7),
                 pull_request: 71,
                 reason: format!("#71 moved to {}", &moved[..7]),
             })
@@ -722,7 +733,7 @@ mod tests {
         assert_eq!(
             rig.verdict(&runner),
             Some(StepReport::CiFailed {
-                issue: 7,
+                issue: ticket(7),
                 pull_request: 71,
                 head: head.clone(),
                 checks: vec!["test".into()],
@@ -759,7 +770,7 @@ mod tests {
         assert_eq!(
             report,
             StepReport::GateFailed {
-                issue: 7,
+                issue: ticket(7),
                 reason: "cannot merge #71: gh failed: merges are down".into()
             }
         );
@@ -890,8 +901,8 @@ mod tests {
         rig.ask(&runner, "rule", Some("71 yes"));
         // The close is refused in each of three steps before the item finishes.
         assert!(matches!(
-            ready_then_merge(&rig, &runner),
-            Some(StepReport::GateFailed { issue: 7, .. })
+           ready_then_merge(&rig, &runner),
+           Some(StepReport::GateFailed { issue, .. }) if issue == ticket(7)
         ));
         for wait in [15, 30] {
             rig.clock.advance(wait);

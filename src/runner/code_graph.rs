@@ -20,6 +20,7 @@ use super::claim::Notes;
 use crate::metrics::{Feature, Recorder};
 use crate::ports::{AgentCall, CodeGraph, Ending, Role, Tools};
 use crate::settings::AgentHarness;
+use crate::ticket::TicketId;
 
 // An index that takes longer is not worth holding a turn for.
 const INDEX_LIMIT: Duration = Duration::from_secs(300);
@@ -56,15 +57,19 @@ impl Runner {
             return;
         }
         self.notes.ends(NOT_INSTALLED);
-        // A work item of the same number would share the index of a triage view.
+        // Only a call that works an issue reads code, and none numbers one zero.
+        let Some(ticket) = TicketId::from_issue(call.issue) else {
+            return;
+        };
+        // A work item of the same ticket would share the index of a triage view.
         let (index, runtime) = match call.role {
             Role::Triager => (
-                self.paths.triage_graph(call.issue),
-                self.paths.triage_graph_runtime(call.issue),
+                self.paths.triage_graph(ticket),
+                self.paths.triage_graph_runtime(ticket),
             ),
             _ => (
-                self.paths.code_graph(call.issue),
-                self.paths.code_graph_runtime(call.issue),
+                self.paths.code_graph(ticket),
+                self.paths.code_graph_runtime(ticket),
             ),
         };
         call.reach.code_graph = Some(CodeGraph {
@@ -74,15 +79,15 @@ impl Runner {
         });
     }
 
-    /// Removes the index of work item `issue`'s worktree, and its daemon's folder
+    /// Removes the index of the worktree for `ticket`, and its daemon's folder
     ///
     /// # Errors
     ///
     /// The folder that could not be removed, and why.
-    pub(super) fn remove_code_graph(&self, issue: u64) -> Result<(), String> {
+    pub(super) fn remove_code_graph(&self, ticket: TicketId) -> Result<(), String> {
         remove(&[
-            self.paths.code_graph(issue),
-            self.paths.code_graph_runtime(issue),
+            self.paths.code_graph(ticket),
+            self.paths.code_graph_runtime(ticket),
         ])
     }
 
@@ -291,6 +296,7 @@ fn run(
 
 #[cfg(test)]
 mod tests {
+    use crate::test::ticket;
     use std::path::PathBuf;
     use std::sync::Mutex;
 
@@ -630,8 +636,8 @@ mod tests {
         rig.clock.advance(CHECKS_SETTLE);
         let finished = step(&runner).unwrap();
         assert!(matches!(
-            finished,
-            Some(crate::runner::StepReport::Finished { issue: 7, .. })
+           finished,
+           Some(crate::runner::StepReport::Finished { issue, .. }) if issue == ticket(7)
         ));
         assert!(!index.exists());
         assert!(!runtime.exists(), "the daemon's folder goes with it");

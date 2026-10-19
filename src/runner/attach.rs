@@ -1,10 +1,10 @@
 //! `attach`: a work item held while the maintainer drives its session
 //!
-//! `attach <issue> <pid>` holds the work item for process `pid`, so no call
+//! `attach <ticket> <pid>` holds the work item for process `pid`, so no call
 //! starts for it. A call in flight runs to its end, and the answer says to
 //! wait. Once none is, the answer is the worker's session as a command,
 //! with the worker's settings file and inside its sandbox, for the
-//! maintainer's terminal. `attach <issue> <pid> <session pid>` then names
+//! maintainer's terminal. `attach <ticket> <pid> <session pid>` then names
 //! the session's process, and the hold stands while either runs, each
 //! known by its pid and start time. `detach` lets the work item go, and so
 //! does the first pass after both have ended. What the session pushed is
@@ -21,6 +21,7 @@ use super::trigger::WhichItem;
 use crate::ports::{Role, Session, SessionId};
 use crate::state::StateError;
 use crate::terminal::Foreground;
+use crate::ticket::TicketId;
 use crate::work_item::{Attached, Holder, Phase, Review, Seat, Turn, WorkItem};
 
 /// What `attach` answers
@@ -30,13 +31,13 @@ use crate::work_item::{Attached, Holder, Phase, Review, Seat, Turn, WorkItem};
 pub enum Attaching {
     /// The work item is held, and a call for it is still in flight
     Waiting {
-        /// Its issue
-        issue: u64,
+        /// The ticket it is for
+        issue: TicketId,
     },
     /// The work item is held, and its worker's session is ready to run
     Ready {
-        /// Its issue
-        issue: u64,
+        /// The ticket it is for
+        issue: TicketId,
         /// The worker's session
         session: SessionId,
         /// Its worktree
@@ -46,36 +47,36 @@ pub enum Attaching {
     },
     /// The work item is held while the session's process runs too
     Running {
-        /// Its issue
-        issue: u64,
+        /// The ticket it is for
+        issue: TicketId,
     },
 }
 
 /// Why `attach` or `detach` was refused
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AttachError {
-    /// No work item is open for the issue named
+    /// No work item is open for the ticket named
     Which(WhichItem),
     /// The worker has run no turn, so it has no session to resume
-    NoSession(u64),
+    NoSession(TicketId),
     /// The work item is parked on this ruling
-    Ruling(u64, u64),
+    Ruling(TicketId, u64),
     /// The work item is merging or being closed, past its worker's turns
-    Merging(u64),
+    Merging(TicketId),
     /// The work item holds no slot under `concurrency.active_items`, which its worker's
     /// session needs, and none is free for it
-    NoSlot(u64),
+    NoSlot(TicketId),
     /// Another live process holds the work item
-    Held(u64, u32),
+    Held(TicketId, u32),
     /// `detach`, or a session's pid, came from a process other than the
     /// one holding the work item
-    NotHeld(u64, u32),
+    NotHeld(TicketId, u32),
     /// No process with this pid is running
     NotRunning(u32),
     /// `ps` could not say whether this pid runs
     Unknown(u32),
     /// The worker's session could not be made ready, with why
-    Setup(u64, String),
+    Setup(TicketId, String),
     /// The change could not be saved
     State(StateError),
 }
@@ -86,40 +87,46 @@ impl fmt::Display for AttachError {
             Self::Which(e) => e.fmt(f),
             Self::NoSession(issue) => write!(
                 f,
-                "the worker on #{issue} has no session yet: its first turn starts one, and \
-                 `shep kelpie attach {issue}` then waits for that turn to end"
+                "the worker on {} has no session yet: its first turn starts one, and \
+                 `shep kelpie attach {issue}` then waits for that turn to end",
+                issue.shown()
             ),
             Self::Ruling(issue, id) => write!(
                 f,
-                "the work item for #{issue} is parked on ruling {id}: answer it with \
+                "the work item for {} is parked on ruling {id}: answer it with \
                  `shep kelpie rule {id} ...`, and `shep kelpie attach {issue}` then waits \
-                 for any turn the answer starts"
+                 for any turn the answer starts",
+                issue.shown()
             ),
             Self::Merging(issue) => write!(
                 f,
-                "the work item for #{issue} is merging or closing, which no attach can \
-                 hold: file a new issue for anything left to do"
+                "the work item for {} is merging or closing, which no attach can \
+                 hold: file a new issue for anything left to do",
+                issue.shown()
             ),
             Self::NoSlot(issue) => write!(
                 f,
-                "the work item for #{issue} holds no slot under `concurrency.active_items`, which its \
+                "the work item for {} holds no slot under `concurrency.active_items`, which its \
                  worker's session needs, and none is free: `shep kelpie attach {issue}` \
-                 works once another work item ends or parks and frees one"
+                 works once another work item ends or parks and frees one",
+                issue.shown()
             ),
             Self::Held(issue, pid) => write!(
                 f,
-                "the work item for #{issue} is already attached, by process {pid}"
+                "the work item for {} is already attached, by process {pid}",
+                issue.shown()
             ),
             Self::NotHeld(issue, pid) => write!(
                 f,
-                "the work item for #{issue} is attached by process {pid}, not this one"
+                "the work item for {} is attached by process {pid}, not this one",
+                issue.shown()
             ),
             Self::NotRunning(pid) => write!(f, "no process {pid} is running"),
             Self::Unknown(pid) => write!(
                 f,
                 "`ps` could not say whether process {pid} runs, so nothing is held: try again"
             ),
-            Self::Setup(issue, why) => write!(f, "cannot ready #{issue}'s session: {why}"),
+            Self::Setup(issue, why) => write!(f, "cannot ready {}'s session: {why}", issue.shown()),
             Self::State(e) => e.fmt(f),
         }
     }
@@ -128,7 +135,7 @@ impl fmt::Display for AttachError {
 impl core::error::Error for AttachError {}
 
 impl Runner {
-    /// Holds the work item for `issue` for process `pid`, and hands back
+    /// Holds the work item for `ticket` for process `pid`, and hands back
     /// its worker's session once no call for it is in flight
     ///
     /// Asking again from the same process while it waits keeps the hold.
@@ -141,24 +148,24 @@ impl Runner {
     /// what to do instead. It is not held then.
     pub fn attach(
         &mut self,
-        issue: u64,
+        ticket: TicketId,
         pid: u32,
         session: Option<u32>,
     ) -> Result<Attaching, AttachError> {
-        self.choose(Some(issue)).map_err(AttachError::Which)?;
+        self.choose(Some(ticket)).map_err(AttachError::Which)?;
         let me = running(pid)?;
         let attached = self.current().and_then(|item| item.attached.clone());
         if let Some(session) = session {
-            return self.session_started(issue, &me, attached.as_ref(), session);
+            return self.session_started(ticket, &me, attached.as_ref(), session);
         }
         let item = self.current().expect("the work item chosen");
         if let Some(held) = attached.as_ref().filter(|a| a.by != me && live(a)) {
-            return Err(AttachError::Held(issue, held.by.pid));
+            return Err(AttachError::Held(ticket, held.by.pid));
         }
         let mine = attached.as_ref().is_some_and(|a| a.by == me);
         let seated = item.seat == Seat::Held;
-        let flying = self.flights.flying(issue);
-        if let Some(refused) = self.refusal(item, flying) {
+        let flying = self.flights.flying(ticket);
+        if let Some(refused) = self.refusal(item, ticket, flying) {
             if mine {
                 self.update(|item| item.attached = None)
                     .map_err(AttachError::State)?;
@@ -181,9 +188,9 @@ impl Runner {
             .map_err(AttachError::State)?;
         }
         if flying {
-            return Ok(Attaching::Waiting { issue });
+            return Ok(Attaching::Waiting { issue: ticket });
         }
-        let ready = self.session_here();
+        let ready = self.session_here(ticket);
         if ready.is_err() {
             if let Some(item) = self.current() {
                 self.ports.agents.foreground_ended(&item.session);
@@ -194,20 +201,20 @@ impl Runner {
         ready
     }
 
-    /// Lets go of the work item for `issue` that process `pid` attached,
+    /// Lets go of the work item for `ticket` that process `pid` attached,
     /// with what its session pushed as the worker's own. One not attached
     /// is left as it is.
     ///
     /// # Errors
     ///
-    /// [`AttachError`] when no work item is open for `issue`, another
+    /// [`AttachError`] when no work item is open for `ticket`, another
     /// process holds it, or the change cannot be saved.
-    pub fn detach(&mut self, issue: u64, pid: u32) -> Result<(), AttachError> {
-        self.choose(Some(issue)).map_err(AttachError::Which)?;
+    pub fn detach(&mut self, ticket: TicketId, pid: u32) -> Result<(), AttachError> {
+        self.choose(Some(ticket)).map_err(AttachError::Which)?;
         let held = self.current().and_then(|item| item.attached.as_ref());
         match held.map(|a| a.by.pid) {
             None => Ok(()),
-            Some(by) if by != pid => Err(AttachError::NotHeld(issue, by)),
+            Some(by) if by != pid => Err(AttachError::NotHeld(ticket, by)),
             Some(_) => self.end_attach().map_err(AttachError::State),
         }
     }
@@ -215,15 +222,21 @@ impl Runner {
     // Lets go of each work item whose attach and session have both ended
     // without a `detach`, as a terminal closed under them would.
     pub(super) fn let_go_of_the_gone(&mut self) {
-        let gone: Vec<u64> = (self.state.work_items.iter())
+        let gone: Vec<TicketId> = (self.state.work_items.iter())
             .filter(|item| item.attached.as_ref().is_some_and(|a| !live(a)))
-            .map(|item| item.issue)
+            .filter_map(|item| item.ticket())
             .collect();
-        for issue in gone {
-            self.focus = Some(issue);
+        for ticket in gone {
+            self.focus = Some(ticket);
             match self.end_attach() {
-                Ok(()) => eprintln!("the attach on #{issue} ended, so its work item carries on"),
-                Err(e) => eprintln!("cannot let go of #{issue}, whose attach ended: {e}"),
+                Ok(()) => eprintln!(
+                    "the attach on {} ended, so its work item carries on",
+                    ticket.shown()
+                ),
+                Err(e) => eprintln!(
+                    "cannot let go of {}, whose attach ended: {e}",
+                    ticket.shown()
+                ),
             }
         }
     }
@@ -232,15 +245,15 @@ impl Runner {
     // the work item too.
     fn session_started(
         &mut self,
-        issue: u64,
+        ticket: TicketId,
         me: &Holder,
         attached: Option<&Attached>,
         pid: u32,
     ) -> Result<Attaching, AttachError> {
         match attached.map(|a| &a.by) {
             Some(by) if by == me => {}
-            Some(by) => return Err(AttachError::NotHeld(issue, by.pid)),
-            None => return Err(AttachError::NotHeld(issue, me.pid)),
+            Some(by) => return Err(AttachError::NotHeld(ticket, by.pid)),
+            None => return Err(AttachError::NotHeld(ticket, me.pid)),
         }
         let session = running(pid)?;
         self.update(|item| {
@@ -249,38 +262,37 @@ impl Runner {
             }
         })
         .map_err(AttachError::State)?;
-        Ok(Attaching::Running { issue })
+        Ok(Attaching::Running { issue: ticket })
     }
 
-    // Why the work item cannot be attached now, if it cannot. Whether it
-    // has a session waits for a call in flight to end.
-    fn refusal(&self, item: &WorkItem, flying: bool) -> Option<AttachError> {
-        let issue = item.issue;
+    // Why the work item for `ticket` cannot be attached now, if it cannot.
+    // Whether it has a session waits for a call in flight to end. The slot it
+    // would take is the state file's, so it is asked for by issue number.
+    fn refusal(&self, item: &WorkItem, ticket: TicketId, flying: bool) -> Option<AttachError> {
         if let Err(why) = self.worker_agent(item) {
-            return Some(AttachError::Setup(issue, why));
+            return Some(AttachError::Setup(ticket, why));
         }
         match item.phase {
-            Phase::Ruling { id } => return Some(AttachError::Ruling(issue, id)),
-            Phase::Merge { .. } | Phase::Done { .. } => return Some(AttachError::Merging(issue)),
+            Phase::Ruling { id } => return Some(AttachError::Ruling(ticket, id)),
+            Phase::Merge { .. } | Phase::Done { .. } => return Some(AttachError::Merging(ticket)),
             Phase::Implement | Phase::Review(_) | Phase::Ci { .. } => {}
         }
         // An attach takes a free slot for the session, as a turn would.
-        if item.seat != Seat::Held && !self.slot_open_for(issue) {
-            return Some(AttachError::NoSlot(issue));
+        if item.seat != Seat::Held && !self.slot_open_for(item.issue) {
+            return Some(AttachError::NoSlot(ticket));
         }
         let begun = item
             .calls
             .iter()
             .any(|c| c.role == Role::Worker && c.session == item.session);
         let running = matches!(item.turn, Turn::Running { .. });
-        (!flying && !begun && !running).then_some(AttachError::NoSession(issue))
+        (!flying && !begun && !running).then_some(AttachError::NoSession(ticket))
     }
 
     // The worker's session, resumed for the terminal as a turn would run it.
-    fn session_here(&self) -> Result<Attaching, AttachError> {
+    fn session_here(&self, ticket: TicketId) -> Result<Attaching, AttachError> {
         let item = self.current().expect("the work item held");
-        let issue = item.issue;
-        let setup = |why: String| AttachError::Setup(issue, why);
+        let setup = |why: String| AttachError::Setup(ticket, why);
         let session = Session::Resume(item.session.clone());
         let call = self.prepare(item, session, Some(String::new()));
         let command = call
@@ -293,7 +305,7 @@ impl Runner {
             .and_then(|command| Foreground::of(&command))
             .map_err(setup)?;
         Ok(Attaching::Ready {
-            issue,
+            issue: ticket,
             session: item.session.clone(),
             worktree: item.worktree.clone(),
             command,

@@ -13,6 +13,7 @@ use crate::runner::{AttachError, Runner};
 use crate::settings::{AgentName, PmAgent};
 use crate::state::StateError;
 use crate::terminal::Foreground;
+use crate::ticket::TicketId;
 use crate::work_item::{Attached, new_session_id};
 
 /// The project manager as `status` shows it
@@ -36,7 +37,7 @@ pub struct PmStatus<'a> {
     pub told: &'a [String],
     /// The ready issues it holds until an open work item closes
     #[serde(skip_serializing_if = "<[_]>::is_empty")]
-    pub held: &'a [u64],
+    pub held: &'a [TicketId],
     /// The last few worker questions it answered or passed on, newest last
     #[serde(skip_serializing_if = "<[_]>::is_empty")]
     pub settled: &'a [Settled],
@@ -50,8 +51,8 @@ pub struct PmStatus<'a> {
 pub struct Settled {
     /// The ruling the question raised
     pub ruling: u64,
-    /// The work item's issue
-    pub issue: u64,
+    /// The work item's ticket
+    pub issue: TicketId,
     /// What it did: `answered`, so the maintainer was not asked, `passed on`, or
     /// for a follow-up ruling `filed` or `dropped`
     pub how: &'static str,
@@ -215,7 +216,8 @@ impl Runner {
                 (id.clone(), Session::New(id))
             }
         };
-        let call = self.pm_call(agent, session, String::new(), true);
+        let board = self.pm_board().map_err(PmError::Files)?;
+        let call = self.pm_call(agent, session, String::new(), Some(board));
         let command = call
             .and_then(|call| {
                 self.ports

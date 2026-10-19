@@ -1,36 +1,85 @@
 //! What wakes the project manager besides a pick and a `tell`: a work item
 //! parked on a stuck item's ruling, a pair of open branches newly in
 //! conflict, and, once it is back, whatever it missed while it was not
+//!
+//! A work item the project manager answered `none` for is not queued again
+//! while it is in the state it was left alone in, which is what `pm_due` checks
+//! for every source of a stuck wake.
 
 use std::collections::BTreeMap;
 
-use super::{Pick, Wake, answer};
+use crate::board::briefing::{age, elapsed, ticket_ref};
+
+use super::{Pick, StuckState, Wake, answer};
 use crate::panel::{Tier, Voter};
-use crate::ports::{AgentError, AgentReply};
+use crate::ports::{AgentError, AgentReply, Timestamp};
 use crate::runner::Runner;
 use crate::settings::RulingName;
-use crate::state::{ProjectState, RulingKind, Stuck};
+use crate::state::{ProjectState, Ruling, RulingKind, Stuck};
+use crate::ticket::{TicketId, ticket_ids};
 use crate::usage::VoteMark;
 use crate::work_item::Phase;
 
+/// How long an idle call left alone is dropped for after its first `none`, in
+/// seconds
+///
+/// Measured on the maintainer's day of 134 wakes: 89 held nothing but a stuck
+/// item, 76 of those answered `none`, and one item woke it 15 times about every
+/// 10 minutes, which is the board's own idle length.
+const QUIET_FIRST: u64 = 30 * 60;
+
+/// How long an idle call left alone is dropped for after a second `none` in a
+/// row on the same turn, in seconds
+const QUIET_SECOND: u64 = 60 * 60;
+
+/// The most an idle call left alone is dropped for, in seconds
+const QUIET_MOST: u64 = 2 * 60 * 60;
+
+/// What a wake says for a call in flight the board reads idle, when nothing
+/// measured its quiet length
+const IDLE_WHAT: &str = "its worker has shown no tool call or output for 10 minutes or more";
+
+/// What the project manager left a work item alone in, when it said so, how
+/// many `none`s in a row on that state, when its hold ends, and whether the
+/// wake its hold ended for has gone out
+#[derive(Debug, Clone)]
+pub(super) struct LeftAlone {
+    state: StuckState,
+    at: Timestamp,
+    /// When its wake may go out again. `None` for an item parked on a ruling,
+    /// which waits on the maintainer's answer and not on a clock
+    until: Option<Timestamp>,
+    nones: u32,
+    /// Its hold ended and the wake was queued, so the same hold does not wake
+    /// the project manager on every pass. A new `none` for the item clears it
+    asked: bool,
+}
+
+// How long `nones` in a row on one idle call hold its wake back.
+fn quiet_backoff(nones: u32) -> u64 {
+    match nones {
+        0 | 1 => QUIET_FIRST,
+        2 => QUIET_SECOND,
+        _ => QUIET_MOST,
+    }
+}
+
 impl Runner {
-    // Queues a wake for each item still stuck and each conflict still open,
-    // once it is back after giving some up.
+    // Queues a wake for each item the board still reads as stuck or waiting
+    // and each conflict still open, once it is back after giving some up.
     pub(super) fn still_due(&mut self) {
         let mut wakes = Vec::new();
         for item in &self.state.work_items {
-            let issue = item.issue;
-            let parked = match item.phase {
-                Phase::Ruling { id } => self.state.rulings.iter().find(|r| r.id == id),
-                _ => None,
+            let Some(ticket) = item.ticket() else {
+                continue;
             };
-            if let Some(wake) = parked.and_then(|r| stuck_wake(issue, r.id, &r.kind)) {
-                wakes.push(wake);
-            } else if self.flights.watched(issue).is_some_and(|w| w.idle) {
-                let what = "its worker has shown no tool call or output for 10 minutes or more";
-                wakes.push(Wake::Stuck(issue, what.to_owned()));
-            } else if let Some(wake) = self.lease_wake(issue) {
-                wakes.push(wake);
+            match self.stuck_now(ticket) {
+                Some(wake) => wakes.push(wake),
+                None => {
+                    if let Some(wake) = self.lease_wake(ticket) {
+                        wakes.push(wake);
+                    }
+                }
             }
         }
         for (&(a, b), files) in &self.pm.conflicts {
@@ -38,6 +87,142 @@ impl Runner {
         }
         for wake in wakes {
             self.pm_due(wake);
+        }
+    }
+
+    // The stuck wake `ticket`'s work item deserves as the board stands: the
+    // ruling it is parked on, its idle call, or nothing.
+    fn stuck_now(&self, ticket: TicketId) -> Option<Wake> {
+        let item = self.state.item_by_ticket(ticket)?;
+        let parked = match item.phase {
+            Phase::Ruling { id } => self.state.rulings.iter().find(|r| r.id == id),
+            _ => None,
+        };
+        if let Some(wake) = parked.and_then(|r| stuck_wake(ticket, r)) {
+            return Some(wake);
+        }
+        let watched = self.flights.watched(ticket).filter(|w| w.idle)?;
+        Some(Wake::Stuck {
+            ticket,
+            what: IDLE_WHAT.to_owned(),
+            state: StuckState::Idle(watched.started),
+        })
+    }
+
+    /// Whether the board still shows `wake` as a reason, by the same checks
+    /// `still_due` uses to queue one: the item still stuck on the same thing,
+    /// still waiting for its model, or the pair still in conflict. A reason the
+    /// window never asks about is one it never drops.
+    pub(super) fn wake_holds(&self, wake: &Wake) -> bool {
+        match wake {
+            Wake::Stuck { ticket, state, .. } => matches!(
+                self.stuck_now(*ticket),
+                Some(Wake::Stuck { state: now, .. }) if now == *state
+            ),
+            Wake::LeaseWait { ticket, .. } => self.lease_wake(*ticket).is_some(),
+            Wake::Conflict(a, b, _) => self.pm.conflicts.contains_key(&(*a, *b)),
+            _ => true,
+        }
+    }
+
+    // Whether `ticket`'s work item is still held by the state it was left
+    // alone in, naming each drop in the log
+    pub(super) fn left_alone_holds(&mut self, ticket: TicketId, state: StuckState) -> bool {
+        let Some(entry) = self.pm.left_alone.get(&ticket).cloned() else {
+            return false;
+        };
+        if entry.state != state {
+            return false;
+        }
+        let now = self.ports.clock.now();
+        let named = ticket_ref(ticket);
+        match state {
+            // The ruling already asks the maintainer: there is nothing to wait
+            // for but its answer.
+            StuckState::Ruling { id, .. } => {
+                self.notes.push(format!(
+                    "{named} is parked on ruling {id}, which the project manager left alone, \
+                     so it is not woken for it again"
+                ));
+                true
+            }
+            StuckState::Idle(..) => {
+                let Some(until) = entry.until else {
+                    return false;
+                };
+                let held = now < until;
+                if held {
+                    self.notes.push(format!(
+                        "{named} is idle on the turn the project manager left alone {}, so it \
+                         is not woken for it again for {}",
+                        age(now, entry.at),
+                        elapsed(until.0.saturating_sub(now.0))
+                    ));
+                }
+                held
+            }
+        }
+    }
+
+    /// Records that the project manager left `ticket`'s work item alone in
+    /// `state`, once more in a row on the same state or new to it
+    pub(super) fn pm_left_alone(&mut self, ticket: TicketId, state: StuckState, at: Timestamp) {
+        let nones = match self.pm.left_alone.get(&ticket) {
+            Some(entry) if entry.state == state => entry.nones.saturating_add(1),
+            _ => 1,
+        };
+        let until = match state {
+            StuckState::Ruling { .. } => None,
+            StuckState::Idle(..) => Some(Timestamp(at.0.saturating_add(quiet_backoff(nones)))),
+        };
+        self.pm.left_alone.insert(
+            ticket,
+            LeftAlone {
+                state,
+                at,
+                until,
+                nones,
+                asked: false,
+            },
+        );
+    }
+
+    /// Queues each stuck wake whose back-off has ended, which is what makes
+    /// "woken for again when its back-off ends" happen for a worker that shows
+    /// nothing more: the board flips an idle call only after new output, and
+    /// `still_due` runs only after a lapse. Called from `wake_pm`, where its
+    /// agent is set up.
+    ///
+    /// Each hold is queued once, so an item the project manager says nothing
+    /// about is not woken for on every pass. An item no longer stuck in the
+    /// state the entry names loses it, being in a new one.
+    pub(super) fn pm_holds_over(&mut self) {
+        let now = self.ports.clock.now();
+        let over: Vec<TicketId> = self
+            .pm
+            .left_alone
+            .iter()
+            .filter(|(_, entry)| !entry.asked && entry.until.is_some_and(|until| now >= until))
+            .map(|(ticket, _)| *ticket)
+            .collect();
+        for ticket in over {
+            let Some(entry) = self.pm.left_alone.remove(&ticket) else {
+                continue;
+            };
+            match self.stuck_now(ticket) {
+                Some(wake @ Wake::Stuck { state, .. }) if state == entry.state => {
+                    self.pm.left_alone.insert(
+                        ticket,
+                        LeftAlone {
+                            asked: true,
+                            ..entry
+                        },
+                    );
+                    self.pm_due(wake);
+                }
+                Some(wake) => self.pm_due(wake),
+                None => {}
+            }
         }
     }
 
@@ -94,9 +279,9 @@ impl Runner {
         let raised = (now.rulings.iter()).filter(|r| !was.rulings.iter().any(|w| w.id == r.id));
         let stuck: Vec<Wake> = raised
             .filter_map(|ruling| {
-                let issue = ruling.issue?;
-                let ended = self.pm.after_end.contains_key(&issue);
-                stuck_wake(issue, ruling.id, &ruling.kind).filter(|_| !ended)
+                let ticket = ruling.ticket()?;
+                let ended = self.pm.after_end.contains_key(&ticket);
+                stuck_wake(ticket, ruling).filter(|_| !ended)
             })
             .collect();
         let closed = (was.work_items.iter()).any(|i| now.item(i.issue).is_none());
@@ -114,8 +299,9 @@ impl Runner {
             if matches!(self.pm.pick, Some(Pick::Nothing(_))) {
                 self.pm.pick = None;
             }
-            let open = now.open_issues();
-            self.pm.after_end.retain(|issue, _| open.contains(issue));
+            let open = ticket_ids(&now.open_issues());
+            self.pm.after_end.retain(|ticket, _| open.contains(ticket));
+            (self.pm.left_alone).retain(|ticket, _| open.contains(ticket));
             (self.pm.conflicts).retain(|(a, b), _| open.contains(a) && open.contains(b));
         }
     }
@@ -134,9 +320,9 @@ impl Runner {
         for ruling in &now.rulings {
             let new = !self.state.rulings.iter().any(|r| r.id == ruling.id);
             let id = ruling.id;
-            let wake = match (&ruling.kind, ruling.issue, ruling.pull_request, new) {
-                (RulingKind::Question { asked, .. }, Some(issue), _, true) => Wake::Question {
-                    issue,
+            let wake = match (&ruling.kind, ruling.ticket(), ruling.pull_request, new) {
+                (RulingKind::Question { asked, .. }, Some(ticket), _, true) => Wake::Question {
+                    ticket,
                     id,
                     asked: asked.clone(),
                 },
@@ -146,11 +332,11 @@ impl Runner {
                         findings,
                         refused: None,
                     },
-                    Some(issue),
+                    Some(ticket),
                     Some(pull_request),
                     true,
                 ) => Wake::FollowUp {
-                    issue,
+                    ticket,
                     id,
                     pull_request,
                     findings: findings.clone(),
@@ -164,7 +350,10 @@ impl Runner {
 
     /// Wakes the project manager for each pair of open branches newly in
     /// conflict, given every pair in conflict now
-    pub(in crate::runner) fn pm_conflicts(&mut self, now: BTreeMap<(u64, u64), Vec<String>>) {
+    pub(in crate::runner) fn pm_conflicts(
+        &mut self,
+        now: BTreeMap<(TicketId, TicketId), Vec<String>>,
+    ) {
         if self.agents.pm.is_none() {
             return;
         }
@@ -177,13 +366,18 @@ impl Runner {
     }
 }
 
-// The wake for `issue`, parked on ruling `id` of `kind`, if that is a stuck item's.
-fn stuck_wake(issue: u64, id: u64, kind: &RulingKind) -> Option<Wake> {
-    let what = stuck_on(kind)?;
-    Some(Wake::Stuck(
-        issue,
-        format!("{what}, and ruling {id} asks the maintainer"),
-    ))
+// The wake for `ticket`'s work item, parked on `ruling`, if that is a stuck
+// item's.
+fn stuck_wake(ticket: TicketId, ruling: &Ruling) -> Option<Wake> {
+    let what = stuck_on(&ruling.kind)?;
+    Some(Wake::Stuck {
+        ticket,
+        what: format!("{what}, and ruling {} asks the maintainer", ruling.id),
+        state: StuckState::Ruling {
+            id: ruling.id,
+            raised: ruling.raised,
+        },
+    })
 }
 
 /// What a ruling of `kind` says of a stuck work item, or none for one that

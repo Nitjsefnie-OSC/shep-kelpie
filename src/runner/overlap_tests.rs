@@ -7,6 +7,7 @@ use crate::board::Skip;
 use crate::ports::{CLEAN, Checks};
 use crate::runner::slots_tests::{dispatched, issue_of, running};
 use crate::runner::{Runner, StepReport, step};
+use crate::test::ticket;
 use crate::test::{Rig, Scripted, git};
 
 // One slot, and #7 through its turn, which adds `src/seven.rs`, and its
@@ -22,7 +23,7 @@ fn seven_parked_on_src_seven(project: &str) -> (Rig, Mutex<Runner>) {
     for _ in 0..3 {
         assert_eq!(
             issue_of(step(&runner).unwrap()),
-            7,
+            ticket(7),
             "a turn, then its review"
         );
     }
@@ -31,19 +32,19 @@ fn seven_parked_on_src_seven(project: &str) -> (Rig, Mutex<Runner>) {
     assert!(matches!(
         rig.verdict(&runner),
         Some(StepReport::Ruling {
-            issue: 7,
+            issue,
             id: 71,
             ..
         })
-    ));
+     if issue == ticket(7)));
     assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 71 }));
     (rig, runner)
 }
 
 fn overlap_9() -> Skip {
     Skip::Overlap {
-        issue: 9,
-        with: 7,
+        issue: ticket(9),
+        with: ticket(7),
         files: vec!["src/seven.rs".into()],
     }
 }
@@ -63,7 +64,7 @@ fn a_ready_issue_naming_a_file_a_parked_branch_changes_waits() {
     // Neither issue's paths are read until the board's next write.
     assert_eq!(step(&runner).unwrap(), None);
     let (issue, skipped_now) = dispatched(step(&runner).unwrap());
-    assert_eq!(issue, 10);
+    assert_eq!(issue, ticket(10));
     assert_eq!(skipped_now, [overlap_9()]);
     assert_eq!(skipped(&rig, &runner)[0]["reason"], "overlap");
 }
@@ -75,7 +76,7 @@ fn a_body_edited_after_its_paths_were_read_is_read_again_before_dispatch() {
     rig.forge.set_ready_body(9, "Change `src/nine.rs`.");
     assert_eq!(step(&runner).unwrap(), None, "#9's paths are read");
     let unread = Skip::PathsUnread {
-        issue: 9,
+        issue: ticket(9),
         unknown: None,
     };
     assert_eq!(
@@ -131,8 +132,8 @@ fn a_parked_branch_whose_files_are_unknown_holds_every_ready_issue() {
         assert_eq!(step(&runner).unwrap(), None, "#10 waits on #7's files");
     }
     let waits = Skip::PathsUnread {
-        issue: 10,
-        unknown: Some(7),
+        issue: ticket(10),
+        unknown: Some(ticket(7)),
     };
     assert_eq!(
         skipped(&rig, &runner),
@@ -150,5 +151,5 @@ fn a_parked_branch_whose_files_are_unknown_holds_every_ready_issue() {
     );
     rig.next_look();
     assert_eq!(step(&runner).unwrap(), None, "the board reads #7's files");
-    assert_eq!(dispatched(step(&runner).unwrap()), (10, vec![]));
+    assert_eq!(dispatched(step(&runner).unwrap()), (ticket(10), vec![]));
 }

@@ -8,6 +8,7 @@ use serde_json::{Value, json};
 
 use crate::ports::{CLEAN, Checks, Cost, PullRequestState, Usage};
 use crate::runner::{CHECKS_SETTLE, Runner, StepReport, step};
+use crate::test::ticket;
 use crate::test::{Hold, Rig, Scripted, ScriptedRound, git};
 
 // The worker's first turn pushed `work.txt` and opened the pull request, and
@@ -67,7 +68,7 @@ fn a_worktree_left_dirty_gets_one_turn_to_push_before_the_round_reads_the_pushed
     assert_eq!(
         step(&runner).unwrap(),
         Some(StepReport::Unpushed {
-            issue: 7,
+            issue: ticket(7),
             pull_request: 71,
             round: 1,
             files: vec!["late.txt".into()],
@@ -361,12 +362,12 @@ fn a_pull_request_merged_by_hand_with_its_branch_deleted_ends_at_the_round() {
         matches!(
             report,
             Some(StepReport::Finished {
-                issue: 7,
+                issue,
                 pull_request: Some(71),
                 merged: true,
                 ..
             })
-        ),
+         if issue == ticket(7)),
         "{report:?}"
     );
     assert!(rig.reviewer.seen().is_empty());

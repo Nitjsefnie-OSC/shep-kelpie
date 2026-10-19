@@ -21,6 +21,7 @@ use super::trigger::lock;
 use super::turn::held_up::Reason;
 use crate::ports::{Disk, Timestamp};
 use crate::settings::Builds;
+use crate::ticket::TicketId;
 use crate::worktree::{self, TurnMark};
 
 /// Seconds between one reading of an item's build folder and the next
@@ -126,20 +127,20 @@ impl Watch {
 /// The work items' build folders as last read, and the disk's free space
 #[derive(Debug, Default)]
 pub(super) struct BuildWatch {
-    items: BTreeMap<u64, Watch>,
+    items: BTreeMap<TicketId, Watch>,
     free: Option<u64>,
 }
 
 impl BuildWatch {
-    /// Whether the limits set the pause for `issue`'s turn in flight, which
+    /// Whether the limits set the pause for `ticket`'s turn in flight, which
     /// no `undrain` may take away
-    pub(super) fn holds_pause(&self, issue: u64) -> bool {
-        (self.items.get(&issue)).is_some_and(|watch| watch.over && watch.told_pause)
+    pub(super) fn holds_pause(&self, ticket: TicketId) -> bool {
+        (self.items.get(&ticket)).is_some_and(|watch| watch.over && watch.told_pause)
     }
 
-    /// The size of `issue`'s build folder as last read
-    pub(super) fn folder_bytes(&self, issue: u64) -> Option<u64> {
-        self.items.get(&issue)?.reading.folder
+    /// The size of `ticket`'s build folder as last read
+    pub(super) fn folder_bytes(&self, ticket: TicketId) -> Option<u64> {
+        self.items.get(&ticket)?.reading.folder
     }
 
     /// The disk's free space as last read
@@ -155,8 +156,13 @@ impl BuildWatch {
 pub(super) fn watch(runner: &Mutex<Runner>) {
     let (disk, limits, home, jobs, now) = {
         let mut runner = lock(runner);
-        let open: Vec<u64> = runner.state.work_items.iter().map(|i| i.issue).collect();
-        runner.builds.items.retain(|issue, _| open.contains(issue));
+        let open: Vec<TicketId> = (runner.state.work_items.iter())
+            .filter_map(|item| item.ticket())
+            .collect();
+        runner
+            .builds
+            .items
+            .retain(|ticket, _| open.contains(ticket));
         (
             Arc::clone(&runner.ports.disk),
             runner.settings.builds,
@@ -165,38 +171,38 @@ pub(super) fn watch(runner: &Mutex<Runner>) {
             runner.ports.clock.now(),
         )
     };
-    for (issue, build) in jobs {
+    for (ticket, build) in jobs {
         let (reading, failed) = measure(disk.as_ref(), limits, &build, &home);
-        lock(runner).builds_read(issue, now, reading, failed);
+        lock(runner).builds_read(ticket, now, reading, failed);
     }
 }
 
 impl Runner {
     // The items whose worker turn is in flight and is due a reading, with their
     // build folders, while any limit is on
-    fn builds_due(&self) -> Vec<(u64, PathBuf)> {
+    fn builds_due(&self) -> Vec<(TicketId, PathBuf)> {
         let limits = self.settings.builds;
         if limits.max_bytes().is_none() && limits.min_free_bytes().is_none() {
             return Vec::new();
         }
         let now = self.ports.clock.now();
         (self.state.work_items.iter())
-            .filter(|item| self.flights.runs_turn(item.issue))
-            .filter(|item| (self.builds.items.get(&item.issue)).is_none_or(|watch| watch.due(now)))
-            .map(|item| (item.issue, item.build.clone()))
+            .filter_map(|item| Some((item.ticket()?, item.build.clone())))
+            .filter(|(ticket, _)| self.flights.runs_turn(*ticket))
+            .filter(|(ticket, _)| (self.builds.items.get(ticket)).is_none_or(|w| w.due(now)))
             .collect()
     }
 
-    // Keeps a reading of `issue`'s build folder and the disk
+    // Keeps a reading of `ticket`'s build folder and the disk
     fn record_build(
         &mut self,
-        issue: u64,
+        ticket: TicketId,
         now: Timestamp,
         reading: Reading,
         failed: Option<String>,
     ) {
         self.builds.free = reading.free.or(self.builds.free);
-        let watch = self.builds.items.entry(issue).or_default();
+        let watch = self.builds.items.entry(ticket).or_default();
         watch.read_at = Some(now);
         watch.reading = reading;
         watch.unread = failed.clone();
@@ -205,36 +211,37 @@ impl Runner {
             return;
         };
         if !std::mem::replace(&mut watch.told_failed, true) {
-            self.notes.push(format!("issue #{issue}: {failed}"));
+            self.notes.push(format!("{}: {failed}", ticket.shown()));
         }
     }
 
-    // Records a reading of `issue`'s build folder and the disk, and pauses the
+    // Records a reading of `ticket`'s build folder and the disk, and pauses the
     // turn in flight if it found a limit passed. A turn that ended while the
     // folder was measured has its cache pruned at once.
     fn builds_read(
         &mut self,
-        issue: u64,
+        ticket: TicketId,
         now: Timestamp,
         reading: Reading,
         failed: Option<String>,
     ) {
-        self.record_build(issue, now, reading, failed);
+        self.record_build(ticket, now, reading, failed);
         let Some(past) = reading.past(self.settings.builds) else {
             return;
         };
-        if !self.flights.runs_turn(issue) {
-            self.builds_prune(issue);
+        if !self.flights.runs_turn(ticket) {
+            self.builds_prune(ticket);
             return;
         }
-        let Some(watch) = self.builds.items.get_mut(&issue) else {
+        let Some(watch) = self.builds.items.get_mut(&ticket) else {
             return;
         };
         watch.over = true;
         if watch.told_pause {
             return;
         }
-        let Some(item) = self.state.work_items.iter().find(|i| i.issue == issue) else {
+        let Some(item) = (self.state.work_items.iter()).find(|item| item.ticket() == Some(ticket))
+        else {
             return;
         };
         let ends = match self.pause_turn(item) {
@@ -243,11 +250,12 @@ impl Runner {
             // Told when a pause is set, so the next reading tries again.
             Pausing::Failed => return,
         };
-        if let Some(watch) = self.builds.items.get_mut(&issue) {
+        if let Some(watch) = self.builds.items.get_mut(&ticket) {
             watch.told_pause = true;
         }
         self.notes.push(format!(
-            "issue #{issue}: {past} ({}): {ends}, then removing the cargo cache the turn did not touch",
+            "{}: {past} ({}): {ends}, then removing the cargo cache the turn did not touch",
+            ticket.shown(),
             reading.figures()
         ));
     }
@@ -256,9 +264,10 @@ impl Runner {
     /// it can tell what it touched, and counts the turn's first minute as read
     pub(super) fn builds_turn_begins(&mut self) {
         let Some(item) = self.current() else { return };
-        let (issue, build) = (item.issue, item.build.clone());
+        let Some(ticket) = item.ticket() else { return };
+        let build = item.build.clone();
         let now = self.ports.clock.now();
-        self.builds.items.entry(issue).or_default().read_at = Some(now);
+        self.builds.items.entry(ticket).or_default().read_at = Some(now);
         if let Err(e) = TurnMark::in_build(&build).begin() {
             eprintln!(
                 "cannot mark where a turn begins in {}: {e}",
@@ -270,28 +279,29 @@ impl Runner {
     // The current work item's turn has ended: removes the cache it did not
     // touch when it ran past a limit
     pub(super) fn builds_turn_ended(&mut self) {
-        let Some(issue) = self.current().map(|item| item.issue) else {
+        let Some(ticket) = self.current().and_then(|item| item.ticket()) else {
             return;
         };
-        let Some(watch) = self.builds.items.get_mut(&issue) else {
+        let Some(watch) = self.builds.items.get_mut(&ticket) else {
             return;
         };
         watch.told_pause = false;
         if std::mem::take(&mut watch.over) {
-            self.builds_prune(issue);
+            self.builds_prune(ticket);
         }
     }
 
-    // Removes the cache `issue`'s latest turn did not touch, and holds its next
+    // Removes the cache `ticket`'s latest turn did not touch, and holds its next
     // turn until a reading finds both limits kept. The mark of the latest
     // turn's start stays until the next turn writes its own.
-    fn builds_prune(&mut self, issue: u64) {
-        let Some(item) = self.state.work_items.iter().find(|i| i.issue == issue) else {
+    fn builds_prune(&mut self, ticket: TicketId) {
+        let Some(item) = (self.state.work_items.iter()).find(|item| item.ticket() == Some(ticket))
+        else {
             return;
         };
         let build = item.build.clone();
         let began = TurnMark::in_build(&build).began();
-        let watch = self.builds.items.entry(issue).or_default();
+        let watch = self.builds.items.entry(ticket).or_default();
         watch.pruned = true;
         // The next turn reads again before it starts.
         watch.read_at = None;
@@ -299,20 +309,22 @@ impl Runner {
             Some(began) => {
                 let pruned = worktree::prune(&build, began);
                 format!(
-                    "issue #{issue}: removed {} cargo cache files ({}) the turn did not touch",
+                    "{}: removed {} cargo cache files ({}) the turn did not touch",
+                    ticket.shown(),
                     pruned.files,
                     gb(pruned.bytes)
                 )
             }
             None => format!(
-                "issue #{issue}: cannot tell what the turn touched, so no cache was removed"
+                "{}: cannot tell what the turn touched, so no cache was removed",
+                ticket.shown()
             ),
         };
         self.notes.push(note);
     }
 
     // Reads the disk's free space and, with `folder`, the build folder
-    fn builds_look(&mut self, issue: u64, build: &Path, folder: bool) {
+    fn builds_look(&mut self, ticket: TicketId, build: &Path, folder: bool) {
         let now = self.ports.clock.now();
         let limits = self.settings.builds;
         let asked = Builds {
@@ -321,9 +333,13 @@ impl Runner {
         };
         let disk = self.ports.disk.as_ref();
         let (mut reading, failed) = measure(disk, asked, build, &self.paths.kelpie_home);
-        reading.folder = (reading.folder)
-            .or_else(|| self.builds.items.get(&issue).and_then(|w| w.reading.folder));
-        self.record_build(issue, now, reading, failed);
+        reading.folder = (reading.folder).or_else(|| {
+            self.builds
+                .items
+                .get(&ticket)
+                .and_then(|w| w.reading.folder)
+        });
+        self.record_build(ticket, now, reading, failed);
     }
 
     // Why the current work item's due turn must not start: the disk is under
@@ -333,10 +349,11 @@ impl Runner {
     // since the runner started, since the disk is what every item shares.
     pub(super) fn builds_hold(&mut self) -> Option<Reason> {
         let item = self.current()?;
-        let (issue, build) = (item.issue, item.build.clone());
+        let ticket = item.ticket()?;
+        let build = item.build.clone();
         let now = self.ports.clock.now();
         let limits = self.settings.builds;
-        let seen = self.builds.items.get(&issue);
+        let seen = self.builds.items.get(&ticket);
         let first = seen.is_none();
         let due = seen.is_none_or(|w| w.due(now));
         // A folder found past the cap is read again until it is not.
@@ -344,16 +361,16 @@ impl Runner {
         let over = |w: &Watch| cap.is_some_and(|cap| w.reading.folder.is_some_and(|f| f > cap));
         let with_folder = seen.is_none_or(|w| w.pruned || over(w)) && build.is_dir();
         if due {
-            self.builds_look(issue, &build, with_folder);
+            self.builds_look(ticket, &build, with_folder);
             // Nothing watched the turn that filled the folder, so its cache
             // is removed now.
-            let found_over = self.builds.items.get(&issue).is_some_and(over);
+            let found_over = self.builds.items.get(&ticket).is_some_and(over);
             if first && found_over {
-                self.builds_prune(issue);
-                self.builds_look(issue, &build, true);
+                self.builds_prune(ticket);
+                self.builds_look(ticket, &build, true);
             }
         }
-        let watch = self.builds.items.get_mut(&issue)?;
+        let watch = self.builds.items.get_mut(&ticket)?;
         let Some(why) = (watch.reading.past(limits)).or_else(|| watch.unread.clone()) else {
             watch.pruned = false;
             watch.told_hold = false;
@@ -362,7 +379,8 @@ impl Runner {
         if !std::mem::replace(&mut watch.told_hold, true) {
             let figures = watch.reading.figures();
             self.notes.push(format!(
-                "issue #{issue}: {why} ({figures}): its next turn is held"
+                "{}: {why} ({figures}): its next turn is held",
+                ticket.shown()
             ));
         }
         Some(Reason::Builds(why))
@@ -381,9 +399,10 @@ impl Runner {
             return None;
         }
         (self.state.work_items.iter())
-            .filter(|item| self.flights.runs_turn(item.issue))
-            .map(|item| {
-                let read = self.builds.items.get(&item.issue).and_then(|w| w.read_at);
+            .filter_map(|item| item.ticket())
+            .filter(|ticket| self.flights.runs_turn(*ticket))
+            .map(|ticket| {
+                let read = self.builds.items.get(&ticket).and_then(|w| w.read_at);
                 let due = read.map_or(now.0, |read| read.0.saturating_add(EVERY));
                 Duration::from_secs(due.saturating_sub(now.0))
             })

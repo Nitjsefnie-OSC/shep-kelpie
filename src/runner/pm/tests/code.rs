@@ -4,14 +4,14 @@
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-use super::{answered, pm_seen, step_until, with_pm};
+use super::{answered, past_the_window, pm_seen, step_until, with_pm};
 use crate::ports::AgentError;
 use crate::profile::CREDENTIALS;
 use crate::runner::pm::call::SECRET_SHAPED;
 use crate::runner::{Runner, StepReport};
 use crate::settings::Harness;
 use crate::state::STATE_FILE;
-use crate::test::{Rig, Scripted, Seen, assert_reads, assert_refuses, git, write_in};
+use crate::test::{Rig, Scripted, Seen, assert_reads, assert_refuses, git, ticket, write_in};
 
 const NOTHING: &str = "{\"pick\": null}";
 
@@ -32,6 +32,11 @@ fn with_open_commit(project: &str, commit: Scripted) -> (Rig, Mutex<Runner>, See
     let failed = AgentError::Failed(Harness::ClaudeCode, "it crashed".into());
     rig.claude
         .script([commit, Scripted::Fail(failed), Scripted::Say(NOTHING)]);
+    step_until(
+        &runner,
+        |r| matches!(r, StepReport::Failed { issue, .. } if *issue == ticket(7)),
+    );
+    past_the_window(&rig);
     answered(Some(step_until(&runner, |r| {
         matches!(r, StepReport::PmAnswered { .. })
     })));
@@ -63,7 +68,7 @@ fn it_reads_the_worktrees_and_checkout_and_none_of_kelpies_secrets() {
     write_in(&rig.repo(), "notes.txt", "the checkout\n");
     let seen = wake(&rig, &runner);
 
-    assert_reads(&seen, &paths.worktree(7).join("src/lib.rs"));
+    assert_reads(&seen, &paths.worktree(ticket(7)).join("src/lib.rs"));
     assert_reads(&seen, &rig.repo().join("notes.txt"));
     assert_reads(&seen, &paths.pm.join("board.md"));
     let unread: [PathBuf; 4] = [
@@ -117,7 +122,7 @@ fn a_wake_writes_each_open_branchs_diff_and_none_once_it_closes() {
     assert!(diff.contains("+++ b/src/lib.rs\n"), "{diff}");
     assert!(diff.contains("+pub fn x() {}\n"), "{diff}");
     let board = std::fs::read_to_string(pm.join("board.md")).unwrap();
-    let worktree = rig.paths().worktree(7).display().to_string();
+    let worktree = rig.paths().worktree(ticket(7)).display().to_string();
     assert!(
         board.contains(&format!("- #7: worktree `{worktree}`, diff `diffs/7.diff`")),
         "{board}"
@@ -148,7 +153,7 @@ fn an_oversized_diff_is_cut_and_says_how_big_it_was() {
         total > text.len() + 2_000,
         "{total} names the whole diff's bytes"
     );
-    let worktree = rig.paths().worktree(7).display().to_string();
+    let worktree = rig.paths().worktree(ticket(7)).display().to_string();
     assert!(
         rest.ends_with(&format!(
             "; files cut or past the cut: generated.txt; read the worktree for the rest at {worktree}]\n"
@@ -178,7 +183,7 @@ fn a_cut_diffs_last_line_names_the_files_past_the_cut_and_the_worktree() {
     for past in ["b.txt", "c dir/c.txt", "d.txt"] {
         assert!(last.contains(past), "{past} is named: {last}");
     }
-    let worktree = rig.paths().worktree(7).display().to_string();
+    let worktree = rig.paths().worktree(ticket(7)).display().to_string();
     assert!(last.contains(&worktree), "{worktree} is named: {last}");
     assert!(!last.contains("a.txt"), "a.txt was shown whole: {last}");
     assert!(diff.contains("+++ b/a.txt\n"), "a.txt is shown");

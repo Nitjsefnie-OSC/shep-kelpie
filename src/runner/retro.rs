@@ -24,6 +24,7 @@ use super::{Runner, StepReport, panel};
 use crate::ports::{AgentCall, AgentError, AgentReply, Session, Timestamp};
 use crate::skills::Step;
 use crate::state::Finished;
+use crate::ticket::TicketId;
 use crate::upgrade::build::Build;
 use crate::usage;
 use crate::work_item::new_session_id;
@@ -44,15 +45,21 @@ pub(super) const EVERY: usize = 10;
 pub(super) struct Book {
     // The last retro's start and the work items it covered, read from the
     // journal the first time they are asked for
-    last: Option<Option<(u64, Vec<u64>)>>,
+    last: Option<Option<(u64, Vec<TicketId>)>>,
     /// Whether a drain started since the retro last looked
     pub(super) at_drain: bool,
 }
 
 // The part of the prompt that asks. It stands alone, for a step set to run
 // kelpie's own prompt, and follows the skill's command otherwise.
-fn prompt(project: &str, issues: &[u64], build: &Build, gaps: &[String], digest: &str) -> String {
-    let named: Vec<String> = issues.iter().map(|n| format!("#{n}")).collect();
+fn prompt(
+    project: &str,
+    issues: &[TicketId],
+    build: &Build,
+    gaps: &[String],
+    digest: &str,
+) -> String {
+    let named: Vec<String> = issues.iter().map(TicketId::shown).collect();
     let known = match gaps.is_empty() {
         true => "No earlier finding of yours is still open.".to_owned(),
         false => format!(
@@ -120,8 +127,8 @@ impl Runner {
         }
     }
 
-    // The last retro's start and the issues it covered, or none yet
-    fn last_retro(&mut self) -> (u64, Vec<u64>) {
+    // The last retro's start and the work items it covered, or none yet
+    fn last_retro(&mut self) -> (u64, Vec<TicketId>) {
         let path = &self.paths.journal;
         let last = self.retro_book.last.get_or_insert_with(|| {
             let entries = journal::read(path);
@@ -139,7 +146,10 @@ impl Runner {
     fn finished_since_retro(&mut self) -> Vec<Finished> {
         let (since, covered) = self.last_retro();
         let mut batch: Vec<Finished> = (self.state.history.iter())
-            .filter(|f| f.at.0 > since || (f.at.0 == since && !covered.contains(&f.issue)))
+            .filter(|f| {
+                f.at.0 > since
+                    || (f.at.0 == since && !f.ticket().is_some_and(|t| covered.contains(&t)))
+            })
             .cloned()
             .collect();
         batch.drain(..batch.len().saturating_sub(EVERY));
@@ -185,7 +195,7 @@ impl Runner {
             }
             return false;
         }
-        let issues: Vec<u64> = batch.iter().map(|f| f.issue).collect();
+        let issues: Vec<TicketId> = batch.iter().filter_map(Finished::ticket).collect();
         let built = self.retro_call(&agent, &batch);
         // Marked before the call starts: a stop or a crash in the middle of
         // it does not ask again, and a batch that cannot start is let go.
@@ -197,8 +207,14 @@ impl Runner {
         self.retro_book.last = Some(Some((now.0, issues.clone())));
         if let Err(why) = marked {
             // Unmarked, a restart would pay for the same batch twice.
-            self.notes
-                .push(format!("no retro of {issues:?}, since {why}"));
+            self.notes.push(format!(
+                "no retro of {}, since {why}",
+                issues
+                    .iter()
+                    .map(TicketId::shown)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
             return false;
         }
         match built {
@@ -209,8 +225,14 @@ impl Runner {
                 true
             }
             Err(why) => {
-                self.notes
-                    .push(format!("no retro of {issues:?}, since {why}"));
+                self.notes.push(format!(
+                    "no retro of {}, since {why}",
+                    issues
+                        .iter()
+                        .map(TicketId::shown)
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ));
                 false
             }
         }
@@ -237,7 +259,7 @@ impl Runner {
             since,
             gaps: &gaps,
         });
-        let issues: Vec<u64> = batch.iter().map(|f| f.issue).collect();
+        let issues: Vec<TicketId> = batch.iter().filter_map(Finished::ticket).collect();
         let build = Build::this();
         let ask = prompt(self.project.as_str(), &issues, &build, &gaps, &digest);
         let ask = self.skills.invoke(Step::Retro, &ask);
@@ -278,7 +300,7 @@ impl Runner {
             );
         let project = self.project.as_str();
         let file = folder.join(format!("{project}-batch-{at}.md"));
-        let named: Vec<String> = issues.iter().map(|n| format!("#{n}")).collect();
+        let named: Vec<String> = issues.iter().map(TicketId::shown).collect();
         let named = named.join(", ");
         let agent = self.agents.pm.as_ref().map_or("none", |a| a.name.as_str());
         let text = format!(

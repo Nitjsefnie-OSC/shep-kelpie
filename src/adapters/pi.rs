@@ -85,6 +85,9 @@ mod gateway_tests;
 mod unreachable_tests;
 
 #[cfg(test)]
+mod retro_tests;
+
+#[cfg(test)]
 mod review_tests;
 
 #[cfg(test)]

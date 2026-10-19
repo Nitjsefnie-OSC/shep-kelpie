@@ -174,7 +174,10 @@ impl Runner {
 
     // The triage labels `issue` carries now
     pub(super) fn triage_labels_now(&self, issue: u64) -> Result<Vec<String>, ForgeError> {
-        let found = self.ports.forge.issue(&self.remote, issue)?;
+        let found = self
+            .ports
+            .tickets
+            .issue(&self.remote, super::ticket(issue)?)?;
         Ok((found.labels.iter())
             .filter(|l| TRIAGE_LABELS.contains(&l.as_str()))
             .cloned()

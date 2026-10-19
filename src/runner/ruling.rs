@@ -17,6 +17,7 @@ use super::talk::with_thread_lines;
 use super::thread_replies::Settler;
 use super::{Names, Runner};
 use crate::ports::Timestamp;
+use crate::runner::report::ticket_of;
 use crate::settings::Merging;
 use crate::state::{Fix, Held, ProjectState, Resume, Ruling, RulingKind, StateError, Stuck};
 use crate::work_item::{Known, Phase, Review, ReviewStage, Turn, WorkItem, foreign_change};
@@ -295,7 +296,7 @@ impl Runner {
         let parked_on = |item: &WorkItem| item.phase == Phase::Ruling { id };
         let parked = next.work_items.iter().find(|item| parked_on(item));
         // The answer moves only the work item it parks, whichever is open.
-        self.focus = parked.map(|item| item.issue);
+        self.focus = parked.and_then(|item| item.ticket());
         // A ruling raised before the ids were kept (state version 24) names
         // its threads and holds no ids, so the forge says which hold it now.
         let accepted = match (&answer, &ruling.kind) {
@@ -538,7 +539,7 @@ impl Runner {
         self.word_effects(id)?;
         let comment_failed = self.post_ruling(Some(number), id);
         Ok(Begin::Report(StepReport::Ruling {
-            issue,
+            issue: ticket_of(issue),
             pull_request: number,
             id,
             question,
@@ -576,7 +577,8 @@ impl Runner {
         self.mark_unposted(id, false);
         let ruling = self.state.rulings.iter().find(|r| r.id == id)?;
         if self.app_covers() {
-            let thread = number.or(ruling.issue)?;
+            // Only a GitHub ticket is a thread to comment on.
+            let thread = number.or(ruling.ticket().and_then(|ticket| ticket.github()))?;
             let (failed, placed) = self.post_app_ruling(thread, ruling);
             if let Some(placed) = placed {
                 let mut next = self.state.clone();

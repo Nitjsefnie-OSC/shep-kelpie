@@ -148,13 +148,20 @@ fn each_answer_and_its_why_is_in_the_notes_the_board_and_status() {
 
     let line = "ruling 7 on #7: the project manager answered it: the issue says so";
     let notes = std::fs::read_to_string(rig.paths().pm.join("pm-notes.md")).unwrap();
-    assert_eq!(notes, format!("- {line}\n"));
+    let lines: Vec<&str> = notes.lines().collect();
+    assert_eq!(lines.len(), 2, "{notes}");
+    assert_eq!(lines[0], format!("- {line}"), "{notes}");
+    assert!(
+        lines[1].starts_with("- [2026-09-21 14:13] woke for: #7's worker asks, on ruling 7:")
+            && lines[1].contains("; kelpie: answered ruling 7 on #7"),
+        "kelpie's own line for the wake follows it: {notes}"
+    );
     let pm = &rig.ask(&runner, "status", None)["pm"];
     assert_eq!(
         pm["settled"],
         json!([{
             "ruling": 7,
-            "issue": 7,
+            "issue": "7",
             "how": "answered",
             "why": "the issue says so",
         }])

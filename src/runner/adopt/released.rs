@@ -9,7 +9,7 @@ use crate::ports::{CLEAN, Checks};
 use crate::runner::contributions::tests::picking;
 use crate::runner::{StepReport, step};
 use crate::state::{How, Released};
-use crate::test::{Rig, Scripted, git};
+use crate::test::{Rig, Scripted, git, ticket};
 
 // The fork holds the pull request's head under the name the forge reports
 const FORK_BRANCH: &str = "topic/80";
@@ -43,7 +43,7 @@ fn release(runner: &Mutex<Runner>) {
 
 fn adopted() -> StepReport {
     StepReport::Adopted {
-        issue: 5,
+        issue: ticket(5),
         pull_request: 80,
         agent: "sonnet-high".to_owned().try_into().unwrap(),
     }
@@ -68,7 +68,7 @@ fn a_released_fork_contribution_is_adopted_and_its_worktree_is_at_the_forks_head
     let state = runner.lock().unwrap().state.clone();
     let item = state.item(5).expect("the adopted work item");
     assert_eq!(
-        git(&rig.paths().worktree(5), &["rev-parse", "HEAD"]),
+        git(&rig.paths().worktree(ticket(5)), &["rev-parse", "HEAD"]),
         fork_head
     );
     assert_eq!(item.arrived.as_deref(), Some(fork_head.as_str()));
@@ -131,7 +131,10 @@ fn a_released_branch_in_the_repo_itself_by_another_author_is_adopted() {
         Remote::Origin,
         "a branch of origin's is origin's"
     );
-    assert_eq!(git(&rig.paths().worktree(5), &["rev-parse", "HEAD"]), head);
+    assert_eq!(
+        git(&rig.paths().worktree(ticket(5)), &["rev-parse", "HEAD"]),
+        head
+    );
 }
 
 #[test]

@@ -8,6 +8,8 @@ use crate::ports::{
     PullRequestState, SubIssue, SubIssueState, Timestamp,
 };
 
+use crate::test::ticket;
+
 /// An issue kelpie opened on the fake forge
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct CreatedIssue {
@@ -96,7 +98,7 @@ impl FakeForge {
             .sub_issues_of(parent)
             .into_iter()
             .map(|number| SubIssue {
-                number,
+                ticket: ticket(number),
                 state: match (closed.contains(&number), not_planned.contains(&number)) {
                     (false, _) => SubIssueState::Open,
                     (true, true) => SubIssueState::NotPlanned,
@@ -130,7 +132,7 @@ impl FakeForge {
             .map(|number| (number, self.sub_issues_of(number)))
             .filter(|(n, subs)| stale.contains(n) || subs.iter().all(|s| closed.contains(s)))
             .map(|(number, subs)| FinishedParent {
-                number,
+                ticket: ticket(number),
                 sub_issues: subs.len() as u64,
             })
             .collect())

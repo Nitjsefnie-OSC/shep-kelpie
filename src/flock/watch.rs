@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use crate::runner::ProjectName;
+use crate::ticket::TicketId;
 use crate::watch::{Options, Scope, Watch};
 
 /// How often the log and transcripts are read again
@@ -46,13 +47,13 @@ pub(super) fn read_args(args: &[&str]) -> Result<Ask, String> {
                 ask.scope = Scope::Pm;
                 scoped = true;
             }
-            issue if !scoped && issue.bytes().all(|b| b.is_ascii_digit()) && !issue.is_empty() => {
-                match issue.parse::<u64>() {
-                    Ok(issue) if issue > 0 => ask.scope = Scope::Issue(issue),
-                    _ => return Err(format!("{issue:?} is not an issue number")),
+            word if !scoped && is_ticket(word) => match word.parse::<TicketId>() {
+                Ok(ticket) => {
+                    ask.scope = Scope::Issue(ticket);
+                    scoped = true;
                 }
-                scoped = true;
-            }
+                Err(why) => return Err(format!("{word:?} is not a ticket id: {why}")),
+            },
             other => match other.strip_prefix("--back=") {
                 Some(n) => ask.back = number(n)?,
                 None => return Err(usage()),
@@ -60,6 +61,13 @@ pub(super) fn read_args(args: &[&str]) -> Result<Ask, String> {
         }
     }
     Ok(ask)
+}
+
+// `k12` or `12`: the shape of a ticket id, so a mistyped flag is still a
+// usage error rather than a ticket id that reads as one
+fn is_ticket(word: &str) -> bool {
+    let digits = word.strip_prefix('k').unwrap_or(word);
+    !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit())
 }
 
 /// The folder of `project`, which holds its `steps.jsonl` once its runner
@@ -113,6 +121,7 @@ pub(super) fn follow(kelpie_home: &Path, project: &ProjectName, ask: Ask) -> Res
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test::ticket;
 
     fn ask(line: &str) -> Result<Ask, String> {
         let words: Vec<&str> = line.split_whitespace().collect();
@@ -159,7 +168,7 @@ mod tests {
     #[test]
     fn it_takes_an_issue_or_pm_and_the_flags_in_any_order() {
         let issue = Ask {
-            scope: Scope::Issue(7),
+            scope: Scope::Issue(ticket(7)),
             back: 20,
             full: true,
         };

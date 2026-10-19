@@ -18,6 +18,7 @@ use std::path::Path;
 use crate::runner::Runner;
 use crate::runner::briefing::patch;
 use crate::state::RulingKind;
+use crate::ticket::TicketId;
 use crate::work_item::Phase;
 
 /// The folder in the project manager's that holds the diffs
@@ -55,12 +56,14 @@ impl Runner {
         if self.state.work_items.is_empty() {
             out.push_str("(none)\n");
         }
-        let issues: Vec<u64> = self.state.work_items.iter().map(|i| i.issue).collect();
-        for issue in issues {
-            let file = diff_file(issue);
+        let items: Vec<(u64, TicketId)> = (self.state.work_items.iter())
+            .filter_map(|i| Some((i.issue, i.ticket()?)))
+            .collect();
+        for (issue, ticket) in items {
+            let file = diff_file(ticket);
             let read = match self.merged_branch(issue) {
-                Some(branch) => Some(self.merged_patch(&branch, issue)),
-                None => self.brief_patch(issue).cloned(),
+                Some(branch) => Some(self.merged_patch(&branch, ticket)),
+                None => self.brief_patch(ticket).cloned(),
             };
             let written = match read {
                 Some(Ok(diff)) => std::fs::write(folder.join(&file), diff)
@@ -77,7 +80,7 @@ impl Runner {
                     format!("no diff: {why}")
                 }
             };
-            let worktree = self.paths.worktree(issue);
+            let worktree = self.paths.worktree(ticket);
             let _ = write!(out, "- #{issue}: worktree `{}`, {diff}", worktree.display());
             if let Some(log) = logs.remove(&issue) {
                 let _ = write!(out, ", {log}");
@@ -99,16 +102,16 @@ impl Runner {
         matches!(ruling.kind, RulingKind::FollowUp { .. }).then(|| item.branch.clone())
     }
 
-    // What the merged pull request of `issue`'s `branch` changed. A merged
+    // What the merged pull request of `ticket`'s `branch` changed. A merged
     // diff is read by a wake for a follow-up ruling alone, once, so unlike
     // the board's diffs it runs git as the wake starts.
-    fn merged_patch(&self, branch: &str, issue: u64) -> Result<Vec<u8>, String> {
+    fn merged_patch(&self, branch: &str, ticket: TicketId) -> Result<Vec<u8>, String> {
         let repo = &self.settings.git.checkout;
-        patch::merged(repo, branch, &self.paths.worktree(issue))
+        patch::merged(repo, branch, &self.paths.worktree(ticket))
     }
 }
 
 /// The diff of `issue`'s work item, in the project manager's folder
-pub(super) fn diff_file(issue: u64) -> String {
-    format!("{DIFFS}/{issue}.diff")
+pub(super) fn diff_file(ticket: TicketId) -> String {
+    format!("{DIFFS}/{ticket}.diff")
 }

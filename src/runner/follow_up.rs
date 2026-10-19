@@ -20,6 +20,7 @@ use super::report::{Begin, StepReport};
 use super::review::findings;
 use crate::board::{READY, TRIAGE};
 use crate::ports::{AuthorAssociation, Finding, ForgeError, NewLabel, OpenIssue, Severity};
+use crate::runner::report::ticket_of;
 use crate::settings::Filing;
 use crate::state::{RulingKind, StateError};
 use crate::work_item::{FollowUps, WorkItem};
@@ -104,7 +105,7 @@ impl Runner {
         // READY is on every repo `add` set up, so only TRIAGE may need making.
         let mut labelled = triaged;
         let repo = self.remote.clone();
-        let mut open = match self.ports.forge.open_issues(&repo) {
+        let mut open = match self.ports.tickets.open_issues(&repo) {
             Ok(open) => open,
             Err(e) => {
                 return self.forge_refused(number, format!("cannot list the open issues: {e}"));
@@ -166,7 +167,7 @@ impl Runner {
         }
         self.update(|item| item.follow_ups = Some(FollowUps::default()))?;
         Ok(Begin::Report(StepReport::FollowUpsFiled {
-            issue,
+            issue: ticket_of(issue),
             pull_request: number,
             opened,
             commented,

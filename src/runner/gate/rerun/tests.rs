@@ -5,6 +5,7 @@ use super::super::tests::ruling_report;
 use crate::ports::{Checks, Timestamp};
 use crate::runner::retro::journal::{Entry, append};
 use crate::runner::{Runner, StepReport, step};
+use crate::test::ticket;
 use crate::test::{Rig, Scripted};
 
 // The worker's first turn changed `work.txt`, so that is the branch's one changed file.
@@ -34,7 +35,7 @@ fn a_red_run_whose_log_names_no_changed_file_is_rerun_once_and_sends_no_turn() {
     assert_eq!(
         report,
         StepReport::CiRerun {
-            issue: 7,
+            issue: ticket(7),
             pull_request: 71,
             head: head.clone(),
             checks: vec!["test".to_owned()],
@@ -157,7 +158,7 @@ fn flaked_on_three(rig: &Rig, test: &str) {
     let journal = rig.paths().journal;
     std::fs::create_dir_all(journal.parent().unwrap()).unwrap();
     let entry = Entry::CiOutsideDiff {
-        issue: 3,
+        issue: ticket(3),
         tests: vec![test.to_owned()],
     };
     append(&journal, Timestamp(Rig::EPOCH - 86_400), entry).unwrap();
@@ -198,7 +199,7 @@ fn a_flake_not_seen_for_a_week_is_let_go() {
     let journal = rig.paths().journal;
     std::fs::create_dir_all(journal.parent().unwrap()).unwrap();
     let old = Entry::CiOutsideDiff {
-        issue: 3,
+        issue: ticket(3),
         tests: vec!["sheep::tests::reconnects".to_owned()],
     };
     append(&journal, Timestamp(Rig::EPOCH - 8 * 86_400), old).unwrap();

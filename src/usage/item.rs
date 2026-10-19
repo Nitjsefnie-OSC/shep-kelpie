@@ -6,6 +6,7 @@ use serde::Serialize;
 use super::report::{count, money, thousands};
 use super::session::{Seen, json_lines, seen};
 use super::{CallLine, Line};
+use crate::ticket::TicketId;
 
 /// One session of the work item, and where its transcript is
 #[derive(Debug, Serialize)]
@@ -21,18 +22,24 @@ struct SessionJson<'a> {
 #[derive(Debug, Serialize)]
 struct ItemJson<'a> {
     project: &'a str,
-    issue: u64,
+    issue: TicketId,
     pull_request: Option<u64>,
     calls: &'a [&'a CallLine],
     sessions: Vec<SessionJson<'a>>,
 }
 
-/// The report on the work item of `issue` in `project`'s ledger `lines`,
+/// The report on the work item of `ticket` in `project`'s ledger `lines`,
 /// its sessions' transcripts placed by `steps`, as JSON when `json`
-pub fn item(project: &str, lines: &[Line], steps: &str, issue: u64, json: bool) -> Vec<String> {
+pub fn item(
+    project: &str,
+    lines: &[Line],
+    steps: &str,
+    ticket: TicketId,
+    json: bool,
+) -> Vec<String> {
     let mut calls: Vec<&CallLine> = (lines.iter())
         .filter_map(|line| match line {
-            Line::Call(call) if call.issue == Some(issue) => Some(call),
+            Line::Call(call) if call.issue == Some(ticket) => Some(call),
             _ => None,
         })
         .collect();
@@ -43,12 +50,15 @@ pub fn item(project: &str, lines: &[Line], steps: &str, issue: u64, json: bool) 
         return match json {
             true => json_lines(&ItemJson {
                 project,
-                issue,
+                issue: ticket,
                 pull_request,
                 calls: &[],
                 sessions: Vec::new(),
             }),
-            false => vec![format!("{project}: no calls recorded for #{issue}")],
+            false => vec![format!(
+                "{project}: no calls recorded for {}",
+                ticket.shown()
+            )],
         };
     }
     let sessions = seen(&calls, steps);
@@ -56,7 +66,7 @@ pub fn item(project: &str, lines: &[Line], steps: &str, issue: u64, json: bool) 
         let sessions = sessions.iter().map(session_json).collect();
         return json_lines(&ItemJson {
             project,
-            issue,
+            issue: ticket,
             pull_request,
             calls: &calls,
             sessions,
@@ -67,7 +77,8 @@ pub fn item(project: &str, lines: &[Line], steps: &str, issue: u64, json: bool) 
     let dollars = calls.iter().filter_map(|call| call.cost_usd).sum();
     let unpriced = calls.iter().filter(|call| call.unpriced).count();
     let mut out = vec![format!(
-        "{project} #{issue}{pr}: {}, {} units, {}{}",
+        "{project} {}{pr}: {}, {} units, {}{}",
+        ticket.shown(),
         count(calls.len(), "call"),
         thousands(units),
         money(dollars),

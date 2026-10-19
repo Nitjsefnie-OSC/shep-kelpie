@@ -7,6 +7,7 @@ use crate::pacer::{HoldKind, RECHECK_SECS};
 use crate::ports::{CLEAN, Cost, MeterError, Role, Timestamp, Usage};
 use crate::runner::{Runner, StepReport, step};
 use crate::settings::AgentHarness;
+use crate::test::ticket;
 use crate::test::{Hold, Rig, Scripted, StandInEndpoint};
 
 const CODEX: &str = "---\nrole: implementer\nharness: stand-in\nmodel: gpt-5-codex\n\
@@ -55,7 +56,7 @@ fn held(report: Option<StepReport>) -> (HoldKind, String) {
 }
 
 fn dispatched(report: &Option<StepReport>) -> bool {
-    matches!(report, Some(StepReport::Dispatched { issue: 7, .. }))
+    matches!(report, Some(StepReport::Dispatched { issue, .. }) if *issue == ticket(7))
 }
 
 #[test]

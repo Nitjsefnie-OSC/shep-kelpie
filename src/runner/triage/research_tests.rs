@@ -15,7 +15,7 @@ use crate::settings::Harness;
 use crate::state::StateStore;
 use crate::test::{
     CALL_PATIENCE, Hold, Rig, Scripted, Seen, assert_granted, git, installed_sources,
-    source_folders, write_script,
+    source_folders, ticket, write_script,
 };
 use crate::usage::{self, CallKind, Line};
 
@@ -219,7 +219,7 @@ fn the_call_runs_read_only_on_a_view_of_origin_main_removed_after() {
     let asked = calls(&rig, Role::Triager);
     let call = &asked[0].call;
     assert_eq!(call.tools, Tools::Review);
-    assert_eq!(call.cwd, rig.paths().triage(30));
+    assert_eq!(call.cwd, rig.paths().triage(ticket(30)));
     assert!(!call.cwd.exists(), "the view goes once the call ends");
     assert!(!call.settings.exists(), "so does its settings file");
     let after = (
@@ -603,9 +603,9 @@ fn the_call_is_on_the_ledger_as_triager_and_the_wording_as_representative_with_t
     let (triager, wording) = (seen(Role::Triager), seen(Role::Representative));
     assert_eq!((triager.len(), wording.len()), (1, 1), "{calls:?}");
     assert_eq!(triager[0].kind, CallKind::Triage);
-    assert_eq!(triager[0].issue, Some(30));
+    assert_eq!(triager[0].issue, Some(ticket(30)));
     assert_eq!(wording[0].kind, CallKind::Post);
-    assert_eq!(wording[0].issue, Some(30));
+    assert_eq!(wording[0].issue, Some(ticket(30)));
     assert_eq!(wording[0].pull_request, None);
 }
 
@@ -724,15 +724,15 @@ fn the_code_graph_index_of_the_view_goes_when_the_call_ends() {
         .code_graph
         .as_ref()
         .expect("the graph reached it");
-    assert_eq!(graph.index, rig.paths().triage_graph(30));
+    assert_eq!(graph.index, rig.paths().triage_graph(ticket(30)));
     assert_ne!(
         graph.index,
-        rig.paths().code_graph(30),
+        rig.paths().code_graph(ticket(30)),
         "apart from a work item's"
     );
     assert!(!graph.index.exists(), "removed with the view");
-    assert_eq!(graph.runtime, rig.paths().triage_graph_runtime(30));
-    assert_ne!(graph.runtime, rig.paths().code_graph_runtime(30));
+    assert_eq!(graph.runtime, rig.paths().triage_graph_runtime(ticket(30)));
+    assert_ne!(graph.runtime, rig.paths().code_graph_runtime(ticket(30)));
     assert!(!graph.runtime.exists(), "its daemon's folder too");
     assert_eq!(triage(&rig, &runner)["issues"][0]["step"], "done");
 }
@@ -797,7 +797,7 @@ fn a_research_on_an_issue_with_a_turn_in_flight_keeps_both_lines_on_the_ledger()
         let kinds: Vec<(CallKind, Role)> = lines
             .into_iter()
             .filter_map(|line| match line {
-                Line::Call(call) if call.issue == Some(30) => Some((call.kind, call.role)),
+                Line::Call(call) if call.issue == Some(ticket(30)) => Some((call.kind, call.role)),
                 _ => None,
             })
             .collect();

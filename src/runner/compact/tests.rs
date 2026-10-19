@@ -1,12 +1,51 @@
+use std::path::PathBuf;
 use std::sync::Mutex;
 
 use serde_json::Value;
 
-use crate::ports::{AgentError, CLEAN, Checks, Finding, Session, Severity};
+use super::reminder;
+use crate::ports::{AgentError, CLEAN, Checks, Finding, Session, SessionId, Severity};
 use crate::runner::{Runner, StepReport, step};
 use crate::settings::Harness;
-use crate::test::{Rig, Scripted, ScriptedRound};
+use crate::test::{Rig, Scripted, ScriptedRound, ticket};
+use crate::ticket::TicketId;
 use crate::usage::{FILE, read};
+use crate::work_item::WorkItem;
+
+// The reminder's own words, for a ticket of each source. Only a GitHub ticket
+// has an issue the worker can read with `gh`, and only a GitHub ticket can
+// have a work item open yet.
+fn compacted_around(ticket: TicketId) -> String {
+    let item = WorkItem {
+        pull_request: Some(71),
+        ..WorkItem::new(
+            7,
+            "Title of #7",
+            "kelpie/7",
+            PathBuf::from("wt"),
+            PathBuf::from("build"),
+            "sonnet-high".to_owned().try_into().unwrap(),
+            SessionId("s".to_owned()),
+        )
+    };
+    reminder(&item, ticket)
+}
+
+#[test]
+fn a_compacted_prompt_sends_the_worker_to_gh_only_for_an_issue() {
+    assert_eq!(
+        compacted_around(ticket(7)),
+        "Kelpie compacted your session, so what came before is a summary. Your work item is \
+         issue #7: Title of #7. Your pull request #71 is on branch `kelpie/7`. `gh issue view \
+         7` shows the issue in full."
+    );
+    let local: TicketId = "k12".parse().unwrap();
+    assert_eq!(
+        compacted_around(local),
+        "Kelpie compacted your session, so what came before is a summary. Your work item is \
+         ticket k12: Title of #7. Your pull request #71 is on branch `kelpie/7`."
+    );
+}
 
 // Issue 7's build turn opened pull request 71 with its session's context at
 // `context` tokens, and round 1 found one thing, so a fix turn is next.
@@ -49,8 +88,8 @@ fn a_session_past_150k_is_compacted_before_the_fix_round_s_prompt() {
     let compacted = step(&runner).unwrap();
     assert!(
         matches!(
-            compacted,
-            Some(StepReport::WorkerCompacted { issue: 7, .. })
+           compacted,
+           Some(StepReport::WorkerCompacted { issue, .. }) if issue == ticket(7)
         ),
         "{compacted:?}"
     );
@@ -113,7 +152,7 @@ fn the_ledger_shows_the_compaction_as_its_own_call_with_the_issue_and_pull_reque
             )
         })
         .collect();
-    let line = |kind: &str| (kind.into(), 7.into(), 71.into());
+    let line = |kind: &str| (kind.into(), "7".into(), 71.into());
     assert_eq!(calls, [line("turn"), line("compact"), line("turn")]);
 }
 
@@ -169,8 +208,8 @@ fn a_compaction_that_fails_sends_the_turn_on_as_it_was() {
     let report = step(&runner).unwrap();
     assert!(
         matches!(
-            report,
-            Some(StepReport::WorkerCompactFailed { issue: 7, .. })
+           report,
+           Some(StepReport::WorkerCompactFailed { issue, .. }) if issue == ticket(7)
         ),
         "{report:?}"
     );

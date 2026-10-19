@@ -7,37 +7,45 @@
 use serde_json::{Map, Value};
 
 use crate::board::{READY, TRIAGE};
+use crate::ticket::TicketId;
 
 /// The keys an answer takes, an object with none of them being none: `why`
 /// is left out, since an unstick inside an answer has one of its own
-const KEYS: [&str; 7] = [
+const KEYS: [&str; 8] = [
     "pick",
     "hold",
     "unstick",
     "answer",
     "follow_up",
     "votes",
+    "standing",
     "reply",
 ];
 
 /// The most of a reply or a why kept, in characters
 const LONGEST: usize = 2_000;
 
+/// What an `unstick` entry holds, as a dropped one names it
+const UNSTICK: &str = "`item`, an `action` of retry, re-scope, ask or none, and `why`";
+
 /// What the project manager answered, field by field
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(super) struct Answer {
     /// The ready issue to start next, or none to start nothing now
-    pub(super) pick: Option<u64>,
+    pub(super) pick: Option<TicketId>,
     /// The ready issues to hold until an open work item closes
-    pub(super) hold: Vec<u64>,
-    /// What to do about one stuck work item
-    pub(super) unstick: Option<Unstick>,
+    pub(super) hold: Vec<TicketId>,
+    /// What to do about each stuck work item the wake carried
+    pub(super) unstick: Vec<Unstick>,
     /// What to do about one worker's question
     pub(super) answer: Option<Settle>,
     /// What to do about one follow-up ruling's findings
     pub(super) follow_up: Option<Decide>,
     /// Its votes on rulings before the panel: each ruling, and the object it voted with
     pub(super) votes: Vec<(u64, Map<String, Value>)>,
+    /// The whole of its standing notes, which replaces the file kelpie holds.
+    /// None leaves the file as it is, and empty text clears it.
+    pub(super) standing: Option<String>,
     /// A message for the maintainer
     pub(super) reply: Option<String>,
     /// Why, in its own words
@@ -49,8 +57,8 @@ pub(super) struct Answer {
 /// The project manager's call on one stuck work item
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct Unstick {
-    /// The work item's issue
-    pub(super) item: u64,
+    /// The work item's ticket
+    pub(super) item: TicketId,
     /// What to do
     pub(super) action: Action,
     /// Why, which a ruling it raises carries
@@ -60,8 +68,8 @@ pub(super) struct Unstick {
 /// The project manager's call on one worker's question
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct Settle {
-    /// The work item's issue, parked on the question's ruling
-    pub(super) item: u64,
+    /// The work item's ticket, parked on the question's ruling
+    pub(super) item: TicketId,
     /// Whether it answers or passes the question on
     pub(super) how: How,
     /// Why, in its own words
@@ -79,8 +87,8 @@ pub(super) struct Settle {
 /// The project manager's call on one follow-up ruling
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct Decide {
-    /// The work item's issue, parked on the follow-up ruling
-    pub(super) item: u64,
+    /// The work item's ticket, parked on the follow-up ruling
+    pub(super) item: TicketId,
     /// Whether the findings are filed or dropped
     pub(super) call: Call,
     /// Why, in its own words
@@ -139,32 +147,41 @@ pub(super) fn read(text: &str) -> Option<Answer> {
         match key.as_str() {
             "pick" => match &value {
                 Value::Null => {}
-                value => match number(value) {
-                    Some(n) => answer.pick = Some(n),
-                    None => answer.unread.push(unread("an issue number or null")),
+                value => match ticket(value) {
+                    Some(t) => answer.pick = Some(t),
+                    None => answer.unread.push(unread("a ticket id or null")),
                 },
             },
             "hold" => match &value {
                 Value::Null => {}
                 Value::Array(items) => {
                     for item in items {
-                        match number(item) {
-                            Some(n) => answer.hold.push(n),
+                        match ticket(item) {
+                            Some(t) => answer.hold.push(t),
                             None => answer
                                 .unread
-                                .push(format!("`hold`: an issue number, not {item}")),
+                                .push(format!("`hold`: a ticket id, not {item}")),
                         }
                     }
                 }
-                _ => answer.unread.push(unread("a list of issue numbers")),
+                _ => answer.unread.push(unread("a list of ticket ids")),
             },
             "unstick" => match &value {
                 Value::Null => {}
+                // One stuck item is one object; several are a list of them.
+                Value::Array(items) => {
+                    for item in items {
+                        match unstick(item) {
+                            Some(u) => answer.unstick.push(u),
+                            None => answer
+                                .unread
+                                .push(format!("`unstick`: {UNSTICK}, not {item}")),
+                        }
+                    }
+                }
                 value => match unstick(value) {
-                    Some(u) => answer.unstick = Some(u),
-                    None => answer.unread.push(unread(
-                        "`item`, an `action` of retry, re-scope, ask or none, and `why`",
-                    )),
+                    Some(u) => answer.unstick.push(u),
+                    None => answer.unread.push(unread(UNSTICK)),
                 },
             },
             "answer" => match &value {
@@ -202,6 +219,11 @@ pub(super) fn read(text: &str) -> Option<Answer> {
                     }
                 }
                 _ => answer.unread.push(unread("a list of votes")),
+            },
+            "standing" => match value {
+                Value::Null => {}
+                Value::String(text) => answer.standing = Some(plain(text.trim())),
+                _ => answer.unread.push(unread("text or null")),
             },
             "reply" | "why" => match value {
                 Value::Null => {}
@@ -250,14 +272,19 @@ fn last_object(text: &str) -> Option<Map<String, Value>> {
 // `text` with every control character but a newline taken out, cut past
 // [`LONGEST`] characters, since it is printed and posted as it is.
 fn printable(text: &str) -> String {
-    let kept: Vec<char> = (text.chars())
-        .filter(|&c| c == '\n' || !c.is_control())
-        .collect();
-    let mut out: String = kept.iter().take(LONGEST).collect();
-    if kept.len() > LONGEST {
-        out.push_str(" …");
+    let kept = plain(text);
+    match kept.char_indices().nth(LONGEST) {
+        Some((at, _)) => format!("{} …", &kept[..at]),
+        None => kept,
     }
-    out
+}
+
+// `text` with every control character but a newline taken out, whole, since
+// the standing notes are checked against a limit of their own.
+fn plain(text: &str) -> String {
+    text.chars()
+        .filter(|&c| c == '\n' || !c.is_control())
+        .collect()
 }
 
 // A positive whole number, as a JSON number or digits in a string.
@@ -270,8 +297,17 @@ fn number(value: &Value) -> Option<u64> {
     (n > 0).then_some(n)
 }
 
+// A ticket id, as a JSON number or as text: `9`, `#9` or `k12`.
+fn ticket(value: &Value) -> Option<TicketId> {
+    match value {
+        Value::Number(n) => TicketId::from_issue(n.as_u64()?),
+        Value::String(text) => text.trim().trim_start_matches('#').parse::<TicketId>().ok(),
+        _ => None,
+    }
+}
+
 fn unstick(value: &Value) -> Option<Unstick> {
-    let item = number(value.get("item")?)?;
+    let item = ticket(value.get("item")?)?;
     let action = match value.get("action")?.as_str()? {
         "retry" => Action::Retry,
         "re-scope" => Action::ReScope,
@@ -288,7 +324,7 @@ fn unstick(value: &Value) -> Option<Unstick> {
 }
 
 fn settle(value: &Value) -> Option<Settle> {
-    let item = number(value.get("item")?)?;
+    let item = ticket(value.get("item")?)?;
     let text = value.get("text").filter(|v| !v.is_null());
     let escalate = value.get("escalate").filter(|v| !v.is_null());
     let candidates: Vec<String> = match value.get("candidates") {
@@ -328,7 +364,7 @@ fn settle(value: &Value) -> Option<Settle> {
 }
 
 fn decide(value: &Value) -> Option<Decide> {
-    let item = number(value.get("item")?)?;
+    let item = ticket(value.get("item")?)?;
     let label = match value.get("label") {
         None | Some(Value::Null) => None,
         Some(label) => Some(label.as_str()?.trim().to_ascii_lowercase()),
@@ -353,6 +389,7 @@ fn decide(value: &Value) -> Option<Decide> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test::ticket;
 
     #[test]
     fn the_last_object_after_the_reasoning_is_the_answer() {
@@ -364,16 +401,17 @@ mod tests {
         assert_eq!(
             answer,
             Answer {
-                pick: Some(12),
-                hold: vec![4, 9],
-                unstick: Some(Unstick {
-                    item: 7,
+                pick: Some(ticket(12)),
+                hold: vec![ticket(4), ticket(9)],
+                unstick: vec![Unstick {
+                    item: ticket(7),
                     action: Action::ReScope,
                     why: "split the parser out".into(),
-                }),
+                }],
                 answer: None,
                 follow_up: None,
                 votes: Vec::new(),
+                standing: None,
                 reply: None,
                 why: Some("#12 touches nothing open.".into()),
                 unread: Vec::new(),
@@ -388,7 +426,7 @@ mod tests {
         assert_eq!(
             text.unwrap().answer,
             Some(Settle {
-                item: 7,
+                item: ticket(7),
                 how: How::Text("Use it.".into()),
                 why: "r".into(),
                 problem: None,
@@ -454,23 +492,23 @@ mod tests {
         };
         assert_eq!(
             call("{\"follow_up\": {\"item\": \"#7\", \"decision\": \" Yes \", \"why\": \" r \"}}"),
-            Some((7, Call::File { unread: false }, "r".into()))
+            Some((ticket(7), Call::File { unread: false }, "r".into()))
         );
         assert_eq!(
             call(
                 "{\"follow_up\": {\"item\": 7, \"decision\": \"yes\", \"label\": \"needs-triage\"}}"
             ),
-            Some((7, Call::File { unread: true }, String::new()))
+            Some((ticket(7), Call::File { unread: true }, String::new()))
         );
         assert_eq!(
             call(
                 "{\"follow_up\": {\"item\": 7, \"decision\": \"yes\", \"label\": \"ready-for-agent\"}}"
             ),
-            Some((7, Call::File { unread: false }, String::new()))
+            Some((ticket(7), Call::File { unread: false }, String::new()))
         );
         assert_eq!(
             call("{\"follow_up\": {\"item\": 7, \"decision\": \"no\", \"why\": \"fixed\"}}"),
-            Some((7, Call::Drop, "fixed".into()))
+            Some((ticket(7), Call::Drop, "fixed".into()))
         );
         for bad in [
             "{\"follow_up\": {\"item\": 7, \"decision\": \"maybe\"}}",
@@ -487,7 +525,7 @@ mod tests {
     #[test]
     fn braces_inside_the_answers_text_are_not_an_answer_of_their_own() {
         let text = "{\"pick\": 12, \"why\": \"not {\\\"pick\\\": 3} as before\"} {unfinished";
-        assert_eq!(read(text).unwrap().pick, Some(12));
+        assert_eq!(read(text).unwrap().pick, Some(ticket(12)));
         let inner = "{\"reply\": \"{\\\"pick\\\": 3}\", \"pick\": null}";
         assert_eq!(read(inner).unwrap().pick, None);
     }
@@ -523,6 +561,38 @@ mod tests {
     }
 
     #[test]
+    fn unstick_takes_one_object_or_a_list_of_them_and_a_bad_entry_is_named_alone() {
+        let one =
+            read("{\"unstick\": {\"item\": 7, \"action\": \"retry\", \"why\": \"an outage\"}}")
+                .unwrap();
+        let many = read(
+            "{\"unstick\": [{\"item\": 7, \"action\": \"retry\", \"why\": \"an outage\"}, \
+             {\"item\": 9, \"action\": \"none\"}, {\"item\": 11, \"action\": \"reboot\"}]}",
+        )
+        .unwrap();
+        let items: Vec<TicketId> = (many.unstick.iter()).map(|u| u.item).collect();
+        assert_eq!(items, [ticket(7), ticket(9)]);
+        assert_eq!(
+            many.unstick[1],
+            Unstick {
+                item: ticket(9),
+                action: Action::Leave,
+                why: String::new(),
+            }
+        );
+        assert_eq!(
+            many.unread,
+            [
+                "`unstick`: `item`, an `action` of retry, re-scope, ask or none, and `why`, not \
+             {\"action\":\"reboot\",\"item\":11}"
+            ]
+        );
+        assert_eq!(one.unstick.len(), 1, "one object alone is read");
+        assert_eq!(read("{\"unstick\": []}").unwrap().unstick, Vec::new());
+        assert_eq!(read("{\"unstick\": null}").unwrap().unstick, Vec::new());
+    }
+
+    #[test]
     fn a_malformed_field_is_named_and_the_rest_still_count() {
         let text = "{\"pick\": \"soon\", \"hold\": [5, true], \"unstick\": {\"item\": 7, \
                     \"action\": \"reboot\"}, \"merge_order\": [71], \"reply\": \"On it.\"}";
@@ -534,16 +604,57 @@ mod tests {
                 &answer.unstick,
                 answer.reply.as_deref()
             ),
-            (None, &vec![5], &None, Some("On it."))
+            (None, &vec![ticket(5)], &Vec::new(), Some("On it."))
         );
         assert_eq!(
             answer.unread,
             [
-                "`hold`: an issue number, not true",
+                "`hold`: a ticket id, not true",
                 "`merge_order` is not a field kelpie acts on",
-                "`pick`: an issue number or null, not \"soon\"",
+                "`pick`: a ticket id or null, not \"soon\"",
                 "`unstick`: `item`, an `action` of retry, re-scope, ask or none, and `why`, \
                  not {\"action\":\"reboot\",\"item\":7}",
+            ]
+        );
+    }
+
+    #[test]
+    fn a_standing_answer_is_the_whole_file_or_null_and_an_unknown_key_is_still_named() {
+        let set = read("{\"standing\": \"Hold #12\\nuntil the release.  \"}").unwrap();
+        assert_eq!(
+            set.standing.as_deref(),
+            Some("Hold #12\nuntil the release.")
+        );
+        assert_eq!(set.unread, Vec::<String>::new());
+
+        let left = read("{\"pick\": null, \"standing\": null}").unwrap();
+        assert_eq!(
+            (left.pick, left.standing, left.unread),
+            (None, None, vec![])
+        );
+
+        let long = "x".repeat(5_000);
+        let over = read(&format!("{{\"standing\": \"{long}\"}}")).unwrap();
+        assert_eq!(
+            over.standing.as_deref(),
+            Some(long.as_str()),
+            "the whole text reaches the file's own limit"
+        );
+
+        let cleared = read("{\"standing\": \"  \\n \"}").unwrap();
+        assert_eq!(
+            cleared.standing.as_deref(),
+            Some(""),
+            "empty text is a whole file with nothing in it"
+        );
+
+        let bad = read("{\"pick\": 3, \"standing\": 4, \"merge_order\": [1]}").unwrap();
+        assert_eq!((bad.pick, bad.standing), (Some(ticket(3)), None));
+        assert_eq!(
+            bad.unread,
+            [
+                "`merge_order` is not a field kelpie acts on",
+                "`standing`: text or null, not 4",
             ]
         );
     }

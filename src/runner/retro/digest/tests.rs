@@ -7,6 +7,7 @@ use crate::ports::{Severity, Timestamp};
 use crate::runner::panel::Record;
 use crate::runner::retro::journal::{Entry, Held, Stamped};
 use crate::state::Finished;
+use crate::test::ticket;
 use crate::usage::Line;
 use crate::work_item::Seconds;
 
@@ -77,22 +78,22 @@ fn digest() -> String {
         stamped(
             1450,
             Entry::CiFailed {
-                issue: 11,
+                issue: ticket(11),
                 checks: vec!["test".into()],
             },
         ),
-        stamped(1500, Entry::Rebased { issue: 11 }),
+        stamped(1500, Entry::Rebased { issue: ticket(11) }),
         stamped(
             1550,
             Entry::Conflicted {
-                issue: 11,
+                issue: ticket(11),
                 files: vec!["docs/design-log.md".into()],
             },
         ),
         stamped(
             1600,
             Entry::Round {
-                issue: 11,
+                issue: ticket(11),
                 round: 1,
                 reviewer: "claude".into(),
                 findings: 3,
@@ -101,7 +102,7 @@ fn digest() -> String {
         stamped(
             1601,
             Entry::FindingsSent {
-                issue: 11,
+                issue: ticket(11),
                 round: 1,
                 held: 2,
             },
@@ -109,7 +110,7 @@ fn digest() -> String {
         stamped(
             1990,
             Entry::Friction {
-                issue: 11,
+                issue: ticket(11),
                 text: "the lockfile\nfought me".into(),
             },
         ),
@@ -306,21 +307,21 @@ fn a_span_reads_in_the_largest_units() {
 
 fn conflicted(issue: u64, files: &[&str]) -> Entry {
     Entry::Conflicted {
-        issue,
+        issue: ticket(issue),
         files: files.iter().map(|f| (*f).to_owned()).collect(),
     }
 }
 
 fn outside(issue: u64, tests: &[&str]) -> Entry {
     Entry::CiOutsideDiff {
-        issue,
+        issue: ticket(issue),
         tests: tests.iter().map(|t| (*t).to_owned()).collect(),
     }
 }
 
 fn round(issue: u64, round: u32, findings: usize) -> Entry {
     Entry::Round {
-        issue,
+        issue: ticket(issue),
         round,
         reviewer: "claude".into(),
         findings,
@@ -400,7 +401,7 @@ fn rounds_per_item_and_each_findings_round_are_given() {
         stamped(
             1101,
             Entry::Findings {
-                issue: 11,
+                issue: ticket(11),
                 round: 1,
                 findings: vec![
                     held(Severity::Low, "src/a.rs", 4, "a nit"),
@@ -415,7 +416,7 @@ fn rounds_per_item_and_each_findings_round_are_given() {
         stamped(
             1501,
             Entry::Findings {
-                issue: 13,
+                issue: ticket(13),
                 round: 3,
                 findings: vec![held(Severity::High, "src/gate.rs", 88, "the design leaks")],
             },
@@ -475,7 +476,7 @@ fn a_known_gap_is_counted_by_the_items_that_name_it_and_not_described_again() {
         stamped(
             1100,
             Entry::Friction {
-                issue: 11,
+                issue: ticket(11),
                 text: "The Sandbox cannot bind a socket, so tests only ran in CI".into(),
             },
         ),

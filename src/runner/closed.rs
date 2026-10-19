@@ -13,7 +13,9 @@
 use super::Runner;
 use super::ruling::park;
 use crate::ports::{Alert, PullRequestState};
+use crate::runner::report::ticket_of;
 use crate::state::{ProjectState, RulingKind, StateError, Stuck};
+use crate::ticket::TicketId;
 use crate::work_item::{Phase, WorkItem};
 use crate::worktree;
 
@@ -32,7 +34,10 @@ impl Runner {
     pub(super) fn closed_with_no_change(&mut self, issue: u64) -> Result<bool, String> {
         let item = self.state.item(issue).expect("an open work item");
         let (branch, tree) = (item.branch.clone(), item.worktree.clone());
-        let read = self.ports.forge.issue(&self.remote, issue);
+        let ticket = item
+            .ticket()
+            .ok_or_else(|| format!("issue {issue} has no ticket id"))?;
+        let read = self.ports.tickets.issue(&self.remote, ticket);
         if read
             .map_err(|e| format!("cannot read issue #{issue}: {e}"))?
             .open
@@ -143,10 +148,10 @@ impl Runner {
             return Err(e);
         }
         for (issue, id) in withdrawn {
-            self.say_closed(issue, id);
+            self.say_closed(ticket_of(issue), id);
         }
         for (issue, number, id) in merged {
-            self.say_merged(issue, number, id);
+            self.say_merged(ticket_of(issue), number, id);
         }
         for (number, id) in unmerged {
             let note =
@@ -170,23 +175,24 @@ impl Runner {
             .is_some_and(|r| kind(&r.kind))
     }
 
-    /// Logs that pull request `number` was merged, so `issue`'s work item
-    /// ends, and that ruling `id` is withdrawn, if it was parked on one.
-    /// Posts it once to the webhook, where one is set: nothing is left to
-    /// retry it for.
-    fn say_merged(&mut self, issue: u64, number: u64, id: Option<u64>) {
+    /// Logs that pull request `number` was merged, so the work item for
+    /// `ticket` ends, and that ruling `id` is withdrawn, if it was parked on
+    /// one. Posts it once to the webhook, where one is set: nothing is left
+    /// to retry it for.
+    fn say_merged(&mut self, ticket: TicketId, number: u64, id: Option<u64>) {
         let project = self.project.as_str().to_owned();
         let withdrawn = id.map_or_else(String::new, |id| format!(" Ruling {id} is withdrawn."));
         let text = format!(
-            "Pull request #{number} was merged, so work item #{issue} ends.{withdrawn} \
-             Nothing to answer."
+            "Pull request #{number} was merged, so work item {} ends.{withdrawn} \
+             Nothing to answer.",
+            ticket.shown()
         );
         self.notes.push(text.clone());
         let Some(webhook) = self.webhook.clone() else {
             return;
         };
         let alert = Alert {
-            title: format!("kelpie: {project} #{issue} merged"),
+            title: format!("kelpie: {project} {} merged", ticket.shown()),
             text,
             reply: None,
         };
@@ -196,28 +202,36 @@ impl Runner {
         }
     }
 
-    /// Logs that `issue` was closed with no change, so its work item ends,
-    /// and that ruling `id` is withdrawn, if it was parked on one. Posts it
-    /// once to the webhook, where one is set: nothing is left to retry it for.
-    pub(super) fn say_closed(&mut self, issue: u64, id: Option<u64>) {
+    /// Logs that the ticket `ticket` was closed with no change, so its work
+    /// item ends, and that ruling `id` is withdrawn, if it was parked on one.
+    /// Posts it once to the webhook, where one is set: nothing is left to
+    /// retry it for.
+    pub(super) fn say_closed(&mut self, ticket: TicketId, id: Option<u64>) {
         let project = self.project.as_str().to_owned();
         let withdrawn = id.map_or_else(String::new, |id| format!(" Ruling {id} is withdrawn."));
         let text = format!(
-            "Issue #{issue} was closed with no change, so its work item ends with no \
-             pull request.{withdrawn} Nothing to answer."
+            "{} was closed with no change, so its work item ends with no pull \
+             request.{withdrawn} Nothing to answer.",
+            ticket.named()
         );
         self.notes.push(text.clone());
-        self.notice_on(issue, &text);
+        // A local ticket has no forge thread to post the notice on.
+        if let Some(number) = ticket.github() {
+            self.notice_on(number, &text);
+        }
         let Some(webhook) = self.webhook.clone() else {
             return;
         };
         let alert = Alert {
-            title: format!("kelpie: {project} #{issue} closed with no change"),
+            title: format!("kelpie: {project} {} closed with no change", ticket.shown()),
             text,
             reply: None,
         };
         if let Err(e) = self.ports.alerts.post(&webhook, &alert) {
-            let failed = format!("cannot post that #{issue} was closed with no change: {e}");
+            let failed = format!(
+                "cannot post that {} was closed with no change: {e}",
+                ticket.shown()
+            );
             self.notes.push(failed);
         }
     }

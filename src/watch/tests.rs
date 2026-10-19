@@ -1,5 +1,6 @@
 //! The watch, run over a runner log and transcripts written to a temporary folder
 
+use crate::test::ticket;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
@@ -175,7 +176,7 @@ fn busy_project(rig: &Rig) {
 fn watching_one_issue_shows_only_its_sessions_and_steps() {
     let rig = Rig::new();
     busy_project(&rig);
-    let (_watch, lines) = Watch::start(rig.folder(), rig.options(Scope::Issue(7), 100));
+    let (_watch, lines) = Watch::start(rig.folder(), rig.options(Scope::Issue(ticket(7)), 100));
     let lines = shown(&lines);
     assert!(
         lines

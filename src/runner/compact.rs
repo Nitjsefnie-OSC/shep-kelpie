@@ -10,13 +10,16 @@
 
 use super::Runner;
 use super::report::StepReport;
+use super::turn::ticket_name;
 use crate::ports::{AgentError, AgentReply, Role};
+use crate::runner::report::ticket_of;
 use crate::skills::split_command;
 use crate::state::StateError;
+use crate::ticket::TicketId;
 use crate::work_item::{Turn, WorkItem};
 
 impl Runner {
-    /// Records the end of `issue`'s `/compact`
+    /// Records the end of `ticket`'s `/compact`
     ///
     /// A compaction that failed is let go: the turn goes on in the session
     /// as it was, and is not compacted again until its context is read anew.
@@ -28,8 +31,8 @@ impl Runner {
         &mut self,
         result: Result<AgentReply, AgentError>,
     ) -> Result<Option<StepReport>, StateError> {
-        let issue = self.focus.expect("a compaction is a work item's");
-        self.flights.landed(issue);
+        let ticket = self.focus.expect("a compaction is a work item's");
+        self.flights.landed(ticket);
         // A compaction stopped with the runner is sent again on restart.
         if matches!(result, Err(AgentError::Stopped)) {
             return self.save_time().map(|()| None);
@@ -39,6 +42,7 @@ impl Runner {
         let Some(item) = self.current_in(&mut next) else {
             return Ok(None);
         };
+        let issue = item.issue;
         let context = item.context.take();
         let report = match result {
             Ok(reply) => {
@@ -50,7 +54,7 @@ impl Runner {
                     reply.usage,
                     reply.session_cost,
                 );
-                let reminder = reminder(item);
+                let reminder = reminder(item, ticket);
                 // A skill's command only runs from the very start of a prompt.
                 if let Turn::Next { prompt } = &mut item.turn {
                     let (command, then) = split_command(prompt);
@@ -60,13 +64,13 @@ impl Runner {
                     };
                 }
                 StepReport::WorkerCompacted {
-                    issue,
+                    issue: ticket_of(issue),
                     session,
                     context,
                 }
             }
             Err(e) => StepReport::WorkerCompactFailed {
-                issue,
+                issue: ticket_of(issue),
                 reason: e.to_string(),
             },
         };
@@ -76,18 +80,23 @@ impl Runner {
 }
 
 // What the worker is told ahead of its turn once its history is a summary:
-// the issue and the pull request, which nothing but that history held
-fn reminder(item: &WorkItem) -> String {
+// the ticket and the pull request, which nothing but that history held. Only
+// a GitHub ticket has an issue for `gh` to read.
+fn reminder(item: &WorkItem, ticket: TicketId) -> String {
     let pull_request = item.pull_request.map_or_else(String::new, |number| {
         format!(
             " Your pull request #{number} is on branch `{}`.",
             item.branch
         )
     });
+    let read = ticket.github().map_or_else(String::new, |issue| {
+        format!(" `gh issue view {issue}` shows the issue in full.")
+    });
     format!(
         "Kelpie compacted your session, so what came before is a summary. Your work item is \
-         issue #{}: {}.{pull_request} `gh issue view {}` shows the issue in full.",
-        item.issue, item.title, item.issue
+         {}: {}.{pull_request}{read}",
+        ticket_name(ticket),
+        item.title
     )
 }
 
