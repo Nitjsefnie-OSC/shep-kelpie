@@ -172,7 +172,7 @@ fn a_reply_naming_no_listed_implementer_raises_a_ruling_and_the_board_waits() {
     let status = rig.ask(&runner, "status", None);
     assert_eq!(
         status["skipped"],
-        json!([{ "reason": "unlabelled", "issue": 7, "ruling": id }])
+        json!([{ "reason": "unlabelled", "issue": "7", "ruling": id }])
     );
     assert_eq!(status["rulings"][0]["id"], 7);
     assert_eq!(

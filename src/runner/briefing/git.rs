@@ -13,6 +13,7 @@ use std::process::Stdio;
 
 use super::patch;
 use crate::board::briefing::{Merge, named_paths};
+use crate::ticket::TicketId;
 use crate::worktree::{BASE, in_repo};
 
 /// Git's answers so far, by the commits they were read at
@@ -29,13 +30,13 @@ pub(in crate::runner) struct Git {
 pub(in crate::runner) struct GitJob {
     pub(super) repo: PathBuf,
     pub(super) git: Git,
-    /// Each open work item's issue and branch
-    pub(super) branches: Vec<(u64, String)>,
+    /// Each open work item's ticket and branch
+    pub(super) branches: Vec<(TicketId, String)>,
     /// The bodies of the issues ready or open, whose named paths it reads
-    pub(super) bodies: Vec<(u64, String)>,
+    pub(super) bodies: Vec<(TicketId, String)>,
     /// Where each open work item's worktree is, when it reads each
     /// branch's diff, for a project manager
-    pub(super) patches: Option<BTreeMap<u64, PathBuf>>,
+    pub(super) patches: Option<BTreeMap<TicketId, PathBuf>>,
 }
 
 /// What git answered for one board write
@@ -46,16 +47,16 @@ pub(in crate::runner) struct GitAnswers {
     /// `origin/main`'s commit
     pub(super) main: Option<String>,
     /// The files each work item's branch changes, where git could say
-    pub(super) files: BTreeMap<u64, Vec<String>>,
+    pub(super) files: BTreeMap<TicketId, Vec<String>>,
     /// Each pair of work items whose branches do not merge cleanly
-    pub(super) merges: BTreeMap<(u64, u64), Merge>,
+    pub(super) merges: BTreeMap<(TicketId, TicketId), Merge>,
     /// The paths each issue's body names, as files on `main`
-    pub(super) named: BTreeMap<u64, Vec<String>>,
+    pub(super) named: BTreeMap<TicketId, Vec<String>>,
     /// The bodies those paths were read from
-    pub(super) bodies: Vec<(u64, String)>,
+    pub(super) bodies: Vec<(TicketId, String)>,
     /// Each work item's diff from `main`, cut to [`patch::CAP`], or why
     /// git could not give it, when asked
-    pub(super) patches: BTreeMap<u64, Result<Vec<u8>, String>>,
+    pub(super) patches: BTreeMap<TicketId, Result<Vec<u8>, String>>,
 }
 
 impl GitJob {
@@ -69,20 +70,20 @@ impl GitJob {
             patches,
         } = self;
         let main = Git::main(&repo);
-        let heads: Vec<(u64, String)> = branches
+        let heads: Vec<(TicketId, String)> = branches
             .iter()
-            .filter_map(|(issue, branch)| Some((*issue, Git::head(&repo, branch)?)))
+            .filter_map(|(ticket, branch)| Some((*ticket, Git::head(&repo, branch)?)))
             .collect();
         let mut files = BTreeMap::new();
         if let Some(main) = &main {
-            for (issue, head) in &heads {
+            for (ticket, head) in &heads {
                 if let Some(found) = git.files(&repo, main, head) {
-                    files.insert(*issue, found);
+                    files.insert(*ticket, found);
                 }
             }
         }
         // A branch still at `main` has nothing to merge.
-        let moved: Vec<&(u64, String)> = heads
+        let moved: Vec<&(TicketId, String)> = heads
             .iter()
             .filter(|(_, head)| Some(head) != main.as_ref())
             .collect();
@@ -99,20 +100,20 @@ impl GitJob {
         }
         let tree = main.as_deref().map(|m| git.tree(&repo, m).to_vec());
         let named = (bodies.iter())
-            .map(|(issue, body)| {
+            .map(|(ticket, body)| {
                 (
-                    *issue,
+                    *ticket,
                     named_paths(body, tree.as_deref().unwrap_or_default()),
                 )
             })
             .collect();
         let patches = match patches {
             Some(worktrees) => (branches.iter())
-                .map(|(issue, branch)| {
-                    let head = heads.iter().find(|(n, _)| n == issue).map(|(_, h)| h);
-                    let worktree = worktrees.get(issue).cloned().unwrap_or_default();
+                .map(|(ticket, branch)| {
+                    let head = heads.iter().find(|(t, _)| t == ticket).map(|(_, h)| h);
+                    let worktree = worktrees.get(ticket).cloned().unwrap_or_default();
                     let diff = git.patch(&repo, main.as_deref(), branch, head, &worktree);
-                    (*issue, diff)
+                    (*ticket, diff)
                 })
                 .collect(),
             None => BTreeMap::new(),

@@ -16,7 +16,7 @@ use super::pm::Choice;
 use super::report::{Begin, StepReport};
 use crate::board::{self, ReadyIssue, Skip};
 use crate::state::StateError;
-use crate::ticket::TicketId;
+use crate::ticket::{TicketId, issue_numbers, ticket_ids};
 
 impl Runner {
     // The step runs this only while the board may open a work item, and it
@@ -40,7 +40,7 @@ impl Runner {
         self.trim_dropped(&ready)?;
         // An issue in flight is left out, and not listed in `skipped`: it is
         // being worked on, not passed over.
-        ready.retain(|issue| self.state.item(issue.number).is_none());
+        ready.retain(|issue| self.state.item_by_ticket(issue.ticket).is_none());
         self.ready_read(&ready)?;
         if let Some(begin) = self.close_done_parent(&ready) {
             return Ok(begin);
@@ -73,31 +73,34 @@ impl Runner {
         // One whose paths a parked item's branch touches would build on code
         // that may yet change, and one whose paths are unread may be one.
         let overlaps = self.parked_overlap(&ready);
-        ready.retain(|issue| !overlaps.iter().any(|s| s.issue() == issue.number));
+        ready.retain(|issue| !overlaps.iter().any(|s| s.issue() == Some(issue.ticket)));
         let implementers = self.agents.implementer_names();
         let all = takeable(
             &ready,
             &open,
-            &self.state.finished,
-            &self.state.dropped,
+            &ticket_ids(&self.state.finished),
+            &ticket_ids(&self.state.dropped),
             &implementers,
         );
         let held = self.pm_holds(&all);
-        ready.retain(|issue| !held.contains(&issue.number));
+        ready.retain(|issue| !held.contains(&issue.ticket));
         let mut paced = false;
         let mut unlabelled: Vec<Skip> = Vec::new();
         loop {
             let implementers = self.agents.implementer_names();
-            let (finished, dropped) = (&self.state.finished, &self.state.dropped);
-            let order = &self.state.order;
-            let pick = board::pick(&ready, &open, finished, dropped, &implementers, order);
+            let (finished, dropped) = (
+                ticket_ids(&self.state.finished),
+                ticket_ids(&self.state.dropped),
+            );
+            let order = ticket_ids(&self.state.order);
+            let pick = board::pick(&ready, &open, &finished, &dropped, &implementers, &order);
             let mut skipped = pick.skipped;
             skipped.extend(failed.iter().cloned());
             skipped.extend(overlaps.iter().cloned());
             skipped.extend(unlabelled.iter().cloned());
             skipped.sort_by_key(Skip::issue);
-            let takeable = takeable(&ready, &open, finished, dropped, &implementers);
-            let Some(issue) = pick.issue else {
+            let takeable = takeable(&ready, &open, &finished, &dropped, &implementers);
+            let Some(picked) = pick.issue else {
                 let reason = failed
                     .iter()
                     .filter_map(|skip| match skip {
@@ -132,18 +135,31 @@ impl Runner {
                 }
                 paced = true;
             }
-            let issue = match self.pm_pick(&takeable) {
+            let ticket = match self.pm_pick(&takeable) {
                 Choice::Take(n) => n,
-                Choice::Rule => issue,
+                Choice::Rule => picked,
                 Choice::Wait => {
                     self.set_skipped(skipped);
                     return Ok(Begin::Idle);
                 }
             };
+            // The issue writer's call, its label and the ruling it raises each
+            // name a GitHub issue, which is what every project's tickets are
+            // today. A ticket of another source waits for its own label step.
+            let Some(issue) = ticket.github() else {
+                failed.push(Skip::Failed {
+                    issue: ticket,
+                    error: format!(
+                        "ticket {ticket} is not a GitHub issue, so kelpie cannot take it"
+                    ),
+                });
+                ready.retain(|i| i.ticket != ticket);
+                continue;
+            };
             // An issue the issue writer is labelling waits for it, even one
             // labelled by hand meanwhile.
             let labelling = self.flights.labelling() == Some(issue);
-            if let Some(found) = ready.iter().find(|i| i.number == issue)
+            if let Some(found) = ready.iter().find(|i| i.ticket == ticket)
                 && (labelling || self.needs_label(found))
             {
                 let ruling = self.unlabelled_ruling(issue);
@@ -152,8 +168,11 @@ impl Runner {
                     || self.draining()
                     || self.flights.labelling().is_some()
                 {
-                    unlabelled.push(Skip::Unlabelled { issue, ruling });
-                    ready.retain(|i| i.number != issue);
+                    unlabelled.push(Skip::Unlabelled {
+                        issue: ticket,
+                        ruling,
+                    });
+                    ready.retain(|i| i.ticket != ticket);
                     continue;
                 }
                 if let Some(held) = self.pace_writer()?.holds() {
@@ -164,11 +183,6 @@ impl Runner {
                 self.set_skipped(skipped);
                 return Ok(Begin::Label(found));
             }
-            // The forge numbers no issue zero.
-            let Some(ticket) = TicketId::from_issue(issue) else {
-                ready.retain(|i| i.number != issue);
-                continue;
-            };
             match self.add(ticket) {
                 Ok(agent) => {
                     self.set_skipped(skipped.clone());
@@ -180,10 +194,10 @@ impl Runner {
                 }
                 Err(e @ (super::AddError::Forge(_) | super::AddError::Label(_))) => {
                     failed.push(Skip::Failed {
-                        issue,
+                        issue: ticket,
                         error: e.to_string(),
                     });
-                    ready.retain(|i| i.number != issue);
+                    ready.retain(|i| i.ticket != ticket);
                 }
                 Err(super::AddError::State(e)) => return Err(e),
                 Err(e) => {
@@ -201,10 +215,10 @@ impl Runner {
 fn takeable(
     ready: &[ReadyIssue],
     open: &[board::OpenPullRequest],
-    finished: &[u64],
-    dropped: &[u64],
+    finished: &[TicketId],
+    dropped: &[TicketId],
     implementers: &[crate::settings::AgentName],
-) -> Vec<u64> {
+) -> Vec<TicketId> {
     (ready.iter())
         .filter(|i| {
             let one = std::slice::from_ref(*i);
@@ -212,7 +226,7 @@ fn takeable(
                 .issue
                 .is_some()
         })
-        .map(|i| i.number)
+        .map(|i| i.ticket)
         .collect()
 }
 
@@ -221,12 +235,14 @@ impl Runner {
     // a new issue joins it, one whose priority label changed moves, and one
     // the forge stopped listing leaves it.
     fn follow_order(&mut self, ready: &[ReadyIssue]) -> Result<(), StateError> {
-        let (order, ranked) = board::keep_order(&self.state.order, &self.state.ranked, ready);
-        if order == self.state.order && ranked == self.state.ranked {
+        let (order, ranked) =
+            board::keep_order(&ticket_ids(&self.state.order), &self.state.ranked, ready);
+        let kept = issue_numbers(&order);
+        if kept == self.state.order && ranked == self.state.ranked {
             return Ok(());
         }
         let mut next = self.state.clone();
-        next.order = order;
+        next.order = kept;
         next.ranked = ranked;
         self.save(next)
     }
@@ -236,13 +252,10 @@ impl Runner {
     // open, and one it cannot answer for stays.
     fn trim_finished(&mut self, ready: &[ReadyIssue]) -> Result<(), StateError> {
         let repo = &self.remote;
-        let closed: Vec<u64> = self
-            .state
-            .finished
-            .iter()
-            .copied()
-            .filter(|&n| !ready.iter().any(|r| r.number == n))
-            .filter(|&n| self.ports.tickets.issue(repo, n).is_ok_and(|i| !i.open))
+        let closed: Vec<u64> = (ticket_ids(&self.state.finished).into_iter())
+            .filter(|t| !ready.iter().any(|r| &r.ticket == t))
+            .filter(|t| self.ports.tickets.issue(repo, *t).is_ok_and(|i| !i.open))
+            .filter_map(|t| t.github())
             .collect();
         if closed.is_empty() {
             return Ok(());
@@ -267,13 +280,14 @@ impl Runner {
         let unlabelled = |issue: &crate::ports::Issue| {
             !issue.open || !issue.labels.iter().any(|l| l == board::READY)
         };
-        let gone: Vec<u64> = (self.state.dropped.iter().copied())
-            .filter(|&n| {
+        let gone: Vec<u64> = (ticket_ids(&self.state.dropped).into_iter())
+            .filter(|t| {
                 self.ports
                     .tickets
-                    .issue(repo, n)
+                    .issue(repo, *t)
                     .is_ok_and(|i| unlabelled(&i))
             })
+            .filter_map(|t| t.github())
             .collect();
         if gone.is_empty() {
             return Ok(());
@@ -286,12 +300,15 @@ impl Runner {
     // The board leaves a dropped issue be while the forge lists it ready, so an
     // entry goes once the forge stops listing it: a label put back is then new.
     fn trim_dropped(&mut self, ready: &[ReadyIssue]) -> Result<(), StateError> {
-        let listed = |n: &u64| ready.iter().any(|r| r.number == *n);
-        if self.state.dropped.iter().all(listed) {
+        let listed = |t: &TicketId| ready.iter().any(|r| &r.ticket == t);
+        let kept: Vec<TicketId> = (ticket_ids(&self.state.dropped).into_iter())
+            .filter(listed)
+            .collect();
+        if kept.len() == self.state.dropped.len() {
             return Ok(());
         }
         let mut next = self.state.clone();
-        next.dropped.retain(listed);
+        next.dropped = issue_numbers(&kept);
         self.save(next)
     }
 }
@@ -307,7 +324,7 @@ mod tests {
     use crate::ports::{AgentError, Cost, PullRequestState, Usage};
     use crate::runner::{StepReport, step};
     use crate::settings::{AgentName, Effort};
-    use crate::test::{Rig, Scripted};
+    use crate::test::{Rig, Scripted, ticket};
 
     fn running(project: &str) -> (Rig, Mutex<Runner>) {
         let rig = Rig::new(project);
@@ -398,7 +415,7 @@ mod tests {
         assert_eq!(step(&runner).unwrap(), None);
         assert_eq!(
             rig.ask(&runner, "status", None)["skipped"],
-            json!([{ "reason": "dropped", "issue": 7 }])
+            json!([{ "reason": "dropped", "issue": "7" }])
         );
 
         rig.forge.unlist_ready(7);
@@ -471,7 +488,7 @@ mod tests {
         assert_eq!(step(&runner).unwrap(), None);
         assert_eq!(
             rig.ask(&runner, "status", None)["skipped"],
-            json!([{ "reason": "finished", "issue": 7 }])
+            json!([{ "reason": "finished", "issue": "7" }])
         );
     }
 
@@ -535,10 +552,10 @@ mod tests {
                 agent: sonnet_high(),
                 skipped: vec![
                     Skip::PullRequest {
-                        issue: 3,
+                        issue: ticket(3),
                         pull_request: 30
                     },
-                    Skip::Assigned { issue: 4 },
+                    Skip::Assigned { issue: ticket(4) },
                 ],
             })
         );
@@ -555,7 +572,7 @@ mod tests {
         assert_eq!(status["work_item"], json!(null));
         assert_eq!(
             status["skipped"],
-            json!([{ "reason": "in-progress", "issue": 3 }])
+            json!([{ "reason": "in-progress", "issue": "3" }])
         );
     }
 
@@ -729,7 +746,7 @@ mod tests {
         rig.forge.list_ready(6, false);
         rig.forge.remove_issue(4);
         let skip = Skip::Failed {
-            issue: 4,
+            issue: ticket(4),
             error: "cannot read the issue: gh failed: no issue #4".into(),
         };
         assert_eq!(
@@ -747,7 +764,7 @@ mod tests {
             status["skipped"],
             json!([{
                 "reason": "failed",
-                "issue": 4,
+                "issue": "4",
                 "error": "cannot read the issue: gh failed: no issue #4"
             }])
         );
@@ -789,15 +806,15 @@ mod tests {
                 issue: 9,
                 agent: sonnet_high(),
                 skipped: vec![Skip::Blocked {
-                    issue: 8,
-                    by: vec![32],
+                    issue: ticket(8),
+                    by: vec![ticket(32)],
                     unlisted: 0
                 }],
             })
         );
         assert_eq!(
             rig.ask(&runner, "status", None)["skipped"],
-            json!([{ "reason": "blocked", "issue": 8, "by": [32] }])
+            json!([{ "reason": "blocked", "issue": "8", "by": ["32"] }])
         );
     }
 
@@ -813,7 +830,7 @@ mod tests {
         assert_eq!(step(&runner).unwrap(), None);
         assert_eq!(
             rig.ask(&runner, "status", None)["skipped"],
-            json!([{ "reason": "blocked", "issue": 8, "by": [32] }])
+            json!([{ "reason": "blocked", "issue": "8", "by": ["32"] }])
         );
 
         rig.forge.close_issue(32);

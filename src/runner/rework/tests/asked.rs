@@ -103,7 +103,7 @@ fn a_rework_that_cannot_start_is_passed_over_for_the_next_and_the_board() {
     let runner = running(&rig);
     let skip = json!([{
         "reason": "rework",
-        "issue": 6,
+        "issue": "6",
         "pull_request": 70,
         "error": "cannot read issue #6: gh failed: no issue #6",
     }]);

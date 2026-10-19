@@ -496,7 +496,7 @@ impl Runner {
         let found = self
             .ports
             .tickets
-            .issue(&repo, issue)
+            .issue(&repo, ticket)
             .map_err(|e| AdoptError::Issue(issue, e))?;
         let (agent, note) = self
             .labelled_agent(issue, &found.labels)

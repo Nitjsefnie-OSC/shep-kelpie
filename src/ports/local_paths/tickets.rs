@@ -16,6 +16,7 @@ use crate::ports::{
     Tickets,
 };
 use crate::settings::ForgeSlug;
+use crate::ticket::TicketId;
 
 impl Guarded {
     /// This guard as both ports a runner reads a source through: one guard
@@ -32,11 +33,11 @@ impl Guarded {
 }
 
 impl Tickets for Guarded {
-    fn issue(&self, repo: &ForgeSlug, number: u64) -> Result<Issue, ForgeError> {
-        self.tickets.issue(repo, number)
+    fn issue(&self, repo: &ForgeSlug, ticket: TicketId) -> Result<Issue, ForgeError> {
+        self.tickets.issue(repo, ticket)
     }
 
-    fn sub_issues(&self, repo: &ForgeSlug, parent: u64) -> Result<Vec<SubIssue>, ForgeError> {
+    fn sub_issues(&self, repo: &ForgeSlug, parent: TicketId) -> Result<Vec<SubIssue>, ForgeError> {
         self.tickets.sub_issues(repo, parent)
     }
 
@@ -55,9 +56,9 @@ impl Tickets for Guarded {
     fn issue_comments(
         &self,
         repo: &ForgeSlug,
-        number: u64,
+        ticket: TicketId,
     ) -> Result<Vec<ThreadComment>, ForgeError> {
-        self.tickets.issue_comments(repo, number)
+        self.tickets.issue_comments(repo, ticket)
     }
 
     fn create_issue(
@@ -66,32 +67,32 @@ impl Tickets for Guarded {
         title: &str,
         body: &str,
         labels: &[&str],
-    ) -> Result<u64, ForgeError> {
+    ) -> Result<TicketId, ForgeError> {
         self.check(repo, "the issue's title", title)?;
         self.check(repo, "the issue's body", body)?;
         self.tickets.create_issue(repo, title, body, labels)
     }
 
-    fn close_issue(&self, repo: &ForgeSlug, number: u64) -> Result<(), ForgeError> {
-        self.tickets.close_issue(repo, number)
+    fn close_issue(&self, repo: &ForgeSlug, ticket: TicketId) -> Result<(), ForgeError> {
+        self.tickets.close_issue(repo, ticket)
     }
 
     fn close_issue_as(
         &self,
         repo: &ForgeSlug,
-        number: u64,
+        ticket: TicketId,
         reason: IssueCloseReason,
     ) -> Result<(), ForgeError> {
-        self.tickets.close_issue_as(repo, number, reason)
+        self.tickets.close_issue_as(repo, ticket, reason)
     }
 
     fn set_issue_label(
         &self,
         repo: &ForgeSlug,
-        number: u64,
+        ticket: TicketId,
         label: &str,
         on: bool,
     ) -> Result<(), ForgeError> {
-        self.tickets.set_issue_label(repo, number, label, on)
+        self.tickets.set_issue_label(repo, ticket, label, on)
     }
 }

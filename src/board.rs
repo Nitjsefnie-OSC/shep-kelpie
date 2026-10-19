@@ -4,7 +4,7 @@
 //! The board keeps them in an order and dispatches the first that is free. A
 //! newly ready issue joins it after the last issue of its priority: `priority: P0`,
 //! then `P1`, `P2`, `P3`, `P4`, then an issue with no priority label, and within a
-//! priority the oldest first, by issue number. An issue whose priority label
+//! priority the oldest first, by ticket id. An issue whose priority label
 //! changes moves the same way. An issue that closes or loses the label leaves
 //! it. An issue that already
 //! has an open pull request or an assignee is someone's work in progress, and
@@ -24,6 +24,7 @@ use serde::Serialize;
 use crate::ports::Timestamp;
 use crate::runner::IN_PROGRESS;
 use crate::settings::AgentName;
+use crate::ticket::TicketId;
 
 pub mod briefing;
 mod open;
@@ -57,11 +58,11 @@ const PRIORITIES: [&str; 5] = [
     "priority: P4",
 ];
 
-/// An open issue labelled [`READY`], as the forge lists it
+/// An open issue labelled [`READY`], as its source lists it
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReadyIssue {
-    /// Its number
-    pub number: u64,
+    /// Its id
+    pub ticket: TicketId,
     /// Its title
     pub title: String,
     /// Its body, as written
@@ -74,8 +75,8 @@ pub struct ReadyIssue {
     pub blocked_by: Vec<Blocker>,
     /// How many more blockers the forge counted but did not list
     pub unlisted_blockers: u64,
-    /// The issue it is a sub-issue of, if any
-    pub parent: Option<u64>,
+    /// The ticket it is a sub-issue of, if any
+    pub parent: Option<TicketId>,
     /// Its own sub-issues, as the forge counts them
     pub sub_issues: SubIssues,
 }
@@ -96,11 +97,11 @@ impl SubIssues {
     }
 }
 
-/// An issue a ready issue is blocked by
+/// A ticket a ready ticket is blocked by
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Blocker {
-    /// Its number
-    pub number: u64,
+    /// Its id
+    pub ticket: TicketId,
     /// Whether the forge shows it open
     pub open: bool,
 }
@@ -111,66 +112,66 @@ pub struct Blocker {
 pub enum Skip {
     /// An open pull request closes it
     PullRequest {
-        /// The issue
-        issue: u64,
+        /// The ticket
+        issue: TicketId,
         /// The pull request
         pull_request: u64,
     },
     /// Kelpie already finished a work item for it
     Finished {
-        /// The issue
-        issue: u64,
+        /// The ticket
+        issue: TicketId,
     },
     /// `drop` ended its work item, and the forge has listed it as ready since
     Dropped {
-        /// The issue
-        issue: u64,
+        /// The ticket
+        issue: TicketId,
     },
     /// Someone is assigned to it
     Assigned {
-        /// The issue
-        issue: u64,
+        /// The ticket
+        issue: TicketId,
     },
     /// It carries the `in-progress` label, so an earlier worker holds it
     InProgress {
-        /// The issue
-        issue: u64,
+        /// The ticket
+        issue: TicketId,
     },
     /// It has sub-issues, which are worked in its place
     Split {
-        /// The issue
-        issue: u64,
+        /// The ticket
+        issue: TicketId,
         /// Its sub-issues still open
         open: u64,
     },
-    /// An issue it is blocked by is still open
+    /// A ticket it is blocked by is still open
     Blocked {
-        /// The issue
-        issue: u64,
+        /// The ticket
+        issue: TicketId,
         /// Its open blockers, lowest first
-        by: Vec<u64>,
+        by: Vec<TicketId>,
         /// Blockers the forge did not list, each taken as open
         #[serde(skip_serializing_if = "is_zero")]
         unlisted: u64,
     },
     /// Its `agent:` label names no listed implementer
     Label {
-        /// The issue
-        issue: u64,
+        /// The ticket
+        issue: TicketId,
         /// Why
         error: LabelError,
     },
     /// The forge could not show it when the runner came to take it
     Failed {
-        /// The issue
-        issue: u64,
+        /// The ticket
+        issue: TicketId,
         /// Why, as the refusal reads
         error: String,
     },
     /// Its pull request asked for a rework that could not start this poll
     Rework {
-        /// The issue
-        issue: u64,
+        /// The ticket
+        issue: TicketId,
         /// The pull request
         pull_request: u64,
         /// Why, as the refusal reads
@@ -179,10 +180,10 @@ pub enum Skip {
     /// Its body names a file the branch of a work item parked on a ruling
     /// changes, so it waits for that item to move
     Overlap {
-        /// The issue
-        issue: u64,
-        /// The parked work item's issue
-        with: u64,
+        /// The ticket
+        issue: TicketId,
+        /// The parked work item's ticket
+        with: TicketId,
         /// The files both touch
         files: Vec<String>,
     },
@@ -190,17 +191,17 @@ pub enum Skip {
     /// with `unknown`, the files of that parked work item's branch, before
     /// the overlap with parked branches can be checked
     PathsUnread {
-        /// The issue
-        issue: u64,
+        /// The ticket
+        issue: TicketId,
         /// The parked work item whose branch's files are not known yet
         #[serde(skip_serializing_if = "Option::is_none")]
-        unknown: Option<u64>,
+        unknown: Option<TicketId>,
     },
     /// It has no `agent:` label, and waits for the issue writer to pick
     /// one, or, with `ruling`, for the maintainer to answer that ruling
     Unlabelled {
-        /// The issue
-        issue: u64,
+        /// The ticket
+        issue: TicketId,
         /// The ruling it waits on, since the issue writer could not pick
         #[serde(skip_serializing_if = "Option::is_none")]
         ruling: Option<u64>,
@@ -218,9 +219,9 @@ pub enum Skip {
 }
 
 impl Skip {
-    /// The issue passed over, or 0 for an adopted pull request, which goes
-    /// before every issue
-    pub fn issue(&self) -> u64 {
+    /// The ticket passed over, or `None` for an adopted pull request, which
+    /// goes before every ticket
+    pub fn issue(&self) -> Option<TicketId> {
         match self {
             Self::PullRequest { issue, .. }
             | Self::Finished { issue }
@@ -234,8 +235,8 @@ impl Skip {
             | Self::Rework { issue, .. }
             | Self::Overlap { issue, .. }
             | Self::PathsUnread { issue, .. }
-            | Self::Unlabelled { issue, .. } => *issue,
-            Self::Adopt { .. } => 0,
+            | Self::Unlabelled { issue, .. } => Some(*issue),
+            Self::Adopt { .. } => None,
         }
     }
 }
@@ -247,8 +248,8 @@ fn is_zero(n: &u64) -> bool {
 /// What the board picked, and what it passed over on the way
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Pick {
-    /// The issue to dispatch, if any is free
-    pub issue: Option<u64>,
+    /// The ticket to dispatch, if any is free
+    pub issue: Option<TicketId>,
     /// The ready issues older than it, or all of them when none is free
     pub skipped: Vec<Skip>,
 }
@@ -272,28 +273,28 @@ pub struct Pick {
 pub fn pick(
     ready: &[ReadyIssue],
     open: &[OpenPullRequest],
-    finished: &[u64],
-    dropped: &[u64],
+    finished: &[TicketId],
+    dropped: &[TicketId],
     implementers: &[AgentName],
-    order: &[u64],
+    order: &[TicketId],
 ) -> Pick {
     let mut ready: Vec<&ReadyIssue> = ready.iter().collect();
     ready.sort_by_key(|i| order_key(order, i));
     let mut skipped = Vec::new();
     for issue in ready {
-        let number = issue.number;
-        let mut by: Vec<u64> = issue
+        let number = issue.ticket;
+        let mut by: Vec<TicketId> = issue
             .blocked_by
             .iter()
             .filter(|b| b.open)
-            .map(|b| b.number)
+            .map(|b| b.ticket)
             .collect();
         by.sort_unstable();
         if finished.contains(&number) {
             skipped.push(Skip::Finished { issue: number });
         } else if dropped.contains(&number) {
             skipped.push(Skip::Dropped { issue: number });
-        } else if let Some(pr) = open.iter().find(|pr| pr.closes.contains(&number)) {
+        } else if let Some(pr) = open.iter().find(|pr| closes(pr, number)) {
             skipped.push(Skip::PullRequest {
                 issue: number,
                 pull_request: pr.number,
@@ -334,6 +335,15 @@ pub fn pick(
     }
 }
 
+// Whether `pr` closes ticket `ticket`. A pull request names the GitHub issues
+// its body resolves, which is how the forge lists it, and only a GitHub ticket
+// has an issue number.
+fn closes(pr: &OpenPullRequest, ticket: TicketId) -> bool {
+    ticket
+        .github()
+        .is_some_and(|issue| pr.closes.contains(&issue))
+}
+
 /// The priority an issue's labels give it, from `P0` to `P4`, or `None` with none
 pub fn priority(labels: &[String]) -> Option<&'static str> {
     let label = PRIORITIES.get(priority_rank(labels))?;
@@ -359,14 +369,14 @@ pub fn repo_priority<'a>(repo: &'a [String], value: &str) -> Option<&'a str> {
 }
 
 /// Sorts `ready` into the board's order: `order` first, then an issue it
-/// omits by the board rule, which is priority, then oldest by number
-pub fn rule_order(ready: &mut [ReadyIssue], order: &[u64]) {
+/// omits by the board rule, which is priority, then oldest by id
+pub fn rule_order(ready: &mut [ReadyIssue], order: &[TicketId]) {
     ready.sort_by_key(|i| order_key(order, i));
 }
 
-/// The priority rank each listed issue had when the board last read it, by
-/// issue number, so a changed label is seen
-pub type Ranked = BTreeMap<u64, usize>;
+/// The priority rank each listed ticket had when the board last read it, by
+/// its id, so a changed label is seen
+pub type Ranked = BTreeMap<TicketId, usize>;
 
 /// The order and the ranks on record after a read of the board that listed
 /// `ready`, given those before it
@@ -379,22 +389,26 @@ pub type Ranked = BTreeMap<u64, usize>;
 /// way, as if it were new. Several moves go in oldest first. An issue with no
 /// rank on record keeps its place. With no order kept, the result is the board
 /// rule's order.
-pub fn keep_order(order: &[u64], ranked: &Ranked, ready: &[ReadyIssue]) -> (Vec<u64>, Ranked) {
-    let rank = |n: u64| {
-        let issue = ready.iter().find(|i| i.number == n);
+pub fn keep_order(
+    order: &[TicketId],
+    ranked: &Ranked,
+    ready: &[ReadyIssue],
+) -> (Vec<TicketId>, Ranked) {
+    let rank = |n: TicketId| {
+        let issue = ready.iter().find(|i| i.ticket == n);
         issue.map(|i| priority_rank(&i.labels))
     };
-    let mut kept: Vec<u64> = Vec::with_capacity(ready.len());
+    let mut kept: Vec<TicketId> = Vec::with_capacity(ready.len());
     for &n in order {
         let same = rank(n).is_some_and(|r| ranked.get(&n).is_none_or(|&was| was == r));
         if same && !kept.contains(&n) {
             kept.push(n);
         }
     }
-    let mut moving: Vec<&ReadyIssue> = ready.iter().filter(|i| !kept.contains(&i.number)).collect();
-    moving.sort_by_key(|i| i.number);
+    let mut moving: Vec<&ReadyIssue> = ready.iter().filter(|i| !kept.contains(&i.ticket)).collect();
+    moving.sort_by_key(|i| i.ticket);
     for issue in moving {
-        if kept.contains(&issue.number) {
+        if kept.contains(&issue.ticket) {
             continue;
         }
         let mine = priority_rank(&issue.labels);
@@ -402,7 +416,7 @@ pub fn keep_order(order: &[u64], ranked: &Ranked, ready: &[ReadyIssue]) -> (Vec<
             .iter()
             .rposition(|&n| rank(n).is_some_and(|r| r <= mine))
             .map_or(0, |p| p + 1);
-        kept.insert(at, issue.number);
+        kept.insert(at, issue.ticket);
     }
     let ranks = kept
         .iter()
@@ -413,12 +427,12 @@ pub fn keep_order(order: &[u64], ranked: &Ranked, ready: &[ReadyIssue]) -> (Vec<
 
 // Where the board puts an issue: where `order` lists it, an issue it omits
 // after those it lists, then by the board rule.
-fn order_key(order: &[u64], issue: &ReadyIssue) -> (usize, usize, u64) {
-    let listed = order.iter().position(|&n| n == issue.number);
+fn order_key(order: &[TicketId], issue: &ReadyIssue) -> (usize, usize, TicketId) {
+    let listed = order.iter().position(|&n| n == issue.ticket);
     (
         listed.unwrap_or(order.len()),
         priority_rank(&issue.labels),
-        issue.number,
+        issue.ticket,
     )
 }
 

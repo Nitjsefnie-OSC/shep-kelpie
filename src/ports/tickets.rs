@@ -22,27 +22,28 @@ use super::{
 use crate::board::READY;
 use crate::board::ReadyIssue;
 use crate::settings::ForgeSlug;
+use crate::ticket::TicketId;
 
 /// The tickets of one project, as their source holds them
 ///
 /// A ticket's id is opaque to kelpie: whatever its source gives it. A GitHub
-/// ticket's id is its issue number, so `number` is an issue number wherever
-/// the tickets are GitHub issues.
+/// ticket's id is its issue number, so a GitHub source's impl turns each id
+/// back into the number its `gh` call needs.
 pub trait Tickets: Send + Sync {
-    /// Issue `number` on `repo`
+    /// Ticket `ticket` on `repo`
     ///
     /// # Errors
     ///
-    /// [`ForgeError`] when the forge cannot be asked, has no such issue, or
+    /// [`ForgeError`] when the forge cannot be asked, has no such ticket, or
     /// its answer cannot be read.
-    fn issue(&self, repo: &ForgeSlug, number: u64) -> Result<Issue, ForgeError>;
+    fn issue(&self, repo: &ForgeSlug, ticket: TicketId) -> Result<Issue, ForgeError>;
 
-    /// The sub-issues of issue `parent` on `repo`, with how each stands
+    /// The sub-issues of ticket `parent` on `repo`, with how each stands
     ///
     /// # Errors
     ///
     /// [`ForgeError`] when the forge cannot be asked or its answer cannot be read.
-    fn sub_issues(&self, repo: &ForgeSlug, parent: u64) -> Result<Vec<SubIssue>, ForgeError>;
+    fn sub_issues(&self, repo: &ForgeSlug, parent: TicketId) -> Result<Vec<SubIssue>, ForgeError>;
 
     /// The open issues on `repo`, ready or not, that have sub-issues and whose
     /// sub-issues are all closed, whatever they closed as
@@ -66,7 +67,7 @@ pub trait Tickets: Send + Sync {
     /// [`ForgeError`] when the forge cannot be asked or its answer read.
     fn open_issues(&self, repo: &ForgeSlug) -> Result<Vec<OpenIssue>, ForgeError>;
 
-    /// Every comment on issue `number` of `repo`, oldest first
+    /// Every comment on ticket `ticket` of `repo`, oldest first
     ///
     /// # Errors
     ///
@@ -74,31 +75,31 @@ pub trait Tickets: Send + Sync {
     fn issue_comments(
         &self,
         repo: &ForgeSlug,
-        number: u64,
+        ticket: TicketId,
     ) -> Result<Vec<ThreadComment>, ForgeError>;
 
-    /// Opens an issue on `repo` with these labels, and returns its number
+    /// Opens a ticket on `repo` with these labels, and returns its id
     ///
     /// # Errors
     ///
-    /// [`ForgeError`] when the forge refuses, or its answer names no number.
+    /// [`ForgeError`] when the forge refuses, or its answer names no ticket.
     fn create_issue(
         &self,
         repo: &ForgeSlug,
         title: &str,
         body: &str,
         labels: &[&str],
-    ) -> Result<u64, ForgeError>;
+    ) -> Result<TicketId, ForgeError>;
 
-    /// Closes issue `number`, with no comment: a comment would be posted as the
+    /// Closes ticket `ticket`, with no comment: a comment would be posted as the
     /// login `gh` acts as, and only [`Forge::comment`] records the id of one
     ///
     /// # Errors
     ///
     /// [`ForgeError`] when the forge refuses or cannot be asked.
-    fn close_issue(&self, repo: &ForgeSlug, number: u64) -> Result<(), ForgeError>;
+    fn close_issue(&self, repo: &ForgeSlug, ticket: TicketId) -> Result<(), ForgeError>;
 
-    /// Closes issue `number` for `reason`, which the forge records on it
+    /// Closes ticket `ticket` for `reason`, which the forge records on it
     ///
     /// # Errors
     ///
@@ -106,11 +107,11 @@ pub trait Tickets: Send + Sync {
     fn close_issue_as(
         &self,
         repo: &ForgeSlug,
-        number: u64,
+        ticket: TicketId,
         reason: IssueCloseReason,
     ) -> Result<(), ForgeError>;
 
-    /// Adds `label` to issue `number`, or takes it off
+    /// Adds `label` to ticket `ticket`, or takes it off
     ///
     /// # Errors
     ///
@@ -118,7 +119,7 @@ pub trait Tickets: Send + Sync {
     fn set_issue_label(
         &self,
         repo: &ForgeSlug,
-        number: u64,
+        ticket: TicketId,
         label: &str,
         on: bool,
     ) -> Result<(), ForgeError>;

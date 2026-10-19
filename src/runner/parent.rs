@@ -13,6 +13,7 @@ use super::Runner;
 use super::report::{Begin, StepReport};
 use crate::board::ReadyIssue;
 use crate::ports::{SubIssueState, Timestamp};
+use crate::ticket::TicketId;
 
 /// Refusals in a row before this runner stops closing an issue, until it
 /// restarts, so one the forge will never close cannot hold up the board
@@ -22,13 +23,13 @@ const TRIES: u32 = 3;
 pub(super) const PARENT_CLOSED: &str =
     "Every sub-issue of this issue is closed, so kelpie closes it too.";
 
-/// The forge's refusals in a row to close each issue, kept in memory only
-pub(super) type Refused = BTreeMap<u64, u32>;
+/// The forge's refusals in a row to close each ticket, kept in memory only
+pub(super) type Refused = BTreeMap<TicketId, u32>;
 
 /// The parents off the ready list whose sub-issues were all closed as not
 /// planned, with how many they had and when they were read, kept in memory
 /// only so a look does not read them again
-pub(super) type Unbuilt = BTreeMap<u64, (u64, Timestamp)>;
+pub(super) type Unbuilt = BTreeMap<TicketId, (u64, Timestamp)>;
 
 /// How long a parent read as all not planned goes unread, since the forge can
 /// change how a closed sub-issue closed without changing their count
@@ -41,16 +42,16 @@ impl Runner {
     pub(super) fn close_done_parent(&mut self, ready: &[ReadyIssue]) -> Option<Begin> {
         let done = ready
             .iter()
-            .find(|i| i.sub_issues.all_closed() && self.may_close(i.number));
-        let issue = match done {
-            Some(done) => done.number,
+            .find(|i| i.sub_issues.all_closed() && self.may_close(i.ticket));
+        let ticket = match done {
+            Some(done) => done.ticket,
             None => self.unlisted_done_parent(ready)?,
         };
-        Some(Begin::Report(self.close_parent(issue)))
+        Some(Begin::Report(self.close_parent(ticket)))
     }
 
-    fn may_close(&self, issue: u64) -> bool {
-        self.close_refused.get(&issue).is_none_or(|n| *n < TRIES)
+    fn may_close(&self, ticket: TicketId) -> bool {
+        self.close_refused.get(&ticket).is_none_or(|n| *n < TRIES)
     }
 
     /// An open issue off the ready list whose sub-issues are all closed with
@@ -60,7 +61,7 @@ impl Runner {
     /// sub-issues closed, and one with none completed is read again when its
     /// count of sub-issues changes, or an hour on. A read that fails is told
     /// in the log.
-    fn unlisted_done_parent(&mut self, ready: &[ReadyIssue]) -> Option<u64> {
+    fn unlisted_done_parent(&mut self, ready: &[ReadyIssue]) -> Option<TicketId> {
         let listed = match self.ports.tickets.finished_parents(&self.remote) {
             Ok(listed) => listed,
             Err(e) => {
@@ -71,57 +72,60 @@ impl Runner {
             }
         };
         let now = self.ports.clock.now();
-        self.unbuilt.retain(|number, (total, at)| {
+        self.unbuilt.retain(|ticket, (total, at)| {
             let fresh = now.0 < at.0.saturating_add(UNBUILT_RECHECK);
-            fresh && (listed.iter()).any(|p| p.number == *number && p.sub_issues == *total)
+            fresh && (listed.iter()).any(|p| p.ticket == *ticket && p.sub_issues == *total)
         });
         for parent in listed {
-            let number = parent.number;
-            let held = ready.iter().any(|i| i.number == number)
-                || self.state.item(number).is_some()
-                || self.unbuilt.contains_key(&number);
-            if held || !self.may_close(number) {
+            let ticket = parent.ticket;
+            let held = ready.iter().any(|i| i.ticket == ticket)
+                || self.state.item_by_ticket(ticket).is_some()
+                || self.unbuilt.contains_key(&ticket);
+            if held || !self.may_close(ticket) {
                 continue;
             }
-            match self.ports.tickets.sub_issues(&self.remote, number) {
+            match self.ports.tickets.sub_issues(&self.remote, ticket) {
                 // The listing can be stale, so every sub-issue is checked closed here.
                 Ok(subs) if subs.iter().any(|s| s.state == SubIssueState::Open) => {}
                 Ok(subs) if subs.iter().any(|s| s.state == SubIssueState::Completed) => {
-                    return Some(number);
+                    return Some(ticket);
                 }
                 Ok(subs) if !subs.is_empty() => {
-                    self.unbuilt.insert(number, (parent.sub_issues, now));
+                    self.unbuilt.insert(ticket, (parent.sub_issues, now));
                 }
                 Ok(_) => {}
                 Err(e) => self.notes.push(format!(
-                    "cannot read the sub-issues of #{number} to close it: {e}"
+                    "cannot read the sub-issues of {ticket} to close it: {e}"
                 )),
             }
         }
         None
     }
 
-    fn close_parent(&mut self, issue: u64) -> StepReport {
+    fn close_parent(&mut self, ticket: TicketId) -> StepReport {
+        // The comment and the report name the GitHub issue, which is what every
+        // project's tickets are today.
+        let issue = ticket.github().unwrap_or_default();
         // The comment goes first, on the first try only, as the App where one
         // covers the repo, else as a comment kelpie records: closing with
         // `--comment` would post it as the login that answers rulings, with no
         // id to skip. A comment that fails is told in the log, and the close
         // goes on without it.
-        if !self.close_refused.contains_key(&issue)
+        if !self.close_refused.contains_key(&ticket)
             && let Err(e) = self.comment_on_issue(issue, PARENT_CLOSED)
         {
             self.notes.push(format!(
                 "cannot comment on issue #{issue} before closing it: {e}"
             ));
         }
-        let closed = self.ports.tickets.close_issue(&self.remote, issue);
+        let closed = self.ports.tickets.close_issue(&self.remote, ticket);
         match closed {
             Ok(()) => {
-                self.close_refused.remove(&issue);
+                self.close_refused.remove(&ticket);
                 StepReport::ParentClosed { issue }
             }
             Err(e) => {
-                let failures = self.close_refused.entry(issue).or_default();
+                let failures = self.close_refused.entry(ticket).or_default();
                 *failures += 1;
                 StepReport::ParentCloseFailed {
                     issue,
@@ -185,8 +189,8 @@ mod tests {
         assert_eq!(
             rig.ask(&runner, "status", None)["skipped"],
             json!([
-                { "reason": "split", "issue": 5, "open": 1 },
-                { "reason": "blocked", "issue": 8, "by": [40] },
+                { "reason": "split", "issue": "5", "open": 1 },
+                { "reason": "blocked", "issue": "8", "by": ["40"] },
             ])
         );
     }

@@ -23,6 +23,7 @@ use crate::ports::{
 };
 use crate::settings::PmAgent;
 use crate::state::StateError;
+use crate::ticket::TicketId;
 use crate::usage::CallKind;
 use crate::work_item::new_session_id;
 
@@ -104,11 +105,11 @@ pub(super) enum Wake {
     /// A slot is free, and this many ready issues could fill it
     Pick(usize),
     /// The branches of two open work items conflict in these files
-    Conflict(u64, u64, Vec<String>),
+    Conflict(TicketId, TicketId, Vec<String>),
     /// A work item is stuck, as this says, on this
     Stuck {
-        /// The work item's issue
-        issue: u64,
+        /// The work item's ticket
+        ticket: TicketId,
         /// What it is stuck on, in words
         what: String,
         /// What it is stuck on, which a new turn, phase or ruling is another of
@@ -117,8 +118,8 @@ pub(super) enum Wake {
     /// A call in flight has waited long for a lease on its model, which is not
     /// the worker being stuck
     LeaseWait {
-        /// The work item's issue
-        issue: u64,
+        /// The work item's ticket
+        ticket: TicketId,
         /// Whether the call that waits is a worker's turn, not a review call
         worker: bool,
         /// What its call waits for
@@ -132,8 +133,8 @@ pub(super) enum Wake {
     Told,
     /// A worker asked a question, which ruling `id` holds for the maintainer
     Question {
-        /// The work item's issue
-        issue: u64,
+        /// The work item's ticket
+        ticket: TicketId,
         /// The ruling
         id: u64,
         /// The worker's question, verbatim
@@ -142,8 +143,8 @@ pub(super) enum Wake {
     /// A pull request merged with confirmed findings left unfixed, which
     /// ruling `id` holds for the maintainer to file or drop
     FollowUp {
-        /// The work item's issue, whose folder holds the merged diff
-        issue: u64,
+        /// The work item's ticket, whose folder holds the merged diff
+        ticket: TicketId,
         /// The ruling
         id: u64,
         /// The merged pull request
@@ -166,8 +167,8 @@ impl Wake {
         match (self, other) {
             (Self::Pick(_), Self::Pick(_)) | (Self::Told, Self::Told) => true,
             (Self::Conflict(a, b, _), Self::Conflict(c, d, _)) => (a, b) == (c, d),
-            (Self::Stuck { issue: a, .. }, Self::Stuck { issue: b, .. }) => a == b,
-            (Self::LeaseWait { issue: a, .. }, Self::LeaseWait { issue: b, .. }) => a == b,
+            (Self::Stuck { ticket: a, .. }, Self::Stuck { ticket: b, .. }) => a == b,
+            (Self::LeaseWait { ticket: a, .. }, Self::LeaseWait { ticket: b, .. }) => a == b,
             (Self::Question { id: a, .. }, Self::Question { id: b, .. }) => a == b,
             (Self::FollowUp { id: a, .. }, Self::FollowUp { id: b, .. }) => a == b,
             (Self::Vote { id: a, .. }, Self::Vote { id: b, .. }) => a == b,
@@ -180,7 +181,7 @@ impl Wake {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Pick {
     /// This ready issue
-    Issue(u64),
+    Issue(TicketId),
     /// Nothing, decided at this time, until its next wake, or for
     /// [`NOTHING_FOR`] while no work item is open
     Nothing(Timestamp),
@@ -192,7 +193,7 @@ pub(super) enum Pick {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Choice {
     /// Starts this issue, the project manager's pick
-    Take(u64),
+    Take(TicketId),
     /// Starts what the board rule picked
     Rule,
     /// Starts nothing now: the project manager is deciding, or said so
@@ -242,9 +243,9 @@ pub(super) struct Desk {
     // Since when a window of held reasons has been open
     holding_since: Option<Timestamp>,
     pick: Option<Pick>,
-    held: Vec<u64>,
+    held: Vec<TicketId>,
     // Each pair of open branches in conflict, with the files
-    conflicts: BTreeMap<(u64, u64), Vec<String>>,
+    conflicts: BTreeMap<(TicketId, TicketId), Vec<String>>,
     // A stuck item or conflict was given up while it was unavailable
     lapsed: bool,
     down_until: Option<Timestamp>,
@@ -255,11 +256,11 @@ pub(super) struct Desk {
     compact: bool,
     reply: Option<String>,
     // What it decided for an idle worker whose call it had ended
-    after_end: BTreeMap<u64, (Action, String)>,
+    after_end: BTreeMap<TicketId, (Action, String)>,
     // Each work item it left to resolve itself, with the state it was in, when
     // it said so, how many `none`s in a row on that state, and when its hold
     // ends
-    left_alone: BTreeMap<u64, LeftAlone>,
+    left_alone: BTreeMap<TicketId, LeftAlone>,
     // Each question ruling held back from the maintainer for its answer, with
     // when it was raised
     asking: BTreeMap<u64, Timestamp>,
@@ -291,8 +292,8 @@ impl Runner {
         if self.agents.pm.is_none() {
             return;
         }
-        if let Wake::Stuck { issue, state, .. } = &wake
-            && self.left_alone_holds(*issue, *state)
+        if let Wake::Stuck { ticket, state, .. } = &wake
+            && self.left_alone_holds(*ticket, *state)
         {
             return;
         }
@@ -332,7 +333,7 @@ impl Runner {
     /// The ready issues the project manager holds back, out of `takeable`,
     /// those the board could start. With no work item open, a hold over
     /// every one of them has nothing to wait for, so it goes.
-    pub(super) fn pm_holds(&mut self, takeable: &[u64]) -> Vec<u64> {
+    pub(super) fn pm_holds(&mut self, takeable: &[TicketId]) -> Vec<TicketId> {
         let all = !takeable.is_empty() && takeable.iter().all(|n| self.pm.held.contains(n));
         if all && self.state.work_items.is_empty() {
             self.notes.push(
@@ -346,14 +347,14 @@ impl Runner {
     }
 
     /// The ready issues the project manager holds back, as the board shows them
-    pub(super) fn pm_held(&self) -> &[u64] {
+    pub(super) fn pm_held(&self) -> &[TicketId] {
         &self.pm.held
     }
 
     /// What dispatch starts out of `takeable`, the ready issues the board
     /// could take now: the project manager's pick, or nothing while it said
     /// so, or it is asked where two or more could start; else the board rule's
-    pub(super) fn pm_pick(&mut self, takeable: &[u64]) -> Choice {
+    pub(super) fn pm_pick(&mut self, takeable: &[TicketId]) -> Choice {
         if self.agents.pm.is_none() {
             return Choice::Rule;
         }

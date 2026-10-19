@@ -10,8 +10,10 @@ use std::fmt;
 use serde::Serialize;
 
 use super::Runner;
+use crate::board::briefing::ticket_ref;
 use crate::board::priority;
 use crate::state::StateError;
+use crate::ticket::{TicketId, issue_numbers, ticket_ids};
 
 /// What `board` answers
 #[derive(Debug, Serialize)]
@@ -28,8 +30,8 @@ pub struct Board {
 pub struct Place {
     /// Its place in the list, from 1
     pub position: usize,
-    /// The issue
-    pub issue: u64,
+    /// Its ticket
+    pub issue: TicketId,
     /// Its title
     pub title: String,
     /// Its priority, from `P0` to `P4`, or null with none
@@ -43,8 +45,8 @@ pub struct Place {
 /// Why `board move` or `board top` was refused
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MoveError {
-    /// The issue is not in the list
-    NotReady(u64),
+    /// The ticket is not in the list
+    NotReady(TicketId),
     /// Positions start at 1
     FromOne,
     /// The position is past the last place
@@ -61,7 +63,11 @@ pub enum MoveError {
 impl fmt::Display for MoveError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::NotReady(issue) => write!(f, "#{issue} is not ready, so it is not in the list"),
+            Self::NotReady(ticket) => write!(
+                f,
+                "{} is not ready, so it is not in the list",
+                ticket_ref(*ticket)
+            ),
             Self::FromOne => f.write_str("positions start at 1"),
             Self::PastTheEnd { position, len } => write!(
                 f,
@@ -84,11 +90,11 @@ impl Runner {
             .enumerate()
             .map(|(at, issue)| Place {
                 position: at + 1,
-                issue: issue.number,
+                issue: issue.ticket,
                 title: issue.title.clone(),
                 priority: priority(&issue.labels),
                 blocked: issue.blocked_by.iter().any(|b| b.open) || issue.unlisted_blockers > 0,
-                held: held.contains(&issue.number),
+                held: held.contains(&issue.ticket),
             })
             .collect();
         Board {
@@ -97,17 +103,17 @@ impl Runner {
         }
     }
 
-    /// Puts `issue` at `position` in the list, counted from 1, and moves the
-    /// issues between its old place and the new one by one
+    /// Puts `ticket`'s issue at `position` in the list, counted from 1, and
+    /// moves the issues between its old place and the new one by one
     ///
     /// # Errors
     ///
     /// [`MoveError`] when the issue is not in the list or the position is not
     /// a place in it. Nothing changes then.
-    pub fn move_on_board(&mut self, issue: u64, position: u64) -> Result<(), MoveError> {
-        let mut listed: Vec<u64> = self.ready_in_order().iter().map(|i| i.number).collect();
-        if !listed.contains(&issue) {
-            return Err(MoveError::NotReady(issue));
+    pub fn move_on_board(&mut self, ticket: TicketId, position: u64) -> Result<(), MoveError> {
+        let mut listed: Vec<TicketId> = self.ready_in_order().iter().map(|i| i.ticket).collect();
+        if !listed.contains(&ticket) {
+            return Err(MoveError::NotReady(ticket));
         }
         let place = match usize::try_from(position) {
             Ok(0) => return Err(MoveError::FromOne),
@@ -119,9 +125,9 @@ impl Runner {
                 });
             }
         };
-        listed.retain(|&n| n != issue);
-        listed.insert(place - 1, issue);
-        let order = refill(&self.state.order, &listed);
+        listed.retain(|&t| t != ticket);
+        listed.insert(place - 1, ticket);
+        let order = issue_numbers(&refill(&ticket_ids(&self.state.order), &listed));
         if order == self.state.order {
             return Ok(());
         }
@@ -137,15 +143,15 @@ impl Runner {
 // listed ones held, so an issue the list leaves out, one a work item holds,
 // keeps its own place between them. When `order` holds fewer places than
 // `listed` has issues, the sequence's last issues are appended.
-fn refill(order: &[u64], listed: &[u64]) -> Vec<u64> {
+fn refill(order: &[TicketId], listed: &[TicketId]) -> Vec<TicketId> {
     let mut sequence = listed.iter().copied();
-    let mut refilled: Vec<u64> = order
+    let mut refilled: Vec<TicketId> = order
         .iter()
-        .map(|n| {
-            if listed.contains(n) {
+        .map(|ticket| {
+            if listed.contains(ticket) {
                 sequence.next().expect("a listed issue for each place")
             } else {
-                *n
+                *ticket
             }
         })
         .collect();

@@ -166,13 +166,32 @@ impl ProjectState {
     }
 }
 
+/// The tickets these issue numbers name, in order. The state file keeps issue
+/// numbers until #1010 keys it by ticket id, so every list the board works in
+/// is built from them. A number no ticket has is left out.
+#[must_use]
+pub fn ticket_ids(numbers: &[u64]) -> Vec<TicketId> {
+    numbers
+        .iter()
+        .copied()
+        .filter_map(TicketId::from_issue)
+        .collect()
+}
+
+/// These tickets as the issue numbers the state file keeps them in, in order.
+/// A ticket with no issue number is left out, as #1010 will not need one.
+#[must_use]
+pub fn issue_numbers(tickets: &[TicketId]) -> Vec<u64> {
+    tickets.iter().filter_map(TicketId::github).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
 
     use serde_json::json;
 
-    use super::TicketId;
+    use super::{TicketId, issue_numbers, ticket_ids};
     use crate::ports::{SessionId, Timestamp};
     use crate::state::{Finished, ProjectState, Ruling, RulingKind, Stuck};
     use crate::work_item::{Seconds, WorkItem};
@@ -196,6 +215,20 @@ mod tests {
             assert_eq!(ticket.to_string(), text, "{text}");
             assert_eq!(ticket.github(), github, "{text}");
         }
+    }
+
+    #[test]
+    fn a_list_turns_from_issue_numbers_to_tickets_and_back() {
+        assert_eq!(
+            ticket_ids(&[7, 0, 9]),
+            [id("7"), id("9")],
+            "zero is no ticket"
+        );
+        assert_eq!(
+            issue_numbers(&[id("7"), id("k3"), id("9")]),
+            [7, 9],
+            "a local ticket has no issue number"
+        );
     }
 
     #[test]

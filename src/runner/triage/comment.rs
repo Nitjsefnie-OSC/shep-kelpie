@@ -266,7 +266,10 @@ impl Runner {
         issue: u64,
         after: Option<u64>,
     ) -> Result<Option<Marked>, ForgeError> {
-        let comments = self.ports.tickets.issue_comments(&self.remote, issue)?;
+        let comments = self
+            .ports
+            .tickets
+            .issue_comments(&self.remote, super::ticket(issue)?)?;
         let Some(app) = self.app_login().map(|app| plain_login(&app)) else {
             return Ok(None);
         };

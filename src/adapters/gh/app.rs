@@ -16,6 +16,7 @@ use crate::ports::{AppForges, AppReads, ForgeError, Issue, PullRequest, Reading,
 use crate::profile::{login_dir, write_login};
 use crate::review_bot::{Activity, Login};
 use crate::settings::ForgeSlug;
+use crate::ticket::TicketId;
 
 /// The reads of one repo, as the App, through the `gh` config folder `config`
 #[derive(Debug)]
@@ -25,7 +26,10 @@ pub struct GhAppReads {
 }
 
 impl AppReads for GhAppReads {
-    fn issue(&self, repo: &ForgeSlug, number: u64) -> Result<Issue, ForgeError> {
+    fn issue(&self, repo: &ForgeSlug, ticket: TicketId) -> Result<Issue, ForgeError> {
+        let Some(number) = ticket.github() else {
+            return Err(ForgeError::NoIssue { ticket });
+        };
         issue(Some(&self.config), repo, number)
     }
 

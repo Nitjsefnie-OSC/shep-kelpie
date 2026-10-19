@@ -69,11 +69,12 @@ impl Runner {
     // Closes `issue` as a duplicate of `of`, from a record at the `closed`
     // step: what a restart leaves after the comment is already up
     pub(super) fn close_duplicate(&mut self, issue: u64, of: u64) -> Result<(), StateError> {
-        match self
-            .ports
-            .tickets
-            .close_issue_as(&self.remote, issue, IssueCloseReason::Duplicate)
-        {
+        let closed = super::ticket(issue).and_then(|ticket| {
+            self.ports
+                .tickets
+                .close_issue_as(&self.remote, ticket, IssueCloseReason::Duplicate)
+        });
+        match closed {
             Ok(()) => {
                 self.triage_stepped(issue, TriageStep::Done)?;
                 self.triage_tries.remove(&issue);

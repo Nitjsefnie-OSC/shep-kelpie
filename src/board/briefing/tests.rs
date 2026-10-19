@@ -1,5 +1,5 @@
 use super::*;
-use crate::test::EPOCH;
+use crate::test::{EPOCH, ticket};
 
 fn files(names: &[&str]) -> Vec<String> {
     names.iter().map(|&n| n.to_owned()).collect()
@@ -8,7 +8,7 @@ fn files(names: &[&str]) -> Vec<String> {
 fn item(issue: u64, session: Session, files: Files) -> Item {
     Item {
         waiting: None,
-        issue,
+        ticket: ticket(issue),
         title: format!("Issue {issue}"),
         phase: "implementing".into(),
         pull_request: None,
@@ -259,7 +259,7 @@ fn quoting(body: &str) -> String {
         ready: Some(Ready {
             read: Timestamp(EPOCH),
             issues: vec![ReadyLine {
-                number: 9,
+                ticket: ticket(9),
                 title: "Nine".into(),
                 priority: None,
                 waits: None,
@@ -270,7 +270,7 @@ fn quoting(body: &str) -> String {
         events: Vec::new(),
         woken_before: false,
         dropped: false,
-        conflicts: BTreeMap::from([((7, 8), Merge::Unknown)]),
+        conflicts: BTreeMap::from([((ticket(7), ticket(8)), Merge::Unknown)]),
     };
     render(&board)
 }

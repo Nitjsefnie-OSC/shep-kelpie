@@ -10,6 +10,7 @@
 
 use super::answer::{Action, Answer, Unstick};
 use super::{Pick, StuckState, stuck_on};
+use crate::board::briefing::ticket_ref;
 use crate::runner::thread_replies::Settler;
 use crate::runner::{Answer as Ruled, RuleError, Runner};
 use crate::state::{RulingKind, StateError};
@@ -38,30 +39,35 @@ impl Runner {
         if matches!(self.pm.pick, Some(Pick::Nothing(_))) {
             self.pm.pick = None;
         }
-        let mut held: Vec<u64> = Vec::new();
+        let mut held: Vec<TicketId> = Vec::new();
         let mut dropped = answer.unread.clone();
-        for &n in &answer.hold {
-            match ready.contains(&n) {
-                true if !held.contains(&n) => held.push(n),
+        for &ticket in &answer.hold {
+            let named = ticket_ref(ticket);
+            match ready.contains(&ticket) {
+                true if !held.contains(&ticket) => held.push(ticket),
                 true => {}
-                false => dropped.push(format!("hold #{n}: not a ready issue on the board")),
+                false => dropped.push(format!("hold {named}: not a ready issue on the board")),
             }
         }
         let mut acted = Vec::new();
         let now = self.ports.clock.now();
         match answer.pick {
-            Some(n) if held.contains(&n) => {
-                dropped.push(format!("pick #{n}: it holds #{n} too"));
+            Some(ticket) if held.contains(&ticket) => {
+                let named = ticket_ref(ticket);
+                dropped.push(format!("pick {named}: it holds {named} too"));
                 if picking {
                     self.pm.pick = Some(Pick::Rule);
                 }
             }
-            Some(n) if ready.contains(&n) => {
-                self.pm.pick = Some(Pick::Issue(n));
-                acted.push(format!("picked #{n}"));
+            Some(ticket) if ready.contains(&ticket) => {
+                self.pm.pick = Some(Pick::Issue(ticket));
+                acted.push(format!("picked {}", ticket_ref(ticket)));
             }
-            Some(n) => {
-                dropped.push(format!("pick #{n}: not a ready issue on the board"));
+            Some(ticket) => {
+                dropped.push(format!(
+                    "pick {}: not a ready issue on the board",
+                    ticket_ref(ticket)
+                ));
                 if picking {
                     self.pm.pick = Some(Pick::Rule);
                 }
@@ -76,17 +82,17 @@ impl Runner {
             self.pm.asked_pick = false;
         }
         if !held.is_empty() {
-            let named: Vec<String> = held.iter().map(|n| format!("#{n}")).collect();
+            let named: Vec<String> = held.iter().map(|&t| ticket_ref(t)).collect();
             acted.push(format!("holds {}", named.join(", ")));
         }
         self.pm.held = held;
-        let mut unstuck: Vec<u64> = Vec::new();
+        let mut unstuck: Vec<TicketId> = Vec::new();
         for unstick in &answer.unstick {
             if unstuck.contains(&unstick.item) {
                 dropped.push(format!(
-                    "{} #{}: the answer names it twice",
+                    "{} {}: the answer names it twice",
                     unstick.action.as_str(),
-                    unstick.item
+                    ticket_ref(unstick.item)
                 ));
                 continue;
             }
@@ -123,34 +129,35 @@ impl Runner {
     // What one unstick in the answer did, or why it was dropped.
     fn unstick(&mut self, unstick: &Unstick) -> Result<Result<String, String>, StateError> {
         let Unstick { item, action, why } = unstick;
-        let n = *item;
-        let Some((ticket, stuck)) = self.stuck(n) else {
+        let ticket = *item;
+        let named = ticket_ref(ticket);
+        let Some(stuck) = self.stuck(ticket) else {
             return Ok(Err(format!(
-                "{} #{n}: not a stuck work item on the board",
+                "{} {named}: not a stuck work item on the board",
                 action.as_str()
             )));
         };
         let now = self.ports.clock.now();
         let done = match (stuck, action) {
             (_, Action::Leave) => {
-                self.pm_left_alone(n, stuck, now);
-                format!("left #{n} to resolve itself")
+                self.pm_left_alone(ticket, stuck, now);
+                format!("left {named} to resolve itself")
             }
             (StuckState::Idle(..), action) => {
-                self.pm.left_alone.remove(&n);
+                self.pm.left_alone.remove(&ticket);
                 // Its end parks it on the ceiling's ruling, which this then settles.
                 self.flights.end(ticket);
-                self.pm.after_end.insert(n, (*action, why.clone()));
-                format!("ended #{n}'s idle call, to {}", action.as_str())
+                self.pm.after_end.insert(ticket, (*action, why.clone()));
+                format!("ended {named}'s idle call, to {}", action.as_str())
             }
             (StuckState::Ruling { id, .. }, action) => {
-                self.pm.left_alone.remove(&n);
-                if let Err(e) = self.settle(n, id, *action, why)? {
+                self.pm.left_alone.remove(&ticket);
+                if let Err(e) = self.settle(ticket, id, *action, why)? {
                     return Ok(Err(e));
                 }
                 match action {
-                    Action::Retry => format!("retried #{n}"),
-                    _ => format!("put #{n} to the maintainer on ruling {id}"),
+                    Action::Retry => format!("retried {named}"),
+                    _ => format!("put {named} to the maintainer on ruling {id}"),
                 }
             }
         };
@@ -163,16 +170,17 @@ impl Runner {
     /// # Errors
     ///
     /// [`StateError`] when what it did cannot be saved.
-    pub(in crate::runner) fn pm_after_end(&mut self, issue: u64) -> Result<(), StateError> {
-        let Some((action, why)) = self.pm.after_end.remove(&issue) else {
+    pub(in crate::runner) fn pm_after_end(&mut self, ticket: TicketId) -> Result<(), StateError> {
+        let Some((action, why)) = self.pm.after_end.remove(&ticket) else {
             return Ok(());
         };
-        let Some((_, StuckState::Ruling { id, .. })) = self.stuck(issue) else {
+        let Some(StuckState::Ruling { id, .. }) = self.stuck(ticket) else {
             return Ok(());
         };
-        if let Err(e) = self.settle(issue, id, action, &why)? {
+        if let Err(e) = self.settle(ticket, id, action, &why)? {
             self.notes.push(format!(
-                "the project manager could not act on #{issue}: {e}"
+                "the project manager could not act on {}: {e}",
+                ticket_ref(ticket)
             ));
         }
         Ok(())
@@ -183,13 +191,14 @@ impl Runner {
     // the project manager's words added to the ruling, posted again.
     fn settle(
         &mut self,
-        issue: u64,
+        ticket: TicketId,
         id: u64,
         action: Action,
         why: &str,
     ) -> Result<Result<(), String>, StateError> {
+        let named = ticket_ref(ticket);
         let Some(ruling) = self.state.rulings.iter().find(|r| r.id == id) else {
-            return Ok(Err(format!("#{issue}: ruling {id} is answered")));
+            return Ok(Err(format!("{named}: ruling {id} is answered")));
         };
         let why = plain(&self.shown(why.to_owned()), WORDS);
         if action == Action::Retry {
@@ -210,7 +219,7 @@ impl Runner {
             return match self.rule_by(id, answer, by) {
                 Ok(()) => Ok(Ok(())),
                 Err(RuleError::State(e)) => Err(e),
-                Err(e) => Ok(Err(format!("retry #{issue}: {e}"))),
+                Err(e) => Ok(Err(format!("retry {named}: {e}"))),
             };
         }
         let lead = match action {
@@ -228,26 +237,18 @@ impl Runner {
         Ok(Ok(()))
     }
 
-    // How `issue`'s work item is stuck now, if it is, by its ticket.
-    fn stuck(&self, issue: u64) -> Option<(TicketId, StuckState)> {
-        let ticket = TicketId::from_issue(issue)?;
+    // How `ticket`'s work item is stuck now, if it is.
+    fn stuck(&self, ticket: TicketId) -> Option<StuckState> {
         let item = self.state.item_by_ticket(ticket)?;
         if let Phase::Ruling { id } = item.phase {
             let ruling = self.state.rulings.iter().find(|r| r.id == id)?;
-            return stuck_on(&ruling.kind).map(|_| {
-                (
-                    ticket,
-                    StuckState::Ruling {
-                        id,
-                        raised: ruling.raised,
-                    },
-                )
+            return stuck_on(&ruling.kind).map(|_| StuckState::Ruling {
+                id,
+                raised: ruling.raised,
             });
         }
         let watched = self.flights.watched(ticket)?;
-        watched
-            .idle
-            .then_some((ticket, StuckState::Idle(watched.started)))
+        watched.idle.then_some(StuckState::Idle(watched.started))
     }
 }
 

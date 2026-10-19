@@ -335,7 +335,7 @@ enum Request {
     Finish,
     Start,
     Pausing,
-    Board(Option<(u64, u64)>),
+    Board(Option<(TicketId, u64)>),
     Triage(u64),
 }
 
@@ -570,10 +570,10 @@ fn read(action: &str, params: Option<&str>) -> Result<Request, String> {
                 // A position of 0 is read, so the runner can say positions start at 1.
                 ["move", issue, position] => {
                     let place = position.bytes().all(|b| b.is_ascii_digit());
-                    number(issue).zip(place.then(|| position.parse().ok()).flatten())
+                    ticket(issue).zip(place.then(|| position.parse().ok()).flatten())
                 }
                 // The first place, which no position reads as past the end.
-                ["top", issue] => number(issue).map(|issue| (issue, 1)),
+                ["top", issue] => ticket(issue).map(|ticket| (ticket, 1)),
                 _ => None,
             };
             read.map(|moving| Request::Board(Some(moving)))

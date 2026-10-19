@@ -395,7 +395,7 @@ fn the_board_fills_a_free_slot_and_never_takes_an_open_issue_again() {
     rig.ask(&runner, "drop", Some("7"));
     let (issue, skipped) = dispatched(step(&runner).unwrap());
     assert_eq!(issue, 9);
-    assert_eq!(skipped, [Skip::Dropped { issue: 7 }]);
+    assert_eq!(skipped, [Skip::Dropped { issue: ticket(7) }]);
     assert_eq!(open_items(&rig, &runner), [8, 9]);
 }
 

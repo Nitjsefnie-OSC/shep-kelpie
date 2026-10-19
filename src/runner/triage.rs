@@ -22,7 +22,7 @@ use super::Runner;
 use super::report::Begin;
 use super::review::calls::build_call;
 use crate::board::TRIAGE;
-use crate::ports::{AgentCall, AuthorAssociation, OpenIssue, Role, Timestamp, Tools};
+use crate::ports::{AgentCall, AuthorAssociation, ForgeError, OpenIssue, Role, Timestamp, Tools};
 use crate::settings::{ExpertAgent, Settings, TriagePick};
 use crate::state::{ProjectState, StateError, TriageState, TriageStep, Triaged};
 use crate::ticket::TicketId;
@@ -55,6 +55,14 @@ pub(super) const TRIAGE_LABELS: [&str; 6] = [
     "wontfix",
     POSSIBLE_SPAM,
 ];
+
+/// The ticket of an issue triage is working on. Triage reads and writes only
+/// GitHub issues, whose numbers are ticket ids, so a number that is not one is
+/// a bug in the caller.
+pub(super) fn ticket(issue: u64) -> Result<TicketId, ForgeError> {
+    TicketId::from_issue(issue)
+        .ok_or_else(|| ForgeError::Unreadable(format!("{issue} is not an issue number")))
+}
 
 /// What one runner's triage holds for its own run only: the account ages it
 /// read from the forge, and what its spam check answered. The next start reads

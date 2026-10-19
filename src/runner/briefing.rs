@@ -22,7 +22,7 @@ use crate::local_paths::Surface;
 use crate::ports::{AgentCall, PaddockHolder, Timestamp, Wait};
 use crate::settings::{GatewayName, ModelHost};
 use crate::state::{ProjectState, StateError, write_atomically};
-use crate::ticket::TicketId;
+use crate::ticket::{TicketId, ticket_ids};
 use crate::work_item::{Phase, ReviewStage, Seat, Turn, WorkItem};
 
 mod events;
@@ -53,15 +53,15 @@ pub(super) struct BoardCache {
     // The ready queue as last read, and when
     ready: Option<(Timestamp, Vec<ReadyIssue>)>,
     // The bodies of the issues ready or open, whose named paths git reads
-    bodies: Vec<(u64, String)>,
+    bodies: Vec<(TicketId, String)>,
     // The paths each issue's body names, as git last matched them
-    named: BTreeMap<u64, Vec<String>>,
+    named: BTreeMap<TicketId, Vec<String>>,
     // The bodies `named` was read from
-    named_from: BTreeMap<u64, String>,
+    named_from: BTreeMap<TicketId, String>,
     // The files each open work item's branch changes, as git last said
-    files: BTreeMap<u64, Vec<String>>,
+    files: BTreeMap<TicketId, Vec<String>>,
     // Each open branch's diff as git last gave it, or why not, for the PM
-    patches: BTreeMap<u64, Result<Vec<u8>, String>>,
+    patches: BTreeMap<TicketId, Result<Vec<u8>, String>>,
     git: Git,
     due: bool,
     written: Option<Timestamp>,
@@ -105,8 +105,8 @@ impl Watched {
 }
 
 // Whether `after` holds an entry `before` did not, or holds one differently
-fn learned<T: PartialEq>(before: &BTreeMap<u64, T>, after: &BTreeMap<u64, T>) -> bool {
-    (after.iter()).any(|(issue, now)| before.get(issue) != Some(now))
+fn learned<T: PartialEq>(before: &BTreeMap<TicketId, T>, after: &BTreeMap<TicketId, T>) -> bool {
+    (after.iter()).any(|(ticket, now)| before.get(ticket) != Some(now))
 }
 
 /// Writes `runner`'s board if it is due, asking git with the lock let go
@@ -155,32 +155,34 @@ impl Runner {
         let now = self.ports.clock.now();
         let mut found = Vec::new();
         if let Some((_, before)) = &self.brief.ready {
-            let had = |n: u64| before.iter().any(|i| i.number == n);
-            let has = |n: u64| ready.iter().any(|i| i.number == n);
-            for issue in ready.iter().filter(|i| !had(i.number)) {
-                found.push(format!("#{} joined the ready queue", issue.number));
+            let had = |t: TicketId| before.iter().any(|i| i.ticket == t);
+            let has = |t: TicketId| ready.iter().any(|i| i.ticket == t);
+            for issue in ready.iter().filter(|i| !had(i.ticket)) {
+                found.push(format!("#{} joined the ready queue", issue.ticket));
             }
-            for issue in before.iter().filter(|i| !has(i.number)) {
-                found.push(format!("#{} left the ready queue", issue.number));
+            for issue in before.iter().filter(|i| !has(i.ticket)) {
+                found.push(format!("#{} left the ready queue", issue.ticket));
             }
         }
-        let open = self.state.open_issues();
-        self.brief.bodies.retain(|(n, _)| open.contains(n));
-        let fresh = ready.iter().filter(|i| !open.contains(&i.number));
-        (self.brief.bodies).extend(fresh.map(|i| (i.number, i.body.clone())));
+        let open = ticket_ids(&self.state.open_issues());
+        self.brief
+            .bodies
+            .retain(|(ticket, _)| open.contains(ticket));
+        let fresh = ready.iter().filter(|i| !open.contains(&i.ticket));
+        (self.brief.bodies).extend(fresh.map(|i| (i.ticket, i.body.clone())));
         self.brief.ready = Some((now, ready.to_vec()));
         self.brief.due = true;
         self.record(found)
     }
 
     /// The ready issues the board shows, as last read, none of them open
-    pub(super) fn board_ready(&self) -> Vec<u64> {
+    pub(super) fn board_ready(&self) -> Vec<TicketId> {
         let Some((_, ready)) = &self.brief.ready else {
             return Vec::new();
         };
         (ready.iter())
-            .filter(|i| self.state.item(i.number).is_none())
-            .map(|i| i.number)
+            .filter(|i| self.state.item_by_ticket(i.ticket).is_none())
+            .map(|i| i.ticket)
             .collect()
     }
 
@@ -211,12 +213,12 @@ impl Runner {
             repo: self.settings.git.checkout.clone(),
             git: std::mem::take(&mut self.brief.git),
             branches: (self.state.work_items.iter())
-                .map(|item| (item.issue, item.branch.clone()))
+                .filter_map(|item| Some((item.ticket()?, item.branch.clone())))
                 .collect(),
             bodies: self.brief.bodies.clone(),
             patches: (self.agents.pm.is_some() || self.panel_enabled()).then(|| {
                 (self.state.work_items.iter())
-                    .filter_map(|item| Some((item.issue, self.paths.worktree(item.ticket()?))))
+                    .filter_map(|item| Some((item.ticket()?, self.paths.worktree(item.ticket()?))))
                     .collect()
             }),
         })
@@ -284,8 +286,7 @@ impl Runner {
         for (ticket, quiet, started) in stuck {
             let what = format!("its worker has shown no tool call or output for {quiet}");
             self.pm_due(super::pm::Wake::Stuck {
-                // The project manager's wake names a work item by its issue.
-                issue: ticket.github().unwrap_or_default(),
+                ticket,
                 what,
                 state: super::pm::StuckState::Idle(started),
             });
@@ -312,8 +313,7 @@ impl Runner {
             return None;
         }
         Some(super::pm::Wake::LeaseWait {
-            // The project manager's wake names a work item by its issue.
-            issue: ticket.github().unwrap_or_default(),
+            ticket,
             worker: watched.call.is_some(),
             why,
             waited: elapsed(waited),
@@ -368,8 +368,8 @@ impl Runner {
         self.brief.named = std::mem::take(&mut answers.named);
         self.brief.named_from = std::mem::take(&mut answers.bodies).into_iter().collect();
         // A branch git could not read this time keeps the files last read.
-        let open = self.state.open_issues();
-        self.brief.files.retain(|issue, _| open.contains(issue));
+        let open = ticket_ids(&self.state.open_issues());
+        self.brief.files.retain(|ticket, _| open.contains(ticket));
         self.brief.files.extend(std::mem::take(&mut answers.files));
         // A diff git could not give is not kept, since a stale one would mislead.
         self.brief.patches = std::mem::take(&mut answers.patches);
@@ -408,7 +408,10 @@ impl Runner {
 
     fn briefing(&self, now: Timestamp, answers: GitAnswers) -> Briefing<'_> {
         let items = (self.state.work_items.iter())
-            .map(|item| self.item_line(item, self.item_files(item.issue), now))
+            .filter_map(|item| {
+                item.ticket()
+                    .map(|ticket| self.item_line(item, ticket, self.item_files(ticket), now))
+            })
             .collect();
         let (events, dropped) = self.state.unread_events(RECENT);
         let events = events.to_vec();
@@ -448,11 +451,11 @@ impl Runner {
         }
     }
 
-    /// The files the work item for `issue` touches, as the board last read
+    /// The files the work item for `ticket` touches, as the board last read
     /// them: its branch's diff, or the paths its issue names while that is empty
-    pub(super) fn item_files(&self, issue: u64) -> Files {
-        let diff = self.brief.files.get(&issue);
-        let named = self.brief.named.get(&issue);
+    pub(super) fn item_files(&self, ticket: TicketId) -> Files {
+        let diff = self.brief.files.get(&ticket);
+        let named = self.brief.named.get(&ticket);
         match (diff, named) {
             (Some(diff), Some(named)) if diff.is_empty() && !named.is_empty() => {
                 Files::Named(named.clone())
@@ -463,28 +466,27 @@ impl Runner {
         }
     }
 
-    /// The work item for `issue`'s diff from `main` as the board's last
+    /// The work item for `ticket`'s diff from `main` as the board's last
     /// write read it, cut to size, or why git could not give it; `None`
     /// before a write has read it
-    pub(super) fn brief_patch(&self, issue: u64) -> Option<&Result<Vec<u8>, String>> {
-        self.brief.patches.get(&issue)
+    pub(super) fn brief_patch(&self, ticket: TicketId) -> Option<&Result<Vec<u8>, String>> {
+        self.brief.patches.get(&ticket)
     }
 
-    /// The paths `issue`'s body names, once the board has read them from
-    /// the body as it was last read from the forge
-    pub(super) fn brief_named(&self, issue: u64) -> Option<&[String]> {
-        let body = self.brief.bodies.iter().find(|(n, _)| *n == issue);
-        let read = self.brief.named_from.get(&issue);
+    /// The paths `ticket`'s issue body names, once the board has read them
+    /// from the body as it was last read from the forge
+    pub(super) fn brief_named(&self, ticket: TicketId) -> Option<&[String]> {
+        let body = self.brief.bodies.iter().find(|(t, _)| *t == ticket);
+        let read = self.brief.named_from.get(&ticket);
         match (body, read) {
             (Some((_, body)), Some(read)) if body == read => {}
             _ => return None,
         }
-        self.brief.named.get(&issue).map(Vec::as_slice)
+        self.brief.named.get(&ticket).map(Vec::as_slice)
     }
 
-    fn item_line(&self, item: &WorkItem, files: Files, now: Timestamp) -> Item {
-        let ticket = item.ticket();
-        let session = match ticket.and_then(|t| self.flights.watched(t)) {
+    fn item_line(&self, item: &WorkItem, ticket: TicketId, files: Files, now: Timestamp) -> Item {
+        let session = match self.flights.watched(ticket) {
             Some(watched) => match &watched.call {
                 Some(call) => Session::Turn {
                     since: watched.started,
@@ -497,15 +499,13 @@ impl Runner {
                 },
             },
             None => {
-                let held = ticket.and_then(|t| self.held_up.of(t));
+                let held = self.held_up.of(ticket);
                 Session::Still(still(&item.turn, now, held, &|text| self.shown(text)))
             }
         };
         Item {
-            waiting: ticket
-                .and_then(|t| self.model_wait(t))
-                .map(|w| (w.since, w.why)),
-            issue: item.issue,
+            waiting: self.model_wait(ticket).map(|w| (w.since, w.why)),
+            ticket,
             title: events::quote(&item.title),
             phase: phase_text(&item.phase, now),
             pull_request: item.pull_request,
@@ -527,10 +527,10 @@ impl Runner {
             return Vec::new();
         };
         let mut ready: Vec<ReadyIssue> = (ready.iter())
-            .filter(|i| self.state.item(i.number).is_none())
+            .filter(|i| self.state.item_by_ticket(i.ticket).is_none())
             .cloned()
             .collect();
-        rule_order(&mut ready, &self.state.order);
+        rule_order(&mut ready, &ticket_ids(&self.state.order));
         ready
     }
 
@@ -540,17 +540,20 @@ impl Runner {
             .ready_in_order()
             .into_iter()
             .map(|issue| {
-                let skip = self.skipped.iter().find(|s| s.issue() == issue.number);
+                let skip = self
+                    .skipped
+                    .iter()
+                    .find(|s| s.issue() == Some(issue.ticket));
                 let (mut waits, quoted) = skip.map_or((None, true), |s| {
                     let (text, quoted) = passed_over(s, &|text| self.shown(text));
                     (Some(text), quoted)
                 });
-                if waits.is_none() && self.pm_held().contains(&issue.number) {
+                if waits.is_none() && self.pm_held().contains(&issue.ticket) {
                     waits = Some("held by you until an open work item closes".to_owned());
                 }
-                let named = self.brief.named.get(&issue.number);
+                let named = self.brief.named.get(&issue.ticket);
                 ReadyLine {
-                    number: issue.number,
+                    ticket: issue.ticket,
                     priority: priority(&issue.labels),
                     waits,
                     named: named.cloned().unwrap_or_default(),
@@ -591,7 +594,7 @@ pub(super) fn passed_over(skip: &Skip, shown: &dyn Fn(String) -> String) -> (Str
             false,
         ),
         Skip::Blocked { by, unlisted, .. } => {
-            let mut named: Vec<String> = by.iter().map(|n| format!("#{n}")).collect();
+            let mut named: Vec<String> = by.iter().map(|t| briefing::ticket_ref(*t)).collect();
             if *unlisted > 0 {
                 named.push(format!("{unlisted} more"));
             }

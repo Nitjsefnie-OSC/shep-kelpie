@@ -33,6 +33,7 @@ use crate::ports::{
 };
 use crate::review_bot::{Activity, Login};
 use crate::settings::ForgeSlug;
+use crate::ticket::TicketId;
 
 /// GitHub, through the `gh` command line
 ///
@@ -457,8 +458,11 @@ fn parse_issue(stdout: &[u8]) -> Result<Issue, ForgeError> {
         body: view.body.unwrap_or_default(),
         labels: view.labels.into_iter().map(|l| l.name).collect(),
         open: view.state != "CLOSED",
-        parent: view.parent.map(|p| p.number),
-        blocked_by: blocked_by.into_iter().map(|b| b.number).collect(),
+        parent: view.parent.and_then(|p| TicketId::from_issue(p.number)),
+        blocked_by: blocked_by
+            .into_iter()
+            .filter_map(|b| TicketId::from_issue(b.number))
+            .collect(),
     })
 }
 
@@ -573,6 +577,7 @@ fn checks(rollup: &[Check]) -> Checks {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test::ticket;
 
     // Recorded from gh 2.96 on this repo: `gh issue view 6 --json title,body,labels,state`.
     const ISSUE: &str = include_str!("../../fixtures/gh-issue-view.json");
@@ -584,11 +589,14 @@ mod tests {
     #[test]
     fn an_issue_is_read_with_its_parent_and_blockers() {
         let issue = parse_issue(SUB_ISSUE.as_bytes()).unwrap();
-        assert_eq!((issue.parent, issue.blocked_by), (Some(14529), vec![]));
+        assert_eq!(
+            (issue.parent, issue.blocked_by),
+            (Some(ticket(14529)), vec![])
+        );
         let blocked = br#"{"title":"t","body":"","labels":[],"state":"OPEN","parent":null,
             "blockedBy":{"nodes":[{"number":3,"state":"OPEN"}],"totalCount":1}}"#;
         let issue = parse_issue(blocked).unwrap();
-        assert_eq!((issue.parent, issue.blocked_by), (None, vec![3]));
+        assert_eq!((issue.parent, issue.blocked_by), (None, vec![ticket(3)]));
     }
 
     #[test]

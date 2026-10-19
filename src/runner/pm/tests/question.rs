@@ -161,7 +161,7 @@ fn each_answer_and_its_why_is_in_the_notes_the_board_and_status() {
         pm["settled"],
         json!([{
             "ruling": 7,
-            "issue": 7,
+            "issue": "7",
             "how": "answered",
             "why": "the issue says so",
         }])

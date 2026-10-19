@@ -558,7 +558,7 @@ impl Forge for FakeForge {
                 .lock()
                 .unwrap()
                 .iter()
-                .any(|i| i.number == number);
+                .any(|i| i.ticket.github() == Some(number));
         if !is_issue {
             self.opened(number)?;
         }
