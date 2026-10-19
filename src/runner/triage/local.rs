@@ -99,7 +99,7 @@ impl Runner {
             .get(&issue)
             .and_then(|t| t.author.clone())
             .unwrap_or_default();
-        let found = match self.ports.forge.issue(&self.remote, issue) {
+        let found = match self.ports.tickets.issue(&self.remote, issue) {
             Ok(found) => found,
             Err(e) => {
                 let why = format!("cannot read its body: {e}");
@@ -155,7 +155,7 @@ impl Runner {
         // rewrite the body while it runs. The wait is measured against the body
         // the prompt goes up against, so it is read again here rather than
         // hashed from the read made before the call.
-        let found = match self.ports.forge.issue(&self.remote, issue) {
+        let found = match self.ports.tickets.issue(&self.remote, issue) {
             Ok(found) => found,
             Err(e) => {
                 let why = format!("cannot read its body: {e}");
@@ -228,7 +228,7 @@ impl Runner {
             if self.flights.triaging() == Some(issue) || self.triage_given_up(issue) {
                 continue;
             }
-            let body = match self.ports.forge.issue(&self.remote, issue) {
+            let body = match self.ports.tickets.issue(&self.remote, issue) {
                 Ok(found) => found.body,
                 Err(e) => {
                     let why = format!("cannot read its body: {e}");
@@ -275,7 +275,7 @@ impl Runner {
         let Some(owed) = owed else {
             return Ok(false);
         };
-        let found = match self.ports.forge.issue(&self.remote, issue) {
+        let found = match self.ports.tickets.issue(&self.remote, issue) {
             Ok(found) => found,
             Err(e) => {
                 let why = format!("cannot read its body: {e}");

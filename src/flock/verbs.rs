@@ -379,14 +379,8 @@ async fn issue(here: Here<'_>, name: &ProjectName, args: &[&str]) -> Result<Vec<
     let claude = ClaudeCli::default()
         .in_runtime(tools, here.home.to_owned(), &codex_home, secret_vars)
         .with_login(LoginToken::take());
-    issues::headless(
-        &project,
-        &writer,
-        &request,
-        &Gh::default(),
-        &claude,
-        &SystemGit,
-    )
+    let gh = Gh::default();
+    issues::headless(&project, &writer, &request, &gh, &gh, &claude, &SystemGit)
 }
 
 // `rule`: the ruling and its answer read first, asking in a terminal, so
