@@ -3,15 +3,45 @@
 //! what kelpie did, and the answer's `why`
 
 use super::{PICK_12, answered, pm_seen, step_until, with_pm};
-use crate::ports::AgentError;
+use crate::ports::{AgentError, Role};
 use crate::runner::pm::notes::PM_STANDING;
 use crate::runner::pm::prompt::BOARD_INLINE;
 use crate::runner::{StepReport, step};
 use crate::settings::Harness;
 use crate::test::{Rig, Scripted};
+use std::sync::Mutex;
 
 fn read(rig: &Rig, name: &str) -> String {
     std::fs::read_to_string(rig.paths().pm.join(name)).unwrap_or_default()
+}
+
+// A running project with CI green and its worker parked on merge ruling 71,
+// in a panel that names the project manager, an advisor and a researcher
+fn parked_pm(project: &str) -> (Rig, Mutex<crate::runner::Runner>) {
+    let (rig, runner, _) = Rig::parked_set(project, |rig| {
+        rig.with_app();
+        rig.maintainer("octocat");
+        rig.edit_settings(|s| {
+            let listed = "\nimplementers = [\"sonnet-high\"]\n";
+            assert!(s.contains(listed), "the example's implementers moved");
+            s.replace(
+                listed,
+                "\nimplementers = [\"sonnet-high\"]\npm = \"pm\"\n\
+                 advisor = \"advisor\"\nresearcher = \"researcher\"\n",
+            )
+        });
+    });
+    (rig, runner)
+}
+
+// A scripted reply lives as long as the test binary does
+fn leak(text: String) -> &'static str {
+    Box::leak(text.into_boxed_str())
+}
+
+// An expert's vote for option `choice` on ruling 71
+fn expert(who: &str, choice: char) -> String {
+    format!("{{\"choice\": \"{choice}\", \"why\": \"{who}-WHY\", \"design\": false}}")
 }
 
 // The board's events section of a prompt that carries the board
@@ -257,5 +287,72 @@ fn a_tell_reaches_the_notes_once_verbatim_on_the_wake_that_answers_it() {
             .count(),
         1,
         "the tell is in the notes once: {notes}"
+    );
+}
+
+#[test]
+fn a_wake_for_a_vote_records_the_vote_and_not_nothing() {
+    let (rig, runner) = parked_pm("w-vote");
+    let pm = leak(
+        "{\"pick\": null, \"votes\": [{\"ruling\": 71, \"choice\": \"A\", \
+         \"why\": \"it touches nothing open\", \"design\": false}]}"
+            .to_owned(),
+    );
+    rig.claude
+        .script_for(Role::Worker, [Scripted::Say(leak(expert("WORKER", 'A')))]);
+    rig.claude
+        .script_for(Role::Advisor, [Scripted::Say(leak(expert("ADVISOR", 'A')))]);
+    rig.claude.script_for(
+        Role::Researcher,
+        [Scripted::Say(leak(expert("RESEARCHER", 'A')))],
+    );
+    rig.claude.script_for(Role::Pm, [Scripted::Say(pm)]);
+
+    let (_, acted, _) = answered(Some(step_until(&runner, |r| {
+        matches!(r, StepReport::PmAnswered { .. })
+    })));
+    assert!(
+        acted.contains(&"voted ruling 71 for option A".to_owned()),
+        "{acted:?}"
+    );
+
+    let notes = read(&rig, "pm-notes.md");
+    let lines: Vec<&str> = notes.lines().collect();
+    assert_eq!(lines.len(), 1, "{notes}");
+    assert!(
+        lines[0].contains("voted ruling 71 for option A"),
+        "the vote the wake was for is the action it records: {notes}"
+    );
+    assert!(!lines[0].contains("kelpie: nothing"), "{notes}");
+}
+
+#[test]
+fn a_wake_for_a_vote_it_gave_none_on_records_the_abstention() {
+    let (rig, runner) = parked_pm("w-abstain");
+    rig.claude
+        .script_for(Role::Worker, [Scripted::Say(leak(expert("WORKER", 'A')))]);
+    rig.claude
+        .script_for(Role::Advisor, [Scripted::Say(leak(expert("ADVISOR", 'A')))]);
+    rig.claude.script_for(
+        Role::Researcher,
+        [Scripted::Say(leak(expert("RESEARCHER", 'A')))],
+    );
+    rig.claude
+        .script_for(Role::Pm, [Scripted::Say("{\"pick\": null}")]);
+
+    let (_, acted, _) = answered(Some(step_until(&runner, |r| {
+        matches!(r, StepReport::PmAnswered { .. })
+    })));
+    assert!(
+        acted.contains(&"abstained on ruling 71: its reply held no vote on it".to_owned()),
+        "{acted:?}"
+    );
+
+    let notes = read(&rig, "pm-notes.md");
+    let lines: Vec<&str> = notes.lines().collect();
+    assert_eq!(lines.len(), 1, "{notes}");
+    assert!(
+        lines[0].contains("abstained on ruling 71: its reply held no vote on it"),
+        "{notes}"
     );
 }

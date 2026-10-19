@@ -561,13 +561,20 @@ impl Runner {
         }
     }
 
-    /// Records `voter`'s `vote` on ruling `id`, or why it counts as none
-    pub(super) fn panel_voted(&mut self, id: u64, voter: Voter, vote: Result<Vote, String>) {
+    /// Records `voter`'s `vote` on ruling `id`, or why it counts as none.
+    /// Whether the ballot landed: a ruling that is closed, or one that has
+    /// `voter`'s ballot already, takes none.
+    pub(super) fn panel_voted(
+        &mut self,
+        id: u64,
+        voter: Voter,
+        vote: Result<Vote, String>,
+    ) -> bool {
         let Some(open) = self.panel.open.get_mut(&id) else {
-            return;
+            return false;
         };
         if !open.waiting.remove(&voter) {
-            return;
+            return false;
         }
         match vote {
             Ok(vote) => {
@@ -586,6 +593,7 @@ impl Runner {
             }
         }
         self.panel_close_if_done(id);
+        true
     }
 
     /// Records that `voter` abstains on ruling `id`, since `why`
@@ -743,18 +751,29 @@ impl Runner {
 
     /// Hears the project manager's reply to its vote wakes: each ruling it
     /// voted on, and each it was asked about and did not
+    /// Records the project manager's votes on the rulings it was asked about,
+    /// an abstention for each it gave none on. What each ballot did, in words,
+    /// for the log: a ruling that closed before its vote landed took none.
     pub(super) fn panel_pm_answered(
         &mut self,
         asked: &[u64],
         votes: Vec<(u64, Result<Vote, String>)>,
-    ) {
+    ) -> Vec<String> {
         let mut votes: BTreeMap<u64, Result<Vote, String>> = votes.into_iter().collect();
+        let mut done = Vec::new();
         for id in asked {
             let vote = votes
                 .remove(id)
                 .unwrap_or_else(|| Err("its reply held no vote on it".into()));
-            self.panel_voted(*id, Voter::Pm, vote);
+            let said = match &vote {
+                Ok(vote) => format!("voted ruling {id} for option {}", vote.choice),
+                Err(why) => format!("abstained on ruling {id}: {why}"),
+            };
+            if self.panel_voted(*id, Voter::Pm, vote) {
+                done.push(said);
+            }
         }
+        done
     }
 
     /// Lets the panel go of a ruling the project manager can no longer be asked about

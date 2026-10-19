@@ -633,13 +633,10 @@ impl Runner {
         if answer.standing.is_none() {
             self.pm_stand_tells(&flying.told);
         }
-        let (acted, dropped) = self.act(&answer, picking)?;
-        // One line of what the wake was for, what kelpie did with it, and the
-        // answer's own `why`, so a wake that wrote nothing of its own left its
-        // record behind. A wake that failed or gave no readable answer wrote
-        // nothing above, and adds nothing here.
-        self.pm_note_wake(&woke_for, &acted, answer.why.as_deref());
-        // Its votes on the rulings it was asked about; one it gave none on abstains.
+        let (mut acted, dropped) = self.act(&answer, picking)?;
+        // Its votes on the rulings it was asked about; one it gave none on
+        // abstains. They are part of what kelpie did, so they are recorded
+        // before the note below names the wake's actions.
         let asked: Vec<u64> = (flying.wakes.iter())
             .filter_map(|w| match w {
                 Wake::Vote { id, .. } => Some(*id),
@@ -657,8 +654,13 @@ impl Runner {
                     )
                 })
                 .collect();
-            self.panel_pm_answered(&asked, votes);
+            acted.extend(self.panel_pm_answered(&asked, votes));
         }
+        // One line of what the wake was for, what kelpie did with it, and the
+        // answer's own `why`, so a wake that wrote nothing of its own left its
+        // record behind. A wake that failed or gave no readable answer wrote
+        // nothing above, and adds nothing here.
+        self.pm_note_wake(&woke_for, &acted, answer.why.as_deref());
         // A ruling it did not settle goes to the maintainer as it stands.
         for wake in &flying.wakes {
             if let Wake::Question { id, .. } | Wake::FollowUp { id, .. } = wake {
