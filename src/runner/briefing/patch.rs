@@ -5,7 +5,7 @@ use std::io::{self, Read};
 use std::path::Path;
 use std::process::Stdio;
 
-use crate::worktree::{BASE, in_repo};
+use crate::worktree::in_repo;
 
 /// The most of one diff kept, in bytes: about 16k tokens, so one huge
 /// branch cannot flood its context, and it reads the worktree for the rest
@@ -41,8 +41,9 @@ pub(in crate::runner) fn merged(
     repo: &Path,
     branch: &str,
     worktree: &Path,
+    base: &str,
 ) -> Result<Vec<u8>, String> {
-    let main = format!("refs/remotes/origin/{BASE}");
+    let main = format!("refs/remotes/origin/{base}");
     let head = format!("refs/heads/{branch}");
     let resolve = |rev: &str| {
         let found = git_line(repo, &["rev-parse", "--verify", "--quiet", rev]);
@@ -238,7 +239,7 @@ mod tests {
         git(repo, &["commit", "--quiet", "-m", "after"]);
         git(repo, &["update-ref", "refs/remotes/origin/main", "main"]);
 
-        let diff = merged(repo, "feature", Path::new("/work/7")).unwrap();
+        let diff = merged(repo, "feature", Path::new("/work/7"), "main").unwrap();
 
         let diff = String::from_utf8(diff).unwrap();
         assert!(
@@ -278,7 +279,7 @@ mod tests {
         );
         git(repo, &["update-ref", "refs/remotes/origin/main", "main"]);
 
-        let diff = merged(repo, "feature", Path::new("/work/7"));
+        let diff = merged(repo, "feature", Path::new("/work/7"), "main");
 
         let why = diff.expect_err("no commit took the branch in");
         assert!(why.contains("no merge commit that took it in"), "{why}");
@@ -301,7 +302,7 @@ mod tests {
         git(repo, &["commit", "--quiet", "-m", "squashed"]);
         git(repo, &["update-ref", "refs/remotes/origin/main", "main"]);
 
-        let diff = merged(repo, "feature", Path::new("/work/7")).unwrap();
+        let diff = merged(repo, "feature", Path::new("/work/7"), "main").unwrap();
 
         let diff = String::from_utf8(diff).unwrap();
         assert!(diff.contains("+++ b/b.txt\n"), "{diff}");

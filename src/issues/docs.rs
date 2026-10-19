@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use crate::ports::Forge;
 use crate::settings::ForgeSlug;
 use crate::ticket::TicketId;
-use crate::worktree::{self, BASE, Remote, Start, WorktreeError};
+use crate::worktree::{self, Remote, Start, WorktreeError};
 
 use super::Project;
 
@@ -143,7 +143,13 @@ impl Docs {
         pushed.map_err(|e| self.kept(format!("cannot commit and push it: {e}")))?;
         let remote = project.remote;
         let number = forge
-            .create_pull_request(remote, &self.branch, BASE, &title, &body)
+            .create_pull_request(
+                remote,
+                &self.branch,
+                project.settings.git.base(),
+                &title,
+                &body,
+            )
             .map_err(|e| {
                 // Nothing links the pushed branch, so take it off the remote
                 // again; the commit stays in the local branch.

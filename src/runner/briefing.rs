@@ -211,6 +211,7 @@ impl Runner {
         self.brief.due = false;
         Some(GitJob {
             repo: self.settings.git.checkout.clone(),
+            base: self.settings.git.base().to_owned(),
             git: std::mem::take(&mut self.brief.git),
             branches: (self.state.work_items.iter())
                 .map(|item| (item.issue, item.branch.clone()))

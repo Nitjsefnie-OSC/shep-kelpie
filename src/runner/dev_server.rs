@@ -49,9 +49,9 @@ pub(super) fn is_on(settings: &Settings) -> bool {
         .configuration
         .as_ref()
         .map(NonBlank::as_str);
-    match launch::read(&settings.git.checkout) {
+    match launch::read(&settings.git.checkout, settings.git.base()) {
         Ok(None) => false,
-        Ok(Some(text)) => !matches!(launch::select(&text, named), Ok(None)),
+        Ok(Some(text)) => !matches!(launch::select(&text, named, settings.git.base()), Ok(None)),
         Err(_) => true,
     }
 }
@@ -125,17 +125,18 @@ impl Runner {
             self.metrics.feature_ran(Feature::DevServer, "skipped");
             None
         };
-        let text = match launch::read(&self.settings.git.checkout) {
+        let text = match launch::read(&self.settings.git.checkout, self.settings.git.base()) {
             Ok(Some(text)) => text,
             Ok(None) => return skipped(),
             Err(why) => return without(why),
         };
         let named = self.settings.browser.configuration.as_ref();
-        let configuration = match launch::select(&text, named.map(NonBlank::as_str)) {
-            Ok(Some(configuration)) => configuration,
-            Ok(None) => return skipped(),
-            Err(why) => return without(why),
-        };
+        let configuration =
+            match launch::select(&text, named.map(NonBlank::as_str), self.settings.git.base()) {
+                Ok(Some(configuration)) => configuration,
+                Ok(None) => return skipped(),
+                Err(why) => return without(why),
+            };
         let cwd = match launch::folder(&item.worktree, &configuration) {
             Ok(cwd) => cwd,
             Err(why) => return without(why),

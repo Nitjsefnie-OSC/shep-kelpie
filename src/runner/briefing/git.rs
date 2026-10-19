@@ -14,7 +14,7 @@ use std::process::Stdio;
 use super::patch;
 use crate::board::briefing::{Merge, named_paths};
 use crate::ticket::TicketId;
-use crate::worktree::{BASE, in_repo};
+use crate::worktree::in_repo;
 
 /// Git's answers so far, by the commits they were read at
 #[derive(Debug, Default)]
@@ -29,6 +29,8 @@ pub(in crate::runner) struct Git {
 #[derive(Debug)]
 pub(in crate::runner) struct GitJob {
     pub(super) repo: PathBuf,
+    /// The project's base branch
+    pub(super) base: String,
     pub(super) git: Git,
     /// Each open work item's ticket and branch
     pub(super) branches: Vec<(TicketId, String)>,
@@ -64,12 +66,13 @@ impl GitJob {
     pub(super) fn run(self) -> GitAnswers {
         let Self {
             repo,
+            base,
             mut git,
             branches,
             bodies,
             patches,
         } = self;
-        let main = Git::main(&repo);
+        let main = Git::main(&repo, &base);
         let heads: Vec<(TicketId, String)> = branches
             .iter()
             .filter_map(|(ticket, branch)| Some((*ticket, Git::head(&repo, branch)?)))
@@ -112,7 +115,7 @@ impl GitJob {
                 .map(|(ticket, branch)| {
                     let head = heads.iter().find(|(t, _)| t == ticket).map(|(_, h)| h);
                     let worktree = worktrees.get(ticket).cloned().unwrap_or_default();
-                    let diff = git.patch(&repo, main.as_deref(), branch, head, &worktree);
+                    let diff = git.patch(&repo, main.as_deref(), &base, branch, head, &worktree);
                     (*ticket, diff)
                 })
                 .collect(),
@@ -134,8 +137,8 @@ impl GitJob {
 
 impl Git {
     /// `origin/main`'s commit, as last fetched
-    fn main(repo: &Path) -> Option<String> {
-        let tracking = format!("refs/remotes/origin/{BASE}");
+    fn main(repo: &Path, base: &str) -> Option<String> {
+        let tracking = format!("refs/remotes/origin/{base}");
         read(repo, &["rev-parse", "--verify", "--quiet", &tracking]).map(trimmed)
     }
 
@@ -217,11 +220,12 @@ impl Git {
         &mut self,
         repo: &Path,
         main: Option<&str>,
+        base: &str,
         branch: &str,
         head: Option<&String>,
         worktree: &Path,
     ) -> Result<Vec<u8>, String> {
-        let main = main.ok_or_else(|| format!("origin/{BASE} is not in the checkout"))?;
+        let main = main.ok_or_else(|| format!("origin/{base} is not in the checkout"))?;
         let head = head.ok_or_else(|| format!("{branch} is not in the checkout"))?;
         let key = (main.to_owned(), head.clone(), worktree.to_owned());
         if let Some(diff) = self.patches.get(&key) {

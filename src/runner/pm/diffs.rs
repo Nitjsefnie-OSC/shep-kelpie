@@ -111,7 +111,12 @@ impl Runner {
     // the board's diffs it runs git as the wake starts.
     fn merged_patch(&self, branch: &str, ticket: TicketId) -> Result<Vec<u8>, String> {
         let repo = &self.settings.git.checkout;
-        patch::merged(repo, branch, &self.paths.worktree(ticket))
+        patch::merged(
+            repo,
+            branch,
+            &self.paths.worktree(ticket),
+            self.settings.git.base(),
+        )
     }
 }
 

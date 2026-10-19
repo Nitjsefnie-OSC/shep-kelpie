@@ -445,9 +445,8 @@ impl Card {
                 board: None,
                 title: "A pull request kelpie took over cannot be adopted".to_owned(),
                 facts: Some(format!(
-                    "Kelpie cannot start a work item on it: {why}. Retarget it at `{}`, or fix \
-                     what its issue is labelled for, and the next poll adopts it.",
-                    crate::worktree::BASE
+                    "Kelpie cannot start a work item on it: {why}. Retarget it at the base \
+                     branch, or fix what its issue is labelled for, and the next poll adopts it."
                 )),
                 choices: vec![
                     choice(

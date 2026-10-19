@@ -61,8 +61,9 @@ pub enum AdoptError {
     /// The pull request's branch is on a fork that kelpie cannot push to: its
     /// owner does not allow edits by maintainers, or deleted it
     NoEdits(u64),
-    /// The pull request merges into this branch, not `main`
-    Base(u64, String),
+    /// The pull request merges into the first branch, not the project's base
+    /// branch, the second
+    Base(u64, String, String),
     /// The pull request was opened by this login, not the account kelpie acts as
     Author(u64, String),
     /// The pull request names no issue on the repo that it closes
@@ -107,10 +108,9 @@ impl fmt::Display for AdoptError {
                 "pull request #{number} comes from a fork kelpie cannot push to: it does not let \
                  maintainers edit it, or it has been deleted"
             ),
-            Self::Base(number, base) => write!(
+            Self::Base(number, merges_into, base) => write!(
                 f,
-                "pull request #{number} merges into `{base}`, not `{}`",
-                worktree::BASE
+                "pull request #{number} merges into `{merges_into}`, not `{base}`"
             ),
             Self::Author(number, login) => {
                 write!(
@@ -445,8 +445,12 @@ impl Runner {
         if pr.from_fork && released.is_none() {
             return Err(AdoptError::Fork(number));
         }
-        if pr.base != worktree::BASE {
-            return Err(AdoptError::Base(number, pr.base.clone()));
+        if pr.base != self.settings.git.base() {
+            return Err(AdoptError::Base(
+                number,
+                pr.base.clone(),
+                self.settings.git.base().to_owned(),
+            ));
         }
         if released.is_none() {
             let me = self.viewer().map_err(AdoptError::Viewer)?;

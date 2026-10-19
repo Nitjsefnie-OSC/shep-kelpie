@@ -548,12 +548,13 @@ impl WorkItem {
         self.rebased = true;
     }
 
-    /// The commit its review diffs against: `origin/main`, or the head an
-    /// adopted pull request arrived with, so none of that is reviewed
-    pub fn review_base(&self) -> String {
+    /// The commit its review diffs against: `origin/` and the project's
+    /// `base` branch, or the head an adopted pull request arrived with, so
+    /// none of that is reviewed
+    pub fn review_base(&self, base: &str) -> String {
         self.arrived
             .clone()
-            .unwrap_or_else(|| format!("origin/{}", crate::worktree::BASE))
+            .unwrap_or_else(|| format!("origin/{base}"))
     }
 
     /// What its calls have cost so far
