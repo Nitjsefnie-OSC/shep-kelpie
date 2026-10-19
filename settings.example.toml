@@ -445,6 +445,15 @@ compact_window = 200000
 # skip = ["noisy@house"]
 # extra = { "style@lab" = "github:acme/lab#v2" }
 
+# Where the project's tickets live. `github` takes them from the repo's issues.
+# `local` takes them from markdown files in `tickets/` in the project's folder
+# of kelpie's home, which `shep kelpie ticket new|list|show|edit|close` files and
+# reads: a ticket's id is `k` and a counter (`k1`), its branch is `kelpie/k1`,
+# its pull request has no `Resolves` line, and kelpie closes it when the pull
+# request merges.
+[app.dogs.kelpie.tickets]
+source = "github"
+
 # A code graph of each work item's worktree for the reviewers' calls, served by
 # codebase-memory-mcp: where a symbol is, what calls it, what it touches, in one
 # call instead of a run of greps. `shep kelpie tools install` fetches the

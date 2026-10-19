@@ -16,14 +16,16 @@ use crate::board::{LabelError, Skip, agent_label, old_worker_label, pinned};
 use crate::forge_ledger::Ledger as ForgeLedger;
 use crate::hooks::Hooks;
 use crate::local_paths::LocalPaths;
+use crate::local_tickets::LocalTickets;
 use crate::pacer::Assessment;
 use crate::ports::{
     ForgeError, ForgeHold, Guarded, GuardedVoice, KeychainBlocked, PacedVoice, Ports, RateHeld,
-    RecordedVoice, Say, Timestamp,
+    RecordedVoice, Say, Tickets, Timestamp,
 };
 use crate::review_bot::{Bot, Profile};
 use crate::settings::{
     Account, AgentName, ForgeSlug, Gateways, ListedReviewer, RoleAgents, Settings, SettingsError,
+    TicketSource,
 };
 use crate::skills::{RepoPlugins, Skills};
 use crate::state::{ProjectState, Ruling, StateError, StateStore};
@@ -542,6 +544,12 @@ impl Runner {
                 .with_standing(Arc::new(told.clone()));
         }
         let (held_forge, held_tickets) = rate_held.into_ports();
+        // A local store is files in kelpie's home, which spend no forge call, so
+        // the hold and the ledger stay out of it. The guard still checks what it writes.
+        let held_tickets: Arc<dyn Tickets> = match settings.tickets.source {
+            TicketSource::Github => held_tickets,
+            TicketSource::Local => Arc::new(LocalTickets::new(paths.tickets())),
+        };
         let recorded =
             RecordedVoice::new(ports.voice, Arc::clone(&clock), Arc::clone(&forge_ledger));
         let paced = PacedVoice::new(
