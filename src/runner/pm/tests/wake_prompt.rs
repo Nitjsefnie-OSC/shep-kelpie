@@ -25,6 +25,14 @@ fn events(prompt: &str) -> String {
     rest[..end].to_owned()
 }
 
+// The first `most` characters of `text`, for an assertion that names a prompt
+fn head(text: &str, most: usize) -> &str {
+    match text.char_indices().nth(most) {
+        Some((at, _)) => &text[..at],
+        None => text,
+    }
+}
+
 #[test]
 fn the_first_wake_carries_the_board_and_does_not_tell_it_to_read_it() {
     let (rig, runner) = with_pm("koji");
@@ -132,11 +140,11 @@ fn a_board_over_64_kib_keeps_the_read_instruction() {
         prompt.len(),
         board.len()
     );
-    assert!(!prompt.contains("## The board"), "{}", &prompt[..400]);
+    assert!(!prompt.contains("## The board"), "{}", head(prompt, 400));
     assert!(
         prompt.contains("Read `board.md`, which kelpie wrote as the board stood when it woke you."),
         "{}",
-        &prompt[..400]
+        head(prompt, 400)
     );
     assert!(
         board.contains("#110"),
