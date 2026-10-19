@@ -32,7 +32,7 @@ use serde::Deserialize;
 
 use crate::adapters::{SystemClock, claude_settings, claude_write_only};
 use crate::agents::{Agents, Role, Runs};
-use crate::board::{AGENT_LABEL, READY, agent_label};
+use crate::board::{AGENT_LABEL, HUMAN, READY, agent_label};
 use crate::guard::{IssueRules, filed_in};
 use crate::home::ProjectPaths;
 use crate::hooks::Hooks;
@@ -42,7 +42,6 @@ use crate::ports::{
     Tickets, Tools,
 };
 use crate::profile::CREDENTIALS;
-use crate::runner::HUMAN;
 use crate::settings::{AgentName, ForgeSlug, RoleAgents, RoleModel, Settings, TicketSource};
 use crate::skills;
 use crate::ticket::TicketId;

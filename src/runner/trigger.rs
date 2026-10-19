@@ -156,7 +156,7 @@ pub struct Status<'a> {
     /// Whether `finish` holds the board back, or the runner finished and
     /// waits for its sheep to stop
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub run: Option<super::Run>,
+    pub run: Option<crate::board::briefing::Run>,
     /// Until when the runner makes no forge call, the forge's rate limit
     /// used up, in seconds since the Unix epoch; left out when it makes them
     #[serde(skip_serializing_if = "Option::is_none")]

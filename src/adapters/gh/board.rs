@@ -317,8 +317,8 @@ pub(super) fn closed_here(closes: Vec<Closes>, repo: &ForgeSlug) -> Vec<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::board::is_bump;
     use crate::ports::Checks;
-    use crate::runner::is_bump;
     use crate::settings::Dependencies;
     use crate::test::ticket;
 

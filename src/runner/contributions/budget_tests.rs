@@ -8,9 +8,8 @@ use serde_json::{Value, json};
 
 use super::security_tests::{commit_on, contribute, contribution, reviews};
 use super::tests::{picking, poll, posts};
-use crate::board::READY;
+use crate::board::{HUMAN, READY};
 use crate::ports::{CLEAN, Cost, MaintainerReview};
-use crate::runner::rework::HUMAN;
 use crate::runner::{Pass, Runner, StepReport, advance, step};
 use crate::test::ticket;
 use crate::test::{CALL_PATIENCE, Hold, Rig, Scripted};

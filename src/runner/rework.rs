@@ -15,18 +15,13 @@ use super::Runner;
 use super::report::{Begin, ReworkBy, StepReport};
 use super::trigger::{self, issue_list};
 use super::turn;
-use crate::board::{LabelError, OpenPullRequest, READY, Skip};
+use crate::board::{HUMAN, LabelError, OpenPullRequest, READY, Skip};
 use crate::ports::{ForgeError, MaintainerReview, PullRequestState, Reviewed};
 use crate::settings::AgentName;
 use crate::state::StateError;
 use crate::ticket::TicketId;
 use crate::work_item::{Known, Phase, Review, WorkItem, new_session_id};
 use crate::worktree::{self, Remote};
-
-/// The label on a pull request kelpie handed back to the maintainer
-///
-/// Kelpie never creates it: the maintainer makes it in the project's repo.
-pub const HUMAN: &str = "ready-for-human";
 
 /// The file in the build folder that carries the review
 const REVIEW_FILE: &str = "maintainer-review.md";

@@ -11,14 +11,9 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use super::Runner;
+use crate::board::IN_PROGRESS;
 use crate::settings::TicketSource;
 use crate::ticket::TicketId;
-
-/// The label on an issue while a work item holds it
-///
-/// `shep kelpie add` makes it with the other labels. The control session
-/// puts the same name on this repo's issues by hand.
-pub const IN_PROGRESS: &str = "in-progress";
 
 /// The key of the standing warning that issue `issue`'s worker runs with an
 /// `origin/main` kelpie last fetched, which `status` lists until a fetch lands
