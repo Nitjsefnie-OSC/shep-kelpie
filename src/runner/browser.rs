@@ -15,6 +15,7 @@ use crate::bridge::Filter;
 use crate::metrics::Feature;
 use crate::ports::{AgentCall, Browser, Role, Session, Tools};
 use crate::settings::{AgentHarness, NonBlank};
+use crate::ticket::TicketId;
 
 /// The bridges opened for turns not yet launched, by the issue of their work item
 #[derive(Debug, Default)]
@@ -72,8 +73,9 @@ impl Runner {
     fn session_has_it(&self, harness: &AgentHarness, session: &Session, issue: u64) -> bool {
         match session {
             Session::Resume(id) if harness.keeps_its_servers() => {
-                let noted = std::fs::read_to_string(self.paths.browser(issue).join(SESSION_FILE));
-                noted.is_ok_and(|noted| noted.trim() == id.0)
+                let folder = TicketId::from_issue(issue).map(|t| self.paths.browser(t));
+                let noted = folder.map(|f| std::fs::read_to_string(f.join(SESSION_FILE)));
+                noted.is_some_and(|noted| noted.is_ok_and(|noted| noted.trim() == id.0))
             }
             Session::New(_) | Session::Resume(_) => true,
         }
@@ -120,7 +122,10 @@ impl Runner {
             ));
             return Ok(false);
         }
-        let folder = self.paths.browser(call.issue);
+        let Some(ticket) = TicketId::from_issue(call.issue) else {
+            return Err(format!("{} has no ticket to open a browser for", who(call)));
+        };
+        let folder = self.paths.browser(ticket);
         let server = Server::playwright(
             &tools.playwright_mcp(),
             &tools.browsers(),

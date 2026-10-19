@@ -9,7 +9,7 @@ use super::{parked_with, script_all, seen, settle};
 use crate::ports::{Role, Tools};
 use crate::runner::pm::SECRET_SHAPED;
 use crate::test::{
-    Rig, Seen, assert_reads, assert_refuses, sandbox_refuses, tools_refuse, write_in,
+    Rig, Seen, assert_reads, assert_refuses, sandbox_refuses, ticket, tools_refuse, write_in,
 };
 
 /// Every tool that writes a file, runs a command or starts a crew
@@ -111,7 +111,7 @@ fn the_advisor_reads_the_codebase_and_writes_and_runs_nothing() {
         );
     }
 
-    assert_reads(&advisor, &paths.worktree(7).join("work.txt"));
+    assert_reads(&advisor, &paths.worktree(ticket(7)).join("work.txt"));
     assert_reads(&advisor, &rig.repo().join("NOTES.md"));
     for file in ["ruling.md", "diff.patch", "where.md"] {
         assert_reads(&advisor, &paths.advisor.join(file));
@@ -174,7 +174,7 @@ fn the_researcher_reads_its_folder_and_the_web_and_writes_and_runs_nothing() {
     }
     // The code is the advisor's: the researcher's tools are shut out of it.
     for unread in [
-        paths.worktree(7).join("work.txt"),
+        paths.worktree(ticket(7)).join("work.txt"),
         paths.advisor.join("ruling.md"),
     ] {
         let spelled = unread.display().to_string();

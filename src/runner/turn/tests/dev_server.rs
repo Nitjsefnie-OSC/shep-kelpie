@@ -10,7 +10,7 @@ use super::browser::{install, instructions_of, turn_on};
 use super::*;
 use crate::ports::{Agents, DevRun, Ending, Role, Session};
 use crate::settings::Harness;
-use crate::test::{FakeClaude, FakeDevServers};
+use crate::test::{FakeClaude, FakeDevServers, ticket};
 
 // Shep's own launch file: one configuration, `shep-web`, on port 4421 in `web`.
 const SHEP: &str = include_str!("../../../../fixtures/launch.json");
@@ -65,14 +65,14 @@ fn shep_launch_file_on_main_plans_its_server_in_the_worktree_on_its_port() {
     assert_eq!(run.program, "npm");
     assert_eq!(run.args, ["run", "dev", "--", "--port", "4421"]);
     assert_eq!(run.port, 4421);
-    let worktree = rig.paths().worktree(7);
+    let worktree = rig.paths().worktree(ticket(7));
     assert_eq!(run.cwd, worktree.join("web"));
     assert_eq!(
         run.env.get("NODE_USE_ENV_PROXY").map(String::as_str),
         Some("1")
     );
     assert_eq!(run.env.get("PORT"), None);
-    assert_eq!(run.log, rig.paths().build(7).join("dev-server.log"));
+    assert_eq!(run.log, rig.paths().build(ticket(7)).join("dev-server.log"));
     assert_eq!(run.ready_within, crate::ports::READY_WITHIN);
     assert!(told.contains("`http://localhost:4421`"), "{told}");
     assert!(told.contains(&run.log.display().to_string()), "{told}");
@@ -86,7 +86,10 @@ fn the_servers_sandbox_writes_the_worktree_and_build_folder_and_reaches_the_brow
     let policy = run.expect("a plan").policy;
     assert_eq!(
         policy.write,
-        [rig.paths().worktree(7), rig.paths().build(7)]
+        [
+            rig.paths().worktree(ticket(7)),
+            rig.paths().build(ticket(7))
+        ]
     );
     assert_eq!(policy.hosts, ["app.example.com"]);
     assert!(policy.listen);
@@ -281,7 +284,7 @@ fn a_server_that_never_answers_leaves_the_turn_running_and_the_instructions_say_
     assert_served_each_call(&rig, &watching);
     let told = instructions_of(&worker);
     assert!(told.contains("had not answered after 60 seconds"), "{told}");
-    let log = rig.paths().build(7).join("dev-server.log");
+    let log = rig.paths().build(ticket(7)).join("dev-server.log");
     assert!(told.contains(&log.display().to_string()), "{told}");
     let notes = runner.lock().unwrap().take_notes();
     assert!(
