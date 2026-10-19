@@ -154,6 +154,27 @@ fn a_version_70_file_loads_with_no_red_heads_counted() {
     );
 }
 
+#[test]
+fn a_version_71_file_loads_with_nothing_unmined_and_saves_at_the_current_version() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = store_in(dir.path());
+    let mut old = serde_json::to_value(ProjectState::new()).unwrap();
+    old["version"] = 71.into();
+    fs::write(dir.path().join(STATE_FILE), old.to_string()).unwrap();
+
+    let mut loaded = store.load().unwrap().expect("a saved state");
+    assert!(
+        !loaded.pm_unmined,
+        "an older file has nothing waiting to be read out of the archive"
+    );
+    loaded.pm_unmined = true;
+    store.save(&loaded).unwrap();
+    let text = fs::read_to_string(dir.path().join(STATE_FILE)).unwrap();
+    let saved: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(saved["version"], VERSION);
+    assert_eq!(saved["pm_unmined"], serde_json::json!(true));
+}
+
 // A version 15 file has no `ci_fix_turns` in a work item's counts and no
 // `fix_turns` on a still-red ruling: none counted, and the pushed-no-fix ruling.
 #[test]
