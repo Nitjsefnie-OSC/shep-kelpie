@@ -19,7 +19,9 @@
 //!
 //! Each listed implementer's `agent:` label is made on the repo the first
 //! time the issue writer needs it, since the forge refuses a label the repo
-//! lacks.
+//! lacks. A project whose tickets are the local store makes none, and its
+//! writer files with `shep kelpie ticket new` into the project's `tickets/`
+//! folder, which its sandbox may write and read, in place of `gh issue create`.
 
 use std::collections::BTreeMap;
 use std::ffi::OsStr;
@@ -40,7 +42,7 @@ use crate::ports::{
 };
 use crate::profile::CREDENTIALS;
 use crate::runner::{HUMAN, ProjectPaths};
-use crate::settings::{AgentName, ForgeSlug, RoleAgents, RoleModel, Settings};
+use crate::settings::{AgentName, ForgeSlug, RoleAgents, RoleModel, Settings, TicketSource};
 use crate::skills;
 use crate::ticket::TicketId;
 use crate::usage;
@@ -133,6 +135,10 @@ impl Mode {
 ///
 /// A message naming the label the forge would not read or make.
 pub fn make_labels(forge: &dyn Forge, project: &Project<'_>, mode: Mode) -> Result<(), String> {
+    // A local store holds any label, so there is none to make.
+    if project.settings.tickets.source == TicketSource::Local {
+        return Ok(());
+    }
     let status = crate::flock::add::LABELS
         .into_iter()
         .find(|l| l.name == mode.status());
@@ -242,6 +248,7 @@ fn reach(
         ["rev-parse", "--path-format=absolute", "--git-common-dir"],
     )
     .map_err(|e| e.to_string())?;
+    let local = settings.tickets.source == TicketSource::Local;
     let homes = [&paths.shep_home, &paths.kelpie_home]
         .into_iter()
         .enumerate()
@@ -253,6 +260,7 @@ fn reach(
             .map(|i| i.name.as_str().to_owned())
             .collect(),
         ledger: Some(ledger),
+        tickets: local.then(|| paths.name()),
     };
     // The installed sources and docs of dependencies and toolchains, which this
     // call reads and writes none of.
@@ -260,8 +268,11 @@ fn reach(
         crate::dep_sources::DepSources::discover(project.home, &crate::dep_sources::ProcessEnv)
             .folders()
             .to_vec();
+    // A local project's writer files into its tickets folder, which its home's
+    // `no_read` would otherwise hide.
+    let tickets = local.then(|| paths.tickets());
     let fence = Fence {
-        write: Vec::new(),
+        write: tickets.iter().cloned().collect(),
         no_write: crate::fence::deny_write(checkout),
         no_read: (CREDENTIALS.iter().chain(&HISTORY))
             .map(|&p| p.to_owned())
@@ -271,6 +282,7 @@ fn reach(
             .into_iter()
             .chain(also.iter().cloned())
             .chain(dep.iter().cloned())
+            .chain(tickets)
             .collect(),
         hosts: vec!["github.com".to_owned(), "api.github.com".to_owned()],
         no_commands: Vec::new(),
@@ -484,8 +496,9 @@ fn call(
 /// What the headless issue writer's reply lists
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct Filed {
-    /// The issues it filed, a parent first
-    pub filed: Vec<u64>,
+    /// The tickets it filed, a parent first: GitHub issue numbers, or local ids
+    /// such as `k12`
+    pub filed: Vec<TicketId>,
     /// What it says to the maintainer
     #[serde(default)]
     pub note: String,
@@ -528,19 +541,13 @@ fn report(
         )],
     };
     let mut wrong = false;
-    for &number in &filed.filed {
-        let Some(ticket) = TicketId::from_issue(number) else {
-            wrong = true;
-            lines.push(format!(
-                "#{number}: the forge numbered it zero, so it cannot be read back"
-            ));
-            continue;
-        };
+    for &ticket in &filed.filed {
+        let shown = ticket.shown();
         let issue = match tickets.issue(repo, ticket) {
             Ok(issue) => issue,
             Err(e) => {
                 wrong = true;
-                lines.push(format!("#{number}: cannot read it back: {e}"));
+                lines.push(format!("{shown}: cannot read it back: {e}"));
                 continue;
             }
         };
@@ -559,10 +566,10 @@ fn report(
         if !has_criteria(&issue.body) {
             lacks.push("no acceptance criteria".to_owned());
         }
-        about.extend(issue.parent.map(|p| format!("sub-issue of #{p}")));
+        about.extend(issue.parent.map(|p| format!("sub-issue of {}", p.shown())));
         let line = match about.is_empty() {
-            true => format!("#{number} {}", issue.title),
-            false => format!("#{number} {} ({})", issue.title, about.join(", ")),
+            true => format!("{shown} {}", issue.title),
+            false => format!("{shown} {} ({})", issue.title, about.join(", ")),
         };
         match lacks.is_empty() {
             true => lines.push(line),

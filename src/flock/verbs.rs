@@ -4,12 +4,14 @@ use std::ffi::OsStr;
 use std::io::{BufRead, IsTerminal, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use std::sync::Arc;
 
 use super::control::Format;
 use super::{Checkout, Launch, add, attach, control, pm, rule, set, ticket, usage, watch};
 use crate::adapters::{ClaudeCli, Gh, LoginToken, SystemGit};
 use crate::agents::Agents;
 use crate::issues::{self, Mode, Project, Writer};
+use crate::local_tickets::{LocalTickets, Routed};
 use crate::ports::SandboxError;
 use crate::runner::{ProjectName, ProjectPaths};
 use crate::settings::source;
@@ -402,7 +404,15 @@ async fn issue(here: Here<'_>, name: &ProjectName, args: &[&str]) -> Result<Vec<
         .in_runtime(tools, here.home.to_owned(), &codex_home, secret_vars)
         .with_login(LoginToken::take());
     let gh = Gh::default();
-    issues::headless(&project, &writer, &request, &gh, &gh, &claude, &SystemGit)
+    // What it filed is read back from the project's own ticket source.
+    let tickets = Routed::new(
+        Arc::new(Gh::default()),
+        LocalTickets::new(paths.tickets()),
+        loaded.settings.tickets.source,
+    );
+    issues::headless(
+        &project, &writer, &request, &gh, &tickets, &claude, &SystemGit,
+    )
 }
 
 // `rule`: the ruling and its answer read first, asking in a terminal, so

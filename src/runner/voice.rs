@@ -191,11 +191,7 @@ impl Runner {
 
     /// Comments on `ticket`: a GitHub issue as the App where one covers the
     /// repo, any other as the ticket port writes it
-    pub(super) fn comment_on_ticket(
-        &self,
-        ticket: TicketId,
-        body: &str,
-    ) -> Result<(), ForgeError> {
+    pub(super) fn comment_on_ticket(&self, ticket: TicketId, body: &str) -> Result<(), ForgeError> {
         match ticket.github() {
             Some(number) => self.comment_on_issue(number, body),
             None => (self.ports.tickets).comment_ticket(&self.remote, ticket, body),

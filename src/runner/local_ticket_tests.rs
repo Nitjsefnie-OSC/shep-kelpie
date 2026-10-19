@@ -158,8 +158,7 @@ fn merged_with_a_deferred_finding() -> (Rig, Mutex<Runner>) {
     rig.ticket_verb(&["new", "Add a thing", "--label", "ready-for-agent"]);
     let runner = rig.open().unwrap();
     rig.forge.open_pull_request(71, "kelpie/k1", &[]);
-    rig.reviewer
-        .script([ScriptedRound::Findings(vec![racy()])]);
+    rig.reviewer.script([ScriptedRound::Findings(vec![racy()])]);
     rig.claude.script([
         Scripted::Push("work.txt", "work\n"),
         Scripted::Push("fixed.txt", "fixed\n"),
@@ -191,7 +190,10 @@ fn a_follow_up_on_a_local_project_becomes_a_local_ticket() {
         panic!("no follow-up was filed: {report:?}");
     };
     assert_eq!(opened, [local("k2")]);
-    assert!(rig.forge.created().is_empty(), "nothing was filed on GitHub");
+    assert!(
+        rig.forge.created().is_empty(),
+        "nothing was filed on GitHub"
+    );
     let listed = rig.ticket_verb(&["list"]);
     assert!(
         listed.contains(&"k2  open  looks racy [needs-triage]".to_owned()),
@@ -205,12 +207,7 @@ fn a_follow_up_on_a_local_project_becomes_a_local_ticket() {
 #[test]
 fn a_finding_a_local_ticket_already_holds_is_a_comment_on_it() {
     let (rig, runner) = merged_with_a_deferred_finding();
-    rig.ticket_verb(&[
-        "new",
-        "Looks racy",
-        "--body",
-        "Seen in src/lib.rs by hand.",
-    ]);
+    rig.ticket_verb(&["new", "Looks racy", "--body", "Seen in src/lib.rs by hand."]);
 
     let report = after_merge(&runner);
     let Some(StepReport::FollowUpsFiled {

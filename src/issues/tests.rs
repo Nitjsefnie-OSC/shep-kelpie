@@ -1,6 +1,9 @@
 use serde_json::{Value, json};
 
+use std::sync::Arc;
+
 use super::*;
+use crate::local_tickets::{LocalTickets, Routed};
 use crate::test::{Rig, Scripted, git, write_in, write_script};
 
 const BODY: &str = "Build the thing.\n\n## Acceptance criteria\n\n- [ ] It works\n";
@@ -59,14 +62,19 @@ impl Setup {
     // Runs the issue writer on its own, its session answering `reply`.
     fn headless(&self, reply: &'static str) -> Result<Vec<String>, String> {
         self.rig.claude.script([Scripted::Text(reply)]);
-        // The rig's one forge stands behind both ports.
+        // The rig's one forge stands behind the forge port and GitHub's tickets.
         let forge = &self.rig.forge;
+        let tickets = Routed::new(
+            Arc::new(forge.clone()),
+            LocalTickets::new(self.paths.tickets()),
+            self.settings.tickets.source,
+        );
         headless(
             &self.project(),
             &self.writer,
             REQUEST,
             forge,
-            forge,
+            &tickets,
             &self.rig.claude,
             &self.rig.git,
         )
@@ -304,6 +312,72 @@ fn an_issue_without_criteria_or_one_listed_agent_is_named_with_what_it_lacks() {
         "#46 Twice: the issue has more than one `agent:` label"
     );
     assert_eq!(lines.len(), 6, "{err}");
+}
+
+#[test]
+fn on_a_local_project_it_files_local_tickets_and_kelpie_reads_them_back_from_the_store() {
+    let s = Setup::with(Rig::tickets_local);
+    let ticket = |args: &[&str]| s.rig.ticket_verb(args);
+    ticket(&[
+        "new",
+        "Pause a project",
+        "--label",
+        HUMAN,
+        "--label",
+        "agent:sonnet-high",
+        "--body",
+        BODY,
+    ]);
+    ticket(&[
+        "new",
+        "Its lookout button",
+        "--label",
+        HUMAN,
+        "--label",
+        "agent:opus-high",
+        "--parent",
+        "k1",
+        "--body",
+        BODY,
+    ]);
+    ticket(&["new", "Untidy", "--label", HUMAN, "--body", "Do it."]);
+
+    let err = s
+        .headless("{\"filed\": [\"k1\", \"k2\", \"k3\"], \"note\": \"Split in two.\"}")
+        .unwrap_err();
+
+    let lines: Vec<&str> = err.lines().collect();
+    assert_eq!(
+        lines[0],
+        "the issue writer filed 3 on shep-pm/shep, `ready-for-human` for you to read, then \
+         label `ready-for-agent`:"
+    );
+    assert_eq!(lines[1], "k1 Pause a project (agent:sonnet-high)");
+    assert_eq!(
+        lines[2],
+        "k2 Its lookout button (agent:opus-high, sub-issue of k1)"
+    );
+    assert_eq!(
+        lines[3],
+        "k3 Untidy: no `agent:` label; no acceptance criteria"
+    );
+    assert_eq!(lines[4], "note: Split in two.");
+    // A local store holds any label, so none was made on GitHub.
+    assert_eq!(s.rig.forge.repo_labels_now(), Vec::<String>::new());
+    // Its sandbox files into the store, which its guard names.
+    let [seen] = s.rig.claude.all_seen().try_into().unwrap();
+    let tickets = s.paths.tickets();
+    assert_eq!(seen.sandbox["filesystem"]["allowWrite"], json!([tickets]));
+    assert!(
+        seen.sandbox["filesystem"]["allowRead"]
+            .to_string()
+            .contains(&tickets.display().to_string())
+    );
+    let guard = guard_hook(&seen.settings);
+    assert!(guard.contains("--tickets=acme"), "{guard}");
+    let prompt = instructions(&s.writer, &s.project(), Mode::Headless);
+    assert!(prompt.contains("shep kelpie ticket new"), "{prompt}");
+    assert!(!prompt.contains("gh issue create --title"), "{prompt}");
 }
 
 #[test]
@@ -667,7 +741,7 @@ fn a_reply_is_read_from_its_first_brace_to_its_last() {
     assert_eq!(
         read_reply(fenced),
         Some(Filed {
-            filed: vec![7],
+            filed: vec![TicketId::from_issue(7).unwrap()],
             note: String::new()
         })
     );

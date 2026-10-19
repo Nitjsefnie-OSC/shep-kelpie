@@ -5,12 +5,13 @@
 //! `origin/main` into a worktree the session runs in, where its file tools
 //! may write `GLOSSARY.md` and `docs/adr/` and nothing else. When the session
 //! ends, kelpie commits what it wrote, pushes the branch, opens a draft pull
-//! request and links it from the issues the session filed.
+//! request and links it from the GitHub issues the session filed.
 
 use std::path::{Path, PathBuf};
 
 use crate::ports::Forge;
 use crate::settings::ForgeSlug;
+use crate::ticket::TicketId;
 use crate::worktree::{self, BASE, Remote, Start, WorktreeError};
 
 use super::Project;
@@ -110,7 +111,7 @@ impl Docs {
         project: &Project<'_>,
         forge: &dyn Forge,
         request: &str,
-        filed: &[u64],
+        filed: &[TicketId],
     ) -> Result<Vec<String>, String> {
         let repo = &project.settings.git.checkout;
         let files =
@@ -196,7 +197,7 @@ fn head_of(request: &str) -> String {
     head.replace('"', "'")
 }
 
-fn pull_request_body(head: &str, files: &[String], filed: &[u64]) -> String {
+fn pull_request_body(head: &str, files: &[String], filed: &[TicketId]) -> String {
     let mut lines = vec![
         format!(
             "Glossary terms and ADRs settled while planning \"{head}\" with `shep kelpie issue --interactive`."
@@ -205,7 +206,7 @@ fn pull_request_body(head: &str, files: &[String], filed: &[u64]) -> String {
     ];
     lines.extend(files.iter().map(|f| format!("- `{f}`")));
     if !filed.is_empty() {
-        let issues: Vec<String> = filed.iter().map(|n| format!("#{n}")).collect();
+        let issues: Vec<String> = filed.iter().map(TicketId::shown).collect();
         lines.push(String::new());
         lines.push(format!("Filed beside it: {}", issues.join(", ")));
     }
@@ -218,10 +219,15 @@ fn pull_request_body(head: &str, files: &[String], filed: &[u64]) -> String {
 }
 
 // Comments the pull request on each issue, and says which could not take it.
-fn link(forge: &dyn Forge, repo: &ForgeSlug, number: u64, filed: &[u64]) -> Vec<String> {
+fn link(forge: &dyn Forge, repo: &ForgeSlug, number: u64, filed: &[TicketId]) -> Vec<String> {
     let text = format!("The glossary terms and ADRs settled while planning this are in #{number}.");
     let mut lines = Vec::new();
-    for &issue in filed {
+    for ticket in filed {
+        // A local ticket has no thread on GitHub to link from.
+        let Some(issue) = ticket.github() else {
+            lines.push(format!("{ticket} is a local ticket, so it is not linked"));
+            continue;
+        };
         match forge.comment(repo, issue, &text) {
             Ok(_) => lines.push(format!("linked it from #{issue}")),
             Err(e) => lines.push(format!("cannot link it from #{issue}: {e}")),
