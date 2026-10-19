@@ -11,8 +11,7 @@ use crate::profile;
 use crate::runner::step;
 use crate::runner::turn::paused::PAUSED;
 use crate::settings::Effort;
-use crate::test::ticket;
-use crate::test::{Hold, LEFT_BEHIND, Rig, Scripted, assert_reads, git, write_in};
+use crate::test::{Hold, LEFT_BEHIND, Rig, Scripted, assert_reads, git, ticket, write_in};
 
 pub(super) fn usage(n: u64) -> Usage {
     Usage {
@@ -76,6 +75,36 @@ fn the_first_turn_starts_the_workers_session_in_its_own_worktree() {
     assert_eq!(git(&worktree, &["branch", "--show-current"]), "kelpie/7");
     let origin_main = git(&rig.repo(), &["rev-parse", "origin/main"]);
     assert_eq!(git(&worktree, &["rev-parse", "HEAD"]), origin_main);
+}
+
+// The prompt a worker's first turn gets, for a ticket of each source. A
+// GitHub ticket's is worded as it always was: its id is its issue number.
+fn issue_of() -> Issue {
+    Issue {
+        title: "Title of #7".to_owned(),
+        body: "Body of #7.\n\n".to_owned(),
+        labels: Vec::new(),
+        open: true,
+        parent: None,
+        blocked_by: Vec::new(),
+    }
+}
+
+#[test]
+fn a_github_ticket_s_first_prompt_is_unchanged() {
+    assert_eq!(
+        first_prompt(ticket(7), &issue_of()),
+        "Your work item is issue #7: Title of #7\n\nBody of #7.\n"
+    );
+}
+
+#[test]
+fn a_ticket_from_another_source_names_its_first_prompt_by_its_id() {
+    let local: TicketId = "k12".parse().unwrap();
+    assert_eq!(
+        first_prompt(local, &issue_of()),
+        "Your work item is ticket k12: Title of #7\n\nBody of #7.\n"
+    );
 }
 
 #[test]

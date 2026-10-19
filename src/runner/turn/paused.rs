@@ -12,6 +12,7 @@ use crate::guard::Pause;
 use crate::ports::{AgentError, AgentReply, Role};
 use crate::runner::Runner;
 use crate::state::StateError;
+use crate::ticket::TicketId;
 use crate::work_item::{Turn, WorkItem};
 
 use crate::runner::report::StepReport;
@@ -21,9 +22,11 @@ pub(in crate::runner) const PAUSED: &str = "Kelpie paused your last turn after i
                                             Carry on with the work item from where you left off.";
 
 impl Runner {
-    // Whether the turn of `issue` that came back ended at a tool result for a pause
-    pub(in crate::runner) fn paused_at_tool(&self, issue: u64) -> bool {
-        (self.state.item(issue)).is_some_and(|item| Pause::in_build(&item.build).ended_turn())
+    // Whether the turn of `ticket`'s work item that came back ended at a tool
+    // result for a pause
+    pub(in crate::runner) fn paused_at_tool(&self, ticket: TicketId) -> bool {
+        (self.state.item_by_ticket(ticket))
+            .is_some_and(|item| Pause::in_build(&item.build).ended_turn())
     }
 
     // Ends the current work item's turn as paused, when it ended that way, and
@@ -33,8 +36,8 @@ impl Runner {
         &mut self,
         result: &Result<AgentReply, AgentError>,
     ) -> Option<Result<Option<StepReport>, StateError>> {
-        let issue = self.current()?.issue;
-        if !self.paused_at_tool(issue) {
+        let ticket = self.current()?.ticket()?;
+        if !self.paused_at_tool(ticket) {
             return None;
         }
         let pause = Pause::in_build(&self.current()?.build);
@@ -55,14 +58,14 @@ impl Runner {
         };
         let saved = self.save(next);
         if saved.is_ok() {
-            self.notes.push(format!("#{issue} paused-at-tool"));
+            self.notes.push(format!("#{ticket} paused-at-tool"));
         }
         Some(saved.map(|()| None))
     }
 
     // Says that the turn that just started resumed one a pause ended
-    pub(in crate::runner) fn note_resumed(&self, issue: u64) {
-        self.notes.push(format!("#{issue} resumed-after-pause"));
+    pub(in crate::runner) fn note_resumed(&self, ticket: TicketId) {
+        self.notes.push(format!("#{ticket} resumed-after-pause"));
     }
 }
 

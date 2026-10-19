@@ -121,7 +121,7 @@ fn attach(runner: &Mutex<Runner>, issue: u64, by: &Live) {
     runner
         .lock()
         .unwrap()
-        .on(Some(issue))
+        .on(TicketId::from_issue(issue))
         .update(|item| {
             item.attached = Some(crate::work_item::Attached {
                 by,

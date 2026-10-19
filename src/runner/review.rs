@@ -81,7 +81,10 @@ impl Runner {
         let number = item
             .pull_request
             .expect("review starts once a pull request is known");
-        let (issue, worktree) = (item.issue, item.worktree.clone());
+        let (ticket, worktree) = (
+            item.ticket().expect("a work item's issue is never zero"),
+            item.worktree.clone(),
+        );
         let base = item.review_base();
         let build = item.build.clone();
         // A new pass reviews new code, so no fix of the last one will
@@ -131,7 +134,7 @@ impl Runner {
                 if let Some(parked) = self.park_over_budget()? {
                     return Ok(parked);
                 }
-                let criteria = match self.criteria(issue) {
+                let criteria = match self.criteria(ticket) {
                     Ok(criteria) => criteria,
                     Err(reason) => return Ok(self.gate_failed(reason)),
                 };
@@ -203,8 +206,9 @@ impl Runner {
         }
         let item = self.current().expect("a review is a work item's");
         let (issue, worktree, base) = (item.issue, item.worktree.clone(), item.review_base());
+        let ticket = item.ticket().expect("a work item's issue is never zero");
         let build = item.build.clone();
-        let criteria = match self.criteria(issue) {
+        let criteria = match self.criteria(ticket) {
             Ok(criteria) => criteria,
             Err(reason) => return Ok(self.gate_failed(reason)),
         };
@@ -697,6 +701,7 @@ impl Runner {
             return Ok(None);
         }
         let issue = item.issue;
+        let ticket = item.ticket().expect("a work item's issue is never zero");
         let (worktree, build) = (item.worktree.clone(), item.build.clone());
         let number = item
             .pull_request
@@ -749,7 +754,7 @@ impl Runner {
         // A test a reviewer attached is kept only once its file has been checked.
         let asked = self.round_asked_tests(&reviewer);
         let result =
-            result.map(|found| self.checked_tests(asked, (issue, &worktree, &build), found));
+            result.map(|found| self.checked_tests(asked, (ticket, &worktree, &build), found));
         // What a round that read the pull request found, to post once it is saved.
         let mut ended: Option<Vec<Finding>> = None;
 

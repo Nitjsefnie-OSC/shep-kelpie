@@ -114,7 +114,7 @@ impl Runner {
                 "cannot comment on issue #{issue} before closing it: {e}"
             ));
         }
-        let closed = (self.ports.forge).close_issue(&self.remote, issue);
+        let closed = self.ports.tickets.close_issue(&self.remote, issue);
         match closed {
             Ok(()) => {
                 self.close_refused.remove(&issue);

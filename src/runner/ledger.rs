@@ -88,11 +88,10 @@ impl Runner {
             // A turn the pause ended at a tool result, whatever its harness
             // reported of the abort.
             Ended::Answered | Ended::Failed | Ended::Unreadable
-                if open.draft.issue.is_some_and(|ticket| {
-                    ticket
-                        .github()
-                        .is_some_and(|issue| self.paused_at_tool(issue))
-                }) =>
+                if open
+                    .draft
+                    .issue
+                    .is_some_and(|ticket| self.paused_at_tool(ticket)) =>
             {
                 Ended::Paused
             }

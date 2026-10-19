@@ -21,6 +21,7 @@ use super::trigger::lock;
 use super::turn::held_up::Reason;
 use crate::ports::{Disk, Timestamp};
 use crate::settings::Builds;
+use crate::ticket::TicketId;
 use crate::worktree::{self, TurnMark};
 
 /// Seconds between one reading of an item's build folder and the next
@@ -181,7 +182,7 @@ impl Runner {
         }
         let now = self.ports.clock.now();
         (self.state.work_items.iter())
-            .filter(|item| self.flights.runs_turn(item.issue))
+            .filter(|item| item.ticket().is_some_and(|t| self.flights.runs_turn(t)))
             .filter(|item| (self.builds.items.get(&item.issue)).is_none_or(|watch| watch.due(now)))
             .map(|item| (item.issue, item.build.clone()))
             .collect()
@@ -223,7 +224,7 @@ impl Runner {
         let Some(past) = reading.past(self.settings.builds) else {
             return;
         };
-        if !self.flights.runs_turn(issue) {
+        if !TicketId::from_issue(issue).is_some_and(|t| self.flights.runs_turn(t)) {
             self.builds_prune(issue);
             return;
         }
@@ -381,7 +382,7 @@ impl Runner {
             return None;
         }
         (self.state.work_items.iter())
-            .filter(|item| self.flights.runs_turn(item.issue))
+            .filter(|item| item.ticket().is_some_and(|t| self.flights.runs_turn(t)))
             .map(|item| {
                 let read = self.builds.items.get(&item.issue).and_then(|w| w.read_at);
                 let due = read.map_or(now.0, |read| read.0.saturating_add(EVERY));

@@ -77,7 +77,7 @@ impl Runner {
             format!("# Ruling {}\n\n{brief}\n", ruling.id).as_bytes(),
         )?;
         let mut where_ = String::from("# Where to read\n\n");
-        let item = ruling.issue.and_then(|n| self.state.item(n));
+        let item = ruling.ticket().and_then(|t| self.state.item_by_ticket(t));
         match item {
             Some(item) => {
                 let _ = writeln!(
@@ -134,7 +134,7 @@ impl Runner {
             "rulings.md",
             super::history::read(&self.paths.rulings).as_bytes(),
         )?;
-        let item = ruling.issue.and_then(|n| self.state.item(n));
+        let item = ruling.ticket().and_then(|t| self.state.item_by_ticket(t));
         let pull_request = ruling.pull_request.or(item.and_then(|i| i.pull_request));
         let threads = self.threads_text(ruling.issue, pull_request);
         if !threads.is_empty() {

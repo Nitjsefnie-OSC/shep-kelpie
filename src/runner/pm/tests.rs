@@ -23,6 +23,7 @@ mod notes;
 mod question;
 mod quiet;
 mod red;
+mod wake_prompt;
 
 const PICK_12: &str = "Neither touches open work, and #12 is smaller.\n\n```json\n\
     {\"pick\": 12, \"hold\": [], \"unstick\": null, \"reply\": null, \

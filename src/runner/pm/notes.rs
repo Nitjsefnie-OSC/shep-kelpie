@@ -14,6 +14,7 @@ use std::path::Path;
 use crate::ports::PM_NOTES;
 use crate::runner::Runner;
 
+use super::act::{WORDS, plain};
 use super::prompt;
 
 /// The file the rolled part of the notes moves to, at its end
@@ -230,10 +231,6 @@ impl Runner {
     /// dated, so a rule the maintainer gave cannot roll out of the log. An
     /// answer that gave the whole file was told to carry its own tells, so
     /// its caller does not add them a second time.
-    /// Adds each tell the wake carried to the end of the standing notes,
-    /// dated, so a rule the maintainer gave cannot roll out of the log. An
-    /// answer that gave the whole file was told to carry its own tells, so
-    /// its caller does not add them a second time.
     pub(super) fn pm_stand_tells(&mut self, told: &[String]) {
         if told.is_empty() {
             return;
@@ -253,6 +250,56 @@ impl Runner {
         if let Err(e) = append(&file, &format!("{gap}{added}")) {
             self.notes
                 .push(format!("cannot add to {PM_STANDING}: {}", e.kind()));
+        }
+    }
+
+    /// Adds one line to `pm-notes.md` for a wake kelpie answered: when it ran,
+    /// what it woke for, what kelpie did, and the answer's `why`, each on one
+    /// line, cut at [`WORDS`], and with text naming this machine withheld as it
+    /// is on the board
+    ///
+    /// Kelpie writes it itself, so a wake that wrote nothing of its own still
+    /// left behind what a later wake must remember.
+    pub(super) fn pm_note_wake(
+        &mut self,
+        woke_for: &[String],
+        acted: &[String],
+        why: Option<&str>,
+    ) {
+        let at = crate::board::briefing::date_time(self.ports.clock.now());
+        let said = |runner: &Runner, text: String| plain(&runner.shown(text), WORDS);
+        let reasons: Vec<String> = (woke_for.iter())
+            .map(|wake| said(self, wake.clone()))
+            .collect();
+        let did: Vec<String> = (acted.iter())
+            .map(|done| said(self, done.clone()))
+            .collect();
+        let did = match did.is_empty() {
+            true => "nothing".to_owned(),
+            false => did.join("; "),
+        };
+        let why = match why {
+            Some(why) => format!("; why: {}", said(self, why.to_owned())),
+            None => String::new(),
+        };
+        self.pm_note(&format!(
+            "[{at}] woke for: {}; kelpie: {did}{why}",
+            reasons.join("; ")
+        ));
+    }
+
+    /// Adds `line` to the end of `pm-notes.md`, oldest first, and says in the
+    /// log when the file cannot be written
+    pub(super) fn pm_note(&mut self, line: &str) {
+        let path = self.paths.pm.join(PM_NOTES);
+        let added = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)
+            .and_then(|mut file| writeln!(file, "- {line}"));
+        if let Err(e) = added {
+            self.notes
+                .push(format!("cannot add to the project manager's notes: {e}"));
         }
     }
 }

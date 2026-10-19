@@ -10,13 +10,11 @@
 //! neither `yes` nor `no`. Its own `follow_up` key decides the ruling: a yes
 //! files the findings as the maintainer's yes does, a no drops them.
 
-use std::io::Write as _;
-
 use super::act::{WORDS, plain};
 use super::answer::{Call, Decide, How, Settle};
 use super::maintainer::Settled;
 use crate::board::{READY, TRIAGE};
-use crate::ports::{Finding, PM_NOTES};
+use crate::ports::Finding;
 use crate::runner::ruling::question;
 use crate::runner::thread_replies::Settler;
 use crate::runner::voice::{ASK_THE_MAINTAINER, BOARD, PROBLEM, asks_the_maintainer, effect_of};
@@ -312,23 +310,9 @@ impl Runner {
         self.pm.settled.push(settled);
         let over = self.pm.settled.len().saturating_sub(KEPT);
         self.pm.settled.drain(..over);
-        self.note_settled(&line);
+        // What it settled is what a later wake must remember.
+        self.pm_note(&line);
         self.record(vec![line])
-    }
-
-    // Adds `line` to the end of the project manager's notes, since what it
-    // settled is what a later wake must remember.
-    fn note_settled(&mut self, line: &str) {
-        let path = self.paths.pm.join(PM_NOTES);
-        let added = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&path)
-            .and_then(|mut file| writeln!(file, "- {line}"));
-        if let Err(e) = added {
-            self.notes
-                .push(format!("cannot add to the project manager's notes: {e}"));
-        }
     }
 }
 
