@@ -152,7 +152,11 @@ pub(in crate::runner) fn write_findings_file(
          copy its line, as it stands here, into {}, and on the next line, indented by \
          two spaces, give your reason, naming its evidence: a file and line, a command \
          you ran and what it printed, or the version that settles it. The next reviewer \
-         is shown your reason, and a finding it raises again is sent to you once more.",
+         is shown your reason, and a finding it raises again is sent to you once more. A \
+         finding of any severity, a low one included, that needs a design choice the issue \
+         and the docs do not settle is a question for the maintainer, asked in a \
+         `<kelpie-question>` block as your instructions say, rather than a guess or a \
+         silent skip.",
         deferred.display(),
         disputed.display()
     );
@@ -307,6 +311,22 @@ mod tests {
                 dir.path().join("deferred-findings.md").display()
             )),
             "the header names where a finding left unfixed goes: {text}"
+        );
+        assert!(
+            text.contains(&format!(
+                "into {}, and on the next line",
+                dir.path().join("disputed-findings.md").display()
+            )),
+            "the header names where a finding shown to be wrong goes: {text}"
+        );
+        assert!(
+            text.contains(
+                "A finding of any severity, a low one included, that needs a design choice \
+                 the issue and the docs do not settle is a question for the maintainer, asked \
+                 in a `<kelpie-question>` block as your instructions say"
+            ),
+            "the header tells a fix turn what to do with a finding that needs a design choice: \
+             {text}"
         );
         assert!(
             text.contains("HIGH|src/lib.rs:9|looks racy|two threads write the same field\n"),
@@ -476,23 +496,24 @@ mod tests {
         assert!(!err.contains("a thing"), "{err}");
     }
 
-    // The first turn's instructions name the path `deferred` reads, before any
-    // round has written a findings file with a header that does.
+    // The path a findings header names for `name`, which it holds between a
+    // space and the punctuation after it
+    fn header_path(text: &str, name: &str) -> PathBuf {
+        let at = text.find(name).expect(name);
+        let start = text[..at].rfind(' ').expect("a path before the name");
+        PathBuf::from(&text[start + 1..at + name.len()])
+    }
+
+    // A fix turn learns where a deferred finding goes from the header of the
+    // findings file it was sent to, and that is the path kelpie reads at merge.
     #[test]
-    fn the_deferred_path_the_instructions_name_is_the_one_read_at_merge() {
-        let rig = Rig::new("shep");
-        let runner = rig.open().unwrap();
-        rig.ask(&runner, "add", Some("7"));
-        rig.claude.script([Scripted::Say("Working on it.")]);
-        step(&runner).unwrap();
-        let [seen] = rig.claude.seen().try_into().unwrap();
-        let told = std::fs::read_to_string(seen.call.instructions.unwrap()).unwrap();
-        let named = told
-            .split('`')
-            .find(|word| word.ends_with("deferred-findings.md"))
-            .expect(&told);
+    fn the_deferred_path_the_findings_header_names_is_the_one_read_at_merge() {
+        let (rig, _runner) = findings_sent();
+        let text = std::fs::read_to_string(rig.build_7().join("review-findings.md")).unwrap();
+        let named = header_path(&text, "deferred-findings.md");
+        assert_eq!(named, rig.build_7().join("deferred-findings.md"));
         let line = "MEDIUM|src/lib.rs:3|the flag is misnamed|it reads as its opposite\n";
-        std::fs::write(named, line).unwrap();
+        std::fs::write(&named, line).unwrap();
 
         let read = deferred(&rig.build_7()).unwrap();
 

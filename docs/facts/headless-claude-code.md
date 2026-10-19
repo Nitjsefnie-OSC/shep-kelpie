@@ -23,6 +23,11 @@ Measured 2026-09-24 on Claude Code 2.1.282, `--model sonnet`, one sample each. F
   - `--tools Bash,Read,Edit,Write,Glob,Grep --strict-mcp-config`: 7,478.
   - The list had also carried the account's claude.ai connectors, `Agent`, `Workflow`, `ScheduleWakeup` and the deferred tools, none of which a worker can use. At about 10k a turn, a worker of 270 turns re-read about 2.7M tokens it never needed.
   - Kelpie now starts a worker with the third row's tools (`Bash,Read,Edit,Write,Glob,Grep,Skill` with `--strict-mcp-config`) and a reviewer with `Read,Glob,Grep`.
+- Worker instructions bytes, measured 2026-10-19 in the rig (#992). `claude -p` is refused for a worker (kelpie's guard stops a worker starting an agent of its own, and the sandbox reaches no model host), so the token floor was not re-measured; the bytes are, and Claude Code carries them on a session's first call and every later request:
+  - The instructions file a worker's first turn starts with, on a rig whose repo takes its owner's 2 KiB `.github` template: 11,448 before, 8,171 after the template moved to `pull-request-template.md` in the item's build folder, the deferred and disputed findings rules moved to the header of the findings file, and two worked question examples left.
+  - The same rig with no owner template: 9,223 before, 7,899 after.
+  - `src/worker-instructions.md` itself: 7,763 before, 6,653 after.
+  - A shep-kelpie item's file measured 10,823 on 2026-10-14, of which the owner's template was 1,924 and the headless rules 661.
 - Two concurrent `--resume` calls on one session both succeed and run one after the other. `--fork-session` gives a new session id and a separate transcript.
 - Flags missing from `--help` but present in the binary: `--max-budget-usd`, `--task-budget`, `--autocompact`, `--session-id`, `--resume-session-at`, `--channels`, `--dangerously-load-development-channels`.
 - The CLI parses rate-limit data into `five_hour` and `seven_day` windows (plus `seven_day_opus` and `seven_day_sonnet`), each with a utilization and a reset time. `-p --output-format json` does not carry it, stream-json does as `rate_limit_event`, and headless `claude -p "/usage"` reads it for free.
