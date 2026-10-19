@@ -22,11 +22,6 @@ const ASKS: &str = "I added the flag.\n\n<kelpie-question>\nShould it be `--dry-
 const PICK_REASON: &str = "a slot is free and 2 ready issues could fill it: pick one, or none \
                            to start nothing now";
 
-/// `woke_for` as the test's list of reasons
-fn lines(woke_for: &[String]) -> Vec<&str> {
-    woke_for.iter().map(String::as_str).collect()
-}
-
 /// What a wake says of `issue`, parked on ruling `ruling` for its failed turn
 fn stuck_reason(issue: u64, ruling: u64) -> String {
     format!(
@@ -96,7 +91,7 @@ fn a_tell_inside_the_window_wakes_it_at_once_with_the_held_reasons() {
     let report = step_until(&runner, |r| matches!(r, StepReport::PmAnswered { .. }));
     let (woke_for, ..) = answered(Some(report));
     assert_eq!(
-        lines(&woke_for),
+        woke_for,
         [
             stuck_reason(7, 7),
             stuck_reason(9, 9),
@@ -125,7 +120,7 @@ fn a_workers_question_inside_the_window_wakes_it_at_once_with_the_held_reasons()
     let report = step_until(&runner, |r| matches!(r, StepReport::PmAnswered { .. }));
     let (woke_for, acted, dropped) = answered(Some(report));
     assert_eq!(
-        lines(&woke_for),
+        woke_for,
         [
             stuck_reason(7, 7),
             "#9's worker asks, on ruling 9:\n\n> Should it be `--dry-run` or `--check`?\n>\n> Both appear in the docs.".to_owned()
@@ -146,7 +141,7 @@ fn a_free_slot_wakes_it_at_once() {
     let report = step_until(&runner, |r| matches!(r, StepReport::PmAnswered { .. }));
     let (woke_for, acted, _) = answered(Some(report));
     assert_eq!(
-        lines(&woke_for),
+        woke_for,
         [stuck_reason(7, 7), PICK_REASON.to_owned()],
         "the free slot went at once, carrying what was held"
     );
@@ -209,7 +204,7 @@ fn a_held_reason_given_up_while_it_is_down_is_sent_when_it_is_back() {
     let report = step_until(&runner, |r| matches!(r, StepReport::PmAnswered { .. }));
     let (woke_for, _, _) = answered(Some(report));
     assert_eq!(
-        lines(&woke_for),
+        woke_for,
         [stuck_reason(7, 7)],
         "the reason it gave up while it was down reaches it once it is back"
     );
@@ -226,7 +221,7 @@ fn one_answer_settles_two_stuck_items() {
     rig.clock.advance(HOLD_FOR);
     let report = step_until(&runner, |r| matches!(r, StepReport::PmAnswered { .. }));
     let (woke_for, acted, dropped) = answered(Some(report));
-    assert_eq!(lines(&woke_for), [stuck_reason(7, 7), stuck_reason(9, 9)]);
+    assert_eq!(woke_for, [stuck_reason(7, 7), stuck_reason(9, 9)]);
     assert_eq!(acted, ["retried #7".to_owned(), "retried #9".to_owned()]);
     assert_eq!(dropped, Vec::<String>::new());
     assert_eq!(rig.ask(&runner, "status", None)["rulings"], json!([]));
