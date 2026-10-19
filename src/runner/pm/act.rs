@@ -4,7 +4,9 @@
 //! A pick or a hold must name a ready issue the board shows, and an unstick
 //! a work item that is stuck now: parked on a ruling a stuck item raises,
 //! or with a call the board reads as idle. Anything else is dropped, and
-//! named in the log.
+//! named in the log. Each unstick in the answer runs on its own, so one wake
+//! that carried several stuck items can settle each, and one naming the same
+//! item twice acts once.
 
 use super::answer::{Action, Answer, Unstick};
 use super::{Pick, StuckState, stuck_on};
@@ -78,7 +80,17 @@ impl Runner {
             acted.push(format!("holds {}", named.join(", ")));
         }
         self.pm.held = held;
-        if let Some(unstick) = &answer.unstick {
+        let mut unstuck: Vec<u64> = Vec::new();
+        for unstick in &answer.unstick {
+            if unstuck.contains(&unstick.item) {
+                dropped.push(format!(
+                    "{} #{}: the answer names it twice",
+                    unstick.action.as_str(),
+                    unstick.item
+                ));
+                continue;
+            }
+            unstuck.push(unstick.item);
             match self.unstick(unstick)? {
                 Ok(done) => acted.push(done),
                 Err(why) => dropped.push(why),
@@ -108,7 +120,7 @@ impl Runner {
         Ok((acted, dropped))
     }
 
-    // What the answer's unstick did, or why it was dropped.
+    // What one unstick in the answer did, or why it was dropped.
     fn unstick(&mut self, unstick: &Unstick) -> Result<Result<String, String>, StateError> {
         let Unstick { item, action, why } = unstick;
         let n = *item;

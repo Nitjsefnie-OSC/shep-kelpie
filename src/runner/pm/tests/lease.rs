@@ -8,7 +8,7 @@ use crate::runner::flight::tests::Driven;
 use crate::runner::step;
 use crate::test::{CALL_PATIENCE, Hold, Rig, Scripted, StandInEndpoint};
 
-use super::{answered, name_pm};
+use super::{answered, name_pm, past_the_window};
 
 // An implementer on a model behind a gateway, which queues for its lease
 const BEHIND_PADDOCK: &str = "---\nrole: implementer\nharness: pi\nmodel: coder\neffort: low\n\
@@ -59,6 +59,9 @@ fn a_long_lease_wait_wakes_it_naming_who_holds_the_lease() {
     );
     assert_eq!(driven.heard(), None, "the wait is no report");
     rig.clock.advance(11 * 60);
+    // The board tells the wait on this pass, which opens its window.
+    assert_eq!(step(&runner).unwrap(), None, "the wait is no report");
+    past_the_window(&rig);
 
     let (woke_for, acted, dropped) = answered(step(&runner).unwrap());
     assert_eq!(
@@ -104,6 +107,9 @@ fn a_gateway_that_answers_busy_wakes_it_as_a_wait_and_names_no_holder() {
     );
     assert_eq!(driven.heard(), None, "the wait is no report");
     rig.clock.advance(11 * 60);
+    // The board tells the wait on this pass, which opens its window.
+    assert_eq!(step(&runner).unwrap(), None, "the wait is no report");
+    past_the_window(&rig);
 
     let (woke_for, acted, dropped) = answered(step(&runner).unwrap());
     assert_eq!(
@@ -148,6 +154,9 @@ fn a_lease_wait_names_the_holder_the_gateway_gave() {
     );
     assert_eq!(driven.heard(), None, "the wait is no report");
     rig.clock.advance(11 * 60);
+    // The board tells the wait on this pass, which opens its window.
+    assert_eq!(step(&runner).unwrap(), None, "the wait is no report");
+    past_the_window(&rig);
 
     let (woke_for, acted, dropped) = answered(step(&runner).unwrap());
     assert_eq!(
