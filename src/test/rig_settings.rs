@@ -86,6 +86,22 @@ impl Rig {
         self.hook("forbid-word.sh", points, &script);
     }
 
+    /// Has the project take its tickets from the local store, read when a runner
+    /// next opens
+    pub(crate) fn tickets_local(&self) {
+        let github = "[app.dogs.kelpie.tickets]\nsource = \"github\"";
+        self.edit_settings(|s| {
+            assert!(s.contains(github), "the example's `tickets.source` moved");
+            s.replace(github, "[app.dogs.kelpie.tickets]\nsource = \"local\"")
+        });
+    }
+
+    /// Runs `shep kelpie ticket <args>` on the project's local store, and returns
+    /// its lines
+    pub(crate) fn ticket_verb(&self, args: &[&str]) -> Vec<String> {
+        crate::flock::ticket::run(&self.paths().tickets(), args).unwrap()
+    }
+
     /// Has the project block on CI, read when a runner next opens
     pub(crate) fn ci_on(&self) {
         self.edit_settings(|s| s.replace("block = false", "block = true"));

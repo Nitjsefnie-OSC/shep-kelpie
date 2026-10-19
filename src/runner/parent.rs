@@ -103,15 +103,13 @@ impl Runner {
     }
 
     fn close_parent(&mut self, ticket: TicketId) -> StepReport {
-        // The comment and the report name the GitHub issue, which is what every
-        // project's tickets are today.
-        let issue = ticket.github().unwrap_or_default();
         // The comment goes first, on the first try only, as the App where one
         // covers the repo, else as a comment kelpie records: closing with
         // `--comment` would post it as the login that answers rulings, with no
         // id to skip. A comment that fails is told in the log, and the close
         // goes on without it.
         if !self.close_refused.contains_key(&ticket)
+            && let Some(issue) = ticket.github()
             && let Err(e) = self.comment_on_issue(issue, PARENT_CLOSED)
         {
             self.notes.push(format!(

@@ -83,6 +83,8 @@ mod ledger_tests;
 mod left;
 #[cfg(test)]
 mod limits_tests;
+#[cfg(test)]
+mod local_ticket_tests;
 mod lineup;
 mod login_refresh;
 mod looks;
@@ -238,8 +240,6 @@ impl From<StateError> for OpenError {
 /// Why `add` was refused
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AddError {
-    /// The ticket is not a GitHub issue, which is the only source kelpie reads
-    NotGithub(TicketId),
     /// No slot is free under `concurrency.active_items`, counting the items waiting for
     /// one, or one for this ticket is open already: the tickets of those in
     /// the way
@@ -266,12 +266,6 @@ impl fmt::Display for AddError {
             }
             Self::InFlight(issues) => {
                 write!(f, "the work items for {} are in flight", issue_list(issues))
-            }
-            Self::NotGithub(ticket) => {
-                write!(
-                    f,
-                    "{ticket} is not a GitHub issue, the only tickets kelpie reads"
-                )
             }
             Self::Forge(e) => write!(f, "cannot read the issue: {e}"),
             Self::Label(e) => e.fmt(f),
@@ -820,13 +814,11 @@ impl Runner {
     ///
     /// # Errors
     ///
-    /// [`AddError`] when the ticket is not a GitHub issue, the runner is finishing, the project has
+    /// [`AddError`] when the runner is finishing, the project has
     /// `concurrency.active_items` working or one for this issue open
     /// already, the issue cannot be read or its `agent:` label names no
     /// listed implementer, or the change cannot be saved. Nothing changes then.
     pub fn add(&mut self, ticket: TicketId) -> Result<AgentName, AddError> {
-        // Only a GitHub issue can be added: kelpie reads its title and labels.
-        ticket.github().ok_or(AddError::NotGithub(ticket))?;
         if !self.picks() {
             return Err(AddError::Finishing);
         }

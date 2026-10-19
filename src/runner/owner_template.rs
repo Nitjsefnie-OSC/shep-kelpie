@@ -62,20 +62,22 @@ impl OwnerTemplate {
     /// The text itself is not here: it goes in `file`, which the worker reads
     /// when it writes its body, so the instructions it carries every request
     /// stay short.
-    pub(super) fn line(&self, file: &Path) -> String {
+    pub(super) fn line(&self, file: &Path, resolves: bool) -> String {
         let (repo, file) = (self.repo.as_str(), file.display());
+        let end = match resolves {
+            true => ", and end with `Resolves #<issue>`",
+            false => "",
+        };
         match &self.found {
             Template::File(path) => format!(
                 "The repo has no pull request template of its own, so its owner's applies, \
                  `{path}` of `{repo}`. Its text is in `{file}`: read it before you write the \
-                 body, fill it in rather than write your own, and end with `Resolves \
-                 #<issue>`.\n"
+                 body, fill it in rather than write your own{end}.\n"
             ),
             Template::Folder(path) => format!(
                 "The repo has no pull request templates of its own, so its owner's apply, in \
                  `{path}` of `{repo}`. Each is in `{file}`, by name: read it before you write \
-                 the body, fill in the one that fits rather than write your own, and end with \
-                 `Resolves #<issue>`.\n"
+                 the body, fill in the one that fits rather than write your own{end}.\n"
             ),
         }
     }

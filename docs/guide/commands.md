@@ -13,6 +13,7 @@ shep kelpie rule 14 yes
 shep kelpie issue "<request>"   # issues for you to read, or --interactive
 shep kelpie attach 7   # steer issue 7's worker in this terminal
 shep kelpie watch      # follow the runner and its sessions live, or `watch 7`, `watch pm`
+shep kelpie ticket new "<title>" --label ready-for-agent   # a local project's ticket, prints its id
 shep kelpie upgrade --ref main
 shep kelpie tools install
 shep kelpie github setup   # once per repo owner, with --org <org> for an organization
@@ -29,6 +30,7 @@ The verbs with flags of their own:
 - `github setup` takes `--org <org>` for an organization's App, `--name <app name>` for the App's name (`kelpie-<owner>` when left out) and `--replace` to register a new App in place of the one kept for the owner
 - `totp --rotate` draws a new secret, and `totp --unlock` turns answers from ntfy back on after too many wrong codes
 - `lease run <kind> -- <command>` waits for a lease, runs the command and returns the lease when it exits. `lease take <kind>` holds one until `lease return <kind>`. `lease e2e` runs the project's end-to-end tests on its host: see [Leases and end-to-end tests](leases-and-e2e.md)
+- `ticket new "<title>" [--body <text>] [--label <label>]... [--parent <id>] [--blocked-by <id>]...` files a local ticket and prints its id. `ticket list [--all]`, `ticket show <id>`, `ticket edit <id>` and `ticket close <id>` read and change them: see [Local tickets](tickets.md)
 - `get [<key>]` and `set <key> <value>` read and change the project's settings: see [Settings](settings.md)
 
 `status` prints a short block per project: its run state, each work item with its phase, turn and pull request, the rulings waiting, and the pacer.

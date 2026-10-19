@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use super::control::Format;
-use super::{Checkout, Launch, add, attach, control, pm, rule, set, usage, watch};
+use super::{Checkout, Launch, add, attach, control, pm, rule, set, ticket, usage, watch};
 use crate::adapters::{ClaudeCli, Gh, LoginToken, SystemGit};
 use crate::agents::Agents;
 use crate::issues::{self, Mode, Project, Writer};
@@ -23,12 +23,13 @@ use crate::upgrade::restart::{Interrupt, Patience};
 /// registers a checkout, `issue`, which runs the issue writer itself, and
 /// `attach` and `pm`, which run a worker's or the project manager's session
 /// here, `usage`, which reads the usage ledger here, `watch`, which
-/// follows the runner's log and the sessions' transcripts here, and `set` and
-/// `get`, which change and read one setting of the project's table here
-pub const VERBS: [&str; 23] = [
+/// follows the runner's log and the sessions' transcripts here, `ticket`, which
+/// files and reads a local project's tickets here, and `set` and `get`, which
+/// change and read one setting of the project's table here
+pub const VERBS: [&str; 24] = [
     "add", "start", "pause", "finish", "status", "rule", "rework", "adopt", "gate", "drop",
     "timings", "issue", "attach", "tell", "pm", "drain", "undrain", "usage", "watch", "board",
-    "set", "get", "triage",
+    "set", "get", "triage", "ticket",
 ];
 
 /// The verbs that print the runner's JSON instead of plain text with `--json`
@@ -62,6 +63,9 @@ usage: shep kelpie add [<project>]       registers this checkout as a project
        shep kelpie get [<key>]           the project's settings, or one by its dotted key
        shep kelpie set <key> <value>     changes one setting, such as git.merging auto or
                                          worker.allowed_domains '[\"crates.io\"]'
+       shep kelpie ticket new|list|show|edit|close
+                                         files and reads a local project's tickets, with
+                                         `shep kelpie ticket` alone listing the forms
        shep kelpie watch [<issue> | pm] [--back <n>] [--full]
                                          follows the runner's steps and the sessions'
                                          transcripts live, from the end or n lines back
@@ -135,6 +139,20 @@ async fn run(
     }
     if command == "usage" {
         return usage::usage(&kelpie_home, named, &args);
+    }
+    if command == "ticket" {
+        let here = std::env::current_dir().map_err(|e| format!("cannot read this folder: {e}"))?;
+        let project = match named {
+            Some(name) => name,
+            None => {
+                let client = shepherd::connect(dial, shep_home)
+                    .await
+                    .map_err(|e| e.describe(shep_home))?;
+                control::project_here(&client, &here, &home).await?
+            }
+        };
+        let folder = ProjectPaths::under(&kelpie_home, shep_home, &project).tickets();
+        return ticket::run(&folder, &args);
     }
     if command == "watch" {
         let ask = watch::read_args(&args)?;
