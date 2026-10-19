@@ -163,6 +163,24 @@ fn the_tenth_finished_work_item_starts_one_retro_with_the_project_managers_agent
 }
 
 #[test]
+fn the_retros_skill_command_comes_with_the_plugin_folder_it_is_in() {
+    let (rig, runner) = parked_after(9);
+    rig.claude.script_for(Role::Pm, [Scripted::Say(REPORT)]);
+    merge(&rig, &runner);
+
+    let [retro] = retros(&rig).try_into().unwrap();
+    assert!(
+        retro.call.prompt.starts_with("/mattpocock:retro"),
+        "{}",
+        retro.call.prompt
+    );
+    assert_eq!(
+        retro.call.plugin_dirs,
+        [rig.paths().skills.join("mattpocock")]
+    );
+}
+
+#[test]
 fn the_ninth_finished_work_item_starts_none() {
     let (rig, runner) = parked_after(8);
     merge(&rig, &runner);
