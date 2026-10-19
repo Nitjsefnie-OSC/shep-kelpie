@@ -543,10 +543,10 @@ impl Runner {
             .with_flock(ports.flock.clone(), Arc::clone(&held))
             .with_hooks(hooks.clone());
         ports.voice = Arc::new(voice);
-        let guarded = Guarded::new(held, local.clone())
+        (ports.forge, ports.tickets) = Guarded::new(held, local.clone())
             .with_flock(ports.flock.clone())
-            .with_hooks(hooks.clone());
-        ports.forge = Arc::new(guarded);
+            .with_hooks(hooks.clone())
+            .into_ports();
         let voice = Arc::clone(&ports.voice);
         ports.agents = Arc::new(KeychainBlocked::new(ports.agents, voice, remote.clone()));
         let extra_instructions = instructions::read_extra(&settings)?;
