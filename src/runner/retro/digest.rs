@@ -61,7 +61,7 @@ fn name(value: &impl Serialize) -> String {
 
 /// The digest of `records`, in markdown
 pub(super) fn build(records: &Records<'_>) -> String {
-    let issues: Vec<String> = records.batch.iter().map(|f| shown(f)).collect();
+    let issues: Vec<String> = records.batch.iter().map(shown).collect();
     let mut out = format!(
         "# Batch digest: {}, {} finished work items ({})\n",
         records.project,
