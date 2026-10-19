@@ -53,3 +53,4 @@ A pull request that measures something adds it to its topic's file, or starts a 
 - [The browser](the-browser.md)
 - [MCP servers in a call's transcript](mcp-servers.md)
 - [Requests in a call's transcript](transcript-requests.md)
+- [A ticket scoped too big](ticket-scope.md)
