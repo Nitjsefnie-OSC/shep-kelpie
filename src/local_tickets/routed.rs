@@ -6,7 +6,7 @@ use super::LocalTickets;
 use crate::board::ReadyIssue;
 use crate::ports::{
     FinishedParent, ForgeError, Issue, IssueCloseReason, OpenIssue, SubIssue, ThreadComment,
-    Tickets,
+    Tickets, Timestamp,
 };
 use crate::settings::{ForgeSlug, TicketSource};
 use crate::ticket::TicketId;
@@ -109,6 +109,16 @@ impl Tickets for Routed {
         reason: IssueCloseReason,
     ) -> Result<(), ForgeError> {
         self.of(ticket).close_issue_as(repo, ticket, reason)
+    }
+
+    fn comment_issue(
+        &self,
+        repo: &ForgeSlug,
+        ticket: TicketId,
+        body: &str,
+        at: Timestamp,
+    ) -> Result<(), ForgeError> {
+        self.of(ticket).comment_issue(repo, ticket, body, at)
     }
 
     fn set_issue_label(

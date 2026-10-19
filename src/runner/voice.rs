@@ -174,6 +174,18 @@ impl Runner {
         }
     }
 
+    /// Comments on `ticket`: a GitHub issue as [`Self::comment_on_issue`] does,
+    /// a local ticket in the store, where kelpie's words never reach the repo
+    pub(super) fn comment_on_ticket(&self, ticket: TicketId, body: &str) -> Result<(), ForgeError> {
+        match ticket.github() {
+            Some(issue) => self.comment_on_issue(issue, body),
+            None => {
+                let at = self.ports.clock.now();
+                (self.ports.tickets).comment_issue(&self.remote, ticket, body, at)
+            }
+        }
+    }
+
     /// Adds `label` to issue `number`, or takes it off, as the App where one
     /// covers the repo
     pub(super) fn label_issue(&self, number: u64, label: &str, on: bool) -> Result<(), ForgeError> {

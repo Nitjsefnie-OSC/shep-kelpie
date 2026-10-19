@@ -109,11 +109,11 @@ impl Runner {
         // id to skip. A comment that fails is told in the log, and the close
         // goes on without it.
         if !self.close_refused.contains_key(&ticket)
-            && let Some(issue) = ticket.github()
-            && let Err(e) = self.comment_on_issue(issue, PARENT_CLOSED)
+            && let Err(e) = self.comment_on_ticket(ticket, PARENT_CLOSED)
         {
             self.notes.push(format!(
-                "cannot comment on issue #{issue} before closing it: {e}"
+                "cannot comment on {} before closing it: {e}",
+                super::turn::ticket_name(ticket)
             ));
         }
         let closed = self.ports.tickets.close_issue(&self.remote, ticket);

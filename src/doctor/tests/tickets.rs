@@ -27,6 +27,21 @@ async fn a_project_says_where_its_tickets_live() {
 }
 
 #[tokio::test]
+async fn a_local_store_project_lists_what_kelpie_still_writes_to_its_repo() {
+    let scene = Scene::new().await;
+    scene.runs("golbat", |t| t["tickets"] = json!({ "source": "local" }));
+    let report = scene.report().await;
+    assert_eq!(
+        ok(&report, "golbat: repo writes"),
+        "the branch, the pull request and its comments, and nothing else"
+    );
+    assert!(
+        !subjects(&report).contains(&"koji: repo writes"),
+        "a GitHub project writes its issues too"
+    );
+}
+
+#[tokio::test]
 async fn a_local_ticket_that_cannot_be_read_is_missing_and_fails_the_run() {
     let scene = Scene::new().await;
     scene.runs("golbat", |t| t["tickets"] = json!({ "source": "local" }));

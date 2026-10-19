@@ -17,6 +17,7 @@
 use super::Forge;
 use super::{
     FinishedParent, ForgeError, Issue, IssueCloseReason, OpenIssue, SubIssue, ThreadComment,
+    Timestamp,
 };
 #[cfg(doc)]
 use crate::board::READY;
@@ -110,6 +111,26 @@ pub trait Tickets: Send + Sync {
         ticket: TicketId,
         reason: IssueCloseReason,
     ) -> Result<(), ForgeError>;
+
+    /// Posts `body` as a comment of kelpie's on ticket `ticket`, written at `at`
+    ///
+    /// Only a source that is not GitHub takes comments here. A GitHub ticket is
+    /// commented on through [`Forge::comment`], which records the comment's id,
+    /// so GitHub's port refuses with [`ForgeError::NoIssue`].
+    ///
+    /// # Errors
+    ///
+    /// [`ForgeError`] when the source refuses, holds no such ticket, or cannot
+    /// be written.
+    fn comment_issue(
+        &self,
+        _repo: &ForgeSlug,
+        ticket: TicketId,
+        _body: &str,
+        _at: Timestamp,
+    ) -> Result<(), ForgeError> {
+        Err(ForgeError::NoIssue { ticket })
+    }
 
     /// Adds `label` to ticket `ticket`, or takes it off
     ///

@@ -70,6 +70,11 @@ impl Runner {
             waiting.push("triage");
             settings.triage.clone_from(&self.settings.triage);
         }
+        // The ticket port was picked at start.
+        if settings.tickets != self.settings.tickets {
+            waiting.push("tickets");
+            settings.tickets.clone_from(&self.settings.tickets);
+        }
         // Merging a bot's pull request begins only at a start.
         if settings.dependencies != self.settings.dependencies {
             waiting.push("dependencies");

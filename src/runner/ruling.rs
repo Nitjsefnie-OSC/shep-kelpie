@@ -576,6 +576,15 @@ impl Runner {
         self.panel_unvoted(id);
         self.mark_unposted(id, false);
         let ruling = self.state.rulings.iter().find(|r| r.id == id)?;
+        // Before there is a pull request, a local ticket's ruling goes on the
+        // ticket: a GitHub thread is the repo's, which a local ticket keeps clear.
+        if number.is_none()
+            && let Some(ticket) = ruling.issue.filter(|t| t.github().is_none())
+        {
+            let comment = comment(&ruling.kind)?;
+            let posted = self.comment_on_ticket(ticket, &comment);
+            return posted.err().map(|e| e.to_string());
+        }
         if self.app_covers() {
             // Only a GitHub ticket is a thread to comment on.
             let thread = number.or(ruling.issue.and_then(|ticket| ticket.github()))?;

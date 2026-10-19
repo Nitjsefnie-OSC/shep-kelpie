@@ -10,7 +10,12 @@ A project on `tickets.source = "local"` takes its tickets from files in kelpie's
 - `ready-for-agent`, `priority:` and `agent:` labels, blocked-by and parents read as on GitHub. `LocalTickets::open_issues` is empty, since there is no triage. The issue writer's label step is skipped, so a local ticket goes to the default implementer or its `agent:` label.
 - `shep kelpie ticket new|list|show|edit|close` runs on the files directly (`src/flock/ticket.rs`, `src/flock/verbs.rs`), for the project named or the one the folder holds. It does not check the source, and takes only local ids.
 - The worker's prompt carries the ticket's text. Its instructions drop the `Resolves` line (`profile::instructions_for`, `src/runner/instructions.rs`), so the pull request has none.
-- On merge, `close_merged_issue` closes a local ticket in the store (`close_local`, `src/runner/close_merged.rs`), with the same retries as GitHub's path. It posts no comment, and a local parent gets none when it closes.
+- On merge, `close_merged_issue` closes a local ticket in the store (`close_local`, `src/runner/close_merged.rs`), with the same retries as GitHub's path. It leaves a note on the ticket (`comment_on_ticket`, `Tickets::comment_issue`), and so does a local parent it closes.
 - The review's criteria read a local ticket through `Tickets::issue` like any other.
-- `doctor` prints a `tickets` line: `github`, or `local` with the count and folder, missing when the store is unreadable.
-- Not here: filing from the issue writer and follow-ups (#1012), a project that writes nothing to its repo (#1013).
+- `doctor` prints a `tickets` line: `github`, or `local` with the count and folder, missing when the store is unreadable. A local project also gets a `repo writes` line: the branch, the pull request and its comments.
+- A local project writes nothing to its repo but those (#1013). `Runner::local_store` is the source the runner started with (a reread keeps it) and gates the rest:
+  - `mark_held` and `make_agent_labels` (`src/runner/claim.rs`) put no label on the repo or an issue.
+  - `Tickets::comment_issue` (default: `NoIssue`, since a GitHub ticket is commented on through `Forge::comment`, which records the id) appends a comment by `kelpie` to the file. `post_ruling` uses it for a ruling with no pull request yet. A ruling with one still goes on the pull request.
+  - `Settings::check_tickets` refuses `triage.pick` other than `off` at load, so triage never runs. `adopt` returns `AdoptError::LocalStore`, and `labelled_for_adoption` finds nothing.
+  - The test double `FakeForge::issue_writes` logs labels made, issues opened and closed, and labels set, for the rig test of a pick-to-merge run.
+- Not here: filing from the issue writer and follow-ups (#1012).

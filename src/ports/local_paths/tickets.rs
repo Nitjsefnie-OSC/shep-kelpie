@@ -13,7 +13,7 @@ use super::Guarded;
 use crate::board::ReadyIssue;
 use crate::ports::{
     FinishedParent, Forge, ForgeError, Issue, IssueCloseReason, OpenIssue, SubIssue, ThreadComment,
-    Tickets,
+    Tickets, Timestamp,
 };
 use crate::settings::ForgeSlug;
 use crate::ticket::TicketId;
@@ -84,6 +84,16 @@ impl Tickets for Guarded {
         reason: IssueCloseReason,
     ) -> Result<(), ForgeError> {
         self.tickets.close_issue_as(repo, ticket, reason)
+    }
+
+    fn comment_issue(
+        &self,
+        repo: &ForgeSlug,
+        ticket: TicketId,
+        body: &str,
+        at: Timestamp,
+    ) -> Result<(), ForgeError> {
+        self.tickets.comment_issue(repo, ticket, body, at)
     }
 
     fn set_issue_label(

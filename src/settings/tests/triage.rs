@@ -277,3 +277,26 @@ fn an_unknown_key_in_the_spam_table_is_refused_naming_it() {
     let err = parse_err(&with_spam("gateways = \"paddock\"\n"));
     assert!(err.contains("gateways"), "{err}");
 }
+
+// The example with its tickets taken from the local store
+fn on_local_store(text: &str) -> String {
+    let github = "[app.dogs.kelpie.tickets]\nsource = \"github\"";
+    assert!(
+        text.contains(github),
+        "the example's `tickets.source` moved"
+    );
+    text.replace(github, "[app.dogs.kelpie.tickets]\nsource = \"local\"")
+}
+
+#[test]
+fn triage_is_refused_on_the_local_store_and_allowed_with_it_off() {
+    parse(&on_local_store(EXAMPLE)).unwrap();
+    parse(&with("pick = \"all\"\n")).unwrap();
+    for pick in ["maintainer", "all"] {
+        let err = parse_err(&on_local_store(&with(&format!("pick = \"{pick}\"\n"))));
+        assert!(
+            err.contains("triage.pick") && err.contains("local"),
+            "{err}"
+        );
+    }
+}

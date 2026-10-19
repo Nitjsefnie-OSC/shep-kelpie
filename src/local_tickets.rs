@@ -489,6 +489,23 @@ impl Tickets for LocalTickets {
         Ok(())
     }
 
+    fn comment_issue(
+        &self,
+        _repo: &ForgeSlug,
+        ticket: TicketId,
+        body: &str,
+        at: Timestamp,
+    ) -> Result<(), ForgeError> {
+        self.update(ticket, |s| {
+            s.comments.push(Comment {
+                author: "kelpie".to_owned(),
+                at: at.0,
+                body: body.to_owned(),
+            });
+        })?;
+        Ok(())
+    }
+
     fn set_issue_label(
         &self,
         _repo: &ForgeSlug,
