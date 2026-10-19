@@ -85,6 +85,17 @@ pub struct OpenPull {
     pub closes: Vec<u64>,
 }
 
+/// An open ticket, as the follow-up check reads it from the project's source
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OpenTicket {
+    /// Its id
+    pub ticket: TicketId,
+    /// Its title
+    pub title: String,
+    /// Its body, as written
+    pub body: String,
+}
+
 /// An open issue, as the follow-up check reads it
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OpenIssue {

@@ -28,7 +28,7 @@ pub(in crate::runner) fn racy() -> Finding {
 }
 
 // What the worker writes to defer `found`, in the findings file's own format
-fn lines(found: &[Finding]) -> String {
+pub(in crate::runner) fn lines(found: &[Finding]) -> String {
     let line = |f: &Finding| format!("HIGH|{}:{}|{}|{}\n", f.file, f.line, f.what, f.why);
     found.iter().map(line).collect()
 }
@@ -106,8 +106,8 @@ fn filed(opened: &[u64], commented: &[u64], skipped: usize) -> Option<StepReport
     Some(StepReport::FollowUpsFiled {
         issue: ticket(7),
         pull_request: 71,
-        opened: opened.to_vec(),
-        commented: commented.to_vec(),
+        opened: opened.iter().copied().map(ticket).collect(),
+        commented: commented.iter().copied().map(ticket).collect(),
         skipped,
     })
 }

@@ -16,6 +16,7 @@ use super::gate::short;
 use super::ruling::stuck_comment;
 use crate::issues::make_missing_with;
 use crate::ports::{Finding, ForgeError, NewLabel, Severity};
+use crate::settings::TicketSource;
 use crate::state::{Heard, MergeNotice, ProjectState, Ruling, RulingKind};
 use crate::ticket::TicketId;
 
@@ -163,6 +164,41 @@ impl Runner {
             false => (self.ports.tickets)
                 .create_issue(&self.remote, title, body, labels)
                 .and_then(|ticket| ticket.github().ok_or(ForgeError::NoIssue { ticket })),
+        }
+    }
+
+    /// Files a ticket in the project's own source, and returns its id
+    ///
+    /// A GitHub project's goes out as the App where one covers the repo. A local
+    /// project's is a file in the store, which no App reaches.
+    pub(super) fn file_ticket(
+        &self,
+        title: &str,
+        body: &str,
+        labels: &[&str],
+    ) -> Result<TicketId, ForgeError> {
+        match (self.settings.tickets.source, self.app_covers()) {
+            (TicketSource::Github, true) => (self.ports.voice)
+                .create_issue(&self.remote, title, body, labels)
+                .and_then(|number| {
+                    TicketId::from_issue(number).ok_or_else(|| {
+                        ForgeError::Unreadable("the forge numbered the issue zero".to_owned())
+                    })
+                }),
+            _ => (self.ports.tickets).file_ticket(&self.remote, title, body, labels),
+        }
+    }
+
+    /// Comments on `ticket`: a GitHub issue as the App where one covers the
+    /// repo, any other as the ticket port writes it
+    pub(super) fn comment_on_ticket(
+        &self,
+        ticket: TicketId,
+        body: &str,
+    ) -> Result<(), ForgeError> {
+        match ticket.github() {
+            Some(number) => self.comment_on_issue(number, body),
+            None => (self.ports.tickets).comment_ticket(&self.remote, ticket, body),
         }
     }
 

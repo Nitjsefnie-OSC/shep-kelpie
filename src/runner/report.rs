@@ -340,10 +340,10 @@ pub enum StepReport {
         issue: TicketId,
         /// Its pull request
         pull_request: u64,
-        /// The issues opened, one per finding
-        opened: Vec<u64>,
-        /// The open issues that already held a finding, and got a comment
-        commented: Vec<u64>,
+        /// The tickets opened, one per finding
+        opened: Vec<TicketId>,
+        /// The open tickets that already held a finding, and got a comment
+        commented: Vec<TicketId>,
         /// How many findings were left out because the text names a folder on this machine
         skipped: usize,
     },

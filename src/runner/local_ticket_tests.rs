@@ -7,9 +7,11 @@ use serde_json::json;
 
 use crate::board::Skip;
 use crate::ports::{CLEAN, Checks};
+use crate::runner::StepReport;
+use crate::runner::follow_up::tests::{after_merge, lines, racy};
 use crate::runner::slots_tests::dispatched;
 use crate::runner::{CHECKS_SETTLE, Runner, step};
-use crate::test::{Rig, Scripted, git};
+use crate::test::{Rig, Scripted, ScriptedRound, git};
 use crate::ticket::TicketId;
 
 fn local(name: &str) -> TicketId {
@@ -144,4 +146,81 @@ fn a_github_ticket_still_opens_a_work_item_on_a_local_project() {
         rig.ask(&runner, "status", None)["work_item"]["issue"],
         json!("12")
     );
+}
+
+// A local project under `issues = "file"` and `merging = "auto"`, whose ticket `k1`
+// has a pull request that merges with `racy()` deferred
+fn merged_with_a_deferred_finding() -> (Rig, Mutex<Runner>) {
+    let rig = Rig::new("koji");
+    rig.tickets_local();
+    rig.merge_auto();
+    rig.issues("file");
+    rig.ticket_verb(&["new", "Add a thing", "--label", "ready-for-agent"]);
+    let runner = rig.open().unwrap();
+    rig.forge.open_pull_request(71, "kelpie/k1", &[]);
+    rig.reviewer
+        .script([ScriptedRound::Findings(vec![racy()])]);
+    rig.claude.script([
+        Scripted::Push("work.txt", "work\n"),
+        Scripted::Push("fixed.txt", "fixed\n"),
+        Scripted::Text(CLEAN),
+    ]);
+    let mut head = None;
+    for _ in 0..20 {
+        step(&runner).unwrap();
+        if rig.ask(&runner, "status", None)["work_item"]["phase"]["state"] == "ci" {
+            head = rig.forge.head_of("kelpie/k1");
+            break;
+        }
+    }
+    let head = head.expect("the review never reached CI");
+    let deferred = rig.paths().build(local("k1")).join("deferred-findings.md");
+    std::fs::write(deferred, lines(&[racy()])).unwrap();
+    rig.forge.set_checks(&head, Checks::Passed);
+    assert!(rig.verdict(&runner).is_some());
+    rig.clock.advance(CHECKS_SETTLE);
+    (rig, runner)
+}
+
+#[test]
+fn a_follow_up_on_a_local_project_becomes_a_local_ticket() {
+    let (rig, runner) = merged_with_a_deferred_finding();
+
+    let report = after_merge(&runner);
+    let Some(StepReport::FollowUpsFiled { opened, .. }) = report else {
+        panic!("no follow-up was filed: {report:?}");
+    };
+    assert_eq!(opened, [local("k2")]);
+    assert!(rig.forge.created().is_empty(), "nothing was filed on GitHub");
+    let listed = rig.ticket_verb(&["list"]);
+    assert!(
+        listed.contains(&"k2  open  looks racy [needs-triage]".to_owned()),
+        "{listed:?}"
+    );
+    let shown = rig.ticket_verb(&["show", "k2"]).join("\n");
+    assert!(shown.contains("`src/lib.rs:9`"), "{shown}");
+    assert!(shown.contains("#71"), "{shown}");
+}
+
+#[test]
+fn a_finding_a_local_ticket_already_holds_is_a_comment_on_it() {
+    let (rig, runner) = merged_with_a_deferred_finding();
+    rig.ticket_verb(&[
+        "new",
+        "Looks racy",
+        "--body",
+        "Seen in src/lib.rs by hand.",
+    ]);
+
+    let report = after_merge(&runner);
+    let Some(StepReport::FollowUpsFiled {
+        opened, commented, ..
+    }) = report
+    else {
+        panic!("no follow-up was filed: {report:?}");
+    };
+    assert_eq!((opened, commented), (vec![], vec![local("k2")]));
+    let shown = rig.ticket_verb(&["show", "k2"]).join("\n");
+    assert!(shown.contains("<!-- comment: kelpie"), "{shown}");
+    assert!(shown.contains("#71"), "{shown}");
 }

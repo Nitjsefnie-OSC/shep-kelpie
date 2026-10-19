@@ -5,8 +5,8 @@ use std::sync::Arc;
 use super::LocalTickets;
 use crate::board::ReadyIssue;
 use crate::ports::{
-    FinishedParent, ForgeError, Issue, IssueCloseReason, OpenIssue, SubIssue, ThreadComment,
-    Tickets,
+    FinishedParent, ForgeError, Issue, IssueCloseReason, OpenIssue, OpenTicket, SubIssue,
+    ThreadComment, Tickets,
 };
 use crate::settings::{ForgeSlug, TicketSource};
 use crate::ticket::TicketId;
@@ -16,9 +16,10 @@ use crate::ticket::TicketId;
 /// A work item keeps the ticket it was opened on across a change of the
 /// project's `tickets.source`, which takes effect at the next start, so a call
 /// about one ticket goes to the source its id names. The board's reads go to
-/// the project's source. Filing a ticket and listing the open ones, which tell
-/// a finding already filed, stay on GitHub until follow-ups file to the
-/// project's source, since `open_issue` files a GitHub issue and needs its number.
+/// the project's source, and so do filing a ticket and listing the open ones,
+/// which tell a finding already filed. `create_issue` and `open_issues` stay
+/// on GitHub, since adoption files a GitHub issue and needs its number, and
+/// triage reads GitHub's.
 pub struct Routed {
     github: Arc<dyn Tickets>,
     local: LocalTickets,
@@ -80,12 +81,35 @@ impl Tickets for Routed {
         self.github.open_issues(repo)
     }
 
+    fn open_tickets(&self, repo: &ForgeSlug) -> Result<Vec<OpenTicket>, ForgeError> {
+        self.board().open_tickets(repo)
+    }
+
     fn issue_comments(
         &self,
         repo: &ForgeSlug,
         ticket: TicketId,
     ) -> Result<Vec<ThreadComment>, ForgeError> {
         self.of(ticket).issue_comments(repo, ticket)
+    }
+
+    fn file_ticket(
+        &self,
+        repo: &ForgeSlug,
+        title: &str,
+        body: &str,
+        labels: &[&str],
+    ) -> Result<TicketId, ForgeError> {
+        self.board().file_ticket(repo, title, body, labels)
+    }
+
+    fn comment_ticket(
+        &self,
+        repo: &ForgeSlug,
+        ticket: TicketId,
+        body: &str,
+    ) -> Result<(), ForgeError> {
+        self.of(ticket).comment_ticket(repo, ticket, body)
     }
 
     fn create_issue(

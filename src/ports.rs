@@ -65,8 +65,8 @@ pub use gateway::{KeyCheck, ModelGateway, Stand, Taking, Unheld};
 pub use git::{Git, GitError};
 pub use gpu::{Gpu, GpuError, GpuMetrics};
 pub use issue::{
-    AuthorAssociation, FinishedParent, Issue, IssueCloseReason, OpenIssue, OpenPull, SubIssue,
-    SubIssueState,
+    AuthorAssociation, FinishedParent, Issue, IssueCloseReason, OpenIssue, OpenPull, OpenTicket,
+    SubIssue, SubIssueState,
 };
 pub use keychain::KeychainBlocked;
 pub use leased::{LocalLeases, PaddockHolder};
