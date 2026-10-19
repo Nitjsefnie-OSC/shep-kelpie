@@ -7,10 +7,10 @@ use std::sync::Mutex;
 
 use serde_json::json;
 
+use crate::board::HUMAN;
 use crate::ports::{AgentError, CLEAN, Checks, PullRequestState};
 use crate::runner::coderabbit::tests::{hold_a_finding, now, reviewed_by_qwen};
 use crate::runner::coderabbit::{ANSWER_WAIT, REVIEW_WAIT};
-use crate::runner::rework::HUMAN;
 use crate::runner::{CHECKS_SETTLE, Runner, StepReport, step};
 use crate::test::ticket;
 use crate::test::{Rig, Scripted, git};

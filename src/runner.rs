@@ -141,14 +141,10 @@ mod voice;
 mod words;
 mod worker_files;
 
-pub use crate::coderabbit::LABEL as SUMMON_LABEL;
 pub use adopt::AdoptError;
 pub use attach::{AttachError, Attaching};
-pub use claim::IN_PROGRESS;
-#[cfg(test)]
-pub(crate) use dependencies::is_bump;
 pub use drain::{CallRole, CallRunning, Draining};
-pub use finishing::{Run, StartError};
+pub use finishing::StartError;
 #[cfg(test)]
 pub use flight::step;
 pub use flight::{CarriedTurn, Pass, advance};
@@ -170,7 +166,7 @@ pub use report::StepReport;
 pub use representative::{Post, RepresentError};
 pub(crate) use reread::{check_gateway_shapes, check_gateways};
 use reviewers_check::{check_bots, check_coderabbit, check_local};
-pub use rework::{HUMAN, ReworkError};
+pub use rework::ReworkError;
 pub use ruling::{Action, Answer, RuleError};
 pub use step_log::FILE as STEPS_FILE;
 pub use timings::{Totals, settle};

@@ -14,10 +14,9 @@
 use super::Runner;
 use super::claude_files::Unchecked;
 use super::report::{Begin, StepReport};
-use super::rework::HUMAN;
 use super::talk::At;
 use super::turn::KEEP_BODY_TRUE;
-use crate::board::READY;
+use crate::board::{HUMAN, READY};
 use crate::ports::{Checks, PullRequestState, Timestamp};
 use crate::settings::Merging;
 use crate::skills::Step;

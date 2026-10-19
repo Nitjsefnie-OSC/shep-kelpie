@@ -26,7 +26,7 @@ use super::dev_server::Browsed;
 use super::flight::Verdict;
 use super::follow_up::TRIAGE_LABEL;
 use super::gate::{settled, short};
-use crate::board::{OpenPullRequest, TRIAGE};
+use crate::board::{OpenPullRequest, TRIAGE, is_bump};
 use crate::ports::{Checks, E2eOutcome, ForgeError, NewLabel, PullRequestState, Timestamp};
 use crate::settings::{Dependencies, OnRed};
 use crate::state::{Bump, E2eResult, E2eState, Red, RedStep, StateError};
@@ -534,12 +534,6 @@ impl Runner {
             ),
         }
     }
-}
-
-/// Whether `pr` is a bump under `dependencies`: open, not a draft, on a branch
-/// of the repo itself, and opened by a listed bot
-pub(crate) fn is_bump(dependencies: &Dependencies, pr: &OpenPullRequest) -> bool {
-    !pr.draft && !pr.from_fork && dependencies.lists(&pr.author)
 }
 
 fn lines_of(why: &[String]) -> String {

@@ -24,10 +24,10 @@ use std::path::{Path, PathBuf};
 use super::Runner;
 
 use super::report::{Begin, StepReport};
-use super::rework::{HUMAN, review_text};
+use super::rework::review_text;
 use super::trigger;
 use super::turn;
-use crate::board::{LabelError, OpenPullRequest, READY, Skip};
+use crate::board::{HUMAN, LabelError, OpenPullRequest, READY, Skip};
 use crate::ports::{
     ForgeError, Issue, MaintainerReview, PullRequestState, Reviewed, Role, Timestamp,
 };

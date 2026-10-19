@@ -15,22 +15,11 @@
 
 use std::fmt;
 
-use serde::Serialize;
-
 use super::Runner;
 use super::report::StepReport;
+use crate::board::briefing::Run;
 use crate::ports::Alert;
 use crate::state::StateError;
-
-/// What `status` shows of a runner that does not pick
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Run {
-    /// `finish` holds the board back until the open work items end
-    Finishing,
-    /// The open work items ended, and the runner waits for its sheep to stop
-    Finished,
-}
 
 /// Why `start` was refused
 #[derive(Debug, Clone, PartialEq, Eq)]

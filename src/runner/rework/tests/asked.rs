@@ -3,10 +3,9 @@
 use serde_json::json;
 
 use super::*;
-use crate::board::READY;
+use crate::board::{HUMAN, READY};
 use crate::ports::CLEAN;
 use crate::runner::report::ReworkBy;
-use crate::runner::rework::HUMAN;
 use crate::test::ticket;
 
 fn requesting_changes() -> MaintainerReview {

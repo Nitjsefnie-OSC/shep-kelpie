@@ -2,8 +2,7 @@ use serde_json::json;
 use tempfile::TempDir;
 
 use super::*;
-use crate::board::READY;
-use crate::runner::HUMAN;
+use crate::board::{HUMAN, READY};
 
 mod hooks;
 mod local;

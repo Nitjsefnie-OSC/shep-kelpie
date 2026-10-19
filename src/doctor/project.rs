@@ -11,7 +11,7 @@ use crate::flock::add::LABELS;
 use crate::home::{ProjectName, ProjectPaths};
 use crate::local_tickets::LocalTickets;
 use crate::ports::{Forge, NewLabel, Visibility};
-use crate::runner::{NO_ORIGIN, SUMMON_LABEL, check_checkout, check_instructions, source_of};
+use crate::runner::{NO_ORIGIN, check_checkout, check_instructions, source_of};
 use crate::settings::{
     Account, AgentHarness, ForgeSlug, Limit, Pick, RoleModel, Settings, SettingsError, TicketSource,
 };
@@ -296,7 +296,7 @@ fn forge_lines(
     });
 
     let wanted: Vec<NewLabel> = (LABELS.into_iter())
-        .filter(|l| coderabbit || l.name != SUMMON_LABEL)
+        .filter(|l| coderabbit || l.name != crate::coderabbit::LABEL)
         .collect();
     lines.push(match probes.forge.repo_labels(repo) {
         Ok(have) => {

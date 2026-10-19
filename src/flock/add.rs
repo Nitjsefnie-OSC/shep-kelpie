@@ -19,11 +19,11 @@ use shep_client::shep_core::status::ProcStatus;
 
 use super::share::share_none;
 use super::{Checkout, Launch, flock, kelpie_sheep, send, tables};
-use crate::board::READY;
+use crate::board::{HUMAN, IN_PROGRESS, READY};
+use crate::coderabbit::LABEL as SUMMON;
 use crate::dog;
 use crate::home::ProjectName;
 use crate::ports::{Forge, NewLabel};
-use crate::runner::{HUMAN, IN_PROGRESS, SUMMON_LABEL as SUMMON};
 use crate::settings::{BaseBranch, Settings, table_of};
 use crate::shepherd::{Connection, DOG};
 

@@ -22,8 +22,7 @@ use std::fmt;
 use serde::Serialize;
 
 use crate::ports::Timestamp;
-use crate::runner::IN_PROGRESS;
-use crate::settings::AgentName;
+use crate::settings::{AgentName, Dependencies};
 use crate::ticket::TicketId;
 
 pub mod briefing;
@@ -36,6 +35,23 @@ pub const READY: &str = "ready-for-agent";
 
 /// The label of an issue nobody has read yet, which stays off the board
 pub const TRIAGE: &str = "needs-triage";
+
+/// The label on an issue while a work item holds it
+///
+/// `shep kelpie add` makes it with the other labels. The control session
+/// puts the same name on this repo's issues by hand.
+pub const IN_PROGRESS: &str = "in-progress";
+
+/// The label on a pull request kelpie handed back to the maintainer
+///
+/// Kelpie never creates it: the maintainer makes it in the project's repo.
+pub const HUMAN: &str = "ready-for-human";
+
+/// Whether `pr` is a bump under `dependencies`: open, not a draft, on a branch
+/// of the repo itself, and opened by a listed bot
+pub(crate) fn is_bump(dependencies: &Dependencies, pr: &OpenPullRequest) -> bool {
+    !pr.draft && !pr.from_fork && dependencies.lists(&pr.author)
+}
 
 /// The prefix of the label that ranks an issue on the board
 pub const PRIORITY_LABEL: &str = "priority: ";

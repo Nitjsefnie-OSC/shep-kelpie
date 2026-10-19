@@ -12,9 +12,9 @@
 
 use super::super::Runner;
 use super::super::report::Begin;
-use super::super::rework::HUMAN;
 use super::super::talk::At;
 use super::settle::open_ids;
+use crate::board::HUMAN;
 use crate::settings::AgentName;
 use crate::state::{RulingKind, StateError};
 use crate::ticket::TicketId;

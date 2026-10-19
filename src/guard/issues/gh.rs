@@ -11,9 +11,9 @@ use crate::issues::has_criteria;
 // rules name may go on.
 const STATUS_LABELS: [&str; 4] = [
     crate::board::READY,
-    crate::runner::HUMAN,
-    crate::runner::IN_PROGRESS,
-    crate::runner::SUMMON_LABEL,
+    crate::board::HUMAN,
+    crate::board::IN_PROGRESS,
+    crate::coderabbit::LABEL,
 ];
 
 // Why an edit or a link on an issue the session did not file is refused.

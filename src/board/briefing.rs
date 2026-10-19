@@ -11,8 +11,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 
+use serde::Serialize;
+
 use crate::ports::{CallActivity, Cost, Timestamp, Wait};
-use crate::runner::Run;
 use crate::state::BoardEvent;
 use crate::ticket::TicketId;
 
@@ -27,6 +28,16 @@ const SUMMARY: usize = 300;
 
 /// A named path matching more files than this on `main` names none of them
 const AMBIGUOUS: usize = 3;
+
+/// What `status` shows of a runner that does not pick
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Run {
+    /// `finish` holds the board back until the open work items end
+    Finishing,
+    /// The open work items ended, and the runner waits for its sheep to stop
+    Finished,
+}
 
 /// Everything one board shows
 #[derive(Debug, Clone, PartialEq, Eq)]

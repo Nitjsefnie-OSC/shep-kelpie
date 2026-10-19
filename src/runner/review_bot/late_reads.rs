@@ -6,10 +6,10 @@ use std::sync::Mutex;
 use serde_json::json;
 
 use super::late::LATE_READ;
+use crate::board::HUMAN;
 use crate::ports::{CLEAN, Checks};
 use crate::runner::coderabbit::tests::now;
 use crate::runner::review_bot::two_bots::{bot_reviewed, listing, reviewed, summoned};
-use crate::runner::rework::HUMAN;
 use crate::runner::slots_tests::{issue_of, slots};
 use crate::runner::{Runner, StepReport, step};
 use crate::test::ticket;
