@@ -24,7 +24,7 @@ use crate::dog;
 use crate::home::ProjectName;
 use crate::ports::{Forge, NewLabel};
 use crate::runner::{HUMAN, IN_PROGRESS, SUMMON_LABEL as SUMMON};
-use crate::settings::{DEFAULT_BASE, Settings, table_of};
+use crate::settings::{BaseBranch, Settings, table_of};
 use crate::shepherd::{Connection, DOG};
 
 /// The labels kelpie reads and sets on a project's issues and pull requests
@@ -66,6 +66,9 @@ pub struct Place<'a> {
     /// The old home, `~/.kelpie`, a runner refuses to start beside, when
     /// `KELPIE_HOME` does not name its home instead
     pub old_home: Option<&'a Path>,
+    /// The branch `--base` named, when it did: the repo's default branch
+    /// otherwise
+    pub base: Option<&'a str>,
 }
 
 /// A new project's settings, less what `add` reads from the checkout and
@@ -105,9 +108,9 @@ turn_timeout = 60
 /// # Errors
 ///
 /// A message naming what refused, before anything changed when the
-/// refusal is one `add` can see coming: a default branch other than
-/// `main`, a name another sheep holds, or a project already set up for
-/// another checkout.
+/// refusal is one `add` can see coming: a `--base` the repo has no branch
+/// of, a name another sheep holds, or a project already set up for another
+/// checkout or base.
 pub async fn add(
     client: &dyn Connection,
     forge: &dyn Forge,
@@ -129,12 +132,20 @@ pub async fn add(
     let branch = forge
         .default_branch(repo)
         .map_err(|e| asked("default branch", &e))?;
-    if branch != DEFAULT_BASE {
-        return Err(format!(
-            "{slug}'s default branch is {branch}, and kelpie cuts and merges every branch \
-             against `{DEFAULT_BASE}`"
-        ));
-    }
+    let base = match place.base {
+        Some(named) => {
+            let base = BaseBranch::try_from(named.to_owned())
+                .map_err(|e| format!("`--base {named}` {e}"))?;
+            let there = forge
+                .branch_exists(repo, base.as_str())
+                .map_err(|e| asked("branches", &e))?;
+            if !there {
+                return Err(format!("{slug} has no branch `{named}` to work against"));
+            }
+            base
+        }
+        None => BaseBranch::try_from(branch).map_err(|e| format!("{slug}'s default branch {e}"))?,
+    };
     let rows = flock(client).await?;
     let mut done = Vec::new();
     let runner = kelpie_sheep(client, &rows, name.as_str(), &["runner", name.as_str()]).await?;
@@ -151,7 +162,7 @@ pub async fn add(
     // The runner's table as set, or the one to write.
     let (set, table) = match tables.remove(name.as_str()) {
         Some(set) => (true, set),
-        None => (false, settings(name, place)?),
+        None => (false, settings(name, place, &base)?),
     };
     if set {
         let loaded = Settings::from_table(&table, name.as_str(), place.home, place.home)
@@ -160,6 +171,15 @@ pub async fn add(
             return Err(format!(
                 "project {name} runs from {}, not this checkout",
                 loaded.git.checkout.display()
+            ));
+        }
+        if place.base.is_some() && loaded.git.base() != base.as_str() {
+            return Err(format!(
+                "project {name} works against `{}`, not `{}`: `shep kelpie set git.base {}` \
+                 changes it",
+                loaded.git.base(),
+                base.as_str(),
+                base.as_str()
             ));
         }
     }
@@ -246,13 +266,18 @@ pub async fn add(
 }
 
 // The project's settings: the defaults with what the checkout and the forge say.
-fn settings(name: &ProjectName, place: Place<'_>) -> Result<Map<String, Value>, String> {
+fn settings(
+    name: &ProjectName,
+    place: Place<'_>,
+    base: &BaseBranch,
+) -> Result<Map<String, Value>, String> {
     let root = &place.checkout.root;
     let mut table = table_of(DEFAULTS)?;
     let text = |s: &str| Value::String(s.to_owned());
     if let Some(Value::Object(repo)) = table.get_mut("git") {
         repo.insert("checkout".into(), text(&root.display().to_string()));
         repo.insert("remote".into(), text(place.checkout.forge.as_str()));
+        repo.insert("base".into(), text(base.as_str()));
     }
     if let Some(Value::Object(ci)) = table.get_mut("ci") {
         let workflows = root.join(".github/workflows").is_dir();

@@ -72,6 +72,10 @@ impl Forge for Gh {
         ])?)
     }
 
+    fn branch_exists(&self, repo: &ForgeSlug, branch: &str) -> Result<bool, ForgeError> {
+        contents::branch_exists(repo, branch)
+    }
+
     fn folder(&self, repo: &ForgeSlug, path: &str) -> Result<Option<Vec<FolderEntry>>, ForgeError> {
         contents::folder(repo, path)
     }

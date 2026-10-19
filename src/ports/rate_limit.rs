@@ -309,6 +309,10 @@ impl Forge for RateHeld {
         self.call(Kind::DefaultBranch, |f| f.default_branch(repo))
     }
 
+    fn branch_exists(&self, repo: &ForgeSlug, branch: &str) -> Result<bool, ForgeError> {
+        self.call(Kind::BranchExists, |f| f.branch_exists(repo, branch))
+    }
+
     fn folder(&self, repo: &ForgeSlug, path: &str) -> Result<Option<Vec<FolderEntry>>, ForgeError> {
         self.call(Kind::Folder, |f| f.folder(repo, path))
     }

@@ -1,8 +1,9 @@
 //! A settings change reaching a running runner
 //!
 //! Every setting takes effect live, at the next step or call that reads
-//! it, except `git.checkout`, `git.remote`, `hooks` and kelpie's gateways: a
-//! work item's worktree and pull request belong to the first two, and the
+//! it, except `git.checkout`, `git.remote`, `git.base`, `hooks` and kelpie's
+//! gateways: a work item's worktree and pull request belong to the first
+//! three, and the
 //! forge and voice ports hold the hooks built at start, as the adapters hold
 //! the gateways, so those wait for the runner's next start. The agent files
 //! are read again with them, and a change to those alone is a change too,
@@ -52,6 +53,11 @@ impl Runner {
         if settings.git.remote != self.settings.git.remote {
             waiting.push("git.remote");
             settings.git.remote.clone_from(&self.settings.git.remote);
+        }
+        // The worktrees, the pull requests and the guard's flag were cut for the base the runner started with.
+        if settings.git.base != self.settings.git.base {
+            waiting.push("git.base");
+            settings.git.base.clone_from(&self.settings.git.base);
         }
         // The forge and voice ports hold the hooks built at start.
         if settings.hooks != self.settings.hooks {
@@ -487,6 +493,20 @@ mod tests {
         );
         assert_eq!(runner.remote().as_str(), "shep-pm/shep");
         assert_eq!(runner.settings().git.checkout, rig.repo());
+    }
+
+    #[test]
+    fn a_changed_base_waits_for_the_next_start() {
+        let rig = Rig::new("shep");
+        let runner = rig.open().unwrap();
+        rig.base_is("next");
+        let mut runner = runner.lock().unwrap();
+        let line = runner.reread(rig.settings(), rig.kelpie_settings());
+        assert_eq!(
+            line.unwrap().as_deref(),
+            Some("settings changed; git.base from the runner's next start")
+        );
+        assert_eq!(runner.settings().git.base(), "main", "the old base stays");
     }
 
     #[test]

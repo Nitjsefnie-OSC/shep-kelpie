@@ -245,6 +245,7 @@ async fn a_machine_with_everything_in_place_passes_and_changes_nothing() {
             "shepherd",
             "dog",
             "golbat: checkout",
+            "golbat: base",
             "golbat: tickets",
             "golbat: implementers",
             "golbat: push access",
@@ -258,6 +259,7 @@ async fn a_machine_with_everything_in_place_passes_and_changes_nothing() {
             "golbat: reviewers",
             "golbat: rulings",
             "koji: checkout",
+            "koji: base",
             "koji: tickets",
             "koji: implementers",
             "koji: push access",
@@ -978,6 +980,7 @@ async fn a_project_folder_left_in_the_old_home_is_missing_for_that_project_alone
     assert!(!report.passed());
 }
 
+mod base;
 mod browser;
 mod e2e;
 mod github;

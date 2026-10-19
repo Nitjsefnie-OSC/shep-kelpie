@@ -80,7 +80,7 @@ impl Runner {
         browser: Option<BrowserProof>,
     ) -> bool {
         let repo = self.settings.git.checkout.clone();
-        let base = self.settings.git.base();
+        let base = self.settings.git.base().to_owned();
         let (worktree, door) = (
             self.paths.bump_worktree(pull_request),
             self.paths.door.clone(),
@@ -95,7 +95,7 @@ impl Runner {
                     pull_request,
                     &head_run,
                     &worktree,
-                    base,
+                    &base,
                 );
                 let verdict = match fetched {
                     Ok(()) => prove(browser, &worktree, || {

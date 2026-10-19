@@ -4,6 +4,7 @@ shep-kelpie runs in your own shepherd, beside your other sheep. The adopted dog 
 
 ```sh
 shep kelpie add        # labels, settings, agent files, and the runner, stopped
+shep kelpie add --base next  # the same, for work that goes into `next` instead of the default branch
 shep kelpie start      # starts the runner, which runs the project
 shep kelpie pause      # stops it once its calls end, or at their next tool call
 shep kelpie finish     # stops it once its open work items end, picking nothing new

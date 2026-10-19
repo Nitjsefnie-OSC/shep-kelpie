@@ -14,6 +14,14 @@ pub(super) fn folder(repo: &ForgeSlug, path: &str) -> Result<Option<Vec<FolderEn
     }
 }
 
+pub(super) fn branch_exists(repo: &ForgeSlug, branch: &str) -> Result<bool, ForgeError> {
+    match gh(&["api", &format!("repos/{}/branches/{branch}", repo.as_str())]) {
+        Ok(_) => Ok(true),
+        Err(e) if is_not_found(&e) => Ok(false),
+        Err(e) => Err(e),
+    }
+}
+
 pub(super) fn file_text(repo: &ForgeSlug, path: &str) -> Result<String, ForgeError> {
     let stdout = gh(&[
         "api",

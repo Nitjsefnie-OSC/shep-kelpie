@@ -155,6 +155,10 @@ impl Forge for Guarded {
         self.forge.default_branch(repo)
     }
 
+    fn branch_exists(&self, repo: &ForgeSlug, branch: &str) -> Result<bool, ForgeError> {
+        self.forge.branch_exists(repo, branch)
+    }
+
     fn folder(&self, repo: &ForgeSlug, path: &str) -> Result<Option<Vec<FolderEntry>>, ForgeError> {
         self.forge.folder(repo, path)
     }

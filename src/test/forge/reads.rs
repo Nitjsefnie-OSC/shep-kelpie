@@ -50,6 +50,15 @@ impl FakeForge {
         prs.get_mut(&number).expect("an opened pull request").base = base.to_owned();
     }
 
+    /// The branch pull request `number` merges into
+    pub(crate) fn base_of(&self, number: u64) -> String {
+        let prs = self.pull_requests.lock().unwrap();
+        prs.get(&number)
+            .expect("an opened pull request")
+            .base
+            .clone()
+    }
+
     /// Makes pull request `number` come from a fork's branch
     pub(crate) fn set_from_fork(&self, number: u64) {
         let mut prs = self.pull_requests.lock().unwrap();

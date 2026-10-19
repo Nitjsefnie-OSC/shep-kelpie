@@ -41,7 +41,9 @@ const JSON_VERBS: [&str; 10] = [
 
 /// What the verbs take, as their help says
 pub const USAGE: &str = "\
-usage: shep kelpie add [<project>]       registers this checkout as a project
+usage: shep kelpie add [<project>] [--base <branch>]
+                                         registers this checkout as a project, working
+                                         against <branch>, the repo's default by default
        shep kelpie add <ticket>          puts a ticket on the project's board
        shep kelpie start | pause         runs the project, or stops it once its calls end
        shep kelpie finish                ends the open work items, picks nothing new, stops
@@ -132,6 +134,11 @@ async fn run(
     let kelpie_home = crate::home::kelpie_home_of(shep_home);
     // A ruling's answer starts after its id and first word.
     let (named, args) = split_project(args, (command == "rule").then_some(2))?;
+    // Only `add` takes a base: to every other verb `--base` is a word.
+    let (base, args) = match command {
+        "add" => split_base(&args)?,
+        _ => (None, args),
+    };
     let args: Vec<&str> = args.iter().map(String::as_str).collect();
     // Only these verbs have a JSON form, so `--json` is a word to every other verb.
     let json = JSON_VERBS.contains(&command) && args.contains(&"--json");
@@ -214,6 +221,9 @@ async fn run(
         (None, named) => Ok(named.clone()),
     };
     match (command, args.as_slice()) {
+        ("add", [ticket]) if base.is_some() && is_ticket(ticket) => Err(format!(
+            "`--base` goes with a checkout, not a ticket\n\n{USAGE}"
+        )),
         ("add", [ticket]) if is_ticket(ticket) => change("add", Some(ticket)).await,
         // Registering a checkout has no JSON form.
         ("add", _) if json => Err(USAGE.to_owned()),
@@ -239,6 +249,7 @@ async fn run(
                 folder: &folder,
                 agents: &agents,
                 old_home: old_home.as_deref(),
+                base: base.as_deref(),
             };
             add::add(&client, &Gh::default(), &launch, &name, place).await
         }
@@ -499,6 +510,43 @@ pub fn split_project(
     Ok((named, rest))
 }
 
+/// `--base <branch>` or `--base=<branch>` from anywhere in `args` before a
+/// `--`, and the rest in order
+///
+/// # Errors
+///
+/// A message when the base is given twice or has no branch after it.
+pub fn split_base(args: &[String]) -> Result<(Option<String>, Vec<String>), String> {
+    let mut named = None;
+    let mut rest = Vec::new();
+    let mut args = args.iter();
+    while let Some(arg) = args.next() {
+        let branch = match arg.as_str() {
+            "--" => {
+                rest.push(arg.clone());
+                rest.extend(args.by_ref().cloned());
+                break;
+            }
+            "--base" => args
+                .next()
+                .ok_or_else(|| "--base takes a branch's name".to_owned())?
+                .as_str(),
+            other => match other.strip_prefix("--base=") {
+                Some(branch) => branch,
+                None => {
+                    rest.push(arg.clone());
+                    continue;
+                }
+            },
+        };
+        if named.is_some() {
+            return Err("name the base once".into());
+        }
+        named = Some(branch.to_owned());
+    }
+    Ok((named, rest))
+}
+
 /// `args` with a verb that follows leading project flags moved first, so
 /// `shep kelpie -p koji rule 14 yes` reaches `rule`
 pub fn verb_first(mut args: Vec<String>) -> Vec<String> {
@@ -524,6 +572,31 @@ mod tests {
 
     fn words(line: &str) -> Vec<String> {
         line.split(' ').map(str::to_owned).collect()
+    }
+
+    #[test]
+    fn a_base_is_taken_from_anywhere_in_the_line() {
+        for line in ["--base next koji", "koji --base next", "--base=next koji"] {
+            let (base, rest) = split_base(&words(line)).unwrap();
+            assert_eq!(base.as_deref(), Some("next"), "{line}");
+            assert_eq!(rest, ["koji"], "{line}");
+        }
+        assert_eq!(split_base(&words("koji")).unwrap(), (None, words("koji")));
+    }
+
+    #[test]
+    fn a_base_after_two_dashes_is_a_word() {
+        let (base, rest) = split_base(&words("koji -- --base next")).unwrap();
+        assert_eq!(base, None);
+        assert_eq!(rest, words("koji -- --base next"));
+    }
+
+    #[test]
+    fn a_base_named_twice_or_with_no_branch_is_refused() {
+        let twice = split_base(&words("--base a --base=b")).unwrap_err();
+        assert!(twice.contains("once"), "{twice}");
+        let bare = split_base(&words("koji --base")).unwrap_err();
+        assert!(bare.contains("takes a branch"), "{bare}");
     }
 
     #[test]

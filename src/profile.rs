@@ -44,13 +44,23 @@ const ENDS_WITH_RESOLVES: &str =
 /// With `pull_request_file`, the worker holds a credential that opens no
 /// pull request, and is told to write its text there for kelpie to open.
 pub fn instructions(kelpie: &Path, pull_request_file: Option<&Path>) -> String {
-    instructions_for(kelpie, pull_request_file, true)
+    instructions_for(
+        kelpie,
+        pull_request_file,
+        true,
+        crate::settings::DEFAULT_BASE,
+    )
 }
 
 /// [`instructions`] for a work item whose ticket is a GitHub issue when `resolves`, else a
 /// local ticket, whose pull request has no `Resolves` line because kelpie closes the ticket
-/// when it merges
-pub fn instructions_for(kelpie: &Path, pull_request_file: Option<&Path>, resolves: bool) -> String {
+/// when it merges, and the project's `base` branch where the worker is told what it works against
+pub fn instructions_for(
+    kelpie: &Path,
+    pull_request_file: Option<&Path>,
+    resolves: bool,
+    base: &str,
+) -> String {
     let (resolves, ends) = match resolves {
         true => (RESOLVES, ENDS_WITH_RESOLVES),
         false => ("", ""),
@@ -64,6 +74,7 @@ pub fn instructions_for(kelpie: &Path, pull_request_file: Option<&Path>, resolve
     INSTRUCTIONS
         .replace("{pull_request}", &pull_request)
         .replace("{kelpie}", &kelpie.display().to_string())
+        .replace("{base}", base)
 }
 
 // Claude Code opens a worktree's whole common git dir to sandboxed writes.

@@ -10,7 +10,7 @@ use crate::agents::Agents;
 use crate::flock::add::LABELS;
 use crate::home::{ProjectName, ProjectPaths};
 use crate::local_tickets::LocalTickets;
-use crate::ports::{NewLabel, Visibility};
+use crate::ports::{Forge, NewLabel, Visibility};
 use crate::runner::{NO_ORIGIN, SUMMON_LABEL, check_checkout, check_instructions, source_of};
 use crate::settings::{
     Account, AgentHarness, ForgeSlug, Limit, Pick, RoleModel, Settings, SettingsError, TicketSource,
@@ -112,7 +112,8 @@ pub(super) fn checks(
         Err(e) => return wrong(e.to_string()),
     };
     let (line, remote) = checkout(at("checkout"), &settings);
-    let mut lines = vec![line, tickets(at("tickets"), &settings, &paths)];
+    let base = base(at("base"), &settings, remote.as_ref(), probes.forge);
+    let mut lines = vec![line, base, tickets(at("tickets"), &settings, &paths)];
     if settings.tickets.source == TicketSource::Local {
         lines.push(Line::ok(
             at("repo writes"),
@@ -181,6 +182,34 @@ pub(super) fn checks(
         lines.push(rulings::channel(at("rulings"), kelpie));
     }
     lines
+}
+
+// The branch the project's work is cut from and merged into, and whether the
+// forge has it: with no repo known there is nothing to ask, and it is only named.
+fn base(subject: String, settings: &Settings, repo: Option<&ForgeSlug>, forge: &dyn Forge) -> Line {
+    let base = settings.git.base();
+    let works = format!(
+        "work items are cut from `origin/{base}`, and their pull requests open against and merge into `{base}`"
+    );
+    let Some(repo) = repo else {
+        return Line::ok(subject, works);
+    };
+    match forge.branch_exists(repo, base) {
+        Ok(true) => Line::ok(subject, works),
+        Ok(false) => Line::missing(
+            subject,
+            format!("`{base}` is not a branch of {}", repo.as_str()),
+            "push the branch, or set `git.base` to one the repo has",
+        ),
+        Err(e) => Line::unsure(
+            subject,
+            format!("cannot read {}'s branch `{base}`: {e}", repo.as_str()),
+            format!(
+                "run `gh api repos/{}/branches/{base}` to see why",
+                repo.as_str()
+            ),
+        ),
+    }
 }
 
 // The plugins the repo turns on, as a runner starting now would load them

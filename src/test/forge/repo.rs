@@ -43,6 +43,11 @@ impl FakeForge {
         *self.default_branch.lock().unwrap() = branch.to_owned();
     }
 
+    /// Gives the repo these branches besides its default branch
+    pub(crate) fn set_branches(&self, branches: &[&str]) {
+        *self.branches.lock().unwrap() = branches.iter().map(|&b| b.to_owned()).collect();
+    }
+
     /// The repo's labels, those it started with and those made since
     pub(crate) fn repo_labels_now(&self) -> Vec<String> {
         self.repo_labels.lock().unwrap().clone()

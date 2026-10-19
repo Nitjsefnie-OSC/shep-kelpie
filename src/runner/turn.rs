@@ -558,6 +558,7 @@ impl Runner {
                 browser: hosts,
                 dev_server: dev.as_ref(),
                 local_ticket: item.issue.github().is_none(),
+                base: Some(self.settings.git.base()),
             },
             &item.worktree,
             &self.skills,

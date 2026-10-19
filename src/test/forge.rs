@@ -96,6 +96,8 @@ pub(crate) struct FakeForge {
     watched: Arc<Mutex<Option<PathBuf>>>,
     saved_at_comment: Arc<Mutex<Vec<serde_json::Value>>>,
     default_branch: Arc<Mutex<String>>,
+    // Branches the forge has besides the default branch and those pushed to origin
+    branches: Arc<Mutex<Vec<String>>>,
     // The files of the repos a test filled, by lowercase slug and then path
     files: Arc<Mutex<HashMap<String, BTreeMap<String, String>>>>,
     repo_labels: Arc<Mutex<Vec<String>>>,
@@ -188,6 +190,7 @@ impl FakeForge {
             watched: Arc::default(),
             saved_at_comment: Arc::default(),
             default_branch: Arc::new(Mutex::new("main".to_owned())),
+            branches: Arc::new(Mutex::new(Vec::new())),
             files: Arc::default(),
             repo_labels: Arc::default(),
             issue_writes: Arc::default(),
@@ -383,6 +386,13 @@ impl Forge for FakeForge {
     fn default_branch(&self, _repo: &ForgeSlug) -> Result<String, ForgeError> {
         self.ask()?;
         Ok(self.default_branch.lock().unwrap().clone())
+    }
+
+    fn branch_exists(&self, _repo: &ForgeSlug, branch: &str) -> Result<bool, ForgeError> {
+        self.ask()?;
+        let default = self.default_branch.lock().unwrap().clone() == branch;
+        let named = self.branches.lock().unwrap().iter().any(|b| b == branch);
+        Ok(default || named || self.head_of(branch).is_some())
     }
 
     fn folder(&self, repo: &ForgeSlug, path: &str) -> Result<Option<Vec<FolderEntry>>, ForgeError> {
