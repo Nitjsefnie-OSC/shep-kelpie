@@ -14,7 +14,8 @@ A project on `tickets.source = "local"` takes its tickets from files in kelpie's
 - The review's criteria read a local ticket through `Tickets::issue` like any other.
 - `doctor` prints a `tickets` line: `github`, or `local` with the count and folder, missing when the store is unreadable. A local project also gets a `repo writes` line: the branch, the pull request and its comments.
 - A local project writes nothing to its repo but those (#1013). `Runner::local_store` is the source the runner started with (a reread keeps it) and gates the rest:
-  - `mark_held` and `make_agent_labels` (`src/runner/claim.rs`) put no label on the repo or an issue.
+  - `mark_held` and `make_agent_labels` (`src/runner/claim.rs`) put no label on the repo or an issue. `mark_held` still takes `in-progress` off a GitHub issue held before the source changed.
+  - `file_red` (`src/runner/dependencies.rs`) files no issue for a red bump it closed: the comment on the pull request is the record.
   - `Tickets::comment_issue` (default: `NoIssue`, since a GitHub ticket is commented on through `Forge::comment`, which records the id) appends a comment by `kelpie` to the file. `post_ruling` uses it for a ruling with no pull request yet. A ruling with one still goes on the pull request.
   - `Settings::check_tickets` refuses `triage.pick` other than `off` at load, so triage never runs. `adopt` returns `AdoptError::LocalStore`, and `labelled_for_adoption` finds nothing.
   - The test double `FakeForge::issue_writes` logs labels made, issues opened and closed, and labels set, for the rig test of a pick-to-merge run.

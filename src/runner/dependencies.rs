@@ -462,9 +462,14 @@ impl Runner {
     }
 
     fn comment_red(&self, bump: &Bump, red: &Red) -> Result<(), ForgeError> {
+        // A local-store project files no issue on its repo, so the comment is
+        // the whole record.
+        let follows = match self.local_store() {
+            true => "",
+            false => "\n\nAn issue follows.",
+        };
         let body = format!(
-            "Kelpie is closing this pull request because it broke at `{}`:\n\n{}\n\nAn issue \
-             follows.",
+            "Kelpie is closing this pull request because it broke at `{}`:\n\n{}{follows}",
             short(&red.head),
             lines_of(&red.why),
         );
@@ -479,8 +484,16 @@ impl Runner {
     }
 
     // Files the issue for a closed bump, which ends its record.
+    // A project on the local store writes no issue and no label to its repo,
+    // so the comment on the closed pull request is all it leaves.
     fn file_red(&mut self, bump: &Bump, red: &Red) -> Result<(), StateError> {
         let number = bump.pull_request;
+        if self.local_store() {
+            self.notes.push(format!(
+                "bump #{number}: closed, red; no issue filed, the project's tickets are local"
+            ));
+            return self.drop_bump(number);
+        }
         let title = format!("dependencies: #{number}, {}, broke", bump.branch);
         let body = format!(
             "Kelpie closed pull request #{number} from `{}`, branch `{}`, because it broke \

@@ -146,6 +146,23 @@ fn a_ticket_held_on_a_local_store_gains_no_label_on_the_repo() {
     assert!(!stored.unwrap().labels.iter().any(|l| l == "in-progress"));
 }
 
+#[test]
+fn a_label_put_on_a_github_issue_before_the_local_store_still_comes_off() {
+    let rig = Rig::new("koji");
+    rig.forge.label(12, "in-progress");
+    rig.tickets_local();
+    let runner = rig.open().unwrap();
+    let mut runner = runner.lock().unwrap();
+    let issue = TicketId::from_issue(12).unwrap();
+
+    runner.mark_held(issue, true);
+    assert_eq!(rig.forge.issue_labels(12), ["in-progress"]);
+    assert_eq!(rig.forge.issue_writes(), Vec::<String>::new());
+
+    runner.mark_held(issue, false);
+    assert!(rig.forge.issue_labels(12).is_empty());
+}
+
 // Tickets `k1`, which `k2` blocks, and `k2`, both ready
 fn blocked_by_the_next() -> (Rig, Mutex<Runner>) {
     let rig = Rig::new("koji");

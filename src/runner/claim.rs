@@ -36,9 +36,10 @@ impl Runner {
 
     // Labels `ticket`'s issue as held, or takes the label off, and notes a
     // refusal. Only a GitHub ticket has an issue to label, and a project on the
-    // local store puts no label on its repo's issues.
+    // local store puts no label on its repo's issues. It still takes one off,
+    // for an issue held before the project changed its source.
     pub(super) fn mark_held(&mut self, ticket: TicketId, held: bool) {
-        let Some(issue) = ticket.github().filter(|_| !self.local_store()) else {
+        let Some(issue) = ticket.github().filter(|_| !(held && self.local_store())) else {
             return;
         };
         if let Err(e) = self.label_issue(issue, IN_PROGRESS, held) {

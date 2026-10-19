@@ -41,6 +41,7 @@ A project on `local` writes nothing to its repo but the branch and the pull requ
 
 - No `in-progress` or `agent:` label is made on the repo or put on an issue.
 - What kelpie would say on an issue goes on the local ticket: a ruling raised before there is a pull request, and the note when it closes a ticket or a parent.
+- A dependency bump that goes red is closed with a comment on its pull request, and no issue is filed for it.
 - Triage does not run: `triage.pick` must be `off`, and a settings table that turns it on is refused.
 - `adopt` is refused, and a pull request labelled `ready-for-agent` is not adopted: adoption needs GitHub issues.
 

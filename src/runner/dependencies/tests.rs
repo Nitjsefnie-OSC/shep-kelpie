@@ -452,6 +452,33 @@ fn a_failed_e2e_run_closes_the_bump_with_a_comment_and_an_issue() {
 }
 
 #[test]
+fn a_red_bump_on_a_local_store_is_closed_and_commented_but_files_no_issue() {
+    let rig = Rig::new("shep");
+    rig.edit_settings(|s| format!("{s}\n[app.dogs.kelpie.dependencies]\npick = \"on\"\n"));
+    rig.tickets_local();
+    let runner = rig.open().unwrap();
+    let head = bump(&rig, 40, "Cargo.lock");
+    rig.forge
+        .set_checks(&head, Checks::Failed(vec!["test".into()]));
+
+    settle(&rig, &runner);
+
+    assert_eq!(rig.forge.pull_request_closings(), [40]);
+    let comments = rig.forge.comments();
+    assert_eq!(comments.len(), 1);
+    assert!(!comments[0].1.contains("An issue follows"), "{comments:?}");
+    assert!(rig.forge.created().is_empty());
+    assert_eq!(rig.forge.issue_writes(), Vec::<String>::new());
+    assert!(bumps(&rig, &runner).is_empty());
+    let notes = notes(&runner);
+    assert_eq!(
+        words(&notes, "bump #40: closed, red; no issue"),
+        1,
+        "{notes:?}"
+    );
+}
+
+#[test]
 fn a_failed_check_closes_the_bump_naming_the_checks_that_failed() {
     let (rig, runner) = bumping("");
     let head = bump(&rig, 40, "Cargo.lock");
