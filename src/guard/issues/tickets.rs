@@ -163,7 +163,13 @@ fn edit(args: &[String], gh: &Gh<'_>) -> Result<(), String> {
         return Err(format!("{NOT_FILED}, and {ticket} is not one."));
     }
     parented(&flags, gh)?;
-    linked(&flags, "--blocked-by")?;
+    let mut links = linked(&flags, "--parent")?;
+    links.extend(linked(&flags, "--blocked-by")?);
+    if links.contains(&ticket) {
+        return Err(format!(
+            "{ticket} cannot be linked to itself: the board would never pick it."
+        ));
+    }
     let added = whole_labels(flags.all("--label"));
     let removed = whole_labels(flags.all("--unlabel"));
     check_relabel(&added, &removed, gh.rules)

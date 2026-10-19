@@ -192,11 +192,18 @@ fn it_edits_the_labels_and_links_of_the_tickets_it_filed() {
         "shep kelpie ticket edit k3 -p koji --unlabel agent:sonnet-high --label agent:opus-high",
         "shep kelpie ticket edit k3 -p koji --label ready-for-human",
         "shep kelpie ticket edit k3 -p koji --blocked-by k1",
-        "shep kelpie ticket edit k3 -p koji --parent k3",
     ] {
         assert_eq!(s.bash(command), Verdict::Allow, "{command}");
     }
     for (command, why) in [
+        (
+            "shep kelpie ticket edit k3 -p koji --parent k3",
+            "k3 cannot be linked to itself",
+        ),
+        (
+            "shep kelpie ticket edit k3 -p koji --blocked-by k3",
+            "k3 cannot be linked to itself",
+        ),
         (
             "shep kelpie ticket edit k1 -p koji --label agent:opus-high",
             "k1 is not one",
