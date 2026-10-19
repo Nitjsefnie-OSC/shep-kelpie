@@ -16,6 +16,7 @@ use super::pm::Choice;
 use super::report::{Begin, StepReport};
 use crate::board::{self, ReadyIssue, Skip};
 use crate::state::StateError;
+use crate::ticket::TicketId;
 
 impl Runner {
     // The step runs this only while the board may open a work item, and it
@@ -161,7 +162,12 @@ impl Runner {
                 self.set_skipped(skipped);
                 return Ok(Begin::Label(found));
             }
-            match self.add(issue) {
+            // The forge numbers no issue zero.
+            let Some(ticket) = TicketId::from_issue(issue) else {
+                ready.retain(|i| i.number != issue);
+                continue;
+            };
+            match self.add(ticket) {
                 Ok(agent) => {
                     self.set_skipped(skipped.clone());
                     return Ok(Begin::Report(StepReport::Dispatched {

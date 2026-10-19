@@ -140,3 +140,11 @@ fn a_number_another_project_s_ruling_has_answers_nothing_here() {
     assert_eq!(step(&runner).unwrap(), Some(StepReport::ReplyIgnored));
     assert_eq!(phase(&rig, &runner), json!({ "state": "ruling", "id": 71 }));
 }
+
+#[test]
+fn a_local_ticket_s_id_names_no_ruling_here() {
+    let (rig, runner, _) = alerted("koji");
+    rig.reply("k71 yes");
+    assert_eq!(step(&runner).unwrap(), Some(StepReport::ReplyIgnored));
+    assert_eq!(phase(&rig, &runner), json!({ "state": "ruling", "id": 71 }));
+}

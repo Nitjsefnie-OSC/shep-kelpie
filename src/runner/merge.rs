@@ -18,6 +18,7 @@ use super::trigger::WhichItem;
 use crate::ports::{Checks, PullRequestState};
 use crate::settings::Merging;
 use crate::state::{Finished, MergeNotice, Notice, RulingKind, StateError, Stuck};
+use crate::ticket::TicketId;
 use crate::work_item::{Phase, Review, ReviewCallState, ReviewStage, Turn};
 use crate::worktree::{self, Base, Remote};
 
@@ -64,7 +65,7 @@ impl fmt::Display for DropError {
 impl core::error::Error for DropError {}
 
 impl Runner {
-    /// Ends a work item without merging it, the one `issue` names or the
+    /// Ends a work item without merging it, the one `ticket` names or the
     /// only one open
     ///
     /// Its worktree, local branch and build folder go, and its issue is
@@ -76,8 +77,8 @@ impl Runner {
     ///
     /// [`DropError`] when nothing is in flight, a turn, a review round or a
     /// merge is under way, or the cleanup fails. The work item stays then.
-    pub fn drop_work_item(&mut self, issue: Option<u64>) -> Result<(), DropError> {
-        self.choose(issue).map_err(DropError::Which)?;
+    pub fn drop_work_item(&mut self, ticket: Option<TicketId>) -> Result<(), DropError> {
+        self.choose(ticket).map_err(DropError::Which)?;
         let item = self.current().expect("the work item chosen");
         if matches!(item.turn, Turn::Running { .. }) {
             return Err(DropError::TurnRunning(item.issue));

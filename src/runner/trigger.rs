@@ -18,6 +18,7 @@ use crate::review_bot::Bot;
 use crate::settings::{AgentName, Merging, PerItemUsd};
 use crate::skills::{RepoPlugin, StepSkill};
 use crate::state::{Finished, LeaseHeld, Ruling, StateError, Waiting};
+use crate::ticket::TicketId;
 use crate::work_item::{
     Attached, BotSkipped, Phase, QwenTally, Spend, Split, TestCheck, Turn, WorkItem,
 };
@@ -38,7 +39,7 @@ pub(super) const STATUS_HISTORY: usize = 10;
 pub(super) const STATUS_ORDER: usize = 5;
 
 /// What `attach` and `detach` take, as their refusals say
-const ATTACH_USAGE: &str = "takes an issue number and the attaching process's pid, and \
+const ATTACH_USAGE: &str = "takes a ticket id and the attaching process's pid, and \
                             `attach` the pid of the session it started";
 
 /// What `pm` takes, as its refusals say
@@ -317,15 +318,15 @@ pub struct BudgetStatus {
 /// A trigger, read
 enum Request {
     Status,
-    Add(u64),
+    Add(TicketId),
     Rework(u64),
     Adopt(u64),
     Rule(u64, Answer),
-    Gate(Option<u64>),
-    Drop(Option<u64>),
+    Gate(Option<TicketId>),
+    Drop(Option<TicketId>),
     Timings(usize),
-    Attach(u64, u32, Option<u32>),
-    Detach(u64, u32),
+    Attach(TicketId, u32, Option<u32>),
+    Detach(TicketId, u32),
     Tell(String),
     PmAttach(u32, Option<u32>),
     PmDetach(u32),
@@ -340,14 +341,14 @@ enum Request {
 
 /// Answers one trigger with a JSON body: the status, or `{"error": ...}`
 ///
-/// Blank params count as none. `add` takes an issue number, `rework` and
+/// Blank params count as none. `add` takes a ticket id, `rework` and
 /// `adopt` a pull request number, `triage` an issue number, `rule` takes
 /// `<id> yes`, `<id> no <note>`,
 /// `<id> rework <note>` or `<id> answer <text>`, `gate` and `drop` take the
-/// issue of the work item they are about when more than one is open,
+/// ticket of the work item they are about when more than one is open,
 /// `timings` takes how many finished work items to total (ten when left
 /// out) and answers the totals, not the status, `attach` and `detach` take
-/// an issue and the attaching process's pid, `attach` then the pid of the
+/// a ticket and the attaching process's pid, `attach` then the pid of the
 /// session it started, if it has, and answers
 /// [`Attaching`](super::Attaching) rather than the status, `tell` takes a
 /// note for the project manager, `pm` takes `attach` or `detach` with the
@@ -395,8 +396,8 @@ pub(crate) fn answer(
         _ => None,
     };
     let changed = match request {
-        Request::Attach(issue, pid, session) => {
-            return match runner.attach(issue, pid, session) {
+        Request::Attach(ticket, pid, session) => {
+            return match runner.attach(ticket, pid, session) {
                 Ok(attaching) => {
                     runner.post();
                     serde_json::to_string(&attaching).expect("it serializes to JSON")
@@ -404,7 +405,7 @@ pub(crate) fn answer(
                 Err(e) => error(e.to_string()),
             };
         }
-        Request::Detach(issue, pid) => runner.detach(issue, pid).map_err(|e| e.to_string()),
+        Request::Detach(ticket, pid) => runner.detach(ticket, pid).map_err(|e| e.to_string()),
         Request::PmAttach(pid, session) => {
             return match runner.attach_pm(pid, session) {
                 Ok(attaching) => {
@@ -437,12 +438,12 @@ pub(crate) fn answer(
         Request::Finish => runner.begin_finishing().map_err(|e| e.to_string()),
         Request::Start => runner.cancel_finishing().map_err(|e| e.to_string()),
         Request::Pausing => runner.pausing().map_err(|e| e.to_string()),
-        Request::Add(issue) => runner.add(issue).map(drop).map_err(|e| e.to_string()),
+        Request::Add(ticket) => runner.add(ticket).map(drop).map_err(|e| e.to_string()),
         Request::Rework(number) => runner.rework(number).map(drop).map_err(|e| e.to_string()),
         Request::Adopt(number) => runner.adopt(number).map_err(|e| e.to_string()),
         Request::Rule(id, answer) => runner.rule(id, answer).map_err(|e| e.to_string()),
-        Request::Gate(issue) => runner.gate(issue).map_err(|e| e.to_string()),
-        Request::Drop(issue) => runner.drop_work_item(issue).map_err(|e| e.to_string()),
+        Request::Gate(ticket) => runner.gate(ticket).map_err(|e| e.to_string()),
+        Request::Drop(ticket) => runner.drop_work_item(ticket).map_err(|e| e.to_string()),
         Request::Triage(issue) => runner.triage_ask(issue),
     };
     // What a trigger asks while a pass holds the lock reads this copy.
@@ -500,10 +501,10 @@ fn from_posted(posted: &Posted, request: &Request) -> Option<String> {
 
 fn read(action: &str, params: Option<&str>) -> Result<Request, String> {
     match (action, params) {
-        ("add", Some(p)) => number(p)
+        ("add", Some(p)) => ticket(p)
             .map(Request::Add)
-            .ok_or_else(|| format!("{p:?} is not an issue number")),
-        ("add", None) => Err("`add` takes an issue number".into()),
+            .ok_or_else(|| format!("{p:?} is not a ticket id")),
+        ("add", None) => Err("`add` takes a ticket id".into()),
         ("rework", Some(p)) => number(p)
             .map(Request::Rework)
             .ok_or_else(|| format!("{p:?} is not a pull request number")),
@@ -516,12 +517,12 @@ fn read(action: &str, params: Option<&str>) -> Result<Request, String> {
             .map(Request::Triage)
             .ok_or_else(|| format!("{p:?} is not an issue number")),
         ("triage", None) => Err("`triage` takes an issue number".into()),
-        ("gate", Some(p)) => number(p)
-            .map(|issue| Request::Gate(Some(issue)))
-            .ok_or_else(|| format!("{p:?} is not an issue number")),
-        ("drop", Some(p)) => number(p)
-            .map(|issue| Request::Drop(Some(issue)))
-            .ok_or_else(|| format!("{p:?} is not an issue number")),
+        ("gate", Some(p)) => ticket(p)
+            .map(|ticket| Request::Gate(Some(ticket)))
+            .ok_or_else(|| format!("{p:?} is not a ticket id")),
+        ("drop", Some(p)) => ticket(p)
+            .map(|ticket| Request::Drop(Some(ticket)))
+            .ok_or_else(|| format!("{p:?} is not a ticket id")),
         ("rule", Some(p)) => read_rule(p)
             .map(|(id, answer)| Request::Rule(id, answer))
             .ok_or_else(|| format!("`{action}` {RULE_USAGE}, not {p:?}")),
@@ -533,15 +534,15 @@ fn read(action: &str, params: Option<&str>) -> Result<Request, String> {
         ("attach" | "detach", Some(p)) => {
             let words: Vec<&str> = p.split_whitespace().collect();
             let read = match (action, words.as_slice()) {
-                ("attach", [issue, pid]) => number(issue)
+                ("attach", [ticket_id, pid]) => ticket(ticket_id)
                     .zip(pid_of(pid))
-                    .map(|(issue, pid)| Request::Attach(issue, pid, None)),
-                ("attach", [issue, pid, session]) => number(issue)
+                    .map(|(ticket, pid)| Request::Attach(ticket, pid, None)),
+                ("attach", [ticket_id, pid, session]) => ticket(ticket_id)
                     .zip(pid_of(pid).zip(pid_of(session)))
-                    .map(|(issue, (pid, session))| Request::Attach(issue, pid, Some(session))),
-                ("detach", [issue, pid]) => number(issue)
+                    .map(|(ticket, (pid, session))| Request::Attach(ticket, pid, Some(session))),
+                ("detach", [ticket_id, pid]) => ticket(ticket_id)
                     .zip(pid_of(pid))
-                    .map(|(issue, pid)| Request::Detach(issue, pid)),
+                    .map(|(ticket, pid)| Request::Detach(ticket, pid)),
                 _ => None,
             };
             read.ok_or_else(|| format!("`{action}` {ATTACH_USAGE}, not {p:?}"))
@@ -625,6 +626,12 @@ fn pid_of(text: &str) -> Option<u32> {
         .and_then(|pid| u32::try_from(pid).ok())
 }
 
+// A ticket's id as written: `7` or `k12`, so `+7` and `#7` are refused rather
+// than read as 7.
+fn ticket(text: &str) -> Option<TicketId> {
+    text.parse().ok()
+}
+
 // Digits only, so `+7` and `#7` are refused rather than read as 7.
 pub(super) fn number(text: &str) -> Option<u64> {
     let n = text.parse::<u64>().ok()?;
@@ -639,7 +646,7 @@ pub enum WhichItem {
     /// These issues' work items are open, and the trigger named none
     Several(Vec<u64>),
     /// No work item is open for this issue
-    NotOpen(u64),
+    NotOpen(TicketId),
 }
 
 impl fmt::Display for WhichItem {
@@ -651,7 +658,10 @@ impl fmt::Display for WhichItem {
                 "the work items for {} are open, so name the issue of one",
                 issue_list(issues)
             ),
-            Self::NotOpen(issue) => write!(f, "no work item for #{issue} is open"),
+            Self::NotOpen(ticket) => match ticket.github() {
+                Some(issue) => write!(f, "no work item for #{issue} is open"),
+                None => write!(f, "no work item for {ticket} is open"),
+            },
         }
     }
 }
@@ -704,15 +714,15 @@ impl Runner {
     /// Sends the work item into the gate, when its worker's turn has ended
     /// with a pull request kelpie knows but the gate was not entered
     ///
-    /// A work item saved before the gate existed is one such. `issue` names
+    /// A work item saved before the gate existed is one such. `ticket` names
     /// the work item, and may be left out while only one is open.
     ///
     /// # Errors
     ///
     /// [`GateError`] naming why the work item cannot enter the gate. Nothing
     /// changes then.
-    pub fn gate(&mut self, issue: Option<u64>) -> Result<(), GateError> {
-        self.choose(issue).map_err(GateError::Which)?;
+    pub fn gate(&mut self, ticket: Option<TicketId>) -> Result<(), GateError> {
+        self.choose(ticket).map_err(GateError::Which)?;
         let item = self.current().expect("the work item chosen");
         let issue = item.issue;
         if item.phase != Phase::Implement {
@@ -738,13 +748,16 @@ impl Runner {
 }
 
 impl Runner {
-    // Works on the work item for `issue`, or on the only one open when no
-    // issue is named.
-    pub(super) fn choose(&mut self, issue: Option<u64>) -> Result<(), WhichItem> {
+    // Works on the work item for `ticket`, or on the only one open when no
+    // ticket is named. A work item is keyed by an issue number, so a ticket
+    // from another source has none open.
+    pub(super) fn choose(&mut self, ticket: Option<TicketId>) -> Result<(), WhichItem> {
         let open = self.state.open_issues();
-        let chosen = match (issue, open.as_slice()) {
-            (Some(issue), _) if open.contains(&issue) => issue,
-            (Some(issue), _) => return Err(WhichItem::NotOpen(issue)),
+        let chosen = match (ticket, open.as_slice()) {
+            (Some(ticket), _) => match ticket.github().filter(|issue| open.contains(issue)) {
+                Some(issue) => issue,
+                None => return Err(WhichItem::NotOpen(ticket)),
+            },
             (None, []) => return Err(WhichItem::NoWorkItem),
             (None, [only]) => *only,
             (None, _) => return Err(WhichItem::Several(open)),
@@ -769,6 +782,7 @@ mod tests {
     use crate::test::{Rig, Scripted};
 
     mod board;
+    mod ticket;
 
     // A running project with issue 7 in flight
     fn with_issue_7(project: &str) -> (Rig, Mutex<Runner>) {
@@ -892,23 +906,6 @@ mod tests {
     }
 
     #[test]
-    fn add_takes_one_plain_issue_number() {
-        let rig = Rig::new("golbat");
-        let runner = rig.open().unwrap();
-        assert_eq!(
-            rig.ask(&runner, "add", None),
-            json!({ "error": "`add` takes an issue number" })
-        );
-        for bad in ["#7", "0", "-7", "+7", "7 8", "seven"] {
-            assert_eq!(
-                rig.ask(&runner, "add", Some(bad)),
-                json!({ "error": format!("{bad:?} is not an issue number") }),
-            );
-        }
-        assert_eq!(rig.ask(&runner, "status", None)["work_item"], json!(null));
-    }
-
-    #[test]
     fn a_second_add_while_one_is_in_flight_is_refused() {
         let (rig, runner) = with_issue_7("golbat");
         assert_eq!(
@@ -976,7 +973,7 @@ mod tests {
         );
         assert_eq!(
             rig.ask(&runner, "gate", Some("#7")),
-            json!({ "error": "\"#7\" is not an issue number" })
+            json!({ "error": "\"#7\" is not a ticket id" })
         );
 
         rig.claude
