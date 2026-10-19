@@ -32,7 +32,7 @@ impl Runner {
     pub(super) fn closed_with_no_change(&mut self, issue: u64) -> Result<bool, String> {
         let item = self.state.item(issue).expect("an open work item");
         let (branch, tree) = (item.branch.clone(), item.worktree.clone());
-        let read = self.ports.forge.issue(&self.remote, issue);
+        let read = self.ports.tickets.issue(&self.remote, issue);
         if read
             .map_err(|e| format!("cannot read issue #{issue}: {e}"))?
             .open
