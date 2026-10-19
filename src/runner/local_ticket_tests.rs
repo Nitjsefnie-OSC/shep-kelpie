@@ -134,3 +134,14 @@ fn a_ticket_the_store_does_not_hold_opens_no_work_item() {
     assert!(error.contains("cannot read the issue"), "{error}");
     assert_eq!(rig.ask(&runner, "status", None)["work_item"], json!(null));
 }
+
+#[test]
+fn a_github_ticket_still_opens_a_work_item_on_a_local_project() {
+    let (rig, runner) = filed("koji");
+    let added = rig.ask(&runner, "add", Some("12"));
+    assert_eq!(added["error"], json!(null), "{added}");
+    assert_eq!(
+        rig.ask(&runner, "status", None)["work_item"]["issue"],
+        json!("12")
+    );
+}

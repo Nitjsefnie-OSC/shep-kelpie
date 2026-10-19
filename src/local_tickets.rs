@@ -12,8 +12,10 @@ use std::io::{self, Write};
 use std::num::NonZeroU64;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Duration;
 
 pub use file::{Comment, FileError, Standing, Stored};
+pub use routed::Routed;
 
 use crate::board::{Blocker, READY, ReadyIssue, SubIssues};
 use crate::ports::{
@@ -24,6 +26,7 @@ use crate::settings::ForgeSlug;
 use crate::ticket::TicketId;
 
 mod file;
+mod routed;
 
 /// Why a local ticket cannot be read or written
 #[derive(Debug)]
@@ -222,6 +225,8 @@ impl LocalTickets {
         ticket: TicketId,
         change: impl FnOnce(&mut Stored),
     ) -> Result<Stored, LocalError> {
+        let path = self.path(ticket)?;
+        let _held = Lock::take(&path.with_extension("md.lock"))?;
         let mut stored = self.get(ticket)?;
         let before = (stored.parent, stored.blocked_by.clone());
         change(&mut stored);
@@ -231,7 +236,6 @@ impl LocalTickets {
             self.check_linked(*linked)?;
         }
         let text = stored.render().map_err(LocalError::Refused)?;
-        let path = self.path(ticket)?;
         let scratch = path.with_extension("md.tmp");
         std::fs::write(&scratch, text).map_err(Self::io(&scratch))?;
         std::fs::rename(&scratch, &path).map_err(Self::io(&path))?;
@@ -267,6 +271,60 @@ impl LocalTickets {
                 },
             })
             .collect())
+    }
+}
+
+/// How long a lock may stand before it is taken for one a dead process left
+const STALE_LOCK: Duration = Duration::from_secs(30);
+const LOCK_WAIT: Duration = Duration::from_millis(20);
+const LOCK_TRIES: u32 = 500;
+
+/// The right to change one ticket's file, held while the file is read and written back
+///
+/// The runner and `shep kelpie ticket` both change tickets, so each change
+/// takes the ticket's `.md.lock` file first, and a change made meanwhile is
+/// never read stale and written over.
+struct Lock(PathBuf);
+
+impl Lock {
+    fn take(path: &Path) -> Result<Self, LocalError> {
+        for _ in 0..LOCK_TRIES {
+            match std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(path)
+            {
+                Ok(_) => return Ok(Self(path.to_owned())),
+                Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {
+                    let age = std::fs::metadata(path)
+                        .and_then(|m| m.modified())
+                        .ok()
+                        .and_then(|at| at.elapsed().ok());
+                    match age {
+                        Some(age) if age > STALE_LOCK => {
+                            let _ = std::fs::remove_file(path);
+                        }
+                        _ => std::thread::sleep(LOCK_WAIT),
+                    }
+                }
+                Err(e) => return Err(Self::io(path, e)),
+            }
+        }
+        let held = io::Error::new(io::ErrorKind::TimedOut, "another change holds the ticket");
+        Err(Self::io(path, held))
+    }
+
+    fn io(path: &Path, error: io::Error) -> LocalError {
+        LocalError::Io {
+            path: path.to_owned(),
+            error,
+        }
+    }
+}
+
+impl Drop for Lock {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
     }
 }
 

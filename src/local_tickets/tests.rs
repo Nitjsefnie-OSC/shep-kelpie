@@ -239,3 +239,46 @@ fn no_open_issues_are_listed_for_telling_a_finding_by() {
     file(&tickets, "One", &[]);
     assert!(tickets.open_issues(&repo()).unwrap().is_empty());
 }
+
+#[test]
+fn edits_of_one_ticket_from_many_threads_all_land() {
+    let (_home, tickets) = store();
+    let one = file(&tickets, "One", &[]);
+    std::thread::scope(|scope| {
+        for n in 0..8 {
+            let tickets = &tickets;
+            scope.spawn(move || {
+                let label = format!("label-{n}");
+                tickets.set_issue_label(&repo(), one, &label, true).unwrap();
+            });
+        }
+    });
+    let mut labels = tickets.issue(&repo(), one).unwrap().labels;
+    labels.sort();
+    let want: Vec<String> = (0..8).map(|n| format!("label-{n}")).collect();
+    assert_eq!(labels, want);
+}
+
+#[test]
+fn an_edit_leaves_no_lock_behind() {
+    let (_home, tickets) = store();
+    let one = file(&tickets, "One", &[]);
+    tickets.close_issue(&repo(), one).unwrap();
+    let mut names: Vec<_> = std::fs::read_dir(tickets.folder())
+        .unwrap()
+        .map(|e| e.unwrap().file_name().into_string().unwrap())
+        .collect();
+    names.sort();
+    assert_eq!(names, ["k1.md"]);
+}
+
+#[test]
+fn a_lock_left_by_a_process_that_died_does_not_block_edits() {
+    let (_home, tickets) = store();
+    let one = file(&tickets, "One", &[]);
+    let lock = std::fs::File::create(tickets.folder().join("k1.md.lock")).unwrap();
+    lock.set_modified(std::time::SystemTime::now() - std::time::Duration::from_secs(3600))
+        .unwrap();
+    tickets.close_issue(&repo(), one).unwrap();
+    assert!(!tickets.issue(&repo(), one).unwrap().open);
+}

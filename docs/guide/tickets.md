@@ -7,7 +7,7 @@ A project can take its tickets from files in kelpie's home in place of GitHub is
 source = "local"   # "github" when absent
 ```
 
-A change waits for the runner's next start. A project with no `tickets` table behaves as it always did.
+A change waits for the runner's next start, and a work item already open keeps the ticket it was opened on, in whichever source holds it. A project with no `tickets` table behaves as it always did.
 
 ## Filing and reading
 
@@ -35,4 +35,4 @@ A ticket is a markdown file, `<kelpie home>/<project>/tickets/k1.md`. Its title,
 - A ticket with no `agent:` label goes to the project's default implementer. The issue writer is not asked to pick.
 - `doctor` prints a `tickets` line: the source, and for `local` how many tickets the store holds.
 
-Not here yet: the issue writer and follow-ups filing to the local store, and keeping every other file out of the repo. Triage, adoption and contributions stay on GitHub's issues and pull requests.
+Not here yet: the issue writer and follow-ups filing to the local store (follow-ups still file on GitHub), and keeping every other file out of the repo. Triage, adoption and contributions stay on GitHub's issues and pull requests.
