@@ -284,7 +284,9 @@ impl Runner {
     /// that state changes or its back-off ends.
     ///
     /// The window a held reason waits opens with the first one queued, so it
-    /// runs from what the board saw, not from the next pass that got to it.
+    /// runs from what the board saw, not from the next pass that got to it. A
+    /// held reason already queued is replaced by the newer state for the same
+    /// item, so the wake carries what the board shows when its window ends.
     pub(super) fn pm_due(&mut self, wake: Wake) {
         if self.agents.pm.is_none() {
             return;
@@ -294,7 +296,20 @@ impl Runner {
         {
             return;
         }
-        if self.pm.due.iter().any(|w| w.same(&wake)) {
+        if let Some(existing) = self.pm.due.iter_mut().find(|w| w.same(&wake)) {
+            // An item stuck on something new replaces the reason queued for it,
+            // so the wake carries what the board shows when its window ends
+            // rather than the state it was in when the window opened. An item
+            // read idle whose turn then parks on a ruling is the case. The
+            // window still runs from the first reason, and a wake for the same
+            // state keeps the words it was queued with.
+            let changed = matches!(
+                (&*existing, &wake),
+                (Wake::Stuck { state: was, .. }, Wake::Stuck { state, .. }) if was != state
+            );
+            if changed {
+                *existing = wake;
+            }
             return;
         }
         if held(&wake) && self.pm.holding_since.is_none() {

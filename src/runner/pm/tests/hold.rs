@@ -10,7 +10,7 @@ use crate::runner::{Pass, Runner, StepReport, step};
 use crate::settings::Harness;
 use crate::test::{CALL_PATIENCE, Hold, Rig, Scripted};
 
-use super::{PICK_12, answered, dispatched, pm_seen, step_until, with_pm};
+use super::{PICK_12, answered, dispatched, past_the_window, pm_seen, step_until, with_pm};
 use crate::runner::pm::HOLD_FOR;
 
 const NOTHING: &str = "{\"pick\": null}";
@@ -274,4 +274,39 @@ fn an_answer_that_names_one_stuck_item_twice_acts_once() {
     assert_eq!(woke_for, [stuck_reason(7, 7)]);
     assert_eq!(acted, ["retried #7".to_owned()]);
     assert_eq!(dropped, ["ask #7: the answer names it twice".to_owned()]);
+}
+
+#[test]
+fn an_item_that_turns_stuck_inside_the_window_is_woken_for_as_the_board_reads_it() {
+    let (rig, runner) = with_pm("mawele");
+    rig.ask(&runner, "add", Some("7"));
+    let work = Hold::default();
+    rig.claude.script([
+        Scripted::HoldThenFail(work.clone(), failed()),
+        Scripted::Say(NOTHING),
+    ]);
+    assert!(matches!(advance(&runner).unwrap(), Pass::Started));
+    assert!(work.entered(CALL_PATIENCE), "the turn never began");
+    rig.claude.set_activity(CallActivity::Nothing);
+    rig.clock.advance(11 * 60);
+    // The board reads the call idle on this pass, which opens its window.
+    assert_eq!(step(&runner).unwrap(), None, "the idle line is no report");
+
+    // Inside the window the turn fails and parks #7 on a stuck ruling, a new
+    // state for the same item.
+    work.release();
+    let failed = step_until(&runner, |r| matches!(r, StepReport::Failed { .. }));
+    assert!(
+        matches!(failed, StepReport::Failed { issue: 7, .. }),
+        "{failed:?}"
+    );
+
+    past_the_window(&rig);
+    let report = step_until(&runner, |r| matches!(r, StepReport::PmAnswered { .. }));
+    let (woke_for, _, _) = answered(Some(report));
+    assert_eq!(
+        woke_for,
+        [stuck_reason(7, 7)],
+        "the wake carries the state the board shows when its window ends"
+    );
 }
