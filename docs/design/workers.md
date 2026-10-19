@@ -24,7 +24,7 @@ Runner loop, worker turns, agents and harnesses. The fence is in fence.md. Skill
 - A choice only the maintainer can carry out (run a command, change a setting, grant a permission) starts with `You`, names what they do and what the worker does after, in the worker's instructions and the PM's `candidates` and `escalate`: an answer is the worker's next turn, so a bare verb reads as an order to a worker that may be unable to obey (shep#829). Neither prompt offers more worker GitHub access as a choice; the token's scope is a design decision (`docs/design/github-app.md`). #805, `src/worker-instructions.md`, `src/runner/pm/prompt.rs`
 - `shep kelpie attach <issue>` hands a worker's Claude Code, pi, Codex or goose session to maintainer, sandboxed (goose: `goose session --resume --name <id>`, `GOOSE_MODE=approve`, so it asks before each tool call and the hook still refuses what a worker may not do); held by pid + start time. #325, #766, #775, #796
 - PR template filled, ending `Resolves #<issue>`; no repo template means the owner's `.github` one, read at start and reread, cut past 8 KiB. #596; `worker.instructions_file` adds project rules. #87, `src/runner/instructions.rs`
-- Out-of-scope finds named in final message; deferred review findings in the deferred findings file the instructions name; PR stays on its issue. #649, `src/runner/follow_up.rs`
+- Out-of-scope finds named in final message; deferred review findings in the deferred findings file, whose path, with the disputed findings rules and the design-choice rule, is in the header of the findings file a fix turn reads rather than in the instructions (#992); PR stays on its issue. #649, `src/runner/follow_up.rs`
 
 ## Not built
 

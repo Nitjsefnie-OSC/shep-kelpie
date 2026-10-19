@@ -625,18 +625,6 @@ fn the_instructions_send_a_worker_to_the_domain_docs_before_code() {
     );
 }
 
-#[test]
-fn the_worker_instructions_name_the_deferred_findings_files_path() {
-    let deferred = Path::new("/kelpie/shep/build-7/deferred-findings.md");
-    let disputed = Path::new("/kelpie/shep/build-7/disputed-findings.md");
-    let text = instructions(Path::new("/opt/kelpie"), None, deferred, disputed);
-    assert!(
-        text.contains("`/kelpie/shep/build-7/deferred-findings.md`"),
-        "{text}"
-    );
-    assert!(!text.contains("{deferred}"), "{text}");
-}
-
 // A bare verb on a choice only the maintainer can carry out read as "kelpie,
 // do this", and the answer reached a worker that could not (shep#829).
 #[test]
@@ -652,16 +640,18 @@ fn the_worker_instructions_say_a_choice_the_maintainer_carries_out_starts_with_y
     );
 }
 
+// The deferred and disputed findings rules reach a worker in the header of the
+// findings file a fix turn is sent to, which names both paths there.
 #[test]
-fn the_worker_instructions_name_the_disputed_findings_files_path() {
-    let deferred = Path::new("/kelpie/shep/build-7/deferred-findings.md");
-    let disputed = Path::new("/kelpie/shep/build-7/disputed-findings.md");
-    let text = instructions(Path::new("/opt/kelpie"), None, deferred, disputed);
-    assert!(
-        text.contains("`/kelpie/shep/build-7/disputed-findings.md`"),
-        "{text}"
-    );
-    assert!(!text.contains("{disputed}"), "{text}");
+fn the_worker_instructions_name_no_findings_file() {
+    for name in [
+        "deferred-findings.md",
+        "disputed-findings.md",
+        "{deferred}",
+        "{disputed}",
+    ] {
+        assert!(!INSTRUCTIONS.contains(name), "{name}: {INSTRUCTIONS}");
+    }
 }
 
 #[test]

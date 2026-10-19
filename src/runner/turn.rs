@@ -21,7 +21,6 @@ use super::pm::WORKER_COMPACT_PAST;
 use super::pull_request_file;
 use super::question::asked;
 use super::report::{Begin, StepReport};
-use super::review::findings;
 use super::rework;
 use super::ruling::park;
 use crate::github::InstallationToken;
@@ -527,8 +526,6 @@ impl Runner {
             &item.worktree,
             &self.skills,
             &self.kelpie,
-            &findings::deferred_path(&item.build),
-            &findings::disputed_path(&item.build),
         );
         write(folder, &instructions, &text)?;
         // A pause set for an earlier call, or one that ended it, is not this call's.
