@@ -69,11 +69,7 @@ impl Rig {
             "role": "worker", "agent": "claude", "harness": harness, "session": session,
             "transcript": {"folder": folder},
         });
-        let steps = self
-            .home
-            .path()
-            .join("koji")
-            .join(crate::runner::STEPS_FILE);
+        let steps = self.home.path().join("koji").join(crate::home::STEPS_FILE);
         let mut text = std::fs::read_to_string(&steps).unwrap_or_default();
         text.push_str(&format!("{step}\n"));
         std::fs::write(steps, text).unwrap();
@@ -503,9 +499,8 @@ fn only_the_sessions_asked_for_are_looked_for() {
     let lines = claude_request("m", [1, 1, 1, 1], &[thought()]);
     let wanted = rig.transcript("claude-code", "s-wanted", &lines);
     rig.transcript("claude-code", "s-other", &lines);
-    let steps =
-        std::fs::read_to_string(rig.home.path().join("koji").join(crate::runner::STEPS_FILE))
-            .unwrap();
+    let steps = std::fs::read_to_string(rig.home.path().join("koji").join(crate::home::STEPS_FILE))
+        .unwrap();
 
     let wanted_only = std::collections::BTreeSet::from(["s-wanted".to_owned()]);
     let found = crate::watch::transcripts_of(&steps, &wanted_only);

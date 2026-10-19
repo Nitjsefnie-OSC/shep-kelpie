@@ -230,23 +230,10 @@ fn salvage(text: &str) -> KelpieSettings {
     settings
 }
 
-/// Why the dog has no shepherd channel, and the fix
-///
-/// Kelpie asks for it at `shep adopt`, which records the ask, so an
-/// adoption from before the ask has none until kelpie is adopted again.
-pub fn no_channel() -> String {
-    let path = std::env::current_exe()
-        .map_or_else(|_| "<path to kelpie>".into(), |p| p.display().to_string());
-    format!(
-        "no shepherd channel, since kelpie was adopted before it asked for one: run \
-         `shep adopt {path} --name {NAME}`, then `shep disable {NAME}` and `shep enable {NAME}`"
-    )
-}
-
 async fn serve() -> Result<(), String> {
     let shepherd = shep_channel::serve();
     if !shepherd.is_active() {
-        return Err(no_channel());
+        return Err(crate::shepherd::no_channel());
     }
     let shep_home = shep_home::required(shep_home::DOG_FIX)?;
     let socket = shep_home.join(home::SHEP_SOCKET);

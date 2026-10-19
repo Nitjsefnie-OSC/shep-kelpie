@@ -26,6 +26,22 @@ pub const SHEP_VERSION: &str = "0.15.0";
 /// runner sheep, and `[kelpie]` in `dogs.toml`
 pub const DOG: &str = "kelpie";
 
+/// Why the dog has no shepherd channel, and the fix
+///
+/// Kelpie asks for it at `shep adopt`, which records the ask, so an
+/// adoption from before the ask has none until kelpie is adopted again.
+pub fn no_channel() -> String {
+    let path = std::env::current_exe()
+        .map_or_else(|_| "<path to kelpie>".into(), |p| p.display().to_string());
+    format!(
+        "no shepherd channel, since kelpie was adopted before it asked for one: run \
+         `shep adopt {path} --name {DOG}`, then `shep disable {DOG}` and `shep enable {DOG}`"
+    )
+}
+
+/// The trigger that withdraws a handover still waiting for the quiet point
+pub const WITHDRAW: &str = "withdraw_handover";
+
 /// Runs `work` to its end on a runtime of its own, for a caller with none
 ///
 /// # Errors

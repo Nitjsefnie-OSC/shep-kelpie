@@ -18,6 +18,9 @@ pub const KELPIE_VAR: &str = "KELPIE_HOME";
 /// The shepherd's control socket, under its home
 pub const SHEP_SOCKET: &str = "run/shep.sock";
 
+/// The file in a project's folder that holds one JSON object per step
+pub const STEPS_FILE: &str = "steps.jsonl";
+
 /// Kelpie's folder under the shepherd's home
 const UNDER_SHEP: &str = "kelpie";
 

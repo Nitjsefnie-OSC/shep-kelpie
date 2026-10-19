@@ -13,8 +13,8 @@ use super::drain::asked;
 use super::restart::{Patience, running};
 use crate::flock::control::{Answered, trigger};
 use crate::flock::flock;
-use crate::sheep::WITHDRAW;
 use crate::shepherd::Connection;
+use crate::shepherd::WITHDRAW;
 
 /// How a runner took its handover
 #[derive(Debug, Clone, PartialEq, Eq)]

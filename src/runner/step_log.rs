@@ -12,10 +12,8 @@ use serde_json::Value;
 
 use super::Runner;
 use super::report::StepReport;
+use crate::home::STEPS_FILE;
 use crate::ticket::TicketId;
-
-/// The file in a project's folder that holds one JSON object per step
-pub const FILE: &str = "steps.jsonl";
 
 /// The file a project's runner appends its steps to
 #[derive(Debug)]
@@ -28,7 +26,7 @@ pub(super) struct StepLog {
 impl StepLog {
     pub fn in_folder(folder: &std::path::Path) -> Self {
         Self {
-            path: folder.join(FILE),
+            path: folder.join(STEPS_FILE),
             failing: false,
         }
     }

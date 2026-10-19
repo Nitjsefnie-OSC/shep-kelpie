@@ -17,7 +17,7 @@ use tokio::signal::unix::{Signal, SignalKind, signal};
 use super::counted::CARGO_TEST;
 use super::door;
 use super::{GPU, GPU_GONE, LeaseKind};
-use crate::{dog, home, shepherd};
+use crate::{home, shepherd};
 
 pub(crate) mod counted_run;
 pub(crate) mod e2e;
@@ -185,7 +185,7 @@ async fn ask_dog(action: &str, params: &str) -> Result<Value, String> {
         .await
         .map_err(|e| e.describe(&shep_home))?;
     let asked = client.request(Request::Trigger {
-        selector: SelectorSpec::Name(dog::NAME.into()),
+        selector: SelectorSpec::Name(shepherd::DOG.into()),
         action: action.into(),
         params: Some(params.to_owned()).filter(|p| !p.is_empty()),
     });
@@ -197,12 +197,12 @@ async fn ask_dog(action: &str, params: &str) -> Result<Value, String> {
     };
     let body = match rows.into_iter().next().map(|row| row.outcome) {
         Some(ActionOutcome::Replied { body }) => body,
-        Some(ActionOutcome::DogNoChannel) => return Err(dog::no_channel()),
+        Some(ActionOutcome::DogNoChannel) => return Err(shepherd::no_channel()),
         Some(other) => return Err(format!("the dog did not answer: {other:?}")),
         None => {
             return Err(format!(
                 "kelpie's dog is not enabled: `shep enable {}` runs it",
-                dog::NAME
+                shepherd::DOG
             ));
         }
     };
