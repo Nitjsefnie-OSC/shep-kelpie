@@ -106,7 +106,7 @@ const ANSWER: &str = concat!(
 ```
 {\"pick\": <the ready issue to start next, or null to start nothing now>,
  \"hold\": [<every ready issue that should wait until an open work item closes; [] holds none>],
- \"unstick\": null or [\"item\": <a stuck work item's issue>, \"action\": \"retry\" | \"re-scope\" | \"ask\" | \"none\", \"why\": \"<one sentence>\"}, ...],
+ \"unstick\": null or {\"item\": <a stuck work item's issue>, \"action\": \"retry\" | \"re-scope\" | \"ask\" | \"none\", \"why\": \"<one sentence>\"} or [{\"item\": <a stuck work item's issue>, \"action\": \"retry\" | \"re-scope\" | \"ask\" | \"none\", \"why\": \"<one sentence>\"}, ...],
  ",
     answer_key!(),
     ",\n ",
@@ -358,7 +358,8 @@ mod tests {
              - the maintainer told you:\n\n  > Hold #12 until\n  > the release.\n\n"
         ));
         assert!(text.contains("`board.md`") && text.contains("`pm-notes.md`"));
-        assert!(text.contains("\"unstick\": null or [\"item\""), "{text}");
+        assert!(text.contains("\"unstick\": null or {\"item\""), "{text}");
+        assert!(text.contains("} or [{\"item\""), "{text}");
         assert!(
             text.contains("or a list of them where the wake carried several"),
             "{text}"
