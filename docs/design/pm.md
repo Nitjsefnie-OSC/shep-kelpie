@@ -3,6 +3,7 @@
 The agent kelpie wakes to pick, answer and unstick, and the board file it reads.
 
 - Runner writes `board.md` so PM never runs git or gh (code-written board decides as well). Keeps newest 50 events + PM cursor; issue bodies quoted (600 chars) behind `> `; text naming this machine withheld. #326, `src/runner/briefing.rs`
+- Each wake carries the whole board in its prompt, under a heading after the reasons, and `board.md` holds the same text. The whole board, not a delta: relative ages ("opened 8h46m ago") change on every item line between wakes, so a board diff is noise, and the events section is already the delta. A board past 64 KiB is left out and the Read instruction stays, since the prompt is one argv argument. #989, `src/runner/pm/prompt.rs`
 - Worker silent 10 min reads as idle (PM told only "busy" misses a hung worker). #326
 - A call that has not had its gateway lease is never idle or stuck: quiet counts from the grant, and a wait past 10 min is its own wake, not a stuck item. Only a wait for a lease names the lease holder; a gateway that answered busy named no client as the cause, and the board names what the call waits for, and what it got, in the same words the wake uses. #964, `src/runner/briefing.rs`, `src/runner/flight.rs`
 - Overlap from `git diff` + pairwise `git merge-tree` (git 2.38+), cached by commit, run without runner lock (trigger never waits on git). #326
@@ -12,6 +13,7 @@ The agent kelpie wakes to pick, answer and unstick, and the board file it reads.
 - Reads project worktrees + each item's diff (messages alone miss defects); secret-shaped files and kelpie secrets stay denied. #413, `src/runner/pm/call.rs`
 - No git or gh: kelpie writes diffs (64 KiB each) + a `still-red` item's CI log. #452
 - Tools `Read,Glob,Grep,Edit,Write`; writes only to the end of `pm-notes.md` via `kelpie confine --append`. Kelpie rolls that log past 32 KiB into `pm-archive.md` at a wake, and keeps what a later wake must remember in `pm-standing.md`, which only kelpie writes and asks every wake to mine the archive into until a `standing` answer lands. #327, #988
+- Kelpie appends one line to `pm-notes.md` for every wake it answered: the time, what it woke for, what it did, and the answer's `why`, each on one line, cut at 300 characters, with text naming this machine withheld as on the board. A vote it cast, or an abstention it owed on a ruling it was asked about, is recorded among what it did, since a wake for a vote alone has no other action. A wake that failed or gave no readable answer appends nothing, and each tell it carried goes to the standing notes verbatim in the same step. The PM adds only what a later wake needs and that line does not say, and a resumed wake is not sent back to reread its notes. #989, `src/runner/pm/notes.rs`, `src/runner/panel.rs`
 - Answer is one JSON object (`pick`, `hold`, `unstick`, `answer`, `follow_up`, `reply`) checked against the board; anything else dropped + logged. #327
 - Pick of none lasts 30 min with nothing open; hold ends when an item closes. #327
 - One session resumed per wake, compacted past 100k; failed call passed over 10 min, board rule picks meanwhile. #327

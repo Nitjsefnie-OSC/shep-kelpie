@@ -600,8 +600,17 @@ impl Runner {
         let told = self.state.pm_told.clone();
         let notes = self.pm_notes();
         let full = fresh || self.pm.full_prompt;
-        let text = prompt::wake(self.project.as_str(), &wakes, &told, full, &notes);
-        let call = match self.pm_call(agent, session, text, true) {
+        // The board the wake carries in its prompt, and writes to `board.md`
+        // for a re-read and for the `## Code` paths it names.
+        let board = match self.pm_board() {
+            Ok(text) => text,
+            Err(why) => {
+                self.pm.due = wakes;
+                return Err(why);
+            }
+        };
+        let text = prompt::wake(self.project.as_str(), &wakes, &told, full, &notes, &board);
+        let call = match self.pm_call(agent, session, text, Some(board)) {
             Ok(call) => call,
             Err(why) => {
                 self.pm.due = wakes;
@@ -625,12 +634,7 @@ impl Runner {
         let Some(id) = self.state.pm_session.clone() else {
             return Ok(());
         };
-        let call = self.pm_call(
-            agent,
-            Session::Resume(id.clone()),
-            COMPACT.to_owned(),
-            false,
-        )?;
+        let call = self.pm_call(agent, Session::Resume(id.clone()), COMPACT.to_owned(), None)?;
         self.pm.flying = Some(Flying {
             kind: Kind::Compact,
             wakes: Vec::new(),
@@ -705,7 +709,7 @@ impl Runner {
         next.pm_told
             .drain(..flying.told.len().min(next.pm_told.len()));
         self.save(next)?;
-        let woke_for = flying.wakes.iter().map(prompt::reason).collect();
+        let woke_for: Vec<String> = flying.wakes.iter().map(prompt::reason).collect();
         let picking = flying.wakes.iter().any(|w| matches!(w, Wake::Pick(_)));
         // Each tell this wake carried goes into the standing notes before the
         // answer acts, so an action that cannot be saved cannot lose a rule the
@@ -714,8 +718,10 @@ impl Runner {
         if answer.standing.is_none() {
             self.pm_stand_tells(&flying.told);
         }
-        let (acted, dropped) = self.act(&answer, picking)?;
-        // Its votes on the rulings it was asked about; one it gave none on abstains.
+        let (mut acted, dropped) = self.act(&answer, picking)?;
+        // Its votes on the rulings it was asked about; one it gave none on
+        // abstains. They are part of what kelpie did, so they are recorded
+        // before the note below names the wake's actions.
         let asked: Vec<u64> = (flying.wakes.iter())
             .filter_map(|w| match w {
                 Wake::Vote { id, .. } => Some(*id),
@@ -733,8 +739,13 @@ impl Runner {
                     )
                 })
                 .collect();
-            self.panel_pm_answered(&asked, votes);
+            acted.extend(self.panel_pm_answered(&asked, votes));
         }
+        // One line of what the wake was for, what kelpie did with it, and the
+        // answer's own `why`, so a wake that wrote nothing of its own left its
+        // record behind. A wake that failed or gave no readable answer wrote
+        // nothing above, and adds nothing here.
+        self.pm_note_wake(&woke_for, &acted, answer.why.as_deref());
         // A ruling it did not settle goes to the maintainer as it stands.
         for wake in &flying.wakes {
             if let Wake::Question { id, .. } | Wake::FollowUp { id, .. } = wake {
