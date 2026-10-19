@@ -5,7 +5,6 @@ Projects, the board, work items, slots, issue writer. The project manager is in 
 ## Projects
 
 - `shep kelpie add`: registers stopped runner + `[app.dogs.kelpie]` table; refuses default branch not `main`; reads all, then makes only what's missing. `src/flock/verbs.rs`
-- A project's base branch is a value, `Git::base()` in `src/settings/git.rs`, `main` for every project (`DEFAULT_BASE`). Worktrees, the briefing, the merge path, adoption, contributions, the guard, the dev server and skill files read it from there; none spells `main`. The guard is its own process and gets it as a `--base=<branch>` flag, emitted only when it is not the default. #1047
 - `add` refuses a checkout or repo another project's table names, even a broken one (two runners, same issues). `src/flock/verbs.rs`
 - Project runs exactly while its runner's sheep runs; no paused state. #268
 - `finish`: open items end, nothing new picked, then stops the sheep; `finishing` saved so restart keeps finishing. `add`, `adopt`, `rework` refused meanwhile; flag cleared just before stop. #303

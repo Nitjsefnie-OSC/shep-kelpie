@@ -312,7 +312,7 @@ impl Runner {
                 }
             }
             if let Some(job) = self.triage_job(issue, Purpose::First, limited) {
-                return Ok(Some(Begin::Triage(job)));
+                return Ok(Some(Begin::Triage(Box::new(job))));
             }
         }
         // The author's round: the second triager call, once their answers are
