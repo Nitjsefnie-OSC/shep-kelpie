@@ -259,3 +259,19 @@ fn a_held_reason_that_stops_being_true_is_not_carried_by_a_wake_that_ends_the_wi
     work.release();
     assert!(work.answered(CALL_PATIENCE), "the turn never answered");
 }
+
+#[test]
+fn an_answer_that_names_one_stuck_item_twice_acts_once() {
+    let (rig, runner) = one_item("toedou");
+    rig.claude.script([Scripted::Say(
+        "{\"pick\": null, \"unstick\": [{\"item\": 7, \"action\": \"retry\", \"why\": \"an \
+         outage\"}, {\"item\": 7, \"action\": \"ask\", \"why\": \"the same outage\"}]}",
+    )]);
+
+    rig.clock.advance(HOLD_FOR);
+    let report = step_until(&runner, |r| matches!(r, StepReport::PmAnswered { .. }));
+    let (woke_for, acted, dropped) = answered(Some(report));
+    assert_eq!(woke_for, [stuck_reason(7, 7)]);
+    assert_eq!(acted, ["retried #7".to_owned()]);
+    assert_eq!(dropped, ["ask #7: the answer names it twice".to_owned()]);
+}
