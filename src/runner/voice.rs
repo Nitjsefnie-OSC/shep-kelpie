@@ -158,7 +158,10 @@ impl Runner {
     ) -> Result<u64, ForgeError> {
         match self.app_covers() {
             true => (self.ports.voice).create_issue(&self.remote, title, body, labels),
-            false => (self.ports.forge).create_issue(&self.remote, title, body, labels),
+            false => self
+                .ports
+                .tickets
+                .create_issue(&self.remote, title, body, labels),
         }
     }
 
@@ -175,7 +178,10 @@ impl Runner {
     pub(super) fn label_issue(&self, number: u64, label: &str, on: bool) -> Result<(), ForgeError> {
         match self.app_covers() {
             true => (self.ports.voice).set_issue_label(&self.remote, number, label, on),
-            false => (self.ports.forge).set_issue_label(&self.remote, number, label, on),
+            false => self
+                .ports
+                .tickets
+                .set_issue_label(&self.remote, number, label, on),
         }
     }
 

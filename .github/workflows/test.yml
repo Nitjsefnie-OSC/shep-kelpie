@@ -25,6 +25,7 @@ jobs:
       - run: cargo fmt --all --check
       - run: cargo clippy --all-targets --locked -- -D warnings
       - run: scripts/no-tmp-tempdir.sh
+      - run: scripts/ticket-port.sh
 
   private-names:
     runs-on: ubuntu-latest
