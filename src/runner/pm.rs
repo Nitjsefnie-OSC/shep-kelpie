@@ -672,6 +672,11 @@ impl Runner {
             Ok(reply) => reply,
             // Its session cannot be resumed, so a new one starts from the board.
             Err(AgentError::NoSession(..)) if !flying.fresh => {
+                // What it carried had already waited its window, so it waits
+                // none again: the fresh session starts on this pass, and a
+                // wake held from here is not read as this failure.
+                let now = self.ports.clock.now();
+                self.pm.holding_since = Some(Timestamp(now.0.saturating_sub(HOLD_FOR)));
                 let later = std::mem::take(&mut self.pm.due);
                 for wake in flying.wakes.into_iter().chain(later) {
                     self.pm_due(wake);

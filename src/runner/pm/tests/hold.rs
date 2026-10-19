@@ -4,11 +4,11 @@ use std::sync::Mutex;
 
 use serde_json::json;
 
-use crate::ports::{AgentError, CallActivity, Timestamp};
+use crate::ports::{AgentError, CallActivity, Session, Timestamp};
 use crate::runner::flight::advance;
 use crate::runner::{Pass, Runner, StepReport, step};
 use crate::settings::Harness;
-use crate::test::{CALL_PATIENCE, Hold, Rig, Scripted};
+use crate::test::{CALL_PATIENCE, Hold, Rig, Scripted, Seen};
 
 use super::{PICK_12, answered, dispatched, past_the_window, pm_seen, step_until, with_pm};
 use crate::runner::pm::HOLD_FOR;
@@ -308,5 +308,50 @@ fn an_item_that_turns_stuck_inside_the_window_is_woken_for_as_the_board_reads_it
         woke_for,
         [stuck_reason(7, 7)],
         "the wake carries the state the board shows when its window ends"
+    );
+}
+
+#[test]
+fn a_wake_whose_session_cannot_resume_starts_a_new_one_without_waiting_again() {
+    let (rig, runner) = one_item("toedou");
+    let gone = AgentError::NoSession(Harness::ClaudeCode, crate::ports::SessionId("x".into()));
+    rig.claude.script([
+        Scripted::Say(NOTHING),
+        Scripted::Fail(failed()),
+        Scripted::Fail(gone),
+        Scripted::Say(NOTHING),
+    ]);
+
+    rig.clock.advance(HOLD_FOR);
+    let first = step_until(&runner, |r| matches!(r, StepReport::PmAnswered { .. }));
+    assert_eq!(answered(Some(first)).0, [stuck_reason(7, 7)]);
+
+    // #9 is stuck a minute later, waits its window, and its wake cannot
+    // resume. Its reason had already waited, so it waits none again.
+    rig.clock.advance(60);
+    rig.ask(&runner, "add", Some("9"));
+    step_until(&runner, |r| {
+        matches!(r, StepReport::Failed { issue: 9, .. })
+    });
+    past_the_window(&rig);
+
+    let report = step_until(&runner, |r| {
+        matches!(
+            r,
+            StepReport::PmAnswered { .. } | StepReport::PmFailed { .. }
+        )
+    });
+    assert!(
+        matches!(report, StepReport::PmAnswered { .. }),
+        "the new session starts on the pass its resume failed: {report:?}"
+    );
+    assert_eq!(answered(Some(report)).0, [stuck_reason(9, 9)]);
+
+    let [first, resumed, fresh]: [Seen; 3] = pm_seen(&rig).try_into().unwrap();
+    assert!(matches!(first.call.session, Session::New(_)));
+    assert!(matches!(resumed.call.session, Session::Resume(_)));
+    assert!(
+        matches!(fresh.call.session, Session::New(_)),
+        "a new session from the board, at once"
     );
 }
