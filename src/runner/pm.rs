@@ -398,7 +398,9 @@ impl Runner {
     /// reasons up: a pick falls to the board rule, and a stuck item keeps
     /// its ruling. What the maintainer told it waits for the next wake. A
     /// stuck item it left alone is due once its back-off ends, whether the
-    /// board flipped its idle call again or not.
+    /// board flipped its idle call again or not. A held reason the board no
+    /// longer shows is dropped before the call starts, however the call came
+    /// to start.
     pub(super) fn wake_pm(&mut self) -> bool {
         let Some(agent) = self.agents.pm.clone() else {
             return false;
@@ -432,15 +434,18 @@ impl Runner {
             if now.0 < since.0.saturating_add(HOLD_FOR) {
                 return false;
             }
-            // The window is over. What the board no longer shows is dropped,
-            // and when nothing is left, nothing goes.
-            let due = std::mem::take(&mut self.pm.due);
-            self.pm.due = due
-                .into_iter()
-                .filter(|wake| self.wake_holds(wake))
-                .collect();
-            if self.pm.due.is_empty() {
-                self.pm.holding_since = None;
+        }
+        // The window is over, or a reason someone waits on ended it early.
+        // Either way the call carries only reasons the board still shows, and
+        // when none is left, nothing goes.
+        let due = std::mem::take(&mut self.pm.due);
+        self.pm.due = due
+            .into_iter()
+            .filter(|wake| !held(wake) || self.wake_holds(wake))
+            .collect();
+        if self.pm.due.is_empty() {
+            self.pm.holding_since = None;
+            if !self.pm.compact {
                 return false;
             }
         }

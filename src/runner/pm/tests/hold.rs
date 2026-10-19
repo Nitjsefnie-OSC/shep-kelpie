@@ -226,3 +226,36 @@ fn one_answer_settles_two_stuck_items() {
     assert_eq!(dropped, Vec::<String>::new());
     assert_eq!(rig.ask(&runner, "status", None)["rulings"], json!([]));
 }
+
+#[test]
+fn a_held_reason_that_stops_being_true_is_not_carried_by_a_wake_that_ends_the_window() {
+    let (rig, runner) = with_pm("acme");
+    rig.ask(&runner, "add", Some("7"));
+    let work = Hold::default();
+    rig.claude.script([
+        Scripted::HoldThenSay(work.clone(), "done"),
+        Scripted::Say(NOTHING),
+    ]);
+    assert!(matches!(advance(&runner).unwrap(), Pass::Started));
+    assert!(work.entered(CALL_PATIENCE), "the turn never began");
+    rig.claude.set_activity(CallActivity::Nothing);
+    rig.clock.advance(11 * 60);
+    // The board tells the worker idle on this pass, which opens its window.
+    assert_eq!(step(&runner).unwrap(), None, "the idle line is no report");
+
+    // The worker shows output again, and a tell ends the window before it
+    // would. The reason the board no longer shows goes with the window.
+    rig.claude
+        .set_activity(CallActivity::At(Timestamp(Rig::EPOCH + 11 * 60)));
+    rig.ask(&runner, "tell", Some("how is #7?"));
+    let report = step_until(&runner, |r| matches!(r, StepReport::PmAnswered { .. }));
+    let (woke_for, _, _) = answered(Some(report));
+    assert_eq!(
+        woke_for,
+        ["the maintainer told you something".to_owned()],
+        "the idle reason is not carried into the wake that ends the window"
+    );
+
+    work.release();
+    assert!(work.answered(CALL_PATIENCE), "the turn never answered");
+}
