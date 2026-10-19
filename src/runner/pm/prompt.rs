@@ -160,8 +160,9 @@ pub(super) struct Notes {
     pub standing: String,
     /// This wake moved the older part of `pm-notes.md` into `pm-archive.md`
     pub rolled: bool,
-    /// This wake's roll was the first one, whatever the standing file holds
-    pub first_roll: bool,
+    /// The archive holds notes no `standing` answer has read yet, so this wake
+    /// sends it there
+    pub mine: bool,
     /// `pm-standing.md` is past its limit, so the wake asks for a shorter one
     pub condense: bool,
 }
@@ -222,7 +223,7 @@ pub(super) fn wake(
                  reply with the same JSON object as before and nothing after it.\n"
             );
             // A session from before the key was added has not seen it.
-            if notes.rolled || notes.condense {
+            if notes.mine || notes.condense {
                 let _ = write!(
                     out,
                     "\nThe object takes this key as well:\n\n```\n{}\n```\n\n{}\n",
@@ -286,20 +287,21 @@ fn standing_block(notes: &Notes) -> String {
     out
 }
 
-// What a wake says when kelpie moved the older log, or when the standing
-// notes are past their limit.
+// What a wake says when kelpie moved the older log, when the archive still
+// holds notes no answer has read, or when the standing notes are past their
+// limit.
 fn notes_note(notes: &Notes) -> String {
     let mut out = String::new();
     if notes.rolled {
         out.push_str(
             "Kelpie moved the older part of `pm-notes.md` to the end of `pm-archive.md`.\n",
         );
-        if notes.first_roll || notes.standing.trim().is_empty() {
-            out.push_str(
-                "Grep `pm-archive.md` for what the maintainer told you and any rule \
+    }
+    if notes.mine {
+        out.push_str(
+            "Grep `pm-archive.md` for what the maintainer told you and any rule \
  a later wake must keep, and give them in `standing`.\n",
-            );
-        }
+        );
     }
     if notes.condense {
         out.push_str(

@@ -581,8 +581,14 @@ impl Runner {
         self.save(next)?;
         let woke_for = flying.wakes.iter().map(prompt::reason).collect();
         let picking = flying.wakes.iter().any(|w| matches!(w, Wake::Pick(_)));
+        // Each tell this wake carried goes into the standing notes before the
+        // answer acts, so an action that cannot be saved cannot lose a rule the
+        // maintainer gave. An answer that gave the whole file was told to carry
+        // its own tells, so they are not added a second time.
+        if answer.standing.is_none() {
+            self.pm_stand_tells(&flying.told);
+        }
         let (acted, dropped) = self.act(&answer, picking)?;
-        self.pm_stand_tells(&flying.told);
         // Its votes on the rulings it was asked about; one it gave none on abstains.
         let asked: Vec<u64> = (flying.wakes.iter())
             .filter_map(|w| match w {

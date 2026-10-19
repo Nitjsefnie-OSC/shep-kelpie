@@ -175,15 +175,21 @@ fn a_standing_answer_replaces_the_file_and_null_leaves_it() {
             .any(|a| a.starts_with("set the standing notes")),
         "{acted:?}"
     );
-    let held = "Hold #12 until the release.\nNever merge a head with CI red.";
-    assert_eq!(read(&rig, PM_STANDING), held);
+    let held = "Hold #12 until the release.\nNever merge a head with CI red.\n";
+    assert_eq!(read(&rig, PM_STANDING), held, "the file ends a line");
 
     rig.ask(&runner, "tell", Some("Release is out"));
     let (_, acted, _) = answered(step(&runner).unwrap());
     assert!(!acted.iter().any(|a| a.contains("standing")), "{acted:?}");
     let standing = read(&rig, PM_STANDING);
-    assert!(standing.starts_with(held), "{standing}");
-    assert!(standing.contains("Release is out"), "{standing}");
+    assert!(
+        standing.starts_with(held) && standing.ends_with("\nRelease is out\n"),
+        "{standing}"
+    );
+    assert!(
+        standing.contains("CI red.\n## "),
+        "the dated tell starts on its own line: {standing}"
+    );
 }
 
 #[test]
@@ -341,4 +347,70 @@ fn an_empty_standing_answer_clears_the_file() {
         "",
         "every standing decision had become obsolete"
     );
+}
+
+#[test]
+fn a_standing_answer_that_carried_the_tell_is_not_written_twice() {
+    let (rig, runner) = with_pm("xilriws");
+    rig.ask(&runner, "tell", Some("Hold #12 until the release"));
+    rig.claude.script([Scripted::Say(
+        "{\"pick\": null, \"standing\": \"Hold #12 until the release\"}",
+    )]);
+
+    let (_, acted, dropped) = answered(step(&runner).unwrap());
+    assert_eq!(dropped, Vec::<String>::new());
+    assert!(
+        acted
+            .iter()
+            .any(|a| a.starts_with("set the standing notes")),
+        "{acted:?}"
+    );
+    assert_eq!(
+        read(&rig, PM_STANDING),
+        "Hold #12 until the release\n",
+        "the answer wrote the file, and kelpie added the tell it carried to it once"
+    );
+}
+
+#[test]
+fn a_wake_that_rolled_and_then_failed_still_asks_for_the_archive() {
+    let (rig, runner) = with_pm("xilriws");
+    rig.ask(&runner, "tell", Some("first"));
+    rig.claude.script([Scripted::Say("{\"pick\": null}")]);
+    answered(step(&runner).unwrap());
+
+    // The wake that rolls for the first time answers, and gives no `standing`,
+    // so the archive still holds notes nothing has read
+    std::fs::write(rig.paths().pm.join(crate::ports::PM_NOTES), log_of(40)).unwrap();
+    rig.ask(&runner, "tell", Some("Release is out"));
+    rig.claude.script([Scripted::Say("{\"pick\": null}")]);
+    answered(step(&runner).unwrap());
+    assert!(!read(&rig, PM_ARCHIVE).is_empty(), "the log rolled");
+
+    // The next wake fails, and its retry resumes the same session
+    rig.ask(&runner, "tell", Some("Never merge a head with CI red"));
+    let down = AgentError::Failed(Harness::ClaudeCode, "overloaded".into());
+    rig.claude.script([Scripted::Fail(down)]);
+    assert!(matches!(
+        step(&runner).unwrap(),
+        Some(StepReport::PmFailed { .. })
+    ));
+
+    rig.clock.advance(super::super::DOWN_FOR + 1);
+    rig.claude.script([Scripted::Say("{\"pick\": null}")]);
+    answered(step(&runner).unwrap());
+
+    let [_, _, failed, retry] = pm_seen(&rig).try_into().unwrap();
+    assert!(matches!(failed.call.session, Session::Resume(_)));
+    assert!(matches!(retry.call.session, Session::Resume(_)));
+    let prompt = &retry.call.prompt;
+    assert!(
+        prompt.starts_with("Kelpie woke you again because:"),
+        "the retry is a resumed wake: {prompt}"
+    );
+    assert!(
+        prompt.contains("Grep `pm-archive.md` for what the maintainer told you"),
+        "the retry still owes the archive: {prompt}"
+    );
+    assert!(prompt.contains("\"standing\": null or"), "{prompt}");
 }
