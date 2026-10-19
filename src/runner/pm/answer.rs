@@ -23,6 +23,9 @@ const KEYS: [&str; 7] = [
 /// The most of a reply or a why kept, in characters
 const LONGEST: usize = 2_000;
 
+/// What an `unstick` entry holds, as a dropped one names it
+const UNSTICK: &str = "`item`, an `action` of retry, re-scope, ask or none, and `why`";
+
 /// What the project manager answered, field by field
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(super) struct Answer {
@@ -30,8 +33,8 @@ pub(super) struct Answer {
     pub(super) pick: Option<u64>,
     /// The ready issues to hold until an open work item closes
     pub(super) hold: Vec<u64>,
-    /// What to do about one stuck work item
-    pub(super) unstick: Option<Unstick>,
+    /// What to do about each stuck work item the wake carried
+    pub(super) unstick: Vec<Unstick>,
     /// What to do about one worker's question
     pub(super) answer: Option<Settle>,
     /// What to do about one follow-up ruling's findings
@@ -160,11 +163,20 @@ pub(super) fn read(text: &str) -> Option<Answer> {
             },
             "unstick" => match &value {
                 Value::Null => {}
+                // One stuck item is one object; several are a list of them.
+                Value::Array(items) => {
+                    for item in items {
+                        match unstick(item) {
+                            Some(u) => answer.unstick.push(u),
+                            None => answer
+                                .unread
+                                .push(format!("`unstick`: {UNSTICK}, not {item}")),
+                        }
+                    }
+                }
                 value => match unstick(value) {
-                    Some(u) => answer.unstick = Some(u),
-                    None => answer.unread.push(unread(
-                        "`item`, an `action` of retry, re-scope, ask or none, and `why`",
-                    )),
+                    Some(u) => answer.unstick.push(u),
+                    None => answer.unread.push(unread(UNSTICK)),
                 },
             },
             "answer" => match &value {
@@ -366,11 +378,11 @@ mod tests {
             Answer {
                 pick: Some(12),
                 hold: vec![4, 9],
-                unstick: Some(Unstick {
+                unstick: vec![Unstick {
                     item: 7,
                     action: Action::ReScope,
                     why: "split the parser out".into(),
-                }),
+                }],
                 answer: None,
                 follow_up: None,
                 votes: Vec::new(),
@@ -523,6 +535,35 @@ mod tests {
     }
 
     #[test]
+    fn unstick_takes_one_object_or_a_list_of_them_and_a_bad_entry_is_named_alone() {
+        let one = read("{\"unstick\": {\"item\": 7, \"action\": \"retry\", \"why\": \"an outage\"}}")
+            .unwrap();
+        let many = read(
+            "{\"unstick\": [{\"item\": 7, \"action\": \"retry\", \"why\": \"an outage\"}, \
+             {\"item\": 9, \"action\": \"none\"}, {\"item\": 11, \"action\": \"reboot\"}]}",
+        )
+        .unwrap();
+        let items: Vec<u64> = (many.unstick.iter()).map(|u| u.item).collect();
+        assert_eq!(items, [7, 9]);
+        assert_eq!(
+            many.unstick[1],
+            Unstick {
+                item: 9,
+                action: Action::Leave,
+                why: String::new(),
+            }
+        );
+        assert_eq!(
+            many.unread,
+            ["`unstick`: `item`, an `action` of retry, re-scope, ask or none, and `why`, not \
+             {\"action\":\"reboot\",\"item\":11}"]
+        );
+        assert_eq!(one.unstick.len(), 1, "one object alone is read");
+        assert_eq!(read("{\"unstick\": []}").unwrap().unstick, Vec::new());
+        assert_eq!(read("{\"unstick\": null}").unwrap().unstick, Vec::new());
+    }
+
+    #[test]
     fn a_malformed_field_is_named_and_the_rest_still_count() {
         let text = "{\"pick\": \"soon\", \"hold\": [5, true], \"unstick\": {\"item\": 7, \
                     \"action\": \"reboot\"}, \"merge_order\": [71], \"reply\": \"On it.\"}";
@@ -534,7 +575,7 @@ mod tests {
                 &answer.unstick,
                 answer.reply.as_deref()
             ),
-            (None, &vec![5], &None, Some("On it."))
+            (None, &vec![5], &Vec::new(), Some("On it."))
         );
         assert_eq!(
             answer.unread,

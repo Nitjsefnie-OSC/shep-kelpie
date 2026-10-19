@@ -2,6 +2,8 @@
 
 use std::sync::Mutex;
 
+use serde_json::json;
+
 use crate::ports::{AgentError, CallActivity, Timestamp};
 use crate::runner::flight::advance;
 use crate::runner::{Pass, Runner, StepReport, step};
@@ -55,7 +57,7 @@ fn failed() -> AgentError {
 fn two_items_a_minute_apart(project: &str) -> (Rig, Mutex<Runner>) {
     let (rig, runner) = one_item(project);
     rig.clock.advance(60);
-    rig.claude.script([Scripted::Fail(failed()), Scripted::Say(NOTHING)]);
+    rig.claude.script([Scripted::Fail(failed())]);
     rig.ask(&runner, "add", Some("9"));
     step_until(&runner, |r| matches!(r, StepReport::Failed { issue: 9, .. }));
     (rig, runner)
@@ -64,6 +66,7 @@ fn two_items_a_minute_apart(project: &str) -> (Rig, Mutex<Runner>) {
 #[test]
 fn two_stuck_items_a_minute_apart_wake_it_once_with_both_reasons() {
     let (rig, runner) = two_items_a_minute_apart("acme");
+    rig.claude.script([Scripted::Say(NOTHING)]);
 
     assert!(
         pm_seen(&rig).is_empty(),
@@ -85,6 +88,7 @@ fn two_stuck_items_a_minute_apart_wake_it_once_with_both_reasons() {
 #[test]
 fn a_tell_inside_the_window_wakes_it_at_once_with_the_held_reasons() {
     let (rig, runner) = two_items_a_minute_apart("eevee");
+    rig.claude.script([Scripted::Say(NOTHING)]);
 
     rig.ask(&runner, "tell", Some("hold #12 until the release"));
     let report = step_until(&runner, |r| matches!(r, StepReport::PmAnswered { .. }));
@@ -198,4 +202,20 @@ fn a_held_reason_given_up_while_it_is_down_is_sent_when_it_is_back() {
         "the reason it gave up while it was down reaches it once it is back"
     );
     assert_eq!(pm_seen(&rig).len(), 2, "the failed wake and this one");
+}
+
+#[test]
+fn one_answer_settles_two_stuck_items() {
+    let (rig, runner) = two_items_a_minute_apart("golbat");
+    rig.claude.script([Scripted::Say(
+        "{\"pick\": null, \"unstick\": [{\"item\": 7, \"action\": \"retry\", \"why\": \"an          outage\"}, {\"item\": 9, \"action\": \"retry\", \"why\": \"the same outage\"}]}",
+    )]);
+
+    rig.clock.advance(HOLD_FOR);
+    let report = step_until(&runner, |r| matches!(r, StepReport::PmAnswered { .. }));
+    let (woke_for, acted, dropped) = answered(Some(report));
+    assert_eq!(lines(&woke_for), [stuck_reason(7, 7), stuck_reason(9, 9)]);
+    assert_eq!(acted, ["retried #7".to_owned(), "retried #9".to_owned()]);
+    assert_eq!(dropped, Vec::<String>::new());
+    assert_eq!(rig.ask(&runner, "status", None)["rulings"], json!([]));
 }

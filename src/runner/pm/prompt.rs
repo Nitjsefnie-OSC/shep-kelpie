@@ -106,7 +106,7 @@ const ANSWER: &str = concat!(
 ```
 {\"pick\": <the ready issue to start next, or null to start nothing now>,
  \"hold\": [<every ready issue that should wait until an open work item closes; [] holds none>],
- \"unstick\": null or {\"item\": <a stuck work item's issue>, \"action\": \"retry\" | \"re-scope\" | \"ask\" | \"none\", \"why\": \"<one sentence>\"},
+ \"unstick\": null or [\"item\": <a stuck work item's issue>, \"action\": \"retry\" | \"re-scope\" | \"ask\" | \"none\", \"why\": \"<one sentence>\"}, ...],
  ",
     answer_key!(),
     ",\n ",
@@ -118,7 +118,9 @@ const ANSWER: &str = concat!(
  \"why\": \"<two sentences at most>\"}
 ```
 
-`retry` runs the item's turn again as it is. `re-scope` and `ask` put it to \
+`unstick` is one object for one stuck item, or a list of them where the wake \
+carried several: kelpie acts on each in turn. `retry` runs the item's turn \
+again as it is. `re-scope` and `ask` put it to \
 the maintainer, with your `why` as what you propose or ask. `none` leaves it to \
 resolve itself. Kelpie checks every answer against the board, and drops and \
 logs any part that names an issue the board does not show as ready, or an item \
@@ -354,7 +356,11 @@ mod tests {
              - the maintainer told you:\n\n  > Hold #12 until\n  > the release.\n\n"
         ));
         assert!(text.contains("`board.md`") && text.contains("`pm-notes.md`"));
-        assert!(text.contains("\"unstick\": null or {\"item\""), "{text}");
+        assert!(text.contains("\"unstick\": null or [\"item\""), "{text}");
+        assert!(
+            text.contains("or a list of them where the wake carried several"),
+            "{text}"
+        );
     }
 
     #[test]
