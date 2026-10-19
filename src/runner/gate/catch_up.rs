@@ -5,7 +5,6 @@
 //! few times at most, and then the maintainer's ruling.
 
 use crate::runner::Runner;
-use crate::runner::report::ticket_of;
 use crate::runner::report::{Begin, StepReport};
 use crate::state::{StateError, Stuck};
 use crate::work_item::{Conflict, Phase, Turn};
@@ -44,7 +43,7 @@ impl Runner {
                     item.phase = Phase::Ci { head: seen, since };
                 })?;
                 Ok(Begin::Report(StepReport::Rebased {
-                    issue: ticket_of(issue),
+                    issue,
                     pull_request: number,
                     head: rebased,
                 }))
@@ -96,7 +95,7 @@ impl Runner {
             item.phase = Phase::Implement;
         })?;
         Ok(Begin::Report(StepReport::Conflicted {
-            issue: ticket_of(issue),
+            issue,
             pull_request: number,
             head,
             files,
@@ -332,7 +331,7 @@ mod tests {
         assert_eq!(rig.ask(&runner, "status", None)["rulings"], json!([]));
         rig.forge.set_checks(&merged, Checks::Passed);
         let (id, question) = ruling_report(rig.verdict(&runner));
-        assert_eq!(id, 71);
+        assert_eq!(id, ticket(71));
         assert!(question.starts_with("Merge pull request #71"), "{question}");
         assert_eq!(rig.claude.calls().len(), 2, "one conflict turn went out");
     }

@@ -13,6 +13,7 @@ use serde::Serialize;
 use super::Runner;
 use crate::ports::{RoundEnd, Timestamp};
 use crate::settings::{AgentName, LocalRound, LocalRounds};
+use crate::ticket::TicketId;
 
 const DAY: u64 = 86_400;
 
@@ -37,7 +38,7 @@ pub(in crate::runner) struct Finished<'a> {
 #[derive(Serialize)]
 struct Record<'a> {
     project: &'a str,
-    issue: u64,
+    issue: TicketId,
     pull_request: u64,
     round: u32,
     reviewer: &'a str,
@@ -170,7 +171,7 @@ fn keep(
     folder: &Path,
     out: &Path,
     record: &Record<'_>,
-    issue: u64,
+    issue: TicketId,
     at: Timestamp,
 ) -> io::Result<()> {
     let stamp = format!("{}Z", utc(at).strftime(STAMP));

@@ -29,7 +29,7 @@ pub(super) enum Placed {
 
 impl Placed {
     /// Keeps it in `state` for ruling `id`
-    pub(super) fn keep(self, state: &mut ProjectState, id: u64) {
+    pub(super) fn keep(self, state: &mut ProjectState, id: TicketId) {
         match self {
             Self::Heard(heard) => state.heard.insert(id, heard).map(drop),
             Self::Unmentioned(comment) => state.unmentioned.insert(id, comment).map(drop),

@@ -128,7 +128,10 @@ fn turns(rig: &Rig, runner: &Mutex<Runner>) -> Vec<(u64, String)> {
     (items.iter())
         .map(|item| {
             let state = item["turn"]["state"].as_str().unwrap().to_owned();
-            (item["issue"].as_u64().unwrap(), state)
+            (
+                item["issue"].as_str().unwrap().parse::<u64>().unwrap(),
+                state,
+            )
         })
         .collect()
 }
@@ -451,7 +454,7 @@ fn a_call_the_pass_started_is_in_the_copy_a_refused_trigger_reads() {
     let reply: serde_json::Value = serde_json::from_str(&reply).expect("a JSON reply");
     assert_eq!(
         reply["draining"]["calls"],
-        json!([{ "issue": 7, "role": "worker" }]),
+        json!([{ "issue": "7", "role": "worker" }]),
         "the copy a refused trigger reads left the call the pass started out: {reply}"
     );
 }

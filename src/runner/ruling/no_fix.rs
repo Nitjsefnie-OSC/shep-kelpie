@@ -7,6 +7,7 @@ use serde_json::json;
 
 use crate::ports::Checks;
 use crate::runner::{Runner, StepReport, step};
+use crate::test::ticket;
 use crate::test::{Rig, Scripted};
 
 const NOTE_FIX: &str =
@@ -28,7 +29,7 @@ fn a_question_in_a_nos_fix_turn_still_sends_the_fix_to_ci() {
     )]);
     let report = step(&runner).unwrap(); // the noted turn asks
     assert!(
-        matches!(report, Some(StepReport::Asked { id: 71, .. })),
+        matches!(report, Some(StepReport::Asked { id, .. }) if id == ticket(71)),
         "{report:?}"
     );
     rig.ask(&runner, "rule", Some("71 answer --dry-run"));
@@ -50,12 +51,10 @@ fn a_push_by_someone_else_during_a_nos_fix_is_not_called_the_fix_and_its_no_star
     rig.claude.script([Scripted::Text("Nothing to push.")]);
     step(&runner).unwrap(); // the noted turn pushes nothing itself
     rig.forge.set_checks(&by_hand, Checks::Passed);
-    let Some(StepReport::Ruling {
-        id: 71, question, ..
-    }) = rig.verdict(&runner)
-    else {
+    let Some(StepReport::Ruling { id, question, .. }) = rig.verdict(&runner) else {
         panic!("no second merge ruling");
     };
+    assert_eq!(id, ticket(71));
     assert!(!question.contains(NOTE_FIX), "{question}");
     assert!(
         question.contains("since only a new pass clears that"),
@@ -97,12 +96,10 @@ fn a_failed_hand_back_keeps_the_note_fix_for_the_retry() {
     );
     rig.forge.set_labels_down(false);
     rig.next_look();
-    let Some(StepReport::Ruling {
-        id: 71, question, ..
-    }) = step(&runner).unwrap()
-    else {
+    let Some(StepReport::Ruling { id, question, .. }) = step(&runner).unwrap() else {
         panic!("no second merge ruling");
     };
+    assert_eq!(id, ticket(71));
     assert!(question.contains(NOTE_FIX), "{question}");
 }
 
@@ -127,7 +124,7 @@ fn under_auto_a_nos_fix_comes_back_as_a_ruling() {
     for _ in 0..4 {
         match rig.verdict(&runner) {
             Some(StepReport::Ruling { id, question, .. }) => {
-                assert_eq!(id, 71);
+                assert_eq!(id, ticket(71));
                 assert!(question.contains(NOTE_FIX), "{question}");
                 assert_eq!(rig.forge.merges(), []);
                 return;

@@ -10,6 +10,7 @@ use crate::lease::wire::WindowFact;
 use crate::ports::Timestamp;
 use crate::review_bot::Bot;
 use crate::state::{LeaseHeld, StateError};
+use crate::ticket::TicketId;
 use crate::work_item::{Phase, Review, ReviewStage};
 
 impl Runner {
@@ -113,7 +114,7 @@ impl Runner {
     }
 
     /// Whether a work item other than `except` waits to summon `bot`
-    pub(in crate::runner) fn item_waits_on(&self, bot: Bot, except: Option<u64>) -> bool {
+    pub(in crate::runner) fn item_waits_on(&self, bot: Bot, except: Option<TicketId>) -> bool {
         self.state.work_items.iter().any(|item| {
             let waits = matches!(
                 &item.phase,

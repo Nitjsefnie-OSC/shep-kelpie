@@ -10,6 +10,7 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use super::Runner;
+use crate::ticket::TicketId;
 
 /// The label on an issue while a work item holds it
 ///
@@ -20,13 +21,17 @@ pub const IN_PROGRESS: &str = "in-progress";
 /// The key of the standing warning that issue `issue`'s worker runs with an
 /// `origin/main` kelpie last fetched, which `status` lists until a fetch lands
 /// or the work item ends
-pub(super) fn main_fetch_key(issue: u64) -> String {
-    format!("main-fetch-{issue}")
+pub(super) fn main_fetch_key(ticket: TicketId) -> String {
+    format!("main-fetch-{ticket}")
 }
 
 impl Runner {
-    // Labels `issue` as held, or takes the label off, and notes a refusal
-    pub(super) fn mark_held(&mut self, issue: u64, held: bool) {
+    // Labels `ticket`'s issue as held, or takes the label off, and notes a
+    // refusal. Only a GitHub ticket has an issue to label.
+    pub(super) fn mark_held(&mut self, ticket: TicketId, held: bool) {
+        let Some(issue) = ticket.github() else {
+            return;
+        };
         if let Err(e) = self.label_issue(issue, IN_PROGRESS, held) {
             let verb = if held { "add" } else { "remove" };
             self.notes.push(format!(
@@ -36,12 +41,12 @@ impl Runner {
     }
 
     // Puts the label right after a start: on for each work item held, off
-    // for each finished or dropped issue with no work item open, whose own
+    // for each finished or dropped ticket with no work item open, whose own
     // removal a refusal may have missed
     pub(super) fn settle_labels(&mut self) {
-        let held = self.state.open_issues();
+        let held = self.state.open_tickets();
         let state = &self.state;
-        let finished: Vec<u64> = (state.finished.iter().chain(&state.dropped))
+        let finished: Vec<TicketId> = (state.finished.iter().chain(&state.dropped))
             .filter(|n| !held.contains(n))
             .copied()
             .collect();
@@ -233,7 +238,7 @@ mod tests {
         let (rig, runner) = running("chelone");
         rig.forge.set_labels_down(true);
         let item = &rig.ask(&runner, "add", Some("7"))["work_item"];
-        assert_eq!(item["issue"], json!(7));
+        assert_eq!(item["issue"], json!("7"));
         assert!(!held(&rig, 7));
         assert_eq!(
             notes(&runner),

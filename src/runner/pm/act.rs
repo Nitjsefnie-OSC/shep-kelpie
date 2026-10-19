@@ -192,7 +192,7 @@ impl Runner {
     fn settle(
         &mut self,
         ticket: TicketId,
-        id: u64,
+        id: TicketId,
         action: Action,
         why: &str,
     ) -> Result<Result<(), String>, StateError> {
@@ -239,7 +239,7 @@ impl Runner {
 
     // How `ticket`'s work item is stuck now, if it is.
     fn stuck(&self, ticket: TicketId) -> Option<StuckState> {
-        let item = self.state.item_by_ticket(ticket)?;
+        let item = self.state.item(ticket)?;
         if let Phase::Ruling { id } = item.phase {
             let ruling = self.state.rulings.iter().find(|r| r.id == id)?;
             return stuck_on(&ruling.kind).map(|_| StuckState::Ruling {

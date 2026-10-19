@@ -32,6 +32,7 @@ use super::{Answer, Runner};
 use crate::ports::{Alert, AlertError, Alerts, Reply, ReplyWith, Since, Takes, Timestamp};
 use crate::settings::SettingsError;
 use crate::state::{LastRead, RulingKind, StateError};
+use crate::ticket::TicketId;
 use crate::totp::answers::{Answers, Claim, FAILURES, Failure};
 use crate::totp::{STEP, Secret, steps_near};
 use crate::webhook::{Webhook, WebhookKind};
@@ -196,7 +197,7 @@ impl Runner {
 
     /// What the alert of the ruling numbered `number` says a reply takes, where
     /// replies are read
-    pub(super) fn reply_with(&self, number: u64, kind: &RulingKind) -> Option<ReplyWith> {
+    pub(super) fn reply_with(&self, ticket: TicketId, kind: &RulingKind) -> Option<ReplyWith> {
         self.replies_on()?;
         let takes = match Wants::of(kind) {
             Wants::Answer => Takes::Answer,
@@ -205,7 +206,7 @@ impl Runner {
             Wants::Merge => Takes::Merge,
             Wants::YesOrNo => Takes::YesOrNo,
         };
-        Some(ReplyWith { number, takes })
+        Some(ReplyWith { ticket, takes })
     }
 
     /// Keeps reading the topic until [`LATE`] after `now`: a ruling's alert
@@ -349,9 +350,9 @@ impl Runner {
         })
     }
 
-    // A line for the topic about the ruling numbered `number`, or about answers
+    // A line for the topic about the ruling `number`, or about answers
     // as a whole
-    fn line(&self, number: Option<u64>, text: String) -> Option<Line> {
+    fn line(&self, number: Option<TicketId>, text: String) -> Option<Line> {
         // Not `replies_on`: the line saying answers are off goes out once they are.
         let ntfy = self
             .webhook
@@ -361,7 +362,7 @@ impl Runner {
         let webhook = ntfy?.clone();
         let project = self.project.as_str();
         let title = match number {
-            Some(number) => format!("kelpie: {project} ruling #{number}"),
+            Some(number) => format!("kelpie: {project} ruling {}", number.shown()),
             None => format!("kelpie: {project} answers"),
         };
         let reply = None;
@@ -451,8 +452,9 @@ impl Runner {
         if claim == Some(Claim::Replayed) {
             let shown = self.ruling_number(id);
             let text = format!(
-                "Ruling #{shown} was not answered: that code was used already. \
-                 Send the reply again with the next one."
+                "Ruling {} was not answered: that code was used already. \
+                 Send the reply again with the next one.",
+                shown.shown()
             );
             let report = StepReport::ReplyCodeUsed {
                 id,
@@ -478,13 +480,14 @@ impl Runner {
         let pending = self.state.rulings.iter().find(|r| r.id == id);
         let Some(pending) = pending else {
             let text = format!(
-                "Ruling #{number} on {project} is already settled, so that reply ran nothing."
+                "Ruling {} on {project} is already settled, so that reply ran nothing.",
+                number.shown()
             );
             let report = StepReport::ReplyToSettled {
                 id,
                 line_failed: None,
             };
-            return (report, self.line(number.github(), text));
+            return (report, self.line(Some(number), text));
         };
         // A number can name a new ruling on the same issue or pull request,
         // so a reply from before this one was raised may answer another question.
@@ -542,9 +545,9 @@ impl Runner {
     }
 
     // A reply that answered nothing, and the line saying why.
-    fn reply_refused(&self, id: u64, reason: String) -> (StepReport, Option<Line>) {
+    fn reply_refused(&self, id: TicketId, reason: String) -> (StepReport, Option<Line>) {
         let shown = self.ruling_number(id);
-        let text = format!("Ruling #{shown} was not answered: {reason}.");
+        let text = format!("Ruling {} was not answered: {reason}.", shown.shown());
         let report = StepReport::ReplyRefused {
             id,
             reason,

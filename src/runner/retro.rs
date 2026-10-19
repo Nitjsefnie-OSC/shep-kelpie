@@ -146,10 +146,7 @@ impl Runner {
     fn finished_since_retro(&mut self) -> Vec<Finished> {
         let (since, covered) = self.last_retro();
         let mut batch: Vec<Finished> = (self.state.history.iter())
-            .filter(|f| {
-                f.at.0 > since
-                    || (f.at.0 == since && !f.ticket().is_some_and(|t| covered.contains(&t)))
-            })
+            .filter(|f| f.at.0 > since || (f.at.0 == since && !covered.contains(&f.issue)))
             .cloned()
             .collect();
         batch.drain(..batch.len().saturating_sub(EVERY));
@@ -195,7 +192,7 @@ impl Runner {
             }
             return false;
         }
-        let issues: Vec<TicketId> = batch.iter().filter_map(Finished::ticket).collect();
+        let issues: Vec<TicketId> = batch.iter().map(|f| f.issue).collect();
         let built = self.retro_call(&agent, &batch);
         // Marked before the call starts: a stop or a crash in the middle of
         // it does not ask again, and a batch that cannot start is let go.
@@ -259,7 +256,7 @@ impl Runner {
             since,
             gaps: &gaps,
         });
-        let issues: Vec<TicketId> = batch.iter().filter_map(Finished::ticket).collect();
+        let issues: Vec<TicketId> = batch.iter().map(|f| f.issue).collect();
         let build = Build::this();
         let ask = prompt(self.project.as_str(), &issues, &build, &gaps, &digest);
         let ask = self.skills.invoke(Step::Retro, &ask);

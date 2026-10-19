@@ -76,7 +76,7 @@ impl WorkItem {
 mod tests {
     use super::*;
     use crate::review_bot::Bot;
-    use crate::test::a_work_item;
+    use crate::test::{a_work_item, ticket};
     use crate::work_item::Awaited;
 
     fn in_phase(phase: Phase) -> WorkItem {
@@ -99,7 +99,7 @@ mod tests {
         assert!(matches!(item.turn, Turn::Running { .. }));
         assert_eq!(item.timing_phase(true), TimingPhase::Worker);
         let ruling = WorkItem {
-            phase: Phase::Ruling { id: 1 },
+            phase: Phase::Ruling { id: ticket(1) },
             ..a_work_item()
         };
         assert_eq!(ruling.timing_phase(true), TimingPhase::Worker);
@@ -200,7 +200,7 @@ mod tests {
         assert_eq!(of(awaited(true)), TimingPhase::Other, "between reviewers");
         assert_eq!(of(lease), TimingPhase::Review);
         assert_eq!(of(summoned), TimingPhase::Review);
-        assert_eq!(of(Phase::Ruling { id: 1 }), TimingPhase::Ruling);
+        assert_eq!(of(Phase::Ruling { id: ticket(1) }), TimingPhase::Ruling);
         assert_eq!(of(merge), TimingPhase::Merge);
         assert_eq!(
             of(Phase::Done {

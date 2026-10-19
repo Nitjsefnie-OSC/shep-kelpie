@@ -88,7 +88,7 @@ pub(super) enum Whose {
 /// The ruling a reply names: whose it is, and the id it has here
 pub(super) struct Named {
     pub whose: Whose,
-    pub id: u64,
+    pub id: TicketId,
 }
 
 impl Runner {
@@ -105,8 +105,7 @@ impl Runner {
         let number = ticket.github().unwrap_or(0);
         let project = self.project.as_str();
         let about = |r: &&Ruling| {
-            r.ticket() == Some(ticket)
-                || ticket.github().is_some() && r.pull_request == Some(number)
+            r.issue == Some(ticket) || ticket.github().is_some() && r.pull_request == Some(number)
         };
         let mut here: Vec<&Ruling> = self.state.rulings.iter().filter(about).collect();
         // The number names the ruling that took it, not one an older kelpie
@@ -115,7 +114,7 @@ impl Runner {
             here.retain(|r| !r.is_left_over());
         }
         let named_by = |whose, id| Named { whose, id };
-        let id = here.first().map_or(number, |r| r.id);
+        let id = here.first().map_or(ticket, |r| r.id);
         if named.is_some_and(|named| named != project) {
             return named_by(Whose::Theirs, id);
         }
@@ -130,8 +129,10 @@ impl Runner {
         }
         if let [first, second, ..] = here.as_slice() {
             let why = format!(
-                "#{ticket} has rulings {} and {} here, so answer one by its id",
-                first.id, second.id
+                "{} has rulings {} and {} here, so answer one by its id",
+                ticket.shown(),
+                first.id,
+                second.id
             );
             return named_by(Whose::Several(why), id);
         }

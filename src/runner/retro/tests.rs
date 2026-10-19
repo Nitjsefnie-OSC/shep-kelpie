@@ -32,7 +32,7 @@ fn name_pm(rig: &Rig) {
 fn earlier(count: u64) -> Vec<Finished> {
     (101..101 + count)
         .map(|issue| Finished {
-            issue,
+            issue: ticket(issue),
             title: format!("Issue {issue}"),
             pull_request: Some(issue + 60),
             merged: true,
@@ -583,7 +583,7 @@ fn a_drain_that_starts_during_a_retro_asks_for_the_work_items_finished_meanwhile
         {
             let mut runner = runner.lock().unwrap();
             let mut meanwhile = earlier(1).remove(0);
-            meanwhile.issue = 300;
+            meanwhile.issue = ticket(300);
             meanwhile.at = runner.ports.clock.now();
             runner.state.history.push(meanwhile);
         }

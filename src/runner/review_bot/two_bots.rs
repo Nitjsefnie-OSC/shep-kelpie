@@ -138,7 +138,7 @@ fn each_listed_bot_reads_in_its_own_round_and_cubics_finding_reaches_the_worker_
     assert_eq!(status["work_item"]["phase"]["stage"]["bot"], "cubic");
     assert_eq!(
         status["leases"],
-        json!([{ "resource": "cubic", "issue": 7, "since": now(&rig) }])
+        json!([{ "resource": "cubic", "issue": "7", "since": now(&rig) }])
     );
 
     let summon = now(&rig);

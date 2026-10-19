@@ -54,7 +54,7 @@ fn a_rework_starts_on_the_pull_requests_branch_with_the_review_as_its_first_turn
     let item = &rig.ask(&runner, "rework", Some("71"))["work_item"];
     assert_eq!(
         (&item["issue"], &item["branch"], &item["pull_request"]),
-        (&json!(7), &json!("kelpie/7"), &json!(71))
+        (&json!("7"), &json!("kelpie/7"), &json!(71))
     );
 
     rig.claude.script([Scripted::Push("fix.txt", "fixed\n")]);
@@ -112,12 +112,10 @@ fn a_reworked_pull_request_goes_through_every_gate_to_the_merge_ruling() {
     step(&runner).unwrap(); // review round 2, claude: clean
     let head = rig.forge.head_of("kelpie/7").unwrap();
     rig.forge.set_checks(&head, Checks::Passed);
-    let Some(StepReport::Ruling {
-        id: 71, question, ..
-    }) = rig.verdict(&runner)
-    else {
+    let Some(StepReport::Ruling { id, question, .. }) = rig.verdict(&runner) else {
         panic!("the rework never reached its merge ruling");
     };
+    assert_eq!(id, ticket(71));
     assert!(question.contains("#71"), "{question}");
     assert_eq!(rig.forge.merges(), []);
     assert_eq!(rig.reviewer.seen().len(), 1);
@@ -406,8 +404,8 @@ fn a_rework_of_a_pull_request_coderabbit_reviewed_spends_no_second_read() {
 
     assert!(matches!(
         rig.verdict(&runner),
-        Some(StepReport::Ruling { id: 71, .. })
-    ));
+        Some(StepReport::Ruling { id, .. })
+     if id == ticket(71)));
     let status = rig.ask(&runner, "status", None);
     assert_eq!(status["rulings"][0]["kind"]["kind"], json!("merge"));
     assert_eq!(status["work_item"]["bot_reads"], json!({ "coderabbit": 1 }));

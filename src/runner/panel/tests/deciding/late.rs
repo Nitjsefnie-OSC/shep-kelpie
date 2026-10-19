@@ -78,7 +78,7 @@ fn line_of(rig: &Rig) -> Option<Value> {
     let text = std::fs::read_to_string(rig.paths().rulings).ok()?;
     (text.lines())
         .filter_map(|line| serde_json::from_str::<Value>(line).ok())
-        .find(|line| line["id"] == 71)
+        .find(|line| line["id"] == "71")
 }
 
 #[test]

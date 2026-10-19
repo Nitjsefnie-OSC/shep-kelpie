@@ -15,6 +15,7 @@ use crate::ports::Timestamp;
 use crate::runner::alert::backoff;
 use crate::runner::panel::Answerer;
 use crate::state::Ruling;
+use crate::ticket::TicketId;
 
 /// What a settled ruling's comment says after its first line
 const NOTHING_WAITS: &str = "Nothing waits on the maintainer.";
@@ -157,7 +158,7 @@ impl Runner {
     /// As [`Runner::rule`].
     pub(in crate::runner) fn rule_by(
         &mut self,
-        id: u64,
+        id: TicketId,
         answer: Answer,
         by: Settler,
     ) -> Result<(), RuleError> {
@@ -181,7 +182,7 @@ impl Runner {
     /// Says what became of ruling `id`, which the last save took out of the
     /// state: its comment is edited, where it was posted and `outcome` calls
     /// for it, and a reply in its thread is told the same
-    pub(in crate::runner) fn say_settled(&mut self, id: u64, outcome: Outcome) {
+    pub(in crate::runner) fn say_settled(&mut self, id: TicketId, outcome: Outcome) {
         let number = (self.threads.ended.get(&id)).map_or(id, |ended| ended.ruling.number());
         self.threads.told.insert(id, (number, outcome.told));
         let Some(ended) = self.threads.ended.remove(&id) else {

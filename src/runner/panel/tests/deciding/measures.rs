@@ -6,6 +6,7 @@ use serde_json::{Value, json};
 use super::{SHADOW, leak, pm_says, ruling, says, script, voted};
 use crate::ports::{Cost, Role};
 use crate::settings::Merging;
+use crate::test::ticket;
 use crate::test::{CALL_PATIENCE, Rig, Scripted};
 use crate::usage::{FILE, read};
 
@@ -48,7 +49,7 @@ fn each_vote_is_a_ledger_line_with_the_ruling_kind_expert_panel_cost_and_wall_ti
         assert_eq!(
             line["votes"],
             json!([{
-                "ruling": 71, "ruling_kind": "merge", "voter": voter,
+                "ruling": "71", "ruling_kind": "merge", "voter": voter,
                 "panel": "fix", "work": "fix", "choice": "A",
             }]),
             "{voter}"
@@ -217,18 +218,18 @@ fn a_closed_rulings_plan_is_kept_for_a_wake_that_outlasts_it_and_the_oldest_go()
     use crate::settings::RulingName;
     let mut desk = Desk::default();
     let plan = Plan::shadow(RulingName::Merge, work_of(Some("fix: a bug")));
-    desk.retire(1, plan.clone());
+    desk.retire(ticket(1), plan.clone());
     let mark = desk
-        .plan(1)
+        .plan(ticket(1))
         .expect("kept")
-        .mark(1, crate::panel::Voter::Pm, None);
+        .mark(ticket(1), crate::panel::Voter::Pm, None);
     assert_eq!(
         (mark.ruling_kind, mark.work.as_str()),
         (RulingName::Merge, "fix")
     );
     for id in 2..=40 {
-        desk.retire(id, plan.clone());
+        desk.retire(ticket(id), plan.clone());
     }
-    assert!(desk.plan(1).is_none(), "the oldest was let go");
-    assert!(desk.plan(40).is_some());
+    assert!(desk.plan(ticket(1)).is_none(), "the oldest was let go");
+    assert!(desk.plan(ticket(40)).is_some());
 }

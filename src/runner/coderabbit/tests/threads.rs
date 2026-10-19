@@ -3,9 +3,8 @@
 
 use super::{hold_a_finding, now, phase, summoned};
 use crate::ports::{CLEAN, Checks};
-use crate::runner::report::ticket_of;
 use crate::runner::{StepReport, step};
-use crate::test::Scripted;
+use crate::test::{Scripted, ticket};
 
 #[test]
 fn a_forge_that_keeps_refusing_to_resolve_lets_the_pass_go_on_after_three_steps() {
@@ -31,7 +30,7 @@ fn a_forge_that_keeps_refusing_to_resolve_lets_the_pass_go_on_after_three_steps(
     assert_eq!(
         step(&runner).unwrap(),
         Some(StepReport::ThreadsLeftOpen {
-            issue: ticket_of(7),
+            issue: ticket(7),
             pull_request: 71,
             threads: vec!["PRRT_71_0".into()],
             reason: "cannot resolve a thread on #71: gh failed: resolving is down".into(),
@@ -47,8 +46,8 @@ fn a_forge_that_keeps_refusing_to_resolve_lets_the_pass_go_on_after_three_steps(
     rig.forge.set_checks(&fixed, Checks::Passed);
     assert!(matches!(
         rig.verdict(&runner),
-        Some(StepReport::Ruling { id: 71, .. })
-    ));
+        Some(StepReport::Ruling { id, .. })
+     if id == ticket(71)));
     rig.ask(&runner, "rule", Some("71 rework guard it too"));
     rig.claude.script([
         Scripted::Push("guard.txt", "guarded\n"),

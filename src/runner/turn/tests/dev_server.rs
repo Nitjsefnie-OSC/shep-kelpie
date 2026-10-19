@@ -49,11 +49,14 @@ fn try_planned(rig: &Rig, edit: impl FnOnce(&Path)) -> Result<(Option<DevRun>, S
     let call = runner.worker_call(&item, session, Some("again".into()), true)?;
     let told = fs::read_to_string(call.instructions.as_ref().unwrap()).unwrap();
     // The browser may open nothing until the server answers.
-    assert_eq!(runner.dev_gate(7).get(), None);
+    assert_eq!(runner.dev_gate(ticket(7)).get(), None);
     // The keychain is blocked as the worker's own call blocks it.
-    let blocked = runner.planned.get(7).map(|run| run.policy.no_keychain);
+    let blocked = runner
+        .planned
+        .get(ticket(7))
+        .map(|run| run.policy.no_keychain);
     assert!(blocked.is_none_or(|blocked| blocked == runner.app_covers()));
-    Ok((runner.planned.get(7), told))
+    Ok((runner.planned.get(ticket(7)), told))
 }
 
 #[test]
@@ -333,8 +336,8 @@ fn gate_around_serving(rig: &Rig) -> ([Option<u16>; 3], String) {
     let mut call = runner
         .worker_call(&item, session, Some("again".into()), true)
         .unwrap();
-    let run = runner.planned.get(7).expect("a plan");
-    let before = runner.dev_gate(7).get();
+    let run = runner.planned.get(ticket(7)).expect("a plan");
+    let before = runner.dev_gate(ticket(7)).get();
     let served = crate::runner::dev_server::started(
         &rig.dev_servers,
         &run,
@@ -342,9 +345,12 @@ fn gate_around_serving(rig: &Rig) -> ([Option<u16>; 3], String) {
         &runner.notes,
         &runner.metrics,
     );
-    let during = runner.dev_gate(7).get();
+    let during = runner.dev_gate(ticket(7)).get();
     drop(served);
-    ([before, during, runner.dev_gate(7).get()], call.prompt)
+    (
+        [before, during, runner.dev_gate(ticket(7)).get()],
+        call.prompt,
+    )
 }
 
 #[test]
@@ -404,14 +410,14 @@ fn replanned_beside_a_plan_on_4421(rig: &Rig) -> (Option<DevRun>, String) {
         .worker_call(&item, session(), Some("again".into()), true)
         .unwrap();
     // Nothing listens on 4421: the other item's server has not bound it yet.
-    let other = runner.planned.get(7).expect("a plan");
+    let other = runner.planned.get(ticket(7)).expect("a plan");
     assert_eq!(other.port, 4421);
-    runner.planned.hold(99, Some(other));
+    runner.planned.hold(ticket(99), Some(other));
     let call = runner
         .worker_call(&item, session(), Some("again".into()), true)
         .unwrap();
     let told = fs::read_to_string(call.instructions.as_ref().unwrap()).unwrap();
-    (runner.planned.get(7), told)
+    (runner.planned.get(ticket(7)), told)
 }
 
 #[test]

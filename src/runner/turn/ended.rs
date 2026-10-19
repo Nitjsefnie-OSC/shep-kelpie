@@ -6,7 +6,6 @@
 //! session; a turn stopped with the runner stays running here for the same.
 
 use super::*;
-use crate::runner::report::ticket_of;
 
 impl Runner {
     pub(in crate::runner) fn end_turn(
@@ -68,7 +67,7 @@ impl Runner {
                             Err(refusal) => {
                                 item.pull_request_refused = Some(pull_request_file::told(&refusal));
                                 self.started.push(StepReport::PullRequestNotOpened {
-                                    issue: ticket_of(issue),
+                                    issue,
                                     reason: refusal.to_string(),
                                 });
                             }
@@ -211,7 +210,7 @@ impl Runner {
                         failed(self.names(), &mut next, issue, now, why, Vec::new())
                     }
                     None => StepReport::Ended {
-                        issue: ticket_of(issue),
+                        issue,
                         session,
                         usage: reply.usage,
                         cost_usd: cost.map(Cost::usd),
@@ -239,7 +238,7 @@ impl Runner {
                         let names = self.names();
                         let (id, question) = park(names, &mut next, issue, pull_request, kind);
                         StepReport::Asked {
-                            issue: ticket_of(issue),
+                            issue,
                             session,
                             usage: reply.usage,
                             cost_usd: cost.map(Cost::usd),

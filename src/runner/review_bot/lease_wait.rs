@@ -20,12 +20,7 @@ pub(in crate::runner) struct LeaseWaits(RefCell<BTreeMap<(TicketId, &'static str
 impl Runner {
     // Says the wait began, if this pass is the first to find it
     pub(super) fn lease_waits(&self, bot: Bot) {
-        let (ticket, now) = (
-            self.item()
-                .ticket()
-                .expect("a work item's issue is never zero"),
-            self.ports.clock.now(),
-        );
+        let (ticket, now) = (self.item().issue, self.ports.clock.now());
         let key = (ticket, bot.as_str());
         let mut waits = self.lease_waits.0.borrow_mut();
         if waits.contains_key(&key) {
@@ -34,15 +29,13 @@ impl Runner {
         waits.insert(key, now);
         drop(waits);
         let facts = self.lease_facts(bot);
-        self.notes.push(format!("#{ticket} lease-wait{facts}"));
+        self.notes
+            .push(format!("{} lease-wait{facts}", ticket.shown()));
     }
 
     // Says how long the wait lasted, if one was going on
     pub(super) fn lease_wait_ends(&self, bot: Bot, how: &str) {
-        let ticket = self
-            .item()
-            .ticket()
-            .expect("a work item's issue is never zero");
+        let ticket = self.item().issue;
         let Some(since) = self
             .lease_waits
             .0
@@ -53,13 +46,15 @@ impl Runner {
         };
         let waited = self.ports.clock.now().0.saturating_sub(since.0);
         let facts = self.lease_facts(bot);
-        self.notes
-            .push(format!("#{ticket} lease-{how}{facts} waited={waited}s"));
+        self.notes.push(format!(
+            "{} lease-{how}{facts} waited={waited}s",
+            ticket.shown()
+        ));
     }
 
     // The wait is over without a word, because the round ended some other way
     pub(super) fn lease_wait_forgotten(&self, bot: Bot) {
-        let ticket = self.current().and_then(|item| item.ticket());
+        let ticket = self.current().map(|item| item.issue);
         if let Some(ticket) = ticket {
             self.lease_waits
                 .0

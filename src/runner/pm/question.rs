@@ -36,9 +36,9 @@ const ANSWERED: &str = "PM answered:";
 // What a work item is parked on
 enum Asked {
     /// A question ruling not yet posted to the maintainer
-    On(u64),
+    On(TicketId),
     /// A question ruling the maintainer was alerted of
-    Alerted(u64),
+    Alerted(TicketId),
     /// Nothing that asks a question
     Not,
 }
@@ -220,7 +220,7 @@ impl Runner {
 
     // Whether follow-up ruling `id` was raised after the forge refused the
     // findings, and so asks about trying again, not about the findings.
-    fn refused_ruling(&self, id: u64) -> bool {
+    fn refused_ruling(&self, id: TicketId) -> bool {
         let ruling = self.state.rulings.iter().find(|r| r.id == id);
         ruling.is_some_and(|r| {
             matches!(
@@ -234,7 +234,7 @@ impl Runner {
     }
 
     // The place of each finding of follow-up ruling `id`.
-    fn findings_of(&self, id: u64) -> Vec<String> {
+    fn findings_of(&self, id: TicketId) -> Vec<String> {
         let ruling = self.state.rulings.iter().find(|r| r.id == id);
         let Some(RulingKind::FollowUp { findings, .. }) = ruling.map(|r| &r.kind) else {
             return Vec::new();
@@ -250,8 +250,7 @@ impl Runner {
     // on, if any. One the maintainer was alerted of is theirs to answer,
     // however late the project manager's word comes.
     fn asked_on(&self, ticket: TicketId) -> Asked {
-        let Some(Phase::Ruling { id }) = self.state.item_by_ticket(ticket).map(|i| i.phase.clone())
-        else {
+        let Some(Phase::Ruling { id }) = self.state.item(ticket).map(|i| i.phase.clone()) else {
             return Asked::Not;
         };
         let held = |kind: &RulingKind| {
@@ -268,7 +267,7 @@ impl Runner {
     }
 
     // Whether ruling `id` is a follow-up, which has no worker waiting on text.
-    fn follow_up_ruling(&self, id: u64) -> bool {
+    fn follow_up_ruling(&self, id: TicketId) -> bool {
         let ruling = self.state.rulings.iter().find(|r| r.id == id);
         ruling.is_some_and(|r| matches!(r.kind, RulingKind::FollowUp { .. }))
     }
@@ -282,7 +281,7 @@ impl Runner {
     }
 
     // Adds the recommendation to ruling `id`, to be posted as it is.
-    fn recommend(&mut self, id: u64, passed: &Passed<'_>) -> Result<(), StateError> {
+    fn recommend(&mut self, id: TicketId, passed: &Passed<'_>) -> Result<(), StateError> {
         let mut next = self.state.clone();
         let ruling = (next.rulings.iter_mut().find(|r| r.id == id)).expect("found by the caller");
         let issue = ruling.issue.expect("a question parks a work item");

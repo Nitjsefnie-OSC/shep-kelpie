@@ -15,6 +15,7 @@ use std::thread;
 use super::super::Runner;
 use super::super::claim::Notes;
 use super::super::code_graph::{indexed, remove};
+use super::super::in_flight::Key;
 use super::super::triage::ask::Purpose;
 use super::super::triage::research::{Found, Listed, read_reply};
 use super::{End, News};
@@ -28,9 +29,13 @@ use crate::worktree;
 /// How long the triager gets to research one issue, in seconds
 pub(in crate::runner) const CEILING: u64 = 15 * 60;
 
-/// The key of the research call's open line in the ledger: no work item's, since
-/// the issue may be one with a turn in flight
-pub(in crate::runner) const KEY: Option<u64> = Some(u64::MAX);
+/// The key of the research call's open line in the ledger: the ticket it
+/// researches, which no work item's call shares, since the issue may be one
+/// with a turn in flight on it
+#[track_caller]
+fn ledger_key(issue: u64) -> Key {
+    Key::Triage(TicketId::from_issue(issue).expect("a forge numbers no issue zero"))
+}
 
 /// One issue to research, with everything its call needs, taken while the
 /// runner's lock was held so that the call itself runs without it
@@ -124,7 +129,7 @@ impl Runner {
         let now = self.ports.clock.now();
         let mut draft = Draft::of(&research.call, &agent, CallKind::Triage, now);
         draft.issue = TicketId::from_issue(issue);
-        let key = KEY;
+        let key = ledger_key(issue);
         self.flights.ledger.open(key, draft, self.pacer_lines());
         self.call_started(&research.call, &agent);
         let ledger = self.flights.ledger.clone();
@@ -206,7 +211,7 @@ impl Runner {
         let Some(flight) = self.flights.triaging.take() else {
             return Ok(());
         };
-        let open = self.flights.ledger.take(KEY);
+        let open = self.flights.ledger.take(ledger_key(issue));
         // Whether the call reached a model, which is what a cap counts: a call
         // whose reply could not be parsed cost one as surely as a call whose
         // reply read, and it is tried again at the next poll.

@@ -4,7 +4,7 @@ use std::fs;
 
 use super::super::*;
 use super::store_in;
-use crate::test::{a_work_item, a_work_item_from_before_comments};
+use crate::test::{a_work_item, a_work_item_from_before_comments, ticket};
 
 #[test]
 fn a_version_6_file_loads_with_nothing_attached_and_saves_at_the_current_version() {
@@ -264,10 +264,10 @@ fn a_version_29_file_loads_with_no_verdicts_and_a_verdict_is_kept() {
     let store = store_in(dir.path());
     let mut state = ProjectState::new();
     state.rulings.push(Ruling {
-        issue: Some(7),
+        issue: Some(ticket(7)),
         pull_request: Some(71),
         alerted: true,
-        ..Ruling::new(1, "q", RulingKind::Stuck(Stuck::Closed))
+        ..Ruling::new(ticket(1), "q", RulingKind::Stuck(Stuck::Closed))
     });
     let mut old = serde_json::to_value(&state).unwrap();
     old["version"] = 29.into();
@@ -308,10 +308,10 @@ fn a_ruling_saved_without_raised_loads_and_a_raised_time_is_kept() {
     let store = store_in(dir.path());
     let mut state = ProjectState::new();
     state.rulings.push(Ruling {
-        issue: Some(7),
+        issue: Some(ticket(7)),
         pull_request: Some(71),
         alerted: true,
-        ..Ruling::new(1, "q", RulingKind::Stuck(Stuck::Closed))
+        ..Ruling::new(ticket(1), "q", RulingKind::Stuck(Stuck::Closed))
     });
     let old = serde_json::to_value(&state).unwrap();
     assert!(old["rulings"][0].get("raised").is_none());
@@ -340,15 +340,18 @@ fn a_version_30_file_loads_with_an_empty_order_and_saves_at_the_current_version(
     fs::write(dir.path().join(STATE_FILE), old.to_string()).unwrap();
 
     let mut loaded = store.load().unwrap().expect("a saved state");
-    assert_eq!(loaded.order, Vec::<u64>::new());
+    assert_eq!(loaded.order, Vec::<TicketId>::new());
     assert!(loaded.ranked.is_empty());
-    loaded.order = vec![7, 3, 9];
+    loaded.order = vec![ticket(7), ticket(3), ticket(9)];
     store.save(&loaded).unwrap();
     let text = fs::read_to_string(dir.path().join(STATE_FILE)).unwrap();
     let saved: serde_json::Value = serde_json::from_str(&text).unwrap();
     assert_eq!(
         (&saved["version"], &saved["order"]),
-        (&serde_json::json!(VERSION), &serde_json::json!([7, 3, 9]))
+        (
+            &serde_json::json!(VERSION),
+            &serde_json::json!(["7", "3", "9"])
+        )
     );
     assert_eq!(store.load().unwrap(), Some(loaded));
 }
@@ -755,10 +758,10 @@ fn a_version_41_file_loads_with_no_skips_and_a_skip_is_kept() {
     let store = store_in(dir.path());
     let mut state = ProjectState::new();
     state.rulings.push(Ruling {
-        issue: Some(7),
+        issue: Some(ticket(7)),
         pull_request: Some(71),
         unposted: true,
-        ..Ruling::new(71, "q", RulingKind::Stuck(Stuck::Closed))
+        ..Ruling::new(ticket(71), "q", RulingKind::Stuck(Stuck::Closed))
     });
     let mut old = serde_json::to_value(&state).unwrap();
     old["version"] = 41.into();
@@ -859,7 +862,7 @@ fn an_older_state_file_loads_and_a_contribution_ruling_survives_a_save_and_a_loa
 
     let mut state = ProjectState::new();
     state.rulings.push(Ruling {
-        id: 12,
+        id: ticket(12),
         issue: None,
         question: "flagged".into(),
         pull_request: Some(12),
@@ -909,3 +912,5 @@ fn a_version_53_file_loads_with_no_disputes_and_saves_at_the_current_version() {
     let saved: serde_json::Value = serde_json::from_str(&text).unwrap();
     assert_eq!(saved["version"], VERSION);
 }
+
+mod tickets;

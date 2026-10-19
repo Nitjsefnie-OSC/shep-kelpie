@@ -169,7 +169,7 @@ impl Runner {
         self.token_wait.begins();
         match self.ports.voice.worker_token(&self.remote) {
             Ok(Some(token)) => {
-                if let Some(item) = self.current().filter(|item| item.ticket() == Some(ticket)) {
+                if let Some(item) = self.current().filter(|item| item.issue == ticket) {
                     let _ = profile::write_login(&item.build, &token);
                 }
                 self.token_wait.ends();

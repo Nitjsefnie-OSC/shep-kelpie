@@ -11,6 +11,7 @@ use super::Runner;
 use super::trigger::{issue_list, lock};
 use crate::ports::{RoundStage, Timestamp};
 use crate::state::{ProjectState, StateError};
+use crate::ticket::TicketId;
 use crate::work_item::{CallKind, Seconds, TimingPhase, Timings, WorkItem};
 
 #[cfg(test)]
@@ -30,8 +31,8 @@ pub struct Totals {
     pub project: String,
     /// How many finished work items the totals cover
     pub items: usize,
-    /// Their issues, oldest first
-    pub issues: Vec<u64>,
+    /// Their tickets, oldest first
+    pub issues: Vec<TicketId>,
     /// Their wall time together
     pub wall: u64,
     /// Every phase together, summing to `wall`
@@ -55,7 +56,7 @@ impl Runner {
 
     // The phase `item`'s time counts in while the runner holds it as it is
     pub(super) fn timing_phase(&self, item: &WorkItem) -> TimingPhase {
-        item.timing_phase(item.ticket().is_some_and(|t| self.flights.runs_turn(t)))
+        item.timing_phase(self.flights.runs_turn(item.issue))
     }
 
     /// The totals over the last `last` finished work items, or all of them
@@ -68,7 +69,7 @@ impl Runner {
             wall = wall.saturating_add(record.wall);
             seconds.add_all(&record.seconds);
         }
-        let issues: Vec<u64> = taken.iter().map(|r| r.issue).collect();
+        let issues: Vec<TicketId> = taken.iter().map(|r| r.issue).collect();
         Totals {
             project: self.project.as_str().to_owned(),
             items: taken.len(),
@@ -150,7 +151,7 @@ fn row(name: &str, seconds: u64, wall: u64) -> String {
     format!("{name:<20}{seconds:>8}  {time:>9}  {share:>6}")
 }
 
-fn table(issues: &[u64], wall: u64, seconds: &Seconds) -> String {
+fn table(issues: &[TicketId], wall: u64, seconds: &Seconds) -> String {
     let title = match issues.len() {
         0 => "no finished work items".to_owned(),
         1 => format!("1 work item: {}", issue_list(issues)),

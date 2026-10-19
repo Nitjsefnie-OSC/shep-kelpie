@@ -60,7 +60,7 @@ pub enum AttachError {
     /// The worker has run no turn, so it has no session to resume
     NoSession(TicketId),
     /// The work item is parked on this ruling
-    Ruling(TicketId, u64),
+    Ruling(TicketId, TicketId),
     /// The work item is merging or being closed, past its worker's turns
     Merging(TicketId),
     /// The work item holds no slot under `concurrency.active_items`, which its worker's
@@ -224,7 +224,7 @@ impl Runner {
     pub(super) fn let_go_of_the_gone(&mut self) {
         let gone: Vec<TicketId> = (self.state.work_items.iter())
             .filter(|item| item.attached.as_ref().is_some_and(|a| !live(a)))
-            .filter_map(|item| item.ticket())
+            .map(|item| item.issue)
             .collect();
         for ticket in gone {
             self.focus = Some(ticket);

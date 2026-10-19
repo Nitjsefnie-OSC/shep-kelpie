@@ -204,7 +204,7 @@ pub enum Skip {
         issue: TicketId,
         /// The ruling it waits on, since the issue writer could not pick
         #[serde(skip_serializing_if = "Option::is_none")]
-        ruling: Option<u64>,
+        ruling: Option<TicketId>,
     },
     /// An adopted pull request that could not start this poll, and still waits
     Adopt {

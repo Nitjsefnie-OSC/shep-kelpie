@@ -3,7 +3,9 @@ use std::sync::Mutex;
 use crate::ports::{Clock, ForgeError, Timestamp};
 use crate::runner::{BOARD_POLL, CHECKS_SETTLE, Runner, step};
 use crate::state::{Heard, Ruling, RulingKind, Stuck};
+use crate::test::ticket;
 use crate::test::{Rig, Scripted, VIEWER};
+use crate::ticket::TicketId;
 
 mod marks;
 mod settled;
@@ -31,10 +33,13 @@ fn a_merge_ruling_on_71() -> (Rig, Mutex<Runner>, String) {
 }
 
 // The ids of the rulings that wait.
-fn pending(rig: &Rig, runner: &Mutex<Runner>) -> Vec<u64> {
+fn pending(rig: &Rig, runner: &Mutex<Runner>) -> Vec<TicketId> {
     let status = rig.ask(runner, "status", None);
     let rulings = status["rulings"].as_array().unwrap();
-    rulings.iter().map(|r| r["id"].as_u64().unwrap()).collect()
+    rulings
+        .iter()
+        .map(|r| r["id"].as_str().unwrap().parse().unwrap())
+        .collect()
 }
 
 // What kelpie posted on thread 71 after the ruling's own comment.
@@ -54,12 +59,12 @@ fn replies_on_71(rig: &Rig) -> Vec<String> {
 }
 
 // The ids of the rulings that wait, as saved: `status` shows a ruling's number.
-fn saved_ids(runner: &Mutex<Runner>) -> Vec<u64> {
+fn saved_ids(runner: &Mutex<Runner>) -> Vec<TicketId> {
     let runner = runner.lock().unwrap();
     runner.state.rulings.iter().map(|r| r.id).collect()
 }
 
-fn none() -> Vec<u64> {
+fn none() -> Vec<TicketId> {
     Vec::new()
 }
 
@@ -116,7 +121,7 @@ fn a_reply_by_number_from_before_the_ruling_was_raised_is_told_it_changed() {
     );
     assert!(rig.forge.merges().is_empty());
     assert!(rig.github.reactions().is_empty());
-    assert_eq!(pending(&rig, &runner), [71]);
+    assert_eq!(pending(&rig, &runner), [ticket(71)]);
 }
 
 #[test]
@@ -130,7 +135,7 @@ fn a_bare_yes_answers_nothing_so_a_conversational_yes_never_merges() {
     step(&runner).unwrap();
 
     assert_eq!(rig.forge.merges(), []);
-    assert_eq!(pending(&rig, &runner), [71]);
+    assert_eq!(pending(&rig, &runner), [ticket(71)]);
     assert!(rig.github.reactions().is_empty());
     let told = "@octocat Ruling #71 was not answered: start your reply with its number, as `71 yes`, \
                 `71 no <note>` or `71 rework <note>`. Reply again in this thread, starting \
@@ -159,7 +164,7 @@ fn a_plain_comment_under_a_ruling_other_than_a_merge_is_told_how_to_reply() {
         told.starts_with("@octocat Ruling #71 was not answered: start your reply with its number"),
         "{told}"
     );
-    assert_eq!(pending(&rig, &runner), [71]);
+    assert_eq!(pending(&rig, &runner), [ticket(71)]);
 }
 
 #[test]
@@ -174,7 +179,7 @@ fn a_reply_from_a_login_the_ruling_does_not_mention_changes_nothing_whatever_it_
     step(&runner).unwrap();
 
     assert_eq!(rig.forge.merges(), []);
-    assert_eq!(pending(&rig, &runner), [71]);
+    assert_eq!(pending(&rig, &runner), [ticket(71)]);
     assert!(rig.github.reactions().is_empty(), "no reaction");
     assert_eq!(replies_on_71(&rig), Vec::<String>::new(), "no answer");
     assert_eq!(rig.forge.threads.asked(), Vec::<String>::new());
@@ -191,7 +196,7 @@ fn a_reply_from_a_login_without_write_access_changes_nothing() {
     step(&runner).unwrap();
 
     assert_eq!(rig.forge.merges(), []);
-    assert_eq!(pending(&rig, &runner), [71]);
+    assert_eq!(pending(&rig, &runner), [ticket(71)]);
     assert!(rig.github.reactions().is_empty(), "no reaction");
     assert_eq!(replies_on_71(&rig), Vec::<String>::new(), "no answer");
     assert_eq!(
@@ -212,7 +217,7 @@ fn a_bots_comment_is_left_alone_without_asking_what_it_may_do() {
     rig.next_look();
     step(&runner).unwrap();
 
-    assert_eq!(pending(&rig, &runner), [71]);
+    assert_eq!(pending(&rig, &runner), [ticket(71)]);
     assert_eq!(rig.forge.threads.asked(), Vec::<String>::new());
     assert_eq!(replies_on_71(&rig), Vec::<String>::new());
 }
@@ -229,7 +234,7 @@ fn a_question_on_7_mentioning(login: &str) -> (Rig, Mutex<Runner>) {
     rig.ask(&runner, "add", Some("7"));
     rig.claude.script([Scripted::Say(ASKS)]);
     step(&runner).unwrap();
-    assert_eq!(pending(&rig, &runner), [7]);
+    assert_eq!(pending(&rig, &runner), [ticket(7)]);
     rig.clock.advance(5);
     (rig, runner)
 }
@@ -247,14 +252,14 @@ fn a_comment_from_before_the_ruling_is_not_an_answer() {
     rig.forge.threads.write(7, "octocat", "use --check", before);
     rig.claude.script([Scripted::Say(ASKS)]);
     step(&runner).unwrap();
-    assert_eq!(pending(&rig, &runner), [7]);
+    assert_eq!(pending(&rig, &runner), [ticket(7)]);
 
     rig.next_look();
     step(&runner).unwrap();
 
     assert_eq!(
         pending(&rig, &runner),
-        [7],
+        [ticket(7)],
         "the old comment answered nothing"
     );
     assert!(rig.github.reactions().is_empty());
@@ -321,7 +326,7 @@ fn an_unreadable_reply_gets_one_reply_saying_what_kelpie_expects_and_the_ruling_
     let told = "@octocat Ruling #71 was not answered: it takes `yes`, `no <note>` or `rework \
                 <note>`. Reply again in this thread, starting with `71`.";
     assert_eq!(replies_on_71(&rig), [told]);
-    assert_eq!(pending(&rig, &runner), [71]);
+    assert_eq!(pending(&rig, &runner), [ticket(71)]);
     assert!(rig.github.reactions().is_empty(), "nothing was taken");
 
     // The same comment is not read again, however long the ruling waits.
@@ -343,7 +348,7 @@ fn a_no_with_a_note_goes_to_the_worker_and_a_question_takes_any_text() {
 
     assert_eq!(
         pending(&rig, &runner),
-        [71],
+        [ticket(71)],
         "the worker asked in its place"
     );
     assert_eq!(rig.github.reactions(), [comment]);
@@ -433,7 +438,11 @@ fn a_ruling_that_mentions_no_one_is_answered_at_the_terminal_only() {
     rig.next_look();
     step(&runner).unwrap();
 
-    assert_eq!(pending(&rig, &runner), [7], "a reply answers nothing");
+    assert_eq!(
+        pending(&rig, &runner),
+        [ticket(7)],
+        "a reply answers nothing"
+    );
     assert_eq!(rig.forge.threads.reads().len(), 0, "and is not even read");
     let comments = rig.github.comments();
     let how = &comments[0].1;
@@ -461,7 +470,11 @@ fn a_comment_kelpie_posted_as_the_maintainers_login_is_never_an_answer() {
     rig.next_look();
     step(&runner).unwrap();
 
-    assert_eq!(pending(&rig, &runner), [7], "the summons answered nothing");
+    assert_eq!(
+        pending(&rig, &runner),
+        [ticket(7)],
+        "the summons answered nothing"
+    );
     assert!(rig.github.reactions().is_empty());
 
     // The maintainer's own words, from the same login, are.
@@ -534,7 +547,11 @@ fn a_summons_recorded_before_a_restart_is_still_skipped_after_it() {
     rig.next_look();
     step(&runner).unwrap();
 
-    assert_eq!(pending(&rig, &runner), [7], "the summons answered nothing");
+    assert_eq!(
+        pending(&rig, &runner),
+        [ticket(7)],
+        "the summons answered nothing"
+    );
     assert!(rig.github.reactions().is_empty());
     assert_eq!(rig.forge.threads.reads().len(), 1, "it was read");
 }
@@ -561,13 +578,13 @@ fn with_a_second_ruling_on(runner: &Mutex<Runner>, rig: &Rig, thread: u64) {
     let mut runner = runner.lock().unwrap();
     let mut next = runner.state.clone();
     next.rulings.push(Ruling {
-        issue: Some(8),
+        issue: Some(ticket(8)),
         pull_request: Some(thread),
         alerted: true,
-        ..Ruling::new(8, "Is it closed?", RulingKind::from(Stuck::Closed))
+        ..Ruling::new(ticket(8), "Is it closed?", RulingKind::from(Stuck::Closed))
     });
     next.heard.insert(
-        8,
+        ticket(8),
         Heard {
             mentions: "octocat".into(),
             time: rig.clock.now(),
@@ -591,7 +608,7 @@ fn with_several_rulings_on_one_thread_a_reply_names_the_one_it_answers() {
     let told = "@octocat Rulings 8, 71 wait on this thread, so start your reply with the id of \
                 the one you answer, such as `8 yes`.";
     assert_eq!(replies_on_71(&rig), [told]);
-    assert_eq!(saved_ids(&runner), [71, 8]);
+    assert_eq!(saved_ids(&runner), [ticket(71), ticket(8)]);
     assert!(rig.github.reactions().is_empty());
 
     rig.clock.advance(1);
@@ -601,7 +618,7 @@ fn with_several_rulings_on_one_thread_a_reply_names_the_one_it_answers() {
     step(&runner).unwrap();
 
     assert_eq!(rig.github.reactions(), [named]);
-    assert_eq!(saved_ids(&runner), [71], "ruling 8 was answered");
+    assert_eq!(saved_ids(&runner), [ticket(71)], "ruling 8 was answered");
 }
 
 #[test]
@@ -619,7 +636,7 @@ fn a_ruling_with_no_place_read_to_in_its_thread_is_answered_at_the_terminal_only
     rig.next_look();
     step(&runner).unwrap();
 
-    assert_eq!(pending(&rig, &runner), [71]);
+    assert_eq!(pending(&rig, &runner), [ticket(71)]);
     assert_eq!(rig.forge.threads.reads().len(), 0);
     assert!(rig.github.reactions().is_empty());
 }

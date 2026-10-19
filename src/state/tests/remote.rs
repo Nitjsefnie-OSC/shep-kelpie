@@ -3,12 +3,13 @@ use std::path::PathBuf;
 
 use super::super::*;
 use super::store_in;
+use super::ticket;
 use crate::ports::SessionId;
 use crate::worktree::Remote;
 
 fn item(issue: u64) -> WorkItem {
     WorkItem::new(
-        issue,
+        ticket(issue),
         "A title",
         format!("kelpie/{issue}"),
         PathBuf::from("wt"),

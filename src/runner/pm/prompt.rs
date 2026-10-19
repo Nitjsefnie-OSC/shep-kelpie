@@ -525,7 +525,7 @@ mod tests {
                 ticket: ticket(7),
                 what: "its turn failed".into(),
                 state: StuckState::Ruling {
-                    id: 7,
+                    id: ticket(7),
                     raised: Some(Timestamp(1)),
                 },
             }],
@@ -576,7 +576,7 @@ mod tests {
     fn a_resumed_wake_for_a_question_shows_the_answer_key_again() {
         let ask = Wake::Question {
             ticket: ticket(7),
-            id: 1,
+            id: ticket(1),
             asked: "Which flag?".into(),
         };
         let text = wake("koji", &[ask], &[], false, &Notes::default(), BOARD);
@@ -598,7 +598,7 @@ mod tests {
         };
         let follow_up = Wake::FollowUp {
             ticket: ticket(7),
-            id: 4,
+            id: ticket(4),
             pull_request: 71,
             findings: vec![
                 finding(9, "looks racy"),
@@ -659,7 +659,7 @@ mod tests {
     #[test]
     fn a_wake_for_a_ruling_before_the_panel_shows_it_and_asks_for_a_vote_alone() {
         let vote = Wake::Vote {
-            id: 4,
+            id: ticket(4),
             asked: "### Merge #455 into main?\n\n| | Option | If you pick it |".into(),
         };
         let fresh = wake(

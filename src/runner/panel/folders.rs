@@ -78,7 +78,7 @@ impl Runner {
             format!("# Ruling {}\n\n{brief}\n", ruling.id).as_bytes(),
         )?;
         let mut where_ = String::from("# Where to read\n\n");
-        let item = ruling.ticket().and_then(|t| self.state.item_by_ticket(t));
+        let item = ruling.issue.and_then(|t| self.state.item(t));
         match item {
             Some(item) => {
                 let _ = writeln!(
@@ -95,7 +95,7 @@ impl Runner {
             "- The project's checkout: `{}`, on its default branch",
             self.settings.git.checkout.display()
         );
-        match item.and_then(|i| self.brief_patch(i.ticket()?)) {
+        match item.and_then(|i| self.brief_patch(i.issue)) {
             Some(Ok(diff)) => {
                 put(folder, "diff.patch", diff)?;
                 where_.push_str("- The branch's diff from main: `diff.patch`\n");
@@ -135,7 +135,7 @@ impl Runner {
             "rulings.md",
             super::history::read(&self.paths.rulings).as_bytes(),
         )?;
-        let item = ruling.ticket().and_then(|t| self.state.item_by_ticket(t));
+        let item = ruling.issue.and_then(|t| self.state.item(t));
         let pull_request = ruling.pull_request.or(item.and_then(|i| i.pull_request));
         let threads = self.threads_text(ruling.issue, pull_request);
         if !threads.is_empty() {
@@ -161,7 +161,11 @@ impl Runner {
     }
 
     // The issue's and the pull request's threads, each a file's name and text.
-    fn threads_text(&self, issue: Option<u64>, pull_request: Option<u64>) -> Vec<(String, String)> {
+    fn threads_text(
+        &self,
+        issue: Option<TicketId>,
+        pull_request: Option<u64>,
+    ) -> Vec<(String, String)> {
         let forge = &self.ports.forge;
         let tickets = &self.ports.tickets;
         let mut files = Vec::new();
@@ -193,20 +197,25 @@ impl Runner {
             }
             files.push((name, text));
         };
-        let mut pieces = Vec::new();
-        if let Some(n) = issue {
-            let heading = match TicketId::from_issue(n) {
-                Some(ticket) => match tickets.issue(&self.remote, ticket) {
-                    Ok(found) => format!(
-                        "Issue #{n}: {}\n\n{}",
-                        found.title,
-                        clip(found.body.trim(), COMMENT * 2)
-                    ),
-                    Err(e) => format!("Issue #{n} (it could not be read: {e})"),
-                },
-                None => format!("Issue #{n} (it has no ticket id)"),
+        let mut solo: Vec<(String, String)> = Vec::new();
+        let mut pieces: Vec<(String, String, u64)> = Vec::new();
+        if let Some(ticket) = issue {
+            let heading = match tickets.issue(&self.remote, ticket) {
+                Ok(found) => format!(
+                    "{}: {}\n\n{}",
+                    ticket.named(),
+                    found.title,
+                    clip(found.body.trim(), COMMENT * 2)
+                ),
+                Err(e) => format!("{} (it could not be read: {e})", ticket.named()),
             };
-            pieces.push((format!("issue-{n}.md"), heading, n));
+            let name = format!("issue-{ticket}.md");
+            match ticket.github() {
+                Some(number) => pieces.push((name, heading, number)),
+                // A local ticket has no forge thread of comments to read, so
+                // its file holds the issue alone.
+                None => solo.push((name, format!("# {heading}\n"))),
+            }
         }
         if let Some(n) = pull_request {
             let heading = match forge.reviewed(&self.remote, n) {
@@ -222,6 +231,7 @@ impl Runner {
         for (name, heading, number) in pieces {
             thread(name, heading, number);
         }
+        files.extend(solo);
         files
     }
 

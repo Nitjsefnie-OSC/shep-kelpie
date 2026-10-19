@@ -10,6 +10,7 @@ use crate::ports::{CLEAN, Checks, Cost, PullRequestState, Usage};
 use crate::runner::{CHECKS_SETTLE, Runner, StepReport, step};
 use crate::test::ticket;
 use crate::test::{Hold, Rig, Scripted, ScriptedRound, git};
+use crate::ticket::TicketId;
 
 // The worker's first turn pushed `work.txt` and opened the pull request, and
 // the rest of `script` is scripted after it. No review round has run.
@@ -46,7 +47,7 @@ fn to_ci(rig: &Rig, runner: &Mutex<Runner>) -> String {
     panic!("the review never reached CI");
 }
 
-fn ruling_report(report: Option<StepReport>) -> (u64, String) {
+fn ruling_report(report: Option<StepReport>) -> (TicketId, String) {
     match report {
         Some(StepReport::Ruling { id, question, .. }) => (id, question),
         other => panic!("no ruling was raised: {other:?}"),

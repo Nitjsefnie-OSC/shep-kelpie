@@ -198,12 +198,10 @@ fn a_test_still_failing_after_the_second_fix_raises_a_stuck_ruling_naming_it() {
 
     let report = fixed_again(&rig, &runner);
 
-    let StepReport::Ruling {
-        id: 71, question, ..
-    } = report
-    else {
+    let StepReport::Ruling { id, question, .. } = report else {
         panic!("{report:?}");
     };
+    assert_eq!(id, ticket(71));
     assert!(question.contains(TEST_FILE), "{question}");
     assert!(question.contains("after again"), "{question}");
     assert_eq!(phase(&rig, &runner), "ruling");
@@ -248,7 +246,7 @@ fn a_fix_that_pushes_nothing_raises_fix_not_pushed_not_this_ruling() {
     let report = step(&runner).unwrap().expect("the fix ended with a report");
 
     assert!(
-        matches!(report, StepReport::Ruling { id: 71, .. }),
+        matches!(report, StepReport::Ruling { id, .. } if id == ticket(71)),
         "{report:?}"
     );
     let kind = rulings(&rig, &runner)[0]["kind"].clone();

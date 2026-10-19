@@ -35,8 +35,16 @@ impl Runner {
     /// its backoff, until it has been refused [`TRIES`] times: then it is told
     /// in the log and the work item goes on. A comment that fails or an issue
     /// that cannot be read is told in the log and never holds the work item.
-    pub(super) fn close_merged_issue(&mut self, issue: u64, pull_request: u64) -> Option<String> {
-        let ticket = TicketId::from_issue(issue)?;
+    pub(super) fn close_merged_issue(
+        &mut self,
+        ticket: TicketId,
+        pull_request: u64,
+    ) -> Option<String> {
+        // Only a GitHub issue has a pull request to merge, so a ticket with no
+        // GitHub number is nothing this closes.
+        let Some(issue) = ticket.github() else {
+            return None;
+        };
         // The forge closes a named issue a moment after the merge, so one that
         // still reads as open then is left to it.
         let named = (self.ports.forge).reviewed(&self.remote, pull_request);
@@ -88,15 +96,13 @@ impl Runner {
     /// the forge still reads them open, since it closes them a moment after the
     /// merge. Only the parent is closed: a grandparent waits
     /// for its own next merge. A read or a close that fails is told in the log.
-    pub(super) fn close_done_parent_of(&mut self, issue: u64, pull_request: u64) {
-        let Some(ticket) = TicketId::from_issue(issue) else {
-            return;
-        };
+    pub(super) fn close_done_parent_of(&mut self, ticket: TicketId, pull_request: u64) {
         let parent = match self.ports.tickets.issue(&self.remote, ticket) {
             Ok(read) => read.parent,
             Err(e) => {
                 self.notes.push(format!(
-                    "cannot read the parent of issue #{issue} after merging #{pull_request}: {e}"
+                    "cannot read the parent of issue {} after merging #{pull_request}: {e}",
+                    ticket.shown()
                 ));
                 return;
             }
@@ -107,7 +113,8 @@ impl Runner {
             Ok(_) => {}
             Err(e) => {
                 self.notes.push(format!(
-                    "cannot read the parent #{parent} of issue #{issue} after merging #{pull_request}: {e}"
+                    "cannot read the parent #{parent} of issue {} after merging #{pull_request}: {e}",
+                    ticket.shown()
                 ));
                 return;
             }

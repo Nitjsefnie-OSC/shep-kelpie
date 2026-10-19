@@ -20,6 +20,7 @@ use super::posted::Pending;
 use crate::guard::Pause;
 use crate::ports::Tools;
 use crate::settings::Harness;
+use crate::ticket::TicketId;
 use crate::work_item::WorkItem;
 
 /// Where a pause set for a turn in flight ends it
@@ -45,15 +46,15 @@ pub struct Draining {
     /// The work items whose worker turn ends at its next tool call, since
     /// `drain pause` set a pause for it
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub at_tool: Vec<u64>,
+    pub at_tool: Vec<TicketId>,
 }
 
 /// A call in flight
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct CallRunning {
-    /// The issue of the work item it is for, and none for the project manager's
+    /// The ticket of the work item it is for, and none for the project manager's
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub issue: Option<u64>,
+    pub issue: Option<TicketId>,
     /// Whose call it is
     pub role: CallRole,
 }
@@ -147,9 +148,7 @@ impl Runner {
     fn withdraw_pauses(&mut self) {
         for item in &self.state.work_items {
             // A pause the build limits set for a turn in flight stands.
-            let held = item
-                .ticket()
-                .is_some_and(|ticket| self.builds.holds_pause(ticket));
+            let held = self.builds.holds_pause(item.issue);
             if !held {
                 Pause::in_build(&item.build).withdraw();
             }
@@ -162,9 +161,9 @@ impl Runner {
         let (mut asked, mut refused) = (Vec::new(), Vec::new());
         for item in &self.state.work_items {
             match self.pause_turn(item) {
-                Pausing::AtTool => asked.push(format!("#{}", item.issue)),
+                Pausing::AtTool => asked.push(item.issue.shown()),
                 Pausing::AtEnd => {}
-                Pausing::Failed => refused.push(format!("#{}", item.issue)),
+                Pausing::Failed => refused.push(item.issue.shown()),
             }
         }
         let mut line = if !asked.is_empty() {
@@ -185,8 +184,7 @@ impl Runner {
     // Sets the pause for `item`'s worker turn in flight. A tool result can end
     // only a call whose harness has the hook, and whose settings carry it.
     pub(super) fn pause_turn(&self, item: &WorkItem) -> Pausing {
-        let ends = (item.ticket())
-            .and_then(|t| self.flights.turn_call(t))
+        let ends = (self.flights.turn_call(item.issue))
             .is_some_and(|(call, ..)| call.harness.ends_at_tool() && call.tools == Tools::Work);
         if !ends {
             return Pausing::AtEnd;
@@ -239,7 +237,7 @@ impl Runner {
         let attached = attached_on(Harness::Pi, CallRole::PiSession)
             .chain(attached_on(Harness::Goose, CallRole::GooseSession));
         let at_tool = (self.state.work_items.iter())
-            .filter(|item| item.ticket().is_some_and(|t| self.flights.runs_turn(t)))
+            .filter(|item| self.flights.runs_turn(item.issue))
             .filter(|item| Pause::in_build(&item.build).is_requested())
             .map(|item| item.issue)
             .collect();

@@ -5,6 +5,7 @@ use serde_json::{Value, json};
 use super::*;
 use crate::ports::{Clock, PullRequestState};
 use crate::runner::{BOARD_POLL, StepReport, step};
+use crate::test::ticket;
 use crate::test::{Rig, Scripted};
 
 // The maintainer is not kelpie's account, which is `the-maintainer`
@@ -72,7 +73,7 @@ pub(in crate::runner) fn poll(rig: &Rig, runner: &Mutex<Runner>) {
     rig.next_look();
     let report = step(runner).unwrap();
     assert!(
-        matches!(report, None | Some(StepReport::Alerted { id: 30 })),
+        report.is_none() || matches!(report, Some(StepReport::Alerted { id }) if id == ticket(30)),
         "{report:?}"
     );
 }
@@ -87,7 +88,9 @@ pub(in crate::runner) fn poll_or_adopt(rig: &Rig, runner: &Mutex<Runner>) {
         .and_then(Value::as_u64)
         == Some(30);
     assert!(
-        matches!(report, None | Some(StepReport::Alerted { id: 30 })) || taken_over,
+        report.is_none()
+            || matches!(report, Some(StepReport::Alerted { id }) if id == ticket(30))
+            || taken_over,
         "{report:?}"
     );
 }

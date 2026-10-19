@@ -397,7 +397,7 @@ async fn answer(
     let projects = Projects::under(kelpie_home);
     // Not in a clone, or no shepherd to ask, is a number with no project near.
     let here = match (named, args.first()) {
-        (None, Some(first)) if rule::is_number(first) => {
+        (None, Some(first)) if rule::names_ruling(first) => {
             let here = std::env::current_dir().ok();
             match (shepherd::connect(dial, shep_home).await, here) {
                 (Ok(client), Some(here)) => control::project_here(&client, &here, home).await.ok(),

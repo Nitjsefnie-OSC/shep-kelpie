@@ -14,7 +14,6 @@ use super::super::Runner;
 use super::super::report::{ReviewCall, StepReport};
 use super::Launch;
 use crate::ports::{AgentError, AgentReply, CallActivity, SessionId, Timestamp, Wait};
-use crate::runner::report::ticket_of;
 use crate::settings::{AgentHarness, AgentName, GatewayName, LocalRound, ModelHost};
 use crate::state::StateError;
 use crate::ticket::TicketId;
@@ -105,11 +104,7 @@ impl Runner {
         let after = self.settings.agents.fallback_after?;
         (self.flights.flying.iter())
             .filter(|(_, f)| f.first && f.fallback == Fallback::Stays && !f.ending.asked())
-            .filter(|(ticket, _)| {
-                self.state
-                    .item_by_ticket(**ticket)
-                    .is_some_and(|i| !i.pinned)
-            })
+            .filter(|(ticket, _)| self.state.item(**ticket).is_some_and(|i| !i.pinned))
             .filter_map(|(&ticket, _)| self.quiet_since(ticket))
             .map(|quiet| Timestamp(quiet.since.0.saturating_add(u64::from(after.get()) * 60)))
             .min()
@@ -127,7 +122,7 @@ impl Runner {
             .filter_map(|(&ticket, _)| {
                 let waiting = self.model_wait(ticket)?;
                 let waited = now.0.saturating_sub(waiting.since.0);
-                let item = self.state.item_by_ticket(ticket)?;
+                let item = self.state.item(ticket)?;
                 (waited >= u64::from(after.get()) * 60 && !item.pinned)
                     .then(|| (ticket, item.agent.clone()))
             })
@@ -171,10 +166,7 @@ impl Runner {
         // An agent no longer listed has no implementers after it.
         let after = listed.iter().position(|n| n == from)? + 1;
         let waited_on = (self.state.work_items.iter())
-            .filter(|i| {
-                i.ticket()
-                    .is_some_and(|t| t != ticket && self.model_wait(t).is_some())
-            })
+            .filter(|i| i.issue != ticket && self.model_wait(i.issue).is_some())
             .map(|i| &i.agent);
         let moving_to = (self.flights.flying.values()).filter_map(|f| match &f.fallback {
             Fallback::Moving(to, _) => Some(to),
@@ -208,14 +200,14 @@ impl Runner {
         // Saved while its flight still runs, so the wait is charged as the
         // worker's time, as any turn's is.
         let mut next = self.state.clone();
-        let item = next.item_mut_by_ticket(ticket)?;
+        let item = next.item_mut(ticket)?;
         let from = std::mem::replace(&mut item.agent, to.clone());
         item.session = session;
         item.turn = Turn::Due;
         let issue = item.issue;
         let since = waited.unwrap_or(flight.watched.started);
         let report = StepReport::FellBack {
-            issue: ticket_of(issue),
+            issue,
             from,
             to,
             waited: now.0.saturating_sub(since.0),

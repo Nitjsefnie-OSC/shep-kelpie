@@ -7,6 +7,7 @@ use serde_json::json;
 use super::{assert_sums, held_while, read_while_held, secs, timings};
 use crate::ports::{CLEAN, Checks};
 use crate::runner::{Runner, StepReport, step};
+use crate::test::ticket;
 use crate::test::{CALL_PATIENCE, Hold, Rig, Scripted, ScriptedRound};
 use crate::work_item::TimingPhase;
 
@@ -79,8 +80,8 @@ fn a_merged_work_items_phases_sum_to_its_wall_time_at_every_stop() {
     rig.forge.set_checks(&head, Checks::Passed);
     assert!(matches!(
         rig.verdict(&runner),
-        Some(StepReport::Ruling { id: 71, .. })
-    ));
+        Some(StepReport::Ruling { id, .. })
+     if id == ticket(71)));
     rig.clock.advance(1_200);
     stops.push(timings(&rig, &runner));
     rig.ask(&runner, "rule", Some("71 yes"));
@@ -119,7 +120,7 @@ fn a_merged_work_items_phases_sum_to_its_wall_time_at_every_stop() {
     let t = rig.ask(&runner, "timings", None);
     assert_eq!(
         (&t["items"], &t["issues"], &t["wall"]),
-        (&json!(1), &json!([7]), &json!(split.wall))
+        (&json!(1), &json!(["7"]), &json!(split.wall))
     );
     assert_eq!(
         rig.ask(&runner, "status", None)["history"][0]["wall"],

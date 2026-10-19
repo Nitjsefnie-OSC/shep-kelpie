@@ -239,15 +239,15 @@ pub enum AddError {
     /// The ticket is not a GitHub issue, which is the only source kelpie reads
     NotGithub(TicketId),
     /// No slot is free under `concurrency.active_items`, counting the items waiting for
-    /// one, or one for this issue is open already: the issues of those in
+    /// one, or one for this ticket is open already: the tickets of those in
     /// the way
-    InFlight(Vec<u64>),
+    InFlight(Vec<TicketId>),
     /// The forge could not show the issue
     Forge(ForgeError),
     /// The issue's `agent:` label cannot be used
     Label(LabelError),
     /// The issue writer is labelling the issue
-    Labelling(u64),
+    Labelling(TicketId),
     /// `finish` holds the board back, so no new work item opens
     Finishing,
     /// No random session id could be drawn, with the OS's reason
@@ -273,9 +273,10 @@ impl fmt::Display for AddError {
             }
             Self::Forge(e) => write!(f, "cannot read the issue: {e}"),
             Self::Label(e) => e.fmt(f),
-            Self::Labelling(issue) => write!(
+            Self::Labelling(ticket) => write!(
                 f,
-                "the issue writer is labelling #{issue}: add it once that call ends"
+                "the issue writer is labelling {}: add it once that call ends",
+                ticket.shown()
             ),
             Self::Finishing => f.write_str(
                 "the runner is finishing, so it opens no new work item: `shep kelpie start` \
@@ -408,10 +409,10 @@ pub struct Runner {
     left: left::Seen,
     // When each work item parked on a merge ruling last read the review bots
     // its pass went on without, kept in memory only
-    late_reads: BTreeMap<u64, Timestamp>,
+    late_reads: BTreeMap<TicketId, Timestamp>,
     // When each work item parked with no pull request last read its issue,
     // kept in memory only
-    parked_reads: BTreeMap<u64, Timestamp>,
+    parked_reads: BTreeMap<TicketId, Timestamp>,
     // When the board was last read and each failing step runs again, in memory only
     looks: looks::Looks,
     // The open pull requests the pass in progress listed, in memory only
@@ -797,11 +798,11 @@ impl Runner {
 
     fn item_status<'a>(&self, item: &'a WorkItem, now: Timestamp) -> WorkItemStatus<'a> {
         let split = item.split(now, self.timing_phase(item));
-        let ticket = item.ticket();
+        let ticket = item.issue;
         WorkItemStatus {
-            waiting: ticket.and_then(|t| self.model_wait(t)),
-            held_up: ticket.and_then(|t| self.held_up.of(t)),
-            build_bytes: ticket.and_then(|ticket| self.builds.folder_bytes(ticket)),
+            waiting: self.model_wait(ticket),
+            held_up: self.held_up.of(ticket),
+            build_bytes: self.builds.folder_bytes(ticket),
             ..WorkItemStatus::new(item, self.settings.budget.per_item_usd, split)
         }
     }
@@ -816,15 +817,16 @@ impl Runner {
     /// already, the issue cannot be read or its `agent:` label names no
     /// listed implementer, or the change cannot be saved. Nothing changes then.
     pub fn add(&mut self, ticket: TicketId) -> Result<AgentName, AddError> {
-        let issue = ticket.github().ok_or(AddError::NotGithub(ticket))?;
+        // Only a GitHub issue can be added: kelpie reads its title and labels.
+        ticket.github().ok_or(AddError::NotGithub(ticket))?;
         if !self.picks() {
             return Err(AddError::Finishing);
         }
-        if self.state.item(issue).is_some() {
-            return Err(AddError::InFlight(vec![issue]));
+        if self.state.item(ticket).is_some() {
+            return Err(AddError::InFlight(vec![ticket]));
         }
-        if self.flights.labelling() == Some(issue) {
-            return Err(AddError::Labelling(issue));
+        if self.flights.labelling() == Some(ticket) {
+            return Err(AddError::Labelling(ticket));
         }
         if !self.slot_free() {
             return Err(AddError::InFlight(self.slot_issues()));
@@ -835,29 +837,27 @@ impl Runner {
             .issue(&self.remote, ticket)
             .map_err(AddError::Forge)?;
         let (agent, note) = self
-            .labelled_agent(issue, &found.labels)
+            .labelled_agent(ticket, &found.labels)
             .map_err(AddError::Label)?;
         let session = new_session_id().map_err(|e| AddError::Session(e.to_string()))?;
         let mut next = self.state.clone();
         let pinned = pinned(&found.labels);
-        let mut item = self
-            .fresh(issue, found.title, agent.clone(), session)
-            .map_err(AddError::Forge)?;
+        let mut item = self.fresh(ticket, found.title, agent.clone(), session);
         item.pinned = pinned;
         next.work_items.push(item);
-        Self::label_ruled(&mut next, issue);
+        Self::label_ruled(&mut next, ticket);
         self.save(next).map_err(AddError::State)?;
         self.notes.extend(note);
-        self.mark_held(issue, true);
+        self.mark_held(ticket, true);
         Ok(agent)
     }
 
-    // The implementer an issue with `labels` runs on: the one its `agent:`
+    // The implementer a ticket with `labels` runs on: the one its `agent:`
     // label names, or the default. Beside it, the log line an old `worker:`
     // label gets once the work item opens, since it no longer picks anything.
     fn labelled_agent(
         &self,
-        issue: u64,
+        ticket: TicketId,
         labels: &[String],
     ) -> Result<(AgentName, Option<String>), LabelError> {
         let listed = self.agents.implementer_names();
@@ -867,9 +867,10 @@ impl Runner {
         let agent = self.agents.default_implementer.name.clone();
         let note = old_worker_label(labels).map(|old| {
             format!(
-                "issue #{issue} is labelled `{old}`, which kelpie no longer reads, so it runs \
-                 on the default implementer, {agent}: an `agent:<name>` label picks another \
-                 that `agents.implementers` lists"
+                "{} is labelled `{old}`, which kelpie no longer reads, so it runs on the \
+                 default implementer, {agent}: an `agent:<name>` label picks another that \
+                 `agents.implementers` lists",
+                ticket.named().to_lowercase()
             )
         });
         Ok((agent, note))
@@ -877,12 +878,12 @@ impl Runner {
 
     // The work item the runner is working on, while it is open
     pub(super) fn current(&self) -> Option<&WorkItem> {
-        self.state.item_by_ticket(self.focus?)
+        self.state.item(self.focus?)
     }
 
     // The work item the runner is working on, in a state about to be saved
     pub(super) fn current_in<'a>(&self, next: &'a mut ProjectState) -> Option<&'a mut WorkItem> {
-        next.item_mut_by_ticket(self.focus?)
+        next.item_mut(self.focus?)
     }
 
     // Works on the work item for `ticket` from here on
@@ -897,7 +898,7 @@ impl Runner {
         self.note_changes(&mut next);
         // A ruling that is answered takes the place read to in its thread with
         // it, and so does one raised again under its number.
-        let kept = |id: &u64| {
+        let kept = |id: &TicketId| {
             let raised_again = |r: &Ruling| {
                 (self.state.rulings.iter())
                     .find(|old| old.id == r.id)

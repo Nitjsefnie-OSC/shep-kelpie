@@ -126,7 +126,10 @@ fn turns(rig: &Rig, runner: &Mutex<Runner>) -> Vec<(u64, String)> {
     (items.iter())
         .map(|item| {
             let state = item["turn"]["state"].as_str().unwrap().to_owned();
-            (item["issue"].as_u64().unwrap(), state)
+            (
+                item["issue"].as_str().unwrap().parse::<u64>().unwrap(),
+                state,
+            )
         })
         .collect()
 }
@@ -393,7 +396,7 @@ fn finish_stops_the_sheep_only_once_the_last_work_item_ends() {
     let status = rig.ask(&runner, "finish", None);
     assert_eq!(
         (&status["run"], &status["working"]),
-        (&"finishing".into(), &serde_json::json!([7]))
+        (&"finishing".into(), &serde_json::json!(["7"]))
     );
     // Draining, so nothing starts once the turn's end is recorded.
     rig.ask(&runner, "drain", None);

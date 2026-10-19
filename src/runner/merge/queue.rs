@@ -146,7 +146,7 @@ mod tests {
         let (rig, runner, _) = queued("koji");
         assert_eq!(step(&runner).unwrap(), None, "still in the queue");
         let status = rig.ask(&runner, "status", None);
-        assert_eq!(status["work_item"]["issue"], json!(7));
+        assert_eq!(status["work_item"]["issue"], json!("7"));
 
         rig.forge.queue_merges(71);
         assert!(matches!(
@@ -254,9 +254,10 @@ mod tests {
         rig.claude
             .script([Scripted::Reply(Usage::default(), Cost(1))]);
         step(&runner).unwrap();
-        let Some(StepReport::Ruling { id: 71, .. }) = rig.verdict(&runner) else {
+        let Some(StepReport::Ruling { id, .. }) = rig.verdict(&runner) else {
             panic!("the merge ruling was not raised again");
         };
+        assert_eq!(id, ticket(71));
 
         rig.ask(&runner, "rule", Some("71 yes"));
         step(&runner).unwrap();

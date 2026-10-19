@@ -36,7 +36,7 @@ mod tests {
     use crate::ports::{CLEAN, Checks, Finding, Session, Severity};
     use crate::profile::INSTRUCTIONS;
     use crate::runner::{Runner, StepReport, step};
-    use crate::test::{Rig, Scripted, ScriptedRound};
+    use crate::test::{Rig, Scripted, ScriptedRound, ticket};
 
     const ASKS: &str = "I added the flag.\n\n<kelpie-question>\nShould it be `--dry-run` or \
                         `--check`?\n\nBoth appear in the docs.\n</kelpie-question>\n";
@@ -161,7 +161,7 @@ mod tests {
         else {
             panic!("the question raised no ruling");
         };
-        assert_eq!((id, pull_request, comment_failed), (7, None, None));
+        assert_eq!((id, pull_request, comment_failed), (ticket(7), None, None));
         assert_eq!(
             question,
             format!(
@@ -173,8 +173,8 @@ mod tests {
         assert_eq!(
             status["rulings"],
             json!([{
-                "id": 7,
-                "issue": 7,
+                "id": "7",
+                "issue": "7",
                 "question": question,
                 "pull_request": null,
                 "kind": {
@@ -188,11 +188,14 @@ mod tests {
         );
         assert_eq!(
             status["work_item"]["phase"],
-            json!({ "state": "ruling", "id": 7 })
+            json!({ "state": "ruling", "id": "7" })
         );
         assert_eq!(rig.forge.comments(), [], "no pull request to comment on");
 
-        assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 7 }));
+        assert_eq!(
+            step(&runner).unwrap(),
+            Some(StepReport::Alerted { id: ticket(7) })
+        );
         assert_eq!(rig.alerts.posts()[0].1.text, question);
         rig.clock.advance(3600);
         assert_eq!(step(&runner).unwrap(), None, "parked until answered");
@@ -246,7 +249,7 @@ mod tests {
         );
         assert_eq!(
             rig.ask(&runner, "status", None)["work_item"]["phase"],
-            json!({ "state": "ruling", "id": 71 })
+            json!({ "state": "ruling", "id": "71" })
         );
 
         rig.ask(&runner, "rule", Some("71 answer --dry-run"));
@@ -266,7 +269,7 @@ mod tests {
         rig.forge.set_checks(&head, Checks::Passed);
         assert!(matches!(
             rig.verdict(&runner),
-            Some(StepReport::Ruling { id: 71, .. })
+            Some(StepReport::Ruling { id, .. }) if id == ticket(71)
         ));
     }
 
@@ -369,7 +372,7 @@ mod tests {
             rig.ask(&runner, "rule", Some("7 answer")),
             json!({ "error": "`rule` takes `<id> yes`, `<id> no <note>`, `<id> rework <note>` or `<id> answer <text>`, not \"7 answer\"" })
         );
-        assert_eq!(rig.ask(&runner, "status", None)["rulings"][0]["id"], 7);
+        assert_eq!(rig.ask(&runner, "status", None)["rulings"][0]["id"], "7");
 
         let (rig, runner, _) = Rig::parked("golbat");
         assert_eq!(

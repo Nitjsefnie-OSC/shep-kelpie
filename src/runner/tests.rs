@@ -65,10 +65,10 @@ fn a_project_saved_paused_reads_the_board_on_its_first_pass() {
        Some(StepReport::Dispatched { issue, .. }) if issue == ticket(7)
     ));
     let status = rig.ask(&runner, "status", None);
-    assert_eq!(status["work_item"]["issue"], 7);
+    assert_eq!(status["work_item"]["issue"], "7");
     assert_eq!((status.get("run"), status.get("since")), (None, None));
-    assert_eq!(status["rulings"][0]["id"], 30);
-    assert_eq!(status["history"][0]["issue"], 5);
+    assert_eq!(status["rulings"][0]["id"], "30");
+    assert_eq!(status["history"][0]["issue"], "5");
     drop(runner);
     let saved: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(&state).unwrap()).unwrap();

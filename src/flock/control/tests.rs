@@ -473,11 +473,11 @@ async fn status_reports_every_project() {
 const RECORDED: &str = r#"{"project":"koji","merging":"ask","run":"finishing",
     "work_item":null,
     "work_items":[
-        {"issue":7,"title":"Add a thing","phase":{"state":"ruling","id":1},
+        {"issue":"7","title":"Add a thing","phase":{"state":"ruling","id":"1"},
          "turn":{"state":"ended","at":100},"pull_request":71},
-        {"issue":9,"title":"Fix the other","phase":{"state":"implement"},
+        {"issue":"9","title":"Fix the other","phase":{"state":"implement"},
          "turn":{"state":"running","since":200},"pull_request":null}],
-    "rulings":[{"id":1,"issue":7,"pull_request":71,
+    "rulings":[{"id":"1","issue":"7","pull_request":71,
         "question":"Merge pull request #71 at abc1234 into main?",
         "kind":{"kind":"merge","head":"abc1234def"},"alerted":false}],
     "pacer":{"enabled":true,"claude":{

@@ -8,6 +8,7 @@ use super::*;
 use crate::ports::{CLEAN, Checks, Cost, Session, Usage};
 use crate::runner::gate::CHECKS_SETTLE;
 use crate::runner::step;
+use crate::test::ticket;
 use crate::test::{Rig, Scripted, ScriptedRound};
 
 // The pull request is public: it gets what happened and who it waits on,
@@ -90,7 +91,10 @@ fn a_ruling_on_the_pull_request_names_no_command_and_a_merge_says_nothing() {
 #[test]
 fn nothing_merges_without_a_yes() {
     let (rig, runner, _) = Rig::parked("shep");
-    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 71 }));
+    assert_eq!(
+        step(&runner).unwrap(),
+        Some(StepReport::Alerted { id: ticket(71) })
+    );
     for _ in 0..5 {
         rig.clock.advance(3600);
         assert_eq!(step(&runner).unwrap(), None);
@@ -165,12 +169,10 @@ fn a_no_on_a_merge_ruling_sends_the_note_and_its_fix_goes_to_ci_and_back_to_the_
         "CI on the new head is pending"
     );
     rig.forge.set_checks(&pushed, Checks::Passed);
-    let Some(StepReport::Ruling {
-        id: 71, question, ..
-    }) = rig.verdict(&runner)
-    else {
+    let Some(StepReport::Ruling { id, question, .. }) = rig.verdict(&runner) else {
         panic!("no second merge ruling");
     };
+    assert_eq!(id, ticket(71));
     assert!(
         question.contains(
             "into main? This head is the worker's fix for a note or comment, and no reviewer read it."
@@ -236,8 +238,8 @@ fn a_rework_sends_the_note_to_the_worker_and_it_goes_through_review_before_the_n
     );
     assert!(matches!(
         rig.verdict(&runner),
-        Some(StepReport::Ruling { id: 71, .. })
-    ));
+        Some(StepReport::Ruling { id, .. })
+     if id == ticket(71)));
     let rulings = &rig.ask(&runner, "status", None)["rulings"];
     assert_eq!(
         rulings[0]["kind"],
@@ -286,7 +288,7 @@ fn a_ruling_answered_is_refused_when_its_number_is_named_again() {
     step(&runner).unwrap(); // review round 2, claude: scripted clean above
     assert!(matches!(
         rig.verdict(&runner),
-        Some(StepReport::Ruling { id: 72, .. })
+        Some(StepReport::Ruling { id, .. }) if id == ticket(72)
     ));
     assert_eq!(
         rig.ask(&runner, "rule", Some("71 yes")),
@@ -300,7 +302,7 @@ fn a_no_on_a_commit_pushed_by_hand_has_the_worker_build_on_it_without_force() {
     let by_hand = rig.push_by_hand("kelpie/7", "by-hand.txt");
     assert!(matches!(
         rig.verdict(&runner),
-        Some(StepReport::Ruling { id: 71, .. })
+        Some(StepReport::Ruling { id, .. }) if id == ticket(71)
     ));
     assert_eq!(
         rig.ask(&runner, "rule", Some("71 rework revert it")),
@@ -334,12 +336,10 @@ fn a_no_on_a_commit_pushed_by_hand_has_the_worker_build_on_it_without_force() {
     rig.forge.set_checks(&pushed, Checks::Passed);
     rig.verdict(&runner); // review round 1, qwen: clean by default, once its head is green
     step(&runner).unwrap(); // review round 2, claude: scripted clean above
-    let Some(StepReport::Ruling {
-        id: 71, question, ..
-    }) = rig.verdict(&runner)
-    else {
+    let Some(StepReport::Ruling { id, question, .. }) = rig.verdict(&runner) else {
         panic!("no second ruling");
     };
+    assert_eq!(id, ticket(71));
     assert!(question.starts_with("Merge pull request #71"), "{question}");
 }
 
@@ -349,13 +349,13 @@ fn a_yes_on_a_head_the_branch_moved_past_asks_about_the_new_head_instead() {
     rig.push_by_hand("kelpie/7", "first.txt");
     assert!(matches!(
         rig.verdict(&runner),
-        Some(StepReport::Ruling { id: 71, .. })
+        Some(StepReport::Ruling { id, .. }) if id == ticket(71)
     ));
     let second = rig.push_by_hand("kelpie/7", "second.txt");
     let status = rig.ask(&runner, "rule", Some("71 yes"));
     assert_eq!(
         status["work_item"]["phase"],
-        json!({ "state": "ruling", "id": 71 })
+        json!({ "state": "ruling", "id": "71" })
     );
     assert_eq!(status["rulings"][0]["kind"]["known"]["head"], json!(second));
     let question = status["rulings"][0]["question"].as_str().unwrap();
@@ -378,7 +378,7 @@ fn a_yes_on_a_head_is_refused_while_the_worktree_holds_work_not_pushed() {
     let by_hand = rig.push_by_hand("kelpie/7", "by-hand.txt");
     assert!(matches!(
         rig.verdict(&runner),
-        Some(StepReport::Ruling { id: 71, .. })
+        Some(StepReport::Ruling { id, .. }) if id == ticket(71)
     ));
     std::fs::write(rig.worktree_7().join("work.txt"), "unsaved\n").unwrap();
     let reply = rig.ask(&runner, "rule", Some("71 yes"));
@@ -389,7 +389,7 @@ fn a_yes_on_a_head_is_refused_while_the_worktree_holds_work_not_pushed() {
     );
     assert_eq!(
         rig.ask(&runner, "status", None)["work_item"]["phase"],
-        json!({ "state": "ruling", "id": 71 })
+        json!({ "state": "ruling", "id": "71" })
     );
     assert_eq!(
         crate::test::git(&rig.worktree_7(), &["rev-parse", "HEAD"]),
@@ -484,9 +484,10 @@ fn over_its_cap_by(dollars: u64) -> (Rig, Mutex<Runner>) {
     rig.claude
         .script([Scripted::Reply(Usage::default(), Cost(dollars * DOLLAR))]);
     step(&runner).unwrap();
-    let Some(StepReport::Failed { id: 7, .. }) = step(&runner).unwrap() else {
+    let Some(StepReport::Failed { id, .. }) = step(&runner).unwrap() else {
         panic!("the work item did not wait on a ruling");
     };
+    assert_eq!(id, ticket(7));
     assert_eq!(rig.claude.calls().len(), 1);
     (rig, runner)
 }
@@ -592,7 +593,7 @@ fn the_question_names_the_pull_request_number_or_the_issue_number_before_one_ope
     let kind = RulingKind::from(Stuck::Rebase {
         why: "conflict in a.txt".into(),
     });
-    let with_pull_request = question(7, Some(71), &kind);
+    let with_pull_request = question(ticket(7), Some(71), &kind);
     assert!(
         with_pull_request.contains("`shep kelpie rule 71 yes`"),
         "{with_pull_request}"
@@ -601,7 +602,7 @@ fn the_question_names_the_pull_request_number_or_the_issue_number_before_one_ope
         !with_pull_request.contains("rule 1 "),
         "{with_pull_request}"
     );
-    let before_one = question(7, None, &kind);
+    let before_one = question(ticket(7), None, &kind);
     assert!(
         before_one.contains("`shep kelpie rule 7 no <note>`"),
         "{before_one}"
@@ -644,7 +645,7 @@ fn a_test_still_failing_after_two_fixes() -> (Rig, Mutex<Runner>) {
     step(&runner).unwrap(); // the second fix turn
     let raised = step(&runner).unwrap();
     assert!(
-        matches!(raised, Some(StepReport::Ruling { id: 71, .. })),
+        matches!(raised, Some(StepReport::Ruling { id, .. }) if id == ticket(71)),
         "{raised:?}"
     );
     (rig, runner)
@@ -735,7 +736,7 @@ fn the_public_line_names_no_test_output() {
         said,
         "A reviewer's test still fails after two fixes.\n\nWaiting on the maintainer."
     );
-    let asked = question(7, Some(71), &kind);
+    let asked = question(ticket(7), Some(71), &kind);
     assert!(asked.contains("panicked at the secret token"), "{asked}");
     assert!(asked.contains(FLAG_TEST), "{asked}");
     assert!(asked.contains("abcdef1"), "{asked}");

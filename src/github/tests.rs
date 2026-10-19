@@ -685,7 +685,10 @@ fn the_apps_key_never_reaches_a_worker() {
     let kelpie = rig.home.path().join("shep/kelpie");
     FakeGithub::new(rig.clock.clone(), "shep-pm").registered(&kelpie, "shep-pm/koji");
     let runner = rig.open().unwrap();
-    assert_eq!(rig.ask(&runner, "add", Some("7"))["work_item"]["issue"], 7);
+    assert_eq!(
+        rig.ask(&runner, "add", Some("7"))["work_item"]["issue"],
+        "7"
+    );
     let usage = Usage {
         input: 1,
         cache_write: 0,

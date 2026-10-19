@@ -10,12 +10,13 @@ use crate::runner::Runner;
 use crate::runner::thread_replies::Settler;
 use crate::runner::voice::{answer_for, asks_the_maintainer, named, settled_comment};
 use crate::state::Ruling;
+use crate::ticket::TicketId;
 
 impl Runner {
     // Applies the option `advice` stands behind to ruling `id` as the panel's
     // decision, and posts what was decided. A ruling that cannot be applied
     // stays pending, to be posted to the maintainer once its hold ends.
-    pub(super) fn panel_decides(&mut self, id: u64, advice: Advice) {
+    pub(super) fn panel_decides(&mut self, id: TicketId, advice: Advice) {
         let Some(ruling) = self.state.rulings.iter().find(|r| r.id == id).cloned() else {
             return;
         };
@@ -64,7 +65,10 @@ impl Runner {
             advice.agree, advice.of
         );
         let body = settled_comment(ruling, &line);
-        let Some(thread) = ruling.pull_request.or(ruling.issue) else {
+        let Some(thread) = ruling
+            .pull_request
+            .or_else(|| ruling.issue.and_then(|t| t.github()))
+        else {
             return;
         };
         if !self.app_covers() {

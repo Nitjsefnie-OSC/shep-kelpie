@@ -160,9 +160,9 @@ impl Files {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RulingLine {
     /// Its id
-    pub id: u64,
+    pub id: TicketId,
     /// The work item it parks
-    pub issue: Option<u64>,
+    pub issue: Option<TicketId>,
     /// Its pull request
     pub pull_request: Option<u64>,
     /// The question's first line
@@ -357,7 +357,9 @@ fn rulings(out: &mut String, rulings: &[RulingLine]) {
     }
     out.push_str("## Rulings waiting on the maintainer\n\n");
     for ruling in rulings {
-        let issue = ruling.issue.map_or(String::new(), |n| format!(" on #{n}"));
+        let issue = ruling
+            .issue
+            .map_or(String::new(), |t| format!(" on {}", ticket_ref(t)));
         let pr = ruling
             .pull_request
             .map_or(String::new(), |n| format!(" (PR #{n})"));

@@ -45,7 +45,7 @@ fn an_unlabelled_issue_gets_one_issue_writer_call_and_then_the_label_it_chose() 
     assert_eq!(
         step(&runner).unwrap(),
         Some(StepReport::Labelled {
-            issue: 7,
+            issue: ticket(7),
             agent: "opus-high".to_owned().try_into().unwrap(),
         })
     );
@@ -109,8 +109,8 @@ fn agents_issue_writer_names_the_file_that_labels() {
         .script([Scripted::Say("{\"agent\": \"sonnet-high\"}")]);
     assert!(matches!(
         step(&runner).unwrap(),
-        Some(StepReport::Labelled { issue: 7, .. })
-    ));
+        Some(StepReport::Labelled { issue, .. })
+     if issue == ticket(7)));
     let call = &rig.claude.all_calls()[0];
     assert_eq!(call.model, "claude-sonnet-5-5");
     let instructions = std::fs::read_to_string(call.instructions.as_ref().unwrap()).unwrap();
@@ -147,13 +147,15 @@ fn a_reply_naming_no_listed_implementer_raises_a_ruling_and_the_board_waits() {
     rig.forge.list_ready(7, false);
     rig.claude.script([Scripted::Say("{\"agent\": \"haiku\"}")]);
     let Some(StepReport::Unlabelled {
-        issue: 7,
+        issue,
         id,
         question,
     }) = step(&runner).unwrap()
     else {
         panic!("no ruling");
     };
+    assert_eq!(issue, ticket(7));
+    assert_eq!(id, ticket(7));
     assert!(
         question.starts_with(
             "The issue writer could not pick an implementer for issue #7: it named `haiku`, \
@@ -175,7 +177,7 @@ fn a_reply_naming_no_listed_implementer_raises_a_ruling_and_the_board_waits() {
         status["skipped"],
         json!([{ "reason": "unlabelled", "issue": "7", "ruling": id }])
     );
-    assert_eq!(status["rulings"][0]["id"], 7);
+    assert_eq!(status["rulings"][0]["id"], "7");
     assert_eq!(
         rig.claude.all_calls().len(),
         1,
@@ -214,8 +216,8 @@ fn a_failed_call_raises_a_ruling_and_its_answer_lets_the_issue_writer_try_again(
         .script([Scripted::Say("{\"agent\": \"sonnet-high\"}")]);
     assert!(matches!(
         step(&runner).unwrap(),
-        Some(StepReport::Labelled { issue: 7, .. })
-    ));
+        Some(StepReport::Labelled { issue, .. })
+     if issue == ticket(7)));
 }
 
 #[test]
@@ -231,8 +233,8 @@ fn a_call_stopped_with_the_runner_raises_nothing_and_is_asked_again() {
         .script([Scripted::Say("{\"agent\": \"opus-high\"}")]);
     assert!(matches!(
         step(&runner).unwrap(),
-        Some(StepReport::Labelled { issue: 7, .. })
-    ));
+        Some(StepReport::Labelled { issue, .. })
+     if issue == ticket(7)));
     assert_eq!(rig.claude.all_calls().len(), 2);
 }
 
@@ -250,7 +252,7 @@ fn the_reply_is_read_from_its_last_line_of_json_whatever_braces_come_before() {
     assert_eq!(
         step(&runner).unwrap(),
         Some(StepReport::Labelled {
-            issue: 7,
+            issue: ticket(7),
             agent: "opus-high".to_owned().try_into().unwrap(),
         })
     );
@@ -324,7 +326,7 @@ fn an_unlabelled_ruling_takes_a_yes_and_refuses_a_no() {
          for: label the issue, then answer yes"
     );
     assert_eq!(refused, json!({ "error": why }));
-    assert_eq!(rig.ask(&runner, "status", None)["rulings"][0]["id"], 7);
+    assert_eq!(rig.ask(&runner, "status", None)["rulings"][0]["id"], "7");
 }
 
 #[test]
@@ -341,7 +343,7 @@ fn a_drain_waits_out_the_issue_writers_ceiling() {
     assert!(matches!(advance(&runner).unwrap(), Pass::Started));
     assert!(hold.entered(CALL_PATIENCE), "the call never began");
     let draining = rig.ask(&runner, "drain", None)["draining"].clone();
-    let calls = json!([{ "issue": 7, "role": "issue_writer" }]);
+    let calls = json!([{ "issue": "7", "role": "issue_writer" }]);
     assert_eq!(draining, json!({ "calls": calls, "ceiling": 15 * 60 }));
     hold.release();
     assert!(hold.answered(CALL_PATIENCE), "the call never answered");

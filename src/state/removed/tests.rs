@@ -5,7 +5,7 @@ use serde_json::{Value, json};
 
 use crate::ports::Timestamp;
 use crate::state::{Finished, ProjectState, STATE_FILE, StateError, StateStore};
-use crate::test::{a_work_item, a_work_item_from_before_comments};
+use crate::test::{a_work_item, a_work_item_from_before_comments, ticket};
 use crate::work_item::{CallKind, Seconds, TimingPhase};
 
 mod bot_rounds;
@@ -28,7 +28,7 @@ fn saved_with(dir: &Path, old: impl FnOnce(&mut Value)) -> StateStore {
     let mut state = ProjectState::new();
     state.work_items.push(a_work_item_from_before_comments());
     state.record_finished(Finished {
-        issue: 9,
+        issue: ticket(9),
         title: "Fix a thing".into(),
         pull_request: Some(91),
         merged: true,

@@ -11,9 +11,6 @@ use core::str::FromStr;
 use serde::de::{self, Visitor};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use crate::state::{Finished, ProjectState, Ruling};
-use crate::work_item::WorkItem;
-
 /// The id of a ticket
 ///
 /// Ordered by source, GitHub's before the local ones, then by number, so the
@@ -53,6 +50,14 @@ impl TicketId {
     /// The id of a GitHub issue, or None for zero
     pub fn from_issue(number: u64) -> Option<Self> {
         NonZeroU64::new(number).map(Self::Github)
+    }
+
+    /// The id a ruling about a pull request and no issue takes from the pull
+    /// request's number. A GitHub pull request is a ticket, and no forge
+    /// numbers one zero.
+    #[track_caller]
+    pub fn from_pull_request(number: u64) -> Self {
+        Self::from_issue(number).expect("a forge numbers no pull request zero")
     }
 
     /// The issue number of a GitHub ticket, for code that only GitHub's tickets
@@ -148,71 +153,16 @@ impl<'de> Deserialize<'de> for TicketId {
     }
 }
 
-impl WorkItem {
-    /// The ticket it is for, from its issue number. None only for issue zero,
-    /// which no forge numbers.
-    pub fn ticket(&self) -> Option<TicketId> {
-        TicketId::from_issue(self.issue)
-    }
-}
-
-impl Ruling {
-    /// The ticket of the work item it parks, once that is known
-    pub fn ticket(&self) -> Option<TicketId> {
-        self.issue.and_then(TicketId::from_issue)
-    }
-}
-
-impl Finished {
-    /// The ticket it resolved, from its issue number. None only for issue zero.
-    pub fn ticket(&self) -> Option<TicketId> {
-        TicketId::from_issue(self.issue)
-    }
-}
-
-impl ProjectState {
-    /// The open work item for `ticket`
-    #[must_use]
-    pub fn item_by_ticket(&self, ticket: TicketId) -> Option<&WorkItem> {
-        (self.work_items.iter()).find(|item| item.ticket() == Some(ticket))
-    }
-
-    /// The open work item for `ticket`, to change
-    #[must_use]
-    pub fn item_mut_by_ticket(&mut self, ticket: TicketId) -> Option<&mut WorkItem> {
-        (self.work_items.iter_mut()).find(|item| item.ticket() == Some(ticket))
-    }
-}
-
-/// The tickets these issue numbers name, in order. The state file keeps issue
-/// numbers until #1010 keys it by ticket id, so every list the board works in
-/// is built from them. A number no ticket has is left out.
-#[must_use]
-pub fn ticket_ids(numbers: &[u64]) -> Vec<TicketId> {
-    numbers
-        .iter()
-        .copied()
-        .filter_map(TicketId::from_issue)
-        .collect()
-}
-
-/// These tickets as the issue numbers the state file keeps them in, in order.
-/// A ticket with no issue number is left out, as #1010 will not need one.
-#[must_use]
-pub fn issue_numbers(tickets: &[TicketId]) -> Vec<u64> {
-    tickets.iter().filter_map(TicketId::github).collect()
-}
-
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
 
     use serde_json::json;
 
-    use super::{TicketId, issue_numbers, ticket_ids};
-    use crate::ports::{SessionId, Timestamp};
-    use crate::state::{Finished, ProjectState, Ruling, RulingKind, Stuck};
-    use crate::work_item::{Seconds, WorkItem};
+    use super::TicketId;
+    use crate::ports::SessionId;
+    use crate::state::ProjectState;
+    use crate::work_item::WorkItem;
 
     fn id(text: &str) -> TicketId {
         text.parse().unwrap()
@@ -233,20 +183,6 @@ mod tests {
             assert_eq!(ticket.to_string(), text, "{text}");
             assert_eq!(ticket.github(), github, "{text}");
         }
-    }
-
-    #[test]
-    fn a_list_turns_from_issue_numbers_to_tickets_and_back() {
-        assert_eq!(
-            ticket_ids(&[7, 0, 9]),
-            [id("7"), id("9")],
-            "zero is no ticket"
-        );
-        assert_eq!(
-            issue_numbers(&[id("7"), id("k3"), id("9")]),
-            [7, 9],
-            "a local ticket has no issue number"
-        );
     }
 
     #[test]
@@ -336,35 +272,9 @@ mod tests {
     }
 
     #[test]
-    fn a_work_item_is_for_the_ticket_of_its_issue() {
-        let item = WorkItem::new(
-            340,
-            "A title",
-            "kelpie/340",
-            PathBuf::from("wt"),
-            PathBuf::from("build"),
-            "sonnet-high".to_owned().try_into().unwrap(),
-            SessionId("s".to_owned()),
-        );
-        assert_eq!(item.ticket(), Some(id("340")));
-        assert_eq!(WorkItem { issue: 0, ..item }.ticket(), None);
-    }
-
-    #[test]
-    fn a_ruling_is_for_the_ticket_of_its_issue_if_it_has_one() {
-        let ruling = Ruling::new(5, "Which?", RulingKind::from(Stuck::Closed));
-        assert_eq!(ruling.ticket(), None);
-        let ruling = Ruling {
-            issue: Some(340),
-            ..ruling
-        };
-        assert_eq!(ruling.ticket(), Some(id("340")));
-    }
-
-    #[test]
     fn a_work_item_is_found_by_its_ticket() {
         let item = WorkItem::new(
-            340,
+            id("340"),
             "A title",
             "kelpie/340",
             PathBuf::from("wt"),
@@ -373,28 +283,9 @@ mod tests {
             SessionId("s".to_owned()),
         );
         let mut state = ProjectState::new();
-        state.work_items.push(item);
-        assert_eq!(state.item_by_ticket(id("340")).map(|i| i.issue), Some(340));
-        assert_eq!(state.item_by_ticket(id("k12")), None);
-        assert_eq!(
-            state.item_mut_by_ticket(id("340")).map(|i| i.issue),
-            Some(340)
-        );
-    }
-
-    #[test]
-    fn a_finished_work_item_is_for_the_ticket_of_its_issue() {
-        let record = Finished {
-            issue: 340,
-            title: "A title".to_owned(),
-            pull_request: None,
-            merged: false,
-            closed: true,
-            at: Timestamp(1),
-            wall: 0,
-            seconds: Seconds::default(),
-            spend: None,
-        };
-        assert_eq!(record.ticket(), Some(id("340")));
+        state.work_items.push(item.clone());
+        assert_eq!(state.item(id("340")), Some(&item));
+        assert_eq!(state.item(id("k12")), None);
+        assert_eq!(state.item_mut(id("340")).map(|i| i.issue), Some(id("340")));
     }
 }

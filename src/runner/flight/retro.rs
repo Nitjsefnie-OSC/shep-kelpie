@@ -9,6 +9,7 @@ use std::sync::Arc;
 use std::thread;
 
 use super::super::Runner;
+use super::super::in_flight::Key;
 use super::super::turn_hooks::TurnHooks;
 use super::{End, News};
 use crate::ports::{AgentCall, AgentError, Ending, Timestamp};
@@ -16,8 +17,8 @@ use crate::settings::Harness;
 use crate::usage::{CallKind, Draft};
 
 /// The key of the retro's draft in the usage ledger's calls in flight; no
-/// work item has issue 0
-pub(in crate::runner) const KEY: Option<u64> = Some(0);
+/// work item owns the retro's call
+pub(in crate::runner) const KEY: Key = Key::Retro;
 
 /// The batch retro, in flight
 #[derive(Debug)]

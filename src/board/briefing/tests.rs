@@ -71,8 +71,8 @@ fn a_board_with_an_idle_worker_a_review_call_and_a_ruling_reads_whole() {
             thirteen,
         ],
         rulings: vec![RulingLine {
-            id: 3,
-            issue: Some(13),
+            id: ticket(3),
+            issue: Some(ticket(13)),
             pull_request: Some(31),
             question: "Merge PR #31?".into(),
         }],

@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::state::{ProjectState, StateStore};
+use crate::test::ticket;
 
 // A reply of `text` and the code of `at`, written at `at`
 fn coded(rig: &Rig, text: &str, at: Timestamp) {
@@ -21,7 +22,7 @@ fn a_number_names_the_ruling_on_its_issue_or_its_pull_request() {
         rig.reply(reply);
         assert_eq!(
             step(&runner).unwrap(),
-            Some(StepReport::ReplyAnswered { id: 71 }),
+            Some(StepReport::ReplyAnswered { id: ticket(71) }),
             "{reply}"
         );
         assert_eq!(
@@ -46,7 +47,7 @@ fn a_reply_by_number_written_before_the_ruling_was_raised_is_refused_as_stale() 
     assert_eq!(
         step(&runner).unwrap(),
         Some(StepReport::ReplyRefused {
-            id: 71,
+            id: ticket(71),
             reason: reason.clone(),
             line_failed: None
         })
@@ -55,13 +56,16 @@ fn a_reply_by_number_written_before_the_ruling_was_raised_is_refused_as_stale() 
         lines(&rig),
         [format!("Ruling #71 was not answered: {reason}.")]
     );
-    assert_eq!(phase(&rig, &runner), json!({ "state": "ruling", "id": 71 }));
+    assert_eq!(
+        phase(&rig, &runner),
+        json!({ "state": "ruling", "id": "71" })
+    );
 
     rig.clock.advance(READ_EVERY);
     coded(&rig, "71 yes", rig.clock.now());
     assert_eq!(
         step(&runner).unwrap(),
-        Some(StepReport::ReplyAnswered { id: 71 })
+        Some(StepReport::ReplyAnswered { id: ticket(71) })
     );
     assert_eq!(
         phase(&rig, &runner),
@@ -77,13 +81,13 @@ fn a_number_names_the_ruling_that_took_it_not_one_an_older_kelpie_left() {
     let (rig, runner, _) = alerted("koji");
     {
         let mut left = lock(&runner).state.rulings[0].clone();
-        left.id = 41;
+        left.id = ticket(41);
         lock(&runner).state.rulings.push(left);
     }
     rig.reply("71 yes");
     assert_eq!(
         step(&runner).unwrap(),
-        Some(StepReport::ReplyAnswered { id: 71 })
+        Some(StepReport::ReplyAnswered { id: ticket(71) })
     );
 }
 
@@ -100,7 +104,7 @@ fn a_number_two_projects_have_a_ruling_on_needs_the_project() {
     assert_eq!(
         step(&runner).unwrap(),
         Some(StepReport::ReplyRefused {
-            id: 71,
+            id: ticket(71),
             reason: reason.into(),
             line_failed: None
         })
@@ -109,7 +113,7 @@ fn a_number_two_projects_have_a_ruling_on_needs_the_project() {
     rig.reply("koji#71 yes");
     assert_eq!(
         step(&runner).unwrap(),
-        Some(StepReport::ReplyAnswered { id: 71 })
+        Some(StepReport::ReplyAnswered { id: ticket(71) })
     );
 }
 
@@ -126,7 +130,7 @@ fn naming_the_project_answers_though_another_has_a_ruling_on_that_number() {
     rig.reply("koji 71 yes");
     assert_eq!(
         step(&runner).unwrap(),
-        Some(StepReport::ReplyAnswered { id: 71 })
+        Some(StepReport::ReplyAnswered { id: ticket(71) })
     );
 }
 
@@ -138,7 +142,10 @@ fn a_number_another_project_s_ruling_has_answers_nothing_here() {
     rig.clock.advance(READ_EVERY);
     rig.reply("72 yes");
     assert_eq!(step(&runner).unwrap(), Some(StepReport::ReplyIgnored));
-    assert_eq!(phase(&rig, &runner), json!({ "state": "ruling", "id": 71 }));
+    assert_eq!(
+        phase(&rig, &runner),
+        json!({ "state": "ruling", "id": "71" })
+    );
 }
 
 #[test]
@@ -153,7 +160,7 @@ fn a_local_ticket_s_id_names_no_ruling_so_its_code_is_spent_with_a_line() {
         );
         assert_eq!(
             phase(&rig, &runner),
-            json!({ "state": "ruling", "id": 71 }),
+            json!({ "state": "ruling", "id": "71" }),
             "{reply}"
         );
     }

@@ -54,7 +54,7 @@ fn board_top_puts_the_issue_first() {
     assert_eq!(listed(&rig, &runner, Some("top 285")), [285, 282, 284]);
     assert_eq!(
         rig.ask(&runner, "status", None)["order"],
-        json!([285, 282, 284])
+        json!(["285", "282", "284"])
     );
 }
 
@@ -69,7 +69,7 @@ fn a_move_leaves_an_open_issue_between_the_listed_ones_where_it_was() {
     assert_eq!(listed(&rig, &runner, Some("top 285")), [285, 282]);
     assert_eq!(
         rig.ask(&runner, "status", None)["order"],
-        json!([285, 284, 282])
+        json!(["285", "284", "282"])
     );
 }
 
@@ -109,7 +109,7 @@ fn a_move_of_an_issue_that_is_not_ready_is_refused_and_the_list_is_unchanged() {
     assert_eq!(listed(&rig, &runner, None), [282, 284, 285]);
     assert_eq!(
         rig.ask(&runner, "status", None)["order"],
-        json!([282, 284, 285])
+        json!(["282", "284", "285"])
     );
 }
 

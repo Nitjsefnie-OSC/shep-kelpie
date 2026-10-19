@@ -11,6 +11,7 @@ use std::io::{BufRead, Write};
 use crate::runner::{ProjectName, Wants, read_answer};
 use crate::state::Projects;
 use crate::state::Ruling;
+use crate::ticket::TicketId;
 
 /// What `shep kelpie rule` takes, as its help says
 pub const HELP: &str = "\
@@ -20,8 +21,9 @@ usage: shep kelpie rule <ruling> yes
        shep kelpie rule <ruling> <text>          for a ruling that asks for text
        shep kelpie rule                          lists the rulings waiting, and asks
 
-A <ruling> is the number of its issue or pull request: 427, #427 or
-koji#427. A number that two projects have a ruling on needs the project.
+A <ruling> is its pull request's number, or its ticket's id before there is
+one: 427, #427, koji#427 or k12. A number that two projects have a ruling on
+needs the project.
 
 Quotes are optional. In zsh a note with ?, *, ! or an apostrophe still
 needs them: shep kelpie rule 427 no \"it's the wrong flag\". `-p` goes
@@ -109,13 +111,13 @@ fn prepare_from(
         return match ask {
             Some((input, output)) => pick(open, input, output),
             None => Err(format!(
-                "{}\n\n`shep kelpie rule <number> <answer>` answers one",
+                "{}\n\n`shep kelpie rule <ruling> <answer>` answers one",
                 listing(open)
             )),
         };
     };
     let reference =
-        Reference::of(id).ok_or_else(|| format!("{id:?} is not a ruling's number\n\n{HELP}"))?;
+        Reference::of(id).ok_or_else(|| format!("{id:?} is not a ruling's id\n\n{HELP}"))?;
     let (project, ruling) = locate(waiting, named, &reference)?;
     if words.is_empty() {
         return Err(format!("ruling {} takes {}", ruling.id, forms(&ruling)));
@@ -123,27 +125,27 @@ fn prepare_from(
     Ok((project, params(&ruling, &words.join(" "))?))
 }
 
-/// Whether `text` names a ruling by a number with no project before it, so
-/// the clone it is typed in can say which project's
-pub fn is_number(text: &str) -> bool {
+/// Whether `text` names a ruling with no project before it, so the clone it is
+/// typed in can say which project's
+pub fn names_ruling(text: &str) -> bool {
     Reference::of(text).is_some_and(|r| r.project.is_none())
 }
 
-// How an argument names a ruling: by the number of its issue or pull
-// request, with a `#` or a project before it or not.
+// How an argument names a ruling: by its pull request's number, or its
+// ticket's id before there is one, with a `#` or a project before it or not.
 struct Reference {
     project: Option<ProjectName>,
-    number: u64,
+    ticket: TicketId,
 }
 
 impl Reference {
-    // `14`, `#14` or `koji#14`.
+    // `14`, `#14`, `koji#14` or `k12`.
     fn of(text: &str) -> Option<Self> {
         let Some((project, digits)) = text.rsplit_once('#') else {
-            let number = number(text)?;
+            let ticket = ticket(text)?;
             return Some(Self {
                 project: None,
-                number,
+                ticket,
             });
         };
         let project = match project {
@@ -152,14 +154,14 @@ impl Reference {
         };
         Some(Self {
             project,
-            number: number(digits)?,
+            ticket: ticket(digits)?,
         })
     }
 
     // As typed, without the project when it was not typed.
     fn label(&self) -> String {
         let project = self.project.as_ref().map_or("", ProjectName::as_str);
-        format!("{project}#{}", self.number)
+        format!("{project}{}", self.ticket.shown())
     }
 }
 
@@ -169,7 +171,8 @@ fn locate(
     named: Option<&ProjectName>,
     reference: &Reference,
 ) -> Result<(ProjectName, Ruling), String> {
-    let Reference { project, number } = reference;
+    let Reference { project, ticket } = reference;
+    let shown = ticket.shown();
     let on = match (project, named) {
         (Some(p), Some(n)) if p != n => {
             return Err(format!(
@@ -180,7 +183,7 @@ fn locate(
         (Some(p), _) | (None, Some(p)) => Some(p.as_str()),
         (None, None) => None,
     };
-    let about = |r: &Ruling| r.issue == Some(*number) || r.pull_request == Some(*number);
+    let about = |r: &Ruling| r.issue == Some(*ticket) || r.pull_request == ticket.github();
     let mut found: Vec<&(String, Ruling)> = (waiting.open.iter())
         .filter(|(p, r)| about(r) && on.is_none_or(|on| on == p))
         .collect();
@@ -206,21 +209,21 @@ fn locate(
             .collect::<Vec<_>>()
             .join(" and ")
     });
-    let name_one = format!("so name the project: `shep kelpie rule <project>#{number} <answer>`");
+    let name_one = format!("so name the project: `shep kelpie rule <project>{shown} <answer>`");
     match (found.as_slice(), unread) {
         ([(project, _)], Some(unread)) => Err(format!(
-            "#{number} has a ruling on {project}, and {unread} rulings cannot be read, {name_one}"
+            "{shown} has a ruling on {project}, and {unread} rulings cannot be read, {name_one}"
         )),
         ([(project, ruling)], None) => {
             let project = ProjectName::try_from(project.as_str()).map_err(|e| e.to_string())?;
             Ok((project, ruling.clone()))
         }
         ([], Some(unread)) => Err(format!(
-            "no ruling on #{number} is waiting, and {unread} rulings cannot be read, {name_one}"
+            "no ruling on {shown} is waiting, and {unread} rulings cannot be read, {name_one}"
         )),
         ([], None) => Err(format!(
-            "no ruling on {} is waiting: a ruling is named by the number of its issue or \
-             pull request, and `shep kelpie rule` lists those that are waiting",
+            "no ruling on {} is waiting: a ruling is named by its pull request's number or \
+             its ticket's id, and `shep kelpie rule` lists those that are waiting",
             reference.label()
         )),
         (more, _) => {
@@ -235,8 +238,8 @@ fn locate(
                 ));
             }
             Err(format!(
-                "#{number} has a ruling on {}, so name one: \
-                 `shep kelpie rule <project>#{number} <answer>`",
+                "{shown} has a ruling on {}, so name one: \
+                 `shep kelpie rule <project>{shown} <answer>`",
                 projects.join(" and ")
             ))
         }
@@ -313,7 +316,7 @@ fn pick(
         let line = read(output, &prompt).ok_or_else(nothing)?;
         let (id, rest) = line.split_once(' ').unwrap_or((&line, ""));
         let rest = rest.trim();
-        let id = match (number(id), only) {
+        let id = match (ticket(id), only) {
             (Some(id), _) => id,
             (None, Some(only)) if line.is_empty() => only,
             _ => {
@@ -374,10 +377,10 @@ fn say(output: &mut dyn Write, text: &str) {
     let _ = output.flush();
 }
 
-// Digits only, so `#14` is refused rather than read as 14.
-fn number(text: &str) -> Option<u64> {
-    let n = text.parse::<u64>().ok()?;
-    (n > 0 && text.bytes().all(|b| b.is_ascii_digit())).then_some(n)
+// A ticket's id as written: `14` or `k12`, so `#14` on its own is refused
+// rather than read as 14.
+fn ticket(text: &str) -> Option<TicketId> {
+    text.parse().ok()
 }
 
 #[cfg(test)]

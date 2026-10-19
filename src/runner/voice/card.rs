@@ -20,6 +20,7 @@ use super::super::{Action, Answer};
 use super::merge_notes;
 use crate::panel::Voter;
 use crate::state::{Held, Ruling, RulingKind, Stuck};
+use crate::ticket::TicketId;
 use crate::work_item::Phase;
 
 /// What the project manager's `no` is in a table, when it has no more to say
@@ -812,7 +813,7 @@ fn cell(text: &str) -> String {
     line.replace('|', "\\|")
 }
 
-fn answering(login: &str, number: u64, kind: &RulingKind, choices: &[Choice]) -> String {
+fn answering(login: &str, number: TicketId, kind: &RulingKind, choices: &[Choice]) -> String {
     let mut lines = vec![format!("@{login}")];
     let tick = |lines: &mut Vec<String>| {
         lines.extend(
@@ -873,7 +874,7 @@ fn or_list(items: &[String]) -> String {
 }
 
 // A ruling that mentions no one is answered at the terminal only.
-fn unmentioned(number: u64, kind: &RulingKind, choices: &[Choice]) -> String {
+fn unmentioned(number: TicketId, kind: &RulingKind, choices: &[Choice]) -> String {
     let rule = format!("shep kelpie rule {number}");
     let forms = match Wants::of(kind) {
         Wants::Answer => format!("`{rule} <your answer>`"),

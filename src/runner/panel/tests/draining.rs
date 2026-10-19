@@ -8,6 +8,7 @@ use super::{name_panel, ruling_comment, script_all, seen, settle, state_of};
 use crate::ports::{Checks, Role};
 use crate::runner::panel::HOLD;
 use crate::runner::{Runner, StepReport, step};
+use crate::test::ticket;
 use crate::test::{Rig, Scripted};
 
 const QUESTION: &str = "Done so far.\n\n<kelpie-question>\nWhich flag?\n- `--dry-run`\n\
@@ -24,8 +25,8 @@ fn raised_in_a_drain(project: &str) -> (Rig, Mutex<Runner>) {
     rig.ask(&runner, "drain", None);
     assert!(matches!(
         rig.verdict(&runner),
-        Some(StepReport::Ruling { id: 71, .. })
-    ));
+        Some(StepReport::Ruling { id, .. })
+     if id == ticket(71)));
     (rig, runner)
 }
 
@@ -146,7 +147,7 @@ fn a_question_put_to_the_project_manager_in_a_drain_is_left_to_it_and_not_taken_
     rig.claude.script([Scripted::Say(QUESTION)]);
     assert!(matches!(
         step(&runner).unwrap(),
-        Some(StepReport::Asked { id: 71, .. })
+        Some(StepReport::Asked { id, .. }) if id == ticket(71)
     ));
     script_all(&rig, true);
 

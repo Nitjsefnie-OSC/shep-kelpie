@@ -66,7 +66,7 @@ fn a_released_fork_contribution_is_adopted_and_its_worktree_is_at_the_forks_head
     assert_eq!(step(&runner).unwrap(), Some(adopted()));
 
     let state = runner.lock().unwrap().state.clone();
-    let item = state.item(5).expect("the adopted work item");
+    let item = state.item(ticket(5)).expect("the adopted work item");
     assert_eq!(
         git(&rig.paths().worktree(ticket(5)), &["rev-parse", "HEAD"]),
         fork_head
@@ -124,7 +124,7 @@ fn a_released_branch_in_the_repo_itself_by_another_author_is_adopted() {
     assert_eq!(step(&runner).unwrap(), Some(adopted()));
 
     let state = runner.lock().unwrap().state.clone();
-    let item = state.item(5).expect("the adopted work item");
+    let item = state.item(ticket(5)).expect("the adopted work item");
     assert_eq!(item.branch, "topic/80");
     assert_eq!(
         item.remote,
@@ -206,7 +206,7 @@ fn a_pull_request_that_closes_an_issue_is_adopted_against_that_one() {
     assert_eq!(step(&runner).unwrap(), Some(adopted()));
 
     let status = rig.ask(&runner, "status", None);
-    assert_eq!(status["work_item"]["issue"], 5);
+    assert_eq!(status["work_item"]["issue"], "5");
     assert!(rig.forge.created().is_empty(), "no issue was filed");
     assert_eq!(
         rig.github.issues_created(),

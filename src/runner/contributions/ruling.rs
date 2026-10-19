@@ -22,6 +22,7 @@ use crate::settings::PerItemUsd;
 use crate::state::{
     Asked, Contribution, Held, How, ProjectState, Released, Ruled, Ruling, RulingKind, Verdict,
 };
+use crate::ticket::TicketId;
 
 /// The answer to the ruling for a contributor who said no twice that waits
 /// on, and asks again after
@@ -147,17 +148,17 @@ fn raise_held(next: &mut ProjectState, pull_request: u64, held: Held, now: Times
 // The merge ruling is the one a contribution can go without, so another one
 // takes its place, and it is raised again once that is answered.
 fn raise_with(next: &mut ProjectState, pull_request: u64, held: Held, facts: &str, now: Timestamp) {
-    next.rulings.retain(|r| {
-        r.id != pull_request || !matches!(r.kind, RulingKind::Contribution(Held::Merge { .. }))
-    });
+    let id = TicketId::from_pull_request(pull_request);
+    next.rulings
+        .retain(|r| r.id != id || !matches!(r.kind, RulingKind::Contribution(Held::Merge { .. })));
     let kind = RulingKind::Contribution(held);
-    let mut question = question(pull_request, Some(pull_request), &kind);
+    let mut question = question(id, Some(pull_request), &kind);
     if !facts.is_empty() {
         question.push('\n');
         question.push_str(facts);
     }
     next.rulings.push(Ruling {
-        id: pull_request,
+        id,
         issue: None,
         question,
         pull_request: Some(pull_request),
@@ -179,10 +180,10 @@ pub(super) fn withdraw(next: &mut ProjectState) {
     let followed = &next.contributions;
     next.rulings.retain(|r| match &r.kind {
         RulingKind::Contribution(Held::Security { head, .. }) => {
-            (followed.iter()).any(|c| c.pull_request == r.number() && c.head == *head)
+            (followed.iter()).any(|c| r.pull_request == Some(c.pull_request) && c.head == *head)
         }
         RulingKind::Contribution(Held::Merge { head }) => {
-            (followed.iter()).any(|c| c.pull_request == r.number() && c.head == *head)
+            (followed.iter()).any(|c| r.pull_request == Some(c.pull_request) && c.head == *head)
         }
         RulingKind::Contribution(
             Held::OverBudget { .. }
@@ -190,7 +191,7 @@ pub(super) fn withdraw(next: &mut ProjectState) {
             | Held::Waiting
             | Held::NoEdits
             | Held::CannotAdopt { .. },
-        ) => (followed.iter()).any(|c| c.pull_request == r.number()),
+        ) => (followed.iter()).any(|c| r.pull_request == Some(c.pull_request)),
         _ => true,
     });
 }
@@ -220,7 +221,8 @@ pub(in crate::runner) fn raise_budget(
     {
         return false;
     }
-    let followed = (next.contributions.iter_mut()).find(|c| c.pull_request == ruling.number());
+    let followed =
+        (next.contributions.iter_mut()).find(|c| ruling.pull_request == Some(c.pull_request));
     if let Some(followed) = followed {
         followed.raise_budget(per_item);
     }
@@ -238,7 +240,8 @@ pub(in crate::runner) fn keep_answer(next: &mut ProjectState, answer: &Answer, r
     else {
         return;
     };
-    let followed = (next.contributions.iter_mut()).find(|c| c.pull_request == ruling.number());
+    let followed =
+        (next.contributions.iter_mut()).find(|c| ruling.pull_request == Some(c.pull_request));
     if let Some(deciding) = followed.and_then(|c| c.deciding.as_mut()) {
         deciding.answer = Some(text.trim().to_owned());
     }
@@ -275,7 +278,7 @@ pub(in crate::runner) fn rule_merge(next: &mut ProjectState, answer: &Answer, ru
         _ => return,
     };
     let followed = (next.contributions.iter_mut())
-        .find(|c| c.pull_request == ruling.number() && c.head == *head);
+        .find(|c| ruling.pull_request == Some(c.pull_request) && c.head == *head);
     if let Some(followed) = followed {
         followed.ruled = Some(Ruled {
             head: head.clone(),
@@ -317,7 +320,8 @@ pub(in crate::runner) fn settle(
     if no_edits {
         return settle_no_edits(next, ruling, &words, now);
     }
-    let followed = (next.contributions.iter_mut()).find(|c| c.pull_request == ruling.number());
+    let followed =
+        (next.contributions.iter_mut()).find(|c| ruling.pull_request == Some(c.pull_request));
     match chosen.as_str() {
         KEEP_WAITING | "keep" => {
             if let Some(held) = followed {
@@ -368,7 +372,9 @@ fn settle_no_edits(
     words: &str,
     now: Timestamp,
 ) -> Result<(), RuleError> {
-    let number = ruling.number();
+    let Some(number) = ruling.pull_request else {
+        return Ok(());
+    };
     match words.to_ascii_lowercase().as_str() {
         LEAVE_OPEN | "leave" => {
             if !next.left_open.contains(&number) {
@@ -433,7 +439,7 @@ pub(in crate::runner) fn trust(
         _ => return Ok(()),
     };
     let followed = (next.contributions.iter_mut())
-        .find(|c| c.pull_request == ruling.number() && c.head == *held);
+        .find(|c| ruling.pull_request == Some(c.pull_request) && c.head == *held);
     if let Some(followed) = followed {
         followed.passed = Some(held.clone());
     }

@@ -15,6 +15,7 @@ use crate::lease::LeaseKind;
 use crate::lease::wire::{AskerCarry, WindowFact};
 use crate::review_bot::{Activity, Login, Profile, ReviewWindow};
 use crate::settings::{Account, ForgeSlug};
+use crate::ticket::TicketId;
 use crate::webhook::Webhook;
 
 mod agent;
@@ -641,8 +642,8 @@ pub struct Alert {
 /// The ruling a reply on the webhook's topic answers, and what it takes
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReplyWith {
-    /// The number a reply starts with: the ruling's pull request or issue
-    pub number: u64,
+    /// The ticket a reply starts with: the ruling's pull request or issue
+    pub ticket: TicketId,
     /// What answers it
     pub takes: Takes,
 }

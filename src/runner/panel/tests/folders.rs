@@ -33,9 +33,9 @@ fn the_researcher_is_given_the_history_the_threads_the_workers_session_and_the_m
     write_in(
         &paths.folder,
         "rulings.jsonl",
-        "{\"id\":0,\"at\":1790000000,\"issue\":3,\"pull_request\":30,\
+        "{\"id\":\"30\",\"at\":1790000000,\"issue\":\"3\",\"pull_request\":30,\
          \"asked\":\"Merge this pull request at abc1234 into main?\",\"answer\":\"yes\"}\n\
-         {\"id\":1,\"at\":1790000100,\"issue\":4,\"pull_request\":40,\
+         {\"id\":\"40\",\"at\":1790000100,\"issue\":\"4\",\"pull_request\":40,\
          \"asked\":\"Retry the failed turn?\",\"answer\":\"yes\",\"by_pm\":true}\n",
     );
     rig.writes_on(71, "reviewer", "THREAD-MARK please add a test");
@@ -77,7 +77,7 @@ fn the_researcher_is_given_the_history_the_threads_the_workers_session_and_the_m
     assert!(read(&researcher.join("ruling.md")).contains("Merge this pull request"));
     let history = read(&researcher.join("rulings.md"));
     assert!(
-        history.contains("Ruling 0 (issue #3, pull request #30)"),
+        history.contains("Ruling 30 (issue #3, pull request #30)"),
         "{history}"
     );
     assert!(
@@ -143,8 +143,8 @@ fn an_answered_ruling_is_kept_for_the_researcher_with_its_answer() {
 
     let kept = read(&rig.paths().rulings);
     let record: serde_json::Value = serde_json::from_str(kept.lines().next().unwrap()).unwrap();
-    assert_eq!(record["id"], 71);
-    assert_eq!(record["issue"], 7);
+    assert_eq!(record["id"], "71");
+    assert_eq!(record["issue"], "7");
     assert_eq!(record["pull_request"], 71);
     assert_eq!(record["answer"], "no: add a test first");
     assert!(

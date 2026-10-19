@@ -56,12 +56,10 @@ impl Runner {
         if self.state.work_items.is_empty() {
             out.push_str("(none)\n");
         }
-        let items: Vec<(u64, TicketId)> = (self.state.work_items.iter())
-            .filter_map(|i| Some((i.issue, i.ticket()?)))
-            .collect();
-        for (issue, ticket) in items {
+        let items: Vec<TicketId> = (self.state.work_items.iter()).map(|i| i.issue).collect();
+        for ticket in items {
             let file = diff_file(ticket);
-            let read = match self.merged_branch(issue) {
+            let read = match self.merged_branch(ticket) {
                 Some(branch) => Some(self.merged_patch(&branch, ticket)),
                 None => self.brief_patch(ticket).cloned(),
             };
@@ -75,14 +73,20 @@ impl Runner {
                 Ok(()) => format!("diff `{file}`"),
                 Err(why) => {
                     self.notes.push(format!(
-                        "no diff of #{issue} for the project manager: {why}"
+                        "no diff of {} for the project manager: {why}",
+                        ticket.shown()
                     ));
                     format!("no diff: {why}")
                 }
             };
             let worktree = self.paths.worktree(ticket);
-            let _ = write!(out, "- #{issue}: worktree `{}`, {diff}", worktree.display());
-            if let Some(log) = logs.remove(&issue) {
+            let _ = write!(
+                out,
+                "- {}: worktree `{}`, {diff}",
+                ticket.shown(),
+                worktree.display()
+            );
+            if let Some(log) = logs.remove(&ticket) {
                 let _ = write!(out, ", {log}");
             }
             out.push('\n');
@@ -93,8 +97,8 @@ impl Runner {
     // The branch of `issue`'s work item if it is parked on a follow-up
     // ruling, since its pull request merged and the board's diff of it
     // from `main` is empty.
-    fn merged_branch(&self, issue: u64) -> Option<String> {
-        let item = self.state.item(issue)?;
+    fn merged_branch(&self, ticket: TicketId) -> Option<String> {
+        let item = self.state.item(ticket)?;
         let Phase::Ruling { id } = item.phase else {
             return None;
         };

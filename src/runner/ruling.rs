@@ -17,9 +17,9 @@ use super::talk::with_thread_lines;
 use super::thread_replies::Settler;
 use super::{Names, Runner};
 use crate::ports::Timestamp;
-use crate::runner::report::ticket_of;
 use crate::settings::Merging;
 use crate::state::{Fix, Held, ProjectState, Resume, Ruling, RulingKind, StateError, Stuck};
+use crate::ticket::TicketId;
 use crate::work_item::{Known, Phase, Review, ReviewStage, Turn, WorkItem, foreign_change};
 use crate::worktree::{self};
 
@@ -86,16 +86,16 @@ pub enum Action {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RuleError {
     /// No pending ruling has this id
-    NoSuchRuling(u64),
+    NoSuchRuling(TicketId),
     /// The ruling is the worker's question, and was given a yes or a no
-    WantsAnswer(u64),
+    WantsAnswer(TicketId),
     /// The ruling is not a question, and was given an answer
-    NotAQuestion(u64),
+    NotAQuestion(TicketId),
     /// The ruling is not a merge ruling, and was given a rework
-    NotAMerge(u64),
+    NotAMerge(TicketId),
     /// The ruling asks for an issue's label, which no note can give, and
     /// was given a no
-    YesOnly(u64),
+    YesOnly(TicketId),
     /// The `ready-for-human` label could not come off this pull request
     Unlabel(u64, String),
     /// The threads that held a merge ruling could not be read from the forge
@@ -103,16 +103,16 @@ pub enum RuleError {
     /// The worktree could not be brought to the head a yes accepted
     Adopt(String, String),
     /// A ruling the panel decided could not be reopened
-    Reopen(u64, String),
+    Reopen(TicketId, String),
     /// The ruling lists no option for this action
-    NotOffered(u64, Action),
+    NotOffered(TicketId, Action),
     /// The action an option names could not be carried out
-    Act(u64, String),
+    Act(TicketId, String),
     /// A yes does not fit this ruling's head: it names none or another, or the
     /// ruling is not one that takes a head
-    Head(u64, String),
+    Head(TicketId, String),
     /// The answer is none of the ruling's options
-    Choice(u64, String),
+    Choice(TicketId, String),
     /// The answer could not be saved
     State(StateError),
 }
@@ -200,7 +200,7 @@ impl Runner {
     /// [`RuleError`] when no such ruling is pending, the answer does not fit
     /// it, or the answer cannot be saved. The ruling stays pending then, and
     /// answering again is safe: a worktree already at an accepted head is left.
-    pub fn rule(&mut self, id: u64, answer: Answer) -> Result<(), RuleError> {
+    pub fn rule(&mut self, id: TicketId, answer: Answer) -> Result<(), RuleError> {
         self.rule_by(id, answer, Settler::Terminal)
     }
 
@@ -209,7 +209,7 @@ impl Runner {
     // it, and the panel's measurements count only the maintainer's.
     pub(super) fn apply(
         &mut self,
-        id: u64,
+        id: TicketId,
         answer: Answer,
         by: super::panel::Answerer,
         unread: bool,
@@ -296,7 +296,7 @@ impl Runner {
         let parked_on = |item: &WorkItem| item.phase == Phase::Ruling { id };
         let parked = next.work_items.iter().find(|item| parked_on(item));
         // The answer moves only the work item it parks, whichever is open.
-        self.focus = parked.and_then(|item| item.ticket());
+        self.focus = parked.map(|item| item.issue);
         // A ruling raised before the ids were kept (state version 24) names
         // its threads and holds no ids, so the forge says which hold it now.
         let accepted = match (&answer, &ruling.kind) {
@@ -504,7 +504,7 @@ impl Runner {
     fn ask_again(
         &mut self,
         mut next: ProjectState,
-        issue: u64,
+        issue: TicketId,
         number: Option<u64>,
         change: Option<(Known, String)>,
         now: Timestamp,
@@ -539,7 +539,7 @@ impl Runner {
         self.word_effects(id)?;
         let comment_failed = self.post_ruling(Some(number), id);
         Ok(Begin::Report(StepReport::Ruling {
-            issue: ticket_of(issue),
+            issue,
             pull_request: number,
             id,
             question,
@@ -558,7 +558,7 @@ impl Runner {
     // A ruling that went up through the App with a mention is saved with
     // where it is answered in its thread: the login it mentions, and the
     // comment's own id and time as GitHub gave them.
-    pub(super) fn post_ruling(&mut self, number: Option<u64>, id: u64) -> Option<String> {
+    pub(super) fn post_ruling(&mut self, number: Option<u64>, id: TicketId) -> Option<String> {
         // A contribution's ruling stays off the contributor's pull request.
         if (self.state.rulings.iter()).any(|r| r.id == id && r.kind.is_contribution()) {
             return None;
@@ -578,7 +578,7 @@ impl Runner {
         let ruling = self.state.rulings.iter().find(|r| r.id == id)?;
         if self.app_covers() {
             // Only a GitHub ticket is a thread to comment on.
-            let thread = number.or(ruling.ticket().and_then(|ticket| ticket.github()))?;
+            let thread = number.or(ruling.issue.and_then(|ticket| ticket.github()))?;
             let (failed, placed) = self.post_app_ruling(thread, ruling);
             if let Some(placed) = placed {
                 let mut next = self.state.clone();
@@ -641,12 +641,13 @@ fn regate(repo: &std::path::Path, item: &mut WorkItem) -> Result<bool, RuleError
 pub(super) fn park(
     names: Names,
     next: &mut ProjectState,
-    issue: u64,
+    issue: TicketId,
     pull_request: Option<u64>,
     kind: RulingKind,
-) -> (u64, String) {
-    // A work item parks on one ruling at a time, so its number names it.
-    let id = pull_request.unwrap_or(issue);
+) -> (TicketId, String) {
+    // A work item parks on one ruling at a time, so its pull request's number
+    // names it, or its ticket's id before there is one.
+    let id = pull_request.and_then(TicketId::from_issue).unwrap_or(issue);
     let item = next
         .item_mut(issue)
         .expect("a ruling is about an open work item");
@@ -680,7 +681,7 @@ fn comment(kind: &RulingKind) -> Option<String> {
 
 // A yes, a no or an answer that does not fit the ruling is refused.
 fn decide(
-    id: u64,
+    id: TicketId,
     answer: Answer,
     ruling: Ruling,
     now: Timestamp,

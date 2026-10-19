@@ -60,7 +60,7 @@ fn adopt_starts_at_ci_and_the_first_turn_names_the_file_ahead_of_the_red_run() {
     let item = &status["work_item"];
     assert_eq!(
         (&item["issue"], &item["branch"], &item["pull_request"]),
-        (&json!(5), &json!("fix/timeline"), &json!(80))
+        (&json!("5"), &json!("fix/timeline"), &json!(80))
     );
     assert_eq!(item["adopted"], true);
     assert_eq!(item["phase"]["state"], "ci");
@@ -111,8 +111,8 @@ fn adopt_starts_at_ci_and_the_first_turn_names_the_file_ahead_of_the_red_run() {
     rig.forge.set_checks(&fixed, Checks::Passed);
     assert!(matches!(
         rig.verdict(&runner),
-        Some(StepReport::Ruling { id: 80, .. })
-    ));
+        Some(StepReport::Ruling { id, .. })
+     if id == ticket(80)));
     assert_eq!(rig.reviewer.seen(), [], "no qwen round, before or after");
 }
 
@@ -458,7 +458,7 @@ fn adopted_pull_requests_wait_for_the_work_item_in_flight_across_a_restart() {
     let runner = rig.open().unwrap();
     let status = rig.ask(&runner, "status", None);
     assert_eq!(status["adopted"], waiting(&[81, 80], false));
-    assert_eq!(status["work_item"]["issue"], 7);
+    assert_eq!(status["work_item"]["issue"], "7");
     rig.ask(&runner, "drop", None);
     assert_eq!(
         step(&runner).unwrap(),
@@ -811,7 +811,7 @@ fn an_adopt_failing_on_every_pass_raises_one_ruling_until_its_error_changes() {
     let [ruling] = status["rulings"].as_array().unwrap().as_slice() else {
         panic!("one ruling: {status}");
     };
-    assert_eq!(ruling["id"], 80);
+    assert_eq!(ruling["id"], "80");
     assert_eq!(ruling["pull_request"], 80);
     assert_eq!(ruling["kind"]["kind"], "stuck");
     assert_eq!(ruling["kind"]["reason"], "adopt-failed");

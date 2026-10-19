@@ -9,6 +9,7 @@ use super::{assert_sums, held_while, read_while_held, secs, timings};
 use crate::ports::{AgentError, Checks, SessionId};
 use crate::runner::{Runner, StepReport, step};
 use crate::settings::Harness;
+use crate::test::ticket;
 use crate::test::{CALL_PATIENCE, Hold, Rig, Scripted};
 
 #[test]
@@ -162,8 +163,8 @@ fn ci_and_a_ruling_each_keep_their_own_seconds() {
     rig.forge.set_checks(&head, Checks::Passed);
     assert!(matches!(
         rig.verdict(&runner),
-        Some(StepReport::Ruling { id: 71, .. })
-    ));
+        Some(StepReport::Ruling { id, .. })
+     if id == ticket(71)));
     let waiting_on_ci = secs(&timings(&rig, &runner), "ci");
     assert!(waiting_on_ci >= 600);
 

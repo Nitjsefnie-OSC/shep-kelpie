@@ -207,7 +207,7 @@ impl Runner {
         let Some(item) = self.current() else {
             return;
         };
-        let ticket = item.ticket().expect("a work item's issue is never zero");
+        let ticket = item.issue;
         let name = placed_name(ticket);
         let text = match worker_folder::read(&self.paths.worker, Path::new(&name)) {
             Ok(Some(text)) => text,
@@ -281,7 +281,7 @@ impl Runner {
             .ok_or("the project has no `ci.test_command` now")?;
         let command = fill(template.as_str(), test)?;
         let rel = Path::new(test);
-        let ticket = item.ticket().expect("a work item's issue is never zero");
+        let ticket = item.issue;
         let kept = kept_folder(&self.paths.worker, ticket);
         let text = worker_folder::read(&kept, rel)
             .map_err(|e| format!("cannot read the kept copy of {test}: {e}"))?

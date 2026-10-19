@@ -27,6 +27,7 @@ use crate::ports::{
     AgentCall, DevPort, DevRun, DevServers, Policy, READY_WITHIN, Reach, Session, Started,
 };
 use crate::settings::{NonBlank, Settings};
+use crate::ticket::TicketId;
 use crate::work_item::WorkItem;
 
 /// How many times a port is picked before one that no other plan holds is given up on
@@ -55,21 +56,21 @@ pub(super) fn is_on(settings: &Settings) -> bool {
     }
 }
 
-/// The dev servers planned for turns not yet over, by the issue of their work item
+/// The dev servers planned for turns not yet over, by the ticket of their work item
 #[derive(Debug, Default)]
 pub(super) struct Planned {
-    turns: Mutex<BTreeMap<u64, DevRun>>,
+    turns: Mutex<BTreeMap<TicketId, DevRun>>,
     // The ports of the servers a bump's proof runs, by the bump's pull request
     proofs: Mutex<BTreeMap<u64, u16>>,
 }
 
 impl Planned {
-    // Replaces the plan held for `issue`, or drops it.
-    pub(super) fn hold(&self, issue: u64, plan: Option<DevRun>) {
+    // Replaces the plan held for `ticket`, or drops it.
+    pub(super) fn hold(&self, ticket: TicketId, plan: Option<DevRun>) {
         let mut held = self.turns.lock().unwrap_or_else(PoisonError::into_inner);
         match plan {
-            Some(plan) => held.insert(issue, plan),
-            None => held.remove(&issue),
+            Some(plan) => held.insert(ticket, plan),
+            None => held.remove(&ticket),
         };
     }
 
@@ -82,9 +83,9 @@ impl Planned {
             .collect()
     }
 
-    pub(super) fn get(&self, issue: u64) -> Option<DevRun> {
+    pub(super) fn get(&self, ticket: TicketId) -> Option<DevRun> {
         let held = self.turns.lock().unwrap_or_else(PoisonError::into_inner);
-        held.get(&issue).cloned()
+        held.get(&ticket).cloned()
     }
 
     // Holds `port` for the proof of bump `pull_request`, or lets it go.
@@ -115,8 +116,8 @@ impl Runner {
         let without = |why: String| {
             self.metrics.feature_ran(Feature::DevServer, "failed");
             self.notes.push(format!(
-                "issue #{}'s worker runs without a dev server: {why}",
-                item.issue
+                "{}'s worker runs without a dev server: {why}",
+                item.issue.named().to_lowercase()
             ));
             Some(DevServer::Without(why))
         };
@@ -203,13 +204,13 @@ impl Runner {
         }
     }
 
-    /// The gate on the port of the dev server planned for `issue`'s turn
+    /// The gate on the port of the dev server planned for `ticket`'s turn
     ///
     /// It is shut until the server answers, so the browser opens no port that
     /// kelpie has not seen its own server answer on.
-    pub(super) fn dev_gate(&self, issue: u64) -> DevPort {
+    pub(super) fn dev_gate(&self, ticket: TicketId) -> DevPort {
         self.planned
-            .get(issue)
+            .get(ticket)
             .map(|plan| plan.gate)
             .unwrap_or_default()
     }
@@ -218,13 +219,13 @@ impl Runner {
     /// the call has a browser to open it
     pub(super) fn dev_run(&self, call: &AgentCall) -> Option<DevRun> {
         call.reach.browser.as_ref()?;
-        self.planned.get(call.issue)
+        (TicketId::from_issue(call.issue)).and_then(|ticket| self.planned.get(ticket))
     }
 
     /// The current work item's turn is over: its dev server's plan goes
     pub(super) fn dev_server_ended(&self) {
-        if let Some(issue) = self.current().map(|item| item.issue) {
-            self.planned.hold(issue, None);
+        if let Some(ticket) = self.current().map(|item| item.issue) {
+            self.planned.hold(ticket, None);
         }
     }
 }

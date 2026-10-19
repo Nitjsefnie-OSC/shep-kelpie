@@ -258,7 +258,10 @@ mod tests {
             rig.with_app();
         }
         let runner = rig.open().unwrap();
-        assert_eq!(rig.ask(&runner, "add", Some("7"))["work_item"]["issue"], 7);
+        assert_eq!(
+            rig.ask(&runner, "add", Some("7"))["work_item"]["issue"],
+            "7"
+        );
         std::fs::create_dir_all(rig.build_7()).unwrap();
         (rig, runner)
     }
@@ -572,7 +575,10 @@ body
         rig.with_app();
         rig.forbid_word(&["publish"], "Acme");
         let runner = rig.open().unwrap();
-        assert_eq!(rig.ask(&runner, "add", Some("7"))["work_item"]["issue"], 7);
+        assert_eq!(
+            rig.ask(&runner, "add", Some("7"))["work_item"]["issue"],
+            "7"
+        );
         let (build, runner) = (rig.build_7(), runner.lock().unwrap());
         std::fs::create_dir_all(&build).unwrap();
         rig.forge.open_pull_request(500, "kelpie/7", &[7]);

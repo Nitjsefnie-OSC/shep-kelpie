@@ -15,9 +15,8 @@ use super::Runner;
 use super::pm::Choice;
 use super::report::{Begin, StepReport};
 use crate::board::{self, ReadyIssue, Skip};
-use crate::runner::report::ticket_of;
 use crate::state::StateError;
-use crate::ticket::{TicketId, issue_numbers, ticket_ids};
+use crate::ticket::TicketId;
 
 impl Runner {
     // The step runs this only while the board may open a work item, and it
@@ -41,7 +40,7 @@ impl Runner {
         self.trim_dropped(&ready)?;
         // An issue in flight is left out, and not listed in `skipped`: it is
         // being worked on, not passed over.
-        ready.retain(|issue| self.state.item_by_ticket(issue.ticket).is_none());
+        ready.retain(|issue| self.state.item(issue.ticket).is_none());
         self.ready_read(&ready)?;
         if let Some(begin) = self.close_done_parent(&ready) {
             return Ok(begin);
@@ -79,8 +78,8 @@ impl Runner {
         let all = takeable(
             &ready,
             &open,
-            &ticket_ids(&self.state.finished),
-            &ticket_ids(&self.state.dropped),
+            &self.state.finished,
+            &self.state.dropped,
             &implementers,
         );
         let held = self.pm_holds(&all);
@@ -89,11 +88,8 @@ impl Runner {
         let mut unlabelled: Vec<Skip> = Vec::new();
         loop {
             let implementers = self.agents.implementer_names();
-            let (finished, dropped) = (
-                ticket_ids(&self.state.finished),
-                ticket_ids(&self.state.dropped),
-            );
-            let order = ticket_ids(&self.state.order);
+            let (finished, dropped) = (self.state.finished.clone(), self.state.dropped.clone());
+            let order = self.state.order.clone();
             let pick = board::pick(&ready, &open, &finished, &dropped, &implementers, &order);
             let mut skipped = pick.skipped;
             skipped.extend(failed.iter().cloned());
@@ -159,11 +155,11 @@ impl Runner {
             };
             // An issue the issue writer is labelling waits for it, even one
             // labelled by hand meanwhile.
-            let labelling = self.flights.labelling() == Some(issue);
+            let labelling = self.flights.labelling() == Some(ticket);
             if let Some(found) = ready.iter().find(|i| i.ticket == ticket)
                 && (labelling || self.needs_label(found))
             {
-                let ruling = self.unlabelled_ruling(issue);
+                let ruling = self.unlabelled_ruling(ticket);
                 if labelling
                     || ruling.is_some()
                     || self.draining()
@@ -188,7 +184,7 @@ impl Runner {
                 Ok(agent) => {
                     self.set_skipped(skipped.clone());
                     return Ok(Begin::Report(StepReport::Dispatched {
-                        issue: ticket_of(issue),
+                        issue: ticket,
                         agent,
                         skipped,
                     }));
@@ -236,27 +232,24 @@ impl Runner {
     // a new issue joins it, one whose priority label changed moves, and one
     // the forge stopped listing leaves it.
     fn follow_order(&mut self, ready: &[ReadyIssue]) -> Result<(), StateError> {
-        let (order, ranked) =
-            board::keep_order(&ticket_ids(&self.state.order), &self.state.ranked, ready);
-        let kept = issue_numbers(&order);
-        if kept == self.state.order && ranked == self.state.ranked {
+        let (order, ranked) = board::keep_order(&self.state.order, &self.state.ranked, ready);
+        if order == self.state.order && ranked == self.state.ranked {
             return Ok(());
         }
         let mut next = self.state.clone();
-        next.order = kept;
+        next.order = order;
         next.ranked = ranked;
         self.save(next)
     }
 
     // The board skips a finished issue until the forge closes it, so an entry
-    // goes only once its issue reads as closed. One the forge lists ready is
+    // goes only once its ticket reads as closed. One the forge lists ready is
     // open, and one it cannot answer for stays.
     fn trim_finished(&mut self, ready: &[ReadyIssue]) -> Result<(), StateError> {
         let repo = &self.remote;
-        let closed: Vec<u64> = (ticket_ids(&self.state.finished).into_iter())
-            .filter(|t| !ready.iter().any(|r| &r.ticket == t))
+        let closed: Vec<TicketId> = (self.state.finished.iter().copied())
+            .filter(|t| !ready.iter().any(|r| r.ticket == *t))
             .filter(|t| self.ports.tickets.issue(repo, *t).is_ok_and(|i| !i.open))
-            .filter_map(|t| t.github())
             .collect();
         if closed.is_empty() {
             return Ok(());
@@ -267,9 +260,9 @@ impl Runner {
     }
 
     // The board is read only while it may open a work item, so a dropped
-    // issue's label is read on its own when it has not been, at most once a poll. One
-    // that is closed or lost `ready-for-agent` is forgotten, so putting the
-    // label back returns it. One the forge cannot answer for stays.
+    // ticket's label is read on its own when it has not been, at most once a
+    // poll. One that is closed or lost `ready-for-agent` is forgotten, so
+    // putting the label back returns it. One the forge cannot answer for stays.
     pub(super) fn recheck_dropped(&mut self) -> Result<(), StateError> {
         if self.state.dropped.is_empty() {
             return Ok(());
@@ -281,14 +274,13 @@ impl Runner {
         let unlabelled = |issue: &crate::ports::Issue| {
             !issue.open || !issue.labels.iter().any(|l| l == board::READY)
         };
-        let gone: Vec<u64> = (ticket_ids(&self.state.dropped).into_iter())
+        let gone: Vec<TicketId> = (self.state.dropped.iter().copied())
             .filter(|t| {
                 self.ports
                     .tickets
                     .issue(repo, *t)
                     .is_ok_and(|i| unlabelled(&i))
             })
-            .filter_map(|t| t.github())
             .collect();
         if gone.is_empty() {
             return Ok(());
@@ -298,18 +290,19 @@ impl Runner {
         self.save(next)
     }
 
-    // The board leaves a dropped issue be while the forge lists it ready, so an
-    // entry goes once the forge stops listing it: a label put back is then new.
+    // The board leaves a dropped ticket be while the forge lists it ready, so
+    // an entry goes once the forge stops listing it: a label put back is then
+    // new.
     fn trim_dropped(&mut self, ready: &[ReadyIssue]) -> Result<(), StateError> {
-        let listed = |t: &TicketId| ready.iter().any(|r| &r.ticket == t);
-        let kept: Vec<TicketId> = (ticket_ids(&self.state.dropped).into_iter())
-            .filter(listed)
+        let kept: Vec<TicketId> = (self.state.dropped.iter())
+            .filter(|t| ready.iter().any(|r| &r.ticket == *t))
+            .copied()
             .collect();
         if kept.len() == self.state.dropped.len() {
             return Ok(());
         }
         let mut next = self.state.clone();
-        next.dropped = issue_numbers(&kept);
+        next.dropped = kept;
         self.save(next)
     }
 }
@@ -346,7 +339,7 @@ mod tests {
         rig.forge.block(8, 32);
         rig.next_look();
         assert_eq!(step(&runner).unwrap(), None);
-        assert_eq!(rig.ask(&runner, "status", None)["order"], json!([9, 8]));
+        assert_eq!(rig.ask(&runner, "status", None)["order"], json!(["9", "8"]));
         drop(runner);
 
         let runner = rig.open().unwrap();
@@ -373,7 +366,7 @@ mod tests {
         let runner = rig.open().unwrap();
         rig.next_look();
         assert_eq!(step(&runner).unwrap(), None);
-        assert_eq!(rig.ask(&runner, "status", None)["order"], json!([9, 8]));
+        assert_eq!(rig.ask(&runner, "status", None)["order"], json!(["9", "8"]));
     }
 
     #[test]
@@ -388,7 +381,7 @@ mod tests {
         assert_eq!(step(&runner).unwrap(), None);
         assert_eq!(
             rig.ask(&runner, "status", None)["order"],
-            json!([1, 2, 3, 4, 5])
+            json!(["1", "2", "3", "4", "5"])
         );
 
         rig.forge.list_ready(6, false);
@@ -398,7 +391,7 @@ mod tests {
         assert_eq!(step(&runner).unwrap(), None);
         assert_eq!(
             rig.ask(&runner, "status", None)["order"],
-            json!([1, 2, 6, 3, 4])
+            json!(["1", "2", "6", "3", "4"])
         );
     }
 
@@ -520,7 +513,10 @@ mod tests {
         assert!(call.prompt.contains("\nYour work item is issue #9: "));
 
         // #9 is parked on its question, which frees its slot for #12.
-        assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 9 }));
+        assert_eq!(
+            step(&runner).unwrap(),
+            Some(StepReport::Alerted { id: ticket(9) })
+        );
         assert_eq!(
             step(&runner).unwrap(),
             Some(StepReport::Dispatched {
@@ -530,10 +526,10 @@ mod tests {
             })
         );
         let status = rig.ask(&runner, "status", None);
-        assert_eq!(status["work_item"]["issue"], 9);
+        assert_eq!(status["work_item"]["issue"], "9");
         assert_eq!(
             (&status["working"], &status["parked"]),
-            (&json!([12]), &json!([9]))
+            (&json!(["12"]), &json!(["9"]))
         );
         assert_eq!(rig.claude.calls().len(), 1);
     }
@@ -582,7 +578,7 @@ mod tests {
         let (rig, runner) = running("johto");
         rig.forge.list_ready(3, false);
         step(&runner).unwrap();
-        assert_eq!(rig.ask(&runner, "status", None)["working"], json!([3]));
+        assert_eq!(rig.ask(&runner, "status", None)["working"], json!(["3"]));
 
         drop(runner);
         let runner = rig.open().unwrap();
@@ -591,7 +587,7 @@ mod tests {
         step(&runner).unwrap();
 
         let status = rig.ask(&runner, "status", None);
-        assert_eq!(status["working"], json!([3]));
+        assert_eq!(status["working"], json!(["3"]));
         assert_eq!(status["skipped"], json!([]));
         assert_eq!(rig.claude.calls().len(), 1);
     }
@@ -605,14 +601,17 @@ mod tests {
             "<kelpie-question>\nWhich flag?\n</kelpie-question>\n",
         )]);
         step(&runner).unwrap();
-        assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 3 }));
+        assert_eq!(
+            step(&runner).unwrap(),
+            Some(StepReport::Alerted { id: ticket(3) })
+        );
 
         drop(runner);
         let runner = rig.open().unwrap();
         assert_eq!(step(&runner).unwrap(), None);
 
         let status = rig.ask(&runner, "status", None);
-        assert_eq!(status["parked"], json!([3]));
+        assert_eq!(status["parked"], json!(["3"]));
         assert_eq!(status["skipped"], json!([]));
     }
 
@@ -699,7 +698,7 @@ mod tests {
            step(&runner).unwrap(),
            Some(StepReport::Dispatched { issue, .. }) if issue == ticket(2)
         ));
-        assert_eq!(rig.ask(&runner, "status", None)["work_item"]["issue"], 2);
+        assert_eq!(rig.ask(&runner, "status", None)["work_item"]["issue"], "2");
     }
 
     #[test]
@@ -760,7 +759,7 @@ mod tests {
         );
         assert_eq!(rig.meter.reads(), 1);
         let status = rig.ask(&runner, "status", None);
-        assert_eq!(status["work_item"]["issue"], 6);
+        assert_eq!(status["work_item"]["issue"], "6");
         assert_eq!(
             status["skipped"],
             json!([{

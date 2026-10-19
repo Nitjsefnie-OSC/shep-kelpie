@@ -16,7 +16,6 @@ use super::report::{Begin, StepReport};
 use super::retro::journal::Entry;
 use super::trigger::WhichItem;
 use crate::ports::{Checks, PullRequestState};
-use crate::runner::report::ticket_of;
 use crate::settings::Merging;
 use crate::state::{Finished, MergeNotice, Notice, RulingKind, StateError, Stuck};
 use crate::ticket::TicketId;
@@ -29,14 +28,14 @@ pub enum DropError {
     /// The trigger named no work item, or one not open
     Which(WhichItem),
     /// The worker's turn is running, and the work item stays until it ends
-    TurnRunning(u64),
+    TurnRunning(TicketId),
     /// A review call is running, and the work item stays
     /// until it ends, since its result runs outside the runner's lock
-    ReviewRunning(u64),
+    ReviewRunning(TicketId),
     /// A yes is being carried out, and the merge is not stopped halfway
-    Merging(u64),
+    Merging(TicketId),
     /// The maintainer's `attach`, by this process, holds the work item
-    Attached(u64, u32),
+    Attached(TicketId, u32),
     /// Its worktree, branch or build folder could not be removed
     Cleanup(String),
     /// The change could not be saved
@@ -47,15 +46,20 @@ impl fmt::Display for DropError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Which(e) => e.fmt(f),
-            Self::TurnRunning(issue) => write!(f, "the worker's turn on #{issue} is running"),
-            Self::ReviewRunning(issue) => {
-                write!(f, "a review round on #{issue} is running")
+            Self::TurnRunning(issue) => {
+                write!(f, "the worker's turn on {} is running", issue.shown())
             }
-            Self::Merging(issue) => write!(f, "the work item for #{issue} is merging"),
+            Self::ReviewRunning(issue) => {
+                write!(f, "a review round on {} is running", issue.shown())
+            }
+            Self::Merging(issue) => {
+                write!(f, "the work item for {} is merging", issue.shown())
+            }
             Self::Attached(issue, pid) => write!(
                 f,
-                "the work item for #{issue} is attached, by process {pid}: quit that claude \
-                 session first, which lets it go"
+                "the work item for {} is attached, by process {pid}: quit that claude \
+                 session first, which lets it go",
+                issue.shown()
             ),
             Self::Cleanup(reason) => f.write_str(reason),
             Self::State(e) => e.fmt(f),
@@ -210,7 +214,7 @@ impl Runner {
                 item.known.ready = true;
             })?;
             return Ok(Begin::Report(StepReport::MarkedReady {
-                issue: ticket_of(issue),
+                issue,
                 pull_request: number,
             }));
         }
@@ -279,7 +283,7 @@ impl Runner {
     // The notice is saved with the merge, so it goes out exactly once.
     pub(super) fn merged(
         &mut self,
-        issue: u64,
+        issue: TicketId,
         number: u64,
         head: String,
         notice: bool,
@@ -309,7 +313,7 @@ impl Runner {
 
     fn withdraw(
         &mut self,
-        issue: u64,
+        issue: TicketId,
         number: u64,
         auto: bool,
         reason: String,
@@ -318,13 +322,13 @@ impl Runner {
         self.update(|item| item.phase = Phase::Ci { head: None, since })?;
         Ok(Begin::Report(if auto {
             StepReport::MergeWithdrawn {
-                issue: ticket_of(issue),
+                issue,
                 pull_request: number,
                 reason,
             }
         } else {
             StepReport::YesWithdrawn {
-                issue: ticket_of(issue),
+                issue,
                 pull_request: number,
                 reason,
             }
@@ -335,7 +339,7 @@ impl Runner {
     // branch up with `main`. A second one, on any head, asks.
     fn refused(
         &mut self,
-        issue: u64,
+        issue: TicketId,
         number: u64,
         head: String,
         reason: String,
@@ -393,9 +397,7 @@ impl Runner {
             merged.then_some(&Remote::Origin),
         );
         let removed = removed.map_err(|e| e.to_string());
-        if let Err(e) =
-            removed.and_then(|()| item.ticket().map_or(Ok(()), |t| self.remove_code_graph(t)))
-        {
+        if let Err(e) = removed.and_then(|()| self.remove_code_graph(item.issue)) {
             return Ok(self.gate_failed(format!("cannot clean up: {e}")));
         }
         // The item is gone, so a main it could not fetch warns about nothing.
@@ -414,14 +416,14 @@ impl Runner {
             seconds: timings.seconds.clone(),
             spend: Some(item.tally()),
         };
-        let mut line = crate::usage::FinishedLine::of(&record, item, ticket_of(item.issue));
+        let mut line = crate::usage::FinishedLine::of(&record, item, item.issue);
         if let Ok(agent) = self.worker_agent(item) {
             line.harness = Some(agent.harness.harness().as_str().to_owned());
             line.model = Some(agent.model);
         }
         let ended = record.clone();
         let report = StepReport::Finished {
-            issue: ticket_of(item.issue),
+            issue: item.issue,
             pull_request: item.pull_request,
             merged,
             closed,
@@ -449,13 +451,7 @@ impl Runner {
         self.save(next)?;
         self.ledger.append(&crate::usage::Line::Finished(line));
         if let Some(text) = friction {
-            self.journal_at(
-                now,
-                Entry::Friction {
-                    issue: ticket_of(issue),
-                    text,
-                },
-            );
+            self.journal_at(now, Entry::Friction { issue, text });
         }
         self.tell_done(&ended);
         self.mark_held(issue, false);
@@ -599,7 +595,7 @@ mod tests {
         assert!(reason.starts_with("cannot clean up"), "{reason}");
         assert!(rig.forge.head_of("kelpie/7").is_some());
         let status = rig.ask(&runner, "status", None);
-        assert_eq!(status["work_item"]["issue"], json!(7));
+        assert_eq!(status["work_item"]["issue"], json!("7"));
     }
 
     #[test]
@@ -625,8 +621,8 @@ mod tests {
         rig.forge.set_checks(&moved, Checks::Passed);
         assert!(matches!(
             rig.verdict(&runner),
-            Some(StepReport::Ruling { id: 71, .. })
-        ));
+            Some(StepReport::Ruling { id, .. })
+         if id == ticket(71)));
     }
 
     #[test]
@@ -665,7 +661,7 @@ mod tests {
         let Some(StepReport::Ruling { id, question, .. }) = step(&runner).unwrap() else {
             panic!("no ruling was raised");
         };
-        assert_eq!(id, 71);
+        assert_eq!(id, ticket(71));
         assert!(
             question.starts_with("Pull request #71 was closed"),
             "{question}"
@@ -909,10 +905,10 @@ mod tests {
             let report = step(&runner).unwrap();
             assert_eq!(finished(report.clone()), wait == 30, "{report:?}");
         }
-        assert_eq!(finished_on_disk(&rig), json!([7]));
+        assert_eq!(finished_on_disk(&rig), json!(["7"]));
 
         assert_eq!(step(&runner).unwrap(), None);
-        assert_eq!(finished_on_disk(&rig), json!([7]), "the issue is open");
+        assert_eq!(finished_on_disk(&rig), json!(["7"]), "the issue is open");
 
         rig.forge.close_issue(7);
         assert_eq!(step(&runner).unwrap(), None);
@@ -928,6 +924,6 @@ mod tests {
 
         rig.forge.remove_issue(7);
         assert_eq!(step(&runner).unwrap(), None);
-        assert_eq!(finished_on_disk(&rig), json!([7]));
+        assert_eq!(finished_on_disk(&rig), json!(["7"]));
     }
 }

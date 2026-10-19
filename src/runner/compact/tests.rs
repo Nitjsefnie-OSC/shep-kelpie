@@ -15,11 +15,11 @@ use crate::work_item::WorkItem;
 // The reminder's own words, for a ticket of each source. Only a GitHub ticket
 // has an issue the worker can read with `gh`, and only a GitHub ticket can
 // have a work item open yet.
-fn compacted_around(ticket: TicketId) -> String {
+fn compacted_around(id: TicketId) -> String {
     let item = WorkItem {
         pull_request: Some(71),
         ..WorkItem::new(
-            7,
+            ticket(7),
             "Title of #7",
             "kelpie/7",
             PathBuf::from("wt"),
@@ -28,7 +28,7 @@ fn compacted_around(ticket: TicketId) -> String {
             SessionId("s".to_owned()),
         )
     };
-    reminder(&item, ticket)
+    reminder(&item, id)
 }
 
 #[test]

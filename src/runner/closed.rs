@@ -13,7 +13,6 @@
 use super::Runner;
 use super::ruling::park;
 use crate::ports::{Alert, PullRequestState};
-use crate::runner::report::ticket_of;
 use crate::state::{ProjectState, RulingKind, StateError, Stuck};
 use crate::ticket::TicketId;
 use crate::work_item::{Phase, WorkItem};
@@ -24,22 +23,19 @@ use crate::worktree;
 pub(super) const PARKED_READ: u64 = 5 * 60;
 
 impl Runner {
-    /// Whether `issue`'s work item has its issue closed and no work on its
+    /// Whether `ticket`'s work item has its ticket closed and no work on its
     /// branch or in its worktree. A git that cannot say is noted, and counts
     /// as work.
     ///
     /// # Errors
     ///
     /// Why the forge could not be asked.
-    pub(super) fn closed_with_no_change(&mut self, issue: u64) -> Result<bool, String> {
-        let item = self.state.item(issue).expect("an open work item");
+    pub(super) fn closed_with_no_change(&mut self, ticket: TicketId) -> Result<bool, String> {
+        let item = self.state.item(ticket).expect("an open work item");
         let (branch, tree) = (item.branch.clone(), item.worktree.clone());
-        let ticket = item
-            .ticket()
-            .ok_or_else(|| format!("issue {issue} has no ticket id"))?;
         let read = self.ports.tickets.issue(&self.remote, ticket);
         if read
-            .map_err(|e| format!("cannot read issue #{issue}: {e}"))?
+            .map_err(|e| format!("cannot read {}: {e}", ticket.named().to_lowercase()))?
             .open
         {
             return Ok(false);
@@ -47,7 +43,10 @@ impl Runner {
         match worktree::holds_work(&self.settings.git.checkout, &tree, &branch) {
             Ok(held) => Ok(!held),
             Err(e) => {
-                let note = format!("issue #{issue} is closed, but its work cannot be read: {e}");
+                let note = format!(
+                    "{} is closed, but its work cannot be read: {e}",
+                    ticket.named().to_lowercase()
+                );
                 self.notes.push(note);
                 Ok(false)
             }
@@ -74,8 +73,8 @@ impl Runner {
     pub(super) fn read_parked(&mut self) -> Result<(), StateError> {
         let now = self.ports.clock.now();
         let read = &self.parked_reads;
-        let due = |issue: u64| {
-            read.get(&issue)
+        let due = |ticket: TicketId| {
+            read.get(&ticket)
                 .is_none_or(|at| now.0.saturating_sub(at.0) >= PARKED_READ)
         };
         let parked = self.issues_where(|i| {
@@ -86,9 +85,9 @@ impl Runner {
         });
         let mut ended = Vec::new();
         let mut found = Vec::new();
-        for &issue in &parked {
-            self.parked_reads.insert(issue, now);
-            let item = self.state.item(issue).expect("an open work item");
+        for &ticket in &parked {
+            self.parked_reads.insert(ticket, now);
+            let item = self.state.item(ticket).expect("an open work item");
             if let Some(number) = item.pull_request {
                 match self.ports.forge.pull_request(&self.remote, number) {
                     Ok(pr) if pr.state == PullRequestState::Open => {}
@@ -99,13 +98,13 @@ impl Runner {
                             && self.parked_on(item, |k| {
                                 matches!(k, RulingKind::Stuck(Stuck::Closed))
                             }) => {}
-                    Ok(pr) => found.push((issue, number, pr.state)),
+                    Ok(pr) => found.push((ticket, number, pr.state)),
                     Err(e) => self.notes.push(format!("cannot read #{number}: {e}")),
                 }
                 continue;
             }
-            match self.closed_with_no_change(issue) {
-                Ok(true) => ended.push(issue),
+            match self.closed_with_no_change(ticket) {
+                Ok(true) => ended.push(ticket),
                 Ok(false) => {}
                 Err(why) => self.notes.push(why),
             }
@@ -113,7 +112,13 @@ impl Runner {
         if !ended.is_empty() {
             // A pull request on another branch that closes the issue is work too.
             match self.ports.forge.open_pull_requests(&self.remote) {
-                Ok(open) => ended.retain(|n| !open.iter().any(|pr| pr.closes.contains(n))),
+                Ok(open) => ended.retain(|&ticket| {
+                    // A local ticket is closed by no GitHub pull request.
+                    let Some(number) = ticket.github() else {
+                        return true;
+                    };
+                    !open.iter().any(|pr| pr.closes.contains(&number))
+                }),
                 Err(e) => {
                     let note = format!("cannot list open pull requests: {e}");
                     self.notes.push(note);
@@ -125,33 +130,33 @@ impl Runner {
             return Ok(());
         }
         let mut next = self.state.clone();
-        let withdrawn: Vec<(u64, Option<u64>)> = (ended.iter())
-            .map(|&issue| (issue, end_closed(&mut next, issue)))
+        let withdrawn: Vec<(TicketId, Option<TicketId>)> = (ended.iter())
+            .map(|&ticket| (ticket, end_closed(&mut next, ticket)))
             .collect();
         let mut merged = Vec::new();
         let mut unmerged = Vec::new();
-        for (issue, number, state) in found {
+        for (ticket, number, state) in found {
             if state == PullRequestState::Merged {
-                merged.push((issue, number, end_merged(&mut next, issue)));
+                merged.push((ticket, number, end_merged(&mut next, ticket)));
             } else {
-                next.rulings.retain(|r| r.issue != Some(issue));
+                next.rulings.retain(|r| r.issue != Some(ticket));
                 let kind = Stuck::Closed.into();
-                let (id, _) = park(self.names(), &mut next, issue, Some(number), kind);
+                let (id, _) = park(self.names(), &mut next, ticket, Some(number), kind);
                 unmerged.push((number, id));
             }
         }
         if let Err(e) = self.save(next) {
             // Read again on the next pass, before any answer resumes a worker.
-            for issue in &parked {
-                self.parked_reads.remove(issue);
+            for ticket in &parked {
+                self.parked_reads.remove(ticket);
             }
             return Err(e);
         }
-        for (issue, id) in withdrawn {
-            self.say_closed(ticket_of(issue), id);
+        for (ticket, id) in withdrawn {
+            self.say_closed(ticket, id);
         }
-        for (issue, number, id) in merged {
-            self.say_merged(ticket_of(issue), number, id);
+        for (ticket, number, id) in merged {
+            self.say_merged(ticket, number, id);
         }
         for (number, id) in unmerged {
             let note =
@@ -179,7 +184,7 @@ impl Runner {
     /// `ticket` ends, and that ruling `id` is withdrawn, if it was parked on
     /// one. Posts it once to the webhook, where one is set: nothing is left
     /// to retry it for.
-    fn say_merged(&mut self, ticket: TicketId, number: u64, id: Option<u64>) {
+    fn say_merged(&mut self, ticket: TicketId, number: u64, id: Option<TicketId>) {
         let project = self.project.as_str().to_owned();
         let withdrawn = id.map_or_else(String::new, |id| format!(" Ruling {id} is withdrawn."));
         let text = format!(
@@ -206,7 +211,7 @@ impl Runner {
     /// item ends, and that ruling `id` is withdrawn, if it was parked on one.
     /// Posts it once to the webhook, where one is set: nothing is left to
     /// retry it for.
-    pub(super) fn say_closed(&mut self, ticket: TicketId, id: Option<u64>) {
+    pub(super) fn say_closed(&mut self, ticket: TicketId, id: Option<TicketId>) {
         let project = self.project.as_str().to_owned();
         let withdrawn = id.map_or_else(String::new, |id| format!(" Ruling {id} is withdrawn."));
         let text = format!(
@@ -239,8 +244,10 @@ impl Runner {
 
 /// Marks `issue`'s work item in `next` to end, its pull request merged, and
 /// drops its rulings. Returns the ruling it was parked on, if any.
-fn end_merged(next: &mut ProjectState, issue: u64) -> Option<u64> {
-    let item = next.item_mut(issue).expect("a work item that ends is open");
+fn end_merged(next: &mut ProjectState, ticket: TicketId) -> Option<TicketId> {
+    let item = next
+        .item_mut(ticket)
+        .expect("a work item that ends is open");
     let id = match item.phase {
         Phase::Ruling { id } => Some(id),
         _ => None,
@@ -249,14 +256,16 @@ fn end_merged(next: &mut ProjectState, issue: u64) -> Option<u64> {
         merged: true,
         closed: false,
     };
-    next.rulings.retain(|r| r.issue != Some(issue));
+    next.rulings.retain(|r| r.issue != Some(ticket));
     id
 }
 
 /// Marks `issue`'s work item in `next` to end, closed with no change, and
 /// drops its rulings. Returns the ruling it was parked on, if any.
-pub(super) fn end_closed(next: &mut ProjectState, issue: u64) -> Option<u64> {
-    let item = next.item_mut(issue).expect("a work item that ends is open");
+pub(super) fn end_closed(next: &mut ProjectState, ticket: TicketId) -> Option<TicketId> {
+    let item = next
+        .item_mut(ticket)
+        .expect("a work item that ends is open");
     let id = match item.phase {
         Phase::Ruling { id } => Some(id),
         _ => None,
@@ -265,7 +274,7 @@ pub(super) fn end_closed(next: &mut ProjectState, issue: u64) -> Option<u64> {
         merged: false,
         closed: true,
     };
-    next.rulings.retain(|r| r.issue != Some(issue));
+    next.rulings.retain(|r| r.issue != Some(ticket));
     id
 }
 

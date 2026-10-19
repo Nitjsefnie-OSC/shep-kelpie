@@ -211,7 +211,7 @@ fn a_label_that_will_not_come_off_starts_nothing_until_it_does() {
             .starts_with("cannot hand #71 back: "),
         "{reply}"
     );
-    assert_eq!(rig.ask(&runner, "status", None)["work_item"]["issue"], 7);
+    assert_eq!(rig.ask(&runner, "status", None)["work_item"]["issue"], "7");
 }
 
 #[test]
@@ -300,8 +300,8 @@ fn ready_for_human_goes_on_at_the_merge_ruling_and_comes_off_with_a_no() {
     rig.forge.set_checks(&head, Checks::Passed);
     assert!(matches!(
         rig.verdict(&runner),
-        Some(StepReport::Ruling { id: 71, .. })
-    ));
+        Some(StepReport::Ruling { id, .. })
+     if id == ticket(71)));
     assert_eq!(rig.forge.pull_request_labels(71), [HUMAN]);
 
     let status = rig.ask(&runner, "rule", Some("71 no move the dates up"));

@@ -12,6 +12,7 @@ use crate::ports::{AgentError, Clock as _, Role};
 use crate::runner::review_bot::contribution_turns::{FINDING, contributed, until_summoned};
 use crate::runner::{Runner, StepReport, step};
 use crate::settings::Harness;
+use crate::test::ticket;
 use crate::test::{Rig, Scripted};
 
 const DAY: u64 = Rig::DAY;
@@ -123,7 +124,10 @@ fn refused_twice() -> (Rig, Mutex<Runner>) {
     assert_eq!(held(&rig, &runner)["asked"]["nos"], 2);
     later(&rig, &runner, 7);
     // The ruling reaches the webhook.
-    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 30 }));
+    assert_eq!(
+        step(&runner).unwrap(),
+        Some(StepReport::Alerted { id: ticket(30) })
+    );
     (rig, runner)
 }
 

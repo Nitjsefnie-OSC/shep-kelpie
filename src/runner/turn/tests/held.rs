@@ -171,7 +171,7 @@ fn a_turn_for_a_work_item_with_no_slot_says_so_in_status() {
         // ruling waits for it: this is the seat that item has.
         let mut r = runner.lock().unwrap();
         let mut eight = r.state.work_items[0].clone();
-        eight.issue = 8;
+        eight.issue = ticket(8);
         eight.seat = crate::work_item::Seat::Waiting;
         r.state.work_items.push(eight);
     }

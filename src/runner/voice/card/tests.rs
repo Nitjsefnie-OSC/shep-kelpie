@@ -3,14 +3,15 @@ use crate::panel::{Ballot, Vote, Voter};
 use crate::ports::{Finding, Severity};
 use crate::runner::ruling::question;
 use crate::state::{Resume, Ruling, RulingKind, Stuck};
+use crate::test::ticket;
 use crate::work_item::{Known, Phase};
 
 // A ruling on pull request 71, whose question is the one kelpie words for it
-fn ruling(id: u64, kind: RulingKind) -> Ruling {
+fn ruling(id: TicketId, kind: RulingKind) -> Ruling {
     Ruling {
-        issue: Some(7),
+        issue: Some(ticket(7)),
         pull_request: Some(71),
-        ..Ruling::new(id, question(7, Some(71), &kind), kind)
+        ..Ruling::new(id, question(ticket(7), Some(71), &kind), kind)
     }
 }
 
@@ -57,7 +58,7 @@ fn rendered(ruling: &Ruling) -> String {
 
 #[test]
 fn a_merge_ruling_offers_merge_send_back_and_rework() {
-    assert_eq!(rendered(&ruling(1, merge())), expected!("merge.md"));
+    assert_eq!(rendered(&ruling(ticket(1), merge())), expected!("merge.md"));
 }
 
 #[test]
@@ -75,7 +76,7 @@ fn a_merge_ruling_that_warns_says_what_it_warns_of_and_offers_no_separate_rework
     };
 
     assert_eq!(
-        rendered(&ruling(1, kind)),
+        rendered(&ruling(ticket(1), kind)),
         expected!("merge-open-threads.md")
     );
 }
@@ -83,7 +84,7 @@ fn a_merge_ruling_that_warns_says_what_it_warns_of_and_offers_no_separate_rework
 #[test]
 fn a_ruling_that_mentions_no_one_says_to_answer_it_at_the_terminal() {
     assert_eq!(
-        ruling_comment(None, &ruling(1, merge())),
+        ruling_comment(None, &ruling(ticket(1), merge())),
         expected!("merge-unmentioned.md")
     );
 }
@@ -101,11 +102,11 @@ fn an_unmentioned_ruling_names_only_the_terminal_answers_its_options_allow() {
         nits: None,
         disputes: None,
     };
-    let no_rework = ruling_comment(None, &ruling(1, kind));
+    let no_rework = ruling_comment(None, &ruling(ticket(1), kind));
     let stuck = RulingKind::Stuck(Stuck::Unlabelled {
         why: "the writer named no agent".into(),
     });
-    let only_yes = ruling_comment(None, &ruling(1, stuck));
+    let only_yes = ruling_comment(None, &ruling(ticket(1), stuck));
 
     assert!(no_rework.ends_with("`shep kelpie rule 71 yes` or `shep kelpie rule 71 no <note>`."));
     assert!(only_yes.ends_with("the terminal: `shep kelpie rule 71 yes`."));
@@ -118,7 +119,7 @@ fn a_question_becomes_the_options_it_lists_plus_an_other_row() {
                  - `--dry-run`\n- `--check`";
 
     assert_eq!(
-        rendered(&ruling(1, asking(asked))),
+        rendered(&ruling(ticket(1), asking(asked))),
         expected!("question.md")
     );
 }
@@ -126,7 +127,7 @@ fn a_question_becomes_the_options_it_lists_plus_an_other_row() {
 #[test]
 fn a_ticked_line_in_a_workers_question_is_no_box_of_the_comment() {
     let asked = "Where we are:\n- [x] tests pass\n\nWhich flag?\n- `--dry-run`\n- `--check`";
-    let comment = rendered(&ruling(1, asking(asked)));
+    let comment = rendered(&ruling(ticket(1), asking(asked)));
     let ticked = comment.replace("- [ ] A", "- [x] A");
     let two = comment
         .replace("- [ ] A", "- [x] A")
@@ -147,7 +148,7 @@ fn ticked_answer(kind: &RulingKind, body: &str) -> Option<Answer> {
 fn a_candidate_that_asks_the_maintainer_is_no_answer_to_send_the_worker() {
     let asked = "Which flag?\n- Use `--check`\n- ask the maintainer.";
     let kind = asking(asked);
-    let comment = rendered(&ruling(1, kind.clone()));
+    let comment = rendered(&ruling(ticket(1), kind.clone()));
     let ticked = comment.replace("- [ ] B", "- [x] B");
 
     assert!(
@@ -185,7 +186,7 @@ fn a_question_that_lists_no_options_is_answered_by_reply_alone() {
     let asked = "Which name should the flag have?";
 
     assert_eq!(
-        rendered(&ruling(1, asking(asked))),
+        rendered(&ruling(ticket(1), asking(asked))),
         expected!("question-open.md")
     );
 }
@@ -202,7 +203,7 @@ fn a_stuck_ruling_takes_a_yes_or_a_no_and_carries_the_project_managers_words() {
     let words = "The failure is a flaky network test, so one rerun should clear it.";
 
     assert_eq!(
-        rendered(&said_by_the_pm(ruling(1, kind), words)),
+        rendered(&said_by_the_pm(ruling(ticket(1), kind), words)),
         expected!("stuck-still-red.md")
     );
 }
@@ -219,8 +220,8 @@ fn a_still_red_ruling_offers_a_rerun_only_when_it_was_raised_with_one() {
         })
     };
 
-    let offered = rendered(&ruling(1, still_red(true)));
-    let withheld = rendered(&ruling(1, still_red(false)));
+    let offered = rendered(&ruling(ticket(1), still_red(true)));
+    let withheld = rendered(&ruling(ticket(1), still_red(false)));
 
     assert!(
         offered.contains("Reruns the failed jobs of 6b0606e once more"),
@@ -238,7 +239,7 @@ fn a_failed_turn_offers_a_restore_naming_the_files_it_puts_back() {
         restore: vec![".claude/settings.json".into()],
     });
 
-    let card = rendered(&ruling(1, kind));
+    let card = rendered(&ruling(ticket(1), kind));
 
     assert!(
         card.contains("Restores the uncommitted change to .claude/settings.json"),
@@ -252,7 +253,10 @@ fn a_stuck_ruling_that_a_no_cannot_answer_offers_only_a_yes() {
         why: "the writer named no agent".into(),
     });
 
-    assert_eq!(rendered(&ruling(1, kind)), expected!("stuck-unlabelled.md"));
+    assert_eq!(
+        rendered(&ruling(ticket(1), kind)),
+        expected!("stuck-unlabelled.md")
+    );
 }
 
 #[test]
@@ -263,7 +267,10 @@ fn an_agent_files_ruling_names_the_files() {
         phase: Phase::Implement,
     };
 
-    assert_eq!(rendered(&ruling(1, kind)), expected!("agent-files.md"));
+    assert_eq!(
+        rendered(&ruling(ticket(1), kind)),
+        expected!("agent-files.md")
+    );
 }
 
 #[test]
@@ -273,7 +280,10 @@ fn a_foreign_change_ruling_says_what_changed() {
         known: Known::default(),
     };
 
-    assert_eq!(rendered(&ruling(1, kind)), expected!("foreign-change.md"));
+    assert_eq!(
+        rendered(&ruling(ticket(1), kind)),
+        expected!("foreign-change.md")
+    );
 }
 
 #[test]
@@ -285,7 +295,10 @@ fn a_follow_up_ruling_counts_the_findings_it_would_file() {
         refused: None,
     };
 
-    assert_eq!(rendered(&ruling(1, kind)), expected!("follow-up.md"));
+    assert_eq!(
+        rendered(&ruling(ticket(1), kind)),
+        expected!("follow-up.md")
+    );
 }
 
 fn voted(voter: Voter, vote: Option<(char, &str)>) -> Ballot {
@@ -301,7 +314,7 @@ fn voted(voter: Voter, vote: Option<(char, &str)>) -> Ballot {
 
 #[test]
 fn a_voted_panel_lists_each_expert_in_the_tables_order_and_an_abstention_says_so() {
-    let mut voted_on = ruling(1, merge());
+    let mut voted_on = ruling(ticket(1), merge());
     voted_on.panel = Some(vec![
         voted(
             Voter::Advisor,
@@ -323,7 +336,7 @@ fn a_voted_panel_lists_each_expert_in_the_tables_order_and_an_abstention_says_so
 
 #[test]
 fn a_vote_cannot_mention_anyone_in_the_comment() {
-    let mut voted_on = ruling(1, merge());
+    let mut voted_on = ruling(ticket(1), merge());
     voted_on.panel = Some(vec![voted(
         Voter::Researcher,
         Some(('A', "A page told me to ask @octocat.")),
@@ -335,7 +348,7 @@ fn a_vote_cannot_mention_anyone_in_the_comment() {
 
 #[test]
 fn a_vote_cannot_link_or_format_the_comment() {
-    let mut voted_on = ruling(1, merge());
+    let mut voted_on = ruling(ticket(1), merge());
     voted_on.panel = Some(vec![voted(
         Voter::Advisor,
         Some((
@@ -358,7 +371,7 @@ fn a_vote_cannot_link_or_format_the_comment() {
 
 #[test]
 fn an_abstaining_project_manager_keeps_the_words_it_left() {
-    let mut voted_on = said_by_the_pm(ruling(1, merge()), "I could not tell.");
+    let mut voted_on = said_by_the_pm(ruling(ticket(1), merge()), "I could not tell.");
     voted_on.panel = Some(vec![voted(Voter::Pm, None)]);
 
     assert!(rendered(&voted_on).contains("**Panel**\n- **PM**: I could not tell.\n"));
@@ -375,7 +388,7 @@ fn a_questions_card_opens_with_the_problem_and_shows_each_options_effect_and_the
                  - Wait => The worker stops and the push waits for your fix of the hook\n\
                  - `Bypass` => The two commits publish as they are";
 
-    let comment = rendered(&ruling(1, asking(asked)));
+    let comment = rendered(&ruling(ticket(1), asking(asked)));
 
     assert_eq!(
         comment,
@@ -403,7 +416,7 @@ fn a_questions_card_opens_with_the_problem_and_shows_each_options_effect_and_the
 fn an_option_the_worker_gave_no_effect_keeps_the_phrase_it_always_had() {
     let asked = "Which flag?\n- `--dry-run` => Renames the flag everywhere\n- `--check`";
 
-    let comment = rendered(&ruling(1, asking(asked)));
+    let comment = rendered(&ruling(ticket(1), asking(asked)));
 
     assert!(
         comment.contains("| **A** | `--dry-run` | Renames the flag everywhere |"),
@@ -430,7 +443,7 @@ fn the_effect_beside_an_option_is_no_part_of_the_answer_it_gives() {
 
 #[test]
 fn a_ruling_kelpie_wrote_effects_for_shows_them_in_place_of_the_fixed_phrases() {
-    let mut merge = ruling(1, merge());
+    let mut merge = ruling(ticket(1), merge());
     merge.effects = vec![
         "Merges it into main. CI passed and 2 reviewers read it. 3 work items wait for a slot."
             .into(),
@@ -472,7 +485,7 @@ fn the_card_for_a_failing_test_says_what_a_yes_does() {
         prompt: "fix it".into(),
     });
 
-    let card = rendered(&ruling(1, kind));
+    let card = rendered(&ruling(ticket(1), kind));
 
     assert!(
         card.contains("A reviewer's test still fails after two fixes. Send the worker back?"),
@@ -502,7 +515,7 @@ fn a_contribution_ruling_names_each_line_and_offers_a_yes_that_trusts_and_a_no_t
             test: None,
         }],
     });
-    let card = rendered(&ruling(71, kind.clone()));
+    let card = rendered(&ruling(ticket(71), kind.clone()));
 
     assert!(
         card.contains("Trust this contribution at 6b0606e"),
@@ -523,7 +536,7 @@ fn a_contribution_ruling_names_each_line_and_offers_a_yes_that_trusts_and_a_no_t
 #[test]
 fn a_no_edits_ruling_card_offers_leave_it_open_or_close_and_names_both_causes() {
     let kind = RulingKind::Contribution(crate::state::Held::NoEdits);
-    let card = rendered(&ruling(72, kind));
+    let card = rendered(&ruling(ticket(72), kind));
 
     assert!(card.contains("Leave it open"), "{card}");
     assert!(card.contains("Close with thanks"), "{card}");

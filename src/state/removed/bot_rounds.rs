@@ -14,6 +14,9 @@
 
 use serde_json::{Map, Value, json};
 
+use super::ticket;
+use crate::ticket::TicketId;
+
 /// Folds every review bot round a file keeps into a pass of the bots
 pub(in crate::state) fn fold_bot_rounds(value: &mut Value) {
     fold_pending(value);
@@ -145,8 +148,9 @@ fn fold_pending(value: &mut Value) {
             .unwrap_or_default()
             .to_owned();
         let id = ruling.get("id").cloned().unwrap_or_default();
-        let issue = ruling.get("issue").and_then(Value::as_u64);
-        let parked = parked_on(state, &id, issue);
+        let named = ticket(ruling.get("id"));
+        let issue = ticket(ruling.get("issue"));
+        let parked = parked_on(state, named, issue);
         match (kind.as_str(), parked) {
             ("coderabbit-silent", Some(item)) => {
                 let mut pass = bots_pass(json!({ "stage": "round" }), None);
@@ -177,18 +181,18 @@ fn fold_pending(value: &mut Value) {
     state.insert("rulings".to_owned(), Value::Array(kept));
 }
 
-// The work item parked on ruling `id`, of `issue` when the ruling names it.
+// The work item parked on ruling `named`, of `issue` when the ruling names it.
 fn parked_on<'a>(
     state: &'a mut Map<String, Value>,
-    id: &Value,
-    issue: Option<u64>,
+    named: Option<TicketId>,
+    issue: Option<TicketId>,
 ) -> Option<&'a mut Map<String, Value>> {
     let parked = |item: &Map<String, Value>| {
         let on = item.get("phase").is_some_and(|phase| {
             phase.get("state").and_then(Value::as_str) == Some("ruling")
-                && phase.get("id") == Some(id)
+                && ticket(phase.get("id")) == named
         });
-        let of = issue.is_none_or(|issue| item.get("issue").and_then(Value::as_u64) == Some(issue));
+        let of = issue.is_none_or(|issue| ticket(item.get("issue")) == Some(issue));
         on && of
     };
     let lone = state.get("work_item").and_then(Value::as_object);
@@ -204,7 +208,7 @@ fn parked_on<'a>(
 
 // The cap's question, said again for what a yes now does.
 fn cap_question(ruling: &Value) -> String {
-    let id = ruling.get("id").and_then(Value::as_u64).unwrap_or_default();
+    let id = ticket(ruling.get("id")).map_or_else(|| "0".to_owned(), |id| id.to_string());
     let about = ruling
         .get("pull_request")
         .and_then(Value::as_u64)

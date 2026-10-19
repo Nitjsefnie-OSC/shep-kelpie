@@ -16,7 +16,7 @@ use crate::ports::{AgentError, AgentReply, Timestamp};
 use crate::runner::Runner;
 use crate::settings::RulingName;
 use crate::state::{ProjectState, Ruling, RulingKind, Stuck};
-use crate::ticket::{TicketId, ticket_ids};
+use crate::ticket::TicketId;
 use crate::usage::VoteMark;
 use crate::work_item::Phase;
 
@@ -70,9 +70,7 @@ impl Runner {
     pub(super) fn still_due(&mut self) {
         let mut wakes = Vec::new();
         for item in &self.state.work_items {
-            let Some(ticket) = item.ticket() else {
-                continue;
-            };
+            let ticket = item.issue;
             match self.stuck_now(ticket) {
                 Some(wake) => wakes.push(wake),
                 None => {
@@ -93,7 +91,7 @@ impl Runner {
     // The stuck wake `ticket`'s work item deserves as the board stands: the
     // ruling it is parked on, its idle call, or nothing.
     fn stuck_now(&self, ticket: TicketId) -> Option<Wake> {
-        let item = self.state.item_by_ticket(ticket)?;
+        let item = self.state.item(ticket)?;
         let parked = match item.phase {
             Phase::Ruling { id } => self.state.rulings.iter().find(|r| r.id == id),
             _ => None,
@@ -279,7 +277,7 @@ impl Runner {
         let raised = (now.rulings.iter()).filter(|r| !was.rulings.iter().any(|w| w.id == r.id));
         let stuck: Vec<Wake> = raised
             .filter_map(|ruling| {
-                let ticket = ruling.ticket()?;
+                let ticket = ruling.issue?;
                 let ended = self.pm.after_end.contains_key(&ticket);
                 stuck_wake(ticket, ruling).filter(|_| !ended)
             })
@@ -299,7 +297,7 @@ impl Runner {
             if matches!(self.pm.pick, Some(Pick::Nothing(_))) {
                 self.pm.pick = None;
             }
-            let open = ticket_ids(&now.open_issues());
+            let open = now.open_tickets();
             self.pm.after_end.retain(|ticket, _| open.contains(ticket));
             (self.pm.left_alone).retain(|ticket, _| open.contains(ticket));
             (self.pm.conflicts).retain(|(a, b), _| open.contains(a) && open.contains(b));
@@ -320,7 +318,7 @@ impl Runner {
         for ruling in &now.rulings {
             let new = !self.state.rulings.iter().any(|r| r.id == ruling.id);
             let id = ruling.id;
-            let wake = match (&ruling.kind, ruling.ticket(), ruling.pull_request, new) {
+            let wake = match (&ruling.kind, ruling.issue, ruling.pull_request, new) {
                 (RulingKind::Question { asked, .. }, Some(ticket), _, true) => Wake::Question {
                     ticket,
                     id,

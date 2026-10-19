@@ -15,6 +15,7 @@ use std::thread;
 use serde::Deserialize;
 
 use super::super::Runner;
+use super::super::in_flight::Key;
 use super::super::report::StepReport;
 use super::super::review::calls::build_call;
 use super::{End, News};
@@ -32,8 +33,8 @@ pub(in crate::runner) const CEILING: u64 = 15 * 60;
 /// The issue writer's call in flight for an issue
 #[derive(Debug)]
 pub(in crate::runner) struct Labelling {
-    /// The issue it labels
-    pub(in crate::runner) issue: u64,
+    /// The ticket whose issue the writer labels
+    pub(in crate::runner) issue: TicketId,
     deadline: Timestamp,
     ending: Ending,
 }
@@ -66,9 +67,9 @@ impl Runner {
         listed.len() > 1 && agent_label(&issue.labels, &listed) == Ok(None)
     }
 
-    /// The ruling an unlabelled `issue` waits on, while one does
-    pub(in crate::runner) fn unlabelled_ruling(&self, issue: u64) -> Option<u64> {
-        let waits = |r: &&Ruling| unlabelled_on(r, issue);
+    /// The ruling an unlabelled `ticket` waits on, while one does
+    pub(in crate::runner) fn unlabelled_ruling(&self, ticket: TicketId) -> Option<TicketId> {
+        let waits = |r: &&Ruling| unlabelled_on(r, ticket);
         self.state.rulings.iter().find(waits).map(|r| r.id)
     }
 
@@ -92,12 +93,12 @@ impl Runner {
             .and_then(|writer| self.label_call(&writer, issue, number));
         let call = match call {
             Ok(call) => call,
-            Err(why) => return self.unlabelled(number, why).map(Some),
+            Err(why) => return self.unlabelled(issue.ticket, why).map(Some),
         };
         let now = self.ports.clock.now();
         let mut draft = Draft::of(&call, name.as_str(), CallKind::Issues, now);
         draft.issue = Some(issue.ticket);
-        let key = Some(number);
+        let key = Key::Label(issue.ticket);
         self.flights.ledger.open(key, draft, self.pacer_lines());
         self.call_started(&call, name.as_str());
         let ledger = self.flights.ledger.clone();
@@ -105,13 +106,14 @@ impl Runner {
         let ending = Ending::default();
         let held = ending.clone();
         let agents = Arc::clone(&self.ports.agents);
+        let ticket = issue.ticket;
         let run = move || {
             let ran = catch_unwind(AssertUnwindSafe(|| End::Turn(agents.run(&call, &held))));
             let end = ran.unwrap_or_else(End::Panicked);
             if end.reached_no_model() {
                 ledger.no_model(key);
             }
-            let _ = news.send(News::Labelled { issue: number, end });
+            let _ = news.send(News::Labelled { issue: ticket, end });
             if let Some(wake) = &wake {
                 let _ = wake.send(());
             }
@@ -122,13 +124,13 @@ impl Runner {
         {
             let reason = format!("cannot start a thread for the call: {e}");
             let end = End::Turn(Err(AgentError::Setup(reason)));
-            let _ = self
-                .flights
-                .send
-                .send(News::Labelled { issue: number, end });
+            let _ = self.flights.send.send(News::Labelled {
+                issue: issue.ticket,
+                end,
+            });
         }
         self.flights.labelling = Some(Labelling {
-            issue: number,
+            issue: issue.ticket,
             deadline: Timestamp(now.0.saturating_add(CEILING)),
             ending,
         });
@@ -164,13 +166,13 @@ impl Runner {
     // chose goes on the issue, or a ruling asks the maintainer for one.
     pub(super) fn label_ended(
         &mut self,
-        issue: u64,
+        ticket: TicketId,
         end: End,
     ) -> Result<Option<StepReport>, StateError> {
         self.flights.labelling = None;
-        // The issue it labels, or rules on, is the board's to take again.
+        // The ticket it labels, or rules on, is the board's to take again.
         self.looks.board_moved();
-        let open = self.flights.ledger.take(Some(issue));
+        let open = self.flights.ledger.take(Key::Label(ticket));
         let result = match end {
             End::Turn(result) => result,
             End::Review(_) => return Ok(None),
@@ -189,28 +191,32 @@ impl Runner {
             return Ok(None);
         }
         // A label put on by hand while the call ran stands, valid or not.
-        let Some(ticket) = TicketId::from_issue(issue) else {
+        let Some(number) = ticket.github() else {
             return Ok(None);
         };
         if let Ok(found) = self.ports.tickets.issue(&self.remote, ticket)
             && let Some(label) = (found.labels.iter()).find(|l| is_agent_label(l))
         {
             self.notes.push(format!(
-                "#{issue}: labelled `{label}` while the issue writer ran, so that stands \
-                 and its pick goes unused"
+                "{}: labelled `{label}` while the issue writer ran, so that stands and its pick \
+                 goes unused",
+                ticket.shown()
             ));
             return Ok(None);
         }
         let agent = match self.picked(&result) {
             Ok(agent) => agent,
-            Err(why) => return self.unlabelled(issue, why).map(Some),
+            Err(why) => return self.unlabelled(ticket, why).map(Some),
         };
         let label = format!("{AGENT_LABEL}{agent}");
-        if let Err(e) = self.label_issue(issue, &label, true) {
+        if let Err(e) = self.label_issue(number, &label, true) {
             let why = format!("the forge would not label it `{label}`: {e}");
-            return self.unlabelled(issue, why).map(Some);
+            return self.unlabelled(ticket, why).map(Some);
         }
-        Ok(Some(StepReport::Labelled { issue, agent }))
+        Ok(Some(StepReport::Labelled {
+            issue: ticket,
+            agent,
+        }))
     }
 
     // The listed implementer the issue writer's reply names, or why there is none.
@@ -236,27 +242,27 @@ impl Runner {
             })
     }
 
-    /// Clears the ruling `issue` waited on unlabelled, from `next`, once a
+    /// Clears the ruling `ticket` waited on unlabelled, from `next`, once a
     /// work item opens for it
-    pub(in crate::runner) fn label_ruled(next: &mut crate::state::ProjectState, issue: u64) {
-        next.rulings.retain(|r| !unlabelled_on(r, issue));
+    pub(in crate::runner) fn label_ruled(next: &mut crate::state::ProjectState, ticket: TicketId) {
+        next.rulings.retain(|r| !unlabelled_on(r, ticket));
     }
 
-    // Raises the ruling an unlabelled `issue` waits on, which parks no work item.
-    fn unlabelled(&mut self, issue: u64, why: String) -> Result<StepReport, StateError> {
+    // Raises the ruling an unlabelled `ticket` waits on, which parks no work item.
+    fn unlabelled(&mut self, ticket: TicketId, why: String) -> Result<StepReport, StateError> {
         let names = self.names();
         let mut next = self.state.clone();
-        let id = issue;
+        let id = ticket;
         let kind = RulingKind::Stuck(Stuck::Unlabelled { why });
-        let question = super::super::ruling::question(issue, None, &kind);
+        let question = super::super::ruling::question(ticket, None, &kind);
         next.rulings.push(Ruling {
-            issue: Some(issue),
+            issue: Some(ticket),
             raised: Some(names.now),
             ..Ruling::new(id, question.clone(), kind)
         });
         self.save(next)?;
         Ok(StepReport::Unlabelled {
-            issue,
+            issue: ticket,
             id,
             question,
         })
@@ -268,10 +274,10 @@ fn is_agent_label(label: &str) -> bool {
     (label.get(..AGENT_LABEL.len())).is_some_and(|p| p.eq_ignore_ascii_case(AGENT_LABEL))
 }
 
-// Whether `ruling` is the one `issue` waits on unlabelled.
-fn unlabelled_on(ruling: &Ruling, issue: u64) -> bool {
+// Whether `ruling` is the one `ticket` waits on unlabelled.
+fn unlabelled_on(ruling: &Ruling, ticket: TicketId) -> bool {
     let kind = &ruling.kind;
-    ruling.issue == Some(issue) && matches!(kind, RulingKind::Stuck(Stuck::Unlabelled { .. }))
+    ruling.issue == Some(ticket) && matches!(kind, RulingKind::Stuck(Stuck::Unlabelled { .. }))
 }
 
 // What the issue writer is asked: the issue, the implementers, and the reply.

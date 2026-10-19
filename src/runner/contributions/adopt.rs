@@ -181,7 +181,7 @@ impl Runner {
             .tickets
             .issue(&self.remote, TicketId::from_issue(issue)?)
             .ok()?;
-        self.labelled_agent(issue, &found.labels)
+        self.labelled_agent(TicketId::from_issue(issue)?, &found.labels)
             .err()
             .map(|why| why.to_string())
     }
@@ -256,7 +256,7 @@ impl Runner {
 // Whether `ruling` is the one that asks about a contribution kelpie cannot
 // adopt
 fn cannot_adopt_on(ruling: &Ruling, number: u64) -> bool {
-    ruling.id == number
+    ruling.id == TicketId::from_pull_request(number)
         && matches!(
             ruling.kind,
             RulingKind::Contribution(Held::CannotAdopt { .. })

@@ -20,6 +20,18 @@
 
 use serde_json::{Map, Value, json};
 
+use crate::ticket::TicketId;
+
+// The ticket id a field holds: an older file's number, read as the GitHub id
+// of that number, or the id itself.
+pub(super) fn ticket(value: Option<&Value>) -> Option<TicketId> {
+    match value? {
+        Value::Number(number) => number.as_u64().and_then(TicketId::from_issue),
+        Value::String(text) => text.parse().ok(),
+        _ => None,
+    }
+}
+
 mod bot_rounds;
 mod ruling_kinds;
 
@@ -150,8 +162,8 @@ pub(super) fn drop_removed_fields(value: &mut Value) {
 /// A work item's worker as a state file saved it before agent files
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OldWorker {
-    /// The work item's issue
-    pub issue: u64,
+    /// The work item's ticket
+    pub issue: TicketId,
     /// The agent the work item now runs on
     pub agent: String,
     /// The model its worker ran
@@ -189,10 +201,7 @@ fn old_worker(item: &Map<String, Value>) -> Option<OldWorker> {
         }
     };
     Some(OldWorker {
-        issue: item
-            .get("issue")
-            .and_then(Value::as_u64)
-            .unwrap_or_default(),
+        issue: ticket(item.get("issue"))?,
         agent,
         model: model.to_owned(),
         effort: effort.to_owned(),

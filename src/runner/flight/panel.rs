@@ -28,7 +28,7 @@ use crate::usage::{CallKind, CallLine, Draft, Spent, ended};
 /// The experts of one ruling, in flight
 #[derive(Debug)]
 pub(in crate::runner) struct Panelling {
-    id: u64,
+    id: TicketId,
     options: usize,
     // The work item whose session the worker's vote resumes, while it votes
     worker_of: Option<TicketId>,
@@ -66,7 +66,7 @@ impl Called {
 
 impl Panelling {
     // The ruling whose experts are in flight.
-    pub(in crate::runner) fn ruling(&self) -> u64 {
+    pub(in crate::runner) fn ruling(&self) -> TicketId {
         self.id
     }
 
@@ -102,7 +102,7 @@ impl Panelling {
 
 impl Runner {
     /// Whether the experts of ruling `id` are in flight
-    pub(in crate::runner) fn panel_in_flight(&self, id: u64) -> bool {
+    pub(in crate::runner) fn panel_in_flight(&self, id: TicketId) -> bool {
         self.flights.panel.as_ref().is_some_and(|p| p.id == id)
     }
 
@@ -115,7 +115,7 @@ impl Runner {
 
     /// Whether the worker's vote on ruling `id` is still to return: its call
     /// runs, or has not been started
-    pub(in crate::runner) fn panel_worker_open(&self, id: u64) -> bool {
+    pub(in crate::runner) fn panel_worker_open(&self, id: TicketId) -> bool {
         match self.flights.panel.as_ref().filter(|p| p.id == id) {
             None => true,
             Some(flight) => (flight.calls.iter())
@@ -127,7 +127,7 @@ impl Runner {
     /// ruling is answered: the call is ended if it runs, and the item's
     /// session is its own again once the call has returned and is kept. The
     /// other experts go on voting. Whether a flight for `id` was there to free.
-    pub(in crate::runner) fn panel_release_worker(&mut self, id: u64) -> bool {
+    pub(in crate::runner) fn panel_release_worker(&mut self, id: TicketId) -> bool {
         let Some(flight) = self.flights.panel.as_mut().filter(|p| p.id == id) else {
             return false;
         };
@@ -205,7 +205,7 @@ impl Runner {
     // turn's must not include it, so the item keeps where the session stands.
     fn keep_session_cost(&mut self, ticket: TicketId, cost: Cost) -> Result<(), StateError> {
         let mut next = self.state.clone();
-        if let Some(item) = next.item_mut_by_ticket(ticket) {
+        if let Some(item) = next.item_mut(ticket) {
             let session = item.session.clone();
             item.advance_session_cost(&session, cost);
             self.save(next)?;
@@ -232,7 +232,7 @@ impl Runner {
 
     // Makes each expert's call for ruling `id` and starts them, and says
     // whether any started. An expert whose call cannot be made abstains.
-    fn ask_experts(&mut self, id: u64) -> bool {
+    fn ask_experts(&mut self, id: TicketId) -> bool {
         let Some(ruling) = self.panel_ruling(id) else {
             return false;
         };
@@ -250,7 +250,7 @@ impl Runner {
         let mut calls: Vec<(Voter, AgentCall, String)> = Vec::new();
         let mut worker_text = None;
         if wanted.contains(&Voter::Worker) {
-            let limit = (ruling.ticket().and_then(|t| self.state.item_by_ticket(t)))
+            let limit = (ruling.issue.and_then(|t| self.state.item(t)))
                 .and_then(|item| self.worker_agent(item).ok())
                 .map(|agent| agent.limit);
             let made = self
@@ -259,7 +259,9 @@ impl Runner {
             match made {
                 Ok(call) => {
                     worker_text = self.worker_session_text(&call);
-                    let name = self.ledger_worker(ruling.issue.unwrap_or(0));
+                    let name = ruling
+                        .issue
+                        .map_or_else(String::new, |t| self.ledger_worker(t));
                     calls.push((Voter::Worker, call, name));
                 }
                 Err(why) => self.panel_abstains(id, Voter::Worker, why),
@@ -294,7 +296,7 @@ impl Runner {
         if calls.is_empty() {
             return false;
         }
-        self.launch_panel(id, options, ruling.ticket(), calls);
+        self.launch_panel(id, options, ruling.issue, calls);
         true
     }
 
@@ -314,7 +316,7 @@ impl Runner {
     // runner's whose end comes back as news.
     fn launch_panel(
         &mut self,
-        id: u64,
+        id: TicketId,
         options: usize,
         ticket: Option<TicketId>,
         calls: Vec<(Voter, AgentCall, String)>,
@@ -440,7 +442,7 @@ impl Runner {
     // and each vote or abstention on the ruling.
     pub(super) fn panel_ended(
         &mut self,
-        id: u64,
+        id: TicketId,
         ends: Vec<(Voter, Result<AgentReply, AgentError>)>,
     ) -> Result<Option<crate::runner::StepReport>, StateError> {
         let Some(flight) = self.flights.panel.take() else {

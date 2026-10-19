@@ -32,6 +32,7 @@ use super::ruling::needs_pass;
 use super::turn::KEEP_BODY_TRUE;
 use super::words::Wants;
 use crate::state::{Resume, RulingKind, StateError};
+use crate::ticket::TicketId;
 use crate::work_item::{Phase, Review, TALK_ROUNDS, Turn};
 
 mod sort;
@@ -48,7 +49,7 @@ pub(super) enum At {
     /// CI is green on this head
     Ci(String),
     /// Waiting on this merge ruling
-    Parked(u64),
+    Parked(TicketId),
 }
 
 impl Runner {
@@ -198,7 +199,7 @@ impl Runner {
 
     // Where the turn for comments read `at` goes once it ends, the head the
     // fix is sent unread from, and the ruling it withdraws.
-    fn after_comments(&self, at: &At) -> (Option<Phase>, Option<String>, Option<u64>) {
+    fn after_comments(&self, at: &At) -> (Option<Phase>, Option<String>, Option<TicketId>) {
         match at {
             At::Round(review) => (Some(Phase::Review(review.clone())), None, None),
             At::Ci(head) => (None, Some(head.clone()), None),

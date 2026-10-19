@@ -159,7 +159,7 @@ pub(crate) fn a_work_item() -> WorkItem {
             unpriced: false,
         }],
         ..WorkItem::new(
-            42,
+            ticket(42),
             "Add a thing",
             "kelpie/42",
             "/k/wt/shep/42".into(),
@@ -672,7 +672,7 @@ impl Rig {
         rig.forge.set_checks(&head, Checks::Passed);
         assert!(matches!(
             rig.verdict(&runner),
-            Some(StepReport::Ruling { id: 71, .. })
+            Some(StepReport::Ruling { id, .. }) if id == ticket(71)
         ));
         (rig, runner, head)
     }

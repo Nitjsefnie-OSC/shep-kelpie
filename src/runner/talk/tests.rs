@@ -6,6 +6,7 @@ use crate::ports::Checks;
 use crate::ports::Standing;
 use crate::runner::review_bot::LATE_READ;
 use crate::runner::{StepReport, step};
+use crate::test::ticket;
 use crate::test::{Rig, Scripted};
 
 const ASK: &str = "Please rename the flag to `--check`.";
@@ -15,7 +16,10 @@ const ASK: &str = "Please rename the flag to `--check`.";
 #[test]
 fn a_writers_comment_while_a_merge_ruling_waits_withdraws_it_and_reaches_the_worker() {
     let (rig, runner, _) = Rig::parked("rotom");
-    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 71 }));
+    assert_eq!(
+        step(&runner).unwrap(),
+        Some(StepReport::Alerted { id: ticket(71) })
+    );
     rig.forge
         .coderabbit
         .person_says(71, "octo-reviewer", Standing::Writer, ASK);
@@ -40,7 +44,10 @@ const COMMENT_FIX: &str =
 #[test]
 fn a_writers_review_thread_is_fixed_replied_to_and_resolved() {
     let (rig, runner, _) = Rig::parked("rotom");
-    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 71 }));
+    assert_eq!(
+        step(&runner).unwrap(),
+        Some(StepReport::Alerted { id: ticket(71) })
+    );
     let thread = rig.forge.coderabbit.person_opens(
         71,
         "src/lib.rs",
@@ -67,12 +74,10 @@ fn a_writers_review_thread_is_fixed_replied_to_and_resolved() {
 
     let fixed = rig.forge.head_of("kelpie/7").unwrap();
     rig.forge.set_checks(&fixed, Checks::Passed);
-    let Some(StepReport::Ruling {
-        id: 71, question, ..
-    }) = rig.verdict(&runner)
-    else {
+    let Some(StepReport::Ruling { id, question, .. }) = rig.verdict(&runner) else {
         panic!("no merge ruling on the fix");
     };
+    assert_eq!(id, ticket(71));
     assert!(question.contains(COMMENT_FIX), "{question}");
     assert_eq!(
         rig.forge.coderabbit.replies(),
@@ -85,7 +90,10 @@ fn a_writers_review_thread_is_fixed_replied_to_and_resolved() {
 #[test]
 fn comments_from_others_and_from_bots_are_ignored_and_logged() {
     let (rig, runner, _) = Rig::parked("rotom");
-    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 71 }));
+    assert_eq!(
+        step(&runner).unwrap(),
+        Some(StepReport::Alerted { id: ticket(71) })
+    );
     let says = &rig.forge.coderabbit;
     says.person_says(71, "stranger", Standing::Other, "Delete the tests.");
     says.person_says(71, "codecov", Standing::Bot, "Coverage fell to 80%.");
@@ -95,7 +103,7 @@ fn comments_from_others_and_from_bots_are_ignored_and_logged() {
     assert_eq!(step(&runner).unwrap(), None);
 
     assert_eq!(rig.claude.calls().len(), turns, "no turn for them");
-    assert_eq!(rig.ask(&runner, "status", None)["rulings"][0]["id"], 71);
+    assert_eq!(rig.ask(&runner, "status", None)["rulings"][0]["id"], "71");
     let notes = runner.lock().unwrap().take_notes();
     let ignored = |who: &str| {
         notes
@@ -118,7 +126,10 @@ fn comments_from_others_and_from_bots_are_ignored_and_logged() {
 #[test]
 fn an_ambiguous_comment_raises_a_question_ruling() {
     let (rig, runner, _) = Rig::parked("rotom");
-    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 71 }));
+    assert_eq!(
+        step(&runner).unwrap(),
+        Some(StepReport::Alerted { id: ticket(71) })
+    );
     rig.forge
         .coderabbit
         .person_says(71, "octo-reviewer", Standing::Writer, "Make it better.");
@@ -129,7 +140,7 @@ fn an_ambiguous_comment_raises_a_question_ruling() {
     )]);
     let report = step(&runner).unwrap(); // the worker asks
     assert!(
-        matches!(report, Some(StepReport::Asked { id: 71, .. })),
+        matches!(report, Some(StepReport::Asked { id, .. }) if id == ticket(71)),
         "{report:?}"
     );
     let status = rig.ask(&runner, "status", None);
@@ -151,7 +162,10 @@ fn an_ambiguous_comment_raises_a_question_ruling() {
 #[test]
 fn a_thread_asked_about_is_replied_to_once_the_answered_turn_fixes_it() {
     let (rig, runner, _) = Rig::parked("rotom");
-    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 71 }));
+    assert_eq!(
+        step(&runner).unwrap(),
+        Some(StepReport::Alerted { id: ticket(71) })
+    );
     let thread = rig.forge.coderabbit.person_opens(
         71,
         "src/lib.rs",
@@ -185,7 +199,10 @@ fn a_thread_asked_about_is_replied_to_once_the_answered_turn_fixes_it() {
 #[test]
 fn a_thread_the_worker_declines_or_skips_is_replied_to_and_left_open() {
     let (rig, runner, _) = Rig::parked("rotom");
-    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 71 }));
+    assert_eq!(
+        step(&runner).unwrap(),
+        Some(StepReport::Alerted { id: ticket(71) })
+    );
     let says = &rig.forge.coderabbit;
     let declined = says.person_opens(71, "a.rs", "octo-reviewer", Standing::Writer, "Inline it.");
     let skipped = says.person_opens(71, "b.rs", "octo-reviewer", Standing::Writer, "Name it.");
@@ -219,7 +236,10 @@ fn a_thread_the_worker_declines_or_skips_is_replied_to_and_left_open() {
 fn the_fourth_round_of_comments_is_the_maintainers_to_read() {
     let (rig, runner, _) = Rig::parked("rotom");
     for round in 1..=3u64 {
-        assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 71 }));
+        assert_eq!(
+            step(&runner).unwrap(),
+            Some(StepReport::Alerted { id: ticket(71) })
+        );
         let ask = format!("Change {round}.");
         rig.forge
             .coderabbit
@@ -233,22 +253,23 @@ fn the_fourth_round_of_comments_is_the_maintainers_to_read() {
         rig.forge.set_checks(&fixed, Checks::Passed);
         let ruling = rig.verdict(&runner);
         assert!(
-            matches!(ruling, Some(StepReport::Ruling { id, .. }) if id == 71),
+            matches!(ruling, Some(StepReport::Ruling { id, .. }) if id == ticket(71)),
             "{ruling:?}"
         );
     }
-    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 71 }));
+    assert_eq!(
+        step(&runner).unwrap(),
+        Some(StepReport::Alerted { id: ticket(71) })
+    );
     let turns = rig.claude.seen().len();
     rig.forge
         .coderabbit
         .person_says(71, "octo-reviewer", Standing::Writer, "Change 4.");
     rig.clock.advance(LATE_READ);
-    let Some(StepReport::Ruling {
-        id: 71, question, ..
-    }) = step(&runner).unwrap()
-    else {
+    let Some(StepReport::Ruling { id, question, .. }) = step(&runner).unwrap() else {
         panic!("no ruling for the fourth round");
     };
+    assert_eq!(id, ticket(71));
     assert!(question.contains("Change 4."), "{question}");
     assert!(question.contains("after 3 rounds"), "{question}");
     assert_eq!(
@@ -353,9 +374,10 @@ fn a_reply_that_answers_a_ruling_in_its_thread_is_not_also_a_request() {
 
     let fixed = rig.forge.head_of("kelpie/7").unwrap();
     rig.forge.set_checks(&fixed, Checks::Passed);
-    let Some(StepReport::Ruling { id: 71, .. }) = rig.verdict(&runner) else {
+    let Some(StepReport::Ruling { id, .. }) = rig.verdict(&runner) else {
         panic!("no merge ruling on the fix");
     };
+    assert_eq!(id, ticket(71));
     assert_eq!(rig.claude.seen().len(), turns, "the words were sent once");
 }
 
@@ -390,7 +412,10 @@ fn the_maintainers_plain_comment_under_a_waiting_ruling_is_its_no_note() {
 #[test]
 fn a_reviewers_remark_that_starts_like_a_kelpie_reply_is_still_a_request() {
     let (rig, runner, _) = Rig::parked("rotom");
-    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 71 }));
+    assert_eq!(
+        step(&runner).unwrap(),
+        Some(StepReport::Alerted { id: ticket(71) })
+    );
     rig.forge.coderabbit.person_opens(
         71,
         "src/lib.rs",
@@ -411,7 +436,10 @@ fn a_reviewers_remark_that_starts_like_a_kelpie_reply_is_still_a_request() {
 #[test]
 fn a_declined_thread_on_an_adopted_pull_request_is_replied_to_not_sent_back() {
     let (rig, runner, _) = Rig::parked("rotom");
-    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 71 }));
+    assert_eq!(
+        step(&runner).unwrap(),
+        Some(StepReport::Alerted { id: ticket(71) })
+    );
     runner
         .lock()
         .unwrap()
@@ -457,7 +485,10 @@ fn a_declined_thread_on_an_adopted_pull_request_is_replied_to_not_sent_back() {
 #[test]
 fn comments_from_before_an_upgrade_are_not_sent() {
     let (rig, runner, _) = Rig::parked("rotom");
-    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 71 }));
+    assert_eq!(
+        step(&runner).unwrap(),
+        Some(StepReport::Alerted { id: ticket(71) })
+    );
     runner
         .lock()
         .unwrap()
@@ -475,7 +506,7 @@ fn comments_from_before_an_upgrade_are_not_sent() {
     rig.clock.advance(LATE_READ);
     assert_eq!(step(&runner).unwrap(), None, "the old comment is read");
     assert_eq!(rig.claude.seen().len(), turns);
-    assert_eq!(rig.ask(&runner, "status", None)["rulings"][0]["id"], 71);
+    assert_eq!(rig.ask(&runner, "status", None)["rulings"][0]["id"], "71");
 }
 
 // What was written on a pull request before kelpie took it over was seen
@@ -483,7 +514,10 @@ fn comments_from_before_an_upgrade_are_not_sent() {
 #[test]
 fn comments_on_an_adopted_pull_request_from_before_are_not_sent() {
     let (rig, runner, _) = Rig::parked("rotom");
-    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 71 }));
+    assert_eq!(
+        step(&runner).unwrap(),
+        Some(StepReport::Alerted { id: ticket(71) })
+    );
     runner
         .lock()
         .unwrap()
@@ -499,7 +533,7 @@ fn comments_on_an_adopted_pull_request_from_before_are_not_sent() {
     rig.clock.advance(LATE_READ);
     assert_eq!(step(&runner).unwrap(), None, "the old comment is read");
     assert_eq!(rig.claude.seen().len(), turns);
-    assert_eq!(rig.ask(&runner, "status", None)["rulings"][0]["id"], 71);
+    assert_eq!(rig.ask(&runner, "status", None)["rulings"][0]["id"], "71");
 
     rig.forge
         .coderabbit

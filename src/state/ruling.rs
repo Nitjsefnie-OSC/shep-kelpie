@@ -5,19 +5,20 @@ use serde::{Deserialize, Serialize};
 use super::RulingKind;
 use crate::panel::{Ballot, Skip, Verdict};
 use crate::ports::Timestamp;
+use crate::ticket::TicketId;
 
 /// A decision only the maintainer makes
 // wire format: changing this is a breaking change to the state file
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Ruling {
-    /// What the answering trigger names: the number of its pull request, or
-    /// of its issue before there is one
-    pub id: u64,
-    /// The issue of the work item it parks. None only in an older file
+    /// What the answering trigger names: its pull request's number, or the
+    /// id of the ticket it is for before there is one
+    pub id: TicketId,
+    /// The ticket of the work item it parks. None only in an older file
     /// with no work item open.
     #[serde(default)]
-    pub issue: Option<u64>,
+    pub issue: Option<TicketId>,
     /// The question, as the maintainer reads it
     pub question: String,
     /// The pull request it is about, once there is one
@@ -59,7 +60,7 @@ pub struct Ruling {
 impl Ruling {
     /// A ruling about no work item or pull request yet, not yet alerted,
     /// posted or voted on
-    pub fn new(id: u64, question: impl Into<String>, kind: RulingKind) -> Self {
+    pub fn new(id: TicketId, question: impl Into<String>, kind: RulingKind) -> Self {
         Self {
             id,
             issue: None,
@@ -76,15 +77,18 @@ impl Ruling {
         }
     }
 
-    /// The number the maintainer reads and answers it by: its pull request's,
-    /// or its issue's before there is one. A ruling saved with neither is
-    /// named by its id.
-    pub fn number(&self) -> u64 {
-        self.pull_request.or(self.issue).unwrap_or(self.id)
+    /// What the maintainer reads and answers it by: its pull request's
+    /// number, or the id of the ticket it is for before there is one. A
+    /// ruling saved with neither is named by its id.
+    pub fn number(&self) -> TicketId {
+        self.pull_request
+            .and_then(TicketId::from_issue)
+            .or(self.issue)
+            .unwrap_or(self.id)
     }
 
     /// Whether an older kelpie left this ruling under its counter id, beside
-    /// another that took its work item's number: the number names that one
+    /// another that took its ticket's id: the id names that one
     pub fn is_left_over(&self) -> bool {
         self.id != self.number()
     }

@@ -29,6 +29,7 @@ use super::release::awaits_release;
 use super::ruling::{flagged_lines, raise_question};
 use crate::ports::{Cost, Finding};
 use crate::state::{Contribution, Deciding, Said, StateError};
+use crate::ticket::TicketId;
 use crate::worktree;
 
 /// The longest the contributor's words, or one of the maintainer's, are
@@ -137,7 +138,8 @@ impl Runner {
 
     // Whether a ruling on the pull request waits for the maintainer
     pub(super) fn ruling_waits(&self, number: u64) -> bool {
-        (self.state.rulings.iter()).any(|r| r.id == number && !is_merge_ruling(&r.kind))
+        (self.state.rulings.iter())
+            .any(|r| r.id == TicketId::from_pull_request(number) && !is_merge_ruling(&r.kind))
     }
 
     // Asks the representative about `said`. Returns whether it was dealt

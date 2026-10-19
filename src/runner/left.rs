@@ -15,9 +15,10 @@ use std::path::Path;
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime};
 
-use super::trigger::{lock, number, read_rule};
+use super::trigger::{lock, read_rule, ruling_id};
 use super::{RuleError, Runner};
 use crate::state::write_atomically;
+use crate::ticket::TicketId;
 use crate::totp::private_dir;
 
 /// Leaves `params`, `rule`'s params for one ruling, in `answers` for the
@@ -39,9 +40,10 @@ pub fn leave(answers: &Path, params: &str) -> io::Result<()> {
     write_atomically(&answers.join(id.to_string()), params.as_bytes())
 }
 
-// A ruling's id: digits only, and not 0, so a write's temporary file is not one.
-fn id_of(name: &str) -> Option<u64> {
-    number(name)
+// A ruling's id: what an answer names a ruling by, and not 0, so a write's
+// temporary file is not one.
+fn id_of(name: &str) -> Option<TicketId> {
+    ruling_id(name)
 }
 
 /// What `answer_left` has seen in the folder, in memory only
@@ -66,7 +68,7 @@ pub(super) fn answer_left(runner: &Mutex<Runner>) {
     let Ok(entries) = fs::read_dir(&answers) else {
         return;
     };
-    let mut left: Vec<(u64, String)> = Vec::new();
+    let mut left: Vec<(TicketId, String)> = Vec::new();
     for entry in entries.filter_map(Result::ok) {
         let name = entry.file_name().to_string_lossy().into_owned();
         match id_of(&name) {
@@ -129,7 +131,7 @@ fn not_an_answer(runner: &Mutex<Runner>, answers: &Path, name: &str) {
 // What came of the answer `params` left in the file named for `id`, for the
 // ruling now numbered `ruling`, and whether the file is done with: kept only
 // when the answer could not be saved.
-fn taken(runner: &Mutex<Runner>, id: u64, ruling: u64, params: &str) -> (String, bool) {
+fn taken(runner: &Mutex<Runner>, id: TicketId, ruling: TicketId, params: &str) -> (String, bool) {
     let refused = |why: String| {
         format!("the answer to ruling {id} left while the runner was stopped was not taken: {why}")
     };
@@ -151,7 +153,7 @@ fn taken(runner: &Mutex<Runner>, id: u64, ruling: u64, params: &str) -> (String,
         ),
         Err(e @ RuleError::NoSuchRuling(_)) => (
             refused(format!(
-                "{e}; a ruling is named by the number of its pull request or issue, \
+                "{e}; a ruling is named by its pull request's number or its ticket's id, \
                  so an id from before that no longer works"
             )),
             true,

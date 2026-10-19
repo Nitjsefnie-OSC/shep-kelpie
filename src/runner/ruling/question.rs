@@ -6,16 +6,21 @@ use crate::runner::contributions::flagged_lines;
 use crate::runner::gate::short;
 use crate::runner::review::pushed::off_text;
 use crate::state::{Fix, Held, RulingKind, Stuck};
+use crate::ticket::TicketId;
 use crate::work_item::{Phase, raised_cap};
 
-pub(in crate::runner) fn question(issue: u64, number: Option<u64>, kind: &RulingKind) -> String {
-    // The maintainer answers by the number they read: the pull request's, or
-    // the issue's until there is one.
-    let named = number.unwrap_or(issue);
+pub(in crate::runner) fn question(
+    issue: TicketId,
+    number: Option<u64>,
+    kind: &RulingKind,
+) -> String {
+    // The maintainer answers by the id they read: the pull request's number, or
+    // the ticket's id until there is one.
+    let named = number.and_then(TicketId::from_issue).unwrap_or(issue);
     let trigger = |answer: &str| format!("`shep kelpie rule {named} {answer}`");
     let (yes, no) = (trigger("yes"), trigger("no <note>"));
     let about = number.map_or_else(
-        || format!("issue #{issue}"),
+        || issue.named().to_lowercase(),
         |n| format!("pull request #{n}"),
     );
     // A work item stopped before its pull request opened leaves none on the forge.

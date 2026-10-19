@@ -51,6 +51,7 @@ use super::{Answer, RuleError, Runner, voice};
 use crate::ports::{CommentMarks, Forge, ThreadComment, Timestamp};
 use crate::settings::ForgeSlug;
 use crate::state::{Contribution, Heard, ProjectState, Ruling, RulingKind, StateError};
+use crate::ticket::TicketId;
 use crate::work_item::Phase;
 
 /// Seconds a ruling answered elsewhere is still watched, so a reply that
@@ -67,7 +68,7 @@ const SLACK: u64 = 5 * 60;
 /// A ruling's thread being watched for an answer
 #[derive(Debug, Clone)]
 struct Watch {
-    ruling: u64,
+    ruling: TicketId,
     thread: u64,
     heard: Heard,
     /// Until when it is watched after it was answered, once it was
@@ -81,7 +82,7 @@ pub(super) struct Reading {
     read: Option<Timestamp>,
     /// The comments before this are not asked for again
     floor: Option<Timestamp>,
-    watching: BTreeMap<u64, Watch>,
+    watching: BTreeMap<TicketId, Watch>,
     /// The comments read and left alone, a bot's or a login's without write
     /// access, by id and when written, until a read no longer reaches them
     judged: BTreeMap<u64, Timestamp>,
@@ -95,19 +96,19 @@ pub(super) struct Reading {
     replies_failed: Option<String>,
     /// Why a ruling's reaction or tick was refused, told once each, since
     /// it stays on the comment and is read again at every poll
-    refused: BTreeMap<u64, String>,
+    refused: BTreeMap<TicketId, String>,
     /// What became of each ruling that left the state while it was watched,
-    /// as a reply in its thread is told, with the number it was read by
-    told: BTreeMap<u64, (u64, String)>,
+    /// as a reply in its thread is told, with the id it was read by
+    told: BTreeMap<TicketId, (TicketId, String)>,
     /// The rulings the last save took out of the state while their comments
     /// were up, until what became of them is said
-    ended: BTreeMap<u64, Ended>,
+    ended: BTreeMap<TicketId, Ended>,
     /// The edit of a settled ruling's comment that failed, by ruling, tried
     /// again after a wait that doubles until it is given up
-    unedited: BTreeMap<u64, settled::Unedited>,
+    unedited: BTreeMap<TicketId, settled::Unedited>,
     /// The rulings the panel decided while they are watched, as they stood
     /// when they were decided, so a `no <note>` can reopen one
-    decided: BTreeMap<u64, Ruling>,
+    decided: BTreeMap<TicketId, Ruling>,
 }
 
 /// How a reply names the ruling it answers
@@ -122,15 +123,15 @@ enum Naming {
 /// What a comment on a watched thread is a reply to
 enum Aimed {
     /// A pending ruling, named or not
-    At(u64, Naming),
+    At(TicketId, Naming),
     /// A ruling that was answered already
-    Settled(u64),
+    Settled(TicketId),
     /// A ruling pending on another thread
-    Elsewhere(u64, u64),
+    Elsewhere(TicketId, u64),
     /// Several rulings wait on the thread and the reply names none
-    Unnamed(Vec<u64>),
+    Unnamed(Vec<TicketId>),
     /// A `no` that names no ruling, on the comment of one the panel decided
-    Undecided(u64),
+    Undecided(TicketId),
     /// Nothing to answer
     Nothing,
 }
@@ -158,7 +159,7 @@ pub(super) struct ThreadRead {
     /// the read ended
     stopped: Option<(u64, String)>,
     /// What was done to each pending ruling's own comment
-    marks: BTreeMap<u64, Result<CommentMarks, String>>,
+    marks: BTreeMap<TicketId, Result<CommentMarks, String>>,
     /// The comments in each followed pull request's review threads
     replies: BTreeMap<u64, Result<Vec<ThreadComment>, String>>,
 }
@@ -388,7 +389,7 @@ impl Runner {
     // Answers each ruling its comment's reaction or ticked box answers, when
     // the maintainer it mentions gave it. Their reaction stays on the comment
     // and is read at every poll, so a refusal is told once.
-    fn apply_marks(&mut self, marks: BTreeMap<u64, Result<CommentMarks, String>>) {
+    fn apply_marks(&mut self, marks: BTreeMap<TicketId, Result<CommentMarks, String>>) {
         let mut failed = Vec::new();
         for (id, marks) in marks {
             let marks = match marks {
@@ -499,7 +500,7 @@ impl Runner {
     // still waits is a merge ruling on a pull request, where the maintainer's
     // plain comment is a `no <note>`. On any other ruling it is told how to
     // reply, and on an issue no worker reads it.
-    fn is_plain(&self, comment: &ThreadComment, aimed: &[u64]) -> bool {
+    fn is_plain(&self, comment: &ThreadComment, aimed: &[TicketId]) -> bool {
         let waiting: Vec<_> = (self.state.rulings.iter())
             .filter(|r| aimed.contains(&r.id))
             .collect();
@@ -509,14 +510,14 @@ impl Runner {
     }
 
     // Acts on a reply by the login a ruling mentions, with write access.
-    fn respond(&mut self, comment: &ThreadComment, aimed: &[u64]) {
+    fn respond(&mut self, comment: &ThreadComment, aimed: &[TicketId]) {
         if self.is_plain(comment, aimed) {
             return;
         }
         let words = comment.body.trim();
         let (named, words) = self.threads.name_of(words, comment, &self.state.rulings);
-        let open = |id: &u64| self.state.rulings.iter().any(|r| r.id == *id);
-        let waiting: Vec<u64> = aimed.iter().copied().filter(open).collect();
+        let open = |id: &TicketId| self.state.rulings.iter().any(|r| r.id == *id);
+        let waiting: Vec<TicketId> = aimed.iter().copied().filter(open).collect();
         let aimed = match named {
             Some((id, naming)) if waiting.contains(&id) => Aimed::At(id, naming),
             Some((id, _)) => match self.threads.watching.get(&id) {
@@ -546,27 +547,31 @@ impl Runner {
                     Some((number, told)) => (*number, told.as_str()),
                     None => (self.ruling_number(id), "is already answered"),
                 };
-                let said = format!("@{who} Ruling #{number} {told}.");
+                let said = format!("@{who} Ruling {} {told}.", number.shown());
                 self.say(thread, &said);
             }
             Aimed::Undecided(id) => {
                 let number = self.ruling_number(id);
                 let said = format!(
-                    "@{who} Ruling #{number} was not reopened: start your reply with its \
-                     number, as `{number} no <note>`."
+                    "@{who} Ruling {} was not reopened: start your reply with its number, as \
+                     `{number} no <note>`.",
+                    number.shown()
                 );
                 self.say(thread, &said);
             }
             Aimed::Elsewhere(id, there) => {
                 let number = self.ruling_number(id);
-                let said =
-                    format!("@{who} Ruling #{number} waits on #{there}, so answer it there.");
+                let said = format!(
+                    "@{who} Ruling {} waits on {}, so answer it there.",
+                    number.shown(),
+                    format!("#{there}")
+                );
                 self.say(thread, &said);
             }
             // Rulings on one thread share its number, so only an older kelpie
             // leaves several here, and only their ids tell them apart.
             Aimed::Unnamed(ids) => {
-                let ids: Vec<_> = ids.iter().map(u64::to_string).collect();
+                let ids: Vec<String> = ids.iter().map(ToString::to_string).collect();
                 let said = format!(
                     "@{who} Rulings {} wait on this thread, so start your reply with the id of \
                      the one you answer, such as `{} yes`.",
@@ -580,14 +585,14 @@ impl Runner {
 
     // The number ruling `id` is read by, or `id` once it has left the state
     // and the panel's decided rulings
-    pub(super) fn ruling_number(&self, id: u64) -> u64 {
+    pub(super) fn ruling_number(&self, id: TicketId) -> TicketId {
         let pending = self.state.rulings.iter().find(|r| r.id == id);
         let ended = self.threads.ended.get(&id).map(|e| &e.ruling);
         (pending.or(self.threads.decided.get(&id)).or(ended)).map_or(id, Ruling::number)
     }
 
     // The ruling the panel decided that `words`, a `no` naming none, reply to.
-    fn undecided(&self, aimed: &[u64], words: &str) -> Option<u64> {
+    fn undecided(&self, aimed: &[TicketId], words: &str) -> Option<TicketId> {
         let first = words.split_whitespace().next()?;
         if !first.eq_ignore_ascii_case("no") {
             return None;
@@ -598,7 +603,7 @@ impl Runner {
     // Answers ruling `id` with `words`, reacting if it took, or says why not.
     // A ruling that takes a yes or a no is answered only by a reply that
     // names it, so a conversational yes never merges.
-    fn answer(&mut self, comment: &ThreadComment, id: u64, naming: Naming, words: &str) {
+    fn answer(&mut self, comment: &ThreadComment, id: TicketId, naming: Naming, words: &str) {
         let (who, thread) = (&comment.author, comment.thread);
         let Some(ruling) = self.state.rulings.iter().find(|r| r.id == id) else {
             return;
@@ -641,7 +646,7 @@ impl Runner {
     }
 
     /// What became of ruling `id` as a reply in its thread is told, if it ended
-    pub(super) fn threads_told(&self, id: u64) -> Option<&String> {
+    pub(super) fn threads_told(&self, id: TicketId) -> Option<&String> {
         self.threads.told.get(&id).map(|(_, told)| told)
     }
 
@@ -676,7 +681,7 @@ impl Runner {
     // `no <note>`: it is raised again as it stood, its work item is parked on
     // it again, and the note answers it. Says why when it cannot, and
     // returns whether the ruling was one the panel decided.
-    fn reopens(&mut self, comment: &ThreadComment, id: u64, words: &str) -> bool {
+    fn reopens(&mut self, comment: &ThreadComment, id: TicketId, words: &str) -> bool {
         let Some(ruling) = self.threads.decided.get(&id).cloned() else {
             return false;
         };
@@ -715,10 +720,10 @@ impl Runner {
     fn reopen(&mut self, ruling: Ruling, answer: Answer) -> Result<(), RuleError> {
         let id = ruling.id;
         let not = |why: &str| RuleError::Reopen(id, why.to_owned());
-        let Some(ticket) = ruling.ticket() else {
+        let Some(ticket) = ruling.issue else {
             return Err(not("it has no work item"));
         };
-        let item = self.state.item_by_ticket(ticket);
+        let item = self.state.item(ticket);
         let item = item.ok_or_else(|| not("its work item has finished"))?;
         if self.flights.flying(ticket) {
             return Err(not("its worker is running"));
@@ -728,7 +733,7 @@ impl Runner {
         }
         let before = self.state.clone();
         let mut next = before.clone();
-        if let Some(item) = next.item_mut_by_ticket(ticket) {
+        if let Some(item) = next.item_mut(ticket) {
             item.phase = Phase::Ruling { id };
         }
         next.rulings.push(ruling);
@@ -788,39 +793,42 @@ impl Reading {
 
     // The watched rulings `comment` is new to: on their thread, written after
     // the place read to, by the login each mentions.
-    fn aimed_by(&self, comment: &ThreadComment) -> Vec<u64> {
+    fn aimed_by(&self, comment: &ThreadComment) -> Vec<TicketId> {
         (self.watching.iter())
             .filter(|(_, w)| aims_at(w, comment))
             .map(|(&id, _)| id)
             .collect()
     }
 
-    // The id of a ruling a reply starts with, and the rest of it. The number
-    // is the number of the issue or pull request of the one ruling in
-    // `rulings` this author may answer, since that is what the card prints, or
-    // failing that the number a ruling was lately named by, waiting or
-    // settled, so a late answer is told so. A number that names no ruling this
-    // author may answer, or the whole of a reply, is its text.
+    // The id of a ruling a reply starts with, and the rest of it. The id is
+    // the pull request number or the ticket id of the one ruling in `rulings`
+    // this author may answer, since that is what the card prints, or failing
+    // that the id a ruling was lately named by, waiting or settled, so a late
+    // answer is told so. An id that names no ruling this author may answer, or
+    // the whole of a reply, is its text.
     fn name_of<'a>(
         &self,
         words: &'a str,
         comment: &ThreadComment,
         rulings: &[Ruling],
-    ) -> (Option<(u64, Naming)>, &'a str) {
+    ) -> (Option<(TicketId, Naming)>, &'a str) {
         let Some((first, rest)) = words.split_once(char::is_whitespace) else {
             return (None, words);
         };
-        let Ok(number) = first.trim_start_matches('#').parse::<u64>() else {
+        let Ok(number) = first.trim_start_matches('#').parse::<TicketId>() else {
             return (None, words);
         };
         if rest.trim().is_empty() {
             return (None, words);
         }
-        let mentioned = |id: &u64| {
+        let mentioned = |id: &TicketId| {
             (self.watching.get(id)).is_some_and(|w| w.heard.is_mentioned(&comment.author))
         };
         let rest = rest.trim_start();
-        let about = |r: &&Ruling| r.issue == Some(number) || r.pull_request == Some(number);
+        let about = |r: &&Ruling| {
+            r.issue == Some(number)
+                || r.pull_request.map(TicketId::from_pull_request) == Some(number)
+        };
         // A ruling that takes any text is answered by a reply that names no
         // ruling when it is the only one waiting, so a number opening the
         // reply is part of the answer, not its name.
@@ -844,7 +852,7 @@ impl Reading {
 pub(super) fn is_reply_words(body: &str) -> bool {
     let first = body.split_whitespace().next().unwrap_or_default();
     let first = first.trim_start_matches('#');
-    first.parse::<u64>().is_ok()
+    first.parse::<TicketId>().is_ok()
         || ["yes", "no", "rework"]
             .iter()
             .any(|word| first.eq_ignore_ascii_case(word))
@@ -895,7 +903,7 @@ pub(in crate::runner) fn plain_login(login: &str) -> String {
 }
 
 // What a reply to a ruling that wants `wants` starts with: its number.
-fn forms(wants: Wants, id: u64) -> String {
+fn forms(wants: Wants, id: TicketId) -> String {
     match wants {
         Wants::Answer => format!("`{id} <your answer>`"),
         Wants::Merge => format!("`{id} yes`, `{id} no <note>` or `{id} rework <note>`"),
@@ -906,8 +914,10 @@ fn forms(wants: Wants, id: u64) -> String {
 // The thread a pending ruling is answered in, and the place read to there.
 // A ruling kelpie's App did not post with a mention is answered at the
 // terminal only, so it has none.
-fn watch_of(state: &ProjectState, ruling: &Ruling) -> Option<(u64, Watch)> {
-    let thread = ruling.pull_request.or(ruling.issue)?;
+fn watch_of(state: &ProjectState, ruling: &Ruling) -> Option<(TicketId, Watch)> {
+    let thread = ruling
+        .pull_request
+        .or_else(|| ruling.issue.and_then(|t| t.github()))?;
     let heard = state.heard.get(&ruling.id)?.clone();
     let settled = None;
     Some((

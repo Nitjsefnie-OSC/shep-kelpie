@@ -139,8 +139,8 @@ pub(super) fn who(call: &AgentCall) -> String {
 
 // The note's owner for a worker's turn a previous image began, which carries its issue and
 // nothing else of its call
-pub(super) fn who_carried(issue: u64) -> String {
-    format!("issue #{issue}'s {}", name(Role::Worker))
+pub(super) fn who_carried(ticket: TicketId) -> String {
+    format!("{}'s {}", ticket.named().to_lowercase(), name(Role::Worker))
 }
 
 /// Indexes `call`'s worktree for the server its reach names, on the call's

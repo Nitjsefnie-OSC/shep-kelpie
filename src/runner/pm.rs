@@ -91,7 +91,7 @@ pub(super) enum StuckState {
     /// item is a different one, whatever its number.
     Ruling {
         /// The ruling's number
-        id: u64,
+        id: TicketId,
         /// When it was raised, `None` only in a state file from before
         raised: Option<Timestamp>,
     },
@@ -136,7 +136,7 @@ pub(super) enum Wake {
         /// The work item's ticket
         ticket: TicketId,
         /// The ruling
-        id: u64,
+        id: TicketId,
         /// The worker's question, verbatim
         asked: String,
     },
@@ -146,7 +146,7 @@ pub(super) enum Wake {
         /// The work item's ticket, whose folder holds the merged diff
         ticket: TicketId,
         /// The ruling
-        id: u64,
+        id: TicketId,
         /// The merged pull request
         pull_request: u64,
         /// The findings
@@ -155,7 +155,7 @@ pub(super) enum Wake {
     /// A ruling is before the panel, and the project manager votes on it
     Vote {
         /// The ruling
-        id: u64,
+        id: TicketId,
         /// What it asks and the options, as the experts are shown it
         asked: String,
     },
@@ -263,9 +263,9 @@ pub(super) struct Desk {
     left_alone: BTreeMap<TicketId, LeftAlone>,
     // Each question ruling held back from the maintainer for its answer, with
     // when it was raised
-    asking: BTreeMap<u64, Timestamp>,
+    asking: BTreeMap<TicketId, Timestamp>,
     // Each of those whose comment on its thread waits for the hold to end
-    unposted: BTreeSet<u64>,
+    unposted: BTreeSet<TicketId>,
     // The last few questions it settled, newest last
     settled: Vec<Settled>,
     flying: Option<Flying>,
@@ -510,19 +510,19 @@ impl Runner {
 
     /// Whether ruling `id`'s comment waits on the project manager's answer or
     /// on the panel's votes, and so is not posted yet
-    pub(super) fn ruling_held(&self, id: u64) -> bool {
+    pub(super) fn ruling_held(&self, id: TicketId) -> bool {
         self.pm_holds_ruling(id) || self.panel_holds_ruling(id)
     }
 
     /// Whether question ruling `id` waits on the project manager's answer,
     /// at most one wake, and so is not posted to the maintainer yet
-    pub(super) fn pm_holds_ruling(&self, id: u64) -> bool {
+    pub(super) fn pm_holds_ruling(&self, id: TicketId) -> bool {
         !self.draining() && self.pm_has_asked(id)
     }
 
     /// Whether question ruling `id` was put to the project manager, at most
     /// one wake ago, a drain or not: the panel leaves it to the project manager
-    pub(super) fn pm_has_asked(&self, id: u64) -> bool {
+    pub(super) fn pm_has_asked(&self, id: TicketId) -> bool {
         let now = self.ports.clock.now();
         let by = |since: &Timestamp| now.0 < since.0.saturating_add(CEILING);
         self.agents.pm.is_some() && self.pm.asking.get(&id).is_some_and(by)
@@ -530,7 +530,7 @@ impl Runner {
 
     /// Holds ruling `id`'s comment on its thread back while the project
     /// manager may answer it, and says whether it did
-    pub(super) fn pm_holds_comment(&mut self, id: u64) -> bool {
+    pub(super) fn pm_holds_comment(&mut self, id: TicketId) -> bool {
         let held = self.ruling_held(id);
         if held {
             self.pm.unposted.insert(id);
@@ -541,7 +541,7 @@ impl Runner {
 
     /// Keeps on ruling `id` whether its comment is still to be posted, so a
     /// runner that restarts mid-hold posts it
-    pub(super) fn mark_unposted(&mut self, id: u64, unposted: bool) {
+    pub(super) fn mark_unposted(&mut self, id: TicketId, unposted: bool) {
         let differs = (self.state.rulings.iter().find(|r| r.id == id))
             .is_some_and(|r| r.unposted != unposted);
         if !differs {
@@ -564,12 +564,12 @@ impl Runner {
         // A ruling the project manager's hold has let go of may be the panel's now.
         self.panel_pass();
         // A ruling held when the runner last stopped is still to be posted.
-        let kept: Vec<u64> = (self.state.rulings.iter())
+        let kept: Vec<TicketId> = (self.state.rulings.iter())
             .filter(|r| r.unposted)
             .map(|r| r.id)
             .collect();
         self.pm.unposted.extend(kept);
-        let released: Vec<u64> = (self.pm.unposted.iter().copied())
+        let released: Vec<TicketId> = (self.pm.unposted.iter().copied())
             .filter(|&id| !self.ruling_held(id))
             .collect();
         for id in released {
@@ -723,7 +723,7 @@ impl Runner {
         // Its votes on the rulings it was asked about; one it gave none on
         // abstains. They are part of what kelpie did, so they are recorded
         // before the note below names the wake's actions.
-        let asked: Vec<u64> = (flying.wakes.iter())
+        let asked: Vec<TicketId> = (flying.wakes.iter())
             .filter_map(|w| match w {
                 Wake::Vote { id, .. } => Some(*id),
                 _ => None,

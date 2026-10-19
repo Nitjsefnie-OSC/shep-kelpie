@@ -123,8 +123,8 @@ fn a_terminal_answer_to_a_head_the_branch_moved_past_edits_the_old_comment_to_sa
     rig.push_by_hand("kelpie/7", "first.txt");
     assert!(matches!(
         rig.verdict(&runner),
-        Some(StepReport::Ruling { id: 71, .. })
-    ));
+        Some(StepReport::Ruling { id, .. })
+     if id == ticket(71)));
     let comment = ruling_comment(&rig);
     rig.push_by_hand("kelpie/7", "second.txt");
     // The withdrawn ruling is raised again under the same number, later.
@@ -132,7 +132,7 @@ fn a_terminal_answer_to_a_head_the_branch_moved_past_edits_the_old_comment_to_sa
 
     rig.ask(&runner, "rule", Some("71 yes"));
 
-    assert_eq!(pending(&rig, &runner), [71]);
+    assert_eq!(pending(&rig, &runner), [ticket(71)]);
     let [(edited, body)] = rig.github.edits().try_into().unwrap();
     assert_eq!(edited, comment);
     assert!(
@@ -151,8 +151,8 @@ fn an_answer_in_the_thread_to_a_head_the_branch_moved_past_leaves_the_comment_as
     rig.push_by_hand("kelpie/7", "first.txt");
     assert!(matches!(
         rig.verdict(&runner),
-        Some(StepReport::Ruling { id: 71, .. })
-    ));
+        Some(StepReport::Ruling { id, .. })
+     if id == ticket(71)));
     rig.push_by_hand("kelpie/7", "second.txt");
     rig.clock.advance(5);
     rig.writes_on(71, "octocat", "71 yes");
@@ -160,6 +160,6 @@ fn an_answer_in_the_thread_to_a_head_the_branch_moved_past_leaves_the_comment_as
     rig.next_look();
     step(&runner).unwrap();
 
-    assert_eq!(pending(&rig, &runner), [71]);
+    assert_eq!(pending(&rig, &runner), [ticket(71)]);
     assert_eq!(rig.github.edits(), []);
 }

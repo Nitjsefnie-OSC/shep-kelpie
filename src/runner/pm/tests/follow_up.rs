@@ -11,6 +11,7 @@ use crate::ports::AgentError;
 use crate::runner::follow_up::tests::{after_merge, auto_merging_on};
 use crate::runner::{Runner, StepReport, step};
 use crate::settings::Harness;
+use crate::test::ticket;
 use crate::test::{Rig, Scripted};
 
 const LEAVES_IT: &str = "{\"answer\": null}";
@@ -27,9 +28,10 @@ fn ready_to_merge(project: &str, work: &'static str) -> (Rig, Mutex<Runner>) {
 /// ... merged, and the follow-up ruling raised
 fn merged_with_a_finding(project: &str, work: &'static str) -> (Rig, Mutex<Runner>) {
     let (rig, runner) = ready_to_merge(project, work);
-    let Some(StepReport::Ruling { id: 71, .. }) = after_merge(&runner) else {
+    let Some(StepReport::Ruling { id, .. }) = after_merge(&runner) else {
         panic!("the maintainer was not asked about the findings");
     };
+    assert_eq!(id, ticket(71));
     (rig, runner)
 }
 
@@ -74,7 +76,10 @@ fn passing_it_on_leaves_the_ruling_open_with_its_recommendation_and_reason() {
         ["put ruling 71 on #7 to the maintainer"],
         "{dropped:?}"
     );
-    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 71 }));
+    assert_eq!(
+        step(&runner).unwrap(),
+        Some(StepReport::Alerted { id: ticket(71) })
+    );
 
     let text = alerted_of_the_ruling(&rig).expect("the ruling went to the maintainer");
     assert!(
@@ -185,7 +190,10 @@ fn an_answer_after_the_maintainer_was_alerted_is_dropped_and_the_ruling_still_wa
     let down = AgentError::Failed(Harness::ClaudeCode, "overloaded".into());
     rig.claude.script([Scripted::Fail(down)]);
     step_until(&runner, |r| matches!(r, StepReport::PmFailed { .. }));
-    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 71 }));
+    assert_eq!(
+        step(&runner).unwrap(),
+        Some(StepReport::Alerted { id: ticket(71) })
+    );
 
     rig.clock.advance(11 * 60);
     rig.ask(&runner, "tell", Some("File them."));
@@ -200,7 +208,7 @@ fn an_answer_after_the_maintainer_was_alerted_is_dropped_and_the_ruling_still_wa
         ["follow_up #7: ruling 71 already went to the maintainer"]
     );
     let status = rig.ask(&runner, "status", None);
-    assert_eq!(status["rulings"][0]["id"], 71, "the ruling still waits");
+    assert_eq!(status["rulings"][0]["id"], "71", "the ruling still waits");
     assert_eq!(rig.forge.created(), []);
 }
 
@@ -230,7 +238,10 @@ fn text_for_a_follow_up_is_dropped_and_the_ruling_goes_out_as_it_is() {
     assert_eq!(acted, Vec::<String>::new());
     assert_eq!(dropped.len(), 1, "{dropped:?}");
     assert!(dropped[0].starts_with("answer #7: ruling 71 is a follow-up"));
-    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 71 }));
+    assert_eq!(
+        step(&runner).unwrap(),
+        Some(StepReport::Alerted { id: ticket(71) })
+    );
     let text = alerted_of_the_ruling(&rig).unwrap();
     assert!(!text.contains("PM "), "{text}");
 }
@@ -254,7 +265,10 @@ fn a_recommendation_that_is_not_yes_or_no_is_dropped_and_the_ruling_goes_out_as_
         assert_eq!(acted, Vec::<String>::new(), "{answer}");
         assert_eq!(dropped.len(), 1, "{dropped:?}");
         assert!(dropped[0].contains("`yes` or `no`"), "{dropped:?}");
-        assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 71 }));
+        assert_eq!(
+            step(&runner).unwrap(),
+            Some(StepReport::Alerted { id: ticket(71) })
+        );
         let text = alerted_of_the_ruling(&rig).unwrap();
         assert!(!text.contains("PM "), "{text}");
     }
@@ -266,7 +280,10 @@ fn a_wake_that_fails_sends_the_ruling_to_the_maintainer_as_it_is() {
     let down = AgentError::Failed(Harness::ClaudeCode, "overloaded".into());
     rig.claude.script([Scripted::Fail(down)]);
     step_until(&runner, |r| matches!(r, StepReport::PmFailed { .. }));
-    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 71 }));
+    assert_eq!(
+        step(&runner).unwrap(),
+        Some(StepReport::Alerted { id: ticket(71) })
+    );
     let text = alerted_of_the_ruling(&rig).unwrap();
     assert!(!text.contains("PM recommends"), "{text}");
 }
@@ -281,7 +298,10 @@ fn a_project_manager_that_is_down_lets_the_ruling_go_out_as_it_is() {
     step_until(&runner, |r| matches!(r, StepReport::PmFailed { .. }));
 
     // Nothing holds the ruling back, so it is alerted as soon as it is raised.
-    step_until(&runner, |r| matches!(r, StepReport::Alerted { id: 71 }));
+    step_until(
+        &runner,
+        |r| matches!(r, StepReport::Alerted { id } if *id == ticket(71)),
+    );
     let text = alerted_of_the_ruling(&rig).expect("the ruling went to the maintainer");
     assert!(text.contains("src/lib.rs:9 looks racy"), "{text}");
     assert_eq!(pm_seen(&rig).len(), 1, "no wake for the ruling");

@@ -2,6 +2,7 @@
 //! needs no code except a yes on a merge ruling
 
 use super::*;
+use crate::test::ticket;
 
 // The rig's kelpie settings with its ntfy webhook locked to a token
 fn trusted(rig: &Rig) {
@@ -15,7 +16,10 @@ fn trusted(rig: &Rig) {
 fn alerted_trusted(project: &str) -> (Rig, Mutex<Runner>, String) {
     let (rig, runner, head) = Rig::parked_set(project, trusted);
     assert!(rig.webhook().trusted);
-    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 71 }));
+    assert_eq!(
+        step(&runner).unwrap(),
+        Some(StepReport::Alerted { id: ticket(71) })
+    );
     (rig, runner, head)
 }
 
@@ -25,9 +29,12 @@ fn a_no_and_a_rework_need_no_code_on_a_trusted_topic() {
     rig.alerts.reply("71 no rename the flag", rig.clock.now());
     assert_eq!(
         step(&runner).unwrap(),
-        Some(StepReport::ReplyAnswered { id: 71 })
+        Some(StepReport::ReplyAnswered { id: ticket(71) })
     );
-    assert_ne!(phase(&rig, &runner), json!({ "state": "ruling", "id": 71 }));
+    assert_ne!(
+        phase(&rig, &runner),
+        json!({ "state": "ruling", "id": "71" })
+    );
     assert_eq!(lines(&rig), [""; 0]);
 
     let (rig, runner, _) = alerted_trusted("koji");
@@ -35,7 +42,7 @@ fn a_no_and_a_rework_need_no_code_on_a_trusted_topic() {
         .reply("koji 71 Rework split the parser out", rig.clock.now());
     assert_eq!(
         step(&runner).unwrap(),
-        Some(StepReport::ReplyAnswered { id: 71 })
+        Some(StepReport::ReplyAnswered { id: ticket(71) })
     );
     rig.claude.script([Scripted::Push("split.txt", "split\n")]);
     step(&runner).unwrap();
@@ -57,13 +64,16 @@ fn a_workers_answer_needs_no_code_on_a_trusted_topic() {
         "Done.\n\n<kelpie-question>\nShould it be `--dry-run` or `--check`?\n</kelpie-question>\n",
     )]);
     step(&runner).unwrap();
-    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 7 }));
+    assert_eq!(
+        step(&runner).unwrap(),
+        Some(StepReport::Alerted { id: ticket(7) })
+    );
 
     rig.alerts
         .reply("7 use --dry-run, it matches shep.", rig.clock.now());
     assert_eq!(
         step(&runner).unwrap(),
-        Some(StepReport::ReplyAnswered { id: 7 })
+        Some(StepReport::ReplyAnswered { id: ticket(7) })
     );
     rig.claude.script([Scripted::Say("renamed")]);
     step(&runner).unwrap();
@@ -82,7 +92,7 @@ fn a_yes_on_a_merge_ruling_is_refused_without_a_code_and_taken_with_one() {
     assert_eq!(
         step(&runner).unwrap(),
         Some(StepReport::ReplyRefused {
-            id: 71,
+            id: ticket(71),
             reason: reason.into(),
             line_failed: None
         })
@@ -91,14 +101,17 @@ fn a_yes_on_a_merge_ruling_is_refused_without_a_code_and_taken_with_one() {
         lines(&rig),
         [format!("Ruling #71 was not answered: {reason}.")]
     );
-    assert_eq!(phase(&rig, &runner), json!({ "state": "ruling", "id": 71 }));
+    assert_eq!(
+        phase(&rig, &runner),
+        json!({ "state": "ruling", "id": "71" })
+    );
     assert_eq!(rig.forge.merges(), []);
 
     rig.clock.advance(READ_EVERY);
     rig.reply("71 yes");
     assert_eq!(
         step(&runner).unwrap(),
-        Some(StepReport::ReplyAnswered { id: 71 })
+        Some(StepReport::ReplyAnswered { id: ticket(71) })
     );
     assert_eq!(
         phase(&rig, &runner),
@@ -116,11 +129,14 @@ fn a_yes_to_any_other_ruling_needs_no_code_on_a_trusted_topic() {
         "Done.\n\n<kelpie-question>\nShall I keep the old flag?\n</kelpie-question>\n",
     )]);
     step(&runner).unwrap();
-    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 7 }));
+    assert_eq!(
+        step(&runner).unwrap(),
+        Some(StepReport::Alerted { id: ticket(7) })
+    );
     rig.alerts.reply("7 yes", rig.clock.now());
     assert_eq!(
         step(&runner).unwrap(),
-        Some(StepReport::ReplyAnswered { id: 7 })
+        Some(StepReport::ReplyAnswered { id: ticket(7) })
     );
 }
 
@@ -142,7 +158,10 @@ fn text_that_names_no_ruling_here_is_left_alone_on_a_trusted_topic() {
         );
         rig.clock.advance(READ_EVERY);
     }
-    assert_eq!(phase(&rig, &runner), json!({ "state": "ruling", "id": 71 }));
+    assert_eq!(
+        phase(&rig, &runner),
+        json!({ "state": "ruling", "id": "71" })
+    );
     assert_eq!(lines(&rig), [""; 0]);
 }
 
@@ -151,7 +170,10 @@ fn an_untrusted_topic_still_takes_no_reply_without_a_code() {
     let (rig, runner, _) = alerted("koji");
     rig.alerts.reply("71 no rename the flag", rig.clock.now());
     assert_eq!(step(&runner).unwrap(), Some(StepReport::ReplyIgnored));
-    assert_eq!(phase(&rig, &runner), json!({ "state": "ruling", "id": 71 }));
+    assert_eq!(
+        phase(&rig, &runner),
+        json!({ "state": "ruling", "id": "71" })
+    );
 }
 
 #[test]
@@ -185,13 +207,16 @@ fn five_wrong_codes_turn_coded_answers_off_and_leave_uncoded_ones() {
     rig.reply("koji 71 yes");
     rig.clock.advance(READ_EVERY);
     assert_eq!(step(&runner).unwrap(), Some(StepReport::ReplyIgnored));
-    assert_eq!(phase(&rig, &runner), json!({ "state": "ruling", "id": 71 }));
+    assert_eq!(
+        phase(&rig, &runner),
+        json!({ "state": "ruling", "id": "71" })
+    );
 
     rig.alerts.reply("71 no rename the flag", rig.clock.now());
     rig.clock.advance(READ_EVERY);
     assert_eq!(
         step(&runner).unwrap(),
-        Some(StepReport::ReplyAnswered { id: 71 })
+        Some(StepReport::ReplyAnswered { id: ticket(71) })
     );
 }
 
@@ -207,7 +232,10 @@ fn a_merge_alerted_after_the_lock_does_not_offer_a_coded_yes() {
         }
         assert!(answers.locked());
     });
-    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 71 }));
+    assert_eq!(
+        step(&runner).unwrap(),
+        Some(StepReport::Alerted { id: ticket(71) })
+    );
     let alert = &rig.alerts.posts()[0].1;
     assert_eq!(
         alert.reply.as_ref().map(|r| r.takes),
@@ -219,5 +247,8 @@ fn a_merge_alerted_after_the_lock_does_not_offer_a_coded_yes() {
         panic!("a bare yes on a merge ruling is refused");
     };
     assert!(reason.contains("shep kelpie totp --unlock"), "{reason}");
-    assert_eq!(phase(&rig, &runner), json!({ "state": "ruling", "id": 71 }));
+    assert_eq!(
+        phase(&rig, &runner),
+        json!({ "state": "ruling", "id": "71" })
+    );
 }

@@ -4,7 +4,7 @@ use serde_json::{Value, json};
 
 use super::{finished, secs, summed, with_history};
 use crate::state::{HISTORY_CAP, StateStore};
-use crate::test::Rig;
+use crate::test::{Rig, ticket};
 use crate::work_item::TimingPhase;
 
 fn three() -> Vec<crate::state::Finished> {
@@ -28,7 +28,7 @@ fn the_totals_are_the_last_n_items_summed_oldest_first() {
     let (rig, runner) = with_history(three());
     let t = rig.ask(&runner, "timings", Some("2"));
     assert_eq!(t["items"], 2);
-    assert_eq!(t["issues"], json!([9, 12]));
+    assert_eq!(t["issues"], json!(["9", "12"]));
     assert_eq!(t["wall"], 70);
     assert_eq!(secs(&t, "worker"), 10);
     assert_eq!(secs(&t, "ruling"), 40);
@@ -45,7 +45,7 @@ fn more_than_have_finished_reads_them_all_and_no_count_reads_ten() {
         let t = rig.ask(&runner, "timings", params);
         assert_eq!(
             (&t["items"], &t["issues"]),
-            (&json!(3), &json!([7, 9, 12])),
+            (&json!(3), &json!(["7", "9", "12"])),
             "{params:?}"
         );
         assert_eq!(t["wall"], 170);
@@ -129,7 +129,7 @@ fn the_timings_reply_is_pinned() {
         json!({
             "project": "koji",
             "items": 3,
-            "issues": [7, 9, 12],
+            "issues": ["7", "9", "12"],
             "wall": 170,
             "seconds": {
                 "worker": 70, "review": 15, "ci": 40,
@@ -162,10 +162,10 @@ fn a_dropped_work_item_is_recorded_with_what_it_spent() {
     rig.clock.advance(30);
     let status = rig.ask(&runner, "drop", None);
     assert_eq!(status["work_item"], json!(null));
-    assert_eq!(status["history"][0]["issue"], 7);
+    assert_eq!(status["history"][0]["issue"], "7");
     assert_eq!(status["history"][0]["merged"], false);
     let t = rig.ask(&runner, "timings", None);
-    assert_eq!((&t["issues"], &t["wall"]), (&json!([7]), &json!(30)));
+    assert_eq!((&t["issues"], &t["wall"]), (&json!(["7"]), &json!(30)));
     assert_eq!(secs(&t, "other"), 30);
 }
 
@@ -178,7 +178,7 @@ fn status_lists_only_the_ten_most_recent_finished_work_items() {
         .as_array()
         .unwrap()
         .iter()
-        .map(|f| f["issue"].as_u64().unwrap())
+        .map(|f| f["issue"].as_str().unwrap().parse::<u64>().unwrap())
         .collect();
     assert_eq!(issues, (3..=12).collect::<Vec<_>>());
     assert_eq!(rig.ask(&runner, "timings", Some("12"))["items"], 12);
@@ -199,5 +199,8 @@ fn the_oldest_record_goes_in_the_write_that_removes_the_work_item() {
     assert!(saved.work_items.is_empty());
     let issues: Vec<_> = saved.history.iter().map(|f| f.issue).collect();
     assert_eq!(issues.len(), HISTORY_CAP);
-    assert_eq!((issues.first(), issues.last()), (Some(&102), Some(&7)));
+    assert_eq!(
+        (issues.first(), issues.last()),
+        (Some(&ticket(102)), Some(&ticket(7)))
+    );
 }

@@ -56,7 +56,6 @@ use super::voice::Round;
 use crate::agents::{DEFECT_HUNTER, QWEN};
 use crate::pacer::Scope;
 use crate::ports::{Finding, RoundEnd};
-use crate::runner::report::ticket_of;
 use crate::settings::{AgentName, ListedReviewer};
 use crate::state::{Fix, StateError, Stuck};
 use crate::work_item::{CallKind, Phase, Review, ReviewCallState, ReviewStage, Turn, WorkItem};
@@ -81,10 +80,7 @@ impl Runner {
         let number = item
             .pull_request
             .expect("review starts once a pull request is known");
-        let (ticket, worktree) = (
-            item.ticket().expect("a work item's issue is never zero"),
-            item.worktree.clone(),
-        );
+        let (ticket, worktree) = (item.issue, item.worktree.clone());
         let base = item.review_base();
         let build = item.build.clone();
         // A new pass reviews new code, so no fix of the last one will
@@ -205,8 +201,7 @@ impl Runner {
             return Ok(held);
         }
         let item = self.current().expect("a review is a work item's");
-        let (issue, worktree, base) = (item.issue, item.worktree.clone(), item.review_base());
-        let ticket = item.ticket().expect("a work item's issue is never zero");
+        let (ticket, worktree, base) = (item.issue, item.worktree.clone(), item.review_base());
         let build = item.build.clone();
         let criteria = match self.criteria(ticket) {
             Ok(criteria) => criteria,
@@ -245,7 +240,8 @@ impl Runner {
                 .map(|(command, folder, tool)| (*command, folder.as_path(), *tool)),
         );
         prompt.push_str(&prompts::disputes_note(&item.disputes));
-        let call = calls::reviewer_call(issue, &worktree, &self.paths.worker, model, prompt, tests);
+        let call =
+            calls::reviewer_call(ticket, &worktree, &self.paths.worker, model, prompt, tests);
         match call.and_then(|call| self.prepared(call)) {
             Ok(call) => {
                 match first {
@@ -278,7 +274,8 @@ impl Runner {
                 false => "each listed reviewer's `paths`, or a bot's `rounds`, passed it over",
             };
             self.notes.push(format!(
-                "issue #{issue}'s pull request goes to CI with no reviewer's read: {why}"
+                "{}'s pull request goes to CI with no reviewer's read: {why}",
+                issue.shown()
             ));
         }
         let reason = unread.flatten();
@@ -294,7 +291,7 @@ impl Runner {
         })?;
         match (reason, number) {
             (Some(reason), Some(pull_request)) => Ok(Begin::Report(StepReport::Unreviewed {
-                issue: ticket_of(issue),
+                issue,
                 pull_request,
                 reason,
             })),
@@ -426,13 +423,13 @@ impl Runner {
         }
         Ok(Begin::Report(match left_open {
             Some((threads, reason)) => StepReport::ThreadsLeftOpen {
-                issue: ticket_of(issue),
+                issue,
                 pull_request: number,
                 threads,
                 reason,
             },
             None => StepReport::FixPushed {
-                issue: ticket_of(issue),
+                issue,
                 pull_request: number,
                 round,
                 head: pushed,
@@ -467,7 +464,7 @@ impl Runner {
         self.update(|item| item.phase = next)?;
         if let Some((threads, reason)) = left_open {
             return Ok(Begin::Report(StepReport::ThreadsLeftOpen {
-                issue: ticket_of(issue),
+                issue,
                 pull_request: number,
                 threads,
                 reason,
@@ -475,20 +472,20 @@ impl Runner {
         }
         Ok(Begin::Report(match unfixed {
             Unfixed::Deferred(deferred) => StepReport::FindingsDeferred {
-                issue: ticket_of(issue),
+                issue,
                 pull_request: number,
                 round,
                 deferred,
             },
             Unfixed::Disputed { disputes, deferred } => StepReport::FindingsDisputed {
-                issue: ticket_of(issue),
+                issue,
                 pull_request: number,
                 round,
                 disputed: disputes.len(),
                 deferred,
             },
             Unfixed::NitsDeclined(nits) => StepReport::NitsDeclined {
-                issue: ticket_of(issue),
+                issue,
                 pull_request: number,
                 round,
                 nits,
@@ -503,7 +500,7 @@ impl Runner {
         match worktree::head(&self.settings.git.checkout, &item.worktree) {
             Ok(head) => Some(head),
             Err(e) => {
-                eprintln!("cannot read issue #{}'s worktree head: {e}", item.issue);
+                eprintln!("cannot read {}'s worktree head: {e}", item.issue.shown());
                 None
             }
         }
@@ -575,7 +572,7 @@ impl Runner {
             let next = self.after_round(review, self.ports.clock.now());
             self.update(|item| item.phase = next)?;
             return Ok(Begin::Report(StepReport::ReviewFindingsSent {
-                issue: ticket_of(issue),
+                issue,
                 pull_request: number,
                 round,
                 held: 0,
@@ -623,12 +620,12 @@ impl Runner {
             });
         })?;
         self.journal(Entry::Findings {
-            issue: ticket_of(issue),
+            issue,
             round,
             findings: kept,
         });
         Ok(Begin::Report(StepReport::ReviewFindingsSent {
-            issue: ticket_of(issue),
+            issue,
             pull_request: number,
             round,
             held,
@@ -701,7 +698,7 @@ impl Runner {
             return Ok(None);
         }
         let issue = item.issue;
-        let ticket = item.ticket().expect("a work item's issue is never zero");
+        let ticket = item.issue;
         let (worktree, build) = (item.worktree.clone(), item.build.clone());
         let number = item
             .pull_request
@@ -763,10 +760,7 @@ impl Runner {
             (_, Err(reason)) if review.failures + 1 < ROUND_FAILURES => {
                 let failures = review.failures + 1;
                 item.phase = Phase::Review(Review { failures, ..review });
-                StepReport::GateFailed {
-                    issue: ticket_of(issue),
-                    reason,
-                }
+                StepReport::GateFailed { issue, reason }
             }
             // A second look that keeps failing leaves the first's findings to go alone.
             (ReviewStage::SecondLook { first }, Err(reason)) => {
@@ -781,7 +775,7 @@ impl Runner {
                     ..review
                 });
                 StepReport::GateFailed {
-                    issue: ticket_of(issue),
+                    issue,
                     reason: format!(
                         "{reviewer}'s second look on #{number} failed {ROUND_FAILURES} times, \
                          so its first look's findings go on alone: {reason}"
@@ -794,7 +788,7 @@ impl Runner {
                 }
                 item.phase = self.after_round(review, now);
                 StepReport::ReviewerSkipped {
-                    issue: ticket_of(issue),
+                    issue,
                     pull_request: number,
                     round,
                     reviewer,
@@ -814,7 +808,7 @@ impl Runner {
                     ..review
                 });
                 StepReport::FirstLook {
-                    issue: ticket_of(issue),
+                    issue,
                     pull_request: number,
                     round,
                     reviewer,
@@ -835,7 +829,7 @@ impl Runner {
                     item.local_unreviewed_by = Some(reviewer.clone());
                     item.phase = self.after_round(review, now);
                     StepReport::LocalRoundFailed {
-                        issue: ticket_of(issue),
+                        issue,
                         pull_request: number,
                         round,
                         reviewer,
@@ -859,7 +853,7 @@ impl Runner {
                     if findings.is_empty() {
                         item.phase = self.after_round(review, now);
                         StepReport::ReviewFindingsSent {
-                            issue: ticket_of(issue),
+                            issue,
                             pull_request: number,
                             round,
                             held: 0,
@@ -875,7 +869,7 @@ impl Runner {
                             ..review
                         });
                         StepReport::ReviewRound {
-                            issue: ticket_of(issue),
+                            issue,
                             pull_request: number,
                             round,
                             reviewer,

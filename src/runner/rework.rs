@@ -17,7 +17,6 @@ use super::trigger::{self, issue_list};
 use super::turn;
 use crate::board::{LabelError, OpenPullRequest, READY, Skip};
 use crate::ports::{ForgeError, MaintainerReview, PullRequestState, Reviewed};
-use crate::runner::report::ticket_of;
 use crate::settings::AgentName;
 use crate::state::StateError;
 use crate::ticket::TicketId;
@@ -38,7 +37,7 @@ pub enum ReworkError {
     /// No slot is free under `concurrency.active_items`, counting the items waiting for
     /// one, or one for this issue is open already: the issues of those in
     /// the way
-    InFlight(Vec<u64>),
+    InFlight(Vec<TicketId>),
     /// The forge could not show the pull request
     PullRequest(u64, ForgeError),
     /// The pull request is merged or closed, as named
@@ -162,7 +161,7 @@ impl Runner {
                 let issue = pr.head.strip_prefix("kelpie/").and_then(trigger::number)?;
                 Some((pr.number, TicketId::from_issue(issue)?))
             })
-            .filter(|&(_, ticket)| self.state.item_by_ticket(ticket).is_none())
+            .filter(|&(_, ticket)| self.state.item(ticket).is_none())
             .collect();
         ours.sort_unstable();
         // One pull request that fails holds up none of the others, nor the board.
@@ -174,10 +173,7 @@ impl Runner {
         self.snapshot.keep_only(open);
         for (number, ticket) in ours {
             // A rework is kelpie's own `kelpie/<issue>` branch, whose name holds
-            // a GitHub issue number.
-            let Some(issue) = ticket.github() else {
-                continue;
-            };
+            // a GitHub issue number, which is how `ours` read it above.
             let listed = open
                 .iter()
                 .find(|pr| pr.number == number)
@@ -227,7 +223,7 @@ impl Runner {
             let review = pr.review.as_ref().map(|r| r.id.clone());
             let begin = match self.start_rework(number, pr) {
                 Ok(agent) => Begin::Report(StepReport::Reworked {
-                    issue: ticket_of(issue),
+                    issue: ticket,
                     pull_request: number,
                     agent,
                     by,
@@ -337,8 +333,8 @@ impl Runner {
         let Some(ticket) = TicketId::from_issue(issue) else {
             return Err(ReworkError::NotKelpies(number));
         };
-        if self.state.item(issue).is_some() {
-            return Err(ReworkError::InFlight(vec![issue]));
+        if self.state.item(ticket).is_some() {
+            return Err(ReworkError::InFlight(vec![ticket]));
         }
         let review = pr
             .review
@@ -350,12 +346,10 @@ impl Runner {
             .issue(repo, ticket)
             .map_err(|e| ReworkError::Issue(issue, e))?;
         let (agent, note) = self
-            .labelled_agent(issue, &found.labels)
+            .labelled_agent(ticket, &found.labels)
             .map_err(ReworkError::Label)?;
         let session = new_session_id().map_err(|e| ReworkError::Session(e.to_string()))?;
-        let fresh = self
-            .fresh(issue, found.title, agent.clone(), session)
-            .map_err(|e| ReworkError::Issue(issue, e))?;
+        let fresh = self.fresh(ticket, found.title, agent.clone(), session);
         // A rework stays on its pull request, so a listed bot's `rounds`
         // counts the reviews it gave it before. As an adoption does, it
         // leaves out a review of the current head, which the bot's round
@@ -413,7 +407,7 @@ impl Runner {
         });
         self.save(next).map_err(ReworkError::State)?;
         self.notes.extend(note);
-        self.mark_held(issue, true);
+        self.mark_held(ticket, true);
         Ok(agent)
     }
 }

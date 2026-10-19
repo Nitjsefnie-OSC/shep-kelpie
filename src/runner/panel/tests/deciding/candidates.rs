@@ -6,6 +6,7 @@ use std::sync::Mutex;
 use super::{PANEL, SHADOW, asked, comments, leak, pending, script, voted};
 use crate::ports::Role;
 use crate::runner::{Runner, StepReport, step};
+use crate::test::ticket;
 use crate::test::{Rig, Scripted};
 
 const NO_OPTIONS: &str = "Done so far.\n\n<kelpie-question>\nShould the flag be `--dry-run` or \
@@ -37,8 +38,8 @@ fn asking(project: &str, question: &'static str, rulings: &str) -> (Rig, Mutex<R
     rig.claude.script([Scripted::Say(question)]);
     assert!(matches!(
         step(&runner).unwrap(),
-        Some(StepReport::Asked { id: 71, .. })
-    ));
+        Some(StepReport::Asked { id, .. })
+     if id == ticket(71)));
     (rig, runner)
 }
 

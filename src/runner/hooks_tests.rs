@@ -33,7 +33,10 @@ fn handing_over() -> (Rig, Mutex<Runner>) {
     rig.with_app();
     rig.forbid_word(&["publish"], WORD);
     let runner = rig.open().unwrap();
-    assert_eq!(rig.ask(&runner, "add", Some("7"))["work_item"]["issue"], 7);
+    assert_eq!(
+        rig.ask(&runner, "add", Some("7"))["work_item"]["issue"],
+        "7"
+    );
     std::fs::create_dir_all(rig.build_7()).unwrap();
     (rig, runner)
 }

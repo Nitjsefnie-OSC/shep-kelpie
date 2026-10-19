@@ -157,7 +157,7 @@ pub(super) fn watch(runner: &Mutex<Runner>) {
     let (disk, limits, home, jobs, now) = {
         let mut runner = lock(runner);
         let open: Vec<TicketId> = (runner.state.work_items.iter())
-            .filter_map(|item| item.ticket())
+            .map(|item| item.issue)
             .collect();
         runner
             .builds
@@ -187,7 +187,7 @@ impl Runner {
         }
         let now = self.ports.clock.now();
         (self.state.work_items.iter())
-            .filter_map(|item| Some((item.ticket()?, item.build.clone())))
+            .filter_map(|item| Some((item.issue, item.build.clone())))
             .filter(|(ticket, _)| self.flights.runs_turn(*ticket))
             .filter(|(ticket, _)| (self.builds.items.get(ticket)).is_none_or(|w| w.due(now)))
             .collect()
@@ -240,8 +240,7 @@ impl Runner {
         if watch.told_pause {
             return;
         }
-        let Some(item) = (self.state.work_items.iter()).find(|item| item.ticket() == Some(ticket))
-        else {
+        let Some(item) = (self.state.work_items.iter()).find(|item| item.issue == ticket) else {
             return;
         };
         let ends = match self.pause_turn(item) {
@@ -264,7 +263,7 @@ impl Runner {
     /// it can tell what it touched, and counts the turn's first minute as read
     pub(super) fn builds_turn_begins(&mut self) {
         let Some(item) = self.current() else { return };
-        let Some(ticket) = item.ticket() else { return };
+        let ticket = item.issue;
         let build = item.build.clone();
         let now = self.ports.clock.now();
         self.builds.items.entry(ticket).or_default().read_at = Some(now);
@@ -279,7 +278,7 @@ impl Runner {
     // The current work item's turn has ended: removes the cache it did not
     // touch when it ran past a limit
     pub(super) fn builds_turn_ended(&mut self) {
-        let Some(ticket) = self.current().and_then(|item| item.ticket()) else {
+        let Some(ticket) = self.current().map(|item| item.issue) else {
             return;
         };
         let Some(watch) = self.builds.items.get_mut(&ticket) else {
@@ -295,8 +294,7 @@ impl Runner {
     // turn until a reading finds both limits kept. The mark of the latest
     // turn's start stays until the next turn writes its own.
     fn builds_prune(&mut self, ticket: TicketId) {
-        let Some(item) = (self.state.work_items.iter()).find(|item| item.ticket() == Some(ticket))
-        else {
+        let Some(item) = (self.state.work_items.iter()).find(|item| item.issue == ticket) else {
             return;
         };
         let build = item.build.clone();
@@ -349,7 +347,7 @@ impl Runner {
     // since the runner started, since the disk is what every item shares.
     pub(super) fn builds_hold(&mut self) -> Option<Reason> {
         let item = self.current()?;
-        let ticket = item.ticket()?;
+        let ticket = item.issue;
         let build = item.build.clone();
         let now = self.ports.clock.now();
         let limits = self.settings.builds;
@@ -399,7 +397,7 @@ impl Runner {
             return None;
         }
         (self.state.work_items.iter())
-            .filter_map(|item| item.ticket())
+            .map(|item| item.issue)
             .filter(|ticket| self.flights.runs_turn(*ticket))
             .map(|ticket| {
                 let read = self.builds.items.get(&ticket).and_then(|w| w.read_at);

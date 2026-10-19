@@ -4,6 +4,7 @@ use serde_json::{Value, json};
 
 use super::saved_with;
 use crate::state::{Fix, ProjectState, Ruling, RulingKind, Stuck};
+use crate::test::ticket;
 use crate::work_item::{Phase, Review, ReviewStage, Turn};
 
 // A version 6 file whose one pending ruling is of the old `kind`, parking
@@ -31,8 +32,8 @@ fn ruling(state: &ProjectState) -> &Ruling {
         panic!("{:?}", state.rulings);
     };
     assert_eq!(ruling.question, "The question as it was asked");
-    assert_eq!((ruling.id, ruling.pull_request), (51, Some(51)));
-    assert_eq!(state.work_items[0].phase, Phase::Ruling { id: 51 });
+    assert_eq!((ruling.id, ruling.pull_request), (ticket(51), Some(51)));
+    assert_eq!(state.work_items[0].phase, Phase::Ruling { id: ticket(51) });
     ruling
 }
 

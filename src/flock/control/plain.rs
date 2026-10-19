@@ -116,8 +116,8 @@ fn draining(sheep: &str, draining: &Value) -> String {
     }
     let running: Vec<String> = calls
         .iter()
-        .map(|call| match call["issue"].as_u64() {
-            Some(issue) => format!("{} #{issue}", call["role"].as_str().unwrap_or("?")),
+        .map(|call| match ticket_id(&call["issue"]) {
+            Some(ticket) => format!("{} {ticket}", call["role"].as_str().unwrap_or("?")),
             None => call["role"].as_str().unwrap_or("?").to_owned(),
         })
         .collect();
@@ -156,8 +156,8 @@ fn items(status: &Value, lines: &mut Vec<String>) {
     lines.push("  work items:".to_owned());
     for item in items {
         lines.push(format!(
-            "    #{} {}: phase {}, turn {}, {}",
-            item["issue"],
+            "    {} {}: phase {}, turn {}, {}",
+            ticket_id(&item["issue"]).unwrap_or_else(|| "?".to_owned()),
             item["title"].as_str().unwrap_or_default(),
             item["phase"]["state"].as_str().unwrap_or("?"),
             item["turn"]["state"].as_str().unwrap_or("?"),
@@ -358,6 +358,30 @@ fn waiting(clock: &Value) -> String {
     format!("waiting on the contributor for {waited}d, {nudge}, {quiet}")
 }
 
+// A status field's ticket, as the maintainer reads it: `#7`, `k12`, and none
+// for a ruling that names no work item. A runner from before ticket ids wrote
+// a number, which reads as GitHub's.
+fn ticket_id(value: &Value) -> Option<String> {
+    match value {
+        Value::String(text) => Some(ticket_name(text)),
+        Value::Number(number) => number
+            .as_u64()
+            .filter(|number| *number > 0)
+            .map(|number| format!("#{number}")),
+        _ => None,
+    }
+}
+
+// A status field's id as the line shows it: a ticket id is a string, and a
+// runner from before wrote it as a number.
+fn id(value: &Value) -> String {
+    match value {
+        Value::String(text) => text.clone(),
+        Value::Number(number) => number.to_string(),
+        _ => "?".to_owned(),
+    }
+}
+
 fn pull_request(number: &Value) -> String {
     match number.as_u64() {
         Some(number) => format!("PR #{number}"),
@@ -375,11 +399,9 @@ fn rulings(status: &Value, lines: &mut Vec<String>) {
     for ruling in rulings {
         lines.push(format!(
             "    ruling {}: {}, {}, {}",
-            ruling["id"],
+            id(&ruling["id"]),
             ruling["kind"]["kind"].as_str().unwrap_or("?"),
-            ruling["issue"]
-                .as_u64()
-                .map_or("no issue".to_owned(), |issue| format!("#{issue}")),
+            ticket_id(&ruling["issue"]).unwrap_or_else(|| "no issue".to_owned()),
             pull_request(&ruling["pull_request"]),
         ));
     }
