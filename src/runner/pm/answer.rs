@@ -536,8 +536,9 @@ mod tests {
 
     #[test]
     fn unstick_takes_one_object_or_a_list_of_them_and_a_bad_entry_is_named_alone() {
-        let one = read("{\"unstick\": {\"item\": 7, \"action\": \"retry\", \"why\": \"an outage\"}}")
-            .unwrap();
+        let one =
+            read("{\"unstick\": {\"item\": 7, \"action\": \"retry\", \"why\": \"an outage\"}}")
+                .unwrap();
         let many = read(
             "{\"unstick\": [{\"item\": 7, \"action\": \"retry\", \"why\": \"an outage\"}, \
              {\"item\": 9, \"action\": \"none\"}, {\"item\": 11, \"action\": \"reboot\"}]}",
@@ -555,8 +556,10 @@ mod tests {
         );
         assert_eq!(
             many.unread,
-            ["`unstick`: `item`, an `action` of retry, re-scope, ask or none, and `why`, not \
-             {\"action\":\"reboot\",\"item\":11}"]
+            [
+                "`unstick`: `item`, an `action` of retry, re-scope, ask or none, and `why`, not \
+             {\"action\":\"reboot\",\"item\":11}"
+            ]
         );
         assert_eq!(one.unstick.len(), 1, "one object alone is read");
         assert_eq!(read("{\"unstick\": []}").unwrap().unstick, Vec::new());

@@ -13,8 +13,8 @@ use crate::codex::Codex;
 use crate::cubic::Cubic;
 use crate::github::AppVoice;
 use crate::ports::{
-    Agents, CLEAN, CallPacer, Checks, Clock, Cost, LocalPace, Meter, MeterError, Pace, Ports, Role,
-    SessionId, Timestamp, Usage, Utilization, Window,
+    Agents, CLEAN, CallPacer, Checks, Clock, Cost, Forge, LocalPace, Meter, MeterError, Pace,
+    Ports, Role, SessionId, Tickets, Timestamp, Usage, Utilization, Window,
 };
 use crate::review_bot::Profile;
 use crate::runner::{
@@ -570,9 +570,11 @@ impl Rig {
         agents: Arc<dyn Agents>,
     ) -> Result<Mutex<Runner>, OpenError> {
         let tokens = Arc::new(self.github.tokens(&self.paths().kelpie_home));
+        let forge = Arc::new(self.forge.clone());
         let ports = Ports {
             agents,
-            forge: Arc::new(self.forge.clone()),
+            forge: Arc::clone(&forge) as Arc<dyn Forge>,
+            tickets: Arc::clone(&forge) as Arc<dyn Tickets>,
             app_reads: None,
             revalidated: crate::ports::Revalidated::default(),
             voice: Arc::new(AppVoice::new(tokens, Box::new(self.github.clone()))),
@@ -708,12 +710,12 @@ impl Rig {
 
     /// The worktree kelpie makes for issue 7
     pub(crate) fn worktree_7(&self) -> PathBuf {
-        self.paths().worktree(7)
+        self.paths().worktree(ticket(7))
     }
 
     /// The build folder kelpie makes for issue 7
     pub(crate) fn build_7(&self) -> PathBuf {
-        self.paths().build(7)
+        self.paths().build(ticket(7))
     }
 }
 
@@ -799,4 +801,9 @@ pub(crate) fn linked_worktree(home: &Path) -> (PathBuf, PathBuf) {
         &["worktree", "add", "--quiet", "-b", "wt", path(&worktree)],
     );
     (repo, worktree)
+}
+
+/// The ticket of GitHub issue `number`
+pub(crate) fn ticket(number: u64) -> crate::ticket::TicketId {
+    crate::ticket::TicketId::from_issue(number).expect("a test's issue is not zero")
 }

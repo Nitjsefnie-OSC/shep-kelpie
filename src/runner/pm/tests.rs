@@ -21,6 +21,7 @@ mod follow_up;
 mod hold;
 mod lease;
 mod question;
+mod quiet;
 mod red;
 
 const PICK_12: &str = "Neither touches open work, and #12 is smaller.\n\n```json\n\

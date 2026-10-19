@@ -59,7 +59,9 @@ fn two_items_a_minute_apart(project: &str) -> (Rig, Mutex<Runner>) {
     rig.clock.advance(60);
     rig.claude.script([Scripted::Fail(failed())]);
     rig.ask(&runner, "add", Some("9"));
-    step_until(&runner, |r| matches!(r, StepReport::Failed { issue: 9, .. }));
+    step_until(&runner, |r| {
+        matches!(r, StepReport::Failed { issue: 9, .. })
+    });
     (rig, runner)
 }
 
@@ -95,12 +97,18 @@ fn a_tell_inside_the_window_wakes_it_at_once_with_the_held_reasons() {
     let (woke_for, ..) = answered(Some(report));
     assert_eq!(
         lines(&woke_for),
-        [stuck_reason(7, 7), stuck_reason(9, 9), "the maintainer told you something".to_owned()],
+        [
+            stuck_reason(7, 7),
+            stuck_reason(9, 9),
+            "the maintainer told you something".to_owned()
+        ],
         "the tell went at once, carrying what was held"
     );
     let [wake] = pm_seen(&rig).try_into().unwrap();
     assert!(
-        wake.call.prompt.contains("  > hold #12 until the release\n"),
+        wake.call
+            .prompt
+            .contains("  > hold #12 until the release\n"),
         "{}",
         wake.call.prompt
     );
@@ -110,7 +118,8 @@ fn a_tell_inside_the_window_wakes_it_at_once_with_the_held_reasons() {
 fn a_workers_question_inside_the_window_wakes_it_at_once_with_the_held_reasons() {
     let (rig, runner) = one_item("chelone");
     rig.ask(&runner, "add", Some("9"));
-    rig.claude.script([Scripted::Say(ASKS), Scripted::Say(NOTHING)]);
+    rig.claude
+        .script([Scripted::Say(ASKS), Scripted::Say(NOTHING)]);
     step_until(&runner, |r| matches!(r, StepReport::Asked { .. }));
 
     let report = step_until(&runner, |r| matches!(r, StepReport::PmAnswered { .. }));
@@ -150,7 +159,8 @@ fn a_held_reason_that_stops_being_true_inside_the_window_wakes_nothing() {
     let (rig, runner) = with_pm("acme");
     rig.ask(&runner, "add", Some("7"));
     let work = Hold::default();
-    rig.claude.script([Scripted::HoldThenSay(work.clone(), "done")]);
+    rig.claude
+        .script([Scripted::HoldThenSay(work.clone(), "done")]);
     assert!(matches!(advance(&runner).unwrap(), Pass::Started));
     assert!(work.entered(CALL_PATIENCE), "the turn never began");
     rig.claude.set_activity(CallActivity::Nothing);
@@ -176,10 +186,8 @@ fn a_held_reason_that_stops_being_true_inside_the_window_wakes_nothing() {
 fn a_held_reason_given_up_while_it_is_down_is_sent_when_it_is_back() {
     let (rig, runner) = one_item("eevee");
     let down = AgentError::Failed(Harness::ClaudeCode, "overloaded".into());
-    rig.claude.script([
-        Scripted::Fail(down),
-        Scripted::Say(NOTHING),
-    ]);
+    rig.claude
+        .script([Scripted::Fail(down), Scripted::Say(NOTHING)]);
 
     rig.clock.advance(HOLD_FOR);
     let failed = step_until(&runner, |r| matches!(r, StepReport::PmFailed { .. }));
@@ -192,7 +200,11 @@ fn a_held_reason_given_up_while_it_is_down_is_sent_when_it_is_back() {
 
     rig.clock.advance(10 * 60);
     // Its reason is queued again on this pass, which opens its window.
-    assert_eq!(step(&runner).unwrap(), None, "nothing woke while it was down");
+    assert_eq!(
+        step(&runner).unwrap(),
+        None,
+        "nothing woke while it was down"
+    );
     rig.clock.advance(HOLD_FOR);
     let report = step_until(&runner, |r| matches!(r, StepReport::PmAnswered { .. }));
     let (woke_for, _, _) = answered(Some(report));

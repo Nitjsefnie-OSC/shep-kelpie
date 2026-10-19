@@ -391,7 +391,9 @@ impl Runner {
             merged.then_some(&Remote::Origin),
         );
         let removed = removed.map_err(|e| e.to_string());
-        if let Err(e) = removed.and_then(|()| self.remove_code_graph(item.issue)) {
+        if let Err(e) =
+            removed.and_then(|()| item.ticket().map_or(Ok(()), |t| self.remove_code_graph(t)))
+        {
             return Ok(self.gate_failed(format!("cannot clean up: {e}")));
         }
         // The item is gone, so a main it could not fetch warns about nothing.

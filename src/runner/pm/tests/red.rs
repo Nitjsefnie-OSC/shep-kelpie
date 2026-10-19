@@ -6,7 +6,7 @@ use std::sync::Mutex;
 use super::{answered, past_the_window, pm_seen, step_until};
 use crate::ports::Checks;
 use crate::runner::{Runner, StepReport};
-use crate::test::{Rig, Scripted};
+use crate::test::{Rig, Scripted, ticket};
 
 const NOTHING: &str = "{\"pick\": null}";
 
@@ -45,7 +45,7 @@ fn a_red_item_wakes_it_with_the_failed_logs_tail_in_its_folder_and_the_board_nam
     let pm = rig.paths().pm;
     assert_eq!(std::fs::read_to_string(pm.join("ci/7.log")).unwrap(), log);
     let board = std::fs::read_to_string(pm.join("board.md")).unwrap();
-    let worktree = rig.paths().worktree(7).display().to_string();
+    let worktree = rig.paths().worktree(ticket(7)).display().to_string();
     assert!(
         board.contains(&format!(
             "- #7: worktree `{worktree}`, diff `diffs/7.diff`, CI log `ci/7.log`\n"
