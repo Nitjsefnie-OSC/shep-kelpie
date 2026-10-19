@@ -40,7 +40,7 @@ use crate::settings::{AgentName, ListedReviewer};
 use crate::state::{Contribution, Pass, StateError, Walking};
 use crate::ticket::TicketId;
 use crate::work_item::LOCAL_FAILURES_DOWN;
-use crate::worktree::{self, BASE, Linked};
+use crate::worktree::{self, Linked};
 
 /// The folder under the project's folder where each contribution's pass is
 /// checked out, one folder each
@@ -478,7 +478,7 @@ impl Job {
             repo: &self.repo,
             worktree: &self.worktree,
         };
-        let base = format!("origin/{BASE}");
+        let base = format!("origin/{}", self.base);
         let found = reviewer.round_watched(local, linked, &base, &self.out, 1, "", &|_| {});
         match found {
             Err(ReviewerError::Stopped) => Err(Stop::Stopped),
@@ -508,7 +508,7 @@ impl Job {
         };
         let diff = diff.get().map_err(Stop::Failed)?;
         let body = r.prompt.as_deref().unwrap_or_default();
-        let base = format!("origin/{BASE}");
+        let base = format!("origin/{}", self.base);
         let prompt = prompts::reviewer_prompt(
             body,
             &base,
