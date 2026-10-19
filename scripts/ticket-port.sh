@@ -13,13 +13,12 @@ cd "$(git rev-parse --show-toplevel)"
 found=$(git ls-files -z --cached --others --exclude-standard -- 'src/*.rs' |
   grep -zv '^src/ports/\|^src/adapters/\|^src/test/' |
   xargs -0 perl -0777 -ne '
-    my $gap = qr{(?:\s|//[^\n]*|/\*.*?\*/)*};
     my $method = qr{create_issue|close_issue_as|close_issue|set_issue_label};
-    my $ask = qr{(?<!rig\.)forge$gap\)*$gap\.$gap$method\s*\(|\bForge$gap::\s*$gap$method\s*\(};
+    my $ask = qr{(?<!rig\.)forge\s*\)*\s*\.\s*$method\s*\(|\bForge\s*::\s*$method\s*\(};
     my $text = $_;
-    $text =~ s{/\*.*?\*/}{ my $n = ($& =~ tr/\n//); "\n" x $n }gse;
+    $text =~ s{(\/\*.*?\*\/)}{ my $n = ($1 =~ tr/\n//); "\n" x $n }gse;
     $text =~ s{//[^\n]*}{}g;
-    while (m{$ask}gs) {
+    while ($text =~ m{$ask}gs) {
       my $line = 1 + substr($text, 0, $-[0]) =~ tr/\n//;
       print "$ARGV:$line\n";
     }
