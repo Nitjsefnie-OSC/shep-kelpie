@@ -300,3 +300,64 @@ fn the_steps_a_runner_logs_are_in_steps_jsonl_one_object_per_line() {
         assert_eq!(&line, &*want);
     }
 }
+
+// The tickets port is the forge's own issue half (ADR 0014): one wrapped forge
+// stands behind both, so a read or a write on either reaches the rig's forge,
+// is ledged there, and is refused by the same guard.
+#[test]
+fn the_tickets_port_and_the_forge_port_are_one_wrapped_forge() {
+    use crate::forge_ledger::{self, Kind};
+
+    let rig = Rig::new("koji");
+    let runner = rig.open().unwrap();
+    let runner = runner.lock().unwrap();
+    let repo = runner.remote.clone();
+    let ledger = || {
+        forge_ledger::read(&rig.paths().kelpie_home.join(forge_ledger::FILE))
+            .unwrap()
+            .iter()
+            .filter(|line| line.kind == Kind::Issue)
+            .count()
+    };
+
+    let (asked, ledged) = (rig.forge.asked(), ledger());
+    let through_tickets = runner.ports.tickets.issue(&repo, 7);
+    let through_forge = runner.ports.forge.issue(&repo, 7);
+    assert_eq!(through_tickets, through_forge);
+    assert_eq!(rig.forge.asked(), asked + 2, "each port asked once");
+    assert_eq!(ledger(), ledged + 2, "each read is ledged");
+
+    // What the rig's forge no longer has is gone through either port
+    rig.forge.remove_issue(7);
+    assert_eq!(
+        runner.ports.tickets.issue(&repo, 7).unwrap_err(),
+        runner.ports.forge.issue(&repo, 7).unwrap_err(),
+    );
+
+    // What the ticket port opens, the forge port reads
+    let opened = runner
+        .ports
+        .tickets
+        .create_issue(&repo, "A ticket", "Its body", &[])
+        .unwrap();
+    assert_eq!(
+        runner.ports.forge.issue(&repo, opened).unwrap().title,
+        "A ticket",
+    );
+
+    // And the ticket port stands behind the same guard, so a body naming this
+    // machine's folders never reaches the forge
+    let asked = rig.forge.asked();
+    let refused = runner
+        .ports
+        .tickets
+        .create_issue(
+            &repo,
+            "A ticket",
+            &rig.home.path().display().to_string(),
+            &[],
+        )
+        .unwrap_err();
+    assert!(matches!(refused, ForgeError::LocalPath { .. }), "{refused}");
+    assert_eq!(rig.forge.asked(), asked, "the forge was never asked");
+}

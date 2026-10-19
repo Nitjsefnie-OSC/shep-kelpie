@@ -7,7 +7,7 @@
 //! named in the log.
 
 use super::answer::{Action, Answer, Unstick};
-use super::{Pick, stuck_on};
+use super::{Pick, StuckState, stuck_on};
 use crate::runner::thread_replies::Settler;
 use crate::runner::{Answer as Ruled, RuleError, Runner};
 use crate::state::{RulingKind, StateError};
@@ -16,15 +16,6 @@ use crate::work_item::Phase;
 /// The most of the project manager's words a ruling or a note carries, in
 /// characters
 pub(super) const WORDS: usize = 300;
-
-/// How a work item is stuck
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Stuck {
-    /// Parked on this ruling, which a stuck item raises
-    Ruling(u64),
-    /// Its call in flight shows nothing, as the board reads it
-    Idle,
-}
 
 impl Runner {
     /// Acts on `answer` as far as the board allows, and returns what it
@@ -120,15 +111,21 @@ impl Runner {
                 action.as_str()
             )));
         };
+        let now = self.ports.clock.now();
         let done = match (stuck, action) {
-            (_, Action::Leave) => format!("left #{n} to resolve itself"),
-            (Stuck::Idle, action) => {
+            (_, Action::Leave) => {
+                self.pm_left_alone(n, stuck, now);
+                format!("left #{n} to resolve itself")
+            }
+            (StuckState::Idle(..), action) => {
+                self.pm.left_alone.remove(&n);
                 // Its end parks it on the ceiling's ruling, which this then settles.
                 self.flights.end(n);
                 self.pm.after_end.insert(n, (*action, why.clone()));
                 format!("ended #{n}'s idle call, to {}", action.as_str())
             }
-            (Stuck::Ruling(id), action) => {
+            (StuckState::Ruling { id, .. }, action) => {
+                self.pm.left_alone.remove(&n);
                 if let Err(e) = self.settle(n, id, *action, why)? {
                     return Ok(Err(e));
                 }
@@ -151,7 +148,7 @@ impl Runner {
         let Some((action, why)) = self.pm.after_end.remove(&issue) else {
             return Ok(());
         };
-        let Some(Stuck::Ruling(id)) = self.stuck(issue) else {
+        let Some(StuckState::Ruling { id, .. }) = self.stuck(issue) else {
             return Ok(());
         };
         if let Err(e) = self.settle(issue, id, action, &why)? {
@@ -213,14 +210,17 @@ impl Runner {
     }
 
     // How `issue`'s work item is stuck now, if it is.
-    fn stuck(&self, issue: u64) -> Option<Stuck> {
+    fn stuck(&self, issue: u64) -> Option<StuckState> {
         let item = self.state.item(issue)?;
         if let Phase::Ruling { id } = item.phase {
             let ruling = self.state.rulings.iter().find(|r| r.id == id)?;
-            return stuck_on(&ruling.kind).map(|_| Stuck::Ruling(id));
+            return stuck_on(&ruling.kind).map(|_| StuckState::Ruling {
+                id,
+                raised: ruling.raised,
+            });
         }
-        let idle = self.flights.watched(issue).is_some_and(|w| w.idle);
-        idle.then_some(Stuck::Idle)
+        let watched = self.flights.watched(issue)?;
+        watched.idle.then_some(StuckState::Idle(watched.started))
     }
 }
 
