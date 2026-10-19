@@ -65,8 +65,8 @@ fn quiet_backoff(nones: u32) -> u64 {
 }
 
 impl Runner {
-    // Queues a wake for each item still stuck and each conflict still open,
-    // once it is back after giving some up.
+    // Queues a wake for each item the board still reads as stuck or waiting
+    // and each conflict still open, once it is back after giving some up.
     pub(super) fn still_due(&mut self) {
         let mut wakes = Vec::new();
         for item in &self.state.work_items {
@@ -107,6 +107,24 @@ impl Runner {
             what: IDLE_WHAT.to_owned(),
             state: StuckState::Idle(watched.started),
         })
+    }
+
+    /// Whether the board still shows `wake` as a reason, by the same checks
+    /// `still_due` uses to queue one: the item still stuck on the same thing,
+    /// still waiting for its model, or the pair still in conflict. A reason the
+    /// window never asks about is one it never drops.
+    pub(super) fn wake_holds(&self, wake: &Wake) -> bool {
+        match wake {
+            Wake::Stuck { issue, state, .. } => matches!(
+                self.stuck_now(*issue),
+                Some(Wake::Stuck { state: now, .. }) if now == *state
+            ),
+            Wake::LeaseWait { issue, .. } => {
+                TicketId::from_issue(*issue).is_some_and(|ticket| self.lease_wake(ticket).is_some())
+            }
+            Wake::Conflict(a, b, _) => self.pm.conflicts.contains_key(&(*a, *b)),
+            _ => true,
+        }
     }
 
     // Whether `issue` is still held by the state it was left alone in, naming

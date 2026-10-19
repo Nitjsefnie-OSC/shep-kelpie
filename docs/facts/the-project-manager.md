@@ -4,6 +4,7 @@
   - The board rule got 5 of 18 picks and holds right and avoided 4 of 15 avoidable conflicts, where every PM arm avoided 9 to 12 of 11 to 15, since most ready issues name no file and the rule cannot see a conflict.
   - Opus 5.5 at medium, briefed from the board, got 27.5 of 33 decisions right, avoided 10 of 15 and 9 of 14 in two runs, at 28,914 units ($0.114) and 12.9 seconds a wake; the same model looking for itself with git and a stand-in `gh` got 28 at 53,919 units ($0.197) and 25.9 seconds.
   - Units weigh cache reads 0.1, cache writes 2, output 5 and input 1.
+- Measured 2026-10-17, the same day as above (shep-pm/shep-kelpie#987): 71 of 134 project manager wakes began less than 5 minutes after that project's previous wake, and each wake pays for its whole starting context, median 54k tokens. Holding the reasons nobody waits on for 3 minutes sends those in one call.
 - The session shape on the day, Opus at medium:
   - A fresh session every wake cost 52,891 units ($0.204) a wake, $8.16 a day.
   - One resumed and replaced by a fresh one past 100k cost 35,585 ($0.106), $4.23.

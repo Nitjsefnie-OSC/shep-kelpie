@@ -4,7 +4,7 @@ use std::process::{Child, Command, Stdio};
 
 use serde_json::json;
 
-use super::{answered, pm_seen, step_until, with_pm};
+use super::{answered, past_the_window, pm_seen, step_until, with_pm};
 use crate::ports::{AgentError, Session};
 use crate::runner::{StepReport, step};
 use crate::settings::Harness;
@@ -123,6 +123,7 @@ fn what_it_missed_while_held_in_a_terminal_wakes_it_once_it_is_back() {
     );
 
     rig.ask(&runner, "pm", Some(&format!("detach {}", cli.pid())));
+    past_the_window(&rig);
     let report = step_until(&runner, |r| matches!(r, StepReport::PmAnswered { .. }));
     let (woke_for, acted, _) = answered(Some(report));
     assert_eq!(

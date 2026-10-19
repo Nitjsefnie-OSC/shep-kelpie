@@ -73,6 +73,15 @@ const DOWN_FOR: u64 = 10 * 60;
 /// seconds, before the board rule picks
 pub(super) const NOTHING_FOR: u64 = 30 * 60;
 
+/// How long a wake reason nobody waits on is held before it goes, in seconds
+///
+/// Measured on the maintainer's day of 134 wakes: 71 of them began less than 5
+/// minutes after the project's previous wake, and each wake pays for its whole
+/// starting context (median 54k tokens). A stuck item, a conflict and a lease
+/// wait are reasons no one is waiting on, so each waits this long, and the ones
+/// that arrive inside the window go in the same call.
+pub(super) const HOLD_FOR: u64 = 3 * 60;
+
 /// What a work item is stuck on, which a new turn, phase or ruling is a
 /// different one of
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -197,6 +206,20 @@ enum Kind {
     Compact,
 }
 
+/// Whether nobody waits on `wake`, so it can wait [`HOLD_FOR`] for the rest
+///
+/// A free slot, a `tell`, a worker's question, a follow-up ruling, a ruling to
+/// vote on and a pick are each waited on: the board holds a slot, a ruling is
+/// held back from the maintainer, or the maintainer is asking. A stuck item, a
+/// conflict and a lease wait are each reasons the runner itself noticed, and no
+/// one is waiting on them.
+fn held(wake: &Wake) -> bool {
+    matches!(
+        wake,
+        Wake::Stuck { .. } | Wake::Conflict(..) | Wake::LeaseWait { .. }
+    )
+}
+
 /// The call in flight, as the runner needs it once it ends
 #[derive(Debug)]
 struct Flying {
@@ -216,6 +239,8 @@ pub(super) struct Desk {
     due: Vec<Wake>,
     // A pick wake is due or in flight
     asked_pick: bool,
+    // Since when a window of held reasons has been open
+    holding_since: Option<Timestamp>,
     pick: Option<Pick>,
     held: Vec<u64>,
     // Each pair of open branches in conflict, with the files
@@ -257,6 +282,11 @@ impl Runner {
     ///
     /// A stuck item it left alone in the same state is queued again only when
     /// that state changes or its back-off ends.
+    ///
+    /// The window a held reason waits opens with the first one queued, so it
+    /// runs from what the board saw, not from the next pass that got to it. A
+    /// held reason already queued is replaced by the newer state for the same
+    /// item, so the wake carries what the board shows when its window ends.
     pub(super) fn pm_due(&mut self, wake: Wake) {
         if self.agents.pm.is_none() {
             return;
@@ -266,9 +296,26 @@ impl Runner {
         {
             return;
         }
-        if !self.pm.due.iter().any(|w| w.same(&wake)) {
-            self.pm.due.push(wake);
+        if let Some(existing) = self.pm.due.iter_mut().find(|w| w.same(&wake)) {
+            // An item stuck on something new replaces the reason queued for it,
+            // so the wake carries what the board shows when its window ends
+            // rather than the state it was in when the window opened. An item
+            // read idle whose turn then parks on a ruling is the case. The
+            // window still runs from the first reason, and a wake for the same
+            // state keeps the words it was queued with.
+            let changed = matches!(
+                (&*existing, &wake),
+                (Wake::Stuck { state: was, .. }, Wake::Stuck { state, .. }) if was != state
+            );
+            if changed {
+                *existing = wake;
+            }
+            return;
         }
+        if held(&wake) && self.pm.holding_since.is_none() {
+            self.pm.holding_since = Some(self.ports.clock.now());
+        }
+        self.pm.due.push(wake);
     }
 
     /// Forgets a pick wake still due, since the board picks nothing while
@@ -367,7 +414,9 @@ impl Runner {
     /// reasons up: a pick falls to the board rule, and a stuck item keeps
     /// its ruling. What the maintainer told it waits for the next wake. A
     /// stuck item it left alone is due once its back-off ends, whether the
-    /// board flipped its idle call again or not.
+    /// board flipped its idle call again or not. A held reason the board no
+    /// longer shows is dropped before the call starts, however the call came
+    /// to start.
     pub(super) fn wake_pm(&mut self) -> bool {
         let Some(agent) = self.agents.pm.clone() else {
             return false;
@@ -386,6 +435,35 @@ impl Runner {
         self.pm_holds_over();
         if self.pm.due.is_empty() && !self.pm.compact {
             return false;
+        }
+        // A reason nobody waits on waits its window, so the ones that arrive
+        // inside it go in the same call.
+        if !self.pm.compact && self.pm.due.iter().all(held) {
+            let now = self.ports.clock.now();
+            let since = match self.pm.holding_since {
+                Some(since) => since,
+                None => {
+                    self.pm.holding_since = Some(now);
+                    return false;
+                }
+            };
+            if now.0 < since.0.saturating_add(HOLD_FOR) {
+                return false;
+            }
+        }
+        // The window is over, or a reason someone waits on ended it early.
+        // Either way the call carries only reasons the board still shows, and
+        // when none is left, nothing goes.
+        let due = std::mem::take(&mut self.pm.due);
+        self.pm.due = due
+            .into_iter()
+            .filter(|wake| !held(wake) || self.wake_holds(wake))
+            .collect();
+        if self.pm.due.is_empty() {
+            self.pm.holding_since = None;
+            if !self.pm.compact {
+                return false;
+            }
         }
         if !self.pm_available() {
             self.give_up();
@@ -409,6 +487,7 @@ impl Runner {
     }
 
     fn give_up(&mut self) {
+        self.pm.holding_since = None;
         for wake in std::mem::take(&mut self.pm.due) {
             match wake {
                 Wake::Pick(_) => {
@@ -517,6 +596,7 @@ impl Runner {
             false => Session::Resume(id.clone()),
         };
         let wakes = std::mem::take(&mut self.pm.due);
+        self.pm.holding_since = None;
         let told = self.state.pm_told.clone();
         let notes = self.pm_notes();
         let full = fresh || self.pm.full_prompt;
@@ -596,6 +676,11 @@ impl Runner {
             Ok(reply) => reply,
             // Its session cannot be resumed, so a new one starts from the board.
             Err(AgentError::NoSession(..)) if !flying.fresh => {
+                // What it carried had already waited its window, so it waits
+                // none again: the fresh session starts on this pass, and a
+                // wake held from here is not read as this failure.
+                let now = self.ports.clock.now();
+                self.pm.holding_since = Some(Timestamp(now.0.saturating_sub(HOLD_FOR)));
                 let later = std::mem::take(&mut self.pm.due);
                 for wake in flying.wakes.into_iter().chain(later) {
                     self.pm_due(wake);
