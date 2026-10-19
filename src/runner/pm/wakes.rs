@@ -16,6 +16,7 @@ use crate::ports::{AgentError, AgentReply, Timestamp};
 use crate::runner::Runner;
 use crate::settings::RulingName;
 use crate::state::{ProjectState, Ruling, RulingKind, Stuck};
+use crate::ticket::TicketId;
 use crate::usage::VoteMark;
 use crate::work_item::Phase;
 
@@ -70,10 +71,11 @@ impl Runner {
         let mut wakes = Vec::new();
         for item in &self.state.work_items {
             let issue = item.issue;
+            let ticket = item.ticket();
             match self.stuck_now(issue) {
                 Some(wake) => wakes.push(wake),
                 None => {
-                    if let Some(wake) = self.lease_wake(issue) {
+                    if let Some(wake) = ticket.and_then(|t| self.lease_wake(t)) {
                         wakes.push(wake);
                     }
                 }
@@ -90,7 +92,8 @@ impl Runner {
     // The stuck wake `issue` deserves as the board stands: the ruling it is
     // parked on, its idle call, or nothing.
     fn stuck_now(&self, issue: u64) -> Option<Wake> {
-        let item = self.state.item(issue)?;
+        let ticket = TicketId::from_issue(issue)?;
+        let item = self.state.item_by_ticket(ticket)?;
         let parked = match item.phase {
             Phase::Ruling { id } => self.state.rulings.iter().find(|r| r.id == id),
             _ => None,
@@ -98,7 +101,7 @@ impl Runner {
         if let Some(wake) = parked.and_then(|r| stuck_wake(issue, r)) {
             return Some(wake);
         }
-        let watched = self.flights.watched(issue).filter(|w| w.idle)?;
+        let watched = self.flights.watched(ticket).filter(|w| w.idle)?;
         Some(Wake::Stuck {
             issue,
             what: IDLE_WHAT.to_owned(),

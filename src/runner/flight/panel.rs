@@ -22,6 +22,7 @@ use crate::panel::Voter;
 use crate::ports::{AgentCall, AgentError, AgentReply, Cost, Ending, Timestamp};
 use crate::settings::Limit;
 use crate::state::StateError;
+use crate::ticket::TicketId;
 use crate::usage::{CallKind, CallLine, Draft, Spent, ended};
 
 /// The experts of one ruling, in flight
@@ -30,7 +31,7 @@ pub(in crate::runner) struct Panelling {
     id: u64,
     options: usize,
     // The work item whose session the worker's vote resumes, while it votes
-    worker_of: Option<u64>,
+    worker_of: Option<TicketId>,
     calls: Vec<Called>,
     drafts: Vec<(Voter, Draft)>,
     // How the ruling's panel is asked, which each vote's ledger line says
@@ -69,11 +70,11 @@ impl Panelling {
         self.id
     }
 
-    // Whether the worker's vote is running in `issue`'s session, which no
+    // Whether the worker's vote is running in `ticket`'s session, which no
     // turn of the work item may resume until it ends.
-    pub(in crate::runner) fn votes_as(&self, issue: u64) -> bool {
+    pub(in crate::runner) fn votes_as(&self, ticket: TicketId) -> bool {
         let free = self.released && self.settled;
-        self.worker_of == Some(issue) && !free
+        self.worker_of == Some(ticket) && !free
     }
 
     // Whether the worker's call has returned, or there was none.
@@ -154,7 +155,7 @@ impl Runner {
     }
 
     fn settle_worker_of(&mut self, flight: &mut Panelling) {
-        let Some(issue) = flight.worker_of.filter(|_| flight.worker_done()) else {
+        let Some(ticket) = flight.worker_of.filter(|_| flight.worker_done()) else {
             return;
         };
         let Some(result) = flight.worker_result.lock().ok().and_then(|r| r.clone()) else {
@@ -162,7 +163,7 @@ impl Runner {
         };
         let cost = result.as_ref().ok().and_then(|reply| reply.session_cost);
         if let Some(cost) = cost
-            && let Err(e) = self.keep_session_cost(issue, cost)
+            && let Err(e) = self.keep_session_cost(ticket, cost)
         {
             self.notes.push(format!(
                 "cannot keep the cost of ruling {}'s worker vote: {e}",
@@ -202,9 +203,9 @@ impl Runner {
     // The worker's vote ran in its work item's session, whose cost counts
     // up across calls. The vote's own cost is the project's, but the next
     // turn's must not include it, so the item keeps where the session stands.
-    fn keep_session_cost(&mut self, issue: u64, cost: Cost) -> Result<(), StateError> {
+    fn keep_session_cost(&mut self, ticket: TicketId, cost: Cost) -> Result<(), StateError> {
         let mut next = self.state.clone();
-        if let Some(item) = next.work_items.iter_mut().find(|i| i.issue == issue) {
+        if let Some(item) = next.item_mut_by_ticket(ticket) {
             let session = item.session.clone();
             item.advance_session_cost(&session, cost);
             self.save(next)?;
@@ -249,7 +250,7 @@ impl Runner {
         let mut calls: Vec<(Voter, AgentCall, String)> = Vec::new();
         let mut worker_text = None;
         if wanted.contains(&Voter::Worker) {
-            let limit = (ruling.issue.and_then(|n| self.state.item(n)))
+            let limit = (ruling.ticket().and_then(|t| self.state.item_by_ticket(t)))
                 .and_then(|item| self.worker_agent(item).ok())
                 .map(|agent| agent.limit);
             let made = self
@@ -293,7 +294,7 @@ impl Runner {
         if calls.is_empty() {
             return false;
         }
-        self.launch_panel(id, options, ruling.issue, calls);
+        self.launch_panel(id, options, ruling.ticket(), calls);
         true
     }
 
@@ -315,7 +316,7 @@ impl Runner {
         &mut self,
         id: u64,
         options: usize,
-        issue: Option<u64>,
+        ticket: Option<TicketId>,
         calls: Vec<(Voter, AgentCall, String)>,
     ) {
         let now = self.ports.clock.now();
@@ -419,7 +420,7 @@ impl Runner {
         let worker_of = drafts
             .iter()
             .any(|(v, _)| *v == Voter::Worker)
-            .then_some(issue)
+            .then_some(ticket)
             .flatten();
         let plan = self.panel.plan(id);
         self.flights.panel = Some(Panelling {
@@ -461,8 +462,9 @@ impl Runner {
             .find(|(voter, _)| *voter == Voter::Worker)
             .and_then(|(_, result)| result.as_ref().ok())
             .and_then(|reply| reply.session_cost);
-        if let (Some(issue), Some(cost), false) = (flight.worker_of, session_cost, flight.settled) {
-            self.keep_session_cost(issue, cost)?;
+        if let (Some(ticket), Some(cost), false) = (flight.worker_of, session_cost, flight.settled)
+        {
+            self.keep_session_cost(ticket, cost)?;
         }
         self.panel_heard(flight.id, flight.options, ends);
         debug_assert_eq!(flight.id, id);

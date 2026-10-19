@@ -18,10 +18,11 @@ use super::super::attach::live;
 use super::super::briefing::Watched;
 use super::super::in_flight::Open;
 use super::super::transcript_count::Mark;
-use super::{End, Flight, News, Tell, unstarted, waiting};
+use super::{End, Flight, News, Tell, ledger_issue, unstarted, waiting};
 use crate::lease::wire::AskerCarry;
 use crate::ports::{Adopted, Ending, Flying, Timestamp};
 use crate::settings::Harness;
+use crate::ticket::TicketId;
 use crate::work_item::WorkItem;
 
 /// A worker's turn as it crosses a handover
@@ -83,26 +84,29 @@ impl Runner {
         flights
             .flying
             .iter()
-            .map(|(&issue, flight)| {
+            .map(|(&ticket, flight)| {
+                let issue = ledger_issue(ticket);
                 if flight.browser.is_some() {
                     return Err(format!(
-                        "#{issue}'s turn drives a browser, whose socket this image holds, \
+                        "#{ticket}'s turn drives a browser, whose socket this image holds, \
                          which the next image would not"
                     ));
                 }
                 let Some(call) = &flight.watched.call else {
                     return Err(format!(
-                        "the call of #{issue} is a review or one the last handover carried, \
+                        "the call of #{ticket} is a review or one the last handover carried, \
                          and only a worker's turn from this image is carried"
                     ));
                 };
                 let adopted = (self.ports.agents.adoption(call))
-                    .map_err(|why| format!("the turn of #{issue} cannot be carried: {why}"))?;
+                    .map_err(|why| format!("the turn of #{ticket} cannot be carried: {why}"))?;
                 let flying = adopted.flying.ok_or_else(|| {
-                    format!("the record of #{issue}'s turn notes no ceiling, so it cannot be timed")
+                    format!(
+                        "the record of #{ticket}'s turn notes no ceiling, so it cannot be timed"
+                    )
                 })?;
                 let open = (flights.ledger.peek(Some(issue))).ok_or_else(|| {
-                    format!("the turn of #{issue} has no line in the usage ledger")
+                    format!("the turn of #{ticket} has no line in the usage ledger")
                 })?;
                 Ok(CarriedTurn {
                     issue,
@@ -154,11 +158,16 @@ impl Runner {
             open,
             requests,
         } = turn;
+        // A carried turn is a work item's, and no forge numbers an issue zero.
+        let Some(ticket) = TicketId::from_issue(issue) else {
+            eprintln!("the carried turn for issue {issue} names no ticket, so it is left out");
+            return;
+        };
         let harness = adopted.harness;
         let ending = Ending::default();
         ending.carry(flying);
         let tell = Tell {
-            issue,
+            ticket,
             news: self.flights.send.clone(),
             wake: self.flights.wake.clone(),
         };
@@ -178,17 +187,17 @@ impl Runner {
             if end.reached_no_model() {
                 ledger.no_model(Some(issue));
             }
-            tell.send(News::Ended { issue, end });
+            tell.send(News::Ended { ticket, end });
         };
         let began = thread::Builder::new()
-            .name(format!("#{issue} worker"))
+            .name(format!("#{ticket} worker"))
             .spawn(run);
         if let Err(e) = began {
             let end = unstarted(Some(harness), &e);
-            let _ = self.flights.send.send(News::Ended { issue, end });
+            let _ = self.flights.send.send(News::Ended { ticket, end });
         }
         self.flights.flying.insert(
-            issue,
+            ticket,
             Flight {
                 deadline: Some(Timestamp(flying.began.0.saturating_add(flying.left))),
                 left: flying.left,

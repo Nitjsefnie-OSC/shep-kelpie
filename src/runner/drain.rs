@@ -182,7 +182,8 @@ impl Runner {
     // Sets the pause for `item`'s worker turn in flight. A tool result can end
     // only a call whose harness has the hook, and whose settings carry it.
     pub(super) fn pause_turn(&self, item: &WorkItem) -> Pausing {
-        let ends = (self.flights.turn_call(item.issue))
+        let ends = (item.ticket())
+            .and_then(|t| self.flights.turn_call(t))
             .is_some_and(|(call, ..)| call.harness.ends_at_tool() && call.tools == Tools::Work);
         if !ends {
             return Pausing::AtEnd;
@@ -235,7 +236,7 @@ impl Runner {
         let attached = attached_on(Harness::Pi, CallRole::PiSession)
             .chain(attached_on(Harness::Goose, CallRole::GooseSession));
         let at_tool = (self.state.work_items.iter())
-            .filter(|item| self.flights.runs_turn(item.issue))
+            .filter(|item| item.ticket().is_some_and(|t| self.flights.runs_turn(t)))
             .filter(|item| Pause::in_build(&item.build).is_requested())
             .map(|item| item.issue)
             .collect();
