@@ -7,6 +7,11 @@
 //! folder. A step whose skill cannot load runs kelpie's own
 //! prompt instead, and the runner's log and `status` say why.
 //!
+//! A worker's copy of the vendored plugin holds only the skills its own steps
+//! run and the ones those call, since a harness lists every skill a plugin
+//! holds on every request. `vendored::CALLS` is the table they are closed
+//! over, and `vendored_skills` is what seeds it.
+//!
 //! Most steps start their prompt with the skill's slash command. `tests`
 //! and `pr` happen inside a worker's turn, so the worker's instructions name
 //! their skills instead. The `pr` step's skill comes with a writing skill of
@@ -40,7 +45,7 @@ pub const GRILL_WITH_DOCS: &str = "grill-with-docs";
 ///
 /// The first file or folder that could not be removed or written.
 pub fn write_vendored(dir: &Path, skill: &str) -> io::Result<String> {
-    vendored::write(dir)?;
+    vendored::write(dir, vendored::Which::All)?;
     Ok(format!("/{PLUGIN}:{skill}"))
 }
 
@@ -84,6 +89,10 @@ impl Step {
         Self::Reset,
         Self::Retro,
     ];
+
+    /// The steps a worker's turn runs, whose skills a worker's copy of
+    /// kelpie's vendored plugin must hold
+    pub const WORKER: [Self; 4] = [Self::Implement, Self::Tests, Self::CiFix, Self::Pr];
 
     /// The step's key in `[skills]`
     pub fn as_str(self) -> &'static str {
@@ -159,13 +168,15 @@ impl Wording {
 impl Skills {
     /// Loads each step's skill, writing the plugins it needs under `folder`
     ///
-    /// The vendored plugin goes in `folder/mattpocock`, kelpie's wording
+    /// The vendored plugin goes in `folder/mattpocock`, holding only the
+    /// skills a worker's steps run and those they call, kelpie's wording
     /// plugin in `folder/kelpie-wording`, and a step's own skill folder is
     /// copied into a plugin at `folder/<step>`. Nothing here
     /// fails: a skill that cannot load leaves its step on kelpie's prompt.
     pub fn load(chosen: &StepSkills, folder: &Path) -> Self {
         let vendored = folder.join(PLUGIN);
-        let written = vendored::write(&vendored).map_err(|e| {
+        let needed = vendored::with_their_calls(vendored_skills(chosen));
+        let written = vendored::write(&vendored, vendored::Which::Only(needed)).map_err(|e| {
             format!(
                 "cannot write kelpie's copy of mattpocock/skills to {}: {e}",
                 vendored.display()
@@ -327,6 +338,24 @@ impl Skills {
         });
         steps.chain(wording)
     }
+}
+
+// The vendored skills a runner's copy needs, before they are closed over
+// [`vendored::CALLS`]: each worker step's own, and every step the project
+// named `kelpie`, which kelpie must then hold to run it. A step set to
+// `none`, a path or a plugin needs none of them.
+//
+// A step left out runs its default, so only the worker's four are seeded by
+// that: they are the steps a worker's call runs. `retro` is off unless named,
+// and naming it is the only way its call gets a skill. `triage`, `spec` and
+// `reset` are driven by no call yet, so their skills stay out of a worker's
+// listing until one is.
+fn vendored_skills(chosen: &StepSkills) -> impl Iterator<Item = &'static str> {
+    Step::ALL.into_iter().filter_map(move |step| {
+        let named = matches!(chosen.choice(step), Some(SkillChoice::Kelpie {}));
+        let left_to_kelpie = chosen.choice(step).is_none() && Step::WORKER.contains(&step);
+        (named || left_to_kelpie).then(|| step.default_skill())
+    })
 }
 
 /// Refuses a chosen folder inside `folder`, where kelpie writes its own

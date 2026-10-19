@@ -59,6 +59,67 @@ fn assert_no_headless(prompt: &str) {
     );
 }
 
+// The skill folders a plugin folder holds, by name, sorted
+fn skills_in(plugin: &Path) -> Vec<String> {
+    let Ok(entries) = fs::read_dir(plugin.join("skills")) else {
+        return Vec::new();
+    };
+    let mut found: Vec<String> = entries
+        .map(|e| e.unwrap().file_name().into_string().unwrap())
+        .collect();
+    found.sort();
+    found
+}
+
+// Every file under `dir`, by its path under it, sorted
+fn files_under(dir: &Path) -> Vec<String> {
+    fn walk(dir: &Path, root: &Path, found: &mut Vec<String>) {
+        for entry in fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                walk(&path, root, found);
+            } else {
+                found.push(
+                    path.strip_prefix(root)
+                        .unwrap()
+                        .to_string_lossy()
+                        .into_owned(),
+                );
+            }
+        }
+    }
+    let mut found = Vec::new();
+    walk(dir, dir, &mut found);
+    found.sort();
+    found
+}
+
+// The files kelpie's vendored copy holds for `skill`, by their path under its folder
+fn vendored_files(skill: &str) -> Vec<String> {
+    let mut found: Vec<String> = vendored::FILES
+        .iter()
+        .filter_map(|(path, _)| {
+            let (_group, rest) = path.strip_prefix("skills/")?.split_once('/')?;
+            let (name, tail) = rest.split_once('/')?;
+            (name == skill).then(|| tail.to_owned())
+        })
+        .collect();
+    found.sort();
+    found
+}
+
+// Every vendored skill's name, sorted
+fn every_vendored_skill() -> Vec<&'static str> {
+    let mut names: Vec<&'static str> = vendored::FILES
+        .iter()
+        .filter_map(|(path, _)| path.strip_prefix("skills/")?.split_once('/'))
+        .map(|(_group, rest)| rest.split('/').next().unwrap())
+        .collect();
+    names.sort_unstable();
+    names.dedup();
+    names
+}
+
 fn call_of(rig: &Rig, role: Role) -> AgentCall {
     rig.claude
         .all_calls()
@@ -98,7 +159,7 @@ fn each_step_runs_its_default_skill_from_kelpies_own_copy() {
         reviewed.settings["permissions"]["deny"],
         crate::trim::deny_with_trim(&["Agent", "Task", "Bash"])
     );
-    for step in Step::ALL {
+    for step in Step::WORKER {
         let skill = plugin.join("skills").join(step.default_skill());
         assert!(skill.join("SKILL.md").is_file(), "{step}");
     }
@@ -276,6 +337,113 @@ fn a_worker_with_no_skill_of_its_own_keeps_the_headless_rules_in_its_prompt() {
 }
 
 #[test]
+fn a_worker_gets_only_the_skills_its_steps_use_and_those_they_call() {
+    let (rig, _runner, _) = Rig::with_pull_request("shep");
+    let plugin = rig.paths().skills.join("mattpocock");
+    // The worker's four steps, and the two `tdd` and `implement` call.
+    let held = skills_in(&plugin);
+    assert_eq!(
+        held,
+        [
+            "code-review",
+            "codebase-design",
+            "diagnosing-bugs",
+            "implement",
+            "pr",
+            "tdd",
+        ]
+    );
+    // Each is the vendored folder, file for file.
+    for skill in &held {
+        assert_eq!(
+            files_under(&plugin.join("skills").join(skill)),
+            vendored_files(skill),
+            "{skill}"
+        );
+    }
+    // The nine no worker step runs, or calls, are not written at all.
+    for skill in [
+        "domain-modeling",
+        "grilling",
+        "grill-with-docs",
+        "handoff",
+        "retro",
+        "to-spec",
+        "to-tickets",
+        "triage",
+        "writing-for-agents",
+    ] {
+        assert!(!plugin.join("skills").join(skill).exists(), "{skill}");
+    }
+    // It is still kelpie's vendored plugin, named the same and licensed.
+    let manifest = fs::read_to_string(plugin.join(".claude-plugin/plugin.json")).unwrap();
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&manifest).unwrap()["name"],
+        "mattpocock"
+    );
+    assert!(plugin.join("LICENSE").is_file());
+}
+
+#[test]
+fn a_step_set_to_none_drops_its_skill_and_what_only_that_step_calls() {
+    let (rig, _runner, _) = Rig::with_pull_request_set("shep", |rig| {
+        choose(
+            rig,
+            "implement = { kind = \"none\" }\ntests = { kind = \"none\" }\n",
+        );
+    });
+    let plugin = rig.paths().skills.join("mattpocock");
+    assert_eq!(skills_in(&plugin), ["diagnosing-bugs", "pr"]);
+}
+
+#[test]
+fn a_step_set_to_a_path_or_a_plugin_adds_nothing_from_kelpies_copy() {
+    let (rig, _runner, _) = Rig::with_pull_request_set("shep", |rig| {
+        let folder = rig.home.path().join("house/build-it");
+        skill_folder(&folder, "---\nname: build-it\n---\nBuild it.\n");
+        let plugin = rig.home.path().join("house-plugin");
+        plugin_folder(&plugin, "house");
+        skill_folder(&plugin.join("skills/build-hard"), "Build hard.\n");
+        choose(
+            rig,
+            &format!(
+                "implement = {{ kind = \"path\", path = \"{}\" }}\n\
+                 ci_fix = {{ kind = \"plugin\", plugin = \"{}\", skill = \"build-hard\" }}\n",
+                folder.display(),
+                plugin.display()
+            ),
+        );
+    });
+    // Only the two steps left on kelpie's copy, and what `tdd` calls.
+    let mattpocock = rig.paths().skills.join("mattpocock");
+    assert_eq!(
+        skills_in(&mattpocock),
+        ["code-review", "codebase-design", "pr", "tdd"]
+    );
+}
+
+#[test]
+fn a_retro_named_kelpies_writes_the_retro_skill_and_the_one_it_calls() {
+    let (rig, _runner, _) = Rig::with_pull_request_set("shep", |rig| {
+        choose(rig, "retro = { kind = \"kelpie\" }\n");
+    });
+    let plugin = rig.paths().skills.join("mattpocock");
+    let held = skills_in(&plugin);
+    for skill in ["retro", "writing-for-agents"] {
+        assert!(held.contains(&skill.to_owned()), "{skill}: {held:?}");
+    }
+}
+
+#[test]
+fn the_issue_writers_copy_still_holds_every_vendored_skill() {
+    let dir = tempfile::tempdir().unwrap();
+    let plugin = dir.path().join("plugin");
+    let command = write_vendored(&plugin, GRILL_WITH_DOCS).unwrap();
+    assert_eq!(command, "/mattpocock:grill-with-docs");
+    assert_eq!(skills_in(&plugin), every_vendored_skill());
+}
+
+#[test]
 fn a_misspelt_step_or_skill_name_stops_the_runner() {
     let rig = Rig::new("shep");
     choose(&rig, "reveiw = { kind = \"none\" }\n");
@@ -409,6 +577,16 @@ fn a_replaced_pr_skill_keeps_the_wording_skill_and_a_pr_set_to_none_drops_it() {
     let worker = call_of(&rig, Role::Worker);
     assert_eq!(worker.plugin_dirs, [rig.paths().skills.join("mattpocock")]);
     assert!(!rig.paths().skills.join("kelpie-wording").exists());
+    assert_eq!(
+        skills_in(&rig.paths().skills.join("mattpocock")),
+        [
+            "code-review",
+            "codebase-design",
+            "diagnosing-bugs",
+            "implement",
+            "tdd",
+        ]
+    );
 }
 
 #[test]

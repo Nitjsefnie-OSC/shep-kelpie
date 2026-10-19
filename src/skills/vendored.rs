@@ -4,7 +4,13 @@
 //! pinned commit, with its licence and the pin's `git ls-tree` in
 //! `blobs.txt`. The runner writes it out as a Claude Code plugin when it
 //! starts, so a project installs nothing.
+//!
+//! A worker's copy holds only the skills its steps run and the ones those
+//! call, from [`CALLS`]: Claude Code lists every skill a plugin holds in
+//! every request, so a skill the worker cannot run still costs it tokens.
+//! A session the maintainer runs gets the whole copy.
 
+use std::collections::BTreeSet;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -71,20 +77,70 @@ pub(super) const FILES: &[(&str, &[u8])] = vendored![
     "skills/productivity/writing-for-agents/SKILL.md",
 ];
 
+/// The skills each vendored skill's text calls, by name
+///
+/// This is what a worker's copy is closed over: a step's skill is written
+/// with every skill it calls, so the worker can run the call its skill
+/// names. A skill that calls none has no entry. A test fails when the
+/// vendored text names a call this table does not, or names a skill the
+/// table lists that its text no longer calls.
+pub(super) const CALLS: [(&str, &[&str]); 5] = [
+    ("implement", &["tdd", "code-review"]),
+    ("tdd", &["codebase-design", "code-review"]),
+    ("triage", &["grilling", "domain-modeling"]),
+    ("grill-with-docs", &["grilling", "domain-modeling"]),
+    ("retro", &["writing-for-agents"]),
+];
+
+/// Which of the vendored skills a plugin folder is written with
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum Which {
+    /// Every vendored skill, for a session the maintainer runs, which can
+    /// call any of them
+    All,
+    /// Only these, which the caller closed over [`CALLS`] already
+    Only(BTreeSet<&'static str>),
+}
+
+/// `names`, and every skill they call, transitively, by [`CALLS`]
+pub(super) fn with_their_calls(
+    names: impl IntoIterator<Item = &'static str>,
+) -> BTreeSet<&'static str> {
+    let mut chosen: BTreeSet<&'static str> = names.into_iter().collect();
+    let mut fresh: Vec<&'static str> = chosen.iter().copied().collect();
+    while let Some(name) = fresh.pop() {
+        let called = CALLS
+            .iter()
+            .find(|(caller, _)| *caller == name)
+            .map_or(&[][..], |(_, called)| called);
+        fresh.extend(called.iter().filter(|c| chosen.insert(c)));
+    }
+    chosen
+}
+
 /// Writes the plugin into `dir`, replacing whatever was there
 ///
 /// A skill lands at `skills/<name>/`, dropping upstream's grouping folder,
-/// where Claude Code looks for a plugin's skills.
+/// where Claude Code looks for a plugin's skills. A skill's folder is written
+/// whole, with every file the vendored copy has in it. The licence and the
+/// manifest are written for `Which::Only` too, and the plugin keeps its name.
 ///
 /// # Errors
 ///
 /// The first file or folder that could not be removed or written.
-pub(super) fn write(dir: &Path) -> io::Result<()> {
+pub(super) fn write(dir: &Path, which: Which) -> io::Result<()> {
     match fs::remove_dir_all(dir) {
         Err(e) if e.kind() != io::ErrorKind::NotFound => return Err(e),
         _ => {}
     }
+    let wanted = |path: &str| match &which {
+        Which::All => true,
+        Which::Only(names) => skill_of(path).is_none_or(|skill| names.contains(skill)),
+    };
     for (path, bytes) in FILES {
+        if !wanted(path) {
+            continue;
+        }
         let to = dir.join(plugin_path(path));
         if let Some(parent) = to.parent() {
             fs::create_dir_all(parent)?;
@@ -100,6 +156,13 @@ pub(super) fn write(dir: &Path) -> io::Result<()> {
     let manifest = serde_json::to_string_pretty(&manifest).expect("the manifest is JSON");
     fs::create_dir_all(dir.join(".claude-plugin"))?;
     fs::write(dir.join(".claude-plugin/plugin.json"), manifest)
+}
+
+// The skill a vendored file belongs to, and none for the licence at the
+// plugin's root, which every copy holds.
+fn skill_of(upstream: &str) -> Option<&str> {
+    let (_group, rest) = upstream.strip_prefix("skills/")?.split_once('/')?;
+    rest.split('/').next()
 }
 
 // `skills/<group>/<name>/<rest>` upstream is `skills/<name>/<rest>` in the plugin.
@@ -273,12 +336,79 @@ mod tests {
         assert!(missing.is_empty(), "{missing:#?}");
     }
 
+    // Names a vendored skill, from its path in `FILES`.
+    fn vendored_names() -> BTreeSet<&'static str> {
+        FILES
+            .iter()
+            .filter_map(|(path, _)| path.strip_prefix("skills/")?.split_once('/'))
+            .map(|(_group, rest)| rest.split('/').next().unwrap())
+            .collect()
+    }
+
+    // The skills `name`'s own files call, as its text names them
+    fn named_calls(name: &str) -> BTreeSet<String> {
+        let mut called = BTreeSet::new();
+        for (_, bytes) in FILES
+            .iter()
+            .filter(|(path, _)| skill_of(path) == Some(name) && path.ends_with(".md"))
+        {
+            let text = std::str::from_utf8(bytes).unwrap().replace('\n', " ");
+            called.extend(
+                called_skills(&text)
+                    .into_iter()
+                    .filter(|c| *c != name && !NOT_VENDORED.contains(c))
+                    .map(str::to_owned),
+            );
+        }
+        called
+    }
+
+    // The skills [`CALLS`] says `name` calls
+    fn listed_calls(name: &str) -> BTreeSet<String> {
+        CALLS
+            .iter()
+            .find(|(caller, _)| *caller == name)
+            .into_iter()
+            .flat_map(|(_, calls)| calls.iter())
+            .map(|call| (*call).to_owned())
+            .collect()
+    }
+
+    #[test]
+    fn calls_match_what_the_vendored_skills_name() {
+        let mut unlisted = Vec::new();
+        let mut unnamed = Vec::new();
+        for name in vendored_names() {
+            let (named, listed) = (named_calls(name), listed_calls(name));
+            for call in named.difference(&listed) {
+                unlisted.push(format!("{name} calls {call}, which CALLS does not list"));
+            }
+            for call in listed.difference(&named) {
+                unnamed.push(format!("CALLS has {name} call {call}, which no text names"));
+            }
+        }
+        assert_eq!(unlisted, Vec::<String>::new(), "a call the text names");
+        assert_eq!(unnamed, Vec::<String>::new(), "an entry no text names");
+    }
+
+    #[test]
+    fn every_skill_named_in_the_calls_table_is_vendored() {
+        let vendored = vendored_names();
+        let missing: Vec<String> = CALLS
+            .iter()
+            .flat_map(|(caller, calls)| std::iter::once(*caller).chain(calls.iter().copied()))
+            .filter(|name| !vendored.contains(name))
+            .map(str::to_owned)
+            .collect();
+        assert_eq!(missing, Vec::<String>::new());
+    }
+
     #[test]
     fn the_plugin_holds_each_skill_under_its_name_with_the_licence() {
         let dir = tempfile::tempdir().unwrap();
         let plugin = dir.path().join("plugin");
         fs::create_dir_all(plugin.join("stale")).unwrap();
-        write(&plugin).unwrap();
+        write(&plugin, Which::All).unwrap();
         assert!(!plugin.join("stale").exists());
         let tests = fs::read(plugin.join("skills/tdd/tests.md")).unwrap();
         assert_eq!(

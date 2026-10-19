@@ -38,6 +38,8 @@ Every step shep-kelpie drives an agent through runs a skill, by default from [ma
 
 Some vendored skills call others, and those are vendored too: `codebase-design` (from `tdd`), `grilling` and `domain-modeling` (from `triage` and `grill-with-docs`) and `writing-for-agents` (from `retro`). No step names them, and a test fails when a vendored skill or its docs call one that is not vendored, except `setup-matt-pocock-skills`, which a project runs once to set itself up and a worker never runs.
 
+A runner writes only what a worker needs, because every harness lists each skill a plugin holds on every request. With the defaults a worker's copy holds six: `implement`, `tdd`, `diagnosing-bugs` and `pr`, plus `code-review` and `codebase-design`, which `implement` and `tdd` call. The other nine are written only where a step needs them, so `retro = { kind = "kelpie" }` writes `retro` and the `writing-for-agents` it calls. `shep kelpie issue --interactive` writes all 15, since the issue writer can call any of them.
+
 A step that runs a skill starts its prompt with the skill's slash command, such as `/mattpocock:implement`, and shep-kelpie's own prompt follows as its arguments. To override one, set it in the project's `[app.dogs.kelpie.skills]` table:
 
 - `{ kind = "path", path = "..." }`: a skill folder with a `SKILL.md`, copied into a plugin of its own, `kelpie-<step>`
