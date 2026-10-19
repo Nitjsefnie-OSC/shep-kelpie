@@ -10,13 +10,14 @@ use crate::board::{READY, TRIAGE};
 
 /// The keys an answer takes, an object with none of them being none: `why`
 /// is left out, since an unstick inside an answer has one of its own
-const KEYS: [&str; 7] = [
+const KEYS: [&str; 8] = [
     "pick",
     "hold",
     "unstick",
     "answer",
     "follow_up",
     "votes",
+    "standing",
     "reply",
 ];
 
@@ -38,6 +39,8 @@ pub(super) struct Answer {
     pub(super) follow_up: Option<Decide>,
     /// Its votes on rulings before the panel: each ruling, and the object it voted with
     pub(super) votes: Vec<(u64, Map<String, Value>)>,
+    /// The whole of its standing notes, which replaces the file kelpie holds
+    pub(super) standing: Option<String>,
     /// A message for the maintainer
     pub(super) reply: Option<String>,
     /// Why, in its own words
@@ -203,6 +206,12 @@ pub(super) fn read(text: &str) -> Option<Answer> {
                 }
                 _ => answer.unread.push(unread("a list of votes")),
             },
+            "standing" => match value {
+                Value::Null => {}
+                Value::String(text) if text.trim().is_empty() => {}
+                Value::String(text) => answer.standing = Some(plain(text.trim())),
+                _ => answer.unread.push(unread("text or null")),
+            },
             "reply" | "why" => match value {
                 Value::Null => {}
                 Value::String(text) if text.trim().is_empty() => {}
@@ -250,14 +259,19 @@ fn last_object(text: &str) -> Option<Map<String, Value>> {
 // `text` with every control character but a newline taken out, cut past
 // [`LONGEST`] characters, since it is printed and posted as it is.
 fn printable(text: &str) -> String {
-    let kept: Vec<char> = (text.chars())
-        .filter(|&c| c == '\n' || !c.is_control())
-        .collect();
-    let mut out: String = kept.iter().take(LONGEST).collect();
-    if kept.len() > LONGEST {
-        out.push_str(" …");
+    let kept = plain(text);
+    match kept.char_indices().nth(LONGEST) {
+        Some((at, _)) => format!("{} …", &kept[..at]),
+        None => kept,
     }
-    out
+}
+
+// `text` with every control character but a newline taken out, whole, since
+// the standing notes are checked against a limit of their own.
+fn plain(text: &str) -> String {
+    text.chars()
+        .filter(|&c| c == '\n' || !c.is_control())
+        .collect()
 }
 
 // A positive whole number, as a JSON number or digits in a string.
@@ -374,6 +388,7 @@ mod tests {
                 answer: None,
                 follow_up: None,
                 votes: Vec::new(),
+                standing: None,
                 reply: None,
                 why: Some("#12 touches nothing open.".into()),
                 unread: Vec::new(),
@@ -544,6 +559,40 @@ mod tests {
                 "`pick`: an issue number or null, not \"soon\"",
                 "`unstick`: `item`, an `action` of retry, re-scope, ask or none, and `why`, \
                  not {\"action\":\"reboot\",\"item\":7}",
+            ]
+        );
+    }
+
+    #[test]
+    fn a_standing_answer_is_the_whole_file_or_null_and_an_unknown_key_is_still_named() {
+        let set = read("{\"standing\": \"Hold #12\\nuntil the release.  \"}").unwrap();
+        assert_eq!(
+            set.standing.as_deref(),
+            Some("Hold #12\nuntil the release.")
+        );
+        assert_eq!(set.unread, Vec::<String>::new());
+
+        let left = read("{\"pick\": null, \"standing\": null}").unwrap();
+        assert_eq!(
+            (left.pick, left.standing, left.unread),
+            (None, None, vec![])
+        );
+
+        let long = "x".repeat(5_000);
+        let over = read(&format!("{{\"standing\": \"{long}\"}}")).unwrap();
+        assert_eq!(
+            over.standing.as_deref(),
+            Some(long.as_str()),
+            "the whole text reaches the file's own limit"
+        );
+
+        let bad = read("{\"pick\": 3, \"standing\": 4, \"merge_order\": [1]}").unwrap();
+        assert_eq!((bad.pick, bad.standing), (Some(3), None));
+        assert_eq!(
+            bad.unread,
+            [
+                "`merge_order` is not a field kelpie acts on",
+                "`standing`: text or null, not 4",
             ]
         );
     }

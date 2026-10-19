@@ -104,6 +104,12 @@ impl Runner {
                 Err(why) => dropped.push(why),
             }
         }
+        if let Some(standing) = &answer.standing {
+            match self.pm_stand(standing) {
+                Ok(done) => acted.push(done),
+                Err(why) => dropped.push(why),
+            }
+        }
         if let Some(reply) = &answer.reply {
             self.pm.reply = Some(reply.clone());
         }

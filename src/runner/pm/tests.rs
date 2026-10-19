@@ -17,6 +17,7 @@ mod attach;
 mod code;
 mod follow_up;
 mod lease;
+mod notes;
 mod question;
 mod red;
 
