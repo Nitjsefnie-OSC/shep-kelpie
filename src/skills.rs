@@ -280,6 +280,12 @@ impl Skills {
             .and_then(|s| s.skill.as_deref())
     }
 
+    /// The plugin folder `step`'s skill is in, if it has one there
+    pub fn plugin_dir(&self, step: Step) -> Option<&Path> {
+        let found = self.steps.iter().find(|s| s.step == step)?;
+        found.plugin.as_deref()
+    }
+
     /// Every plugin folder a step's skill is in, for `claude --plugin-dir`
     pub fn plugin_dirs(&self) -> &[PathBuf] {
         &self.plugins
