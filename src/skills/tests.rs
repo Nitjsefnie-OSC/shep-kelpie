@@ -434,6 +434,66 @@ fn a_retro_named_kelpies_writes_the_retro_skill_and_the_one_it_calls() {
     }
 }
 
+// A step left out of `[skills]` has a skill only where the runner seeded one,
+// so `status` never names a command for a skill the written folder lacks.
+#[test]
+fn a_step_outside_the_workers_four_names_no_skill_until_the_project_names_one() {
+    let dir = tempfile::tempdir().unwrap();
+    let folder = dir.path().join("skills");
+    let plugin = folder.join(PLUGIN);
+    let chosen = |table: &str| -> crate::settings::StepSkills { toml::from_str(table).unwrap() };
+
+    let skills = Skills::load(&crate::settings::StepSkills::default(), &folder);
+    for step in Step::WORKER {
+        let command = format!("/mattpocock:{}", step.default_skill());
+        assert_eq!(skills.command(step), Some(command.as_str()), "{step}");
+        assert!(
+            plugin.join("skills").join(step.default_skill()).is_dir(),
+            "{step}"
+        );
+    }
+    // `triage`, `spec`, `reset` and `retro` run kelpie's own prompt: no
+    // command, no notice that a skill failed, and no folder to point at.
+    for step in [Step::Triage, Step::Spec, Step::Reset, Step::Retro] {
+        let shown = skills.status().iter().find(|s| s.step == step).unwrap();
+        assert_eq!(shown.skill, None, "{step}");
+        assert_eq!(shown.fallback, None, "{step}");
+        assert_eq!(skills.plugin_dir(step), None, "{step}");
+        assert!(
+            !plugin.join("skills").join(step.default_skill()).exists(),
+            "{step}"
+        );
+    }
+    assert_eq!(skills.notices().count(), 0, "nothing failed to load");
+
+    // Naming one gives it its command, its folder, and what its text calls.
+    let skills = Skills::load(
+        &chosen("triage = { kind = \"kelpie\" }\nretro = { kind = \"kelpie\" }\n"),
+        &folder,
+    );
+    for step in [Step::Triage, Step::Retro] {
+        let command = format!("/mattpocock:{}", step.default_skill());
+        assert_eq!(skills.command(step), Some(command.as_str()), "{step}");
+        assert_eq!(skills.plugin_dir(step), Some(plugin.as_path()), "{step}");
+    }
+    assert_eq!(
+        skills_in(&plugin),
+        [
+            "code-review",
+            "codebase-design",
+            "diagnosing-bugs",
+            "domain-modeling",
+            "grilling",
+            "implement",
+            "pr",
+            "retro",
+            "tdd",
+            "triage",
+            "writing-for-agents",
+        ]
+    );
+}
+
 #[test]
 fn the_issue_writers_copy_still_holds_every_vendored_skill() {
     let dir = tempfile::tempdir().unwrap();

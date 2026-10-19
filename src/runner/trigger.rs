@@ -823,9 +823,13 @@ mod tests {
                 "leases": [],
                 "history": [],
                 "pacer": { "enabled": true, "claude": { "reading": null, "holding": null } },
+                // kelpie seeds a vendored skill for the worker's four and for
+                // the retro this rig turned on, so `status` names no command
+                // for triage, spec and reset: they run kelpie's own prompt.
                 "skills": Step::ALL.map(|step| json!({
                     "step": step.as_str(),
-                    "skill": format!("/mattpocock:{}", step.default_skill()),
+                    "skill": (Step::WORKER.contains(&step) || step == Step::Retro)
+                        .then(|| format!("/mattpocock:{}", step.default_skill())),
                     "fallback": null,
                 })),
                 "pull_request_template": "none",
