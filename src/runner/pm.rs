@@ -43,7 +43,7 @@ pub(super) use call::SECRET_SHAPED;
 pub use maintainer::{PmAttaching, PmError, PmStatus, Settled};
 
 use answer::Action;
-use wakes::stuck_on;
+use wakes::{LeftAlone, stuck_on};
 
 /// The context, in tokens, past which the session is compacted after a wake
 ///
@@ -72,6 +72,22 @@ const DOWN_FOR: u64 = 10 * 60;
 /// seconds, before the board rule picks
 pub(super) const NOTHING_FOR: u64 = 30 * 60;
 
+/// What a work item is stuck on, which a new turn, phase or ruling is a
+/// different one of
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum StuckState {
+    /// Parked on this ruling, raised then. A ruling raised again on the same
+    /// item is a different one, whatever its number.
+    Ruling {
+        /// The ruling's number
+        id: u64,
+        /// When it was raised, `None` only in a state file from before
+        raised: Option<Timestamp>,
+    },
+    /// Its call in flight has shown nothing, on the turn that started then
+    Idle(Timestamp),
+}
+
 /// Why the project manager is woken
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum Wake {
@@ -79,8 +95,15 @@ pub(super) enum Wake {
     Pick(usize),
     /// The branches of two open work items conflict in these files
     Conflict(u64, u64, Vec<String>),
-    /// A work item is stuck, as this says
-    Stuck(u64, String),
+    /// A work item is stuck, as this says, on this
+    Stuck {
+        /// The work item's issue
+        issue: u64,
+        /// What it is stuck on, in words
+        what: String,
+        /// What it is stuck on, which a new turn, phase or ruling is another of
+        state: StuckState,
+    },
     /// A call in flight has waited long for a lease on its model, which is not
     /// the worker being stuck
     LeaseWait {
@@ -133,7 +156,7 @@ impl Wake {
         match (self, other) {
             (Self::Pick(_), Self::Pick(_)) | (Self::Told, Self::Told) => true,
             (Self::Conflict(a, b, _), Self::Conflict(c, d, _)) => (a, b) == (c, d),
-            (Self::Stuck(a, _), Self::Stuck(b, _)) => a == b,
+            (Self::Stuck { issue: a, .. }, Self::Stuck { issue: b, .. }) => a == b,
             (Self::LeaseWait { issue: a, .. }, Self::LeaseWait { issue: b, .. }) => a == b,
             (Self::Question { id: a, .. }, Self::Question { id: b, .. }) => a == b,
             (Self::FollowUp { id: a, .. }, Self::FollowUp { id: b, .. }) => a == b,
@@ -207,6 +230,9 @@ pub(super) struct Desk {
     reply: Option<String>,
     // What it decided for an idle worker whose call it had ended
     after_end: BTreeMap<u64, (Action, String)>,
+    // Each work item it left to resolve itself, with the state it was in, when
+    // it said so, and how many `none`s in a row on that state
+    left_alone: BTreeMap<u64, LeftAlone>,
     // Each question ruling held back from the maintainer for its answer, with
     // when it was raised
     asking: BTreeMap<u64, Timestamp>,
@@ -226,8 +252,19 @@ impl Desk {
 
 impl Runner {
     /// Queues `wake` for the project manager's next call, once each
+    ///
+    /// A stuck item it left alone in the same state is queued again only when
+    /// that state changes or its back-off ends.
     pub(super) fn pm_due(&mut self, wake: Wake) {
-        if self.agents.pm.is_some() && !self.pm.due.iter().any(|w| w.same(&wake)) {
+        if self.agents.pm.is_none() {
+            return;
+        }
+        if let Wake::Stuck { issue, state, .. } = &wake
+            && self.left_alone_holds(*issue, *state)
+        {
+            return;
+        }
+        if !self.pm.due.iter().any(|w| w.same(&wake)) {
             self.pm.due.push(wake);
         }
     }
@@ -374,7 +411,7 @@ impl Runner {
                     self.pm.asked_pick = false;
                 }
                 Wake::Told => self.pm_due(Wake::Told),
-                Wake::Conflict(..) | Wake::Stuck(..) => self.pm.lapsed = true,
+                Wake::Conflict(..) | Wake::Stuck { .. } => self.pm.lapsed = true,
                 Wake::LeaseWait { .. } => self.pm.lapsed = true,
                 // The ruling goes to the maintainer, who need not wait on it again.
                 Wake::Question { id, .. } | Wake::FollowUp { id, .. } => {

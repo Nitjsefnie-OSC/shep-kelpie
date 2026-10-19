@@ -1,17 +1,56 @@
 //! What wakes the project manager besides a pick and a `tell`: a work item
 //! parked on a stuck item's ruling, a pair of open branches newly in
 //! conflict, and, once it is back, whatever it missed while it was not
+//!
+//! A work item the project manager answered `none` for is not queued again
+//! while it is in the state it was left alone in, which is what `pm_due` checks
+//! for every source of a stuck wake.
 
 use std::collections::BTreeMap;
 
-use super::{Pick, Wake, answer};
+use crate::board::briefing::{age, elapsed};
+
+use super::{Pick, StuckState, Wake, answer};
 use crate::panel::{Tier, Voter};
-use crate::ports::{AgentError, AgentReply};
+use crate::ports::{AgentError, AgentReply, Timestamp};
 use crate::runner::Runner;
 use crate::settings::RulingName;
-use crate::state::{ProjectState, RulingKind, Stuck};
+use crate::state::{ProjectState, Ruling, RulingKind, Stuck};
 use crate::usage::VoteMark;
 use crate::work_item::Phase;
+
+/// How long an idle call left alone is dropped for after its first `none`, in
+/// seconds
+///
+/// Measured on the maintainer's day of 134 wakes: 89 held nothing but a stuck
+/// item, 76 of those answered `none`, and one item woke it 15 times about every
+/// 10 minutes, which is the board's own idle length.
+const QUIET_FIRST: u64 = 30 * 60;
+
+/// How long an idle call left alone is dropped for after a second `none` in a
+/// row on the same turn, in seconds
+const QUIET_SECOND: u64 = 60 * 60;
+
+/// The most an idle call left alone is dropped for, in seconds
+const QUIET_MOST: u64 = 2 * 60 * 60;
+
+/// What the project manager left a work item alone in, when it said so, and
+/// how many `none`s in a row on that state
+#[derive(Debug, Clone)]
+pub(super) struct LeftAlone {
+    state: StuckState,
+    at: Timestamp,
+    nones: u32,
+}
+
+// How long `nones` in a row on one idle call hold its wake back.
+fn quiet_backoff(nones: u32) -> u64 {
+    match nones {
+        0 | 1 => QUIET_FIRST,
+        2 => QUIET_SECOND,
+        _ => QUIET_MOST,
+    }
+}
 
 impl Runner {
     // Queues a wake for each item still stuck and each conflict still open,
@@ -24,11 +63,15 @@ impl Runner {
                 Phase::Ruling { id } => self.state.rulings.iter().find(|r| r.id == id),
                 _ => None,
             };
-            if let Some(wake) = parked.and_then(|r| stuck_wake(issue, r.id, &r.kind)) {
+            if let Some(wake) = parked.and_then(|r| stuck_wake(issue, r)) {
                 wakes.push(wake);
-            } else if self.flights.watched(issue).is_some_and(|w| w.idle) {
+            } else if let Some(watched) = self.flights.watched(issue).filter(|w| w.idle) {
                 let what = "its worker has shown no tool call or output for 10 minutes or more";
-                wakes.push(Wake::Stuck(issue, what.to_owned()));
+                wakes.push(Wake::Stuck {
+                    issue,
+                    what: what.to_owned(),
+                    state: StuckState::Idle(watched.started),
+                });
             } else if let Some(wake) = self.lease_wake(issue) {
                 wakes.push(wake);
             }
@@ -39,6 +82,55 @@ impl Runner {
         for wake in wakes {
             self.pm_due(wake);
         }
+    }
+
+    // Whether `issue` is still held by the state it was left alone in, naming
+    // each drop in the log
+    pub(super) fn left_alone_holds(&mut self, issue: u64, state: StuckState) -> bool {
+        let Some(entry) = self.pm.left_alone.get(&issue).cloned() else {
+            return false;
+        };
+        if entry.state != state {
+            return false;
+        }
+        let now = self.ports.clock.now();
+        match state {
+            // The ruling already asks the maintainer: there is nothing to wait
+            // for but its answer.
+            StuckState::Ruling { id, .. } => {
+                self.notes.push(format!(
+                    "#{issue} is parked on ruling {id}, which the project manager left alone, \
+                     so it is not woken for it again"
+                ));
+                true
+            }
+            StuckState::Idle(..) => {
+                let back = quiet_backoff(entry.nones);
+                let gone = now.0.saturating_sub(entry.at.0);
+                let held = gone < back;
+                if held {
+                    self.notes.push(format!(
+                        "#{issue} is idle on the turn the project manager left alone {}, so it \
+                         is not woken for it again for {}",
+                        age(now, entry.at),
+                        elapsed(back - gone)
+                    ));
+                }
+                held
+            }
+        }
+    }
+
+    /// Records that the project manager left `issue` alone in `state`, once
+    /// more in a row on the same state or new to it
+    pub(super) fn pm_left_alone(&mut self, issue: u64, state: StuckState, at: Timestamp) {
+        let nones = match self.pm.left_alone.get(&issue) {
+            Some(entry) if entry.state == state => entry.nones.saturating_add(1),
+            _ => 1,
+        };
+        self.pm
+            .left_alone
+            .insert(issue, LeftAlone { state, at, nones });
     }
 
     /// The votes the wake in flight casts, for its line in the usage ledger:
@@ -96,7 +188,7 @@ impl Runner {
             .filter_map(|ruling| {
                 let issue = ruling.issue?;
                 let ended = self.pm.after_end.contains_key(&issue);
-                stuck_wake(issue, ruling.id, &ruling.kind).filter(|_| !ended)
+                stuck_wake(issue, ruling).filter(|_| !ended)
             })
             .collect();
         let closed = (was.work_items.iter()).any(|i| now.item(i.issue).is_none());
@@ -116,6 +208,7 @@ impl Runner {
             }
             let open = now.open_issues();
             self.pm.after_end.retain(|issue, _| open.contains(issue));
+            (self.pm.left_alone).retain(|issue, _| open.contains(issue));
             (self.pm.conflicts).retain(|(a, b), _| open.contains(a) && open.contains(b));
         }
     }
@@ -177,13 +270,17 @@ impl Runner {
     }
 }
 
-// The wake for `issue`, parked on ruling `id` of `kind`, if that is a stuck item's.
-fn stuck_wake(issue: u64, id: u64, kind: &RulingKind) -> Option<Wake> {
-    let what = stuck_on(kind)?;
-    Some(Wake::Stuck(
+// The wake for `issue`, parked on `ruling`, if that is a stuck item's.
+fn stuck_wake(issue: u64, ruling: &Ruling) -> Option<Wake> {
+    let what = stuck_on(&ruling.kind)?;
+    Some(Wake::Stuck {
         issue,
-        format!("{what}, and ruling {id} asks the maintainer"),
-    ))
+        what: format!("{what}, and ruling {} asks the maintainer", ruling.id),
+        state: StuckState::Ruling {
+            id: ruling.id,
+            raised: ruling.raised,
+        },
+    })
 }
 
 /// What a ruling of `kind` says of a stuck work item, or none for one that
