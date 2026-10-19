@@ -19,6 +19,11 @@ pub struct Git {
     /// `origin` when the runner starts, when absent.
     #[serde(default)]
     pub remote: Option<ForgeSlug>,
+    /// The branch work items are cut from, opened pull requests against and
+    /// merged into, on `origin`. `main` when absent. A change waits for the
+    /// runner's next start.
+    #[serde(default)]
+    pub base: Option<BaseBranch>,
     /// Who merges a green, reviewed pull request
     pub merging: Merging,
     /// What becomes of the findings a worker deferred, once its pull
@@ -32,17 +37,51 @@ pub struct Git {
     pub maintainer: Option<GithubLogin>,
 }
 
-/// The branch every work item is cut from and merged into, on `origin`
-///
-/// Every project's base for now.
+/// The branch work items are cut from and merged into, on `origin`, when a
+/// project names none
 pub const DEFAULT_BASE: &str = "main";
 
 impl Git {
     /// The project's base branch: what work items are cut from, compared
-    /// against and merged into, on `origin`
+    /// against and merged into, on `origin`. `git.base`, or [`DEFAULT_BASE`].
     #[inline]
-    pub fn base(&self) -> &'static str {
-        DEFAULT_BASE
+    pub fn base(&self) -> &str {
+        self.base.as_ref().map_or(DEFAULT_BASE, BaseBranch::as_str)
+    }
+}
+
+/// A branch name git accepts, as `git check-ref-format --branch` reads it
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, JsonSchema)]
+#[serde(try_from = "String")]
+pub struct BaseBranch(String);
+
+impl BaseBranch {
+    /// The branch as written
+    #[inline]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl TryFrom<String> for BaseBranch {
+    type Error = &'static str;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        const REASON: &str = "must be a branch name such as `main` or `release/2.x`";
+        let forbidden = |c: char| c.is_whitespace() || c.is_control() || "~^:?*[\\".contains(c);
+        let bad_part =
+            |part: &str| part.is_empty() || part.starts_with('.') || part.ends_with(".lock");
+        if value.starts_with('-')
+            || value.ends_with(['/', '.'])
+            || value.contains("..")
+            || value.contains("@{")
+            || value == "@"
+            || value.chars().any(forbidden)
+            || value.split('/').any(bad_part)
+        {
+            return Err(REASON);
+        }
+        Ok(Self(value))
     }
 }
 

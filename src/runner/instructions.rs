@@ -64,6 +64,8 @@ pub(super) struct Extra<'a> {
     /// The work item's ticket is a local one, whose pull request has no
     /// `Resolves` line: kelpie closes the ticket when it merges
     pub(super) local_ticket: bool,
+    /// The project's base branch, `main` when none is given
+    pub(super) base: Option<&'a str>,
 }
 
 /// What a worker with a browser is told of the project's dev server
@@ -90,7 +92,8 @@ pub(super) fn e2e_command(kelpie: &Path) -> String {
 /// also told the wording skill that words it.
 pub(super) fn compose(extra: Extra<'_>, worktree: &Path, skills: &Skills, kelpie: &Path) -> String {
     let resolves = !extra.local_ticket;
-    let mut text = profile::instructions_for(kelpie, extra.pull_request_file, resolves);
+    let base = extra.base.unwrap_or(crate::settings::DEFAULT_BASE);
+    let mut text = profile::instructions_for(kelpie, extra.pull_request_file, resolves, base);
     let mut lines = Vec::new();
     if let Some(tdd) = skills.command(Step::Tests) {
         lines.push(format!(
@@ -546,6 +549,29 @@ mod tests {
         let local = told(true, false);
         assert!(!local.contains("Resolves"), "{local}");
         assert!(local.contains("instead of writing your own.\n"), "{local}");
+    }
+
+    #[test]
+    fn a_worker_is_told_to_merge_the_projects_base_and_not_main() {
+        let dir = tempfile::tempdir().unwrap();
+        let skills = Skills::load(&StepSkills::default(), &dir.path().join("skills"));
+        let told = |base| {
+            let extra = Extra {
+                base,
+                ..Extra::default()
+            };
+            compose(extra, dir.path(), &skills, Path::new(Rig::KELPIE))
+        };
+
+        let next = told(Some("next"));
+        assert!(next.contains("cut from the latest `origin/next`"), "{next}");
+        assert!(
+            next.contains("merge `origin/next` in with `git merge origin/next`"),
+            "{next}"
+        );
+        assert!(!next.contains("origin/main"), "{next}");
+        assert_eq!(told(None), told(Some("main")));
+        assert!(told(None).contains("`git merge origin/main`"));
     }
 
     #[test]

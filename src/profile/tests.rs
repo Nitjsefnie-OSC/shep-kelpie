@@ -622,17 +622,17 @@ fn the_instructions_send_a_worker_to_its_own_temp_folder_for_scratch_files() {
 // transcripts of 13 to 16 October 2026, and 83 of the 93 retros of 10 to 12
 // October, were that failure.
 #[test]
-fn the_instructions_tell_a_worker_that_kelpie_fetches_main() {
+fn the_instructions_tell_a_worker_that_kelpie_fetches_the_base() {
     assert!(
         INSTRUCTIONS.contains("Run no `git fetch`, `git pull` or `git remote update`"),
         "{INSTRUCTIONS}"
     );
     assert!(
-        INSTRUCTIONS.contains("fetches `origin/main`"),
+        INSTRUCTIONS.contains("fetches `origin/{base}`"),
         "{INSTRUCTIONS}"
     );
     assert!(
-        INSTRUCTIONS.contains("`git merge origin/main`"),
+        INSTRUCTIONS.contains("`git merge origin/{base}`"),
         "{INSTRUCTIONS}"
     );
     assert!(
@@ -710,4 +710,21 @@ fn the_instructions_never_mention_money_or_limits() {
     for word in ["budget", "cost", "spend", "token", "usage", "$", "limit"] {
         assert!(!text.contains(word), "the instructions mention {word:?}");
     }
+}
+
+// A worker that opens its own pull request is told the base, since `gh` would
+// otherwise open it against the repo's default branch.
+#[test]
+fn a_worker_that_opens_its_own_pull_request_is_told_to_open_it_against_the_base() {
+    let kelpie = Path::new("/bin/kelpie");
+    let on_next = instructions_for(kelpie, None, true, "next");
+    assert!(
+        on_next.contains("`gh pr create --draft --base next`"),
+        "{on_next}"
+    );
+    let default = instructions(kelpie, None);
+    assert!(
+        default.contains("`gh pr create --draft --base main`"),
+        "{default}"
+    );
 }

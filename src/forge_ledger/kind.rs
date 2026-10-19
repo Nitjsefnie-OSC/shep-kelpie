@@ -12,6 +12,8 @@ pub enum Kind {
     Visibility,
     /// The repo's default branch
     DefaultBranch,
+    /// Whether the repo has a branch
+    BranchExists,
     /// A folder of the repo's default branch, listed
     Folder,
     /// A file of the repo's default branch, read
@@ -143,6 +145,7 @@ impl Kind {
             self,
             Self::Visibility
                 | Self::DefaultBranch
+                | Self::BranchExists
                 | Self::Folder
                 | Self::FileText
                 | Self::RepoLabels
@@ -211,7 +214,8 @@ impl Kind {
             | Self::DisableAutoMerge
             | Self::AppResolveThread
             | Self::AppReplyToThread => Api::GraphQl,
-            Self::Folder
+            Self::BranchExists
+            | Self::Folder
             | Self::FileText
             | Self::SubIssues
             | Self::CloseIssueAs

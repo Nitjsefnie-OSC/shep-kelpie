@@ -6,7 +6,7 @@ use shep_client::shep_core::values::UpDuration;
 use super::*;
 use crate::home::ProjectPaths;
 use crate::ports::Visibility;
-use crate::settings::{AgentName, ForgeSlug};
+use crate::settings::{AgentName, BaseBranch, ForgeSlug};
 use crate::state::STATE_FILE;
 use crate::test::{CALL_PATIENCE, FakeForge, FakeShepherd, ticket};
 
@@ -62,6 +62,10 @@ impl Scene {
     }
 
     async fn add(&self) -> Result<Vec<String>, String> {
+        self.add_on(None).await
+    }
+
+    async fn add_on(&self, base: Option<&str>) -> Result<Vec<String>, String> {
         let client = self.shepherd.connect().await;
         let (folder, agents, old) = (self.folder(), self.agents(), self.old_home());
         let place = Place {
@@ -70,6 +74,7 @@ impl Scene {
             folder: &folder,
             agents: &agents,
             old_home: Some(&old),
+            base,
         };
         let added = add(&client, &self.forge, &self.launch, &self.name, place);
         tokio::time::timeout(CALL_PATIENCE, added)
@@ -265,13 +270,70 @@ async fn add_writes_both_files_and_lists_neither() {
 }
 
 #[tokio::test]
-async fn another_default_branch_is_refused_before_anything_changes() {
-    let mut scene = Scene::new().await;
+async fn a_repo_whose_default_branch_is_main_gets_it_written_as_the_base() {
+    let scene = Scene::new().await;
+    scene.add().await.unwrap();
+    assert_eq!(scene.settings().git.base, Some(base("main")));
+}
+
+#[tokio::test]
+async fn a_default_branch_other_than_main_is_the_base_the_project_is_added_with() {
+    let scene = Scene::new().await;
     scene.forge.set_default_branch("trunk");
-    let err = scene.add().await.unwrap_err();
-    assert!(err.contains("default branch is trunk"), "{err}");
+    scene.add().await.unwrap();
+    assert_eq!(scene.settings().git.base(), "trunk");
+}
+
+#[tokio::test]
+async fn base_next_on_a_repo_whose_default_is_main_writes_it() {
+    let scene = Scene::new().await;
+    scene.forge.set_branches(&["next"]);
+    scene.add_on(Some("next")).await.unwrap();
+    assert_eq!(scene.settings().git.base, Some(base("next")));
+}
+
+#[tokio::test]
+async fn a_base_the_repo_does_not_have_is_refused_before_anything_changes() {
+    let mut scene = Scene::new().await;
+    let err = scene.add_on(Some("next")).await.unwrap_err();
+    assert!(err.contains("koji-website has no branch `next`"), "{err}");
     assert_eq!(scene.shepherd.writes(), []);
     assert_eq!(scene.forge.repo_labels_now(), ["bug"]);
+}
+
+#[tokio::test]
+async fn a_base_that_is_no_branch_name_is_refused() {
+    let mut scene = Scene::new().await;
+    let err = scene.add_on(Some("--next")).await.unwrap_err();
+    assert!(err.contains("must be a branch name"), "{err}");
+    assert_eq!(scene.shepherd.writes(), []);
+}
+
+#[tokio::test]
+async fn adding_again_with_another_base_is_refused_and_leaves_the_table() {
+    let scene = Scene::new().await;
+    scene.forge.set_branches(&["next"]);
+    scene.add().await.unwrap();
+    let err = scene.add_on(Some("next")).await.unwrap_err();
+    assert!(err.contains("works against `main`, not `next`"), "{err}");
+    assert!(err.contains("shep kelpie set git.base next"), "{err}");
+    assert_eq!(scene.settings().git.base(), "main");
+}
+
+#[tokio::test]
+async fn adding_again_with_the_base_it_has_changes_nothing() {
+    let scene = Scene::new().await;
+    scene.forge.set_branches(&["next"]);
+    scene.add_on(Some("next")).await.unwrap();
+    let again = scene.add_on(Some("next")).await.unwrap();
+    assert!(
+        again.contains(&"runner `koji`: already there with its settings".to_owned()),
+        "{again:?}"
+    );
+}
+
+fn base(branch: &str) -> BaseBranch {
+    BaseBranch::try_from(branch.to_owned()).unwrap()
 }
 
 #[tokio::test]

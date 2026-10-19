@@ -140,6 +140,13 @@ pub trait Forge: Send + Sync {
     /// [`ForgeError`] when the forge cannot be asked or its answer read.
     fn default_branch(&self, repo: &ForgeSlug) -> Result<String, ForgeError>;
 
+    /// Whether `repo` has a branch named `branch`
+    ///
+    /// # Errors
+    ///
+    /// [`ForgeError`] when the forge cannot be asked or its answer read.
+    fn branch_exists(&self, repo: &ForgeSlug, branch: &str) -> Result<bool, ForgeError>;
+
     /// What folder `path` of `repo` holds on its default branch, where an
     /// empty `path` is the root, or `None` when `repo` or the folder is not there
     ///

@@ -47,6 +47,24 @@ impl Rig {
         });
     }
 
+    /// Makes `branch` the project's base: origin gets it, one commit on from
+    /// `main` so the two differ, and `git.base` names it when a runner next opens
+    pub(crate) fn base_is(&self, branch: &str) {
+        let repo = self.repo();
+        let on = |args: &[&str]| crate::test::git(&repo, args);
+        on(&["checkout", "--quiet", "-b", branch, "main"]);
+        std::fs::write(repo.join("NEXT.md"), "the long-lived line\n").unwrap();
+        on(&["add", "NEXT.md"]);
+        on(&["commit", "--quiet", "-m", "start the line"]);
+        on(&["push", "--quiet", "origin", branch]);
+        on(&["checkout", "--quiet", "main"]);
+        let ask = "issues = \"ask\"";
+        self.edit_settings(|s| {
+            assert!(s.contains(ask), "the example's `git.issues` moved");
+            s.replace(ask, &format!("{ask}\nbase = \"{branch}\""))
+        });
+    }
+
     /// Sets the project's `git.maintainer` to `login`, read when a runner next opens
     pub(crate) fn maintainer(&self, login: &str) {
         let ask = "issues = \"ask\"";
