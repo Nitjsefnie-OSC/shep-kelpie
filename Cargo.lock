@@ -1047,6 +1047,7 @@ dependencies = [
  "serde-saphyr",
  "serde_json",
  "sha1",
+ "shep-channel",
  "shep-client",
  "shep-kelpie-facts",
  "shep-kelpie-panel",

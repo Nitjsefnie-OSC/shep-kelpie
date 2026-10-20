@@ -16,9 +16,11 @@ mod mcp;
 mod plan;
 mod requests;
 mod series;
+mod shepherd_sink;
 
 pub use mcp::OWN_SERVERS;
 pub use series::{CiTests, FEATURE_RUNS, Feature};
+pub use shepherd_sink::ShepherdSink;
 
 /// The most series a runner sends, under the metrics dog's 256 a sender
 /// (shep-pm/shep#733). The worst case the budget test drives is 197 series, and
