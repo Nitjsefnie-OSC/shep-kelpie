@@ -230,7 +230,7 @@ To wind a project down without watching it, finish it instead:
 shep kelpie finish
 ```
 
-`finish` runs every open work item to its end before it stops the runner. The commands page sets it against `pause` and `drain`.
+`finish` runs every open work item to its end before it stops the runner. `shep kelpie finish --all` does that for every project. The commands page sets it against `pause` and `drain`.
 
 ## Guides
 
