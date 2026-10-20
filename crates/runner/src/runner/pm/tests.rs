@@ -671,7 +671,7 @@ fn an_idle_worker_wakes_it_and_a_retry_ends_the_call_and_resumes_it() {
     let calls = rig.claude.calls();
     assert_eq!(
         calls[1].prompt,
-        "Kelpie stopped your last turn: it ran past its ceiling. Carry on with the work \
-         item from where you left off."
+        "Kelpie stopped your last turn: it ran past its ceiling. Commit any work that \
+         builds now, then carry on from where you left off."
     );
 }

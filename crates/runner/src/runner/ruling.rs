@@ -38,7 +38,8 @@ pub(in crate::runner) use stuck::stuck_comment;
 /// The prompt for a turn resumed after the maintainer accepts a timed-out
 /// turn's ruling with a yes
 const TIMEOUT_CONTINUE: &str = "Kelpie stopped your last turn: it ran past its ceiling. \
-                                Carry on with the work item from where you left off.";
+                                Commit any work that builds now, \
+                                then carry on from where you left off.";
 
 /// The prompt for a turn resumed after the maintainer accepts a failed
 /// turn's ruling with a yes

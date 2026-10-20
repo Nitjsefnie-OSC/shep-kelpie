@@ -651,6 +651,16 @@ fn the_instructions_tell_a_worker_that_kelpie_fetches_the_base() {
     assert!(!INSTRUCTIONS.contains("fetch and merge"), "{INSTRUCTIONS}");
 }
 
+// #1010's worker ran three one-hour turns on a 223-file refactor with nothing
+// committed; "as you go" left the point of each commit to the worker.
+#[test]
+fn the_instructions_ask_for_a_commit_wherever_the_build_compiles() {
+    assert!(
+        INSTRUCTIONS.contains("Commit whenever the build compiles"),
+        "{INSTRUCTIONS}"
+    );
+}
+
 // The first-turn skill names no docs, so a worker read the domain docs in
 // about a third of its sessions.
 #[test]

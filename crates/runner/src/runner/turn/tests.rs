@@ -524,7 +524,7 @@ fn a_turn_past_its_ceiling_is_stopped_and_a_yes_resumes_its_session() {
     assert_eq!(
         resumed.prompt,
         "Kelpie stopped your last turn: it ran past its ceiling. \
-         Carry on with the work item from where you left off."
+         Commit any work that builds now, then carry on from where you left off."
     );
 }
 
