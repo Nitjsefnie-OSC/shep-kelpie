@@ -29,7 +29,7 @@
 
 use super::super::Runner;
 use super::ruling::{raise_cannot_adopt, raise_no_edits};
-use crate::issues::AgentLabel;
+use crate::board::AgentLabel;
 use crate::ports::Reviewed;
 use crate::state::{Adopting, Held, How, Ruling, RulingKind, StateError, Waiting};
 use crate::ticket::TicketId;

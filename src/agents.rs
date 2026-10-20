@@ -20,10 +20,11 @@ use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
+use crate::board::AGENT_LABEL;
 use crate::review_bot::BotReviewer;
 use crate::settings::{
-    AgentHarness, AgentName, Effort, Endpoint, GatewayName, Limit, LocalCommand, LocalRound,
-    ModelHost, ModelServer, NonBlank, RoleModel,
+    AgentHarness, AgentName, Effort, Endpoint, GatewayName, Implementer, Limit, LocalCommand,
+    LocalRound, ModelHost, ModelServer, NonBlank, RoleAgents, RoleModel,
 };
 
 mod extends;
@@ -569,6 +570,69 @@ impl fmt::Display for AgentsError {
 }
 
 impl core::error::Error for AgentsError {}
+
+/// What the issue writer runs on, from its agent file
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Writer {
+    /// Its agent file's name, `agents.issue_writer`
+    pub name: AgentName,
+    /// Its model and effort, on Claude Code
+    pub model: RoleModel,
+    /// Its file's body: its prompt
+    pub prompt: String,
+}
+
+impl Writer {
+    /// The agent `name` in `agents`, as `agents.issue_writer` names it
+    ///
+    /// # Errors
+    ///
+    /// A message when `agents` has no `name`, or its file is another role's.
+    pub fn of(agents: &Agents, name: &AgentName) -> Result<Self, String> {
+        let agent = agents.get(name).ok_or_else(|| {
+            format!("there is no `{name}` agent: write `agents/{name}.md` in kelpie's home")
+        })?;
+        let (Role::IssueWriter, Runs::Session { model, .. }, Some(prompt)) =
+            (agent.role, &agent.runs, &agent.prompt)
+        else {
+            return Err(format!(
+                "agent file `{name}.md` is a {}'s: its role must be `issue-writer`",
+                agent.role.as_str()
+            ));
+        };
+        Ok(Self {
+            name: name.clone(),
+            model: model.clone(),
+            prompt: prompt.clone(),
+        })
+    }
+}
+
+/// The listed implementers, the default first, as an `agent:` label names them
+pub fn implementers(agents: &RoleAgents) -> String {
+    let default = &agents.default_implementer;
+    let line = |i: &Implementer| {
+        let what = match (i.name == default.name, i.is_local()) {
+            (true, true) => ", the default, a local model",
+            (true, false) => ", the default",
+            (false, true) => ", a local model",
+            (false, false) => "",
+        };
+        format!(
+            "- `{}`: {} at {} effort{what}",
+            i.name,
+            i.model.model.as_str(),
+            i.model.effort.as_str()
+        )
+    };
+    let rest = (agents.implementers.iter()).filter(|i| i.name != default.name);
+    let lines: Vec<String> = std::iter::once(default).chain(rest).map(line).collect();
+    format!(
+        "The implementers this project lists, the default first. Each issue's \
+         `{AGENT_LABEL}` label, where it has one, names one of them, and no other:\n\n{}",
+        lines.join("\n")
+    )
+}
 
 #[cfg(test)]
 mod tests;

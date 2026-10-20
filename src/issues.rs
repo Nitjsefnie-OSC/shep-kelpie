@@ -31,18 +31,21 @@ use std::process::Command;
 use serde::Deserialize;
 
 use crate::adapters::{claude_settings, claude_write_only};
-use crate::agents::{Agents, Role, Runs};
-use crate::board::{AGENT_LABEL, HUMAN, READY, agent_label};
+use crate::agents::Writer;
+use crate::board::{
+    AGENT_LABEL, AgentLabel, HUMAN, READY, agent_label, agent_labels, has_criteria,
+    make_missing_with,
+};
 use crate::guard::{IssueRules, filed_in};
 use crate::home::ProjectPaths;
 use crate::hooks::Hooks;
 use crate::ports::{
-    self, AgentCall, Ending, Fence, Forge, ForgeError, Guard, NewLabel, Reach, Session, SessionId,
-    Tickets, Tools,
+    self, AgentCall, Ending, Fence, Forge, Guard, NewLabel, Reach, Session, SessionId, Tickets,
+    Tools,
 };
 use crate::ports::{Clock, SystemClock};
 use crate::profile::CREDENTIALS;
-use crate::settings::{AgentName, ForgeSlug, RoleAgents, RoleModel, Settings, TicketSource};
+use crate::settings::{ForgeSlug, RoleAgents, Settings, TicketSource};
 use crate::skills;
 use crate::ticket::TicketId;
 use crate::usage;
@@ -52,44 +55,7 @@ mod docs;
 mod prompt;
 
 pub use docs::Docs;
-pub use prompt::{implementers, instructions};
-
-/// What the issue writer runs on, from its agent file
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Writer {
-    /// Its agent file's name, `agents.issue_writer`
-    pub name: AgentName,
-    /// Its model and effort, on Claude Code
-    pub model: RoleModel,
-    /// Its file's body: its prompt
-    pub prompt: String,
-}
-
-impl Writer {
-    /// The agent `name` in `agents`, as `agents.issue_writer` names it
-    ///
-    /// # Errors
-    ///
-    /// A message when `agents` has no `name`, or its file is another role's.
-    pub fn of(agents: &Agents, name: &AgentName) -> Result<Self, String> {
-        let agent = agents.get(name).ok_or_else(|| {
-            format!("there is no `{name}` agent: write `agents/{name}.md` in kelpie's home")
-        })?;
-        let (Role::IssueWriter, Runs::Session { model, .. }, Some(prompt)) =
-            (agent.role, &agent.runs, &agent.prompt)
-        else {
-            return Err(format!(
-                "agent file `{name}.md` is a {}'s: its role must be `issue-writer`",
-                agent.role.as_str()
-            ));
-        };
-        Ok(Self {
-            name: name.clone(),
-            model: model.clone(),
-            prompt: prompt.clone(),
-        })
-    }
-}
+pub use prompt::instructions;
 
 /// The project a request is for
 #[derive(Debug, Clone, Copy)]
@@ -149,46 +115,6 @@ pub fn make_labels(forge: &dyn Forge, project: &Project<'_>, mode: Mode) -> Resu
     make_missing(forge, project.remote, wanted)
 }
 
-/// An implementer's `agent:<name>` label, as kelpie makes it on a repo
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AgentLabel {
-    name: String,
-    about: String,
-}
-
-impl AgentLabel {
-    /// The `agent:` label of the implementer `name`, as kelpie makes it on a repo
-    pub fn of(name: &AgentName) -> Self {
-        Self {
-            name: format!("{AGENT_LABEL}{name}"),
-            about: format!("Built by kelpie's {name} agent"),
-        }
-    }
-
-    /// The label's name, as an issue carries it
-    pub fn name(&self) -> &str {
-        &self.name
-    }
-
-    /// The label to make
-    pub fn new_label(&self) -> NewLabel<'_> {
-        NewLabel {
-            name: &self.name,
-            color: "c5def5",
-            description: &self.about,
-        }
-    }
-}
-
-/// The `agent:` label of each implementer `agents` lists
-pub fn agent_labels(agents: &RoleAgents) -> Vec<AgentLabel> {
-    agents
-        .implementers
-        .iter()
-        .map(|i| AgentLabel::of(&i.name))
-        .collect()
-}
-
 /// Makes each of `wanted` that `repo` lacks, in any case, and leaves every
 /// label it has as it is
 ///
@@ -201,29 +127,6 @@ pub fn make_missing<'a>(
     wanted: impl IntoIterator<Item = NewLabel<'a>>,
 ) -> Result<(), String> {
     make_missing_with(forge, repo, wanted, |label| forge.create_label(repo, label))
-}
-
-/// [`make_missing`], making each label with `create`, such as through the App
-///
-/// # Errors
-///
-/// A message naming the label the forge would not read or make.
-pub fn make_missing_with<'a>(
-    forge: &dyn Forge,
-    repo: &ForgeSlug,
-    wanted: impl IntoIterator<Item = NewLabel<'a>>,
-    create: impl Fn(&NewLabel<'a>) -> Result<(), ForgeError>,
-) -> Result<(), String> {
-    let slug = repo.as_str();
-    let have = forge
-        .repo_labels(repo)
-        .map_err(|e| format!("cannot read {slug}'s labels: {e}"))?;
-    let wanted = wanted.into_iter();
-    for label in wanted.filter(|l| !have.iter().any(|h| h.eq_ignore_ascii_case(l.name))) {
-        create(&label)
-            .map_err(|e| format!("cannot make the label `{}` on {slug}: {e}", label.name))?;
-    }
-    Ok(())
 }
 
 // The shell's history, which neither the harness nor gh reads, and the
@@ -595,16 +498,6 @@ fn report(
         true => Err(lines.join("\n")),
         false => Ok(lines),
     }
-}
-
-/// Whether `body` has an acceptance criteria section: a heading that names
-/// it, then a list item
-pub fn has_criteria(body: &str) -> bool {
-    let mut lines = body.lines().map(str::trim);
-    let heading = lines.by_ref().any(|line| {
-        line.starts_with('#') && line.to_ascii_lowercase().contains("acceptance criteria")
-    });
-    heading && lines.any(|line| line.starts_with("- ") || line.starts_with("* "))
 }
 
 /// The interactive issue writer's `claude`, and the files it is started with

@@ -623,3 +623,23 @@ fn an_old_worker_label_is_found_to_be_told_about() {
     assert_eq!(old_worker_label(&found), Some("worker:opus-medium"));
     assert_eq!(old_worker_label(&labels(&[READY, "agent:x"])), None);
 }
+
+#[test]
+fn criteria_need_a_heading_then_a_list_item() {
+    for body in [
+        "## Acceptance criteria\n- [ ] it works",
+        "Why.\n\n## Acceptance criteria\n\n* it works",
+        "### acceptance criteria\n  - it works",
+    ] {
+        assert!(has_criteria(body), "{body}");
+    }
+    for body in [
+        "## Acceptance criteria\nIt works.",
+        "- it works\n\nAcceptance criteria",
+        "- it works",
+        "- it works\n\n## Acceptance criteria\nIt works.",
+        "",
+    ] {
+        assert!(!has_criteria(body), "{body}");
+    }
+}

@@ -21,8 +21,8 @@ use std::fmt;
 
 use serde::Serialize;
 
-use crate::ports::Timestamp;
-use crate::settings::{AgentName, Dependencies};
+use crate::ports::{Forge, ForgeError, NewLabel, Timestamp};
+use crate::settings::{AgentName, Dependencies, ForgeSlug, RoleAgents};
 use crate::ticket::TicketId;
 
 pub mod briefing;
@@ -550,6 +550,80 @@ impl fmt::Display for LabelError {
 }
 
 impl core::error::Error for LabelError {}
+
+/// An implementer's `agent:<name>` label, as kelpie makes it on a repo
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentLabel {
+    name: String,
+    about: String,
+}
+
+impl AgentLabel {
+    /// The `agent:` label of the implementer `name`, as kelpie makes it on a repo
+    pub fn of(name: &AgentName) -> Self {
+        Self {
+            name: format!("{AGENT_LABEL}{name}"),
+            about: format!("Built by kelpie's {name} agent"),
+        }
+    }
+
+    /// The label's name, as an issue carries it
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// The label to make
+    pub fn new_label(&self) -> NewLabel<'_> {
+        NewLabel {
+            name: &self.name,
+            color: "c5def5",
+            description: &self.about,
+        }
+    }
+}
+
+/// The `agent:` label of each implementer `agents` lists
+pub fn agent_labels(agents: &RoleAgents) -> Vec<AgentLabel> {
+    agents
+        .implementers
+        .iter()
+        .map(|i| AgentLabel::of(&i.name))
+        .collect()
+}
+
+/// Makes each of `wanted` that `repo` lacks, in any case, with `create`, such as through
+/// the App, and leaves every label it has as it is
+///
+/// # Errors
+///
+/// A message naming the label the forge would not read or make.
+pub fn make_missing_with<'a>(
+    forge: &dyn Forge,
+    repo: &ForgeSlug,
+    wanted: impl IntoIterator<Item = NewLabel<'a>>,
+    create: impl Fn(&NewLabel<'a>) -> Result<(), ForgeError>,
+) -> Result<(), String> {
+    let slug = repo.as_str();
+    let have = forge
+        .repo_labels(repo)
+        .map_err(|e| format!("cannot read {slug}'s labels: {e}"))?;
+    let wanted = wanted.into_iter();
+    for label in wanted.filter(|l| !have.iter().any(|h| h.eq_ignore_ascii_case(l.name))) {
+        create(&label)
+            .map_err(|e| format!("cannot make the label `{}` on {slug}: {e}", label.name))?;
+    }
+    Ok(())
+}
+
+/// Whether `body` has an acceptance criteria section: a heading that names
+/// it, then a list item
+pub fn has_criteria(body: &str) -> bool {
+    let mut lines = body.lines().map(str::trim);
+    let heading = lines.by_ref().any(|line| {
+        line.starts_with('#') && line.to_ascii_lowercase().contains("acceptance criteria")
+    });
+    heading && lines.any(|line| line.starts_with("- ") || line.starts_with("* "))
+}
 
 #[cfg(test)]
 mod tests;

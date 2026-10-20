@@ -962,3 +962,28 @@ fn a_negative_keep_days_is_refused() {
     assert!(err.contains("keep_days"), "{err}");
     assert!(err.contains("0 or more"), "{err}");
 }
+
+#[test]
+fn a_github_remote_names_its_repo_over_https_or_ssh() {
+    for url in [
+        "https://github.com/shep-pm/koji-website.git",
+        "https://github.com/shep-pm/koji-website",
+        "git@github.com:shep-pm/koji-website.git",
+        "ssh://git@github.com/shep-pm/koji-website/",
+    ] {
+        let slug = forge_of(url).unwrap_or_else(|| panic!("{url}"));
+        assert_eq!(slug.as_str(), "shep-pm/koji-website", "{url}");
+    }
+}
+
+#[test]
+fn a_remote_elsewhere_names_no_repo() {
+    for url in [
+        "https://gitlab.com/a/b.git",
+        "/srv/git/b.git",
+        "https://github.com/a",
+        "https://github.com/a/b/c",
+    ] {
+        assert_eq!(forge_of(url), None, "{url}");
+    }
+}

@@ -3,7 +3,7 @@
 //! Only the maintainer makes an outside issue ready, so the ready path runs
 //! for an issue whose author is [`Runner::maintainer`], ignoring case. Sure
 //! means the reply has a type and a priority, asks no open question, and
-//! carries a `body` [`crate::issues::has_criteria`] accepts that names
+//! carries a `body` [`crate::board::has_criteria`] accepts that names
 //! `Touches:`. The comment says the issue is ready, the body goes over the
 //! issue's through [`Voice::edit_issue_body`](crate::ports::Voice), and the
 //! type and priority labels come before `ready-for-agent`, which goes on
@@ -25,8 +25,8 @@ use super::super::Runner;
 use super::super::contributions::post::{forge_is_busy, refused_text};
 use super::TRIAGE_LABELS;
 use super::research::Found;
+use crate::board::has_criteria;
 use crate::board::{READY, TRIAGE};
-use crate::issues::has_criteria;
 use crate::local_paths::{Leak, Surface};
 use crate::ports::{ForgeError, NewLabel};
 use crate::state::{StateError, TriageStep};
