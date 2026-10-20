@@ -1,6 +1,6 @@
 //! The rig's settings edits, which a test makes before it next opens a runner
 //!
-//! Split out of `crates/runner/src/test.rs`, which the size limit (IR-48) would not fit.
+//! Split out of `crates/runner/src/test/mod.rs`, which the size limit (IR-48) would not fit.
 
 use std::sync::{Arc, Mutex};
 

@@ -584,11 +584,11 @@ mod tests {
     use crate::test::ticket;
 
     // Recorded from gh 2.96 on this repo: `gh issue view 6 --json title,body,labels,state`.
-    const ISSUE: &str = include_str!("../../../../fixtures/gh-issue-view.json");
+    const ISSUE: &str = include_str!("../../../../../fixtures/gh-issue-view.json");
 
     // Recorded from gh 2.96 on cli/cli:
     // `gh issue view 14528 --json title,body,labels,state,parent,blockedBy`.
-    const SUB_ISSUE: &str = include_str!("../../../../fixtures/gh-issue-view-sub-issue.json");
+    const SUB_ISSUE: &str = include_str!("../../../../../fixtures/gh-issue-view-sub-issue.json");
 
     #[test]
     fn an_issue_is_read_with_its_parent_and_blockers() {
@@ -674,15 +674,15 @@ mod tests {
 
     // Recorded from gh 2.96: `gh pr view 23 --repo shep-pm/shep-kelpie` with
     // the `pull_request` arguments.
-    const PR_GREEN: &str = include_str!("../../../../fixtures/gh-pr-view-green.json");
+    const PR_GREEN: &str = include_str!("../../../../../fixtures/gh-pr-view-green.json");
 
     // Recorded the same way from shep-pm/shep#625: skipped check runs and a
     // CodeRabbit commit status.
-    const PR_SKIPPED: &str = include_str!("../../../../fixtures/gh-pr-view-skipped.json");
+    const PR_SKIPPED: &str = include_str!("../../../../../fixtures/gh-pr-view-skipped.json");
 
     // The check runs GitHub recorded on this repo's commit edc8526, a red
     // lint, read through GraphQL and set in `gh pr view`'s shape.
-    const PR_RED: &str = include_str!("../../../../fixtures/gh-pr-view-red.json");
+    const PR_RED: &str = include_str!("../../../../../fixtures/gh-pr-view-red.json");
 
     fn rollup(checks: &str) -> Checks {
         let view = format!(
@@ -707,7 +707,7 @@ mod tests {
     }
 
     // Recorded the same way, labels included, from shep-pm/shep#598.
-    const PR_LABELLED: &str = include_str!("../../../../fixtures/gh-pr-view-labelled.json");
+    const PR_LABELLED: &str = include_str!("../../../../../fixtures/gh-pr-view-labelled.json");
 
     #[test]
     fn a_pull_request_is_read_with_its_labels() {

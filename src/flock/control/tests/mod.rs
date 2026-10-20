@@ -23,7 +23,7 @@ const FAST: Patience = Patience {
     margin: Duration::from_secs(10),
     tool: Duration::from_secs(10),
 };
-const EXAMPLE: &str = include_str!("../../../settings.example.toml");
+const EXAMPLE: &str = include_str!("../../../../settings.example.toml");
 
 fn launch(shepherd: &FakeShepherd) -> Launch {
     Launch {

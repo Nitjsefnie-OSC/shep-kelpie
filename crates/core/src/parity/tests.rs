@@ -28,7 +28,7 @@ fn every_category_lists_exactly_the_providers_the_code_has() {
     for category in matrix.providers.keys() {
         if !known.contains_key(category.as_str()) {
             problems.push(format!(
-                "{MATRIX}: `{category}` is no category `crates/core/src/parity.rs` knows: add it to \
+                "{MATRIX}: `{category}` is no category `crates/core/src/parity/mod.rs` knows: add it to \
                  `code_providers` and `enum_paths`"
             ));
         }

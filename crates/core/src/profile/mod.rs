@@ -22,7 +22,7 @@ mod login;
 pub use login::{config_dir as login_dir, write as write_login};
 
 /// Kelpie's instructions to every worker, appended to its system prompt
-pub const INSTRUCTIONS: &str = include_str!("worker-instructions.md");
+pub const INSTRUCTIONS: &str = include_str!("../worker-instructions.md");
 
 // How a worker is told to get its pull request opened: by itself, as the
 // maintainer's login, or by writing its text where kelpie opens it from.

@@ -360,7 +360,7 @@ mod tests {
 
     #[test]
     fn the_checked_version_is_the_one_the_manifest_pins() {
-        let manifest: toml::Table = include_str!("../../../Cargo.toml").parse().unwrap();
+        let manifest: toml::Table = include_str!("../../../../Cargo.toml").parse().unwrap();
         let pins = &manifest["workspace"]["dependencies"];
         for krate in ["shep-client", "shep-channel"] {
             assert_eq!(

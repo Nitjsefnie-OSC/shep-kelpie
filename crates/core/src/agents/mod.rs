@@ -81,78 +81,82 @@ enum Written {
 const DEFAULTS: [(&str, &str, Written); 16] = [
     (
         DEFAULT_IMPLEMENTER,
-        include_str!("../../../agents/sonnet-high.md"),
+        include_str!("../../../../agents/sonnet-high.md"),
         Written::Always,
     ),
     (
         "opus-high",
-        include_str!("../../../agents/opus-high.md"),
+        include_str!("../../../../agents/opus-high.md"),
         Written::Always,
     ),
     (
         DEFECT_HUNTER,
-        include_str!("../../../agents/defect-hunter.md"),
+        include_str!("../../../../agents/defect-hunter.md"),
         Written::Always,
     ),
     (
         "standards",
-        include_str!("../../../agents/standards.md"),
+        include_str!("../../../../agents/standards.md"),
         Written::Always,
     ),
     (
         "spec",
-        include_str!("../../../agents/spec.md"),
+        include_str!("../../../../agents/spec.md"),
         Written::Always,
     ),
     (
         SECURITY_REVIEWER,
-        include_str!("../../../agents/security-reviewer.md"),
+        include_str!("../../../../agents/security-reviewer.md"),
         Written::Always,
     ),
     (
         QWEN,
-        include_str!("../../../agents/qwen.md"),
+        include_str!("../../../../agents/qwen.md"),
         Written::Beside(QWEN_REVIEW),
     ),
     (
         "coderabbit",
-        include_str!("../../../agents/coderabbit.md"),
+        include_str!("../../../../agents/coderabbit.md"),
         Written::Always,
     ),
     (
         "cubic",
-        include_str!("../../../agents/cubic.md"),
+        include_str!("../../../../agents/cubic.md"),
         Written::Always,
     ),
     (
         "codex",
-        include_str!("../../../agents/codex.md"),
+        include_str!("../../../../agents/codex.md"),
         Written::Always,
     ),
     (
         ISSUE_WRITER,
-        include_str!("../../../agents/issue-writer.md"),
+        include_str!("../../../../agents/issue-writer.md"),
         Written::Always,
     ),
-    (PM, include_str!("../../../agents/pm.md"), Written::Always),
+    (
+        PM,
+        include_str!("../../../../agents/pm.md"),
+        Written::Always,
+    ),
     (
         ADVISOR,
-        include_str!("../../../agents/advisor.md"),
+        include_str!("../../../../agents/advisor.md"),
         Written::Always,
     ),
     (
         RESEARCHER,
-        include_str!("../../../agents/researcher.md"),
+        include_str!("../../../../agents/researcher.md"),
         Written::Always,
     ),
     (
         REPRESENTATIVE,
-        include_str!("../../../agents/representative.md"),
+        include_str!("../../../../agents/representative.md"),
         Written::Always,
     ),
     (
         TRIAGER,
-        include_str!("../../../agents/triager.md"),
+        include_str!("../../../../agents/triager.md"),
         Written::Always,
     ),
 ];

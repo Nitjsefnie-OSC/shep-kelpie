@@ -110,7 +110,7 @@ const PI: Harness = Harness::Pi;
 const PROVIDER: &str = "kelpie";
 
 /// The extension that runs kelpie's checks, with `__CHECKS__` and `__MARK__` to fill in
-const GUARD: &str = include_str!("pi/guard.ts");
+const GUARD: &str = include_str!("guard.ts");
 
 /// pi's tools for each kind, by its own names
 ///
