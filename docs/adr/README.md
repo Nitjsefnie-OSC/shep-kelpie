@@ -18,6 +18,7 @@ Each ADR below is one decision that is hard to reverse. A later ADR can reopen p
 - 0012 [Kelpie's numbers go out on the shepherd channel](0012-kelpie-s-numbers-go-out-on-the-shepherd-channel.md): the runner and the dog send `kelpie_*` series as channel samples to shep's metrics dog, with bounded labels, and detail by work item stays in the ledger.
 - 0013 [Runners tell the dog in notes, not metric samples](0013-runners-tell-the-dog-in-notes-not-metric-samples.md): a runner's lease and window totals go up as shep notes, which the metrics dog never reads, and the dog reads an older runner's samples for one release.
 - 0014 [Tickets come from a source, and the board stays in kelpie](0014-tickets-come-from-a-source-the-board-stays-in-kelpie.md): each project names one ticket source, GitHub issues by default or a local store, read and written through a `Tickets` port by opaque id, while the order, holds, picks and overlap check stay kelpie's.
+- 0015 [Crates use only what is below them](0015-crates-use-only-what-is-below-them.md): the code is a Cargo workspace where a crate uses only what is below or beside it, so a module that reaches the wrong way fails to build, with five leaf crates and a dev-only `test_support` first.
 
 ## Decided against
 
@@ -82,3 +83,8 @@ Worker retros of 10 to 12 October 2026 kept proposing these. The maintainer turn
 - `cargo deny` or `cargo tree -d` for duplicate crates: upkeep for one incident
 - file a worker's own out-of-scope findings as issues in its words (13 October): worker-written text would reach a public issue unchecked. A worker's own find goes in its final message, where the project manager's batch retro reads it
 - merge `origin/main` at the start of every round: kelpie merges main, and an early merge adds conflicts
+- seven crates in layers (0015, which supersedes #899)
+- the root package as the test rig's home (0015)
+- one `test_support` crate that depends on `core` (0015)
+- splitting `core` in the same change (0015)
+- dropping the crate roots' re-exports in each move (0015)

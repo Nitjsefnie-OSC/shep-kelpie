@@ -2,7 +2,8 @@
 
 Kelpie is a shep dog that runs Claude Code workers from a planned work item to a merged pull request, holding gates, leases and pacing in code. MIT OR Apache-2.0.
 
-- One Rust crate, `shep-kelpie`, at the repo root, `#![forbid(unsafe_code)]`.
+- A Cargo workspace (ADR 0015): the root package `shep-kelpie`, the binary, and the crates under `crates/`, each `#![forbid(unsafe_code)]` and using only what is below it. So far `process` (`spawn`, `terminal`, `tools`, `worktree`), `facts` (`mcp_use`, `request_use`, `tool_error`), `panel`, `worker_folder`, `trim` and the dev-only `test_support`. A package is the repo's name plus `-<part>`.
+- A module keeps its name in its crate and the root re-exports it, so `crate::spawn` and `cargo test --lib <module path>` hold from the root. `default-members` names every member, so a bare `cargo fmt --all`, `clippy` or `test` covers them. To name one member, `-p <package>`.
 - The design is settled and the first build (#5) is done. Kelpie runs the maintainer's projects, this one included, one issue per worker at a time.
 
 ## Docs

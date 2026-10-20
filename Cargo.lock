@@ -1026,9 +1026,64 @@ dependencies = [
  "shep-channel",
  "shep-client",
  "shep-handover",
+ "shep-kelpie-facts",
+ "shep-kelpie-panel",
+ "shep-kelpie-process",
+ "shep-kelpie-test-support",
+ "shep-kelpie-trim",
+ "shep-kelpie-worker-folder",
  "tempfile",
  "tokio",
  "toml 1.1.6+spec-1.1.0",
+]
+
+[[package]]
+name = "shep-kelpie-facts"
+version = "0.0.0"
+dependencies = [
+ "jiff",
+ "serde_json",
+]
+
+[[package]]
+name = "shep-kelpie-panel"
+version = "0.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "shep-kelpie-process"
+version = "0.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "shep-kelpie-test-support",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
+name = "shep-kelpie-test-support"
+version = "0.0.0"
+dependencies = [
+ "tempfile",
+]
+
+[[package]]
+name = "shep-kelpie-trim"
+version = "0.0.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
+name = "shep-kelpie-worker-folder"
+version = "0.0.0"
+dependencies = [
+ "rustix",
+ "tempfile",
 ]
 
 [[package]]

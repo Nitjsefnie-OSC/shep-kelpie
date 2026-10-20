@@ -1,6 +1,6 @@
 # Requests in a call's transcript
 
-What Claude Code and pi write down of each request a call made to its model, which `kelpie_request_context_tokens` and `kelpie_cache_write_tokens_total` are read from (#924). `src/request_use.rs`
+What Claude Code and pi write down of each request a call made to its model, which `kelpie_request_context_tokens` and `kelpie_cache_write_tokens_total` are read from (#924). `crates/facts/src/request_use.rs`
 
 ## Claude Code (2.1.300 and 2.1.301, 2026-10-15)
 

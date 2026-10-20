@@ -1,0 +1,16 @@
+[package]
+name = "shep-kelpie-facts"
+description = "What a call's transcript says of the MCP servers, requests and tool errors it made. Uses no other member"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+jiff.workspace = true
+serde_json.workspace = true

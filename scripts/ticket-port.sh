@@ -4,13 +4,13 @@
 # `src/ports` or `src/adapters`. Kelpie's App writes stay on `Voice`: which
 # identity writes is a GitHub concern. The rig's forge is also its tickets, so
 # a test may call these on `rig.forge` directly.
-# Scans every tracked or new `.rs` file under src/ as a whole, so a call that
-# rustfmt split across lines still matches, and over text with its comments
-# blanked out, so a comment naming one is not a call. Prints each match as
-# file:line.
+# Scans every tracked or new `.rs` file under src/ and crates/*/src/ as a
+# whole, so a call that rustfmt split across lines still matches, and over
+# text with its comments blanked out, so a comment naming one is not a call.
+# Prints each match as file:line.
 set -eu
 cd "$(git rev-parse --show-toplevel)"
-found=$(git ls-files -z --cached --others --exclude-standard -- 'src/*.rs' |
+found=$(git ls-files -z --cached --others --exclude-standard -- 'src/*.rs' 'crates/*/src/*.rs' |
   grep -zv '^src/ports/\|^src/adapters/\|^src/test/' |
   xargs -0 perl -0777 -ne '
     my $method = qr{create_issue|close_issue_as|close_issue|set_issue_label};

@@ -1,0 +1,16 @@
+[package]
+name = "shep-kelpie-panel"
+description = "The panel's votes on a ruling. Uses no other member"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true

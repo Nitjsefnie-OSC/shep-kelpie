@@ -1,7 +1,6 @@
 # Design
 
 Kelpie: dog of the maintainer's shepherd; one runner per project takes ready issues off a board, workers build, PRs go through reviewers, CI, merge gate. Maintainer asked only via rulings.
-Rules live in Rust code; a model is called only for work and judgement.
 
 ## Always
 
@@ -16,6 +15,7 @@ Rules live in Rust code; a model is called only for work and judgement.
 - Home never moved from `~/.kelpie`: refuses to start naming each old file, exit 78 (in `stop_exit_codes`, no restart into it). #311, #345
 - State file version 72 (`VERSION` in `src/state.rs`); each change one way: rollback means finishing or dropping open items first. `src/state/removed.rs`
 - Business code is Rust; Tauri GUI after MVP, until then run and watched from a Claude session. #5
+- Crates under `crates/` use nothing above them. ADR 0015
 - Never put budget numbers in agent prompts; never let a worker merge or post as the maintainer (see fence.md, github-app.md).
 
 ## Files
@@ -26,21 +26,21 @@ Rules live in Rust code; a model is called only for work and judgement.
 | pm.md | the project manager, its board file | `src/runner/pm.rs`, `src/runner/pm/`, `src/runner/briefing.rs` |
 | workers.md | runner loop, turns | `src/runner/turn.rs`, `src/runner/flight.rs` |
 | fence.md | sandbox, guard, hooks, reads | `src/profile.rs`, `src/guard.rs`, `src/hooks.rs`, `src/dep_sources.rs`, `src/runner/turn/dep_reads.rs` |
-| browser.md | a worker's browser outside its sandbox: bridge, filter, tools | `src/bridge.rs`, `src/browse.rs`, `src/adapters/bridge.rs`, `src/runner/browser.rs`, `src/settings/browser.rs`, `src/tools/browser.rs` |
+| browser.md | a worker's browser outside its sandbox: bridge, filter, tools | `src/bridge.rs`, `src/browse.rs`, `src/adapters/bridge.rs`, `src/runner/browser.rs`, `src/settings/browser.rs`, `crates/process/src/tools/` |
 | browser-dev-server.md | the dev server for a worker's browser: launch, port, readiness | `src/runner/dev_server.rs`, `src/runner/dev_server/launch.rs`, `src/ports/dev_server.rs`, `src/adapters/dev_server.rs` |
 | compaction.md | when a session compacts, `worker.compact_window` per harness, `COMPACT` | `src/runner/compact.rs`, `src/adapters/pi/compact.rs`, `src/adapters/codex/context.rs`, `src/adapters/goose/compact.rs` |
 | skills.md | step skills, repo plugins, how harnesses load them | `src/skills.rs`, `src/skills/`, `src/adapters/skills.rs`, `src/runner/turn.rs` (`prepared`) |
-| agents.md | agent files, harnesses, gateways | `src/agents/`, `src/adapters/`, `src/settings/agents.rs`, `src/spawn.rs` |
+| agents.md | agent files, harnesses, gateways | `src/agents/`, `src/adapters/`, `src/settings/agents.rs`, `crates/process/src/spawn.rs` |
 | handover.md | a runner handing in-flight turns to a new image, `upgrade` | `src/sheep/handover.rs`, `src/runner/flight/carry.rs`, `src/adapters/process/adopt.rs`, `src/upgrade/handover.rs` |
 | waits-and-spend.md | a turn waiting for its model or host, spend by role | `src/runner/turn/unreachable.rs`, `src/adapters/unreachable.rs`, `src/adapters/codex.rs`, `src/usage.rs`, `src/settings/agents.rs` |
 | review.md | review, bots, rulings | `src/runner/review/`, `src/runner/ruling.rs`, `src/webhook.rs` |
 | local-review.md | local reviewers (`command`, `endpoint`), their lock, rounds kept after an item | `src/runner/review/keep.rs`, `src/settings/local_rounds.rs`, `src/adapters/local/`, `src/settings/local.rs` |
 | merge.md | CI, catching up, merge, after it | `src/runner/gate.rs`, `src/runner/merge.rs`, `src/runner/close_merged.rs`, `src/runner/main_ci.rs` |
 | local-tickets.md | the local ticket store, `ticket` verbs, closing on merge | `src/local_tickets.rs`, `src/flock/ticket.rs`, `src/runner/close_merged.rs` |
-| github-app.md | App tokens, posting, answers, ruling panel | `src/runner/voice/`, `src/runner/panel/`, `src/panel/`, `src/guard/gh.rs`, `src/worker_folder.rs` |
+| github-app.md | App tokens, posting, answers, ruling panel | `src/runner/voice/`, `src/runner/panel/`, `crates/panel/`, `src/guard/gh.rs`, `crates/worker_folder/` |
 | contributions.md | other people's pull requests: `contributions` settings, detection | `src/settings/contributions.rs`, `src/settings/reviewers.rs`, `src/runner/contributions.rs`, `src/state/contributions.rs` |
-| contribution-security.md | a contribution's security review, slots, budget | `src/runner/contributions/`, `src/runner/flight/security.rs`, `src/worktree/contribution.rs` |
-| contribution-pass.md | the reviewers' pass over a green head: rotation, the record | `src/runner/contributions/pass.rs`, `src/worktree/contribution.rs` |
+| contribution-security.md | a contribution's security review, slots, budget | `src/runner/contributions/`, `src/runner/flight/security.rs`, `crates/process/src/worktree/` |
+| contribution-pass.md | the reviewers' pass over a green head: rotation, the record | `src/runner/contributions/pass.rs`, `crates/process/src/worktree/` |
 | contribution-talk.md | what contributors say: hearing, answering, the quiet clock | `src/runner/contributions/heard.rs`, `src/runner/contributions/clock.rs`, `src/runner/thread_replies.rs` |
 | contribution-release.md | asking a contributor for a release: yes, thumbs up or silence, the ruling | `src/runner/contributions/release.rs`, `src/runner/contributions/ruling.rs` |
 | contribution-merge.md | the merge ruling every contribution gets: yes, thanks and no | `src/runner/contributions/merge.rs`, `src/runner/contributions/ruling.rs`, `src/settings/rulings.rs` |
@@ -54,7 +54,7 @@ Rules live in Rust code; a model is called only for work and judgement.
 | metrics.md | kelpie's series on shep's metrics endpoint, alerts, dashboard | `src/metrics.rs`, `src/metrics/`, `src/ports/metrics.rs`, `src/adapters/metric_sink.rs`, `assets/prometheus/`, `assets/grafana/` |
 | metrics-work-items.md | work items' series, the `finished` line | `src/usage/finished.rs`, `src/runner/ci_failure.rs` |
 | metrics-dog.md | the dog's series: leases, summons, the forge hold | `src/metrics/dog.rs`, `src/dog/watch.rs` |
-| metrics-transcripts.md | series and reports read from a call's transcript: MCP servers, tool calls, `shep kelpie usage` | `src/mcp_use.rs`, `src/request_use.rs`, `src/runner/transcript_count.rs`, `src/usage/` |
+| metrics-transcripts.md | series and reports read from a call's transcript: MCP servers, tool calls, `shep kelpie usage` | `crates/facts/`, `src/runner/transcript_count.rs`, `src/usage/` |
 | budget.md | pacing, dog + leases, time, usage, settings | `src/runner/pace.rs`, `src/dog/`, `src/usage.rs`, `src/settings/`, `src/sheep.rs` |
 
 Each file stays under 8 KB, and an area past it splits in two with a new row here (`scripts/design-size.sh`). A changed decision updates its bullet in the same PR.

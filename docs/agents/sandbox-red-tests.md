@@ -5,7 +5,7 @@ A worker's sandbox binds no port by design (`a_worker_binds_no_port` in `src/pro
 - Run what can run: `cargo test --lib <module path>` on the modules you changed.
 - Name in the pull request body the tests only CI ran.
 - Do not skip, `#[ignore]` or loosen a test to turn a sandbox run green.
-- Make a test's temp folder with `crate::test::short_tempdir()`, never `tempdir_in("/tmp")`. It sits under `TMPDIR`, which a worker can write, and stays short enough for a socket. `scripts/no-tmp-tempdir.sh` fails CI on a new `tempdir_in("/tmp")` in `src/`.
+- Make a test's temp folder with `crate::test::short_tempdir()`, never `tempdir_in("/tmp")`. In a crate under `crates/` it is `shep_kelpie_test_support::short_tempdir()`. It sits under `TMPDIR`, which a worker can write, and stays short enough for a socket. `scripts/no-tmp-tempdir.sh` fails CI on a new `tempdir_in("/tmp")` in `src/` or `crates/*/src/`.
 
 ## What fails, and why
 

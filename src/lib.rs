@@ -32,13 +32,10 @@ pub mod issues;
 pub mod lease;
 pub mod local_paths;
 pub mod local_tickets;
-mod mcp_use;
 pub mod metrics;
 pub mod pacer;
-pub mod panel;
 pub mod ports;
 pub mod profile;
-mod request_use;
 pub mod review_bot;
 pub mod runner;
 pub mod schema;
@@ -47,24 +44,37 @@ pub mod sheep;
 pub mod shep_home;
 pub mod shepherd;
 pub mod skills;
-pub mod spawn;
 pub mod state;
-pub mod terminal;
 pub mod ticket;
-mod tool_error;
-pub mod tools;
 pub mod totp;
 mod transcripts;
-mod trim;
 pub mod upgrade;
 pub mod usage;
 pub mod watch;
 pub mod webhook;
 pub mod work_item;
-mod worker_folder;
-pub mod worktree;
+
+// The leaf crates under `crates/`, each module kept under the name it had here
+use shep_kelpie_facts::{mcp_use, request_use, tool_error};
+pub use shep_kelpie_panel::panel;
+pub use shep_kelpie_process::{spawn, terminal, tools, worktree};
+use shep_kelpie_trim::trim;
+use shep_kelpie_worker_folder::worker_folder;
 
 #[cfg(test)]
 mod parity;
 #[cfg(test)]
 mod test;
+
+#[cfg(test)]
+mod tests {
+    // `tool_error` is in a crate whose own name is not the binary's, so it holds the
+    // binary's name as a constant, and this keeps the two the same.
+    #[test]
+    fn the_program_tool_error_reads_as_kelpies_own_is_this_binary() {
+        assert_eq!(
+            shep_kelpie_facts::tool_error::KELPIE_PROGRAM,
+            env!("CARGO_PKG_NAME")
+        );
+    }
+}

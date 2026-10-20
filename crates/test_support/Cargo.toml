@@ -1,0 +1,15 @@
+[package]
+name = "shep-kelpie-test-support"
+description = "Dev-only helpers for tests: temp folders, stand-in scripts and git. Uses no other member"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+tempfile.workspace = true
