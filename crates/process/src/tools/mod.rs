@@ -30,7 +30,7 @@ pub const GOOSE_WEB_SERVER: &str = "kelpie-web";
 pub struct Tools(PathBuf);
 
 /// The `package.json` kelpie installs its tools from
-pub const PACKAGE: &str = include_str!("tools/package.json");
+pub const PACKAGE: &str = include_str!("package.json");
 
 impl Tools {
     /// The tools under `kelpie_home`

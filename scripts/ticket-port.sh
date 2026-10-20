@@ -12,8 +12,13 @@
 # Prints each match as file:line.
 set -eu
 cd "$(git rev-parse --show-toplevel)"
-found=$(git ls-files -z --cached --others --exclude-standard -- 'src/*.rs' 'crates/*/src/*.rs' |
-  grep -zv '^crates/core/src/ports/\|^crates/adapters/src/adapters/\|^crates/adapters/src/test/\|^crates/core/src/local_tickets\|^crates/core/src/test/\|^crates/runner/src/test/' |
+# A skipped folder's own `mod.rs` is scanned, as its `foo.rs` was beside the folder.
+found=$({ git ls-files -z --cached --others --exclude-standard -- 'src/*.rs' 'crates/*/src/*.rs' |
+  grep -zv '^crates/core/src/ports/\|^crates/adapters/src/adapters/\|^crates/adapters/src/test/\|^crates/core/src/local_tickets\|^crates/core/src/test/\|^crates/runner/src/test/'
+  git ls-files -z --cached --others --exclude-standard -- \
+    crates/core/src/ports/mod.rs crates/adapters/src/adapters/mod.rs \
+    crates/core/src/test/mod.rs crates/runner/src/test/mod.rs crates/adapters/src/test/mod.rs
+  } |
   xargs -0 perl -0777 -ne '
     my $method = qr{create_issue|close_issue_as|close_issue|set_issue_label};
     my $ask = qr{(?<!rig\.)forge\s*\)*\s*\.\s*$method\s*\(|\bForge\s*::\s*$method\s*\(};

@@ -291,7 +291,7 @@ fn sources(dir: &Path, out: &mut Vec<PathBuf>) {
             && name != "tests.rs"
             && !name.ends_with("_tests.rs")
             && !is_stand_ins(&path)
-            && path != root().join("crates/core/src/parity.rs")
+            && path != root().join("crates/core/src/parity/mod.rs")
         {
             out.push(path);
         }
@@ -450,7 +450,11 @@ fn agents_defaults() -> Vec<String> {
 fn adapter_files(provider: &str) -> Vec<PathBuf> {
     let command = harness(provider).command();
     let adapters = root().join("crates/adapters/src/adapters");
-    let mut files = vec![adapters.join(format!("{command}.rs"))];
+    let mut files = vec![];
+    let file = adapters.join(format!("{command}.rs"));
+    if file.is_file() {
+        files.push(file);
+    }
     let folder = adapters.join(command);
     if folder.is_dir() {
         sources(&folder, &mut files);

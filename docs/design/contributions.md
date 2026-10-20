@@ -12,18 +12,18 @@ Whether and how kelpie picks up other people's pull requests. It sees and lists 
 
 ## Checks at start
 
-- `Settings::contribution_lineup` shares its body with `lineup` (`crates/core/src/settings/reviewers.rs`), so the bot-order check applies. Its refusals name `contributions.reviewers` when that key is set, and `agents.reviewers` when it falls back.
+- `Settings::contribution_lineup` shares its body with `lineup` (`crates/core/src/settings/reviewers/mod.rs`), so the bot-order check applies. Its refusals name `contributions.reviewers` when that key is set, and `agents.reviewers` when it falls back.
 - Agent files are checked only when `pick` is not `off`, so a project that never opts in needs none.
-- `Runner::open` refuses a `pick` other than `off` when `ports.voice.covers(&remote)` is false: `SettingsError::Invalid` on `contributions.pick`. The representative would otherwise post as the maintainer, which no worker or reviewer may do. `pick = "off"` starts on any repo. `crates/runner/src/runner.rs`
+- `Runner::open` refuses a `pick` other than `off` when `ports.voice.covers(&remote)` is false: `SettingsError::Invalid` on `contributions.pick`. The representative would otherwise post as the maintainer, which no worker or reviewer may do. `pick = "off"` starts on any repo. `crates/runner/src/runner/mod.rs`
 - `Settings::security_reviewer` checks, whenever `pick` is not `off`, that `security_reviewer` has a file whose role is `reviewer` and that runs sessions. `Runner::open` calls it.
 
 ## Rereads
 
-- `reread` keeps the running `contributions` and logs it as waiting for the next start, like `git.*`, whatever else changed: the checks above run only when the runner opens. `runner/reread.rs`
+- `reread` keeps the running `contributions` and logs it as waiting for the next start, like `git.*`, whatever else changed: the checks above run only when the runner opens. `runner/reread/`
 
 ## Detection
 
-- A contribution is an open pull request, not a draft, whose author is not the maintainer (`Runner::maintainer`), not the account kelpie acts as (`viewer`), and not a bot, and not one the maintainer left open (`left_open`). Logins compare ignoring case. `Runner::is_contribution`, `runner/contributions.rs`
+- A contribution is an open pull request, not a draft, whose author is not the maintainer (`Runner::maintainer`), not the account kelpie acts as (`viewer`), and not a bot, and not one the maintainer left open (`left_open`). Logins compare ignoring case. `Runner::is_contribution`, `runner/contributions/`
 - Under `pick = "label"` it also carries `ready-for-agent`; under `"all"` it needs no label; under `"off"` nothing is one.
 - The author decides, never the branch name or the fork flag: a fork can name its branch `kelpie/5`. `OpenPullRequest.author_is_bot` is the listing's `author { __typename }` being `Bot`. `crates/adapters/src/adapters/gh/board.rs`
 - `ProjectState.contributions` holds `Contribution { pull_request, author, head, seen }`, one per pull request, oldest first; `head` is the head commit, `seen` when that head was first seen. Absent in a file saved before version 40. `crates/core/src/state/contributions.rs`

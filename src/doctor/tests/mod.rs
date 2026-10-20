@@ -15,7 +15,7 @@ use crate::tools::Tools;
 
 mod tickets;
 
-const EXAMPLE: &str = include_str!("../../settings.example.toml");
+const EXAMPLE: &str = include_str!("../../../settings.example.toml");
 
 // A URL no test would print by chance, so finding it in a report is a leak.
 const SECRET: &str = "https://ntfy.example.invalid/kelpie-s3cr3t-topic";

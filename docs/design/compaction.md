@@ -4,7 +4,7 @@ When a worker's session compacts, on each harness. Runner loop and turns are in 
 
 ## When and who
 
-- Session whose last turn passed 150k context compacts before next turn (`WORKER_COMPACT_PAST`, `runner/compact.rs`). Claude Code compacts mid-turn at `worker.compact_window` (200000).
+- Session whose last turn passed 150k context compacts before next turn (`WORKER_COMPACT_PAST`, `runner/compact/`). Claude Code compacts mid-turn at `worker.compact_window` (200000).
 - A compaction a harness does by itself mid-turn counts in `kelpie_compactions_total` (metrics.md); kelpie's own `COMPACT` is a call of kind `compact`.
 - A harness reports its session's context in its reply, and a `COMPACT` call compacts the session. Each harness does both its own way, below.
 

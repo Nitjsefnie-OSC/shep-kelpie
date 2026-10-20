@@ -4,7 +4,7 @@ Kelpie's numbers, live, on shep's metrics endpoint. ADR 0012, #920.
 
 ## Built
 
-- Runner and dog send channel samples (`shep_channel::Shepherd::metric_with`); shep's metrics dog serves them on `/metrics` (default `127.0.0.1:9615`) with the sender's labels first: `sheep` (the project), `id`, `fold` for a runner; `dog`, `source` for the dog. `crates/core/src/metrics.rs`
+- Runner and dog send channel samples (`shep_channel::Shepherd::metric_with`); shep's metrics dog serves them on `/metrics` (default `127.0.0.1:9615`) with the sender's labels first: `sheep` (the project), `id`, `fold` for a runner; `dog`, `source` for the dog. `crates/core/src/metrics/mod.rs`
 - Through the `Sink` port (`crates/core/src/ports/metrics.rs`): the real one is the runner's `Shepherd`, a test holds `RecordedSink` and asserts the samples sent. Sending never blocks or fails; a full outbox drops a sample, and the next carries the total.
 - Counters are kept whole in kelpie's memory (`Recorder`) and each change sends the new total. A runner start begins them at zero, as Prometheus expects of a restart.
 - A runner sends at most `SERIES_CAP` (240) series, under the dog's 256 a sender; a new series past it is not sent and counts in `kelpie_series_dropped_total`, with one log line per name. The budget test drives every role on every harness it may use with every kind of call, which is 236 series once the failed tool calls' 39 are counted.
@@ -12,7 +12,7 @@ Kelpie's numbers, live, on shep's metrics endpoint. ADR 0012, #920.
 
 ## Series
 
-Calls, counted as each ledger line is appended (`Ledger::append`, `crates/core/src/usage.rs`), the file written or not. Lines a stopping runner writes, imports and `shep kelpie issue`'s are not counted:
+Calls, counted as each ledger line is appended (`Ledger::append`, `crates/core/src/usage/mod.rs`), the file written or not. Lines a stopping runner writes, imports and `shep kelpie issue`'s are not counted:
 
 - `kelpie_calls_total{role,kind,agent,harness,effort,ended}`: `agent` is the settings' name for it (`codex`, `coderabbit`, `qwen`), and `agent` and `effort` read `unknown` where the line has none (imported lines, a local round's effort)
 - `kelpie_tokens_total{role,agent,harness,model,effort,type}`: `type` is `input`, `output`, `cache_read`, `cache_write`
@@ -31,10 +31,10 @@ Work items (phases, how they ended, review rounds, findings, red CI heads) are i
 Features: whether what a project turned on runs.
 
 - `kelpie_feature_enabled{feature}` gauge (1 or 0) at open and each reread: `code_graph`, `browser`, `dev_server` (browser on and `main`'s launch file selects a configuration), `hooks`
-- `kelpie_feature_runs_total{feature,outcome}`: `code_graph` index `ok`, `failed`, `skipped` (no binary), `ended` (call ended first). `runner/code_graph.rs`
+- `kelpie_feature_runs_total{feature,outcome}`: `code_graph` index `ok`, `failed`, `skipped` (no binary), `ended` (call ended first). `runner/code_graph/`
 - `browser`: the bridge opened for a turn `ok`, `failed`, `skipped` (tools not installed). `runner/browser.rs`
-- `dev_server`: `ok` (answered within `READY_WITHIN`), `failed` (could not be planned or started, or silent), `skipped` (no launch file on `main`, or none configured). `runner/dev_server.rs`
-- `hooks`: each hook the runner runs, `ok` (exit 0 or a deliberate exit 2) or `failed`; no label per hook or point. The hooks carry the recorder (`Hooks::counted_by`); a `kelpie guard` or `kelpie confine` process has none, so the worker's own `commit`, `push` and `command` hooks are not counted. `crates/core/src/hooks.rs`
+- `dev_server`: `ok` (answered within `READY_WITHIN`), `failed` (could not be planned or started, or silent), `skipped` (no launch file on `main`, or none configured). `runner/dev_server/`
+- `hooks`: each hook the runner runs, `ok` (exit 0 or a deliberate exit 2) or `failed`; no label per hook or point. The hooks carry the recorder (`Hooks::counted_by`); a `kelpie guard` or `kelpie confine` process has none, so the worker's own `commit`, `push` and `command` hooks are not counted. `crates/core/src/hooks/mod.rs`
 - `KelpieFeatureNeverWorks` only counts a feature while `kelpie_feature_enabled` is 1.
 
 MCP servers, tool calls and requests are read from a call's transcript once it ends, and so are the reports of `shep kelpie usage`: `metrics-transcripts.md`.

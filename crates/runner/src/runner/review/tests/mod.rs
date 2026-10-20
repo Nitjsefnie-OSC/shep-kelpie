@@ -7,7 +7,7 @@ use crate::runner::step;
 use crate::test::ticket;
 use crate::test::{Rig, Scripted, ScriptedRound};
 
-// `drop` refuses while a call is running (see merge.rs's own test for
+// `drop` refuses while a call is running (see merge/mod.rs's own test for
 // that), but `end_review` tolerates a work item that is gone anyway,
 // the same defensive shape as `end_turn`'s equivalent guard, rather
 // than panicking the runner on the `.expect` this replaced.

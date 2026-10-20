@@ -162,7 +162,7 @@ impl Rig {
         let rig = Self::stand_ins(project, Home::made());
         rig.make_repo();
 
-        let example = include_str!("../../../settings.example.toml");
+        let example = include_str!("../../../../settings.example.toml");
         assert!(example.contains(EXAMPLE_REPO), "the example's repo moved");
         // Most tests are about what comes after the review, so the rig's
         // project runs a short one: a local round and then a Claude session. A

@@ -1,6 +1,6 @@
 # MCP servers in a call's transcript
 
-What Claude Code and pi write down of a call's MCP servers, which `kelpie_mcp_servers_total` and `kelpie_mcp_tool_calls_total` are read from (#922, #970). `crates/facts/src/mcp_use.rs`
+What Claude Code and pi write down of a call's MCP servers, which `kelpie_mcp_servers_total` and `kelpie_mcp_tool_calls_total` are read from (#922, #970). `crates/facts/src/mcp_use/mod.rs`
 
 ## Claude Code (2.1.300 and 2.1.301, 2026-10-15)
 

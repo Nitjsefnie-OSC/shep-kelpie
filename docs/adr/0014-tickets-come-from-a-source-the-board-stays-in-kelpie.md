@@ -2,7 +2,7 @@
 
 This settles the ticket half of #724. ADR 0002 stands: the runner still holds the board.
 
-Kelpie reads its tickets from GitHub issues in the pull request's own repo. One `Forge` (`crates/core/src/ports.rs`) holds both the issues and the pull requests, and a work item, its branch, its folders, its rulings and the state file are all keyed by the issue's number. That rules out two kinds of project: a repo whose maintainer wants kelpie's pull requests but not its issues, labels and comments, and a project whose tickets live somewhere else, such as ClickUp (#270).
+Kelpie reads its tickets from GitHub issues in the pull request's own repo. One `Forge` (`crates/core/src/ports/mod.rs`) holds both the issues and the pull requests, and a work item, its branch, its folders, its rulings and the state file are all keyed by the issue's number. That rules out two kinds of project: a repo whose maintainer wants kelpie's pull requests but not its issues, labels and comments, and a project whose tickets live somewhere else, such as ClickUp (#270).
 
 The decision:
 
