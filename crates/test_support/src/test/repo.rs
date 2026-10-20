@@ -67,3 +67,23 @@ pub fn linked_worktree(home: &Path) -> (PathBuf, PathBuf) {
     );
     (repo, worktree)
 }
+
+/// Gives `main` in `repo` a commit that sets `file` to `contents`, and moves
+/// `origin/main` to it
+///
+/// Before a branch is cut, it is the base the branch starts from. After, it
+/// is `main` moving on.
+pub fn main_commits(repo: &Path, file: &str, contents: &str) {
+    let path = repo.join(file);
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(path, contents).unwrap();
+    git(repo, &["add", file]);
+    git(repo, &["commit", "--quiet", "-m", "main moves on"]);
+    let tip = git(repo, &["rev-parse", "main"]);
+    git(repo, &["update-ref", "refs/remotes/origin/main", &tip]);
+}
+
+/// Moves `worktree`'s branch to where `main` stands, the way a branch is cut
+pub fn cut_from_main(worktree: &Path) {
+    git(worktree, &["reset", "--quiet", "--hard", "main"]);
+}

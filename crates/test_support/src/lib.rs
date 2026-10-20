@@ -11,4 +11,7 @@
 // as it did before they moved here
 mod test;
 
-pub use test::{CALL_PATIENCE, git, linked_worktree, short_tempdir, write_in, write_script};
+pub use test::{
+    CALL_PATIENCE, Elsewhere, cut_from_main, git, linked_worktree, main_commits, make_fifo,
+    short_tempdir, write_in, write_script,
+};

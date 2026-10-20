@@ -12,4 +12,4 @@
   - Every `assistant` line a request wrote carries the request's `message.id` and the same `message.usage`: in a session of 43 requests, none had lines whose usage differed. A request's context is `input_tokens + cache_creation_input_tokens + cache_read_input_tokens`.
   - A subagent's lines carry `isSidechain: true` and are not the session's requests.
   - `fixtures/claude-transcript-requests.jsonl` is a trimmed excerpt of it: seven requests, two reads and the edits after them, long inputs and results cut, the home folder written as `/Users/me`.
-- pi writes one `message` entry per request, with `message.usage` as `input`, `output`, `cacheRead` and `cacheWrite`, and its tool calls as `toolCall` blocks named `read`, `edit` and `write` whose `arguments.path` may start with `@` (`fixtures/pi-session-mcp.jsonl`, `src/adapters/pi/guard_tests.rs`).
+- pi writes one `message` entry per request, with `message.usage` as `input`, `output`, `cacheRead` and `cacheWrite`, and its tool calls as `toolCall` blocks named `read`, `edit` and `write` whose `arguments.path` may start with `@` (`fixtures/pi-session-mcp.jsonl`, `crates/adapters/src/adapters/pi/guard_tests.rs`).

@@ -43,3 +43,16 @@ pub fn write_script(path: &Path, contents: &str) {
         }
     }
 }
+
+/// Makes an owner-only FIFO at `path`
+///
+/// Runs `mkfifo(1)`: `rustix` has no `mkfifoat` on macOS, and `nix` would put
+/// a second copy of itself in the tree beside the one `shep-core` builds.
+pub fn make_fifo(path: &Path) {
+    let made = Command::new("mkfifo")
+        .args(["-m", "600"])
+        .arg(path)
+        .status()
+        .unwrap();
+    assert!(made.success(), "mkfifo {}: {made}", path.display());
+}

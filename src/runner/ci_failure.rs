@@ -31,7 +31,7 @@
 //! rustc's `error[E0061]` are a build that never got as far as running a test, which
 //! is the commonest way a test job goes red without a test failing.
 //!
-//! A log is the last 6000 bytes of a run (`LOG_BYTES` in `src/adapters/gh/runs.rs`),
+//! A log is the last 6000 bytes of a run (`LOG_BYTES` in `crates/adapters/src/adapters/gh/runs.rs`),
 //! and kelpie reads the logs of at most three failed runs (`RUNS` there), so a head
 //! can hold failures kelpie never saw. Kelpie counts those `runnable`, never
 //! `sandbox-only`: it may understate what a worker could not have caught, never
@@ -296,7 +296,7 @@ fn step_and_text(line: &str) -> (Option<&str>, &str) {
 
 // `gh run view --log-failed` writes cargo's colour marks as the literal text
 // `^[[1m` rather than escape bytes, which is why `strip_colour` in
-// `src/adapters/gh/runs.rs` leaves them in. They wrap the words kelpie matches on,
+// `crates/adapters/src/adapters/gh/runs.rs` leaves them in. They wrap the words kelpie matches on,
 // so they come off before anything is read.
 fn plain(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
