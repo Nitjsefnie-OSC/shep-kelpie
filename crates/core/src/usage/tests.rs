@@ -65,6 +65,8 @@ fn finished(issue: u64, merged: bool, worker: u64, reviewer: u64, wall: u64) -> 
         ci_fix_turns: 0,
         ci_failures: CiFailures::default(),
         held: HeldFindings::default(),
+        disputed: 0,
+        deferred: 0,
     })
 }
 

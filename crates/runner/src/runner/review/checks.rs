@@ -23,7 +23,7 @@ use super::findings::{Sent, still_failing_prompt};
 use crate::ports::{CEILING, Finding, TestOutcome, TestRun};
 use crate::state::{FailingTest, Fix, StateError, Stuck};
 use crate::ticket::TicketId;
-use crate::work_item::{Phase, Review, ReviewStage, TestCheck, Turn};
+use crate::work_item::{Phase, Review, ReviewStage, TestCheck, Turn, WorkItem};
 use crate::worker_folder;
 
 /// What a check says when the worktree is not at the head the reviewer read
@@ -353,6 +353,12 @@ fn fill(template: &str, test: &str) -> Result<String, String> {
 // The newest check of `finding` in `round`, if any.
 fn latest(checks: &[TestCheck], round: u32, finding: &Finding) -> Option<usize> {
     checks.iter().rposition(|c| c.is_for(round, finding))
+}
+
+/// Whether the worker was already sent back to `finding` in `round`, so an
+/// earlier fix turn of the round was sent it
+pub(super) fn was_sent_back(item: &WorkItem, round: u32, finding: &Finding) -> bool {
+    latest(&item.test_checks, round, finding).is_some_and(|at| item.test_checks[at].sent_back)
 }
 
 /// A test that failed after the fix
