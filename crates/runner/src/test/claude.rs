@@ -4,6 +4,7 @@ use std::collections::VecDeque;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, UNIX_EPOCH};
 
 use super::{FakeMeter, Hold, git, write_in};
 use crate::ports::{
@@ -52,6 +53,12 @@ pub enum Scripted {
     /// Writes this file with this text in the worktree, commits nothing,
     /// and answers: a write that got past the fence
     Plant(&'static str, &'static str),
+    /// Writes this file with this text in the worktree, sets its mtime to this
+    /// Unix time, commits nothing, and runs past its ceiling
+    TimeOutPlanting(&'static str, &'static str, u64),
+    /// Commits this file with this text on the worktree's branch, dated this
+    /// Unix time, pushes nothing, and runs past its ceiling
+    TimeOutCommitting(&'static str, &'static str, u64),
     /// Stages this file with this text, commits nothing, and deletes the
     /// working copy, so only the index holds it, and answers
     Stage(&'static str, &'static str),
@@ -404,7 +411,16 @@ impl Agents for FakeClaude {
             Some(Scripted::Spend(..)) => unreachable!("turned into a reply above"),
             Some(Scripted::Fail(error)) => Err(error),
             Some(Scripted::Kill) => {
-                std::fs::write(call.cwd.join(LEFT_BEHIND), "work in progress\n").unwrap();
+                // Written long before the rig's clock, as its commits are, so a
+                // restart reads it as an old change, not as progress.
+                let left = call.cwd.join(LEFT_BEHIND);
+                std::fs::write(&left, "work in progress\n").unwrap();
+                std::fs::File::options()
+                    .write(true)
+                    .open(left)
+                    .unwrap()
+                    .set_modified(UNIX_EPOCH + Duration::from_secs(1_700_000_000))
+                    .unwrap();
                 panic!("the runner is killed mid-turn");
             }
             Some(Scripted::Text(text) | Scripted::Say(text)) => Ok(said(text)),
@@ -450,6 +466,43 @@ impl Agents for FakeClaude {
             Some(Scripted::Plant(file, text)) => {
                 write_in(&call.cwd, file, text);
                 Ok(said("done"))
+            }
+            Some(Scripted::TimeOutPlanting(file, text, mtime)) => {
+                write_in(&call.cwd, file, text);
+                std::fs::File::options()
+                    .write(true)
+                    .open(call.cwd.join(file))
+                    .unwrap()
+                    .set_modified(UNIX_EPOCH + Duration::from_secs(mtime))
+                    .unwrap();
+                Err(AgentError::TimedOut(crate::settings::Harness::ClaudeCode))
+            }
+            Some(Scripted::TimeOutCommitting(file, text, committed)) => {
+                write_in(&call.cwd, file, text);
+                git(&call.cwd, &["add", file]);
+                let status = std::process::Command::new("git")
+                    .args([
+                        "-c",
+                        "user.name=rig",
+                        "-c",
+                        "user.email=rig@example.invalid",
+                    ])
+                    .args([
+                        "-c",
+                        "commit.gpgsign=false",
+                        "commit",
+                        "--quiet",
+                        "-m",
+                        file,
+                    ])
+                    .current_dir(&call.cwd)
+                    .env("GIT_CONFIG_GLOBAL", "/dev/null")
+                    .env("GIT_CONFIG_NOSYSTEM", "1")
+                    .env("GIT_COMMITTER_DATE", format!("@{committed} +0000"))
+                    .status()
+                    .unwrap();
+                assert!(status.success());
+                Err(AgentError::TimedOut(crate::settings::Harness::ClaudeCode))
             }
             Some(Scripted::Stage(file, text)) => {
                 write_in(&call.cwd, file, text);
