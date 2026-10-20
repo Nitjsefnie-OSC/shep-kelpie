@@ -1,7 +1,8 @@
 name: test
-# One crate, no features, no integration tier yet: one job answers each
-# gate. Every job carries `timeout-minutes`, a ceiling against a hang
-# rather than a performance budget. GitHub's default when absent is 360.
+# A workspace of crates and the root package, no integration tier yet: one
+# job answers each gate. Every job carries `timeout-minutes`, a ceiling
+# against a hang rather than a performance budget. GitHub's default when
+# absent is 360.
 on:
   push:
     branches: [main]
@@ -92,7 +93,7 @@ jobs:
       - name: Run the real-shepherd tests
         run: |
           set -o pipefail
-          cargo test --locked --test dog_smoke -- --ignored | tee dog_smoke.log
+          cargo test --locked -p shep-kelpie --test dog_smoke -- --ignored | tee dog_smoke.log
           grep -Eq 'test result: ok\. [1-9][0-9]* passed' dog_smoke.log
 
   # The tests `#[ignore]`d for needing kelpie's tools, run under the real

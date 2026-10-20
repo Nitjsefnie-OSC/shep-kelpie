@@ -1030,6 +1030,8 @@ dependencies = [
  "shep-kelpie-process",
  "shep-kelpie-runner",
  "shep-kelpie-test-support",
+ "shep-kelpie-trim",
+ "shep-kelpie-worker-folder",
  "tempfile",
  "tokio",
  "toml 1.1.6+spec-1.1.0",
