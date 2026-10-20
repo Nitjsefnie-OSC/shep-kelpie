@@ -1,0 +1,32 @@
+[package]
+name = "shep-kelpie-dog"
+description = "The lease dog: the book of leases and its grants, run by the adopted kelpie. Uses only core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+shep-kelpie-core.workspace = true
+rustix.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+shep-channel.workspace = true
+shep-client.workspace = true
+tokio = { workspace = true, features = ["io-util", "macros", "net", "process", "rt", "signal", "sync", "time"] }
+toml.workspace = true
+
+[dev-dependencies]
+shep-kelpie-core = { workspace = true, features = ["test-support"] }
+shep-kelpie-test-support.workspace = true
+# Only for the fake shepherds the tests run against
+shep-client = { workspace = true, features = ["test-support"] }
+# Only for throwaway homes and repos in tests
+tempfile.workspace = true
+# Only for tests that pause the clock
+tokio = { workspace = true, features = ["test-util"] }

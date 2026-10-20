@@ -1,5 +1,5 @@
 use super::*;
-use crate::adapters::DoorPace;
+use crate::lease::door_pace::DoorPace;
 use crate::ports::{Pace, Pass, Timestamp};
 
 // The dog's clock is the book's, fixed at `EPOCH` in these tests.

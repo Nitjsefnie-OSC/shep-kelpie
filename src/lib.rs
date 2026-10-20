@@ -10,7 +10,6 @@
 
 pub mod adapters;
 pub mod doctor;
-pub mod dog;
 pub mod flock;
 pub mod github;
 pub mod issues;
@@ -27,6 +26,9 @@ pub use shep_kelpie_core::{
     webhook, work_item,
 };
 use shep_kelpie_core::{dep_sources, transcripts};
+
+// The dog, kept under the name it had here
+pub use shep_kelpie_dog::dog;
 
 // The leaf crates under `crates/`, each module kept under the name it had here
 use shep_kelpie_facts::{mcp_use, request_use, tool_error};

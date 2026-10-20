@@ -20,7 +20,7 @@ Kelpie: dog of the maintainer's shepherd; one runner per project takes ready iss
 
 ## Files
 
-| file | covers | read when you touch (`core/` is `crates/core/src/`) |
+| file | covers | read when you touch (`core/` is `crates/core/src/`, `dog/` is `crates/dog/src/dog/`) |
 |---|---|---|
 | work.md | projects, board, adoption, slots, issue writer | `core/board.rs`, `src/issues.rs`, `src/runner/adopt.rs`, `src/runner/slots.rs`, `src/flock/verbs.rs`, `core/guard/issues.rs` |
 | pm.md | the project manager, its board file | `src/runner/pm.rs`, `src/runner/pm/`, `src/runner/briefing.rs` |
@@ -50,12 +50,12 @@ Kelpie: dog of the maintainer's shepherd; one runner per project takes ready iss
 | triage-pass.md | one issue's pass: post, labels, duplicate close, agent-ready | `src/runner/triage/`, `src/runner/flight/`, `core/ports/voice.rs` |
 | triage-author.md | the author's round: the ask, `github`, `local`, `none`, answers | `src/runner/triage/{ask,heard,local}.rs`, `src/runner/representative/reading.rs` |
 | triage-spam.md | the spam check: `triage.spam`, `possible-spam` | `src/runner/triage/spam.rs` |
-| log-lines.md | what the runner and the dog log between steps: pause, handover, lease waits, skips, warnings | `src/runner/drain.rs`, `src/runner/skip_log.rs`, `src/runner/review_bot/lease_wait.rs`, `src/runner/claim.rs`, `src/dog/desk.rs`, `src/dog/door.rs` |
-| metrics.md | kelpie's series on shep's metrics endpoint, alerts, dashboard | `core/metrics.rs`, `core/metrics/`, `core/ports/metrics.rs`, `src/adapters/metric_sink.rs`, `assets/prometheus/`, `assets/grafana/` |
+| log-lines.md | what the runner and the dog log between steps: pause, handover, lease waits, skips, warnings | `src/runner/drain.rs`, `src/runner/skip_log.rs`, `src/runner/review_bot/lease_wait.rs`, `src/runner/claim.rs`, `dog/desk.rs`, `dog/door.rs` |
+| metrics.md | kelpie's series on shep's metrics endpoint, alerts, dashboard | `core/metrics.rs`, `core/metrics/`, `core/ports/metrics.rs`, `core/metrics/shepherd_sink.rs`, `assets/prometheus/`, `assets/grafana/` |
 | metrics-work-items.md | work items' series, the `finished` line | `core/usage/finished.rs`, `src/runner/ci_failure.rs` |
-| metrics-dog.md | the dog's series: leases, summons, the forge hold | `core/metrics/dog.rs`, `src/dog/watch.rs` |
+| metrics-dog.md | the dog's series: leases, summons, the forge hold | `core/metrics/dog.rs`, `dog/watch.rs` |
 | metrics-transcripts.md | series and reports read from a call's transcript: MCP servers, tool calls, `shep kelpie usage` | `crates/facts/`, `src/runner/transcript_count.rs`, `core/usage/` |
-| budget.md | pacing, dog + leases, time, usage, settings | `src/runner/pace.rs`, `src/dog/`, `core/usage.rs`, `core/settings/`, `src/sheep.rs` |
+| budget.md | pacing, dog + leases, time, usage, settings | `src/runner/pace.rs`, `dog/`, `core/usage.rs`, `core/settings/`, `src/sheep.rs` |
 
 Each file stays under 8 KB, and an area past it splits in two with a new row here (`scripts/design-size.sh`). A changed decision updates its bullet in the same PR.
 
