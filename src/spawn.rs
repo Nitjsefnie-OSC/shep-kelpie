@@ -40,6 +40,13 @@ mod tests {
     use crate::settings::LocalRound;
     use crate::test::{linked_worktree, write_script};
 
+    #[test]
+    fn a_word_is_one_word_to_a_posix_shell() {
+        assert_eq!(shell_quote("plain"), "'plain'");
+        assert_eq!(shell_quote("it's"), r"'it'\''s'");
+        assert_eq!(shell_quote(""), "''");
+    }
+
     // Cargo sets it for every test binary it runs, and nothing kelpie starts reads it.
     const SET: &str = "CARGO_PKG_DESCRIPTION";
 

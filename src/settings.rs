@@ -391,6 +391,10 @@ const REMOVED: &[Removed] = &[
 // The keys removed above that name a table now, refused only when set to a value
 const NOW_TABLES: &[&str] = &["ci"];
 
+/// The only tools a Claude Code reviewer's session starts with, as `--tools`
+/// takes them: it reads the worktree and runs no command
+pub(crate) const CLAUDE_REVIEW_TOOLS: &str = "Read,Glob,Grep";
+
 /// One role's model and effort
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]

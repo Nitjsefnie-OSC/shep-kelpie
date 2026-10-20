@@ -22,6 +22,9 @@ pub use goose_packages::{WEB_SERVER as GOOSE_WEB, WEB_SERVER_FILE as GOOSE_WEB_F
 pub use graph::RELEASE as CODE_GRAPH_RELEASE;
 pub use pi_packages::WEB_ACCESS as PI_WEB_ACCESS;
 
+/// The name goose loads the web package's server under, which its tools are prefixed with
+pub const GOOSE_WEB_SERVER: &str = "kelpie-web";
+
 /// Kelpie's own copy of the sandbox runtime, under `<kelpie home>/tools`
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Tools(PathBuf);

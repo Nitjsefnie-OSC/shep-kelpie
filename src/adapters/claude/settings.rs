@@ -91,10 +91,6 @@ const RETRO_DENY: [&str; 14] = [
 /// context is 8,265 tokens, from 18,385.
 pub(crate) const WORK_TOOLS: &str = "Bash,Read,Edit,Write,Glob,Grep,Skill";
 
-/// The only tools a reviewer's session starts with, as `--tools` takes them:
-/// it reads the worktree and runs no command, which [`REVIEW_DENY`] holds it to
-pub(crate) const REVIEW_TOOLS: &str = "Read,Glob,Grep";
-
 /// The only tools an issue writer's session starts with, as `--tools` takes
 /// them
 ///

@@ -27,18 +27,6 @@ use crate::spawn::shell_quote;
 /// The plugin's name, and the one entry its folder may hold
 pub(crate) const PLUGIN: &str = "kelpie-fence";
 
-/// The tools of goose's `developer` extension that a worker may call
-///
-/// `shell`, `write` and `edit` are judged and `tree` is let through. Any
-/// other name is refused, `read_image` included. The guard reads this list,
-/// so a tool added here is one the worker may call.
-pub(crate) const TOOLS: [&str; 4] = ["shell", "write", "edit", "tree"];
-
-/// The tool of goose's `skills` extension, which every kind of call may call
-///
-/// It reads a skill's files inside goose, so the sandbox's read rules bound it.
-pub(crate) const SKILL_TOOL: &str = "load_skill";
-
 /// The plugin's folder under the root
 pub(super) fn folder(files: &Files) -> PathBuf {
     files.plugins().join(PLUGIN)

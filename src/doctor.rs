@@ -8,7 +8,6 @@ mod ci;
 mod e2e;
 mod gateways;
 mod github;
-pub mod host;
 mod machine;
 mod mcp;
 mod project;
@@ -18,7 +17,7 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use self::host::Host;
+use crate::adapters::host::Host;
 use crate::adapters::{ClaudeCli, Curl, CurlGithub, Gh, LocalReviewer, Openssl, SystemHost};
 use crate::agents::Agents;
 use crate::coderabbit::CodeRabbit;

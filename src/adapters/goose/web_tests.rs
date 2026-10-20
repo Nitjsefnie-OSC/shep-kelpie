@@ -6,8 +6,9 @@
 use serde_json::json;
 
 use super::tests::{FRESH_ID, URL, World, id, strings};
-use super::web::{SEARCH_HOST, SERVER};
+use super::web::SEARCH_HOST;
 use super::*;
+use crate::tools::GOOSE_WEB_SERVER;
 
 const ROLES: [Role; 6] = [
     Role::Worker,
@@ -43,7 +44,7 @@ fn call(w: &World, role: Role, tools: Tools, hosts: &[&str]) -> AgentCall {
     let mut call = w.fenced(URL, Path::new("/k/kelpie"), Session::New(id(FRESH_ID)));
     call.role = role;
     call.tools = tools;
-    call.reach.mcp_servers = [(SERVER.to_owned(), entry(w))].into();
+    call.reach.mcp_servers = [(GOOSE_WEB_SERVER.to_owned(), entry(w))].into();
     let fence = call.reach.fence.as_mut().unwrap();
     fence.hosts = hosts.iter().map(|h| (*h).to_owned()).collect();
     call
@@ -145,7 +146,10 @@ fn the_web_server_names_no_key_and_reads_nothing_of_the_home_folder() {
     let argv = strings(&with);
     let at = argv.iter().position(|a| a == "--with-extension").unwrap();
     let file = w.path("kelpie/tools/node_modules/duckduckgo-websearch/build/index.js");
-    assert_eq!(argv[at + 1], format!("{SERVER}:node {}", file.display()));
+    assert_eq!(
+        argv[at + 1],
+        format!("{GOOSE_WEB_SERVER}:node {}", file.display())
+    );
 
     // No key, token or secret in the flag or in what the web adds to the environment.
     let shown = format!("{} {added:?}", argv[at + 1]).to_ascii_lowercase();
