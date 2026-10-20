@@ -176,8 +176,8 @@ fn a_handover_waits_out_a_notice_hook_that_is_running() {
     let rig = Rig::new("shep");
     let flag = rig.home.path().join("go");
     let script = format!(
-        "read line; while [ ! -e {0} ]; do sleep 0.02; done",
-        flag.display()
+        "read line; {}",
+        crate::test::waits_for(&flag, CALL_PATIENCE)
     );
     rig.hook("slow.sh", &["done"], &script);
     let runner = Arc::new(rig.open().unwrap());

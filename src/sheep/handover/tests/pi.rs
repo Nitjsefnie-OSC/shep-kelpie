@@ -21,7 +21,7 @@ use crate::forwarder::Upstream;
 use crate::ports::Routed;
 use crate::settings::Timing;
 use crate::settings::{EndpointUrl, Gateway, GatewayKind, GatewayName, Gateways, KeyVar};
-use crate::test::{Answer, Hold, OpenSandbox, StandInEndpoint, write_script};
+use crate::test::{Answer, Hold, OpenSandbox, StandInEndpoint, waits_for, write_script};
 
 const IMAGE: &str = "sheep::handover::tests::pi::an_image_of_the_runner";
 
@@ -163,13 +163,14 @@ fn pi_script(folder: &Path) {
          echo \"${{PI_CODING_AGENT_DIR%.pi}}.call.json\" > \"$shared/record\"\n\
          while [ $# -gt 0 ]; do [ \"$1\" = --session-id ] && session=$2; shift; done\n\
          touch \"$shared/started\"\n\
-         while [ ! -e \"$shared/go\" ]; do sleep 0.02; done\n\
+         {waits}\n\
          curl -sS --fail --unix-socket \"$(cat \"$shared/socket\")\" -X POST \
          -H 'content-type: application/json' -d '{{\"model\":\"coder\"}}' \
          http://model.kelpie.test/v1/chat/completions > \"$shared/chat\" || exit 3\n\
          sleep 0.4\n\
          sed \"s/SESSION/$session/g\" \"$shared/fresh.jsonl\"\n",
-        shared = folder.display()
+        shared = folder.display(),
+        waits = waits_for(&folder.join("go"), CALL_PATIENCE)
     );
     write_script(&folder.join("pi"), &script);
 }
