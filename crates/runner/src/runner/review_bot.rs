@@ -917,6 +917,6 @@ mod settling;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
-mod thread_replies;
+pub(in crate::runner) mod thread_replies;
 #[cfg(test)]
 mod two_bots;
