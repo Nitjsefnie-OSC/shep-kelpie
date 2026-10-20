@@ -132,16 +132,20 @@ fn the_stand_in_gateway_sees_the_lease_renewed_across_the_exec_with_no_release_a
     assert!(crossed.ok, "the images failed:\n{}", crossed.said);
     let seen = &crossed.seen;
 
-    // One take, a renewal while the call ran, and one release at the end.
-    let leases: Vec<&str> = seen
+    // The carried call's lease: one take, a renewal while the call ran, and a
+    // release at the end. What the runner does once the turn has ended is not
+    // the handover's: a worker with no pull request is sent back, and that
+    // call takes a lease of its own before the test stops the worker.
+    let released = (seen.iter())
+        .position(|line| line.starts_with("DELETE"))
+        .expect("the lease was released once the call ended");
+    let leases: Vec<&str> = seen[..=released]
         .iter()
         .map(String::as_str)
         .filter(|line| line.contains("/paddock/leases"))
         .collect();
     let takes = leases.iter().filter(|l| l.starts_with("POST")).count();
     assert_eq!(takes, 1, "no second take: {leases:?}");
-    let releases = leases.iter().filter(|l| l.starts_with("DELETE")).count();
-    assert_eq!(releases, 1, "{leases:?}");
     assert!(
         leases.last().is_some_and(|l| l.starts_with("DELETE")),
         "released once the call ended: {leases:?}"
@@ -149,7 +153,6 @@ fn the_stand_in_gateway_sees_the_lease_renewed_across_the_exec_with_no_release_a
     let chat = (seen.iter())
         .position(|l| l.contains("/chat/completions"))
         .expect("a chat request reached the gateway");
-    let released = seen.iter().position(|l| l.starts_with("DELETE")).unwrap();
     assert!(released > chat, "released before the call asked: {seen:?}");
     // The resumed lease renews at once, so one falls before the release
     // whatever the heartbeat's timing.

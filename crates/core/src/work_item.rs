@@ -226,6 +226,10 @@ pub struct WorkItem {
     /// How many times a ruling for going over its budget has doubled its cap
     #[serde(default, skip_serializing_if = "is_zero")]
     pub budget_raises: u32,
+    /// How many times a turn that passed its ceiling while still touching its
+    /// worktree was resumed with no ruling. A fourth ceiling raises one.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub ceiling_resumes: u32,
     /// Whether the forge refused a merge under `auto` since the last
     /// ruling on one. A second refusal raises a `stuck` ruling for `merge-refused`.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -477,6 +481,7 @@ impl WorkItem {
             claude_files_accepted: None,
             qwen: QwenTally::default(),
             budget_raises: 0,
+            ceiling_resumes: 0,
             merge_refused: false,
             sent_back: false,
             asked_to_commit: false,

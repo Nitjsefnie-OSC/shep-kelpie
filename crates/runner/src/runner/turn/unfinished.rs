@@ -8,7 +8,7 @@
 //! uncommitted lives here too, but it is a separate send-back: it parks
 //! nothing, and the work item's `asked_to_commit` makes it once per turn.
 
-use std::time::Duration;
+use std::time::{Duration, UNIX_EPOCH};
 
 use super::handover::{Handover, Refused};
 use crate::ports::Timestamp;
@@ -20,6 +20,7 @@ use crate::runner::{Names, Runner};
 use crate::state::{ProjectState, StateError, Stuck};
 use crate::ticket::TicketId;
 use crate::work_item::{Phase, Review, Turn, WorkItem};
+use crate::worktree;
 
 /// The prompt that sends back a worker whose turn ended with no pull request
 /// and no question
@@ -29,6 +30,20 @@ const STOPPED_SHORT: &str = "Your last turn ended with no pull request for this 
                              request once the work is done. If only the maintainer \
                              can unblock you, end your reply with a \
                              <kelpie-question> block.";
+
+/// The prompt that resumes a worker whose turn ran past its ceiling while it
+/// was still writing in its worktree
+const CEILING_RESUMED: &str = "Kelpie stopped your last turn: it ran past its ceiling. \
+                               Commit what builds, then carry on with the work item \
+                               from where you left off.";
+
+/// How long before its ceiling a turn must have touched its worktree to be
+/// resumed with no ruling
+const CEILING_WINDOW: Duration = Duration::from_secs(10 * 60);
+
+/// How many times a work item's turns past their ceilings are resumed with no
+/// ruling; the next raises one
+const CEILING_RESUMES: u32 = 3;
 
 /// The prompt that sends back a worker whose credential opens no pull request
 /// and whose turn ended with none opened and no question
@@ -107,6 +122,39 @@ pub(super) fn awaits_a_push(item: &WorkItem) -> bool {
 impl Runner {
     pub(in crate::runner) fn turn_ceiling(&self) -> Duration {
         Duration::from_secs(u64::from(self.settings.worker.turn_timeout.get()) * 60)
+    }
+
+    // A turn that ran past its ceiling resumes with no ruling when its worktree
+    // changed in the last ten minutes, up to three times for the work item: it is
+    // making progress, not stuck. A worktree git cannot be read in is told and
+    // let go, which errs toward the ruling.
+    pub(super) fn resumes_past_ceiling(&mut self, item: &mut WorkItem, now: Timestamp) -> bool {
+        if item.ceiling_resumes >= CEILING_RESUMES {
+            return false;
+        }
+        let since =
+            UNIX_EPOCH + Duration::from_secs(now.0.saturating_sub(CEILING_WINDOW.as_secs()));
+        let base = self.settings.git.base();
+        let touched =
+            worktree::touched_since(&self.settings.git.checkout, &item.worktree, base, since);
+        let issue = item.issue;
+        match touched {
+            Ok(true) => {}
+            Ok(false) => return false,
+            Err(e) => {
+                eprintln!("cannot tell whether issue #{issue}'s worktree changed: {e}");
+                return false;
+            }
+        }
+        item.ceiling_resumes += 1;
+        item.turn = Turn::Next {
+            prompt: CEILING_RESUMED.to_owned(),
+        };
+        self.notes.push(format!(
+            "issue #{issue}'s turn passed its ceiling while still working, resumed ({} of {CEILING_RESUMES})",
+            item.ceiling_resumes
+        ));
+        true
     }
 
     // A turn ended with no pull request kelpie knows of, or on a rework or
