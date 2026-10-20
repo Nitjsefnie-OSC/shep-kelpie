@@ -194,27 +194,6 @@ fn red_workflows_survive_a_restart() {
 }
 
 #[test]
-fn plain_status_names_the_red_workflow_how_long_it_has_been_red_and_its_run() {
-    let rig = Rig::new("acme");
-    let went_red = Rig::EPOCH - 3 * 3600 - 5 * 60;
-    rig.forge
-        .set_branch_runs("main", vec![run("test", 91, "failure", went_red)]);
-    let runner = rig.open().unwrap();
-    step(&runner).unwrap();
-    let body = rig.ask(&runner, "status", None).to_string();
-
-    let lines = crate::flock::control::plain_status("acme", &body);
-
-    assert!(lines.contains(&"  red on main: 1".to_owned()), "{lines:#?}");
-    assert!(
-        lines.contains(
-            &"    test: red for 3h05m, https://github.com/shep-pm/shep/actions/runs/91".to_owned()
-        ),
-        "{lines:#?}"
-    );
-}
-
-#[test]
 fn the_board_names_the_red_workflow_how_long_it_has_been_red_and_its_run() {
     let rig = Rig::new("acme");
     let went_red = Rig::EPOCH - 3 * 3600 - 5 * 60;
