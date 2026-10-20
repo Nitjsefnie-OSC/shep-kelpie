@@ -785,7 +785,7 @@ impl Runner {
             local_leases,
             board: &self.paths.board,
             pm: self.pm_status(),
-            build: crate::upgrade::seen::running(),
+            build: crate::home::running(),
             draining: self.draining_status(),
             run: self.run_status(),
             forge_held_until: self.forge_hold.until(now),

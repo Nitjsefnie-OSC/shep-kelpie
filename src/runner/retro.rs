@@ -21,11 +21,11 @@ use std::io::Write;
 use std::path::PathBuf;
 
 use super::{Runner, StepReport, panel};
+use crate::home::Build;
 use crate::ports::{AgentCall, AgentError, AgentReply, Session, Timestamp};
 use crate::skills::Step;
 use crate::state::Finished;
 use crate::ticket::TicketId;
-use crate::upgrade::build::Build;
 use crate::usage;
 use crate::work_item::new_session_id;
 

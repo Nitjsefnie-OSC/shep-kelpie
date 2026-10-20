@@ -28,11 +28,11 @@ use serde::{Deserialize, Serialize};
 use shep_handover::{Handover, State, Verdict};
 
 use crate::adapters::{ClaudeCli, ShepLeases};
+use crate::home::Build;
 use crate::lease::Epoch;
 use crate::lease::saved::BookFile;
 use crate::lease::wire::{Asker, AskerCarry};
 use crate::runner::{CarriedTurn, Runner};
-use crate::upgrade::build::Build;
 
 /// The trigger that asks for a handover
 pub const ACTION: &str = "handover";

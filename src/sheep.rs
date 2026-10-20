@@ -139,7 +139,7 @@ fn unshared(look: &Look, settings: &Settings) -> Result<(), Exit> {
 
 fn serve(project: &str, arrival: Option<Arrival<Carry>>) -> Result<(), Exit> {
     // The file this build started from, before anything can replace it.
-    crate::upgrade::seen::running();
+    crate::home::running();
     let project = ProjectName::try_from(project).map_err(|e| e.to_string())?;
     let shep_home = shep_home::required(shep_home::FLOCKFILE_FIX)?;
     let home = std::env::var_os("HOME")
