@@ -18,9 +18,14 @@ fn path(p: &Path) -> &str {
     p.to_str().expect("a UTF-8 temporary path")
 }
 
+// When the rig's commits are made, as a test's clock reads it: long before any
+// clock a test sets, so a commit counts as recent only where a test dates it so.
+const LONG_AGO: &str = "@1700000000 +0000";
+
 /// Runs git in `cwd` and returns its trimmed stdout
 ///
 /// The maintainer's own git config never reaches the rig: no signing, no hooks.
+/// A commit it makes is dated long before the rig's clock, which stands in 2026.
 ///
 /// # Panics
 ///
@@ -38,6 +43,7 @@ pub fn git(cwd: &Path, args: &[&str]) -> String {
         .current_dir(cwd)
         .env("GIT_CONFIG_GLOBAL", "/dev/null")
         .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_COMMITTER_DATE", LONG_AGO)
         .output()
         .unwrap();
     let stderr = String::from_utf8_lossy(&output.stderr);

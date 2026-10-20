@@ -411,7 +411,16 @@ impl Agents for FakeClaude {
             Some(Scripted::Spend(..)) => unreachable!("turned into a reply above"),
             Some(Scripted::Fail(error)) => Err(error),
             Some(Scripted::Kill) => {
-                std::fs::write(call.cwd.join(LEFT_BEHIND), "work in progress\n").unwrap();
+                // Written long before the rig's clock, as its commits are, so a
+                // restart reads it as an old change, not as progress.
+                let left = call.cwd.join(LEFT_BEHIND);
+                std::fs::write(&left, "work in progress\n").unwrap();
+                std::fs::File::options()
+                    .write(true)
+                    .open(left)
+                    .unwrap()
+                    .set_modified(UNIX_EPOCH + Duration::from_secs(1_700_000_000))
+                    .unwrap();
                 panic!("the runner is killed mid-turn");
             }
             Some(Scripted::Text(text) | Scripted::Say(text)) => Ok(said(text)),
