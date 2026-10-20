@@ -256,6 +256,33 @@ mod tests {
         assert_eq!(findings[0].file, head);
     }
 
+    // A stand-in that writes its environment, after a variable was hidden from every process
+    // kelpie starts.
+    #[test]
+    fn a_round_never_shows_the_script_a_hidden_variable() {
+        // Cargo sets it for every test binary it runs, and nothing kelpie starts reads it.
+        const SET: &str = "CARGO_PKG_DESCRIPTION";
+        assert!(std::env::var_os(SET).is_some(), "{SET} is set under cargo");
+        crate::spawn::hide([SET.to_owned()]);
+        let home = tempfile::tempdir().unwrap();
+        let script = home.path().join("review");
+        write_script(
+            &script,
+            "#!/bin/sh\nmkdir -p \"$QWEN_REVIEW_OUT\"\n\
+             env > \"$QWEN_REVIEW_OUT/env.txt\"\n\
+             : > \"$QWEN_REVIEW_OUT/round-1.txt\"\n\
+             : > \"$QWEN_REVIEW_OUT/round-1.txt.done\"\n",
+        );
+        let wt = crate::test::linked_worktree(home.path());
+        let out = home.path().join("out");
+        LocalReviewer::default()
+            .round(&local(&script), linked(&wt), "main", &out, 1, "")
+            .unwrap();
+        let env = std::fs::read_to_string(out.join("env.txt")).unwrap();
+        assert!(env.contains("QWEN_REVIEW_OUT="), "{env}");
+        assert!(!env.contains(SET), "the reviewer's script saw it");
+    }
+
     // A stand-in that records the `TMPDIR` it was started with, as the real
     // script builds its own GPU lock from it.
     #[test]

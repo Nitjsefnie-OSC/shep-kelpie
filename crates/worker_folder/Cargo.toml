@@ -1,0 +1,18 @@
+[package]
+name = "shep-kelpie-worker-folder"
+description = "Files in a folder a worker can write. Uses no other member"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+rustix.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

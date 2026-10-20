@@ -5,7 +5,6 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
 use crate::adapters::{GpuCurl, LocalReviewer};
 use crate::coderabbit::CodeRabbit;
@@ -49,9 +48,7 @@ mod reviewer;
 mod rig_settings;
 mod samples;
 mod sandbox;
-mod script;
 mod shepherd;
-mod tempdir;
 mod test_runner;
 
 pub(crate) use alerts::FakeAlerts;
@@ -77,9 +74,10 @@ pub(crate) use reads::{
 pub(crate) use reviewer::{FakeReviewer, ScriptedRound, SeenRound};
 pub(crate) use samples::RecordedSink;
 pub(crate) use sandbox::OpenSandbox;
-pub(crate) use script::write_script;
+pub(crate) use shep_kelpie_test_support::{
+    CALL_PATIENCE, git, linked_worktree, short_tempdir, write_in, write_script,
+};
 pub(crate) use shepherd::FakeShepherd;
-pub(crate) use tempdir::short_tempdir;
 pub(crate) use test_runner::FakeTests;
 
 /// Makes an owner-only FIFO at `path`
@@ -315,10 +313,6 @@ pub(crate) struct Rig {
     /// [`Rig::with_app`]
     pub(crate) github: FakeGithub,
 }
-
-/// How long a test waits on a call, a socket or a thread that runs on real
-/// time before it fails by name
-pub(crate) const CALL_PATIENCE: Duration = Duration::from_secs(60);
 
 /// Where every fake clock starts, in seconds since the Unix epoch
 pub(crate) const EPOCH: u64 = 1_790_000_000;
@@ -741,41 +735,8 @@ fn denies(rule: &str, path: &str) -> bool {
     }
 }
 
-pub(crate) fn write_in(folder: &Path, file: &str, text: &str) {
-    let path = folder.join(file);
-    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-    std::fs::write(path, text).unwrap();
-}
-
 fn path(p: &Path) -> &str {
     p.to_str().expect("a UTF-8 temporary path")
-}
-
-/// Runs git in `cwd` and returns its trimmed stdout
-///
-/// The maintainer's own git config never reaches the rig: no signing, no hooks.
-pub(crate) fn git(cwd: &Path, args: &[&str]) -> String {
-    let output = Command::new("git")
-        .args([
-            "-c",
-            "user.name=rig",
-            "-c",
-            "user.email=rig@example.invalid",
-        ])
-        .args(["-c", "commit.gpgsign=false"])
-        .args(args)
-        .current_dir(cwd)
-        .env("GIT_CONFIG_GLOBAL", "/dev/null")
-        .env("GIT_CONFIG_NOSYSTEM", "1")
-        .output()
-        .unwrap();
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        output.status.success(),
-        "git {args:?} in {}: {stderr}",
-        cwd.display()
-    );
-    String::from_utf8_lossy(&output.stdout).trim().to_owned()
 }
 
 /// Gives `main` in `repo` a commit that sets `file` to `contents`, and moves
@@ -796,21 +757,6 @@ pub(crate) fn main_commits(repo: &Path, file: &str, contents: &str) {
 /// Moves `worktree`'s branch to where `main` stands, the way a branch is cut
 pub(crate) fn cut_from_main(worktree: &Path) {
     git(worktree, &["reset", "--quiet", "--hard", "main"]);
-}
-
-/// A repo at `home/repo` with one commit on `main`, and a worktree of it at
-/// `home/wt` on its own branch, the way kelpie cuts one
-pub(crate) fn linked_worktree(home: &Path) -> (PathBuf, PathBuf) {
-    let repo = home.join("repo");
-    let worktree = home.join("wt");
-    std::fs::create_dir_all(&repo).unwrap();
-    git(&repo, &["init", "--quiet", "-b", "main"]);
-    git(&repo, &["commit", "--quiet", "--allow-empty", "-m", "init"]);
-    git(
-        &repo,
-        &["worktree", "add", "--quiet", "-b", "wt", path(&worktree)],
-    );
-    (repo, worktree)
 }
 
 /// The ticket of GitHub issue `number`

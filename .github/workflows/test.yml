@@ -112,12 +112,12 @@ jobs:
       # bubblewrap needs to build the sandbox.
       - name: Allow unprivileged user namespaces
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-      # What `Tools::install` (src/tools.rs) does: the pinned package.json,
-      # then `npm install` beside it.
+      # What `Tools::install` (crates/process/src/tools.rs) does: the pinned
+      # package.json, then `npm install` beside it.
       - name: Install the pinned srt
         run: |
           mkdir -p "$KELPIE_TOOLS"
-          cp src/tools/package.json "$KELPIE_TOOLS/package.json"
+          cp crates/process/src/tools/package.json "$KELPIE_TOOLS/package.json"
           (cd "$KELPIE_TOOLS" && npm install --no-audit --no-fund)
       - run: cargo test --locked --no-run
       # A filter that matches nothing passes, and so does one that matches

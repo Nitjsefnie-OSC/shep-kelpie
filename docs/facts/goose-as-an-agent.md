@@ -160,7 +160,7 @@ Written for #793, from goose's v1.54.0 source. No model turn was run: #798 runs 
 
 Measured 2026-10-14 for #797, with Node 26.11.1 and npm, no model and no GPU. Each candidate was installed in an empty folder at its latest version, started over stdio, and sent `initialize` and `tools/list`. goose v1.54.0 ships no search or fetch tool, and a pi package cannot be loaded into it.
 
-- Chosen: `duckduckgo-websearch` 2.0.3 (MIT), pinned exactly in `src/tools/package.json`, run as `node <package>/build/index.js` under the name `kelpie-web` (`src/adapters/goose/web.rs`). Its dependencies are `@modelcontextprotocol/sdk` and `cheerio`.
+- Chosen: `duckduckgo-websearch` 2.0.3 (MIT), pinned exactly in `crates/process/src/tools/package.json`, run as `node <package>/build/index.js` under the name `kelpie-web` (`src/adapters/goose/web.rs`). Its dependencies are `@modelcontextprotocol/sdk` and `cheerio`.
 - Tools, which goose names `kelpie-web__<tool>`:
   - `search`: `query` (required), `max_results` (default 25).
   - `fetch_content`: `url` (required), `max_content_length` (default 8000).

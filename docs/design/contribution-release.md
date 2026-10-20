@@ -42,5 +42,5 @@ How kelpie asks a contributor for a release and what it takes as one. ADR 0010. 
 
 ## Remote
 
-- `worktree::Remote` is where a work item's branch lives: `Origin`, or `Fork { url, branch }` for a contributor's fork. `prepare` (`Start::Pushed`), `origin_head`, `base_of`, `adopt`, `rebase` and `remove` take it. A work item records it as `remote`, left out for `Origin`; adopting a released fork contribution sets `Fork`, and every other caller passes `Origin`. A fork is fetched and pushed by URL, never added as a remote of the repo. `src/worktree/remote.rs`
+- `worktree::Remote` is where a work item's branch lives: `Origin`, or `Fork { url, branch }` for a contributor's fork. `prepare` (`Start::Pushed`), `origin_head`, `base_of`, `adopt`, `rebase` and `remove` take it. A work item records it as `remote`, left out for `Origin`; adopting a released fork contribution sets `Fork`, and every other caller passes `Origin`. A fork is fetched and pushed by URL, never added as a remote of the repo. `crates/process/src/worktree/`
 - A fork's branch is fetched to `refs/remotes/fork-<hash of the URL>/<branch>`, never under `origin`, so it cannot overwrite `origin/main`, which `Start::Main` and the catch-up with `main` always read. #631

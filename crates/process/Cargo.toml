@@ -1,0 +1,22 @@
+[package]
+name = "shep-kelpie-process"
+description = "Every process kelpie starts: spawn, the terminal, tools and git worktrees. Uses no other member"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+tokio = { workspace = true, features = ["io-util", "macros", "process", "rt", "signal", "time"] }
+
+[dev-dependencies]
+shep-kelpie-test-support.workspace = true
+tempfile.workspace = true
+tokio = { workspace = true, features = ["test-util"] }

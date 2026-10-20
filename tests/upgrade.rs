@@ -18,13 +18,10 @@ use shep_client::shep_core::protocol::request::{
 use shep_client::shep_core::protocol::{Envelope, Request, Response, SelectorSpec};
 use shep_client::shep_core::status::ProcStatus;
 use shep_client::testing::{fake_daemon_answering_with_ack, sample_ack};
+use shep_kelpie_test_support::write_script;
 use tempfile::TempDir;
 use tokio::process::Command;
 use tokio::sync::mpsc::UnboundedReceiver;
-
-// The repo's own ETXTBSY-safe way to write a stand-in script.
-#[path = "../src/test/script.rs"]
-mod script;
 
 const KELPIE: &str = env!("CARGO_BIN_EXE_shep-kelpie");
 
@@ -50,7 +47,7 @@ impl Scene {
             root,
             koji_says: Arc::new(Mutex::new(vec![IDLE])),
         };
-        script::write_script(&scene.installed(), &answering("0.1.0", "0.15.0"));
+        write_script(&scene.installed(), &answering("0.1.0", "0.15.0"));
         scene
     }
 
@@ -89,7 +86,7 @@ impl Scene {
     // A stand-in build: a script that answers `version --json`.
     fn build(&self, file: &str, kelpie: &str, shep: &str) -> PathBuf {
         let path = self.root.path().join("builds").join(file);
-        script::write_script(&path, &answering(kelpie, shep));
+        write_script(&path, &answering(kelpie, shep));
         path
     }
 
