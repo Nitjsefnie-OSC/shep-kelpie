@@ -181,7 +181,7 @@ pub(crate) fn policy(
             .push(super::settings::prompt_file(&call.settings));
     }
     // The servers run inside the call's sandbox, and the code graph keeps its index in its own folder.
-    if crate::adapters::mcp::loads(call) {
+    if crate::ports::mcp::loads(call) {
         policy.read.push(super::mcp::mcp_file(&call.settings));
     }
     crate::adapters::mcp::fence_the_graph(&mut policy, call);

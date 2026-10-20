@@ -23,8 +23,8 @@ use shep_handover::Arrival;
 
 use crate::adapters::{
     ClaudeCli, Curl, CurlGithub, DogE2e, DoorPace, Etags, GatewayClassifier, Gh, GhApps, GpuCurl,
-    LocalReviewer, LoginToken, Openssl, PlaywrightPages, ShepLeases, StatDisk, SystemClock,
-    SystemGit, stop_calls,
+    LocalReviewer, LoginToken, Openssl, PlaywrightPages, ShepLeases, StatDisk, SystemGit,
+    stop_calls,
 };
 use crate::coderabbit::CodeRabbit;
 use crate::codex::Codex;
@@ -35,7 +35,7 @@ use crate::home::{ProjectName, ProjectPaths};
 use crate::lease::Epoch;
 use crate::lease::saved::BookFile;
 use crate::lease::wire::GRANT;
-use crate::ports::{Forge, Leases, Ports, Revalidated, Routed, SandboxError, Tickets};
+use crate::ports::{Forge, Leases, Ports, Revalidated, Routed, SandboxError, SystemClock, Tickets};
 use crate::runner::{ACTIONS, Pass, Posted, Runner, advance, answer, wakes};
 use crate::settings::Settings;
 use crate::shep_home;

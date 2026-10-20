@@ -100,7 +100,7 @@ impl Format {
     fn tool_part(self, name: &str) -> String {
         match self {
             Self::Claude => mcp_use::claude_tool_part(name),
-            Self::Pi => crate::adapters::pi_tool_prefix(name),
+            Self::Pi => crate::ports::mcp::tool_prefix(name),
         }
     }
 }
@@ -252,10 +252,7 @@ impl TranscriptCount {
     }
 
     fn count_mcp(&self, call: &AgentCall, format: Format, used: &McpUse) {
-        let given: Vec<String> = crate::adapters::mcp::servers(call)
-            .keys()
-            .cloned()
-            .collect();
+        let given: Vec<String> = crate::ports::mcp::servers(call).keys().cloned().collect();
         for name in &given {
             self.metrics.mcp_tool_calls(name, 0);
         }
@@ -313,7 +310,7 @@ impl Agents for TranscriptCount {
         let text = (self.file(call, format)).and_then(|file| std::fs::read_to_string(file).ok());
         if let Some(text) = text.filter(|text| text.len() as u64 > before) {
             let from = usize::try_from(before).unwrap_or(0);
-            if crate::adapters::mcp::loads(call) {
+            if crate::ports::mcp::loads(call) {
                 self.count_mcp(call, format, &format.read(&text, from));
             }
             self.count_requests(call, format, &text, from);

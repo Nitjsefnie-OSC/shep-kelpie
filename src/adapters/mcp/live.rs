@@ -7,13 +7,17 @@
 //! socket, which srt refuses on Linux (#488).
 
 use std::io::{BufRead, BufReader, Write};
+use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::mpsc;
 use std::time::Duration;
 
+use serde_json::{Value, json};
+
 use super::*;
 use crate::adapters::SandboxRuntime;
-use crate::ports::{Reach, Role, Sandbox, Session, SessionId, Tools as Kind};
+use crate::ports::mcp::entry;
+use crate::ports::{CodeGraph, Reach, Role, Sandbox, Session, SessionId, Tools as Kind};
 use crate::settings::{AgentHarness, Effort};
 use crate::tools::Tools;
 

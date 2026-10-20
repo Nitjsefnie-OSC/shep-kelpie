@@ -32,13 +32,12 @@ use shep_client::shep_core::status::ProcStatus;
 use shep_client::{EventStream, Lagged, ReconnectingClient};
 use tokio::sync::mpsc;
 
-use crate::adapters::SystemClock;
 use crate::agents::{self, Agents};
 use crate::home;
 use crate::lease::saved::{BookFile, SavedBook};
 use crate::lease::wire::{GRANT, grant_params};
 use crate::metrics::Recorder;
-use crate::ports::{Clock, LocalPace};
+use crate::ports::{Clock, LocalPace, SystemClock};
 use crate::review_bot::Reviewers;
 use crate::shep_home;
 use crate::webhook::KelpieSettings;

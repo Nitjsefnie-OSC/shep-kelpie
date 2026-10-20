@@ -2,8 +2,8 @@
 //! owner, installed on it, that mints a token
 
 use super::Line;
-use crate::github::{GithubApp, InstallationToken, TokenError};
-use crate::ports::Forge;
+use crate::github::{GithubApp, TokenError};
+use crate::ports::{Forge, InstallationToken};
 use crate::settings::{ForgeSlug, Settings};
 
 /// The line for who a ruling mentions, for a repo the App covers (`covered`,

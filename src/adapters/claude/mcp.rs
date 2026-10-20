@@ -11,8 +11,8 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
 
-use crate::adapters::mcp::{loads, servers};
 use crate::ports::AgentCall;
+use crate::ports::mcp::{loads, servers};
 
 /// Where the call's MCP config goes, beside its settings file
 pub(crate) fn mcp_file(settings: &Path) -> PathBuf {

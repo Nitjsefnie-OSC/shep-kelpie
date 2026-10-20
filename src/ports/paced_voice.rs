@@ -8,8 +8,10 @@ use std::fmt;
 use std::sync::Arc;
 
 use super::rate_limit::{FALLBACK, time_of};
-use super::{Clock, ForgeError, ForgeHold, LineComment, NewLabel, PostedComment, Say, Voice};
-use crate::github::InstallationToken;
+use super::{
+    Clock, ForgeError, ForgeHold, InstallationToken, LineComment, NewLabel, PostedComment, Say,
+    Voice,
+};
 use crate::settings::ForgeSlug;
 
 /// A voice whose calls wait their turn in the login's pace and fail at once

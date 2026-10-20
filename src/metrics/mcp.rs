@@ -17,7 +17,7 @@ const TOOL_CALLS: Family = Family {
 
 /// Kelpie's own MCP servers, each its own `server` label. A server the
 /// project names is `repo`, so the labels stay few.
-pub(crate) const OWN_SERVERS: [&str; 2] = [crate::adapters::mcp::SERVER, crate::bridge::SERVER];
+pub(crate) const OWN_SERVERS: [&str; 2] = [crate::ports::mcp::SERVER, crate::bridge::SERVER];
 
 impl Recorder {
     /// Counts the MCP server `name`, given to a call, which `connected` or not

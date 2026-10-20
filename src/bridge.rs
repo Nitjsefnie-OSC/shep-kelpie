@@ -1,7 +1,7 @@
 //! The browser's MCP server, reached over a Unix socket kelpie filters
 //!
 //! Chromium cannot start inside the sandbox, so the Playwright server runs
-//! beside it ([`crate::adapters`] holds the socket). The agent starts
+//! beside it (the adapters crate holds the socket). The agent starts
 //! `kelpie mcp-connect <socket>` in its place, which carries its stdio to the
 //! socket. Kelpie reads every message in both directions, because anything
 //! inside the sandbox can reach the socket, not only the agent. Only the MCP

@@ -11,7 +11,7 @@
 use std::io;
 use std::path::{Path, PathBuf};
 
-use crate::github::InstallationToken;
+use crate::ports::InstallationToken;
 use crate::worker_folder;
 
 // The account the token is kept under, and the user git sends with it. `gh`

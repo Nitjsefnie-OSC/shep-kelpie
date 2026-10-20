@@ -4,9 +4,8 @@ use std::fmt;
 use std::sync::Arc;
 use std::time::Instant;
 
-use super::{Clock, ForgeError, LineComment, NewLabel, PostedComment, Voice};
+use super::{Clock, ForgeError, InstallationToken, LineComment, NewLabel, PostedComment, Voice};
 use crate::forge_ledger::{Ended, Identity, Kind, Ledger};
-use crate::github::InstallationToken;
 use crate::settings::ForgeSlug;
 
 /// A voice whose calls are each added to the forge ledger as they end

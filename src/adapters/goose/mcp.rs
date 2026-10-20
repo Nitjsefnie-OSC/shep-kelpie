@@ -18,7 +18,7 @@ use std::ffi::OsString;
 use serde_json::Value;
 
 use super::files::Files;
-use crate::adapters::mcp::{SERVER, servers};
+use crate::ports::mcp::{SERVER, servers};
 use crate::ports::{AgentCall, AgentError, Session, Tools};
 
 /// goose's own extension, which a call that works runs under this name

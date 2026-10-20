@@ -14,8 +14,8 @@ use super::curl;
 use crate::github::api::{
     self, ApiError, Call, Conversion, GithubApi, Grant, Installation, IssuedToken, Signer, Verb,
 };
-use crate::github::tokens::{InstallationToken, Jwt};
-use crate::ports::{AlertError, Cooldown};
+use crate::github::tokens::Jwt;
+use crate::ports::{AlertError, Cooldown, InstallationToken};
 use crate::settings::ForgeSlug;
 
 const API: &str = "https://api.github.com";

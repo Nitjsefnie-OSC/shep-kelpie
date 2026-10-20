@@ -11,8 +11,10 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use super::{Etags, board, issue, pull_request, review, review_bot};
 use crate::board::{OpenPullRequest, ReadyIssue};
-use crate::github::{GithubApp, InstallationToken};
-use crate::ports::{AppForges, AppReads, ForgeError, Issue, PullRequest, Reading, Reviewed};
+use crate::github::GithubApp;
+use crate::ports::{
+    AppForges, AppReads, ForgeError, InstallationToken, Issue, PullRequest, Reading, Reviewed,
+};
 use crate::profile::{login_dir, write_login};
 use crate::review_bot::{Activity, Login};
 use crate::settings::ForgeSlug;

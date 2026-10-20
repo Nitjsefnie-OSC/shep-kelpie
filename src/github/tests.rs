@@ -11,7 +11,7 @@ use serde_json::json;
 use super::setup::{Flow, may_register, serve};
 use super::tokens::{Jwt, base64url, signing_input};
 use super::*;
-use crate::ports::{Cooldown, Cost, Timestamp, Usage};
+use crate::ports::{Cooldown, Cost, InstallationToken, Timestamp, Usage};
 use crate::runner::step;
 use crate::test::{Asked, CALL_PATIENCE, FakeClock, FakeGithub, FakeSigner, PEM, Rig, Scripted};
 
