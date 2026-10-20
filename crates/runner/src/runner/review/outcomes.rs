@@ -5,9 +5,9 @@
 //! ruling writes one entry; one that raises `FixNotPushed` writes none, since
 //! the worker gets another turn and the entry comes then.
 
-use super::Review;
 use super::disputes::{self, Answers};
 use super::findings::Sent;
+use super::{Review, checks};
 use crate::ports::Finding;
 use crate::runner::Runner;
 use crate::runner::retro::journal::{Entry, FindingOutcome, Outcome};
@@ -101,7 +101,17 @@ impl Runner {
         if outcomes.is_empty() {
             return Ok(());
         }
-        let count = |which| outcomes.iter().filter(|o| o.outcome == which).count();
+        // A finding a failing test sent the worker back to was counted by the
+        // round's first fix turn.
+        let fresh = (sent.findings.iter())
+            .filter(|f| !f.is_skipped_for_size())
+            .map(|f| !checks::was_sent_back(item, round, f));
+        let count = |which| {
+            let outcomes = outcomes.iter().zip(fresh.clone());
+            outcomes
+                .filter(|(o, fresh)| *fresh && o.outcome == which)
+                .count()
+        };
         let disputed = u32::try_from(count(Outcome::Disputed)).unwrap_or(u32::MAX);
         let deferred = u32::try_from(count(Outcome::Deferred)).unwrap_or(u32::MAX);
         self.update(|item| {

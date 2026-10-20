@@ -3,7 +3,7 @@
 
 use std::sync::Mutex;
 
-use crate::ports::{Finding, Severity};
+use crate::ports::{Finding, Severity, TestOutcome};
 use crate::runner::retro::journal::{self, Entry, FindingOutcome, Outcome};
 use crate::runner::review_bot::thread_replies;
 use crate::runner::{Runner, StepReport, step};
@@ -127,6 +127,49 @@ fn a_fix_turn_that_disputed_one_finding_and_deferred_two_raises_the_counters() {
 
     let counts = runner.lock().unwrap().current().unwrap().counts;
     assert_eq!((counts.disputed, counts.deferred), (1, 2));
+}
+
+// The second fix turn is sent the same finding again, with its worker files
+// as they were, and the finding was counted by the first.
+#[test]
+fn a_dispute_is_counted_once_when_a_failing_test_sends_the_worker_back_to_the_round() {
+    let rig = Rig::new("shep");
+    rig.test_command("cargo test --test {name}");
+    let runner = rig.open().unwrap();
+    rig.ask(&runner, "add", Some("7"));
+    rig.forge.open_pull_request(71, "kelpie/7", &[7]);
+    rig.claude.script([Scripted::Push("work.txt", "work\n")]);
+    step(&runner).unwrap(); // the worker's first turn
+    step(&runner).unwrap(); // round 1, qwen: clean by default
+    let failed = |output: &str| TestOutcome::Failed {
+        output: output.to_owned(),
+    };
+    rig.tests
+        .script([failed("before"), failed("after"), failed("again")]);
+    let line = "MEDIUM|src/lib.rs:3|the flag is read first|a caller sees nothing|tests/flag.rs";
+    rig.claude.script([Scripted::Attach(
+        "tests/flag.rs",
+        "#[test]\nfn flag_is_read() { assert!(false); }\n",
+        line,
+    )]);
+    step(&runner).unwrap(); // round 2, claude
+    step(&runner).unwrap(); // the findings sent
+    std::fs::write(
+        rig.build_7().join("disputed-findings.md"),
+        format!("{line}\n  the test asserts the wrong thing\n"),
+    )
+    .unwrap();
+    rig.claude.script([Scripted::Push("fixed.txt", "fixed\n")]);
+    step(&runner).unwrap(); // the worker's fix turn
+    step(&runner).unwrap(); // it settles, and the test fails still
+    let counted = |runner: &Mutex<Runner>| runner.lock().unwrap().current().unwrap().counts;
+    assert_eq!(counted(&runner).disputed, 1);
+
+    rig.claude.script([Scripted::Push("again.txt", "again\n")]);
+    step(&runner).unwrap(); // the second fix turn
+    step(&runner).unwrap(); // it settles on the same files
+
+    assert_eq!(counted(&runner).disputed, 1);
 }
 
 #[test]
