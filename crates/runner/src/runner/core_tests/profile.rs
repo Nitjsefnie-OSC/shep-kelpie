@@ -737,3 +737,33 @@ fn a_worker_that_opens_its_own_pull_request_is_told_to_open_it_against_the_base(
         "{default}"
     );
 }
+
+// A question raised before a pull request exists is posted on the issue, which
+// on a repo the maintainer does not own is noise, and the maintainer cannot
+// see the work it is about (#1037).
+#[test]
+fn the_instructions_ask_for_the_draft_pull_request_before_a_question_with_commits() {
+    let kelpie = Path::new("/bin/kelpie");
+    let own = instructions(kelpie, None);
+    let handed = instructions(kelpie, Some(Path::new("/build/pull-request.md")));
+    for text in [&own, &handed] {
+        assert!(
+            text.contains("or before you end on a question with commits made, push the branch"),
+            "{text}"
+        );
+        assert!(
+            text.contains(
+                "With commits made, push the branch and have the draft pull request open before you end on a question. With nothing to push, ask anyway."
+            ),
+            "{text}"
+        );
+    }
+    assert!(
+        own.contains("open a draft one with `gh pr create --draft"),
+        "{own}"
+    );
+    assert!(
+        handed.contains("Write the file before you end your turn, a question included"),
+        "{handed}"
+    );
+}
