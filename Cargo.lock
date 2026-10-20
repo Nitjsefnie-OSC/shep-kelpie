@@ -1014,6 +1014,30 @@ dependencies = [
 name = "shep-kelpie"
 version = "0.0.0"
 dependencies = [
+ "jiff",
+ "rustix",
+ "serde",
+ "serde-saphyr",
+ "serde_json",
+ "shep-channel",
+ "shep-client",
+ "shep-handover",
+ "shep-kelpie-core",
+ "shep-kelpie-facts",
+ "shep-kelpie-panel",
+ "shep-kelpie-process",
+ "shep-kelpie-test-support",
+ "shep-kelpie-trim",
+ "shep-kelpie-worker-folder",
+ "tempfile",
+ "tokio",
+ "toml 1.1.6+spec-1.1.0",
+]
+
+[[package]]
+name = "shep-kelpie-core"
+version = "0.0.0"
+dependencies = [
  "hmac",
  "jiff",
  "qrcode",
@@ -1023,9 +1047,7 @@ dependencies = [
  "serde-saphyr",
  "serde_json",
  "sha1",
- "shep-channel",
  "shep-client",
- "shep-handover",
  "shep-kelpie-facts",
  "shep-kelpie-panel",
  "shep-kelpie-process",

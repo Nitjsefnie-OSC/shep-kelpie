@@ -1,7 +1,8 @@
 #!/bin/sh
 # ADR 0014: a ticket is read and written through the `Tickets` port. Only a
 # source's own `Tickets` impl may put one on the forge, and each stands under
-# `src/ports` or `src/adapters`. Kelpie's App writes stay on `Voice`: which
+# `crates/core/src/ports`, `src/adapters` or `crates/core/src/local_tickets`.
+# Kelpie's App writes stay on `Voice`: which
 # identity writes is a GitHub concern. The rig's forge is also its tickets, so
 # a test may call these on `rig.forge` directly.
 # Scans every tracked or new `.rs` file under src/ and crates/*/src/ as a
@@ -11,7 +12,7 @@
 set -eu
 cd "$(git rev-parse --show-toplevel)"
 found=$(git ls-files -z --cached --others --exclude-standard -- 'src/*.rs' 'crates/*/src/*.rs' |
-  grep -zv '^src/ports/\|^src/adapters/\|^src/test/' |
+  grep -zv '^crates/core/src/ports/\|^src/adapters/\|^crates/core/src/local_tickets\|^crates/core/src/test/\|^src/test/' |
   xargs -0 perl -0777 -ne '
     my $method = qr{create_issue|close_issue_as|close_issue|set_issue_label};
     my $ask = qr{(?<!rig\.)forge\s*\)*\s*\.\s*$method\s*\(|\bForge\s*::\s*$method\s*\(};

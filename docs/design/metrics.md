@@ -4,15 +4,15 @@ Kelpie's numbers, live, on shep's metrics endpoint. ADR 0012, #920.
 
 ## Built
 
-- Runner and dog send channel samples (`shep_channel::Shepherd::metric_with`); shep's metrics dog serves them on `/metrics` (default `127.0.0.1:9615`) with the sender's labels first: `sheep` (the project), `id`, `fold` for a runner; `dog`, `source` for the dog. `src/metrics.rs`
-- Through the `Sink` port (`src/ports/metrics.rs`): the real one is the runner's `Shepherd`, a test holds `RecordedSink` and asserts the samples sent. Sending never blocks or fails; a full outbox drops a sample, and the next carries the total.
+- Runner and dog send channel samples (`shep_channel::Shepherd::metric_with`); shep's metrics dog serves them on `/metrics` (default `127.0.0.1:9615`) with the sender's labels first: `sheep` (the project), `id`, `fold` for a runner; `dog`, `source` for the dog. `crates/core/src/metrics.rs`
+- Through the `Sink` port (`crates/core/src/ports/metrics.rs`): the real one is the runner's `Shepherd`, a test holds `RecordedSink` and asserts the samples sent. Sending never blocks or fails; a full outbox drops a sample, and the next carries the total.
 - Counters are kept whole in kelpie's memory (`Recorder`) and each change sends the new total. A runner start begins them at zero, as Prometheus expects of a restart.
 - A runner sends at most `SERIES_CAP` (240) series, under the dog's 256 a sender; a new series past it is not sent and counts in `kelpie_series_dropped_total`, with one log line per name. The budget test drives every role on every harness it may use with every kind of call, which is 236 series once the failed tool calls' 39 are counted.
 - Names `kelpie_*`, snake case; counters end `_total`. Labels only from bounded sets: `role`, `kind`, `agent` and `effort` (named in settings), `harness`, `model`, `ended`, `account`, `window`, `phase`, `feature`, `outcome`, `type`, `tests`, `severity`, `le`, `after`, `server` (kelpie's own servers by name, any other `repo`). Never an issue, pull request, session or path.
 
 ## Series
 
-Calls, counted as each ledger line is appended (`Ledger::append`, `src/usage.rs`), the file written or not. Lines a stopping runner writes, imports and `shep kelpie issue`'s are not counted:
+Calls, counted as each ledger line is appended (`Ledger::append`, `crates/core/src/usage.rs`), the file written or not. Lines a stopping runner writes, imports and `shep kelpie issue`'s are not counted:
 
 - `kelpie_calls_total{role,kind,agent,harness,effort,ended}`: `agent` is the settings' name for it (`codex`, `coderabbit`, `qwen`), and `agent` and `effort` read `unknown` where the line has none (imported lines, a local round's effort)
 - `kelpie_tokens_total{role,agent,harness,model,effort,type}`: `type` is `input`, `output`, `cache_read`, `cache_write`
@@ -20,7 +20,7 @@ Calls, counted as each ledger line is appended (`Ledger::append`, `src/usage.rs`
 - `kelpie_compactions_total{role,harness}`: a compaction the harness did by itself partway through a call, from the ledger line's `compactions`. Claude Code: its compaction hook (`src/adapters/claude/settings.rs`) leaves a mark in the call's scratch folder, counted when the call ends; only a worker with a `compact_window` has the hook, and a call another image adopted counts none. pi: each `compaction_end` of a turn that made a summary. Kelpie's own `/compact` is `kind="compact"` in `kelpie_calls_total`, not here. Codex and goose: none yet
 - `kelpie_call_seconds_total{role,kind}`, beside `kelpie_calls_total` for a mean
 
-Plan limits: gauges the pacer sets whenever it reads an account's usage (`Runner::pace`, `src/runner/pace.rs`), not when the reading fails. `account` is `claude` or `codex` (`Account::as_str`). `src/metrics/plan.rs`
+Plan limits: gauges the pacer sets whenever it reads an account's usage (`Runner::pace`, `src/runner/pace.rs`), not when the reading fails. `account` is `claude` or `codex` (`Account::as_str`). `crates/core/src/metrics/plan.rs`
 
 - `kelpie_plan_used_ratio{account,window}`: `window` is `session` (5 hours) or `week`, 0 to 1
 - `kelpie_plan_resets_at_seconds{account,window}`: Unix seconds
@@ -34,7 +34,7 @@ Features: whether what a project turned on runs.
 - `kelpie_feature_runs_total{feature,outcome}`: `code_graph` index `ok`, `failed`, `skipped` (no binary), `ended` (call ended first). `src/runner/code_graph.rs`
 - `browser`: the bridge opened for a turn `ok`, `failed`, `skipped` (tools not installed). `src/runner/browser.rs`
 - `dev_server`: `ok` (answered within `READY_WITHIN`), `failed` (could not be planned or started, or silent), `skipped` (no launch file on `main`, or none configured). `src/runner/dev_server.rs`
-- `hooks`: each hook the runner runs, `ok` (exit 0 or a deliberate exit 2) or `failed`; no label per hook or point. The hooks carry the recorder (`Hooks::counted_by`); a `kelpie guard` or `kelpie confine` process has none, so the worker's own `commit`, `push` and `command` hooks are not counted. `src/hooks.rs`
+- `hooks`: each hook the runner runs, `ok` (exit 0 or a deliberate exit 2) or `failed`; no label per hook or point. The hooks carry the recorder (`Hooks::counted_by`); a `kelpie guard` or `kelpie confine` process has none, so the worker's own `commit`, `push` and `command` hooks are not counted. `crates/core/src/hooks.rs`
 - `KelpieFeatureNeverWorks` only counts a feature while `kelpie_feature_enabled` is 1.
 
 MCP servers, tool calls and requests are read from a call's transcript once it ends, and so are the reports of `shep kelpie usage`: `metrics-transcripts.md`.
@@ -50,7 +50,7 @@ The dog's series (leases, summons, the forge hold) are in `metrics-dog.md`.
 
 ## Backfill
 
-- `shep kelpie usage [<project>] --openmetrics` (`src/usage/openmetrics.rs`) prints the ledger's call and finished lines as OpenMetrics counters, each total stamped with its line's `at`, for `promtool tsdb create-blocks-from openmetrics`. The lines are replayed through an uncapped `Recorder`, so names and labels are the live ones, with `sheep` the project and no `id` or `fold`. Lines are taken oldest first, imported ones included, and the totals run from the ledger's first line, as a runner started then would send them. Two lines in one second leave the later total.
+- `shep kelpie usage [<project>] --openmetrics` (`crates/core/src/usage/openmetrics.rs`) prints the ledger's call and finished lines as OpenMetrics counters, each total stamped with its line's `at`, for `promtool tsdb create-blocks-from openmetrics`. The lines are replayed through an uncapped `Recorder`, so names and labels are the live ones, with `sheep` the project and no `id` or `fold`. Lines are taken oldest first, imported ones included, and the totals run from the ledger's first line, as a runner started then would send them. Two lines in one second leave the later total.
 
 ## Not built
 

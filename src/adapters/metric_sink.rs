@@ -4,7 +4,20 @@ use shep_channel::{MetricOptions, MetricType, Shepherd};
 
 use crate::ports::{Sample, SeriesKind, Sink};
 
-impl Sink for Shepherd {
+/// A runner's shepherd channel, as the sink its samples go to
+///
+/// A newtype: `Sink` and `Shepherd` both live in other crates.
+#[derive(Debug, Clone)]
+pub struct ShepherdSink(Shepherd);
+
+impl ShepherdSink {
+    /// The sink that sends on `shepherd`
+    pub fn new(shepherd: Shepherd) -> Self {
+        Self(shepherd)
+    }
+}
+
+impl Sink for ShepherdSink {
     fn send(&self, sample: &Sample) {
         let kind = match sample.kind {
             SeriesKind::Gauge => MetricType::Gauge,
@@ -14,6 +27,6 @@ impl Sink for Shepherd {
             MetricOptions::new().kind(kind).help(sample.help),
             |options, (key, value)| options.label(*key, value.clone()),
         );
-        self.metric_with(sample.name, sample.value, options);
+        self.0.metric_with(sample.name, sample.value, options);
     }
 }

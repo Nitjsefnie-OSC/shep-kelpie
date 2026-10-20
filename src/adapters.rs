@@ -65,6 +65,7 @@ pub use harness_mcp::HarnessFacts;
 pub use host::SystemHost;
 pub use leases::{Notes, ShepLeases};
 pub use local::LocalReviewer;
+pub use metric_sink::ShepherdSink;
 pub use pages::PlaywrightPages;
 pub use pi::{PI_MINIMUM, PiCli};
 pub use process::{Sealed, end_groups, feeding};

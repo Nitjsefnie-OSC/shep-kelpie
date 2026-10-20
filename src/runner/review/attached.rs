@@ -29,14 +29,7 @@ pub(in crate::runner) const READING_FOLDER: &str = "review-read";
 /// The tool a reviewer on `harness` writes its test with, or `None` when the
 /// fence cannot hold that harness's writes to a folder
 pub(in crate::runner) fn writing_tool(harness: Harness) -> Option<&'static str> {
-    match harness {
-        Harness::ClaudeCode => Some("Write"),
-        Harness::Pi => Some("write"),
-        Harness::Codex => Some("apply_patch"),
-        Harness::Goose => Some("write"),
-        #[cfg(test)]
-        Harness::StandIn => None,
-    }
+    harness.writing_tool()
 }
 
 /// Where a reviewer writes the tests for a work item whose build folder is `build`

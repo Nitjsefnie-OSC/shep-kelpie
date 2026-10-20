@@ -32,6 +32,7 @@ use shep_client::shep_core::status::ProcStatus;
 use shep_client::{EventStream, Lagged, ReconnectingClient};
 use tokio::sync::mpsc;
 
+use crate::adapters::ShepherdSink;
 use crate::agents::{self, Agents};
 use crate::home;
 use crate::lease::saved::{BookFile, SavedBook};
@@ -254,7 +255,7 @@ async fn serve() -> Result<(), String> {
     }
     println!("the book is {}", file.path().display());
     let settings = settings(&client).await?;
-    let metrics = Arc::new(Recorder::new(Arc::new(shepherd.clone())));
+    let metrics = Arc::new(Recorder::new(Arc::new(ShepherdSink::new(shepherd.clone()))));
     let mut kept = open(file, Box::new(SystemClock), windows(), metrics);
     let capacity = settings.leases.cargo_test_capacity();
     kept.desk.set_test_capacity(capacity);

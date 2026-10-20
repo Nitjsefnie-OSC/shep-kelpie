@@ -3,18 +3,13 @@
 use std::collections::VecDeque;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Condvar, Mutex};
-use std::time::Duration;
+use std::sync::{Arc, Mutex};
 
-use super::{FakeMeter, git, write_in};
+use super::{FakeMeter, Hold, git, write_in};
 use crate::ports::{
     Adopted, AgentCall, AgentError, AgentReply, Agents, CallActivity, Cost, Ending, Flying, Role,
     SessionId, Usage, Utilization, Wait,
 };
-
-/// How often a held call looks whether it was ended, as the real adapters
-/// look at their child
-const LOOK_EVERY: Duration = Duration::from_millis(5);
 
 /// The file a killed worker leaves in its worktree, to find after a restart
 pub(crate) const LEFT_BEHIND: &str = "left-behind.txt";
@@ -113,70 +108,6 @@ type Holding = (Option<crate::ticket::TicketId>, Option<Flying>);
 
 /// What is queued for one role's calls
 type RoleScript = (Role, VecDeque<Scripted>);
-
-/// A call in flight that a test lets go of when it chooses
-#[derive(Debug, Clone, Default)]
-pub(crate) struct Hold(Arc<(Mutex<Held>, Condvar)>);
-
-#[derive(Debug, Default)]
-struct Held {
-    entered: bool,
-    released: bool,
-    returned: bool,
-}
-
-impl Hold {
-    /// Waits up to `within` for the call to begin, and says whether it did
-    pub(crate) fn entered(&self, within: Duration) -> bool {
-        let (held, changed) = &*self.0;
-        let held = held.lock().unwrap();
-        let (held, _) = changed
-            .wait_timeout_while(held, within, |h| !h.entered)
-            .unwrap();
-        held.entered
-    }
-
-    /// Lets the call answer
-    pub(crate) fn release(&self) {
-        let (held, changed) = &*self.0;
-        held.lock().unwrap().released = true;
-        changed.notify_all();
-    }
-
-    /// Whether the call has answered
-    pub(crate) fn returned(&self) -> bool {
-        self.0.0.lock().unwrap().returned
-    }
-
-    /// Waits up to `within` for the call to answer, and says whether it did
-    pub(crate) fn answered(&self, within: Duration) -> bool {
-        let (held, changed) = &*self.0;
-        let held = held.lock().unwrap();
-        let (held, _) = changed
-            .wait_timeout_while(held, within, |h| !h.returned)
-            .unwrap();
-        held.returned
-    }
-
-    pub(crate) fn block(&self) {
-        self.block_unless(|| false);
-    }
-
-    /// Blocks until the test releases it, or until `ended` says the call
-    /// was ended first, and says whether it was released
-    pub(crate) fn block_unless(&self, ended: impl Fn() -> bool) -> bool {
-        let (held, changed) = &*self.0;
-        let mut held = held.lock().unwrap();
-        held.entered = true;
-        changed.notify_all();
-        while !held.released && !ended() {
-            held = changed.wait_timeout(held, LOOK_EVERY).unwrap().0;
-        }
-        held.returned = true;
-        changed.notify_all();
-        held.released
-    }
-}
 
 /// A call as the stand-in Claude saw it
 #[derive(Debug, Clone)]

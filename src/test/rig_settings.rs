@@ -5,8 +5,8 @@
 use std::sync::{Arc, Mutex};
 
 use super::{
-    NO_RETRO, RETRO_ON, RIG_REVIEWERS, RIG_REVIEWERS_AND_CODERABBIT, Rig, leased, project_table,
-    write_in,
+    LeaseReads, NO_RETRO, RETRO_ON, RIG_REVIEWERS, RIG_REVIEWERS_AND_CODERABBIT, Rig,
+    project_table, write_in,
 };
 use crate::ports::LocalLeases;
 use crate::runner::Runner;
@@ -240,15 +240,15 @@ impl Rig {
 
     /// Answers the gateway's lease reads with nothing, and counts them, so a
     /// test can say who asked the gateway
-    pub(crate) fn count_lease_reads(&self) -> Arc<leased::LeaseReads> {
-        let reads = Arc::new(leased::LeaseReads::default());
+    pub(crate) fn count_lease_reads(&self) -> Arc<LeaseReads> {
+        let reads = Arc::new(LeaseReads::default());
         *self.counted_leases.lock().unwrap() = Some(Arc::clone(&reads));
         reads
     }
 
     /// Answers the gateway's lease reads with `client` holding its model for
     /// `what`, so a test can see who a wake would be told holds it
-    pub(crate) fn lease_held_by(&self, client: &str, what: &str) -> Arc<leased::LeaseReads> {
+    pub(crate) fn lease_held_by(&self, client: &str, what: &str) -> Arc<LeaseReads> {
         let reads = self.count_lease_reads();
         reads.held_by(client, what);
         reads
