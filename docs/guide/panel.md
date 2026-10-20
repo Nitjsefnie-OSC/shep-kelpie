@@ -80,7 +80,7 @@ The type is what the worker wrote in the title, so two rules only ever raise the
 
 ```toml
 [app.dogs.kelpie.rulings]
-full_panel_paths = ["crates/core/src/guard/**", "crates/adapters/src/github/**", ".github/workflows/**", "crates/core/src/settings/**", "crates/core/src/state.rs"]
+full_panel_paths = ["crates/core/src/guard/**", "crates/adapters/src/github/**", ".github/workflows/**", "crates/core/src/settings/**", "crates/core/src/state/mod.rs"]
 ```
 
 The list above is a starting point for this repo: the guard, the forge calls, the workflows, the settings and the state file.

@@ -13,7 +13,7 @@ Review passes, bots, rulings. CI and the merge are in merge.md.
 - Reviewer = agent file on session harness (read-only), `command`, `endpoint` or `bot`; runs no commands (running tests found fewer bugs). #314
 - `paths` limit a reviewer to matching changes; every round reads `<base>...HEAD`. Gets issue title + acceptance criteria (4,000 bytes), so no whole-issue check. #314, #484
 - `defect-hunter` (Opus 5.5 high, maintainer's prompt verbatim) uses `second_look`. `add` lists `["qwen", "defect-hunter"]` where qwen script exists, else `["defect-hunter"]`. `agents/defect-hunter.md`, `src/flock/verbs.rs`
-- `standards` and `spec` (Opus 5.5 high, one read, no `second_look`) are the two axes of the vendored `code-review` skill, one agent each (no parallel sub-agents). Smells are `LOW`; `add` writes both and lists neither, and a project's `reviewers` list replaces the default, so it names `defect-hunter` too. They sit beside `defect-hunter`, which finds the behaviour defects they miss. `agents/standards.md`, `agents/spec.md`, `crates/core/src/agents.rs`. #363
+- `standards` and `spec` (Opus 5.5 high, one read, no `second_look`) are the two axes of the vendored `code-review` skill, one agent each (no parallel sub-agents). Smells are `LOW`; `add` writes both and lists neither, and a project's `reviewers` list replaces the default, so it names `defect-hunter` too. They sit beside `defect-hunter`, which finds the behaviour defects they miss. `agents/standards.md`, `agents/spec.md`, `crates/core/src/agents/mod.rs`. #363
 - Reviewer failing 3 times passed over; pass nobody read marks item unreviewed (API outage can't auto-merge). #314
 - Round reads only pushed head; dirty worktree gets one turn to push, then parks `unpushed` (CI and merge take `origin`'s head). #290
 - Merge trusts only heads a round read or kelpie sent to CI unread on purpose; others raise `unread_head`. #290
@@ -23,7 +23,7 @@ Review passes, bots, rulings. CI and the merge are in merge.md.
 - Local reviewers (`command`, `endpoint`), their lock and the rounds kept for replay: `local-review.md`. Kept 30 days by default; `local_rounds.keep = false` turns it off. #107, #145, #502, #849
 - One finding shape for every reviewer kind; bots are one provider with a tested profile each. #123
 - With `ci.test_command`, a reviewer on any harness may attach a failing test, held to `review-tests` in the build folder by `kelpie confine`: Claude Code `Write`, pi `write` (guard extension), goose `write` and Codex `apply_patch` (hooks; shells read only). The test runs before/after fix and is recorded. Still failing after the fix: worker gets one more fix turn on it (`sent_back` on the check), then `stuck` `test-still-fails`; yes = one more turn, no = check ends and pass goes on. Timeout or not run never acts. Public line names no output. #517, #518, #519
-- Deferred finding kelpie sent is filed after merge in kelpie's words (nits dropped); a disputed one never, even if also deferred. `git.issues`: `ask` (default, `follow-up` ruling), `file` (as `needs-triage`; auto-filed were often false), `skip`. #142, #380, #384, `runner/follow_up.rs`
+- Deferred finding kelpie sent is filed after merge in kelpie's words (nits dropped); a disputed one never, even if also deferred. `git.issues`: `ask` (default, `follow-up` ruling), `file` (as `needs-triage`; auto-filed were often false), `skip`. #142, #380, #384, `runner/follow_up/`
 
 ## Bots
 
@@ -32,7 +32,7 @@ Review passes, bots, rulings. CI and the merge are in merge.md.
 - Threads read until two reads agree (forge lists review before threads). #350
 - Worker marks each bot thread `fixed` or `declined`; kelpie replies and resolves fixed ones, worker never posts. #367, `crates/core/src/work_item/threads.rs`
 - Merge yes accepts the threads it named. #455
-- Writer comments and review threads (owner, member, collaborator; other Apps ignored and logged) read at round start, green CI and while a merge ruling waits, batched into one noted turn; ambiguous ones become a `question` ruling; replies as #367; a comment while a merge ruling waits withdraws it as `no <note>`; 3 rounds per item then a `question` ruling. #368, `runner/talk.rs`
+- Writer comments and review threads (owner, member, collaborator; other Apps ignored and logged) read at round start, green CI and while a merge ruling waits, batched into one noted turn; ambiguous ones become a `question` ruling; replies as #367; a comment while a merge ruling waits withdraws it as `no <note>`; 3 rounds per item then a `question` ruling. #368, `runner/talk/`
 - Bot passed over after far window, 2 silent hours or decline; re-read at green CI and every 5 min while merge ruling waits. #351, #399
 - Open bot threads above nit block `auto`; nits named apart, never block. #350, #351
 - Unheard summon resent once after 15 min, same lease. #122
@@ -42,12 +42,12 @@ Review passes, bots, rulings. CI and the merge are in merge.md.
 
 ## Rulings
 
-- Seven kinds: `merge`, `question`, `stuck` (reason), `agent-files`, `foreign-change`, `follow-up` (findings wait for a yes), `contribution` (with reason: `security`, `over-budget`, `question`, `waiting`, `no-edits`, `cannot-adopt`, `merge`; see `contribution-release.md`, `contribution-merge.md`). ADR 0006, #330, `runner/ruling.rs`
+- Seven kinds: `merge`, `question`, `stuck` (reason), `agent-files`, `foreign-change`, `follow-up` (findings wait for a yes), `contribution` (with reason: `security`, `over-budget`, `question`, `waiting`, `no-edits`, `cannot-adopt`, `merge`; see `contribution-release.md`, `contribution-merge.md`). ADR 0006, #330, `runner/ruling/`
 - A `contribution` ruling has no work item and posts nothing on the contributor's pull request (it would accuse them and tip off an attacker): webhook, `status` and `rule` only. It never goes to the panel either (`contribution-merge.md`, `github-app.md`). #620, #629, #630
 - Ruling = log line + `status` entry + webhook post, one question; `no <note>` is worker's next turn. #89
 - A ruling is named by its ticket id where the maintainer reads it: `#<pr>`, `#<issue>` before there is a pull request (a question waits for its draft, `workers.md`), or `k12` locally. The question, the webhook title, kelpie's GitHub comment and card and `status`'s `id` show it, and a reply starts with it. Counter ids are gone. #508, #509, #1010
 - `rule <ruling> <answer>` (`rule 427`, `rule k12`; one ruling per item within a project), refuses an answer older than the ruling. An answer file left under an old counter id is read once, then refused. #509. Each trigger is `shep kelpie <verb>`, project from folder unless `-p`. #119, #507
-- `rule` reaches a stopped runner via `<kelpie home>/<project>/answers/<ruling>` files applied next pass. `runner/trigger.rs`
+- `rule` reaches a stopped runner via `<kelpie home>/<project>/answers/<ruling>` files applied next pass. `runner/trigger/`
 - One webhook (`discord` or `ntfy`) until shep carries questions; URL is a credential, passed to `curl` on stdin. ADR 0005, #333, `crates/core/src/webhook.rs`
 - ntfy reply carries TOTP (RFC 6238): a code posted on the alert sat on the topic it guarded. #111
 - `shep kelpie totp`: secret under `<kelpie home>/totp/` (0700, 0600); every code seen in any post spent first; used steps hard-linked claims (runners agree); 5 wrong codes disable ntfy answers until `--unlock` at terminal. RFC 4226, #111

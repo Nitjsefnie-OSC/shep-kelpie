@@ -1,6 +1,6 @@
 # What each provider kelpie supports can do, one table per category.
 #
-# `crates/core/src/parity.rs` checks this file on every CI run:
+# `crates/core/src/parity/mod.rs` checks this file on every CI run:
 # - each category lists exactly the providers the code has;
 # - each row has a cell for every provider in its category;
 # - a code path that branches on some providers of a category names its row
@@ -188,9 +188,9 @@ goose = { cannot = "its guard is a Claude Code hook", doc = "docs/design/work.md
 [harness.pm]
 what = "Runs the project manager"
 claude-code = "yes"
-pi = { cannot = "a Claude Code hook holds its writes to its notes", doc = "crates/core/src/agents/front.rs", says = "a Claude Code hook is what holds its writes to its notes" }
-codex = { cannot = "a Claude Code hook holds its writes to its notes", doc = "crates/core/src/agents/front.rs", says = "a Claude Code hook is what holds its writes to its notes" }
-goose = { cannot = "a Claude Code hook holds its writes to its notes", doc = "crates/core/src/agents/front.rs", says = "a Claude Code hook is what holds its writes to its notes" }
+pi = { cannot = "a Claude Code hook holds its writes to its notes", doc = "crates/core/src/agents/front/mod.rs", says = "a Claude Code hook is what holds its writes to its notes" }
+codex = { cannot = "a Claude Code hook holds its writes to its notes", doc = "crates/core/src/agents/front/mod.rs", says = "a Claude Code hook is what holds its writes to its notes" }
+goose = { cannot = "a Claude Code hook holds its writes to its notes", doc = "crates/core/src/agents/front/mod.rs", says = "a Claude Code hook is what holds its writes to its notes" }
 
 [harness.guard-hooks]
 what = "Runs `worker.guard_hooks`"
@@ -230,9 +230,9 @@ goose = { cannot = "goose keeps the extensions a session began with and ends the
 [harness.tool-allow-list]
 what = "An agent file's `tools` names the tools a call may use"
 claude-code = "yes"
-pi = { cannot = "pi's tools follow the call's reach", doc = "crates/core/src/agents/front.rs", says = "only claude-code has an allow-list to name" }
-codex = { cannot = "Codex has no tool allow-list", doc = "crates/core/src/agents/front.rs", says = "only claude-code has an allow-list to name" }
-goose = { cannot = "goose has no tool allow-list", doc = "crates/core/src/agents/front.rs", says = "only claude-code has an allow-list to name" }
+pi = { cannot = "pi's tools follow the call's reach", doc = "crates/core/src/agents/front/mod.rs", says = "only claude-code has an allow-list to name" }
+codex = { cannot = "Codex has no tool allow-list", doc = "crates/core/src/agents/front/mod.rs", says = "only claude-code has an allow-list to name" }
+goose = { cannot = "goose has no tool allow-list", doc = "crates/core/src/agents/front/mod.rs", says = "only claude-code has an allow-list to name" }
 
 [harness.local-model]
 what = "Runs on a model an OpenAI-compatible server or a gateway serves"

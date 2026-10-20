@@ -42,7 +42,7 @@ The pull request opened at 16:51 UTC and merged at 18:59, about two hours later:
 - CI failed twice: `docs` and `test` on the first head, `docs` again on the second (the design area went over its size cap)
 - one more turn hit the ceiling, after a compaction failed with `generation hit the token cap and the summary is incomplete`. Another ruling, and another advisor and researcher call
 - two review rounds: the Codex bot found one high and one medium, then defect-hunter-lite found one low. Each took one fix turn
-- all three findings sit in local-ticket handling the issue did not ask for: two in `src/flock/rule.rs` (`rule` taking ticket ids, from the worker's own decisions list) and one in `crates/runner/src/runner/browser.rs`
+- all three findings sit in local-ticket handling the issue did not ask for: two in `src/flock/rule/mod.rs` (`rule` taking ticket ids, from the worker's own decisions list) and one in `crates/runner/src/runner/browser.rs`
 
 Three findings on a 7,466-line diff is little review for its size. Whether that means the change was sound or the reviewers could not hold it is for the escape count to say, once fixes have had a week to land.
 

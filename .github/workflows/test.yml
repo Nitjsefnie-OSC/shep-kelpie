@@ -73,7 +73,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      # The version in `SHEP_VERSION` (crates/core/src/shepherd.rs) and Cargo.toml.
+      # The version in `SHEP_VERSION` (crates/core/src/shepherd/mod.rs) and Cargo.toml.
       SHEP_VERSION: 0.15.0
       KELPIE_TEST_SHEP: ${{ github.workspace }}/.shep/shep
     steps:
@@ -113,7 +113,7 @@ jobs:
       # bubblewrap needs to build the sandbox.
       - name: Allow unprivileged user namespaces
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-      # What `Tools::install` (crates/process/src/tools.rs) does: the pinned
+      # What `Tools::install` (crates/process/src/tools/mod.rs) does: the pinned
       # package.json, then `npm install` beside it.
       - name: Install the pinned srt
         run: |
