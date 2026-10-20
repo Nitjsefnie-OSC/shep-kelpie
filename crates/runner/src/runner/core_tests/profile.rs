@@ -748,12 +748,12 @@ fn the_instructions_ask_for_the_draft_pull_request_before_a_question_with_commit
     let handed = instructions(kelpie, Some(Path::new("/build/pull-request.md")));
     for text in [&own, &handed] {
         assert!(
-            text.contains("or before you end on a question with commits made, push the branch"),
+            text.contains("or before a question with commits made, push the branch"),
             "{text}"
         );
         assert!(
             text.contains(
-                "With commits made, push the branch and have the draft pull request open before you end on a question. With nothing to push, ask anyway."
+                "With commits made, push and have the draft pull request open before a question; with nothing to push, ask anyway."
             ),
             "{text}"
         );
