@@ -20,7 +20,7 @@ Calls, counted as each ledger line is appended (`Ledger::append`, `crates/core/s
 - `kelpie_compactions_total{role,harness}`: a compaction the harness did by itself partway through a call, from the ledger line's `compactions`. Claude Code: its compaction hook (`crates/adapters/src/adapters/claude/settings.rs`) leaves a mark in the call's scratch folder, counted when the call ends; only a worker with a `compact_window` has the hook, and a call another image adopted counts none. pi: each `compaction_end` of a turn that made a summary. Kelpie's own `/compact` is `kind="compact"` in `kelpie_calls_total`, not here. Codex and goose: none yet
 - `kelpie_call_seconds_total{role,kind}`, beside `kelpie_calls_total` for a mean
 
-Plan limits: gauges the pacer sets whenever it reads an account's usage (`Runner::pace`, `src/runner/pace.rs`), not when the reading fails. `account` is `claude` or `codex` (`Account::as_str`). `crates/core/src/metrics/plan.rs`
+Plan limits: gauges the pacer sets whenever it reads an account's usage (`Runner::pace`, `runner/pace.rs`), not when the reading fails. `account` is `claude` or `codex` (`Account::as_str`). `crates/core/src/metrics/plan.rs`
 
 - `kelpie_plan_used_ratio{account,window}`: `window` is `session` (5 hours) or `week`, 0 to 1
 - `kelpie_plan_resets_at_seconds{account,window}`: Unix seconds
@@ -31,9 +31,9 @@ Work items (phases, how they ended, review rounds, findings, red CI heads) are i
 Features: whether what a project turned on runs.
 
 - `kelpie_feature_enabled{feature}` gauge (1 or 0) at open and each reread: `code_graph`, `browser`, `dev_server` (browser on and `main`'s launch file selects a configuration), `hooks`
-- `kelpie_feature_runs_total{feature,outcome}`: `code_graph` index `ok`, `failed`, `skipped` (no binary), `ended` (call ended first). `src/runner/code_graph.rs`
-- `browser`: the bridge opened for a turn `ok`, `failed`, `skipped` (tools not installed). `src/runner/browser.rs`
-- `dev_server`: `ok` (answered within `READY_WITHIN`), `failed` (could not be planned or started, or silent), `skipped` (no launch file on `main`, or none configured). `src/runner/dev_server.rs`
+- `kelpie_feature_runs_total{feature,outcome}`: `code_graph` index `ok`, `failed`, `skipped` (no binary), `ended` (call ended first). `runner/code_graph.rs`
+- `browser`: the bridge opened for a turn `ok`, `failed`, `skipped` (tools not installed). `runner/browser.rs`
+- `dev_server`: `ok` (answered within `READY_WITHIN`), `failed` (could not be planned or started, or silent), `skipped` (no launch file on `main`, or none configured). `runner/dev_server.rs`
 - `hooks`: each hook the runner runs, `ok` (exit 0 or a deliberate exit 2) or `failed`; no label per hook or point. The hooks carry the recorder (`Hooks::counted_by`); a `kelpie guard` or `kelpie confine` process has none, so the worker's own `commit`, `push` and `command` hooks are not counted. `crates/core/src/hooks.rs`
 - `KelpieFeatureNeverWorks` only counts a feature while `kelpie_feature_enabled` is 1.
 

@@ -133,7 +133,7 @@ impl Feature {
 
 /// Whether the tests that failed a work item's CI are ones its worker could have
 /// run in its own sandbox, which decides whether the worker could have caught the
-/// failure. `src/runner/ci_failure.rs` reads it from the failed runs' logs.
+/// failure. `crates/runner/src/runner/ci_failure.rs` reads it from the failed runs' logs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CiTests {
     /// Every failing test is one `docs/agents/sandbox-red-tests.md` lists as red in

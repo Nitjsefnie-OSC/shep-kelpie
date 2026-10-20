@@ -40,7 +40,7 @@ pub struct Counts {
 }
 
 /// A work item's red heads, by whether its worker could have run the tests
-/// that failed (`src/runner/ci_failure.rs`)
+/// that failed (`crates/runner/src/runner/ci_failure.rs`)
 // wire format: changing this is a breaking change to the state file and the
 // usage ledger
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]

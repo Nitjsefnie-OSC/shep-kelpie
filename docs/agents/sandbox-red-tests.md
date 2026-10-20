@@ -1,6 +1,6 @@
 # Tests a worker's sandbox cannot run
 
-A worker's sandbox binds no port by design (`a_worker_binds_no_port` in `src/runner/core_tests/profile.rs`), so some tests fail inside it and pass in CI. A red run of these in a worker is expected. It is not a bug in your change.
+A worker's sandbox binds no port by design (`a_worker_binds_no_port` in `crates/runner/src/runner/core_tests/profile.rs`), so some tests fail inside it and pass in CI. A red run of these in a worker is expected. It is not a bug in your change.
 
 - Run what can run: `cargo test --lib <module path>` on the modules you changed.
 - Name in the pull request body the tests only CI ran.
@@ -11,9 +11,9 @@ A worker's sandbox binds no port by design (`a_worker_binds_no_port` in `src/run
 
 The doctor, flock, dog (`left_over`), `lease::cli`, sheep, shepherd and upgrade tests run in a worker: they dial `FakeShepherd`, which answers in memory through the `Dial` port, and `lease::cli::e2e` reads the dog's answers off a connected pair of streams. What is listed below binds on purpose or for a reason of its own.
 
-Measured with `cargo test --lib` in a worker, before #861: 150 of 3236 tests fail, 3069 pass, 17 are ignored. #861 adds tests that fail there for the reasons below (`adapters::dev_server`, the dev-origin tests of `adapters::bridge::proxy`, 5 of `runner::turn::tests::dev_server`) and has not re-measured the totals. A module's name covers its child modules. A listed module that lives in a crate under `crates/` (`shepherd::connection` in `crates/core`, `adapters::*` and `github` in `crates/adapters`, `dog::*` in `crates/dog`) runs under that crate's `cargo test -p <package> --lib`, and a bare `cargo test --lib` covers it too.
+Measured with `cargo test --lib` in a worker, before #861: 150 of 3236 tests fail, 3069 pass, 17 are ignored. #861 adds tests that fail there for the reasons below (`adapters::dev_server`, the dev-origin tests of `adapters::bridge::proxy`, 5 of `runner::turn::tests::dev_server`) and has not re-measured the totals. A module's name covers its child modules. A listed module that lives in a crate under `crates/` (`shepherd::connection` in `crates/core`, `adapters::*` and `github` in `crates/adapters`, `dog::*` in `crates/dog`, `runner::*` in `crates/runner`) runs under that crate's `cargo test -p <package> --lib`, and a bare `cargo test --lib` covers it too.
 
-An entry whose parenthesis begins `some:` lists only part of the module: kelpie cannot tell which of its tests a worker cannot run. An entry with no such parenthesis, or one whose parenthesis says all, covers the module whole, and an entry listed whole in any row is whole. `kelpie_ci_failures_total` reads this table: only a whole entry makes a failing test in it `sandbox-only`, and a failing test in a `some:` entry counts as one the worker could have run. `SANDBOX_RED` in `src/runner/ci_failure.rs` holds the whole entries, and `the_doc_and_the_list_agree` fails when the two part ways.
+An entry whose parenthesis begins `some:` lists only part of the module: kelpie cannot tell which of its tests a worker cannot run. An entry with no such parenthesis, or one whose parenthesis says all, covers the module whole, and an entry listed whole in any row is whole. `kelpie_ci_failures_total` reads this table: only a whole entry makes a failing test in it `sandbox-only`, and a failing test in a `some:` entry counts as one the worker could have run. `SANDBOX_RED` in `crates/runner/src/runner/ci_failure.rs` holds the whole entries, and `the_doc_and_the_list_agree` fails when the two part ways.
 
 | Reason | Modules |
 |---|---|
@@ -37,6 +37,6 @@ Of the sites that used `tempdir_in("/tmp")`:
 
 A change that moves a test into or out of this list updates the table in the same pull request. A new test that binds a socket or a port belongs in the table when it lands.
 
-The table is also what `kelpie_ci_failures_total` counts a red run on: `SANDBOX_RED` in `src/runner/ci_failure.rs` holds the table's whole entries, and `the_doc_and_the_list_agree` fails when the two part ways. A whole entry added to the table and not to the list, or the other way round, is a failing test, not a note. A `some:` entry belongs in the table and not in the list: it says the module is red in part, which is not enough to call a failing test in it one a worker could not run.
+The table is also what `kelpie_ci_failures_total` counts a red run on: `SANDBOX_RED` in `crates/runner/src/runner/ci_failure.rs` holds the table's whole entries, and `the_doc_and_the_list_agree` fails when the two part ways. A whole entry added to the table and not to the list, or the other way round, is a failing test, not a note. A `some:` entry belongs in the table and not in the list: it says the module is red in part, which is not enough to call a failing test in it one a worker could not run.
 
 The list is of this crate's modules, so kelpie uses it only on this repo. On a project kelpie holds no list of, every failing test of a red run counts as one its worker could have run, and `sandbox-only` is never used there. Giving another project a list of its own is unbuilt.

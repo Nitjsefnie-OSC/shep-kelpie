@@ -10,6 +10,7 @@ default-members = [
     "crates/facts",
     "crates/panel",
     "crates/process",
+    "crates/runner",
     "crates/test_support",
     "crates/trim",
     "crates/worker_folder",
@@ -39,6 +40,7 @@ shep-kelpie-dog = { path = "crates/dog" }
 shep-kelpie-facts = { path = "crates/facts" }
 shep-kelpie-panel = { path = "crates/panel" }
 shep-kelpie-process = { path = "crates/process" }
+shep-kelpie-runner = { path = "crates/runner" }
 shep-kelpie-test-support = { path = "crates/test_support" }
 shep-kelpie-trim = { path = "crates/trim" }
 shep-kelpie-worker-folder = { path = "crates/worker_folder" }
@@ -95,8 +97,7 @@ shep-kelpie-dog.workspace = true
 shep-kelpie-facts.workspace = true
 shep-kelpie-panel.workspace = true
 shep-kelpie-process.workspace = true
-shep-kelpie-trim.workspace = true
-shep-kelpie-worker-folder.workspace = true
+shep-kelpie-runner.workspace = true
 jiff.workspace = true
 rustix.workspace = true
 serde.workspace = true
@@ -111,8 +112,8 @@ toml.workspace = true
 [dev-dependencies]
 shep-kelpie-adapters = { workspace = true, features = ["test-support"] }
 shep-kelpie-core = { workspace = true, features = ["test-support"] }
+shep-kelpie-runner = { workspace = true, features = ["test-support"] }
 shep-kelpie-test-support.workspace = true
-shep-kelpie-trim = { workspace = true, features = ["test-support"] }
 # Only for the fake shepherds the tests run against
 shep-client = { workspace = true, features = ["test-support"] }
 # Only for throwaway homes and repos in tests

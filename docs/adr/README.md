@@ -78,7 +78,7 @@ Worker retros of 10 to 12 October 2026 kept proposing these. The maintainer turn
 - point `TMPDIR` under the build folder so socket tests bind: the bind is denied, not the path
 - mark tests the sandbox cannot run `#[ignore]`: CI never runs ignored tests, so coverage is lost
 - drop review findings in files outside the branch's diff: real findings sit there
-- forbid `std::fs` in `src/runner` with clippy: kelpie's own folders use it legitimately
+- forbid `std::fs` in `crates/runner/src/runner` with clippy: kelpie's own folders use it legitimately
 - a `just` recipe or test script beside the documented cargo commands: a second command shape
 - `cargo deny` or `cargo tree -d` for duplicate crates: upkeep for one incident
 - file a worker's own out-of-scope findings as issues in its words (13 October): worker-written text would reach a public issue unchecked. A worker's own find goes in its final message, where the project manager's batch retro reads it

@@ -1028,9 +1028,8 @@ dependencies = [
  "shep-kelpie-facts",
  "shep-kelpie-panel",
  "shep-kelpie-process",
+ "shep-kelpie-runner",
  "shep-kelpie-test-support",
- "shep-kelpie-trim",
- "shep-kelpie-worker-folder",
  "tempfile",
  "tokio",
  "toml 1.1.6+spec-1.1.0",
@@ -1124,6 +1123,25 @@ dependencies = [
  "shep-kelpie-test-support",
  "tempfile",
  "tokio",
+]
+
+[[package]]
+name = "shep-kelpie-runner"
+version = "0.0.0"
+dependencies = [
+ "jiff",
+ "serde",
+ "serde_json",
+ "shep-kelpie-adapters",
+ "shep-kelpie-core",
+ "shep-kelpie-facts",
+ "shep-kelpie-panel",
+ "shep-kelpie-process",
+ "shep-kelpie-test-support",
+ "shep-kelpie-trim",
+ "shep-kelpie-worker-folder",
+ "tempfile",
+ "toml 1.1.6+spec-1.1.0",
 ]
 
 [[package]]

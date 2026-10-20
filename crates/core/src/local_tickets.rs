@@ -27,6 +27,7 @@ use crate::ticket::TicketId;
 
 mod file;
 mod routed;
+pub mod verb;
 
 /// Why a local ticket cannot be read or written
 #[derive(Debug)]
