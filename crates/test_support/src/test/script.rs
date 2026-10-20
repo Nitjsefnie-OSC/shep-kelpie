@@ -56,3 +56,98 @@ pub fn make_fifo(path: &Path) {
         .unwrap();
     assert!(made.success(), "mkfifo {}: {made}", path.display());
 }
+
+/// Shell text that waits for `marker` to exist
+///
+/// Ends when the marker exists, when the script's parent (`$PPID`) is gone,
+/// or after `within`, so a stub left running by a test that failed or was
+/// killed ends by itself. The bound counts 20 ms sleeps and so runs a little
+/// over `within`. Put it where the script would loop on the marker.
+pub fn waits_for(marker: &Path, within: Duration) -> String {
+    const NAP_MS: u128 = 20;
+    let naps = within.as_millis().div_ceil(NAP_MS);
+    let marker = marker.display().to_string().replace('\'', "'\\''");
+    format!(
+        "naps=0; while [ ! -e '{marker}' ] && kill -0 $PPID 2>/dev/null && [ $naps -lt {naps} ]; \
+         do sleep 0.02; naps=$((naps + 1)); done"
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test::short_tempdir;
+    use std::process::Child;
+    use std::time::Instant;
+
+    const ENDS_BY: Duration = Duration::from_secs(5);
+
+    fn waiting_stub(dir: &Path, marker: &Path, within: Duration) -> std::path::PathBuf {
+        let stub = dir.join("stub");
+        let body = format!(
+            "#!/bin/sh\n{}\ntouch {}\n",
+            waits_for(marker, within),
+            dir.join("ended").display()
+        );
+        write_script(&stub, &body);
+        stub
+    }
+
+    fn ends_within(child: &mut Child, limit: Duration) -> bool {
+        let deadline = Instant::now() + limit;
+        while Instant::now() < deadline {
+            if child.try_wait().unwrap().is_some() {
+                return true;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        false
+    }
+
+    #[test]
+    fn a_waiting_stub_ends_once_its_marker_exists() {
+        let dir = short_tempdir();
+        let marker = dir.path().join("go");
+        let stub = waiting_stub(dir.path(), &marker, Duration::from_secs(60));
+        let mut child = Command::new(&stub).spawn().unwrap();
+
+        std::thread::sleep(Duration::from_millis(200));
+        assert!(child.try_wait().unwrap().is_none());
+        std::fs::write(&marker, "").unwrap();
+
+        assert!(ends_within(&mut child, ENDS_BY));
+        assert!(dir.path().join("ended").exists());
+    }
+
+    #[test]
+    fn a_waiting_stub_ends_when_its_parent_is_gone() {
+        let dir = short_tempdir();
+        let marker = dir.path().join("go");
+        let stub = waiting_stub(dir.path(), &marker, Duration::from_secs(60));
+
+        let parent = Command::new("sh")
+            .arg("-c")
+            .arg(format!("{} &", stub.display()))
+            .status()
+            .unwrap();
+        assert!(parent.success());
+
+        let deadline = Instant::now() + ENDS_BY;
+        while !dir.path().join("ended").exists() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(dir.path().join("ended").exists());
+    }
+
+    #[test]
+    fn a_waiting_stub_ends_when_its_bound_passes_with_no_marker() {
+        let dir = short_tempdir();
+        let marker = dir.path().join("go");
+        let stub = waiting_stub(dir.path(), &marker, Duration::from_millis(300));
+        let mut child = Command::new(&stub).spawn().unwrap();
+
+        assert!(ends_within(&mut child, ENDS_BY));
+        assert!(dir.path().join("ended").exists());
+        assert!(!marker.exists());
+    }
+}

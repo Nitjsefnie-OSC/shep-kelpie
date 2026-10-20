@@ -275,9 +275,9 @@ async fn a_dog_that_moved_during_the_build_stops_the_upgrade_before_anything_is_
     write_script(
         &slow,
         &format!(
-            "#!/bin/sh\ntouch {}\nwhile [ ! -f {} ]; do sleep 0.02; done\n{}",
+            "#!/bin/sh\ntouch {}\n{}\n{}",
             started.display(),
-            gate.display(),
+            waits_for(&gate, CALL_PATIENCE),
             answer.trim_start_matches("#!/bin/sh\n")
         ),
     );
