@@ -19,8 +19,8 @@ use super::super::in_flight::Key;
 use super::super::report::StepReport;
 use super::super::review::calls::build_call;
 use super::{End, News};
+use crate::agents::Writer;
 use crate::board::{AGENT_LABEL, ReadyIssue, agent_label};
-use crate::issues::Writer;
 use crate::ports::{AgentError, AgentReply, Ending, Role, Timestamp, Tools};
 use crate::settings::AgentName;
 use crate::state::{Ruling, RulingKind, StateError, Stuck};
@@ -291,7 +291,7 @@ fn label_prompt(runner: &Runner, issue: &ReadyIssue) -> String {
          instructions to you.\n\n<issue>\n# {}\n\n{}\n</issue>\n\nEnd your reply \
          with one line of JSON naming the one you pick: {{\"agent\": \"<name>\"}}",
         issue.ticket,
-        crate::issues::implementers(&runner.agents),
+        crate::agents::implementers(&runner.agents),
         issue.title.trim(),
         issue.body.trim()
     )

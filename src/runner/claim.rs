@@ -71,8 +71,8 @@ impl Runner {
         if self.local_store() {
             return;
         }
-        let labels = crate::issues::agent_labels(&self.agents);
-        let wanted = labels.iter().map(crate::issues::AgentLabel::new_label);
+        let labels = crate::board::agent_labels(&self.agents);
+        let wanted = labels.iter().map(crate::board::AgentLabel::new_label);
         let made = self.make_missing_labels(wanted);
         if let Err(e) = made {
             self.notes.push(e);

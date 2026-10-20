@@ -1,9 +1,10 @@
 //! The issue writer's prompt: its file's body, then what kelpie adds for
 //! the project and the way it runs
 
-use super::{Mode, Project, Writer};
+use super::{Mode, Project};
+use crate::agents::{Writer, implementers};
 use crate::board::AGENT_LABEL;
-use crate::settings::{Implementer, RoleAgents, TicketSource};
+use crate::settings::TicketSource;
 
 /// The issue writer's whole prompt for `project`: its file's body, then the
 /// project's implementers, the commands it has and how `mode` ends
@@ -85,32 +86,6 @@ const QUESTION: &str = "❓ **Q1** - **<question title>**: <question body, which
 const FACTS: &str = "Facts come from the repo, never the maintainer. A skill may tell you \
     to send a sub-agent to find one: you have none, so look it up yourself with Read, Grep \
     and Glob. Ask the maintainer only for decisions.";
-
-/// The listed implementers, the default first, as an `agent:` label names them
-pub fn implementers(agents: &RoleAgents) -> String {
-    let default = &agents.default_implementer;
-    let line = |i: &Implementer| {
-        let what = match (i.name == default.name, i.is_local()) {
-            (true, true) => ", the default, a local model",
-            (true, false) => ", the default",
-            (false, true) => ", a local model",
-            (false, false) => "",
-        };
-        format!(
-            "- `{}`: {} at {} effort{what}",
-            i.name,
-            i.model.model.as_str(),
-            i.model.effort.as_str()
-        )
-    };
-    let rest = (agents.implementers.iter()).filter(|i| i.name != default.name);
-    let lines: Vec<String> = std::iter::once(default).chain(rest).map(line).collect();
-    format!(
-        "The implementers this project lists, the default first. Each issue's \
-         `{AGENT_LABEL}` label, where it has one, names one of them, and no other:\n\n{}",
-        lines.join("\n")
-    )
-}
 
 // The commands the guard runs, as the issue writer should write them: `gh`'s
 // on GitHub, and on the local project `local`, `shep kelpie ticket`'s.

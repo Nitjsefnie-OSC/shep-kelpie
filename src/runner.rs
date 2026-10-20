@@ -967,7 +967,7 @@ pub(crate) fn check_checkout(settings: &Settings) -> Result<ForgeSlug, SettingsE
         return Ok(remote.clone());
     }
     let url = String::from_utf8_lossy(&origin.stdout).trim().to_owned();
-    crate::flock::forge_of(&url).ok_or_else(|| SettingsError::Invalid {
+    crate::settings::forge_of(&url).ok_or_else(|| SettingsError::Invalid {
         setting: "git.remote",
         reason: "it is not set, and the checkout's `origin` is not a GitHub repo over HTTPS \
                  or SSH: set it to the repo as `owner/name`"

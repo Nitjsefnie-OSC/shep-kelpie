@@ -3,6 +3,7 @@ use serde_json::{Value, json};
 use std::sync::Arc;
 
 use super::*;
+use crate::agents::Agents;
 use crate::local_tickets::{LocalTickets, Routed};
 use crate::test::{Rig, Scripted, git, write_in, write_script};
 

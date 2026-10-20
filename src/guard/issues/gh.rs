@@ -3,9 +3,9 @@
 use super::ledger::Ledger;
 use super::{IssueRules, ONLY, PLAIN, heredoc_body, is_heredoc, plain};
 use crate::board::AGENT_LABEL;
+use crate::board::has_criteria;
 use crate::guard::{Home, SHOWN_CHARS, WRITE};
 use crate::hooks::Role;
-use crate::issues::has_criteria;
 
 // The labels that say where an issue stands for kelpie. Only the one the
 // rules name may go on.

@@ -14,7 +14,7 @@ use self::card::ruling_comment;
 use super::Runner;
 use super::gate::short;
 use super::ruling::stuck_comment;
-use crate::issues::make_missing_with;
+use crate::board::make_missing_with;
 use crate::ports::{Finding, ForgeError, NewLabel, Severity};
 use crate::settings::TicketSource;
 use crate::state::{Heard, MergeNotice, ProjectState, Ruling, RulingKind};

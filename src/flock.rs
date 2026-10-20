@@ -32,7 +32,7 @@ use shep_client::shep_core::protocol::{Request, SelectorSpec};
 use shep_client::shep_core::status::ProcStatus;
 
 use crate::home::ProjectName;
-use crate::settings::ForgeSlug;
+use crate::settings::{ForgeSlug, forge_of};
 use crate::shepherd::{Connection, DOG};
 
 /// A git checkout, and the forge repo its `origin` remote names
@@ -93,21 +93,6 @@ pub(crate) fn git_in(folder: &Path) -> std::process::Command {
     }
     git.arg("-C").arg(folder);
     git
-}
-
-/// The GitHub repo a remote's URL names, over HTTPS or SSH
-pub fn forge_of(url: &str) -> Option<ForgeSlug> {
-    let path = [
-        "https://github.com/",
-        "http://github.com/",
-        "ssh://git@github.com/",
-        "git@github.com:",
-    ]
-    .iter()
-    .find_map(|prefix| url.strip_prefix(prefix))?;
-    let path = path.trim_end_matches('/');
-    let path = path.strip_suffix(".git").unwrap_or(path);
-    ForgeSlug::try_from(path.to_owned()).ok()
 }
 
 /// What kelpie's sheep are started with
@@ -350,19 +335,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_github_remote_names_its_repo_over_https_or_ssh() {
-        for url in [
-            "https://github.com/shep-pm/koji-website.git",
-            "https://github.com/shep-pm/koji-website",
-            "git@github.com:shep-pm/koji-website.git",
-            "ssh://git@github.com/shep-pm/koji-website/",
-        ] {
-            let slug = forge_of(url).unwrap_or_else(|| panic!("{url}"));
-            assert_eq!(slug.as_str(), "shep-pm/koji-website", "{url}");
-        }
-    }
-
-    #[test]
     fn a_checkout_is_its_top_folder_and_origin_s_repo() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().canonicalize().unwrap();
@@ -392,18 +364,6 @@ mod tests {
         let outside = tempfile::tempdir().unwrap();
         let err = Checkout::of(outside.path()).unwrap_err();
         assert!(err.ends_with("is not in a git checkout"), "{err}");
-    }
-
-    #[test]
-    fn a_remote_elsewhere_names_no_repo() {
-        for url in [
-            "https://gitlab.com/a/b.git",
-            "/srv/git/b.git",
-            "https://github.com/a",
-            "https://github.com/a/b/c",
-        ] {
-            assert_eq!(forge_of(url), None, "{url}");
-        }
     }
 
     #[test]

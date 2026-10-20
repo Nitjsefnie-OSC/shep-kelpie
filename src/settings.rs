@@ -678,6 +678,21 @@ impl TryFrom<String> for ForgeSlug {
     }
 }
 
+/// The GitHub repo a remote's URL names, over HTTPS or SSH
+pub fn forge_of(url: &str) -> Option<ForgeSlug> {
+    let path = [
+        "https://github.com/",
+        "http://github.com/",
+        "ssh://git@github.com/",
+        "git@github.com:",
+    ]
+    .iter()
+    .find_map(|prefix| url.strip_prefix(prefix))?;
+    let path = path.trim_end_matches('/');
+    let path = path.strip_suffix(".git").unwrap_or(path);
+    ForgeSlug::try_from(path.to_owned()).ok()
+}
+
 /// Hours in a working day, from 1 to 24
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, JsonSchema)]
 #[serde(try_from = "i64")]
