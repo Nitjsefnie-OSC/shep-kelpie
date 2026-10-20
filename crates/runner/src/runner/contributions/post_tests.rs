@@ -4,8 +4,9 @@
 use std::sync::Mutex;
 
 use super::pass_tests::{listing, poll_through, read_through, write};
-use super::post::POST_TRIES;
+use super::post::{POST_TRIES, REACT};
 use super::security_tests::{commit_on, contribute, contribution};
+use crate::github::ApiError;
 use crate::ports::{CLEAN, Finding, Role, Severity};
 use crate::runner::coderabbit::tests::now;
 use crate::runner::review_bot::contribution_turns::{FINDING, contributed, until_summoned};
@@ -18,6 +19,12 @@ const WORDED: &str = r#"{"body": "Thanks for the push. Two things below.", "comm
 
 const NOTE: &str =
     "The reviewer read your latest push and found nothing. It is with the maintainer now.";
+
+// The note as it is posted: the representative's words, then the line that
+// tells the maintainer how to answer
+fn posted_note() -> String {
+    format!("{NOTE}\n\n{REACT}")
+}
 
 fn finding(file: &str, line: u32, what: &str, why: &str) -> Finding {
     Finding::new(Severity::Medium, file, line, what, why)
@@ -282,7 +289,7 @@ fn a_clean_pass_posts_one_short_note_once_per_head() {
     poll_through(&rig, &runner);
     poll_through(&rig, &runner);
 
-    assert_eq!(rig.github.comments(), [(30, NOTE.to_owned())]);
+    assert_eq!(rig.github.comments(), [(30, posted_note())]);
     assert_eq!(rig.github.reviews(), []);
     assert_eq!(rig.forge.comments(), []);
     assert_eq!(worded(&rig).len(), 1);
@@ -306,7 +313,29 @@ fn a_note_that_could_not_be_worded_is_tried_at_the_next_poll() {
         .script_for(Role::Representative, [Scripted::Say(NOTE)]);
     poll_through(&rig, &runner);
 
-    assert_eq!(rig.github.comments(), [(30, NOTE.to_owned())]);
+    assert_eq!(rig.github.comments(), [(30, posted_note())]);
+}
+
+#[test]
+fn a_note_that_was_retried_carries_the_line_once() {
+    let (rig, runner, head) = read_with(vec![], &[NOTE, NOTE]);
+    rig.github.refuse_comments(ApiError::Refused(502));
+    read_through(&rig, &runner, &head);
+    poll_through(&rig, &runner);
+    let refused = rig.github.comments().len();
+    assert!(refused > 0, "the forge was tried");
+
+    rig.github.accept_comments();
+    poll_through(&rig, &runner);
+
+    // The forge records the tries it refused as well as the one it took.
+    let tried = rig.github.comments();
+    assert!(tried.len() > refused, "{tried:?}");
+    assert!(
+        tried.iter().all(|(_, body)| *body == posted_note()),
+        "each try carries the line once: {tried:?}"
+    );
+    assert_eq!(worded(&rig).len(), 1, "worded once, posted on the retry");
 }
 
 #[test]

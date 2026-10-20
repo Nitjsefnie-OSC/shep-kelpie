@@ -9,6 +9,11 @@
 //! under `ask` and under `auto` alike. It holds nothing: the clock, the asks
 //! and the reviewers go on while it waits.
 //!
+//! The maintainer may also answer it with a thumbs up or down on the
+//! representative's clean-pass note, when the head's pass has one. Only the
+//! maintainer's reaction counts, a down wins over an up, and a down records
+//! no note. The first answer from any channel wins.
+//!
 //! The answer is kept on the record (`ruled`) and carried out by the next
 //! poll, so a restart loses none of it:
 //!
@@ -34,6 +39,8 @@
 
 use super::super::Runner;
 use super::super::gate::short;
+use super::super::thread_replies::Settler;
+use super::super::voice::thumbs;
 use super::post::forge_is_busy;
 use super::ruling::{flagged_lines, raise_merge};
 use crate::ports::Finding;
@@ -68,6 +75,9 @@ impl Runner {
             return Ok(());
         };
         let Some(ruled) = held.ruled.as_ref() else {
+            if self.answer_by_reaction(&held) {
+                return self.merge_one(number);
+            }
             return self.raise_for(&held);
         };
         // An answer is about the head the ruling named, never another.
@@ -79,6 +89,77 @@ impl Runner {
             Verdict::No { note: Some(note) } => self.tell_the_note(&held, note),
             Verdict::No { note: None } => Ok(()),
             Verdict::Rework { .. } => self.take_it_over(&held),
+        }
+    }
+
+    // Answers the waiting merge ruling with the maintainer's reaction on the
+    // note of the head's clean pass, if they gave one, and returns whether it
+    // was answered. A thumbs down wins over a thumbs up. A read or an answer
+    // that fails is told once and tried at the next poll.
+    fn answer_by_reaction(&mut self, held: &Contribution) -> bool {
+        let number = held.pull_request;
+        let id = TicketId::from_pull_request(number);
+        let Some(note) = (held.pass.as_ref())
+            .filter(|p| p.head == held.head)
+            .and_then(|p| p.note)
+        else {
+            return false;
+        };
+        let Some(ruling) = (self.state.rulings.iter()).find(|r| {
+            r.id == id && matches!(&r.kind, RulingKind::Contribution(Held::Merge { head }) if *head == held.head)
+        }) else {
+            return false;
+        };
+        let kind = ruling.kind.clone();
+        if !self.app_covers() {
+            return false;
+        }
+        let key = format!("react:{number}:{note}");
+        let marks = self.maintainer().and_then(|maintainer| {
+            let marks = self.ports.forge.comment_marks(&self.remote, note)?;
+            Ok((maintainer, marks))
+        });
+        let (maintainer, marks) = match marks {
+            Ok(read) => {
+                self.answer_ends(&key);
+                read
+            }
+            Err(e) => {
+                self.answer_failed(&key, number, "read the reaction on the note to", &e, false);
+                return false;
+            }
+        };
+        let theirs: Vec<bool> = (marks.thumbs.iter())
+            .filter(|t| t.login.eq_ignore_ascii_case(&maintainer))
+            .map(|t| t.up)
+            .collect();
+        let up = match (theirs.contains(&false), theirs.contains(&true)) {
+            (true, _) => false,
+            (false, true) => true,
+            (false, false) => return false,
+        };
+        let Some(answer) = thumbs(&kind, up) else {
+            return false;
+        };
+        match self.rule_by(id, answer, Settler::Thread) {
+            Ok(()) => {
+                self.answer_ends(&format!("refused:{number}:{note}"));
+                true
+            }
+            Err(e) => {
+                let key = format!("refused:{number}:{note}");
+                let why = format!(
+                    "contribution #{number}: cannot answer its merge ruling from the reaction \
+                     on the note: {e}"
+                );
+                let mut tries = self.post_tries.borrow_mut();
+                let attempt = tries.entry(key).or_default();
+                if !attempt.told {
+                    attempt.told = true;
+                    self.notes.push(why);
+                }
+                false
+            }
         }
     }
 
