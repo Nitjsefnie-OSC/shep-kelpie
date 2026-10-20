@@ -809,15 +809,18 @@ mod tests {
         if !is_word(first) || token.contains("::") && !segments.all(is_word) {
             return false;
         }
-        std::path::Path::new(crate_root)
-            .join("src")
-            .join(format!("{first}.rs"))
-            .exists()
-            || std::path::Path::new(crate_root)
-                .join("src")
-                .join(first)
-                .join("mod.rs")
-                .exists()
+        // The root's own modules, and the modules of the crates under `crates/`, whose
+        // tests `cargo test` runs from the root all the same
+        let root = std::path::Path::new(crate_root);
+        let holds = |src: std::path::PathBuf| {
+            src.join(format!("{first}.rs")).exists() || src.join(first).join("mod.rs").exists()
+        };
+        holds(root.join("src"))
+            || std::fs::read_dir(root.join("crates"))
+                .into_iter()
+                .flatten()
+                .flatten()
+                .any(|member| holds(member.path().join("src")))
     }
 
     // A work item on kelpie's own repo whose CI is red, sent back for a fix turn with
