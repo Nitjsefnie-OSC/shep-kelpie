@@ -301,8 +301,13 @@ pub async fn finish(
     patience: Patience,
     say: &mut dyn FnMut(String),
 ) -> Result<Vec<String>, String> {
-    let runner = kelpie_runner(client, &flock(client).await?, project).await?;
     let name = project.as_str();
+    let runner = match kelpie_runner(client, &flock(client).await?, project).await {
+        Err(e) if name == "all" && !tables(client).await?.contains_key(name) => {
+            return Err(format!("{e}; finish --all finishes every project"));
+        }
+        found => found?,
+    };
     if !matches!(runner.status, ProcStatus::Online | ProcStatus::Starting) {
         let said = format!(
             "{name}'s runner is {}, so it has nothing to finish",
@@ -342,6 +347,61 @@ pub async fn finish(
         ));
     }
     Ok(lines)
+}
+
+/// What [`finish_all`] made of each project
+#[derive(Debug, PartialEq, Eq)]
+pub struct FinishedAll {
+    /// The lines of the projects that took `finish` or had nothing to finish
+    pub lines: Vec<String>,
+    /// A line, the project and its reason, for each runner that refused or did not answer
+    pub refused: Vec<String>,
+}
+
+/// [`finish`] for every project in the shepherd's book, one after the other
+///
+/// With [`Format::Json`] each project's answer is a line behind its name, as
+/// [`status`] prints them. A project with no work to finish or no runner
+/// running counts as done, and one that refuses does not stop the rest.
+///
+/// # Errors
+///
+/// A message when the shepherd cannot list the projects.
+pub async fn finish_all(
+    client: &dyn Connection,
+    format: Format,
+    patience: Patience,
+    say: &mut dyn FnMut(String),
+) -> Result<FinishedAll, String> {
+    let mut done = FinishedAll {
+        lines: Vec::new(),
+        refused: Vec::new(),
+    };
+    for sheep in tables(client).await?.into_keys() {
+        let project = match ProjectName::try_from(sheep.as_str()) {
+            Ok(project) => project,
+            Err(why) => {
+                done.refused.push(format!("{sheep}: {why}"));
+                continue;
+            }
+        };
+        match finish(client, &project, format, patience, say).await {
+            Ok(lines) if format == Format::Json => {
+                done.lines
+                    .extend(lines.iter().map(|body| json_status(&sheep, body)));
+            }
+            Ok(lines) => done.lines.extend(lines),
+            Err(why) => done.refused.push(format!("{sheep}: {why}")),
+        }
+    }
+    if done.lines.is_empty() && done.refused.is_empty() {
+        done.lines.push(no_projects());
+    }
+    Ok(done)
+}
+
+fn no_projects() -> String {
+    "no projects: `shep kelpie add` in a checkout sets one up".into()
 }
 
 // The `key` of each entry in the `list` a runner's `status` shows, each as the
@@ -627,7 +687,7 @@ pub async fn status(client: &dyn Connection, format: Format) -> Result<Vec<Strin
         }
     }
     if lines.is_empty() {
-        lines.push("no projects: `shep kelpie add` in a checkout sets one up".into());
+        lines.push(no_projects());
     }
     Ok(lines)
 }
