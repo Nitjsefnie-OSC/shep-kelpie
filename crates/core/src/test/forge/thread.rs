@@ -167,6 +167,11 @@ impl FakeThreads {
         self.threads.lock().unwrap().unreadable.insert(comment);
     }
 
+    /// Lets comment `comment`'s marks be read again
+    pub fn can_read_marks_of(&self, comment: u64) {
+        self.threads.lock().unwrap().unreadable.remove(&comment);
+    }
+
     /// What was done to comment `comment`, as the forge tells it, or none
     /// when it cannot be read
     pub fn marks_of(&self, comment: u64) -> Option<CommentMarks> {
