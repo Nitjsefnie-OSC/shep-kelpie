@@ -292,7 +292,7 @@ fn main() -> ExitCode {
 }
 
 fn version(json: bool) -> ExitCode {
-    let build = shep_kelpie::upgrade::build::Build::this();
+    let build = shep_kelpie::home::Build::this();
     if json {
         let line = serde_json::to_string(&build).expect("a build serializes");
         println!("{line}");

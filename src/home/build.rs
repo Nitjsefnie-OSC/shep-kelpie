@@ -82,7 +82,7 @@ impl Build {
     ///
     /// # Errors
     ///
-    /// A message when `binary` does not run, does not answer within [`TIMEOUT`],
+    /// A message when `binary` does not run, does not answer within `TIMEOUT`,
     /// exits non-zero, or does not answer with a JSON object naming both versions.
     pub fn of(binary: &Path) -> Result<Self, BuildError> {
         Self::within(binary, TIMEOUT)

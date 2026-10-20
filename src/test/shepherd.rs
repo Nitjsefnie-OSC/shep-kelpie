@@ -406,7 +406,7 @@ fn answer(flock: &mut Vec<Sheep>, section: &str, request: &Request) -> Response 
             } else if let Some(answer) = scripted(&mut sheep.says) {
                 match answer {
                     Some(body) => {
-                        let build = crate::upgrade::seen::stamp_of(Path::new(&sheep.config.script))
+                        let build = crate::home::stamp_of(Path::new(&sheep.config.script))
                             .unwrap_or_default();
                         ActionOutcome::Replied {
                             body: body.replace("{build}", &build),

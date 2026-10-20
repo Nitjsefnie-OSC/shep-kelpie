@@ -19,7 +19,6 @@
 //! cuts no call short. `--now`, before or after the other arguments, restarts
 //! without either.
 
-pub mod build;
 pub mod drain;
 pub mod fetch;
 pub mod handover;
@@ -32,11 +31,11 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use build::Build;
 use install::{Change, Layout};
 use lock::Lock;
 use restart::{Interrupt, Patience, Plan};
 
+use crate::home::Build;
 use crate::shep_home;
 use crate::shepherd::{self, Dial, release_line};
 

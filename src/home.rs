@@ -9,8 +9,12 @@
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
+mod build;
 mod paths;
+mod stamp;
+pub use build::{Build, BuildError};
 pub use paths::{ProjectName, ProjectNameError, ProjectPaths, work_branch};
+pub use stamp::{running, stamp_of};
 
 /// The variable that names kelpie's home in place of the shepherd's
 pub const KELPIE_VAR: &str = "KELPIE_HOME";

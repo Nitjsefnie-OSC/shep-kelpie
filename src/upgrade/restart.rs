@@ -25,10 +25,10 @@ use tokio::time::Instant;
 
 use super::drain::{self, Purpose};
 use super::handover::{Handed, hand_over};
-use super::seen::stamp_of;
 use crate::dog;
 use crate::flock::control::{Answered, trigger};
 use crate::flock::{flock, kelpie_sheep, resume, script, tables};
+use crate::home::stamp_of;
 use crate::shepherd::Connection;
 use crate::ticket::TicketId;
 

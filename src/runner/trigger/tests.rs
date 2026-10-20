@@ -65,7 +65,7 @@ fn a_new_project_has_nothing_in_flight() {
             })),
             "pull_request_template": "none",
             "board": rig.paths().board,
-            "build": crate::upgrade::seen::stamp_of(&std::env::current_exe().unwrap()).unwrap(),
+            "build": crate::home::stamp_of(&std::env::current_exe().unwrap()).unwrap(),
         })
     );
 }
