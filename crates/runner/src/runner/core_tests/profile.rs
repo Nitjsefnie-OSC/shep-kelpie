@@ -656,7 +656,7 @@ fn the_instructions_tell_a_worker_that_kelpie_fetches_the_base() {
 #[test]
 fn the_instructions_ask_for_a_commit_wherever_the_build_compiles() {
     assert!(
-        INSTRUCTIONS.contains("commit at each point where the build compiles"),
+        INSTRUCTIONS.contains("Commit whenever the build compiles"),
         "{INSTRUCTIONS}"
     );
 }
