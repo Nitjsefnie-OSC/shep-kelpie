@@ -17,6 +17,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::SystemTime;
 
+mod active;
 mod cache;
 mod catch_up;
 mod changed;
@@ -25,6 +26,7 @@ mod ref_folders;
 mod remote;
 mod stale_lock;
 
+pub use active::touched_since;
 pub use cache::{Pruned, TurnMark, prune};
 pub use catch_up::{Rebase, rebase};
 pub use changed::changed_files;
