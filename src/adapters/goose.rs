@@ -297,7 +297,7 @@ impl GooseCli {
             return Ok(run(None));
         };
         let upstream = self.upstream(server)?;
-        let port = self.gateways.port_named(name).map_err(AgentError::Setup)?;
+        let port = crate::adapters::port_named(&self.gateways, name).map_err(AgentError::Setup)?;
         let note = format!("kelpie {}", call.label());
         let tell = |stand| match stand {
             Stand::Asking | Stand::Turn => ending.wait(Wait::Lease),

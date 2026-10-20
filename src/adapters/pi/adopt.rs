@@ -119,7 +119,7 @@ impl PiCli {
         };
         let waited = match (&kept.lease, &host) {
             (Some(id), ModelHost::Gateway(name)) => {
-                let port = match self.gateways.port_named(name) {
+                let port = match crate::adapters::port_named(&self.gateways, name) {
                     Ok(port) => port,
                     Err(why) => return self.unserved(adopted, ending, why),
                 };

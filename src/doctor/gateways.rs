@@ -16,7 +16,7 @@ pub(super) fn checks(gateways: &Gateways, agents: &Agents) -> Vec<Line> {
     let mut lines = Vec::new();
     for (name, gateway) in gateways.iter() {
         let subject = format!("gateway {name}");
-        let port = gateways.port(gateway);
+        let port = crate::adapters::port(gateways, gateway);
         let found = gateways.key(gateway);
         let fix = "start the gateway, or put `url` right in kelpie's settings";
         let upstream = match Upstream::new(&gateway.base()) {

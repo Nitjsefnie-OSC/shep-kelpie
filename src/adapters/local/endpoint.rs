@@ -144,7 +144,8 @@ impl LocalReviewer {
             return chunked(None);
         };
         let upstream = (self.gateways.upstream(&endpoint.host)).map_err(ReviewerError::Failed)?;
-        let port = (self.gateways.port_named(name)).map_err(ReviewerError::Failed)?;
+        let port =
+            (crate::adapters::port_named(&self.gateways, name)).map_err(ReviewerError::Failed)?;
         let place = worktree.worktree.file_name().unwrap_or_default();
         let note = format!("kelpie local round {round} in {}", place.to_string_lossy());
         // The wait for a turn is the round's queue.

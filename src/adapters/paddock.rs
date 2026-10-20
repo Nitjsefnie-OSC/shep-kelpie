@@ -22,6 +22,7 @@ use serde_json::{Value, json};
 
 use crate::forwarder::Upstream;
 use crate::ports::{Ending, KeyCheck, ModelGateway, PaddockHolder, Stand, Taking, Unheld};
+use crate::settings::Timing;
 
 // Paddock's default is 60s. Twice that rides out one lost renewal.
 const TTL: &str = "120s";
@@ -34,32 +35,6 @@ const STATUS_WITHIN: Duration = Duration::from_secs(2);
 
 /// The most of an answer read, in bytes
 const ANSWER_MAX: u64 = 1 << 20;
-
-/// How long each step of talking to paddock may take
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct Timing {
-    /// How long a request gets to connect, and one other than a take to answer
-    pub(crate) answer: Duration,
-    /// How long the release gets, since a turn's end waits on it
-    pub(crate) release: Duration,
-    /// How often a held lease is renewed: a quarter of its ttl
-    pub(crate) renew: Duration,
-    /// How long a take paddock turned away as busy waits to ask again
-    pub(crate) retry: Duration,
-    /// How long after its last renewal paddock took the lease counts as lost, if none since was taken: its ttl
-    pub(crate) lapse: Duration,
-}
-
-impl Timing {
-    /// What a runner uses
-    pub(crate) const RUNNER: Self = Self {
-        answer: Duration::from_secs(10),
-        release: Duration::from_secs(3),
-        renew: Duration::from_secs(30),
-        retry: Duration::from_secs(30),
-        lapse: Duration::from_secs(120),
-    };
-}
 
 /// The model names `GET /v1/models` lists, which needs no key
 ///
