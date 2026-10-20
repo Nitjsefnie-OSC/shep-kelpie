@@ -56,7 +56,7 @@ pub use contributions::{Contributions, Pick};
 pub use dependencies::{Dependencies, DependencyPick, OnRed};
 pub use e2e::{E2e, RepoPath, ResultsDir, SshAlias};
 pub use gateway::{
-    Gateway, GatewayKey, GatewayKind, GatewayName, Gateways, KeyVar, ModelHost, Route,
+    Gateway, GatewayKey, GatewayKind, GatewayName, Gateways, KeyVar, ModelHost, Route, Timing,
 };
 pub use git::{BaseBranch, DEFAULT_BASE, Filing, Git, GithubLogin, Merging};
 pub use hooks::{HookPoint, PointKind, ProjectHook};

@@ -8,8 +8,8 @@ use std::time::Duration;
 
 use super::{FakeClock, Hold};
 use crate::adapters::LocalReviewer;
-use crate::adapters::paddock::Timing;
 use crate::ports::{Finding, Reviewer, ReviewerError, RoundStage};
+use crate::settings::Timing;
 use crate::settings::{Gateways, LocalRound};
 use crate::worktree::Linked;
 

@@ -17,8 +17,8 @@ use super::super::super::{Hooks, JOIN_BOUND, Worker};
 use super::exec::{FOLDER, read, worker_of, write};
 use super::*;
 use crate::adapters::ClaudeCli;
-use crate::adapters::paddock::Timing;
 use crate::ports::Routed;
+use crate::settings::Timing;
 use crate::settings::{EndpointUrl, Gateway, GatewayKind, GatewayName, Gateways, KeyVar};
 use crate::test::{Answer, OpenSandbox, StandInEndpoint, write_script};
 

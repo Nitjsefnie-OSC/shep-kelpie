@@ -3,7 +3,7 @@
 //!
 //! Kelpie reaches a gateway only through [`ModelGateway`]. Each
 //! [`GatewayKind`](crate::settings::GatewayKind) has one adapter, and
-//! [`Gateways::port`](crate::settings::Gateways::port) hands it out. Chat is
+//! [`port`](crate::adapters::port) hands it out. Chat is
 //! plain OpenAI and goes through the forwarder, so the port holds the rest.
 
 use std::fmt;

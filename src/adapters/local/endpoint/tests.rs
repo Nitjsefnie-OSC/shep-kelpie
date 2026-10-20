@@ -726,8 +726,8 @@ fn a_round_behind_a_gateway_asks_for_batch_its_lease_and_its_wait_on_its_chat_ca
 
 #[test]
 fn a_round_waiting_for_its_turn_behind_a_gateway_queues_until_it_is_granted() {
-    use crate::adapters::paddock::Timing;
     use crate::ports::RoundStage;
+    use crate::settings::Timing;
     use crate::settings::{Gateway, GatewayKind, GatewayName, Gateways, KeyVar};
     use crate::test::Take;
     const TURN: &str =

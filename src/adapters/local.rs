@@ -15,11 +15,11 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
 use super::paddock;
-#[cfg(test)]
-use super::paddock::Timing;
 use super::process::Processes;
 use crate::forwarder::Upstream;
 use crate::ports::{Finding, LocalLeases, PaddockHolder, Reviewer, ReviewerError, RoundStage};
+#[cfg(test)]
+use crate::settings::Timing;
 use crate::settings::{Gateways, LocalRound};
 use crate::worktree::Linked;
 

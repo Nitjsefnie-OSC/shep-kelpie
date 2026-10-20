@@ -9,6 +9,7 @@
 
 use std::collections::BTreeMap;
 use std::fmt;
+use std::time::Duration;
 
 use schemars::JsonSchema;
 use serde::Deserialize;
@@ -16,11 +17,8 @@ use serde::Deserialize;
 use super::local::EndpointUrl;
 use super::reviewers::lowercase_name;
 use super::{AgentName, SettingsError, TriageSpam};
-use crate::adapters::openai_gateway::OpenAi;
-use crate::adapters::paddock::{Paddock, Timing};
 use crate::agents::Agents;
 use crate::forwarder::Upstream;
-use crate::ports::ModelGateway;
 
 /// A gateway's name, as `[gateways.<name>]` and an agent's `gateway` give it
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, JsonSchema)]
@@ -166,6 +164,32 @@ pub struct Route {
     pub key: Option<GatewayKey>,
 }
 
+/// How long each step of talking to paddock may take
+#[derive(Debug, Clone, Copy)]
+pub struct Timing {
+    /// How long a request gets to connect, and one other than a take to answer
+    pub answer: Duration,
+    /// How long the release gets, since a turn's end waits on it
+    pub release: Duration,
+    /// How often a held lease is renewed: a quarter of its ttl
+    pub renew: Duration,
+    /// How long a take paddock turned away as busy waits to ask again
+    pub retry: Duration,
+    /// How long after its last renewal paddock took the lease counts as lost, if none since was taken: its ttl
+    pub lapse: Duration,
+}
+
+impl Timing {
+    /// What a runner uses
+    pub const RUNNER: Self = Self {
+        answer: Duration::from_secs(10),
+        release: Duration::from_secs(3),
+        renew: Duration::from_secs(30),
+        retry: Duration::from_secs(30),
+        lapse: Duration::from_secs(120),
+    };
+}
+
 /// Kelpie's gateways, as a runner read them when it started
 #[derive(Clone)]
 pub struct Gateways {
@@ -218,26 +242,17 @@ impl Gateways {
         self
     }
 
-    /// The port to `gateway`, for its kind
-    pub fn port(&self, gateway: &Gateway) -> Box<dyn ModelGateway> {
-        match gateway.kind {
-            GatewayKind::Paddock => Box::new(Paddock {
-                timing: self.paddock,
-            }),
-            GatewayKind::Openai => Box::new(OpenAi),
-        }
+    /// The schedule a paddock's leases keep
+    pub fn paddock_timing(&self) -> Timing {
+        self.paddock
     }
 
-    /// The port to the gateway `name`
+    /// The gateway `name`
     ///
     /// # Errors
     ///
     /// The reason when kelpie's settings lack a gateway of that name.
-    pub fn port_named(&self, name: &GatewayName) -> Result<Box<dyn ModelGateway>, String> {
-        Ok(self.port(self.named(name)?))
-    }
-
-    fn named(&self, name: &GatewayName) -> Result<&Gateway, String> {
+    pub fn named(&self, name: &GatewayName) -> Result<&Gateway, String> {
         self.table.get(name).ok_or_else(|| {
             format!(
                 "gateway {name} is not in kelpie's settings: add `[kelpie.gateways.{name}]` \
