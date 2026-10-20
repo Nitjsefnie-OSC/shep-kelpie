@@ -14,6 +14,7 @@ use crate::guard::{AFTER_FLAG, FOLDER_FLAG, PAUSE_FLAG, RECORD_FLAG};
 use crate::hooks::GUARD_BUDGET;
 use crate::ports::{Fence, Guard, PM_NOTES, Reach, Tools};
 use crate::settings::{HookEvent, HookPoint};
+use crate::spawn::shell_quote;
 use crate::trim::trimmed;
 
 /// The tools that write files without going through Bash
@@ -587,11 +588,6 @@ fn entry(matcher: Option<&str>, command: &str) -> Value {
         entry["matcher"] = matcher.into();
     }
     entry
-}
-
-/// `s` as one word to a POSIX shell
-pub(crate) fn shell_quote(s: &str) -> String {
-    format!("'{}'", s.replace('\'', r"'\''"))
 }
 
 #[cfg(test)]

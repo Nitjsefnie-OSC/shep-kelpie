@@ -10,7 +10,7 @@ use std::path::PathBuf;
 use serde_json::{Map, Value, json};
 
 use super::Files;
-use crate::adapters::mcp::servers;
+use crate::ports::mcp::{servers, tool_prefix};
 use crate::ports::{AgentCall, AgentError};
 
 /// The built-in extension that connects the servers
@@ -55,13 +55,6 @@ pub(super) fn tool_names(call: &AgentCall) -> Vec<String> {
     names
         .map(|name| format!("mcp__{}__*", tool_prefix(name)))
         .collect()
-}
-
-/// The part of a tool's name pi gives `server`: pi names a tool `mcp__<server>__<tool>`, with
-/// every character but letters, digits and `_` as `_`
-pub(crate) fn tool_prefix(server: &str) -> String {
-    let safe = |c: char| if c.is_ascii_alphanumeric() { c } else { '_' };
-    server.chars().map(safe).collect()
 }
 
 /// Writes the call's `mcp.json`, and removes the one an earlier call left when it loads none

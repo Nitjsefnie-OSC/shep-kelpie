@@ -510,7 +510,7 @@ mod tests {
     fn a_reply_on_a_real_topic_reads_back() {
         let url = std::env::var("KELPIE_NTFY_SCRATCH").expect("KELPIE_NTFY_SCRATCH");
         let webhook = webhook(WebhookKind::Ntfy, &url);
-        let now = crate::adapters::SystemClock.now();
+        let now = crate::ports::SystemClock.now();
         let alert = Alert {
             reply: Some(ReplyWith {
                 ticket: ticket(3),

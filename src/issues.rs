@@ -30,17 +30,17 @@ use std::process::Command;
 
 use serde::Deserialize;
 
-use crate::adapters::{SystemClock, claude_settings, claude_write_only};
+use crate::adapters::{claude_settings, claude_write_only};
 use crate::agents::{Agents, Role, Runs};
 use crate::board::{AGENT_LABEL, HUMAN, READY, agent_label};
 use crate::guard::{IssueRules, filed_in};
 use crate::home::ProjectPaths;
 use crate::hooks::Hooks;
-use crate::ports::Clock;
 use crate::ports::{
     self, AgentCall, Ending, Fence, Forge, ForgeError, Guard, NewLabel, Reach, Session, SessionId,
     Tickets, Tools,
 };
+use crate::ports::{Clock, SystemClock};
 use crate::profile::CREDENTIALS;
 use crate::settings::{AgentName, ForgeSlug, RoleAgents, RoleModel, Settings, TicketSource};
 use crate::skills;

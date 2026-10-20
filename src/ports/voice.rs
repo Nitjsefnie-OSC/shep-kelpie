@@ -1,7 +1,6 @@
 //! Kelpie's own voice on the forge, made as its GitHub App
 
-use super::{ForgeError, LineComment, NewLabel, PostedComment};
-use crate::github::InstallationToken;
+use super::{ForgeError, InstallationToken, LineComment, NewLabel, PostedComment};
 use crate::settings::ForgeSlug;
 
 /// The id [`Voice::review`] gives a review the forge took whose answer named none

@@ -28,6 +28,11 @@ pub fn command(program: impl AsRef<OsStr>) -> Command {
     command
 }
 
+/// `s` as one word to a POSIX shell
+pub(crate) fn shell_quote(s: &str) -> String {
+    format!("'{}'", s.replace('\'', r"'\''"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -26,10 +26,10 @@ use serde_json::{Value, json};
 
 use super::{Checkout, SHOWN_CHARS, judge_reading};
 use crate::adapters::goose::hooks::{SKILL_TOOL, TOOLS};
-use crate::adapters::shell_quote;
 use crate::confine::{self, Verdict};
 use crate::hooks::Hooks;
 use crate::local_paths::LocalPaths;
+use crate::spawn::shell_quote;
 
 /// How the hook's command line names the worker's build folder, and asks for
 /// the goose worker's `PreToolUse` guard

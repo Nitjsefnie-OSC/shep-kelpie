@@ -10,8 +10,8 @@ use std::path::Path;
 
 use serde_json::Value;
 
-use super::tokens::{InstallationToken, Jwt};
-use crate::ports::{Cooldown, LineComment, NewLabel, Timestamp};
+use super::tokens::Jwt;
+use crate::ports::{Cooldown, InstallationToken, LineComment, NewLabel, Timestamp};
 use crate::settings::ForgeSlug;
 
 /// An App's private key in PEM, as the conversion hands it back
@@ -367,16 +367,6 @@ fn path_segment(text: &str) -> String {
 pub fn parse_number(body: &str) -> Result<u64, ApiError> {
     let v: Value = serde_json::from_str(body).map_err(|_| ApiError::Unreadable("number"))?;
     v["number"].as_u64().ok_or(ApiError::Unreadable("number"))
-}
-
-/// `body` with each of `comments` added after it as a line naming its place,
-/// for a review that GitHub refused with comments and is posted without them
-pub fn with_comments_in_body(body: &str, comments: &[LineComment]) -> String {
-    let mut text = body.to_owned();
-    for c in comments {
-        text.push_str(&format!("\n\n`{}:{}`: {}", c.path, c.line, c.body));
-    }
-    text
 }
 
 /// The id of the review a post's answer describes

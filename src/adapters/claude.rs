@@ -366,7 +366,7 @@ fn profile(call: &AgentCall) -> Vec<OsString> {
         (_, Kind::Issues) => Some(settings::ISSUES_TOOLS),
         (_, Kind::Answer | Kind::Pm) => None,
     };
-    if crate::adapters::mcp::loads(call) {
+    if crate::ports::mcp::loads(call) {
         argv.extend(["--mcp-config".into(), mcp::mcp_file(&call.settings).into()]);
     }
     if let Some(tools) = tools {

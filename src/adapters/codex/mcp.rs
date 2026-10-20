@@ -9,8 +9,8 @@ use std::ffi::OsString;
 use serde_json::Value;
 use toml::Table;
 
-use crate::adapters::mcp::servers;
 use crate::ports::AgentCall;
+use crate::ports::mcp::servers;
 
 /// The `-c` pairs that load the call's servers, one per server Codex can load
 pub(super) fn overrides(call: &AgentCall) -> Vec<OsString> {

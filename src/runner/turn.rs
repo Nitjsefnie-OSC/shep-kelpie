@@ -24,11 +24,11 @@ use super::question::asked;
 use super::report::{Begin, StepReport};
 use super::rework;
 use super::ruling::park;
-use crate::github::InstallationToken;
 use crate::guard::Pause;
 use crate::pacer::Scope;
 use crate::ports::{
-    AgentCall, AgentError, AgentReply, COMPACT, Cost, Issue, Reach, Role, Session, Timestamp, Tools,
+    AgentCall, AgentError, AgentReply, COMPACT, Cost, InstallationToken, Issue, Reach, Role,
+    Session, Timestamp, Tools,
 };
 use crate::profile::{self, WorkerProfile};
 use crate::settings::{AgentHarness, Effort, Limit};

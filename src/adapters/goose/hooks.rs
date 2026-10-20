@@ -19,10 +19,10 @@ use std::path::{Path, PathBuf};
 use serde_json::json;
 
 use super::files::Files;
-use crate::adapters::claude::settings::shell_quote;
 use crate::guard::{FOLDER_FLAG, GOOSE_FLAG, GOOSE_SERVER_FLAG, GOOSE_WRITE_FLAG, READ_ONLY_FLAG};
 use crate::hooks::GUARD_BUDGET;
 use crate::ports::{AgentError, Fence, Guard};
+use crate::spawn::shell_quote;
 
 /// The plugin's name, and the one entry its folder may hold
 pub(crate) const PLUGIN: &str = "kelpie-fence";

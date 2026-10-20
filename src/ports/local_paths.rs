@@ -15,18 +15,27 @@ use std::fmt;
 use std::sync::Arc;
 
 use super::{
-    BranchRun, CommentMarks, FailedLogs, FolderEntry, Forge, ForgeError, LineComment, NewLabel,
-    OpenPull, PostedComment, PullRequest, QueueStanding, Reviewed, Talk, ThreadComment, Tickets,
-    Timestamp, Visibility, Voice, Workflow,
+    BranchRun, CommentMarks, FailedLogs, FolderEntry, Forge, ForgeError, InstallationToken,
+    LineComment, NewLabel, OpenPull, PostedComment, PullRequest, QueueStanding, Reviewed, Talk,
+    ThreadComment, Tickets, Timestamp, Visibility, Voice, Workflow,
 };
 use crate::board::OpenPullRequest;
-use crate::github::InstallationToken;
 use crate::hooks::{Hooks, Role};
 use crate::local_paths::{Leak, LocalPaths, Surface, names_repo};
 use crate::review_bot::{Activity, Login};
 use crate::settings::ForgeSlug;
 
 mod tickets;
+
+/// `body` with each of `comments` added after it as a line naming its place,
+/// for a review that GitHub refused with comments and is posted without them
+pub fn with_comments_in_body(body: &str, comments: &[LineComment]) -> String {
+    let mut text = body.to_owned();
+    for c in comments {
+        text.push_str(&format!("\n\n`{}:{}`: {}", c.path, c.line, c.body));
+    }
+    text
+}
 
 // The repos of the flock, and the forge to ask who can see one
 struct Flock {
@@ -444,7 +453,7 @@ impl Voice for GuardedVoice {
         // A forge that refuses the line comments gets the review once more
         // with them in its body, which is checked as it is sent.
         if !comments.is_empty() {
-            let body = crate::github::api::with_comments_in_body(body, comments);
+            let body = with_comments_in_body(body, comments);
             self.check(repo, "the review with its comments in its body", &body)?;
         }
         self.voice.review(repo, number, head, body, comments)

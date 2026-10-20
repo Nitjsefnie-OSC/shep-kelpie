@@ -2,7 +2,7 @@
 //! maintainer's webhook and the clock
 //!
 //! The work-item loop reaches the outside world only through these traits.
-//! [`crate::adapters`] holds the real ones and the test rig holds stand-ins,
+//! The adapters crate holds the real ones and the test rig holds stand-ins,
 //! so a test sees exactly the calls the runner makes.
 
 use std::fmt;
@@ -28,10 +28,12 @@ mod forge_error;
 mod gateway;
 mod git;
 mod gpu;
+mod installation_token;
 mod issue;
 mod keychain;
 mod leased;
 mod local_paths;
+pub(crate) mod mcp;
 mod metrics;
 mod pace;
 mod paced_voice;
@@ -44,6 +46,7 @@ mod reviewer;
 mod routed;
 mod run;
 mod sandbox;
+mod system_clock;
 mod talk;
 mod test_runner;
 mod thread;
@@ -64,13 +67,14 @@ pub use forge_error::{Cooldown, ForgeError};
 pub use gateway::{KeyCheck, ModelGateway, Stand, Taking, Unheld};
 pub use git::{Git, GitError};
 pub use gpu::{Gpu, GpuError, GpuMetrics};
+pub use installation_token::InstallationToken;
 pub use issue::{
     AuthorAssociation, FinishedParent, Issue, IssueCloseReason, OpenIssue, OpenPull, OpenTicket,
     SubIssue, SubIssueState,
 };
 pub use keychain::KeychainBlocked;
 pub use leased::{LocalLeases, PaddockHolder};
-pub use local_paths::{Guarded, GuardedVoice};
+pub use local_paths::{Guarded, GuardedVoice, with_comments_in_body};
 pub use metrics::{Sample, SeriesKind, Sink};
 pub use pace::{AT_ONCE, CallPacer, LocalPace, PER_MINUTE, Pace, Pass};
 pub use paced_voice::PacedVoice;
@@ -85,6 +89,7 @@ pub use reviewer::{Reviewer, ReviewerError, RoundEnd, RoundStage};
 pub use routed::Routed;
 pub use run::{BranchRun, FailedLogs, Workflow, WorkflowState};
 pub use sandbox::{Forward, Policy, Sandbox, SandboxError, Unreadable};
+pub use system_clock::SystemClock;
 pub use talk::{Remark, Standing, Talk, TalkThread};
 pub use test_runner::{CEILING, OUTPUT_KEPT, TestOutcome, TestRun, TestRunner, tail};
 pub use thread::{CommentMarks, LineComment, PostedComment, ThreadComment, Thumb};

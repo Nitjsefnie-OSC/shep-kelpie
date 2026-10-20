@@ -10,10 +10,10 @@ use super::FakeClock;
 use super::coderabbit::FakeCodeRabbit;
 use crate::github::tokens::Jwt;
 use crate::github::{
-    ApiError, AppTokens, Apps, Call, Conversion, GithubApi, Grant, Installation, InstallationToken,
-    IssuedToken, Pem, Signer, Verb,
+    ApiError, AppTokens, Apps, Call, Conversion, GithubApi, Grant, Installation, IssuedToken, Pem,
+    Signer, Verb,
 };
-use crate::ports::{Clock, Timestamp};
+use crate::ports::{Clock, InstallationToken, Timestamp};
 use crate::settings::ForgeSlug;
 
 /// A key no test would print by chance, so finding it anywhere else is a leak

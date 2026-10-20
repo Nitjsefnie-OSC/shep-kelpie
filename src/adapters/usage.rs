@@ -387,7 +387,7 @@ mod tests {
     #[test]
     #[ignore = "runs the real `claude -p /usage` against the maintainer's account, about 2 s"]
     fn the_real_claude_answers_with_both_windows() {
-        let now = crate::adapters::SystemClock.now();
+        let now = crate::ports::SystemClock.now();
         let usage = ClaudeCli::default().meter().read(now).unwrap();
         assert!(usage.week.resets_at > now && usage.session.resets_at > now);
         assert!(usage.week.used_pct <= 100 && usage.session.used_pct <= 100);

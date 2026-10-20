@@ -1,11 +1,7 @@
-//! The real ports: the system clock, `gh`, `curl`, the GitHub App's calls,
+//! The real ports: `gh`, `curl`, the GitHub App's calls,
 //! the `claude` command line, its `/usage`, the local review
 //! round, the machine's sandbox programs, and the dog's
 //! leases over the shepherd channel
-
-use std::time::{SystemTime, UNIX_EPOCH};
-
-use crate::ports::{Clock, Timestamp};
 
 pub(crate) mod bridge;
 mod classifier;
@@ -46,7 +42,6 @@ pub(crate) use classifier::GatewayClassifier;
 pub(crate) use claude::sandbox::fence_policy;
 pub(crate) use claude::settings::REVIEW_TOOLS as CLAUDE_REVIEW_TOOLS;
 pub(crate) use claude::settings::settings as claude_settings;
-pub(crate) use claude::settings::shell_quote;
 pub(crate) use claude::settings::write_only as claude_write_only;
 #[cfg(test)]
 pub(crate) use claude::write_settings as write_claude_settings;
@@ -69,7 +64,7 @@ pub use host::SystemHost;
 pub use leases::{Notes, ShepLeases};
 pub use local::LocalReviewer;
 pub use pages::PlaywrightPages;
-pub(crate) use pi::mcp::{refusal as pi_mcp_refusal, tool_prefix as pi_tool_prefix};
+pub(crate) use pi::mcp::refusal as pi_mcp_refusal;
 pub use pi::{PI_MINIMUM, PiCli};
 pub use process::{Sealed, end_groups, feeding};
 pub use srt::SandboxRuntime;
@@ -78,16 +73,3 @@ pub(crate) use srt::srt_settings;
 pub use stop::stop_calls;
 pub use test_runner::SandboxedTests;
 pub use usage::UsageMeter;
-
-/// The machine's wall clock
-#[derive(Debug, Clone, Copy, Default)]
-pub struct SystemClock;
-
-impl Clock for SystemClock {
-    fn now(&self) -> Timestamp {
-        let since_epoch = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default();
-        Timestamp(since_epoch.as_secs())
-    }
-}

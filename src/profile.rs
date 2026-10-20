@@ -11,10 +11,9 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use crate::fence;
-use crate::github::InstallationToken;
 use crate::hooks::Hooks;
 use crate::lease::door;
-use crate::ports::{Fence, Guard, Reach};
+use crate::ports::{Fence, Guard, InstallationToken, Reach};
 use crate::settings::{BuildDir, EnvName, GuardHook, NonBlank};
 
 mod housekeeping;

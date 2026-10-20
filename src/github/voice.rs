@@ -7,8 +7,11 @@
 use std::sync::Arc;
 
 use super::api::{self, ApiError, Call, GithubApi, ThreadWrite};
-use super::tokens::{GithubApp, InstallationToken, TokenError};
-use crate::ports::{ForgeError, LineComment, NewLabel, PostedComment, UNREAD_ID, Voice};
+use super::tokens::{GithubApp, TokenError};
+use crate::ports::{
+    ForgeError, InstallationToken, LineComment, NewLabel, PostedComment, UNREAD_ID, Voice,
+    with_comments_in_body,
+};
 use crate::settings::ForgeSlug;
 
 /// [`Voice`] as kelpie's App
@@ -131,7 +134,7 @@ impl Voice for AppVoice {
             // show, so the findings go once more in the body of a review
             // that holds no comment.
             Err(ApiError::Refused(422)) if !comments.is_empty() => {
-                let body = api::with_comments_in_body(body, comments);
+                let body = with_comments_in_body(body, comments);
                 let call = Call::review(repo, number, head, &body, &[]);
                 self.send(&token, &call)?
             }

@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use super::api::{ApiError, GithubApi, Grant, IssuedToken, Purpose, Signer};
 use super::{App, Apps, Owner, StoreError};
-use crate::ports::{Clock, Timestamp};
+use crate::ports::{Clock, InstallationToken, Timestamp};
 use crate::settings::ForgeSlug;
 
 /// How far back a JWT says it was issued, for clock drift
@@ -26,31 +26,6 @@ const REMINT_BEFORE: u64 = 5 * 60;
 /// How long an App found not installed on a repo is believed, so a post to a
 /// repo it does not cover costs no JWT and no call each time
 const NOT_INSTALLED_FOR: u64 = 10 * 60;
-
-/// An installation token, which acts as the App on the repos it is installed on
-///
-/// `Debug` does not show it.
-#[derive(Clone, PartialEq, Eq)]
-pub struct InstallationToken(String);
-
-impl InstallationToken {
-    /// The token `text`
-    pub fn new(text: String) -> Self {
-        Self(text)
-    }
-
-    /// The token's text, for the call that sends it
-    #[inline]
-    pub fn expose(&self) -> &str {
-        &self.0
-    }
-}
-
-impl fmt::Debug for InstallationToken {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("InstallationToken(..)")
-    }
-}
 
 /// A signed JWT that asks GitHub for an App's installation and tokens
 ///

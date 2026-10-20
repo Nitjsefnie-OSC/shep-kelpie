@@ -19,15 +19,13 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use self::host::Host;
-use crate::adapters::{
-    ClaudeCli, Curl, CurlGithub, Gh, LocalReviewer, Openssl, SystemClock, SystemHost,
-};
+use crate::adapters::{ClaudeCli, Curl, CurlGithub, Gh, LocalReviewer, Openssl, SystemHost};
 use crate::agents::Agents;
 use crate::coderabbit::CodeRabbit;
 use crate::flock;
 use crate::github::{AppTokens, Apps, GithubApp};
 use crate::home::ProjectName;
-use crate::ports::{Alerts, Clock, Forge, Meter, Reviewer};
+use crate::ports::{Alerts, Clock, Forge, Meter, Reviewer, SystemClock};
 use crate::review_bot::Profile;
 use crate::shep_home;
 use crate::shepherd::{self, Connection, Dial, Socket};
