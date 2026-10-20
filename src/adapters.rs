@@ -42,7 +42,6 @@ pub(crate) use classifier::GatewayClassifier;
 pub(crate) use claude::sandbox::fence_policy;
 pub(crate) use claude::settings::REVIEW_TOOLS as CLAUDE_REVIEW_TOOLS;
 pub(crate) use claude::settings::settings as claude_settings;
-pub(crate) use claude::settings::shell_quote;
 pub(crate) use claude::settings::write_only as claude_write_only;
 #[cfg(test)]
 pub(crate) use claude::write_settings as write_claude_settings;

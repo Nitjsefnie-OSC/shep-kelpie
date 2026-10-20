@@ -23,7 +23,6 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 
 use super::claude::sandbox::call_policy;
-use super::claude::settings::shell_quote;
 use super::claude::{ClaudeCli, LambLabels};
 use super::pi::step_skill;
 use super::process::record::CallFiles;
@@ -36,6 +35,7 @@ use crate::ports::{
     Policy, Sandbox, Session, SessionId, Tools, Transcript, Usage, written_at,
 };
 use crate::settings::{AgentHarness, Harness, HookPoint};
+use crate::spawn::shell_quote;
 
 mod adopt;
 mod attach;

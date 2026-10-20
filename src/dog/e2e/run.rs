@@ -18,8 +18,8 @@ use tokio::process::Command;
 use tokio::sync::mpsc::Sender;
 
 use super::{Plan, Remote};
-use crate::adapters::shell_quote;
 use crate::lease::door::LONGEST_LINE;
+use crate::spawn::shell_quote;
 
 /// The longest message kept of what rsync said when it failed
 const LONGEST_COMPLAINT: usize = 1000;
