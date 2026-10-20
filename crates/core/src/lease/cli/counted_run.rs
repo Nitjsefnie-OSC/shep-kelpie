@@ -18,7 +18,7 @@ use rustix::io::Errno;
 use rustix::process::{Pid, Signal, kill_process, kill_process_group};
 use tokio::time::Instant;
 
-use super::{Caught, Signals, exit_number, signal_process};
+use super::{Caught, Signals, exit_number};
 use crate::lease::counted::CARGO_TEST;
 use crate::lease::door::{Answer, Ask, SOCKET_VAR, Visit};
 
@@ -130,10 +130,10 @@ struct Rejoin<'a> {
 }
 
 // Waits for `child`, which leads its own process group, until it ends or
-// `limit` has passed since `granted`, and returns the number to exit with. The group is the
-// command and everything it started: a signal to the run is passed on to the
-// child alone, and so is an interrupt, which the terminal sends to the run's
-// group and not to the command's.
+// `limit` has passed since `granted`, and returns the number to exit with. The
+// group is the command and everything it started: a signal to the run is passed
+// on to the whole group, and so is an interrupt, which the terminal sends to the
+// run's group and not to the command's.
 async fn tend(
     mut child: tokio::process::Child,
     visit: Option<Visit>,
@@ -162,8 +162,17 @@ async fn tend(
                 return status.map_or_else(|e| failed(&e.to_string(), 1), exit_number);
             }
             Event::Caught(caught) => {
-                if let Some(pid) = child.id() {
-                    signal_process(pid, caught.forward().unwrap_or("INT"));
+                if let Some(group) = child.id().and_then(group_of) {
+                    let signal = match caught {
+                        Caught::Interrupt => Signal::INT,
+                        Caught::Terminate => Signal::TERM,
+                        Caught::Hangup => Signal::HUP,
+                    };
+                    if send(group, signal) {
+                        say(
+                            "cannot signal the command's process group: passed the signal to the command alone",
+                        );
+                    }
                 }
             }
             Event::DogGone => {
@@ -207,28 +216,35 @@ enum Event {
     Overran,
 }
 
+// The process group a child leads, which is its pid.
+fn group_of(pid: u32) -> Option<Pid> {
+    Pid::from_raw(i32::try_from(pid).ok()?)
+}
+
+// Signals the group, or the leader alone when the group signal is refused, as a
+// worker's sandbox may; returns whether it had to fall back. A group that is
+// already gone is what was wanted.
+fn send(group: Pid, signal: Signal) -> bool {
+    match kill_process_group(group, signal) {
+        Ok(()) | Err(Errno::SRCH) => false,
+        Err(_) => {
+            let _ = kill_process(group, signal);
+            true
+        }
+    }
+}
+
 // Ends the child's group: SIGTERM, then SIGKILL after `KILL_AFTER` whether or
-// not the child has gone, since what it started may hold on. A worker's sandbox
-// may refuse the group signal, so the child alone is signalled then.
+// not the child has gone, since what it started may hold on.
 async fn end(child: &mut tokio::process::Child) {
-    let Some(pid) = child.id().and_then(|pid| i32::try_from(pid).ok()) else {
-        return;
-    };
-    let Some(group) = Pid::from_raw(pid) else {
+    let Some(group) = child.id().and_then(group_of) else {
         return;
     };
     let mut alone = false;
     for signal in [Signal::TERM, Signal::KILL] {
-        match kill_process_group(group, signal) {
-            // Nothing is left in the group, which is what was wanted.
-            Ok(()) | Err(Errno::SRCH) => {}
-            Err(_) => {
-                if !alone {
-                    say("cannot signal the command's process group: ending the command alone");
-                    alone = true;
-                }
-                let _ = kill_process(group, signal);
-            }
+        if send(group, signal) && !alone {
+            say("cannot signal the command's process group: ending the command alone");
+            alone = true;
         }
         if signal == Signal::TERM {
             // The leader going does not spare what it started: the kill follows.
@@ -454,6 +470,31 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
         panic!("the command's child outlived the run");
+    }
+
+    // The run's own signal arrives as a group's, not the child's alone.
+    #[tokio::test]
+    async fn a_signal_the_run_passes_on_reaches_what_the_command_started() {
+        let dir = tempfile::tempdir().unwrap();
+        let pidfile = dir.path().join("sleep.pid");
+        let script = format!("sleep 300 & echo $! > {}; wait", pidfile.display());
+        let mut child = start(&script);
+        let sleeper = loop {
+            match std::fs::read_to_string(&pidfile).map(|text| text.trim().parse::<i32>()) {
+                Ok(Ok(pid)) => break pid,
+                _ => tokio::time::sleep(Duration::from_millis(20)).await,
+            }
+        };
+        assert!(alive(sleeper));
+        send(group_of(child.id().unwrap()).unwrap(), Signal::TERM);
+        child.wait().await.unwrap();
+        for _ in 0..100 {
+            if !alive(sleeper) {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        panic!("the command's child outlived the signal");
     }
 
     #[tokio::test]
