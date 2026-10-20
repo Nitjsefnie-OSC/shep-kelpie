@@ -11,7 +11,7 @@ use std::process::Command;
 
 use super::{ClaudeCli, LOGIN_FIX, LOGIN_VAR, argv, terminal_argv};
 use crate::fence;
-use crate::ports::{AgentCall, AgentError, Fence, Policy};
+use crate::ports::{AgentCall, AgentError, Fence, Policy, Tools};
 use crate::profile::CREDENTIALS;
 
 impl ClaudeCli {
@@ -112,6 +112,7 @@ pub fn fence_policy(fence: &Fence) -> Policy {
         scratch: Vec::new(),
         hosts: fence.hosts.clone(),
         sockets: fence.sockets.clone(),
+        socket_folders: Vec::new(),
         forward: None,
         denied_hosts: Vec::new(),
         denied_addresses: Vec::new(),
@@ -143,6 +144,19 @@ pub(crate) fn call_policy(call: &AgentCall, unfenced: &[String]) -> Policy {
             }
             policy
         }
+    }
+}
+
+/// Lets a call that runs a work item's tests bind Unix sockets in `scratch`,
+/// the folder its `TMPDIR` names, where the tests make theirs
+///
+/// srt matches the real path, so `scratch` is resolved where it exists.
+pub(crate) fn bind_in_scratch(policy: &mut Policy, call: &AgentCall, scratch: &Path) {
+    if call.tools == Tools::Work {
+        let real = scratch.canonicalize();
+        policy
+            .socket_folders
+            .push(real.unwrap_or_else(|_| scratch.to_owned()));
     }
 }
 
@@ -186,6 +200,7 @@ pub(crate) fn policy(
     }
     crate::adapters::mcp::fence_the_graph(&mut policy, call);
     crate::adapters::mcp::fence_the_browser(&mut policy, call);
+    bind_in_scratch(&mut policy, call, &scratch(call));
     policy.hosts.push(MODEL_HOST.to_owned());
     Ok(policy)
 }
@@ -397,6 +412,22 @@ mod tests {
         assert!(policy.no_read.iter().any(|p| p == "~/.codex/**"));
         assert!(!policy.no_read.iter().any(|p| p.starts_with("~/.claude")));
         assert!(policy.verify_tls);
+    }
+
+    #[test]
+    fn a_workers_scratch_folder_is_where_it_may_bind_sockets_and_a_reviewers_is_not() {
+        let w = World::new();
+        let policy = |call: &AgentCall| policy(call, &w.path("home"), &[]).unwrap();
+        assert_eq!(
+            policy(&w.worker()).socket_folders,
+            [w.path("worker/settings.tmp")]
+        );
+        let reviewer = AgentCall {
+            tools: Tools::Review,
+            ..w.call(Role::Reviewer)
+        };
+        assert!(policy(&reviewer).socket_folders.is_empty());
+        assert!(policy(&w.call(Role::IssueWriter)).socket_folders.is_empty());
     }
 
     #[test]

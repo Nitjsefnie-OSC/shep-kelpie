@@ -25,7 +25,7 @@ use serde_json::json;
 use self::adopt::{Carried, kept_server};
 use self::compact::Tokens;
 use self::shared::profile;
-use super::claude::sandbox::call_policy;
+use super::claude::sandbox::{bind_in_scratch, call_policy};
 use super::claude::{ClaudeCli, LambLabels};
 use super::forwarder::Forwarder;
 use super::process::record::CallFiles;
@@ -68,6 +68,9 @@ mod dep_sources_tests;
 
 #[cfg(test)]
 mod env_tests;
+
+#[cfg(test)]
+mod socket_tests;
 
 #[cfg(test)]
 mod tests;
@@ -759,6 +762,7 @@ fn policy(
         .chain(call.plugin_dirs.iter().cloned())
         .chain(call.reach.read.iter().cloned()),
     );
+    bind_in_scratch(&mut policy, call, &files.scratch);
     web::open(call, &mut policy);
     super::mcp::fence_the_graph(&mut policy, call);
     super::mcp::fence_the_browser(&mut policy, call);
