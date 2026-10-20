@@ -8,11 +8,14 @@ use crate::work_item::WorkItem;
 /// `item` was already sent it
 ///
 /// An earlier round sending the same finding is a sign its fix did not fix
-/// it. Held findings leave out nits, so a nit is never marked. Called before
-/// the round's findings are recorded as held.
+/// it. A nit is never marked, even when a held finding of a higher severity
+/// reads the same. Called before the round's findings are recorded as held.
 pub(super) fn kept(item: &WorkItem, findings: &[Finding]) -> Vec<Held> {
     (findings.iter())
-        .map(|f| Held::of(f).again(item.held.iter().any(|known| known.is_same_as(f))))
+        .map(|f| {
+            let again = !f.is_nit() && item.held.iter().any(|known| known.is_same_as(f));
+            Held::of(f).again(again)
+        })
         .collect()
 }
 
@@ -95,5 +98,14 @@ mod tests {
         let (rig, _runner) = two_rounds(vec![nit.clone()], std::slice::from_ref(&nit));
 
         assert_eq!(kept(&rig), [vec![Held::of(&nit)], vec![Held::of(&nit)]]);
+    }
+
+    #[test]
+    fn a_nit_that_reads_like_a_held_finding_of_a_higher_severity_is_not_marked() {
+        let held = at(Severity::Medium, "src/a.rs", 4, "unused variable");
+        let nit = at(Severity::Low, "src/a.rs", 4, "unused variable");
+        let (rig, _runner) = two_rounds(vec![held.clone()], std::slice::from_ref(&nit));
+
+        assert_eq!(kept(&rig), [vec![Held::of(&held)], vec![Held::of(&nit)]]);
     }
 }
