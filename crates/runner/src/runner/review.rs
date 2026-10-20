@@ -13,6 +13,7 @@
 //! [`super::review_bot`]'s, and its open threads are its findings. After the
 //! last reviewer the work item goes on to [`super::gate`].
 
+mod again;
 mod attached;
 mod awaited;
 #[cfg(test)]
@@ -50,7 +51,7 @@ use std::path::Path;
 
 use super::Runner;
 use super::report::{Begin, ReviewCall, ReviewResult, Reviewed, StepReport};
-use super::retro::journal::{Entry, Held};
+use super::retro::journal::Entry;
 use super::review_bot::Answered;
 use super::talk::At;
 use super::voice::Round;
@@ -612,7 +613,7 @@ impl Runner {
             return Ok(self.gate_failed(reason));
         }
         let held = findings.len();
-        let kept: Vec<Held> = findings.iter().map(Held::of).collect();
+        let kept = again::kept(item, &findings);
         let prompt = findings::fix_prompt(number, round, held, &path, report_threads);
         let deferred_before = match findings::deferred(build) {
             Ok(deferred) => deferred,
