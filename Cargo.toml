@@ -5,6 +5,7 @@ members = ["crates/*"]
 default-members = [
     ".",
     "crates/core",
+    "crates/dog",
     "crates/facts",
     "crates/panel",
     "crates/process",
@@ -32,6 +33,7 @@ all = { level = "warn", priority = -1 }
 # The members below the root. A member's own manifest names none of them,
 # except `test_support`, which every other member names as a dev-dependency.
 shep-kelpie-core = { path = "crates/core" }
+shep-kelpie-dog = { path = "crates/dog" }
 shep-kelpie-facts = { path = "crates/facts" }
 shep-kelpie-panel = { path = "crates/panel" }
 shep-kelpie-process = { path = "crates/process" }
@@ -86,6 +88,7 @@ workspace = true
 
 [dependencies]
 shep-kelpie-core.workspace = true
+shep-kelpie-dog.workspace = true
 shep-kelpie-facts.workspace = true
 shep-kelpie-panel.workspace = true
 shep-kelpie-process.workspace = true

@@ -1023,6 +1023,7 @@ dependencies = [
  "shep-client",
  "shep-handover",
  "shep-kelpie-core",
+ "shep-kelpie-dog",
  "shep-kelpie-facts",
  "shep-kelpie-panel",
  "shep-kelpie-process",
@@ -1047,6 +1048,7 @@ dependencies = [
  "serde-saphyr",
  "serde_json",
  "sha1",
+ "shep-channel",
  "shep-client",
  "shep-kelpie-facts",
  "shep-kelpie-panel",
@@ -1054,6 +1056,22 @@ dependencies = [
  "shep-kelpie-test-support",
  "shep-kelpie-trim",
  "shep-kelpie-worker-folder",
+ "tempfile",
+ "tokio",
+ "toml 1.1.6+spec-1.1.0",
+]
+
+[[package]]
+name = "shep-kelpie-dog"
+version = "0.0.0"
+dependencies = [
+ "rustix",
+ "serde",
+ "serde_json",
+ "shep-channel",
+ "shep-client",
+ "shep-kelpie-core",
+ "shep-kelpie-test-support",
  "tempfile",
  "tokio",
  "toml 1.1.6+spec-1.1.0",

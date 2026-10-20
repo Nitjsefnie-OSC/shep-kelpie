@@ -9,6 +9,7 @@ pub mod book;
 pub mod cli;
 pub mod counted;
 pub mod door;
+pub mod door_pace;
 pub mod saved;
 pub mod window;
 pub mod wire;
