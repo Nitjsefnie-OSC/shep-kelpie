@@ -33,6 +33,9 @@ pub struct Policy {
     pub hosts: Vec<String>,
     /// The Unix sockets it may connect to
     pub sockets: Vec<PathBuf>,
+    /// Folders it may bind and connect Unix sockets in, so a test that serves
+    /// on one runs. macOS only, as `open` is. They must be real paths.
+    pub socket_folders: Vec<PathBuf>,
     /// Hosts it may never reach, whatever the allowed hosts say, on any port
     pub denied_hosts: Vec<String>,
     /// Addresses an allowed host name may not resolve to

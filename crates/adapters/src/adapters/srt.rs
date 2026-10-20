@@ -5,7 +5,7 @@
 //! Kelpie pins its version in [`crate::tools::PACKAGE`]. On macOS a sandbox
 //! cannot start inside another, so nothing it runs may start one of its own.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use serde_json::{Value, json};
@@ -90,8 +90,8 @@ pub fn srt_settings(policy: &Policy) -> Value {
     settings_on(policy, cfg!(target_os = "macos"))
 }
 
-// `srt`'s settings file for `policy`, on macOS or not: `open` and `scratch`
-// reach srt on macOS alone.
+// `srt`'s settings file for `policy`, on macOS or not: `open`, `scratch` and
+// `socket_folders` reach srt on macOS alone.
 fn settings_on(policy: &Policy, macos: bool) -> Value {
     // Without `strictAllowlist`, a host off the list is asked about rather than refused.
     let mut network = json!({
@@ -108,8 +108,10 @@ fn settings_on(policy: &Policy, macos: bool) -> Value {
         network["allowedDomains"] = json!(hosts);
         network["mitmProxy"] = json!({ "socketPath": forward.socket, "domains": [&forward.host] });
     }
-    if !policy.sockets.is_empty() {
-        network["allowUnixSockets"] = json!(policy.sockets);
+    let folders = policy.socket_folders.iter().filter(|_| macos);
+    let sockets: Vec<&PathBuf> = policy.sockets.iter().chain(folders).collect();
+    if !sockets.is_empty() {
+        network["allowUnixSockets"] = json!(sockets);
     }
     if policy.listen {
         network["allowLocalBinding"] = json!(true);
@@ -169,8 +171,6 @@ mod live;
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
-
     use super::*;
 
     #[test]
@@ -259,6 +259,48 @@ mod tests {
         let files = &settings_on(&policy, false)["filesystem"];
         assert_eq!(files["allowRead"], json!(["/k/wt/7"]));
         assert_eq!(files["allowWrite"], json!(["/k/wt/7"]));
+    }
+
+    #[test]
+    fn on_macos_a_socket_folder_is_listed_after_the_sockets_and_off_macos_it_is_not() {
+        let socket = PathBuf::from("/k/dog/lease.sock");
+        let folder = PathBuf::from("/private/k/call.tmp");
+        let policy = |sockets: Vec<PathBuf>, socket_folders: Vec<PathBuf>| Policy {
+            sockets,
+            socket_folders,
+            ..Policy::default()
+        };
+        let both = policy(vec![socket.clone()], vec![folder.clone()]);
+        let folder_only = policy(vec![], vec![folder.clone()]);
+        let socket_only = policy(vec![socket.clone()], vec![]);
+        let neither = policy(vec![], vec![]);
+
+        let listed = |policy: &Policy, macos: bool| {
+            settings_on(policy, macos)["network"]
+                .get("allowUnixSockets")
+                .cloned()
+        };
+        assert_eq!(
+            listed(&both, true),
+            Some(json!(["/k/dog/lease.sock", "/private/k/call.tmp"]))
+        );
+        assert_eq!(
+            listed(&folder_only, true),
+            Some(json!(["/private/k/call.tmp"]))
+        );
+        assert_eq!(
+            listed(&socket_only, true),
+            Some(json!(["/k/dog/lease.sock"]))
+        );
+        assert_eq!(listed(&neither, true), None);
+
+        assert_eq!(listed(&both, false), Some(json!(["/k/dog/lease.sock"])));
+        assert_eq!(listed(&folder_only, false), None);
+        assert_eq!(
+            listed(&socket_only, false),
+            Some(json!(["/k/dog/lease.sock"]))
+        );
+        assert_eq!(listed(&neither, false), None);
     }
 
     // A tools folder with the runtime, and with its keychain-free copy when `blocked`.
