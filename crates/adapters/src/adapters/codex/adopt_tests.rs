@@ -13,9 +13,9 @@ use crate::test::OpenSandbox;
 fn waiting_codex(world: &World) -> CodexCli {
     std::fs::write(world.path("stdout.jsonl"), FRESH).unwrap();
     let script = format!(
-        "#!/bin/sh\ntouch {}\nwhile [ ! -f {} ]; do sleep 0.02; done\ncat {}\n",
+        "#!/bin/sh\ntouch {}\n{}\ncat {}\n",
         world.path("started").display(),
-        world.path("go").display(),
+        crate::test::waits_for(&world.path("go"), crate::test::CALL_PATIENCE),
         world.path("stdout.jsonl").display()
     );
     crate::test::write_script(&world.path("codex"), &script);

@@ -17,7 +17,7 @@ use crate::flock::Launch;
 use crate::home::ProjectName;
 use crate::shepherd::Dial;
 use crate::test::ticket;
-use crate::test::{CALL_PATIENCE, FakeShepherd, write_script};
+use crate::test::{CALL_PATIENCE, FakeShepherd, waits_for, write_script};
 use crate::ticket::TicketId;
 
 mod drain;

@@ -47,7 +47,7 @@ pub use shep_kelpie_core::test::{
 };
 pub use shep_kelpie_test_support::{
     CALL_PATIENCE, Elsewhere, cut_from_main, git, linked_worktree, main_commits, make_fifo,
-    short_tempdir, write_in, write_script,
+    short_tempdir, waits_for, write_in, write_script,
 };
 
 /// The `git.checkout` in `settings.example.toml`, which the rig points at its own
