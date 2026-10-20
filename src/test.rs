@@ -2,7 +2,6 @@
 //! webhook and the clock, over a real git repo in a throwaway home
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::sync::{Arc, Mutex};
 
 use crate::adapters::{GpuCurl, LocalReviewer};
@@ -21,51 +20,35 @@ use crate::settings::SettingsError;
 use crate::webhook::{KelpieSettings, Webhook};
 
 mod claude;
-mod elsewhere;
 mod fork;
-mod github;
 mod home;
-mod leases;
 mod reads;
 mod registered_app;
-mod reviewer;
 mod rig_settings;
 mod rig_totp;
 
 // The stand-ins and helpers that name only `core` and the leaves, where `core`'s own tests use them
 pub(crate) use claude::{FakeClaude, LEFT_BEHIND, Scripted, Seen};
-pub(crate) use elsewhere::Elsewhere;
-pub(crate) use github::{Asked, FakeGithub, FakeSigner, PEM, REVIEW_ID, SentReview};
-pub(crate) use leases::{DogStandIn, FakeLeases, Told};
+// The stand-ins that name an adapter
 pub(crate) use reads::{
     assert_granted, assert_reads, assert_refuses, installed_sources, sandbox_refuses,
     source_folders, tools_refuse,
 };
 pub(crate) use registered_app::RegisteredApp;
-pub(crate) use reviewer::{FakeReviewer, ScriptedRound, SeenRound};
+pub(crate) use shep_kelpie_adapters::test::{
+    Asked, DogStandIn, FakeGithub, FakeLeases, FakeReviewer, REVIEW_ID, ScriptedRound, SeenRound,
+    SentReview, Told,
+};
 pub(crate) use shep_kelpie_core::test::{
-    Answer, AppComments, EPOCH, FakeAlerts, FakeBridges, FakeClassifier, FakeClock, FakeCodeRabbit,
-    FakeDevServers, FakeDisk, FakeE2e, FakeForge, FakeGit, FakeMeter, FakePages, FakeShepherd,
-    FakeTests, GB, Hold, Home, LeaseReads, Memory, OpenSandbox, RecordedSink, SeenAsk,
-    StandInEndpoint, Synced, Take, VIEWER, a_work_item, clean_visit, project_table, ticket,
-    unreachable_url,
+    Answer, EPOCH, FakeAlerts, FakeBridges, FakeClassifier, FakeClock, FakeDevServers, FakeDisk,
+    FakeE2e, FakeForge, FakeGit, FakeMeter, FakePages, FakeShepherd, FakeTests, GB, Hold, Home,
+    LeaseReads, Memory, OpenSandbox, RecordedSink, SeenAsk, StandInEndpoint, Synced, Take, VIEWER,
+    a_work_item, clean_visit, project_table, ticket, unreachable_url,
 };
 pub(crate) use shep_kelpie_test_support::{
-    CALL_PATIENCE, git, linked_worktree, short_tempdir, write_in, write_script,
+    CALL_PATIENCE, Elsewhere, cut_from_main, git, linked_worktree, main_commits, make_fifo,
+    short_tempdir, write_in, write_script,
 };
-
-/// Makes an owner-only FIFO at `path`
-///
-/// Runs `mkfifo(1)`: `rustix` has no `mkfifoat` on macOS, and `nix` would put
-/// a second copy of itself in the tree beside the one `shep-core` builds.
-pub(crate) fn make_fifo(path: &Path) {
-    let made = Command::new("mkfifo")
-        .args(["-m", "600"])
-        .arg(path)
-        .status()
-        .unwrap();
-    assert!(made.success(), "mkfifo {}: {made}", path.display());
-}
 
 /// The `git.checkout` in `settings.example.toml`, which the rig points at its own
 const EXAMPLE_REPO: &str = "~/GitHub/shep";
@@ -541,24 +524,4 @@ fn denies(rule: &str, path: &str) -> bool {
 
 fn path(p: &Path) -> &str {
     p.to_str().expect("a UTF-8 temporary path")
-}
-
-/// Gives `main` in `repo` a commit that sets `file` to `contents`, and moves
-/// `origin/main` to it
-///
-/// Before a branch is cut, it is the base the branch starts from. After, it
-/// is `main` moving on.
-pub(crate) fn main_commits(repo: &Path, file: &str, contents: &str) {
-    let path = repo.join(file);
-    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-    std::fs::write(path, contents).unwrap();
-    git(repo, &["add", file]);
-    git(repo, &["commit", "--quiet", "-m", "main moves on"]);
-    let tip = git(repo, &["rev-parse", "main"]);
-    git(repo, &["update-ref", "refs/remotes/origin/main", &tip]);
-}
-
-/// Moves `worktree`'s branch to where `main` stands, the way a branch is cut
-pub(crate) fn cut_from_main(worktree: &Path) {
-    git(worktree, &["reset", "--quiet", "--hard", "main"]);
 }

@@ -334,7 +334,7 @@ async fn a_project_with_no_goose_agent_gets_no_goose_line() {
 
 // The shared reader already trims the line `program --version` prints, so
 // nothing was added to it. The fake host trims as it does, and the reader's
-// own test in `src/adapters/host.rs` runs a script that prints ` 1.54.0`.
+// own test in `crates/adapters/src/adapters/host.rs` runs a script that prints ` 1.54.0`.
 #[tokio::test]
 async fn goose_prints_its_version_with_a_leading_space_and_it_is_read() {
     let mut scene = Scene::new().await;

@@ -8,10 +8,8 @@
 #![forbid(unsafe_code)]
 #![doc(test(attr(deny(warnings))))]
 
-pub mod adapters;
 pub mod doctor;
 pub mod flock;
-pub mod github;
 pub mod issues;
 pub mod runner;
 pub mod schema;
@@ -27,6 +25,9 @@ pub use shep_kelpie_core::{
 };
 use shep_kelpie_core::{dep_sources, transcripts};
 
+// The real ports and the forge, each kept under the name it had here
+pub use shep_kelpie_adapters::{adapters, github};
+
 // The dog, kept under the name it had here
 pub use shep_kelpie_dog::dog;
 
@@ -34,9 +35,12 @@ pub use shep_kelpie_dog::dog;
 use shep_kelpie_facts::{mcp_use, request_use, tool_error};
 pub use shep_kelpie_panel::panel;
 pub use shep_kelpie_process::{spawn, terminal, tools, worktree};
+#[cfg(test)]
 use shep_kelpie_trim::trim;
 use shep_kelpie_worker_folder::worker_folder;
 
+#[cfg(test)]
+mod github_tests;
 #[cfg(test)]
 mod test;
 

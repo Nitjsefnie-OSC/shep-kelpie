@@ -2,7 +2,7 @@
 
 Kelpie is a shep dog that runs Claude Code workers from a planned work item to a merged pull request, holding gates, leases and pacing in code. MIT OR Apache-2.0.
 
-- A Cargo workspace (ADR 0015): the root package `shep-kelpie`, the binary, and the crates under `crates/`, each `#![forbid(unsafe_code)]` and using only what is below it. So far `process` (`spawn`, `terminal`, `tools`, `worktree`), `facts` (`mcp_use`, `request_use`, `tool_error`), `panel`, `worker_folder`, `trim`, `core` (the vocabulary, settings and ports, with the stand-ins that name only them behind its `test-support` feature), `dog` (the lease dog, using only `core`) and the dev-only `test_support`. A package is the repo's name plus `-<part>`. Core's tests that drive a `Runner` or name an adapter live in `src/runner/core_tests/`.
+- A Cargo workspace (ADR 0015): the root package `shep-kelpie`, the binary, and the crates under `crates/`, each `#![forbid(unsafe_code)]` and using only what is below it. So far `process` (`spawn`, `terminal`, `tools`, `worktree`), `facts` (`mcp_use`, `request_use`, `tool_error`), `panel`, `worker_folder`, `trim`, `core` (the vocabulary, settings and ports, with the stand-ins that name only them behind its `test-support` feature), `dog` (the lease dog, using only `core`), `adapters` (the real ports and the forge, `adapters` and `github`, using only `core` and the leaves) and the dev-only `test_support`. A package is the repo's name plus `-<part>`. Core's tests that drive a `Runner` or name an adapter live in `src/runner/core_tests/`.
 - A module keeps its name in its crate and the root re-exports it, so `crate::spawn` and `cargo test --lib <module path>` hold from the root. `default-members` names every member, so a bare `cargo fmt --all`, `clippy` or `test` covers them. To name one member, `-p <package>`.
 - The design is settled and the first build (#5) is done. Kelpie runs the maintainer's projects, this one included, one issue per worker at a time.
 
@@ -39,7 +39,7 @@ These hold for a kelpie worker too.
 - First read the issue, its parent spec #5, `GLOSSARY.md`, `docs/adr/` and `docs/design/`. Ask only for a decision they leave open.
 - Tests follow #5: the runner's work-item loop through its stand-ins, the dog's lease book with a fake clock, adapter parsing against real recorded output. Assert only what the outside world sees.
 - A worker's sandbox binds no socket or port. `docs/agents/sandbox-red-tests.md` lists the tests that fail there and pass in CI. Say in the pull request which tests only CI ran.
-- Workers run on Claude Code, pi and Codex. A change to one adapter (`src/adapters/claude*`, `pi*`, `codex*`) or to code that branches on `AgentHarness` reaches pi in the same pull request, or names the open pi issue that does. Codex may follow in its own issue. See `CODING_STANDARDS.md`.
+- Workers run on Claude Code, pi and Codex. A change to one adapter (`crates/adapters/src/adapters/claude*`, `pi*`, `codex*`) or to code that branches on `AgentHarness` reaches pi in the same pull request, or names the open pi issue that does. Codex may follow in its own issue. See `CODING_STANDARDS.md`.
 - New measured facts go in their `docs/facts/` file (or a new one listed in its README) in the same pull request. A changed decision updates `docs/design/` too.
 - Done when every acceptance criterion is met, with the evidence in the pull request body, which ends `Resolves #<n>`.
 

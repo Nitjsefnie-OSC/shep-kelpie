@@ -449,7 +449,7 @@ fn agents_defaults() -> Vec<String> {
 // The adapter's own files, which define its `impl Agents`.
 fn adapter_files(provider: &str) -> Vec<PathBuf> {
     let command = harness(provider).command();
-    let adapters = root().join("src/adapters");
+    let adapters = root().join("crates/adapters/src/adapters");
     let mut files = vec![adapters.join(format!("{command}.rs"))];
     let folder = adapters.join(command);
     if folder.is_dir() {

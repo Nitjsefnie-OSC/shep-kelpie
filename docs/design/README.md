@@ -20,21 +20,21 @@ Kelpie: dog of the maintainer's shepherd; one runner per project takes ready iss
 
 ## Files
 
-| file | covers | read when you touch (`core/` is `crates/core/src/`, `dog/` is `crates/dog/src/dog/`) |
+| file | covers | read when you touch (`core/` is `crates/core/src/`, `dog/` is `crates/dog/src/dog/`, `adapters/` and `github/` are in `crates/adapters/src/`) |
 |---|---|---|
 | work.md | projects, board, adoption, slots, issue writer | `core/board.rs`, `src/issues.rs`, `src/runner/adopt.rs`, `src/runner/slots.rs`, `src/flock/verbs.rs`, `core/guard/issues.rs` |
 | pm.md | the project manager, its board file | `src/runner/pm.rs`, `src/runner/pm/`, `src/runner/briefing.rs` |
 | workers.md | runner loop, turns | `src/runner/turn.rs`, `src/runner/flight.rs` |
 | fence.md | sandbox, guard, hooks, reads | `core/{profile,guard,hooks,dep_sources}.rs`, `src/runner/turn/dep_reads.rs` |
-| browser.md | a worker's browser outside its sandbox: bridge, filter, tools | `core/{bridge,browse}.rs`, `src/adapters/bridge.rs`, `src/runner/browser.rs`, `core/settings/browser.rs`, `crates/process/src/tools/` |
-| browser-dev-server.md | the dev server for a worker's browser: launch, port, readiness | `src/runner/dev_server.rs`, `src/runner/dev_server/launch.rs`, `core/ports/dev_server.rs`, `src/adapters/dev_server.rs` |
-| compaction.md | when a session compacts, `worker.compact_window` per harness, `COMPACT` | `src/runner/compact.rs`, `src/adapters/pi/compact.rs`, `src/adapters/codex/context.rs`, `src/adapters/goose/compact.rs` |
-| skills.md | step skills, repo plugins, how harnesses load them | `core/skills.rs`, `core/skills/`, `src/adapters/skills.rs`, `src/runner/turn.rs` (`prepared`) |
-| agents.md | agent files, harnesses, gateways | `core/agents/`, `src/adapters/`, `core/settings/agents.rs`, `crates/process/src/spawn.rs` |
-| handover.md | a runner handing in-flight turns to a new image, `upgrade` | `src/sheep/handover.rs`, `src/runner/flight/carry.rs`, `src/adapters/process/adopt.rs`, `src/upgrade/handover.rs` |
-| waits-and-spend.md | a turn waiting for its model or host, spend by role | `src/runner/turn/unreachable.rs`, `src/adapters/unreachable.rs`, `src/adapters/codex.rs`, `core/usage.rs`, `core/settings/agents.rs` |
+| browser.md | a worker's browser outside its sandbox: bridge, filter, tools | `core/{bridge,browse}.rs`, `adapters/bridge.rs`, `src/runner/browser.rs`, `core/settings/browser.rs`, `crates/process/src/tools/` |
+| browser-dev-server.md | the dev server for a worker's browser: launch, port, readiness | `src/runner/dev_server.rs`, `src/runner/dev_server/launch.rs`, `core/ports/dev_server.rs`, `adapters/dev_server.rs` |
+| compaction.md | when a session compacts, `worker.compact_window` per harness, `COMPACT` | `src/runner/compact.rs`, `adapters/pi/compact.rs`, `adapters/codex/context.rs`, `adapters/goose/compact.rs` |
+| skills.md | step skills, repo plugins, how harnesses load them | `core/skills.rs`, `core/skills/`, `adapters/skills.rs`, `src/runner/turn.rs` (`prepared`) |
+| agents.md | agent files, harnesses, gateways | `core/agents/`, `adapters/`, `core/settings/agents.rs`, `crates/process/src/spawn.rs` |
+| handover.md | a runner handing in-flight turns to a new image, `upgrade` | `src/sheep/handover.rs`, `src/runner/flight/carry.rs`, `adapters/process/adopt.rs`, `src/upgrade/handover.rs` |
+| waits-and-spend.md | a turn waiting for its model or host, spend by role | `src/runner/turn/unreachable.rs`, `adapters/unreachable.rs`, `adapters/codex.rs`, `core/usage.rs`, `core/settings/agents.rs` |
 | review.md | review, bots, rulings | `src/runner/review/`, `src/runner/ruling.rs`, `core/webhook.rs` |
-| local-review.md | local reviewers (`command`, `endpoint`), their lock, rounds kept after an item | `src/runner/review/keep.rs`, `core/settings/local_rounds.rs`, `core/settings/local.rs`, `src/adapters/local/` |
+| local-review.md | local reviewers (`command`, `endpoint`), their lock, rounds kept after an item | `src/runner/review/keep.rs`, `core/settings/local_rounds.rs`, `core/settings/local.rs`, `adapters/local/` |
 | merge.md | CI, catching up, merge, after it | `src/runner/gate.rs`, `src/runner/merge.rs`, `src/runner/close_merged.rs`, `src/runner/main_ci.rs` |
 | local-tickets.md | the local ticket store, `ticket` verbs, closing on merge | `core/local_tickets.rs`, `src/flock/ticket.rs`, `src/runner/close_merged.rs` |
 | github-app.md | App tokens, posting, answers, ruling panel | `src/runner/voice/`, `src/runner/panel/`, `crates/panel/`, `core/guard/gh.rs`, `crates/worker_folder/` |
@@ -45,7 +45,7 @@ Kelpie: dog of the maintainer's shepherd; one runner per project takes ready iss
 | contribution-release.md | asking a contributor for a release: yes, thumbs up or silence, the ruling | `src/runner/contributions/{release,ruling}.rs` |
 | contribution-merge.md | the merge ruling every contribution gets: yes, thanks and no | `src/runner/contributions/{merge,ruling}.rs`, `core/settings/rulings.rs` |
 | representative.md | the representative: its agent file, `agents.representative`, the call that words a post | `src/runner/representative.rs`, `core/agents/front.rs`, `core/settings/agents.rs`, `agents/representative.md` |
-| dependencies.md | the bumps bots open: `dependencies` settings, rebase asks, proof, merge, red | `core/settings/dependencies.rs`, `src/runner/dependencies.rs`, `src/runner/flight/proving.rs`, `src/runner/dev_server/bump.rs`, `core/state/bumps.rs`, `src/adapters/e2e_runner.rs`, `src/adapters/pages.rs`, `src/adapters/bridge/client.rs` |
+| dependencies.md | the bumps bots open: `dependencies` settings, rebase asks, proof, merge, red | `core/settings/dependencies.rs`, `src/runner/dependencies.rs`, `src/runner/flight/proving.rs`, `src/runner/dev_server/bump.rs`, `core/state/bumps.rs`, `adapters/e2e_runner.rs`, `adapters/pages.rs`, `adapters/bridge/client.rs` |
 | triage.md | settings, the triager, the pick rule, `since`, the verb, `status` | `core/settings/triage.rs`, `src/runner/triage.rs`, `src/runner/open_checks.rs`, `core/ports/issue.rs` |
 | triage-pass.md | one issue's pass: post, labels, duplicate close, agent-ready | `src/runner/triage/`, `src/runner/flight/`, `core/ports/voice.rs` |
 | triage-author.md | the author's round: the ask, `github`, `local`, `none`, answers | `src/runner/triage/{ask,heard,local}.rs`, `src/runner/representative/reading.rs` |
