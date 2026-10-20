@@ -63,7 +63,7 @@ async fn dispatch(args: &[String]) -> Result<ExitCode, String> {
         ["run" | "take" | "return" | "hold", GPU, ..] => Err(GPU_GONE.into()),
         ["run", CARGO_TEST, "--", command @ ..] if !command.is_empty() => {
             let code = match door::socket() {
-                Ok(socket) => counted_run::run(&socket, command).await,
+                Ok(socket) => counted_run::run(&socket, command, counted_run::RUN_LIMIT).await,
                 Err(e) => {
                     eprintln!("shep kelpie lease: {e}");
                     counted_run::NO_LEASE
@@ -340,7 +340,7 @@ mod tests {
 
     // A caught signal reaches every run alive when it lands, so the tests
     // that listen for signals take turns.
-    static LISTENING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    pub(super) static LISTENING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
     fn words(args: &[&str]) -> Vec<String> {
         args.iter().map(|&a| a.to_owned()).collect()

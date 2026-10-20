@@ -29,7 +29,7 @@ use std::sync::Arc;
 
 use self::files::Files;
 use self::output::Spent;
-use super::claude::sandbox::call_policy;
+use super::claude::sandbox::{bind_in_scratch, call_policy};
 use super::claude::{ClaudeCli, LambLabels};
 use super::forwarder::Forwarder;
 use super::pi::adopt::{Carried, kept_server};
@@ -86,6 +86,9 @@ mod escapes;
 
 #[cfg(test)]
 mod review_tests;
+
+#[cfg(test)]
+mod socket_tests;
 
 #[cfg(test)]
 mod skills_tests;
@@ -674,6 +677,7 @@ fn policy(
             .chain(call.plugin_dirs.iter().cloned())
             .chain(call.reach.read.iter().cloned()),
     );
+    bind_in_scratch(&mut policy, call, &files.scratch);
     crate::adapters::mcp::fence_the_graph(&mut policy, call);
     crate::adapters::mcp::fence_the_browser(&mut policy, call);
     web::open(call, &mut policy);
