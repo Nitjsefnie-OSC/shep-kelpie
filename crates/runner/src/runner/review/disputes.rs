@@ -25,8 +25,9 @@ pub(in crate::runner) struct Answers {
     /// Disputed with a reason, though a reviewer had raised it again after
     /// an earlier dispute
     repeated: Vec<usize>,
-    /// Deferred as out of scope, and not disputed
-    deferred: Vec<usize>,
+    /// Deferred as out of scope, and not disputed, with the worker's reason
+    /// when it gave one
+    deferred: Vec<(usize, Option<String>)>,
     /// Neither deferred nor disputed with a reason
     unanswered: Vec<usize>,
 }
@@ -51,16 +52,16 @@ pub(in crate::runner) struct Settled {
 ///
 /// # Errors
 ///
-/// As [`findings::deferred`] and [`findings::disputed`].
+/// As [`findings::deferred_with_reasons`] and [`findings::disputed`].
 pub(in crate::runner) fn answers(
     build: &Path,
     sent: Sent<'_>,
     round: u32,
     already: &[Dispute],
 ) -> Result<Answers, String> {
-    let mut deferred = findings::deferred(build)?;
+    let mut deferred = findings::deferred_with_reasons(build)?;
     for before in sent.deferred_before {
-        if let Some(at) = deferred.iter().position(|d| d.is_same_as(before)) {
+        if let Some(at) = (deferred.iter()).position(|d| d.finding.is_same_as(before)) {
             deferred.remove(at);
         }
     }
@@ -78,8 +79,10 @@ pub(in crate::runner) fn answers(
         match reason {
             Some(reason) if !again => answers.disputed.push((at, reason)),
             Some(_) => answers.repeated.push(at),
-            None if deferred.iter().any(|d| d.is_same_as(f)) => answers.deferred.push(at),
-            None => answers.unanswered.push(at),
+            None => match deferred.iter().find(|d| d.finding.is_same_as(f)) {
+                Some(d) => answers.deferred.push((at, d.reason.clone())),
+                None => answers.unanswered.push(at),
+            },
         }
     }
     Ok(answers)
@@ -96,8 +99,9 @@ impl Answers {
         &self.repeated
     }
 
-    /// Those deferred, and not disputed
-    pub(in crate::runner) fn deferred(&self) -> &[usize] {
+    /// Those deferred, and not disputed, with the worker's reason when it
+    /// gave one
+    pub(in crate::runner) fn deferred(&self) -> &[(usize, Option<String>)] {
         &self.deferred
     }
 
@@ -139,7 +143,8 @@ impl Answers {
             ));
         }
         if !self.deferred.is_empty() {
-            said.push(format!("deferred {}", places(&self.deferred)));
+            let deferred: Vec<usize> = self.deferred.iter().map(|(at, _)| *at).collect();
+            said.push(format!("deferred {}", places(&deferred)));
         }
         if said.is_empty() {
             return None;

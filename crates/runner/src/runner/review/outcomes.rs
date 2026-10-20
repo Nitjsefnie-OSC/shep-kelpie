@@ -37,8 +37,8 @@ fn outcome_of(
     if answers.repeated_at().contains(&at) {
         return (Outcome::Disputed, None);
     }
-    if answers.deferred().contains(&at) {
-        return (Outcome::Deferred, None);
+    if let Some((_, reason)) = answers.deferred().iter().find(|(i, _)| *i == at) {
+        return (Outcome::Deferred, reason.clone());
     }
     match (pushed, finding.is_nit()) {
         (false, true) => (Outcome::NitDeclined, None),
