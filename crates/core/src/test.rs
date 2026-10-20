@@ -122,6 +122,8 @@ pub fn a_work_item() -> WorkItem {
             fix_turns: 1,
             rulings: 1,
             ci_fix_turns: 1,
+            disputed: 0,
+            deferred: 0,
             worker_unreported: 0,
             reviewer_unreported: 0,
             ci_failures: crate::work_item::CiFailures::default(),

@@ -101,6 +101,35 @@ fn a_fix_that_pushed_journals_pushed_disputed_and_deferred() {
 }
 
 #[test]
+fn a_fix_turn_that_disputed_one_finding_and_deferred_two_raises_the_counters() {
+    let found: Vec<_> = (1..=4)
+        .map(|n| at(Severity::Medium, &format!("src/{n}.rs"), n))
+        .collect();
+    let (rig, runner) = findings_sent(found.clone());
+    let build = rig.build_7();
+    std::fs::write(
+        build.join("disputed-findings.md"),
+        format!("{}  the closure takes two values\n", line_of(&found[1])),
+    )
+    .unwrap();
+    std::fs::write(
+        build.join("deferred-findings.md"),
+        format!(
+            "{}  it needs its own pull request\n{}  so does this\n",
+            line_of(&found[2]),
+            line_of(&found[3])
+        ),
+    )
+    .unwrap();
+    rig.claude.script([Scripted::Push("fixed.txt", "fixed\n")]);
+    step(&runner).unwrap(); // the fix turn pushes
+    step(&runner).unwrap();
+
+    let counts = runner.lock().unwrap().current().unwrap().counts;
+    assert_eq!((counts.disputed, counts.deferred), (1, 2));
+}
+
+#[test]
 fn a_fix_that_pushed_nothing_and_was_sent_only_nits_journals_nit_declined() {
     let (a, b) = (
         at(Severity::Low, "src/a.rs", 1),

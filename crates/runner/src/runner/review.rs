@@ -393,7 +393,7 @@ impl Runner {
                     if let Some(reason) = self.record_pushed_disputes(&review, sent)? {
                         return Ok(self.gate_failed(reason));
                     }
-                    self.journal_outcomes(&review, sent, true);
+                    self.journal_outcomes(&review, sent, true)?;
                     match self.answer_sent(number, true)? {
                         Answered::Done => {}
                         Answered::Retry(reason) => return Ok(self.gate_failed(reason)),
@@ -473,7 +473,7 @@ impl Runner {
         if let Unfixed::Disputed { disputes, .. } = &unfixed {
             self.update(|item| disputes::record(item, disputes))?;
         }
-        self.journal_outcomes(&review, sent, false);
+        self.journal_outcomes(&review, sent, false)?;
         match self.answer_sent(number, false)? {
             Answered::Done => {}
             Answered::Retry(reason) => return Ok(self.gate_failed(reason)),

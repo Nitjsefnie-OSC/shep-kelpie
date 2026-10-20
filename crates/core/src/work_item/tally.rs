@@ -26,6 +26,12 @@ pub struct Counts {
     /// Worker turns sent to fix a red CI run, which `ci.fix_attempts` caps
     #[serde(default, skip_serializing_if = "is_zero")]
     pub ci_fix_turns: u32,
+    /// Findings its worker disputed, each once per round it was sent
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub disputed: u32,
+    /// Findings its worker deferred, counted the same way
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub deferred: u32,
     /// The worker's calls that reported no usage: failed, timed out,
     /// stopped or unreadable, which no call record holds
     #[serde(default, skip_serializing_if = "is_zero")]

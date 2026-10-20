@@ -64,6 +64,12 @@ pub struct FinishedLine {
     /// The findings above a nit its worker was sent, each once across rounds
     #[serde(default, skip_serializing_if = "HeldFindings::is_zero")]
     pub held: HeldFindings,
+    /// The findings its worker disputed, each once per round it was sent
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub disputed: u32,
+    /// The findings its worker deferred, counted the same way
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub deferred: u32,
 }
 
 /// A finished work item's findings above a nit, by severity
@@ -121,6 +127,8 @@ impl FinishedLine {
             ci_fix_turns: tally.counts.ci_fix_turns,
             ci_failures: tally.counts.ci_failures,
             held,
+            disputed: tally.counts.disputed,
+            deferred: tally.counts.deferred,
         }
     }
 }
@@ -176,5 +184,31 @@ mod tests {
             )
         );
         assert_eq!((line.get("harness"), line.get("model")), (None, None));
+    }
+
+    #[test]
+    fn a_finished_line_shows_disputed_and_deferred_and_neither_at_zero() {
+        let mut item = a_work_item();
+        let record = Finished {
+            issue: item.issue,
+            title: item.title.clone(),
+            pull_request: Some(71),
+            merged: true,
+            closed: false,
+            at: Timestamp(9),
+            wall: 9,
+            seconds: Seconds::default(),
+            spend: None,
+        };
+        let line = serde_json::to_value(FinishedLine::of(&record, &item, item.issue)).unwrap();
+        assert_eq!((line.get("disputed"), line.get("deferred")), (None, None));
+
+        item.counts.disputed = 1;
+        item.counts.deferred = 2;
+        let line = serde_json::to_value(FinishedLine::of(&record, &item, item.issue)).unwrap();
+        assert_eq!(
+            (&line["disputed"], &line["deferred"]),
+            (&json!(1), &json!(2))
+        );
     }
 }

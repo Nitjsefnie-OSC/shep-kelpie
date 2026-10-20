@@ -914,3 +914,35 @@ fn a_version_53_file_loads_with_no_disputes_and_saves_at_the_current_version() {
 }
 
 mod tickets;
+
+// A version 74 file has no `disputed` or `deferred` on a work item's counts:
+// none were. Each saves once above 0 and is left out at 0.
+#[test]
+fn a_state_file_from_before_disputed_and_deferred_loads_with_none() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = store_in(dir.path());
+    let mut old = serde_json::to_value(ProjectState::new()).unwrap();
+    old["version"] = 74.into();
+    old["work_items"] = serde_json::json!([serde_json::to_value(a_work_item()).unwrap()]);
+    assert_eq!(old["work_items"][0]["counts"].get("disputed"), None);
+    assert_eq!(old["work_items"][0]["counts"].get("deferred"), None);
+    fs::write(dir.path().join(STATE_FILE), old.to_string()).unwrap();
+
+    let mut loaded = store.load().unwrap().expect("a saved state");
+    let counts = loaded.work_items[0].counts;
+    assert_eq!((counts.disputed, counts.deferred), (0, 0));
+    store.save(&loaded).unwrap();
+    let text = fs::read_to_string(dir.path().join(STATE_FILE)).unwrap();
+    let saved: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(saved["version"], VERSION);
+    assert_eq!(saved["work_items"][0]["counts"].get("disputed"), None);
+
+    loaded.work_items[0].counts.disputed = 1;
+    loaded.work_items[0].counts.deferred = 2;
+    store.save(&loaded).unwrap();
+    let text = fs::read_to_string(dir.path().join(STATE_FILE)).unwrap();
+    let saved: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(saved["work_items"][0]["counts"]["disputed"], 1);
+    assert_eq!(saved["work_items"][0]["counts"]["deferred"], 2);
+    assert_eq!(store.load().unwrap(), Some(loaded));
+}
