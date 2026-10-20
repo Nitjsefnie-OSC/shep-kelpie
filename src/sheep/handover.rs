@@ -37,9 +37,6 @@ use crate::upgrade::build::Build;
 /// The trigger that asks for a handover
 pub const ACTION: &str = "handover";
 
-/// The trigger that withdraws a handover still waiting for the quiet point
-pub const WITHDRAW: &str = "withdraw_handover";
-
 /// How long a `handover` trigger waits for a refusal before it answers that
 /// the request is waiting, inside the shepherd's 3s limit on an action
 const ANSWER_WITHIN: Duration = Duration::from_millis(2500);

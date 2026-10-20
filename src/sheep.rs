@@ -56,8 +56,8 @@ mod handover;
 mod look;
 mod pace;
 
+pub use handover::Carry;
 use handover::Handing;
-pub use handover::{Carry, WITHDRAW};
 use look::Look;
 use pace::wait_after_pass;
 
@@ -299,7 +299,7 @@ fn serve(project: &str, arrival: Option<Arrival<Carry>>) -> Result<(), Exit> {
     let handing = Arc::clone(&handover);
     shepherd.on_action(handover::ACTION, move |_, _| handing.ask(&asked));
     let handing = Arc::clone(&handover);
-    shepherd.on_action(handover::WITHDRAW, move |_, _| handing.withdraw());
+    shepherd.on_action(crate::shepherd::WITHDRAW, move |_, _| handing.withdraw());
     for action in ACTIONS {
         let runner = Arc::clone(&runner);
         let wake = wake.clone();

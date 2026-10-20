@@ -146,7 +146,7 @@ mod tests {
         );
         assert!(first.is_empty() && watch.poll().is_empty());
         std::fs::write(
-            folder.join(crate::runner::STEPS_FILE),
+            folder.join(crate::home::STEPS_FILE),
             "{\"at\":\"2026-10-10T12:00:00.000Z\",\"step\":\"finished\",\"issue\":7}\n",
         )
         .unwrap();

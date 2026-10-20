@@ -183,7 +183,7 @@ impl Watch {
     /// are running, whatever `back` is.
     pub fn start(folder: PathBuf, options: Options) -> (Self, Vec<Line>) {
         let mut watch = Self {
-            log: Tail::from_start(folder.join(crate::runner::STEPS_FILE)),
+            log: Tail::from_start(folder.join(crate::home::STEPS_FILE)),
             options,
             sessions: Vec::new(),
         };

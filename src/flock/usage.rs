@@ -187,7 +187,7 @@ fn own_files(
     let path = folder.join(usage::FILE);
     let lines = usage::read(&path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
     // A project that has run no call has no steps file, and its calls have no transcripts to find.
-    let steps = std::fs::read(folder.join(crate::runner::STEPS_FILE)).unwrap_or_default();
+    let steps = std::fs::read(folder.join(crate::home::STEPS_FILE)).unwrap_or_default();
     let steps = String::from_utf8_lossy(&steps).into_owned();
     Ok((project.as_str().to_owned(), lines, steps))
 }
