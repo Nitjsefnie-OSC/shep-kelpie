@@ -32,6 +32,11 @@ pub struct Counts {
     /// Findings its worker deferred, counted the same way
     #[serde(default, skip_serializing_if = "is_zero")]
     pub deferred: u32,
+    /// The fix turn, by its number in `fix_turns`, whose disputed and
+    /// deferred findings the two counts above hold, so a turn that settles
+    /// again after a restart adds them once
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub outcomes_counted: u32,
     /// The worker's calls that reported no usage: failed, timed out,
     /// stopped or unreadable, which no call record holds
     #[serde(default, skip_serializing_if = "is_zero")]

@@ -114,10 +114,16 @@ impl Runner {
         };
         let disputed = u32::try_from(count(Outcome::Disputed)).unwrap_or(u32::MAX);
         let deferred = u32::try_from(count(Outcome::Deferred)).unwrap_or(u32::MAX);
-        self.update(|item| {
-            item.counts.disputed = item.counts.disputed.saturating_add(disputed);
-            item.counts.deferred = item.counts.deferred.saturating_add(deferred);
-        })?;
+        // A restart before the round leaves its fix stage settles this turn
+        // again: the marker saves with the counts, so they are added once.
+        let turn = item.counts.fix_turns;
+        if item.counts.outcomes_counted != turn {
+            self.update(|item| {
+                item.counts.disputed = item.counts.disputed.saturating_add(disputed);
+                item.counts.deferred = item.counts.deferred.saturating_add(deferred);
+                item.counts.outcomes_counted = turn;
+            })?;
+        }
         let reviewer = (review.reviewer.as_ref()).map_or_else(String::new, ToString::to_string);
         self.journal(Entry::FindingOutcomes {
             issue,
