@@ -11,7 +11,7 @@ use std::process::Command;
 use super::super::super::{Hooks, JOIN_BOUND, Worker};
 use super::*;
 use crate::adapters::ClaudeCli;
-use crate::test::{OpenSandbox, write_script};
+use crate::test::{CALL_PATIENCE, OpenSandbox, waits_for, write_script};
 
 const IMAGE: &str = "sheep::handover::tests::exec::an_image_of_the_runner";
 
@@ -103,8 +103,9 @@ fn outgoing(folder: &Path) {
     write(folder, "home", &rig.home.path().display().to_string());
     write(folder, "result.json", RESULT);
     let script = format!(
-        "#!/bin/sh\ntouch {0}/started\nwhile [ ! -e {0}/go ]; do sleep 0.02; done\ncat {0}/result.json\n",
-        folder.display()
+        "#!/bin/sh\ntouch {0}/started\n{1}\ncat {0}/result.json\n",
+        folder.display(),
+        waits_for(&folder.join("go"), CALL_PATIENCE)
     );
     write_script(&folder.join("claude"), &script);
     let claude = agents(&rig, folder);

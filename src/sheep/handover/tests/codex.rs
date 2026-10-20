@@ -12,7 +12,7 @@ use super::exec::{FOLDER, read, worker_of, write};
 use super::*;
 use crate::adapters::ClaudeCli;
 use crate::ports::Routed;
-use crate::test::{OpenSandbox, write_script};
+use crate::test::{OpenSandbox, waits_for, write_script};
 
 const IMAGE: &str = "sheep::handover::tests::codex::an_image_of_the_runner";
 
@@ -86,9 +86,10 @@ fn codex_script(folder: &Path) {
          shared={shared}\n\
          echo \"${{CODEX_HOME%.codex}}.call.json\" > \"$shared/record\"\n\
          touch \"$shared/started\"\n\
-         while [ ! -e \"$shared/go\" ]; do sleep 0.02; done\n\
+         {waits}\n\
          cat \"$shared/fresh.jsonl\"\n",
-        shared = folder.display()
+        shared = folder.display(),
+        waits = waits_for(&folder.join("go"), CALL_PATIENCE)
     );
     write_script(&folder.join("codex"), &script);
 }
