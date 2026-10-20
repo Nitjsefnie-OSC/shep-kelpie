@@ -713,6 +713,23 @@ fn the_instructions_tell_the_question_block_once_with_one_example() {
     );
 }
 
+// A worker wrote a client for a third-party API it could not read the docs of,
+// said so in the pull request and guessed the auth scheme and the fields.
+#[test]
+fn the_instructions_tell_a_worker_to_ask_when_an_external_apis_docs_are_out_of_reach() {
+    assert!(INSTRUCTIONS.contains("external"), "{INSTRUCTIONS}");
+    assert!(INSTRUCTIONS.contains("docs"), "{INSTRUCTIONS}");
+    assert!(
+        INSTRUCTIONS.contains("do not guess its shape"),
+        "{INSTRUCTIONS}"
+    );
+    assert!(
+        INSTRUCTIONS.contains("`worker.allowed_domains`"),
+        "{INSTRUCTIONS}"
+    );
+    assert!(INSTRUCTIONS.contains("<kelpie-question>"), "{INSTRUCTIONS}");
+}
+
 #[test]
 fn the_instructions_never_mention_money_or_limits() {
     let text = INSTRUCTIONS.to_lowercase();
