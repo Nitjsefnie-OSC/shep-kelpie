@@ -103,7 +103,7 @@ impl Server {
     }
 }
 
-/// Opens a [`Bridge`] to the Playwright MCP server
+/// Opens a bridge to the Playwright MCP server
 #[derive(Debug, Clone, Copy, Default)]
 pub struct PlaywrightBridges;
 

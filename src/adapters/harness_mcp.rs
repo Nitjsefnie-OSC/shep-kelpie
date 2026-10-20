@@ -16,6 +16,7 @@ impl HarnessMcp for HarnessFacts {
             AgentHarness::Pi(_) => pi::mcp::refusal(name, entry),
             AgentHarness::Codex => codex::mcp::refusal(name, entry),
             AgentHarness::Goose(_) => goose::mcp::refusal(name, entry),
+            // parity: harness.mcp-servers
             _ => None,
         }
     }
@@ -23,6 +24,7 @@ impl HarnessMcp for HarnessFacts {
     fn skipped_env(&self, harness: &AgentHarness, name: &str, entry: &Value) -> Option<String> {
         match harness {
             AgentHarness::Goose(_) => goose::mcp::skipped_env(name, entry),
+            // parity: harness.mcp-servers
             _ => None,
         }
     }
