@@ -46,7 +46,8 @@ usage: shep kelpie add [<project>] [--base <branch>]
                                          against <branch>, the repo's default by default
        shep kelpie add <ticket>          puts a ticket on the project's board
        shep kelpie start | pause         runs the project, or stops it once its calls end
-       shep kelpie finish                ends the open work items, picks nothing new, stops
+       shep kelpie finish [--all]        ends the open work items, picks nothing new, stops
+                                         (--all: of every project)
        shep kelpie status [--json]       every project, or one with -p, as a short
                                          block each, or the runner's JSON object
        shep kelpie rule [<id> <answer>]
@@ -144,6 +145,13 @@ async fn run(
     let json = JSON_VERBS.contains(&command) && args.contains(&"--json");
     let args: Vec<&str> = if json {
         args.into_iter().filter(|arg| *arg != "--json").collect()
+    } else {
+        args
+    };
+    // Only `finish` takes `--all`, and to every other verb it is a word.
+    let all = command == "finish" && args.contains(&"--all");
+    let args: Vec<&str> = if all {
+        args.into_iter().filter(|arg| *arg != "--all").collect()
     } else {
         args
     };
@@ -253,6 +261,20 @@ async fn run(
             };
             add::add(&client, &Gh::default(), &launch, &name, place).await
         }
+        ("finish", []) if all && named.is_none() => {
+            // What it waits on goes to stderr under `--json`, so stdout is the answers.
+            let say = &mut |line: String| match json {
+                true => eprintln!("{line}"),
+                false => println!("{line}"),
+            };
+            let done = control::finish_all(&client, format, Patience::default(), say).await?;
+            if done.refused.is_empty() {
+                return Ok(done.lines);
+            }
+            done.lines.iter().for_each(|line| println!("{line}"));
+            Err(done.refused.join("\n"))
+        }
+        ("finish", _) if all => Err(format!("name the project once\n\n{USAGE}")),
         ("start" | "pause" | "finish", [] | [_]) => {
             let name = match positional(args.first())? {
                 Some(name) => name,
@@ -659,6 +681,17 @@ mod tests {
     // `command args` against a fake shepherd holding the runner `koji`, which
     // answers every trigger with `says` when that is given.
     async fn verb(command: &str, args: &str, says: Option<&str>) -> Result<Vec<String>, String> {
+        // Only a bare `status` needs no project; the rest find theirs from the folder.
+        let project = if command == "status" { "" } else { "-p koji " };
+        verb_line(command, &format!("{project}{args}"), says).await
+    }
+
+    // `command line` as typed, against the same fake shepherd.
+    async fn verb_line(
+        command: &str,
+        line: &str,
+        says: Option<&str>,
+    ) -> Result<Vec<String>, String> {
         let shepherd = crate::test::FakeShepherd::new();
         let launch = Launch {
             kelpie: "/opt/kelpie".into(),
@@ -672,12 +705,7 @@ mod tests {
         if let Some(says) = says {
             shepherd.says("koji", &[says]);
         }
-        // Only a bare `status` needs no project; the rest find theirs from the folder.
-        let project = (command != "status").then_some("-p koji");
-        let args: Vec<String> = (project.into_iter().flat_map(str::split_whitespace))
-            .chain(args.split_whitespace())
-            .map(str::to_owned)
-            .collect();
+        let args: Vec<String> = line.split_whitespace().map(str::to_owned).collect();
         let dial = shepherd.dial();
         let ask = run(&*dial, shepherd.home(), command, &args);
         tokio::time::timeout(std::time::Duration::from_secs(40), ask)
@@ -814,6 +842,45 @@ mod tests {
             ["koji has no work item open, so its runner stops now"]
         );
         assert_eq!(json, [finishing]);
+    }
+
+    #[tokio::test]
+    async fn finish_all_is_refused_with_a_project() {
+        for line in [
+            "--all -p koji",
+            "--all --project=koji",
+            "--all koji",
+            "koji --all",
+        ] {
+            let err = verb_line("finish", line, None).await.unwrap_err();
+            assert!(err.starts_with("name the project once"), "{line}: {err}");
+        }
+    }
+
+    #[tokio::test]
+    async fn finish_all_finishes_every_project_and_prints_its_answer_with_json() {
+        let finishing = r#"{"project":"koji","run":"finishing","work_items":[]}"#;
+        let plain = verb_line("finish", "--all", Some(finishing)).await;
+        assert_eq!(
+            plain.unwrap(),
+            ["koji has no work item open, so its runner stops now"]
+        );
+        let json = verb_line("finish", "--json --all", Some(finishing)).await;
+        assert_eq!(json.unwrap(), [format!("koji (finishing): {finishing}")]);
+    }
+
+    #[tokio::test]
+    async fn finish_all_fails_when_a_runner_refuses() {
+        let refused = r#"{"error":"no work item is open"}"#;
+        let err = verb_line("finish", "--all", Some(refused)).await;
+        assert_eq!(err.unwrap_err(), "koji: no work item is open");
+    }
+
+    #[tokio::test]
+    async fn finish_all_as_a_word_names_the_flag_when_no_project_is_called_all() {
+        let err = verb_line("finish", "all", None).await.unwrap_err();
+        assert!(err.contains("no kelpie runner named all"), "{err}");
+        assert!(err.contains("finish --all finishes every project"), "{err}");
     }
 
     #[tokio::test]

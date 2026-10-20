@@ -193,3 +193,132 @@ async fn status_marks_a_runner_finishing() {
         [format!("koji (draining, finishing): {both}")]
     );
 }
+
+// Who was sent which action, in order
+fn sent(writes: &[Request]) -> Vec<(String, String)> {
+    (writes.iter())
+        .filter_map(|w| match w {
+            Request::Trigger {
+                selector: SelectorSpec::Name(sheep),
+                action,
+                ..
+            } => Some((sheep.clone(), action.clone())),
+            _ => None,
+        })
+        .collect()
+}
+
+// `finish_all` against the fake shepherd
+async fn finished_all(shepherd: &FakeShepherd, format: Format) -> Result<FinishedAll, String> {
+    let client = client(shepherd).await;
+    let say = &mut |_| {};
+    in_time(finish_all(&client, format, FAST, say)).await
+}
+
+#[tokio::test]
+async fn finish_all_sends_every_projects_runner_finish() {
+    let mut shepherd = FakeShepherd::new();
+    runner(&shepherd, "koji", Path::new("/src/koji"), true);
+    runner(&shepherd, "rotom", Path::new("/src/rotom"), true);
+    shepherd.says("koji", &[FINISHING]);
+    shepherd.says(
+        "rotom",
+        &[r#"{"project":"rotom","run":"finishing","work_items":[]}"#],
+    );
+    let done = finished_all(&shepherd, Format::Plain).await.unwrap();
+    assert_eq!(
+        done.lines,
+        [
+            "koji is finishing #7, #9: the board picks nothing new, and the runner stops once \
+             they end. `shep kelpie start koji` picks again",
+            "rotom has no work item open, so its runner stops now",
+        ]
+    );
+    assert_eq!(done.refused, Vec::<String>::new());
+    let sent = sent(&shepherd.writes());
+    for sheep in ["koji", "rotom"] {
+        assert!(sent.contains(&(sheep.into(), "finish".into())), "{sheep}");
+    }
+}
+
+#[tokio::test]
+async fn finish_all_goes_on_past_a_runner_that_refuses() {
+    let mut shepherd = FakeShepherd::new();
+    runner(&shepherd, "koji", Path::new("/src/koji"), true);
+    runner(&shepherd, "rotom", Path::new("/src/rotom"), true);
+    shepherd.says("koji", &[r#"{"error":"unknown action `finish`"}"#]);
+    shepherd.says(
+        "rotom",
+        &[r#"{"project":"rotom","run":"finishing","work_items":[]}"#],
+    );
+    let done = finished_all(&shepherd, Format::Plain).await.unwrap();
+    assert_eq!(done.refused, ["koji: unknown action `finish`"]);
+    assert_eq!(
+        done.lines,
+        ["rotom has no work item open, so its runner stops now"]
+    );
+    let sent = sent(&shepherd.writes());
+    assert!(
+        sent.contains(&("rotom".into(), "finish".into())),
+        "{sent:?}"
+    );
+}
+
+#[tokio::test]
+async fn finish_all_leaves_a_stopped_runner_alone() {
+    let mut shepherd = FakeShepherd::new();
+    runner(&shepherd, "koji", Path::new("/src/koji"), false);
+    runner(&shepherd, "rotom", Path::new("/src/rotom"), true);
+    shepherd.says(
+        "rotom",
+        &[r#"{"project":"rotom","run":"finishing","work_items":[]}"#],
+    );
+    let done = finished_all(&shepherd, Format::Plain).await.unwrap();
+    assert_eq!(done.refused, Vec::<String>::new());
+    assert_eq!(
+        done.lines,
+        [
+            "koji's runner is stopped, so it has nothing to finish",
+            "rotom has no work item open, so its runner stops now",
+        ]
+    );
+    let sent = sent(&shepherd.writes());
+    assert!(sent.iter().all(|(sheep, _)| sheep != "koji"), "{sent:?}");
+}
+
+#[tokio::test]
+async fn finish_all_prints_each_runner_s_answer_on_a_line_with_json() {
+    let shepherd = FakeShepherd::new();
+    runner(&shepherd, "koji", Path::new("/src/koji"), true);
+    runner(&shepherd, "rotom", Path::new("/src/rotom"), false);
+    shepherd.says("koji", &[FINISHING]);
+    let done = finished_all(&shepherd, Format::Json).await.unwrap();
+    let [koji, rotom] = done.lines.try_into().unwrap();
+    assert_eq!(koji, format!("koji (finishing): {FINISHING}"));
+    assert_eq!(
+        rotom,
+        r#"rotom: {"message":"rotom's runner is stopped, so it has nothing to finish","sheep":"rotom"}"#
+    );
+}
+
+#[tokio::test]
+async fn finish_all_with_no_project_says_so() {
+    let shepherd = FakeShepherd::new();
+    let done = finished_all(&shepherd, Format::Plain).await.unwrap();
+    assert_eq!(
+        done.lines,
+        ["no projects: `shep kelpie add` in a checkout sets one up"]
+    );
+}
+
+#[tokio::test]
+async fn finish_named_all_points_at_the_flag_when_no_project_is_called_that() {
+    let shepherd = FakeShepherd::new();
+    runner(&shepherd, "koji", Path::new("/src/koji"), true);
+    let client = client(&shepherd).await;
+    let say = &mut |_| {};
+    let ran = in_time(finish(&client, &project("all"), Format::Plain, FAST, say)).await;
+    let err = ran.unwrap_err();
+    assert!(err.contains("no kelpie runner named all"), "{err}");
+    assert!(err.contains("finish --all finishes every project"), "{err}");
+}
