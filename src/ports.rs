@@ -19,6 +19,7 @@ use crate::ticket::TicketId;
 use crate::webhook::Webhook;
 
 mod agent;
+mod bridge;
 mod classifier;
 mod dev_server;
 mod disk;
@@ -28,6 +29,7 @@ mod forge_error;
 mod gateway;
 mod git;
 mod gpu;
+mod harness_mcp;
 mod installation_token;
 mod issue;
 mod keychain;
@@ -58,6 +60,7 @@ pub use agent::{
     Cost, Ending, Fence, Flying, Guard, Kept, KeptServer, PM_NOTES, Reach, Role, Session,
     SessionId, Tools, Transcript, Usage, Wait, written_at,
 };
+pub use bridge::{Bridges, OpenBridge, Playwright};
 pub use classifier::{Classifier, ClassifierError, Probability, SpamState};
 pub use dev_server::{DevPort, DevRun, DevServers, READY_WITHIN, Started};
 pub use disk::Disk;
@@ -67,6 +70,7 @@ pub use forge_error::{Cooldown, ForgeError};
 pub use gateway::{KeyCheck, ModelGateway, Stand, Taking, Unheld};
 pub use git::{Git, GitError};
 pub use gpu::{Gpu, GpuError, GpuMetrics};
+pub use harness_mcp::HarnessMcp;
 pub use installation_token::InstallationToken;
 pub use issue::{
     AuthorAssociation, FinishedParent, Issue, IssueCloseReason, OpenIssue, OpenPull, OpenTicket,
@@ -817,6 +821,10 @@ pub struct Ports {
     pub e2e_runner: Arc<dyn E2eRunner>,
     /// Opens a web bump's pages in the local browser
     pub pages: Arc<dyn Pages>,
+    /// Opens the bridge a worker's turn reaches its browser through
+    pub bridges: Arc<dyn Bridges>,
+    /// What each harness says of the MCP servers a call names
+    pub harness_mcp: Arc<dyn HarnessMcp>,
     /// The dog's book leases, which the runner's `grant` trigger fills
     pub leases: Arc<dyn Leases>,
     /// Where the runner's metrics go, shep's metrics dog

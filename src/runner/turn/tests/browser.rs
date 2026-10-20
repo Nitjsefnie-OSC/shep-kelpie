@@ -2,8 +2,9 @@
 
 use super::*;
 use crate::ports::{CLEAN, Role, Session};
+use crate::runner::flight::{Pass, advance};
 use crate::settings::AgentHarness;
-use crate::test::ticket;
+use crate::test::{CALL_PATIENCE, Hold, ticket};
 
 const OFF: &str = "[app.dogs.kelpie.browser]\nenabled = false\nheaded = false\ndomains = []";
 
@@ -60,6 +61,47 @@ fn a_worker_turn_on_a_project_with_the_browser_on_gets_a_socket_and_is_told_its_
     for reviewer in reviewers {
         assert_eq!(reviewer.call.reach.browser, None);
     }
+}
+
+#[test]
+fn a_bridge_is_closed_when_its_turn_ends() {
+    let rig = Rig::new("shep");
+    turn_on(&rig);
+    install(&rig);
+    let runner = rig.open().unwrap();
+    rig.ask(&runner, "add", Some("7"));
+    rig.claude.script([Scripted::Push("work.txt", "work\n")]);
+
+    step(&runner).unwrap(); // the worker's first turn
+
+    let asked = rig.bridges.asked();
+    assert_eq!(asked.len(), 1, "{asked:?}");
+    let tools = rig.paths().tools;
+    assert_eq!(asked[0].worker, rig.paths().worker);
+    assert_eq!(asked[0].server.mcp, tools.playwright_mcp());
+    assert_eq!(asked[0].server.browsers, tools.browsers());
+    assert!(!asked[0].server.headed);
+    assert_eq!(asked[0].filter.domains, ["app.example.com"]);
+    // The turn is over, so the flight dropped the handle, and that closed the bridge.
+    assert_eq!(rig.bridges.open_now(), 0);
+}
+
+#[test]
+fn a_bridge_is_open_while_its_turn_runs() {
+    let rig = Rig::new("shep");
+    turn_on(&rig);
+    install(&rig);
+    let runner = rig.open().unwrap();
+    rig.ask(&runner, "add", Some("7"));
+    let hold = Hold::default();
+    rig.claude.script([Scripted::Hold(hold.clone())]);
+
+    assert!(matches!(advance(&runner).unwrap(), Pass::Started));
+    assert!(hold.entered(CALL_PATIENCE));
+    let open = rig.bridges.open_now();
+    hold.release();
+
+    assert_eq!(open, 1);
 }
 
 #[test]

@@ -63,6 +63,10 @@ pub enum Reading {
 pub trait AppForges: Send + Sync {
     /// The App's reads of `repo` where it covers it
     fn reading(&self, repo: &ForgeSlug) -> Reading;
+
+    /// The login of the App that covers `repo`, as its comments name it, or
+    /// `None` when the App does not cover it
+    fn login(&self, repo: &ForgeSlug) -> Option<String>;
 }
 
 /// The reads the App makes, each with the permissions it needs

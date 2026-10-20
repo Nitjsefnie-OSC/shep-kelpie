@@ -23,8 +23,8 @@ use shep_handover::Arrival;
 
 use crate::adapters::{
     ClaudeCli, Curl, CurlGithub, DogE2e, DoorPace, Etags, GatewayClassifier, Gh, GhApps, GpuCurl,
-    LocalReviewer, LoginToken, Openssl, PlaywrightPages, ShepLeases, StatDisk, SystemGit,
-    stop_calls,
+    HarnessFacts, LocalReviewer, LoginToken, Openssl, PlaywrightBridges, PlaywrightPages,
+    ShepLeases, StatDisk, SystemGit, stop_calls,
 };
 use crate::coderabbit::CodeRabbit;
 use crate::codex::Codex;
@@ -219,8 +219,7 @@ fn serve(project: &str, arrival: Option<Arrival<Carry>>) -> Result<(), Exit> {
     ));
     let revalidated = Revalidated::default();
     let etags = Etags::new(revalidated.clone());
-    let app_reads =
-        GhApps::new(app_tokens.clone(), &kelpie_home.join("reads")).with_etags(etags.clone());
+    let app_reads = GhApps::new(app_tokens.clone(), &kelpie_home).with_etags(etags.clone());
     let flock = shepherd::block_on(async {
         let client = shepherd::connect(&*dial, &shep_home)
             .await
@@ -253,6 +252,8 @@ fn serve(project: &str, arrival: Option<Arrival<Carry>>) -> Result<(), Exit> {
         dev_servers: Arc::new(claude.dev_servers()),
         e2e_runner: Arc::new(DogE2e),
         pages: Arc::new(PlaywrightPages),
+        bridges: Arc::new(PlaywrightBridges),
+        harness_mcp: Arc::new(HarnessFacts),
         leases: Arc::clone(&leases) as Arc<dyn Leases>,
         metrics: Arc::new(shepherd.clone()),
         classifier: Arc::new(GatewayClassifier),

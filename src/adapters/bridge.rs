@@ -31,6 +31,7 @@ use serde_json::json;
 use super::forwarder::unguessable;
 use super::process::stop_child;
 use crate::bridge::{Filter, Passage};
+use crate::ports::{Bridges, OpenBridge, Playwright};
 pub(crate) use client::{Client, Navigation};
 use proxy::{Origins, Proxy};
 
@@ -99,6 +100,31 @@ impl Server {
             )]),
             cwd: folder.to_owned(),
         })
+    }
+}
+
+/// Opens a bridge to the Playwright MCP server
+#[derive(Debug, Clone, Copy, Default)]
+pub struct PlaywrightBridges;
+
+impl Bridges for PlaywrightBridges {
+    fn open(
+        &self,
+        worker: &Path,
+        name_file: &Path,
+        server: &Playwright,
+        filter: Filter,
+    ) -> Result<Box<dyn OpenBridge>, String> {
+        let server =
+            Server::playwright(&server.mcp, &server.browsers, &server.folder, server.headed)?;
+        let bridge = Bridge::open(worker, name_file, server, filter)?;
+        Ok(Box::new(bridge))
+    }
+}
+
+impl OpenBridge for Bridge {
+    fn socket(&self) -> &Path {
+        Self::socket(self)
     }
 }
 

@@ -27,10 +27,9 @@ use super::review::run_review_call;
 use super::transcript_count::Mark;
 use super::trigger::lock;
 use super::turn_hooks::TurnHooks;
-use crate::adapters::bridge::Bridge;
 use crate::board::briefing::elapsed;
 use crate::ports::{
-    AgentCall, AgentError, AgentReply, Ending, Flying, RoundStage, Timestamp, Wait,
+    AgentCall, AgentError, AgentReply, Ending, Flying, OpenBridge, RoundStage, Timestamp, Wait,
 };
 use crate::settings::Harness;
 use crate::state::StateError;
@@ -206,7 +205,7 @@ struct Flight {
     // Where a first turn that waited too long moves
     fallback: waiting::Fallback,
     // The browser the turn drives, which lasts as long as the turn does
-    browser: Option<Bridge>,
+    browser: Option<Box<dyn OpenBridge>>,
     // Where the turn's transcript stood as it began, for a handover to carry
     requests: Option<Mark>,
 }
