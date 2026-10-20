@@ -59,7 +59,7 @@ impl Drop for Logins {
 
 // `script` under the runtime, as a covered call (`blocked`) or an uncovered one runs it.
 fn probe(tools: &Tools, blocked: bool, script: &str) -> Output {
-    let (settings, work) = (crate::test::short_tempdir(), crate::test::short_tempdir());
+    let work = crate::test::short_tempdir();
     let policy = Policy {
         write: vec![work.path().canonicalize().unwrap()],
         hosts: HOSTS.map(str::to_owned).into(),
@@ -67,10 +67,16 @@ fn probe(tools: &Tools, blocked: bool, script: &str) -> Output {
         no_keychain: blocked,
         ..Policy::default()
     };
+    run(tools, &policy, work.path(), script)
+}
+
+// `script` under the runtime in `work`, held to `policy`.
+fn run(tools: &Tools, policy: &Policy, work: &Path, script: &str) -> Output {
+    let settings = crate::test::short_tempdir();
     let mut inner = Command::new("/bin/sh");
-    inner.args(["-c", script]).current_dir(work.path());
+    inner.args(["-c", script]).current_dir(work);
     let mut wrapped = SandboxRuntime::new(tools.clone())
-        .wrap(&policy, &settings.path().join("srt.json"), &inner)
+        .wrap(policy, &settings.path().join("srt.json"), &inner)
         .expect("the runtime wraps the probe");
     wrapped.stdin(Stdio::null());
     wrapped.output().expect("the runtime runs")
@@ -161,4 +167,37 @@ fn a_covered_call_still_reaches_github_signs_and_runs_a_program() {
         let done = probe(&tools, true, script);
         assert!(done.status.success(), "{name}: {done:?}");
     }
+}
+
+#[test]
+fn a_listed_folder_binds_a_socket_and_one_beside_it_is_refused() {
+    let tools = match runtime() {
+        Ok(tools) => tools,
+        Err(why) => return skipped(&why),
+    };
+    // srt matches the real path, and the socket's path must fit 104 bytes.
+    let work = crate::test::short_tempdir();
+    let work = work.path().canonicalize().unwrap();
+    let (listed, beside) = (work.join("listed"), work.join("beside"));
+    for folder in [&listed, &beside] {
+        std::fs::create_dir(folder).unwrap();
+    }
+    let policy = Policy {
+        write: vec![work.clone()],
+        socket_folders: vec![listed.clone()],
+        ..Policy::default()
+    };
+    let bind = |folder: &str| {
+        let script = format!(
+            "python3 -c \"import socket; socket.socket(socket.AF_UNIX).bind('{folder}/s')\""
+        );
+        run(&tools, &policy, &work, &script)
+    };
+
+    let bound = bind("listed");
+    assert!(bound.status.success(), "{bound:?}");
+    assert!(listed.join("s").exists());
+    let refused = bind("beside");
+    assert!(!refused.status.success(), "{refused:?}");
+    assert!(!beside.join("s").exists());
 }
