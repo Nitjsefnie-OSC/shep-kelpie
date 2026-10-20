@@ -4,7 +4,7 @@ What a call's transcript says once it ends, as series, and the reports that read
 
 ## Series
 
-MCP servers, read from a call's transcript once it ends: the agents a call runs on are wrapped (`src/runner/transcript_count.rs`), which find the session's file through `Agents::transcript` and parse it (`crates/facts/src/mcp_use.rs`). A call that wrote nothing to it counts nothing.
+MCP servers, read from a call's transcript once it ends: the agents a call runs on are wrapped (`runner/transcript_count.rs`), which find the session's file through `Agents::transcript` and parse it (`crates/facts/src/mcp_use.rs`). A call that wrote nothing to it counts nothing.
 
 - `kelpie_mcp_servers_total{server,outcome}`: each server in the call's reach, `connected` or `failed`. Claude Code writes how its servers stand only when that changes, so the transcript's last such line is how they stood, and with none, a server whose tools the last prompt snapshot lists connected; `needsAuth` is `failed`, `pending` is not counted. pi names no server that failed: it writes the tools its session adds and removes and the calls it answers, and kelpie reads the last word the file says of each server, so one whose tools the session leaves available as it ends, or whose tool call it answered with no error, is `connected` and one with neither `failed`. A failed server is a standing warning naming the call and why, Claude Code's error code or that the server's tools were not in the session as the call ended, ended when a later call finds it connected (`docs/facts/mcp-servers.md`).
 - `kelpie_mcp_tool_calls_total{server}`: the call's own `mcp__<server>__<tool>` calls, from where its file stood when it began; each server it was given is sent, at 0 if never called. Claude Code and pi.

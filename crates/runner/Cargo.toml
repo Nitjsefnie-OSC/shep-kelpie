@@ -1,0 +1,46 @@
+[package]
+name = "shep-kelpie-runner"
+description = "The work-item loop and its rig. Uses only core and the leaf members, and reaches the real world through core's port traits"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[features]
+# The rig, `Rig` and the stand-ins around it, for the tests of the crates above this one
+test-support = [
+    "dep:shep-kelpie-adapters",
+    "dep:shep-kelpie-test-support",
+    "shep-kelpie-adapters/test-support",
+    "shep-kelpie-core/test-support",
+]
+
+[dependencies]
+shep-kelpie-core.workspace = true
+shep-kelpie-facts.workspace = true
+shep-kelpie-panel.workspace = true
+shep-kelpie-process.workspace = true
+shep-kelpie-worker-folder.workspace = true
+# Only the rig names these, behind `test-support`: `GpuCurl`, `LocalReviewer` and
+# `AppVoice` from the adapters, and the helpers `test_support` holds. No normal
+# build enables it.
+shep-kelpie-adapters = { workspace = true, optional = true }
+shep-kelpie-test-support = { workspace = true, optional = true }
+jiff.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+shep-kelpie-adapters = { workspace = true, features = ["test-support"] }
+shep-kelpie-core = { workspace = true, features = ["test-support"] }
+shep-kelpie-test-support.workspace = true
+shep-kelpie-trim = { workspace = true, features = ["test-support"] }
+# Only for throwaway homes and repos in tests
+tempfile.workspace = true
+# Only for the settings tables the tests read
+toml.workspace = true

@@ -14,16 +14,16 @@ Whether and how kelpie picks up other people's pull requests. It sees and lists 
 
 - `Settings::contribution_lineup` shares its body with `lineup` (`crates/core/src/settings/reviewers.rs`), so the bot-order check applies. Its refusals name `contributions.reviewers` when that key is set, and `agents.reviewers` when it falls back.
 - Agent files are checked only when `pick` is not `off`, so a project that never opts in needs none.
-- `Runner::open` refuses a `pick` other than `off` when `ports.voice.covers(&remote)` is false: `SettingsError::Invalid` on `contributions.pick`. The representative would otherwise post as the maintainer, which no worker or reviewer may do. `pick = "off"` starts on any repo. `src/runner.rs`
+- `Runner::open` refuses a `pick` other than `off` when `ports.voice.covers(&remote)` is false: `SettingsError::Invalid` on `contributions.pick`. The representative would otherwise post as the maintainer, which no worker or reviewer may do. `pick = "off"` starts on any repo. `crates/runner/src/runner.rs`
 - `Settings::security_reviewer` checks, whenever `pick` is not `off`, that `security_reviewer` has a file whose role is `reviewer` and that runs sessions. `Runner::open` calls it.
 
 ## Rereads
 
-- `reread` keeps the running `contributions` and logs it as waiting for the next start, like `git.*`, whatever else changed: the checks above run only when the runner opens. `src/runner/reread.rs`
+- `reread` keeps the running `contributions` and logs it as waiting for the next start, like `git.*`, whatever else changed: the checks above run only when the runner opens. `runner/reread.rs`
 
 ## Detection
 
-- A contribution is an open pull request, not a draft, whose author is not the maintainer (`Runner::maintainer`), not the account kelpie acts as (`viewer`), and not a bot, and not one the maintainer left open (`left_open`). Logins compare ignoring case. `Runner::is_contribution`, `src/runner/contributions.rs`
+- A contribution is an open pull request, not a draft, whose author is not the maintainer (`Runner::maintainer`), not the account kelpie acts as (`viewer`), and not a bot, and not one the maintainer left open (`left_open`). Logins compare ignoring case. `Runner::is_contribution`, `runner/contributions.rs`
 - Under `pick = "label"` it also carries `ready-for-agent`; under `"all"` it needs no label; under `"off"` nothing is one.
 - The author decides, never the branch name or the fork flag: a fork can name its branch `kelpie/5`. `OpenPullRequest.author_is_bot` is the listing's `author { __typename }` being `Bot`. `crates/adapters/src/adapters/gh/board.rs`
 - `ProjectState.contributions` holds `Contribution { pull_request, author, head, seen }`, one per pull request, oldest first; `head` is the head commit, `seen` when that head was first seen. Absent in a file saved before version 40. `crates/core/src/state/contributions.rs`
@@ -40,7 +40,7 @@ Whether and how kelpie picks up other people's pull requests. It sees and lists 
 
 - GitHub holds a fork's first CI runs until a maintainer approves them, and approving runs the contributor's code. `Forge::approve_workflow_runs(repo, head)` lists the runs with `status=action_required` and that `head_sha`, drops any whose `head_sha` differs or whose `status` and `conclusion` are neither `action_required` (the query matches either field), and approves each. Kind `approve_workflow_runs`, REST. `crates/adapters/src/adapters/gh/runs.rs`
 - Kelpie approves as the maintainer's `gh` login, from the runner outside any sandbox, as it merges. Moving to the App's token, if it can approve, is #636.
-- `follow_ci` (`src/runner/contributions/ci.rs`) runs at the end of `follow_contributions`, once a poll. A head is approved only when it equals `passed`: a flagged, unread or stale head never is, and a yes to a flagged head's ruling makes it `passed`, so the next poll approves it. A new push clears `ci`, so the new head waits for its own pass.
+- `follow_ci` (`runner/contributions/ci.rs`) runs at the end of `follow_contributions`, once a poll. A head is approved only when it equals `passed`: a flagged, unread or stale head never is, and a yes to a flagged head's ruling makes it `passed`, so the next poll approves it. A new push clears `ci`, so the new head waits for its own pass.
 - `contributions[].ci` is `{ head, since, state }`, left out until the approval succeeds. `since` is the approval, and `state` is `waiting`, `green` or `{ red: [failed checks' names] }`.
 - A rollup is trusted `CHECKS_SETTLE` (two minutes) after `since`, as at the gate, and only when `Forge::pull_request` reads the same head. No check or a pending one stays `waiting`. A skipped rollup is `green`: a contribution is never a draft. With `ci.block` off the state is `green` at the approval, as the gate passes a project without CI.
 - A refused approval or an unreadable pull request logs and changes nothing: the next poll tries again, and no poll fails. A call that listed no held run is an approval. A run GitHub holds after that listing is approved by listing again at each poll while the settled rollup shows no check or a pending one. State version 50.
@@ -48,7 +48,7 @@ Whether and how kelpie picks up other people's pull requests. It sees and lists 
 
 ## A review bot in the list
 
-- A bot in `contributions.reviewers` reads in its turn, through the work item's round (`src/runner/contributions/bots.rs`). Its turn is no call: the runner steps it each `BOARD_POLL`, after `follow_ci`, with no slot. The walk waits in `contributions[].walking` (`past`, `ran`, `missed`, and `bot`, the turn's `ReviewStage`) until the bot answers or is passed over.
+- A bot in `contributions.reviewers` reads in its turn, through the work item's round (`runner/contributions/bots.rs`). Its turn is no call: the runner steps it each `BOARD_POLL`, after `follow_ci`, with no slot. The walk waits in `contributions[].walking` (`past`, `ran`, `missed`, and `bot`, the turn's `ReviewStage`) until the bot answers or is passed over.
 - It is summoned on the head by its label (off, then on) or by its full-review comment, under the dog's lease. The `Summoned` stage is saved before the comment is posted, so a restart never posts it twice, and an unanswered summon is not sent again. The lease row has no issue. `paths` are not checked.
 - Passed over, so the next reviewer reads and the local agent at the end is the backstop: a bot whose window opens more than `FAR` (an hour) on, one that refuses with such a window or declines, and one silent, processing or failed two hours after its summon (`REVIEW_WAIT`), and CodeRabbit where the repo is not public. A pass every reviewer was passed over for ends unread, with each reason.
 - A review of the head ends the pass once its threads settle (two reads that agree, 60 to 120 seconds, as `lands`). Its open threads above a nit are `pass.findings`, its nits are `pass.nits`, and the bot is `last_answered`. Kelpie posts nothing for it.

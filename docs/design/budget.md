@@ -4,14 +4,14 @@ Pacing, leases, forge limits, time, usage, settings.
 
 ## Pacing
 
-- Daily allowance = account's weekly remainder over whole days to reset, fixed at day start; once spent nothing new dispatched (5-hour window, board screening already pace). #15, `src/runner/pace.rs`
+- Daily allowance = account's weekly remainder over whole days to reset, fixed at day start; once spent nothing new dispatched (5-hour window, board screening already pace). #15, `runner/pace.rs`
 - At 50% of 5-hour window no turn starts until reset. #15
 - `add <issue>` skips daily allowance, not 5-hour window. #15
 - `pacing.enabled` (on): off turns limits off but still reads usage (before a free reset). #67
 - Unreadable usage holds (guessing pacer would spend the account it protects). #15
 - Each account paces separately; new item paces on every account its agents spend. #129
 - `budget.per_item_usd` ($10) parks item `over-budget` before a turn or round, never mid-call; yes doubles it. #492, `crates/core/src/work_item/spend.rs`
-- A contribution's calls take a slot while they run, count against `budget.per_item_usd` through its `spend`, and go ahead of new issues; a yes or a no with a note to its `over-budget` ruling doubles the cap. Like the PM's and the issue-label calls, they are tied to no work item. #621, `src/runner/contributions/budget.rs`
+- A contribution's calls take a slot while they run, count against `budget.per_item_usd` through its `spend`, and go ahead of new issues; a yes or a no with a note to its `over-budget` ruling doubles the cap. Like the PM's and the issue-label calls, they are tied to no work item. #621, `runner/contributions/budget.rs`
 
 ## Dog, leases, forge limits
 
@@ -27,19 +27,19 @@ Pacing, leases, forge limits, time, usage, settings.
 - Pace: 60 calls a minute and 5 a second per login (`PER_MINUTE`, `AT_ONCE`, `crates/core/src/ports/pace.rs`), under GitHub's secondary limits; each project gets cap / active projects and waits for its own oldest grant to leave. Queued calls wait (`Clock::wait`), never fail. #580
 - Hold ends at the answer's `retry-after`, else its `x-ratelimit-reset`, else the 10-min fallback; same for `gh` and App calls (App rate limits are `ForgeError::Limited`; `PacedVoice` holds and paces them, worker-token mint waits the hold, no fixed 30s). #580
 - REST reads that repeat (ruling-thread comments and the comment's node id, the review bot's comments, reviews and statuses) keep each answer's `ETag` per login and path, in memory, and send it as `If-None-Match`; a 304 is the kept answer, which GitHub does not count against the limit. Lists are read a page at a time, each its own conditional read. GraphQL (board, `gh pr view`, `gh issue view`, threads) has no conditional requests, so it is not covered. A forge-ledger line carries `not_modified` when a call had 304s, and `shep kelpie usage --forge` lists them by kind. `gh api`'s 304 is unmeasured: if a read with a tag fails naming a 304 and the same one without works, no tag is sent again; a list past 50 pages of 100 is an error, not cut short. #592, `crates/adapters/src/adapters/gh/conditional.rs`
-- A write of kelpie's own (forge ledger counts the ones that went through) makes the next look due in `DUE_FLOOR`, not at the next `BOARD_POLL`; a push is not counted. #592, `src/runner/looks.rs`
+- A write of kelpie's own (forge ledger counts the ones that went through) makes the next look due in `DUE_FLOOR`, not at the next `BOARD_POLL`; a push is not counted. #592, `runner/looks.rs`
 - A step that retries gets one attempt per step (close of merged issue; ruling-comment edit backs off like any failing step). #580
 
 ## Where the time goes
 
 - Every second of an item lands in one of six phases (`worker`, `review`, `ci`, `ruling`, `merge`, `other`), totals add up. #141, #331
-- Charged at each save to the prior phase (no step knows timings); stopped time = `other` (decided 2026-10-01); saves about every 30s. GPU wait counts as `review`. #141, `src/runner.rs`
+- Charged at each save to the prior phase (no step knows timings); stopped time = `other` (decided 2026-10-01); saves about every 30s. GPU wait counts as `review`. #141, `crates/runner/src/runner.rs`
 - `history` keeps last 100 finished items for `timings [n]`. #141
 
 ## Where the usage goes
 
 - Every model call is a line in `<kelpie home>/<project>/usage.jsonl`, append-only (hold kelpie's cost against control room). `crates/core/src/usage.rs`, #347
-- Each step is a JSON object in `<kelpie home>/<project>/steps.jsonl` (`at` first), append-only, which `watch` and `usage --import` read; the out log gets one plain line per event, never JSON. `src/runner/step_log.rs`, #491
+- Each step is a JSON object in `<kelpie home>/<project>/steps.jsonl` (`at` first), append-only, which `watch` and `usage --import` read; the out log gets one plain line per event, never JSON. `runner/step_log.rs`, #491
 - Units = `input + 2 x hour cache writes + 1.25 x five-minute writes + 0.1 x cache reads + 5 x output` (control room weights). #347
 - Call never reaching a model gets no line; call cut by stop written from launch draft; finished item adds `finished` line. #347
 - Unwritable ledger fails no call or step. `shep kelpie usage` compares units per merged PR against baselines kept only on maintainer's machine. #347
@@ -47,14 +47,14 @@ Pacing, leases, forge limits, time, usage, settings.
 ## Settings
 
 - Read through shep client: runner sheep's `[app.dogs.kelpie]` table + kelpie's `[kelpie]` in `dogs.toml` (start needs no dog); missing required key stops runner by name. #114, #332, `crates/core/src/settings.rs`; `settings/x.rs` below is in `crates/core/src/settings/`
-- Changes apply at next wake (polled); `git.*`, `hooks`, gateways wait for restart. Failing change keeps old settings, alerts once a reason, shows in `status`; hand-written table checked at start, reread. #809, `src/runner/reread.rs`
+- Changes apply at next wake (polled); `git.*`, `hooks`, gateways wait for restart. Failing change keeps old settings, alerts once a reason, shows in `status`; hand-written table checked at start, reread. #809, `runner/reread.rs`
 - Every setting is read by something; removed key refused by name with replacement. Pre-table files named. #332, `settings/removed.rs`
 - `git`: `checkout`, `remote` (`origin`'s GitHub repo when absent), `merging`, `issues`. `settings/git.rs`
 - `ci`: `block`, `fix_attempts` (-1); `concurrency`: `active_items` (1), `pending_rulings` (2). `settings/ci.rs`
 - `budget.per_item_usd` ($10); `pacing.enabled` (on), `pacing.kickoff_hours` (8, display only). `settings/budget.rs`
 - `agents`: implementers, reviewers, pm, issue writer, advisor, researcher, `fallback_after`. `settings/agents.rs`
 - `rulings`: `decide` (`shadow`; `panel`; `always` = full panel decides every ruling it votes on by most votes, tie to PM else first option, never merges on a tie, `design` ignored, off unless set, `pm_alone`/`full_panel_paths` unused). `settings/rulings.rs`
-- `worker`: `allowed_domains`, `guard_hooks`, `instructions_file`, `turn_timeout` (60), `compact_window` (200000; pi a reserve, goose a threshold: compaction.md). `src/runner/turn.rs`
+- `worker`: `allowed_domains`, `guard_hooks`, `instructions_file`, `turn_timeout` (60), `compact_window` (200000; pi a reserve, goose a threshold: compaction.md). `runner/turn.rs`
 - `skills`: per-step overrides; `retro` off (the PM's batch retro when named); `triage`, `spec`, `reset` driven by no step yet. `crates/core/src/skills.rs`
 - `hooks`, `e2e`. ADR 0009, `settings/hooks.rs`, `settings/e2e.rs`
 - `[kelpie]`: `webhook`, `gpu_metrics_url`, `codex_home`, `gateways`, `leases.cargo-test` (3). `crates/core/src/webhook.rs`
