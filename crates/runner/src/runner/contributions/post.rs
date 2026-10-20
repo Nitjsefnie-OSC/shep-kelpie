@@ -36,6 +36,11 @@ const REVIEW: &str = "Write a pull request review of the contributor's latest pu
 const NOTE: &str = "Tell the contributor that the local reviewer read their latest push and \
     found nothing, and that the pull request is with the maintainer now. Short.";
 
+/// What kelpie adds under the representative's words on a clean pass's note,
+/// since a reaction on the note answers the merge ruling
+pub(super) const REACT: &str =
+    "The maintainer can merge this push with a 👍 on this comment, or decline it with a 👎.";
+
 // What is left to post for one contribution's head
 enum Due {
     // The findings, as a review
@@ -248,6 +253,7 @@ impl Runner {
                 said
             }
         };
+        let said = format!("{said}\n\n{REACT}");
         match (self.ports.voice).post(&self.remote, work.number, &said) {
             Ok(posted) => {
                 self.post_ends(work, "note");
