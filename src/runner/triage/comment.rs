@@ -24,7 +24,6 @@ use super::ask::{self, Purpose};
 use super::ready;
 use super::research::{Addressed, Found, Question};
 use crate::board::{self, TRIAGE};
-use crate::github::{Apps, Owner};
 use crate::ports::{ForgeError, NewLabel};
 use crate::state::{StateError, TriageAsked, TriageStep, Triaged};
 
@@ -252,9 +251,7 @@ impl Runner {
 
     // The login of the App that covers the repo, as its comments name it
     pub(super) fn app_login(&self) -> Option<String> {
-        let owner = Owner::of(&self.remote).ok()?;
-        let app = Apps::under(&self.paths.kelpie_home).get(&owner).ok()??;
-        Some(app.slug)
+        self.ports.app_reads.as_ref()?.login(&self.remote)
     }
 
     // The App's own triage comment on `issue` and what its marker says, past

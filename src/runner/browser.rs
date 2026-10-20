@@ -10,26 +10,25 @@ use std::sync::{Mutex, PoisonError};
 
 use super::Runner;
 use super::code_graph::who;
-use crate::adapters::bridge::{Bridge, Server};
 use crate::bridge::Filter;
 use crate::metrics::Feature;
-use crate::ports::{AgentCall, Browser, Role, Session, Tools};
+use crate::ports::{AgentCall, Browser, OpenBridge, Playwright, Role, Session, Tools};
 use crate::settings::{AgentHarness, NonBlank};
 use crate::ticket::TicketId;
 
 /// The bridges opened for turns not yet launched, by the ticket of their work item
 #[derive(Debug, Default)]
-pub(super) struct Opened(Mutex<BTreeMap<TicketId, Bridge>>);
+pub(super) struct Opened(Mutex<BTreeMap<TicketId, Box<dyn OpenBridge>>>);
 
 impl Opened {
     /// Takes the bridge opened for `ticket`'s turn, which the turn's flight then holds
-    pub(super) fn take(&self, ticket: TicketId) -> Option<Bridge> {
+    pub(super) fn take(&self, ticket: TicketId) -> Option<Box<dyn OpenBridge>> {
         let mut held = self.0.lock().unwrap_or_else(PoisonError::into_inner);
         held.remove(&ticket)
     }
 
     // A bridge already held for `ticket` is dropped, and its socket removed.
-    fn hold(&self, ticket: TicketId, bridge: Option<Bridge>) {
+    fn hold(&self, ticket: TicketId, bridge: Option<Box<dyn OpenBridge>>) {
         let mut held = self.0.lock().unwrap_or_else(PoisonError::into_inner);
         match bridge {
             Some(bridge) => held.insert(ticket, bridge),
@@ -137,29 +136,30 @@ impl Runner {
             return Ok(false);
         }
         let folder = self.paths.browser(ticket);
-        let server = Server::playwright(
-            &tools.playwright_mcp(),
-            &tools.browsers(),
-            &folder,
-            self.settings.browser.headed,
-        )?;
-        if let (Session::New(id), true) = (&call.session, call.harness.keeps_its_servers()) {
-            std::fs::write(folder.join(SESSION_FILE), &id.0)
-                .map_err(|e| format!("cannot note the session of {}: {e}", who(call)))?;
-        }
+        let server = Playwright {
+            mcp: tools.playwright_mcp(),
+            browsers: tools.browsers(),
+            folder: folder.clone(),
+            headed: self.settings.browser.headed,
+        };
         let filter = Filter {
             domains: (self.settings.browser.domains.iter())
                 .map(|d| d.as_str().to_owned())
                 .collect(),
             dev_port: self.dev_gate(ticket),
         };
-        let bridge = Bridge::open(
-            &self.paths.worker,
-            &folder.join("socket-name"),
-            server,
-            filter,
-        )
-        .map_err(|e| format!("cannot open the browser for {}: {e}", who(call)))?;
+        let bridge = (self.ports.bridges)
+            .open(
+                &self.paths.worker,
+                &folder.join("socket-name"),
+                &server,
+                filter,
+            )
+            .map_err(|e| format!("cannot open the browser for {}: {e}", who(call)))?;
+        if let (Session::New(id), true) = (&call.session, call.harness.keeps_its_servers()) {
+            std::fs::write(folder.join(SESSION_FILE), &id.0)
+                .map_err(|e| format!("cannot note the session of {}: {e}", who(call)))?;
+        }
         call.reach.browser = Some(Box::new(Browser {
             kelpie: self.kelpie.clone(),
             socket: bridge.socket().to_owned(),

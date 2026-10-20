@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use super::{Etags, board, issue, pull_request, review, review_bot};
 use crate::board::{OpenPullRequest, ReadyIssue};
-use crate::github::GithubApp;
+use crate::github::{Apps, GithubApp, Owner};
 use crate::ports::{
     AppForges, AppReads, ForgeError, InstallationToken, Issue, PullRequest, Reading, Reviewed,
 };
@@ -64,6 +64,8 @@ impl AppReads for GhAppReads {
 /// The repos the App covers, and the `gh` login that reads each
 pub struct GhApps {
     tokens: Arc<dyn GithubApp>,
+    // The Apps kelpie registered, which say each one's login
+    apps: Apps,
     // Where each repo's config folder is, in kelpie's home
     folders: PathBuf,
     // The token each folder holds, so a token kept is not written again
@@ -73,11 +75,12 @@ pub struct GhApps {
 }
 
 impl GhApps {
-    /// Reads through `tokens`, with the config folders under `folders`
-    pub fn new(tokens: Arc<dyn GithubApp>, folders: &Path) -> Self {
+    /// Reads through `tokens`, with the Apps and the config folders under `kelpie_home`
+    pub fn new(tokens: Arc<dyn GithubApp>, kelpie_home: &Path) -> Self {
         Self {
             tokens,
-            folders: folders.to_owned(),
+            apps: Apps::under(kelpie_home),
+            folders: kelpie_home.join("reads"),
             written: Mutex::new(BTreeMap::new()),
             etags: Etags::default(),
         }
@@ -107,6 +110,11 @@ impl std::fmt::Debug for GhApps {
 }
 
 impl AppForges for GhApps {
+    fn login(&self, repo: &ForgeSlug) -> Option<String> {
+        let owner = Owner::of(repo).ok()?;
+        Some(self.apps.get(&owner).ok()??.slug)
+    }
+
     fn reading(&self, repo: &ForgeSlug) -> Reading {
         // No App, one not installed on the repo, or a token that cannot be
         // minted: the login reads, and `doctor` says why.
@@ -156,7 +164,7 @@ mod tests {
         let github = FakeGithub::new(FakeClock::at(1_000_000), "shep-pm");
         github.registered(home.path(), "shep-pm/koji");
         let tokens = Arc::new(github.tokens(home.path()));
-        let apps = GhApps::new(tokens.clone(), &home.path().join("reads"));
+        let apps = GhApps::new(tokens.clone(), home.path());
         let koji = slug("shep-pm/koji");
 
         let Reading::App { holds, .. } = apps.reading(&koji) else {
@@ -175,10 +183,7 @@ mod tests {
         let home = tempfile::tempdir().unwrap();
         let github = FakeGithub::new(FakeClock::at(1_000_000), "shep-pm");
         github.registered(home.path(), "shep-pm/koji");
-        let apps = GhApps::new(
-            Arc::new(github.tokens(home.path())),
-            &home.path().join("reads"),
-        );
+        let apps = GhApps::new(Arc::new(github.tokens(home.path())), home.path());
 
         assert!(matches!(
             apps.reading(&slug("shep-pm/golbat")),
@@ -188,15 +193,26 @@ mod tests {
     }
 
     #[test]
+    fn the_login_of_a_covered_repo_is_its_apps_slug_and_another_owners_has_none() {
+        let home = tempfile::tempdir().unwrap();
+        let github = FakeGithub::new(FakeClock::at(1_000_000), "shep-pm");
+        github.registered(home.path(), "shep-pm/koji");
+        let apps = GhApps::new(Arc::new(github.tokens(home.path())), home.path());
+
+        assert_eq!(
+            apps.login(&slug("shep-pm/koji")),
+            Some(github.conversion().slug)
+        );
+        assert_eq!(apps.login(&slug("someone-else/koji")), None);
+    }
+
+    #[test]
     fn a_token_that_lapsed_is_replaced_in_the_folder_and_only_then() {
         let home = tempfile::tempdir().unwrap();
         let clock = FakeClock::at(1_000_000);
         let github = FakeGithub::new(clock.clone(), "shep-pm");
         github.registered(home.path(), "shep-pm/koji");
-        let apps = GhApps::new(
-            Arc::new(github.tokens(home.path())),
-            &home.path().join("reads"),
-        );
+        let apps = GhApps::new(Arc::new(github.tokens(home.path())), home.path());
         let koji = slug("shep-pm/koji");
 
         apps.reading(&koji);
@@ -215,10 +231,7 @@ mod tests {
         let github = FakeGithub::new(FakeClock::at(1_000_000), "shep-pm");
         github.registered(home.path(), "shep-pm/koji");
         github.never_given(&["checks", "statuses"]);
-        let apps = GhApps::new(
-            Arc::new(github.tokens(home.path())),
-            &home.path().join("reads"),
-        );
+        let apps = GhApps::new(Arc::new(github.tokens(home.path())), home.path());
 
         let Reading::App { holds, .. } = apps.reading(&slug("shep-pm/koji")) else {
             panic!("the App covers shep-pm/koji");

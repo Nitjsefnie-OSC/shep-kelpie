@@ -809,6 +809,7 @@ impl Forge for FakeForge {
     }
 }
 
+pub(crate) use app::RegisteredApp;
 pub(crate) use issues::CreatedIssue;
 
 use handed::FakePullRequest;

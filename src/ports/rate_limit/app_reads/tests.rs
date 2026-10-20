@@ -24,6 +24,10 @@ impl AppForges for Covers {
             .cloned()
             .unwrap_or(Reading::Login)
     }
+
+    fn login(&self, _: &ForgeSlug) -> Option<String> {
+        None
+    }
 }
 
 const ALL: [&str; 4] = ["issues", "pull_requests", "checks", "statuses"];

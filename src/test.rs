@@ -14,8 +14,8 @@ use crate::cubic::Cubic;
 use crate::github::AppVoice;
 use crate::home::{ProjectName, ProjectPaths};
 use crate::ports::{
-    Agents, CLEAN, CallPacer, Checks, Clock, Cost, Forge, LocalPace, Meter, MeterError, Pace,
-    Ports, Role, SessionId, Tickets, Timestamp, Usage, Utilization, Window,
+    Agents, CLEAN, CallPacer, Checks, Clock, Cost, Forge, HarnessMcp, LocalPace, Meter, MeterError,
+    Pace, Ports, Role, SessionId, Tickets, Timestamp, Usage, Utilization, Window,
 };
 use crate::review_bot::Profile;
 use crate::runner::{CHECKS_SETTLE, OpenError, Runner, SETTLE_LEAST, StepReport, answer, step};
@@ -24,6 +24,7 @@ use crate::webhook::{KelpieSettings, Webhook};
 use crate::work_item::{CallRecord, Known, Phase, Seconds, TimingPhase, Timings, Turn, WorkItem};
 
 mod alerts;
+mod bridge;
 mod classifier;
 mod claude;
 mod coderabbit;
@@ -54,6 +55,7 @@ mod tempdir;
 mod test_runner;
 
 pub(crate) use alerts::FakeAlerts;
+pub(crate) use bridge::FakeBridges;
 pub(crate) use classifier::{FakeClassifier, SeenAsk};
 pub(crate) use claude::{FakeClaude, Hold, LEFT_BEHIND, Scripted, Seen};
 pub(crate) use dev_server::FakeDevServers;
@@ -61,7 +63,7 @@ pub(crate) use disk::{FakeDisk, GB};
 pub(crate) use e2e_runner::FakeE2e;
 pub(crate) use elsewhere::Elsewhere;
 pub(crate) use endpoint::{Answer, StandInEndpoint, Take, unreachable_url};
-pub(crate) use forge::{FakeForge, VIEWER};
+pub(crate) use forge::{FakeForge, RegisteredApp, VIEWER};
 pub(crate) use git::{FakeGit, Synced};
 pub(crate) use github::{Asked, FakeGithub, FakeSigner, PEM, REVIEW_ID, SentReview};
 pub(crate) use home::Home;
@@ -299,6 +301,9 @@ pub(crate) struct Rig {
     pub(crate) dev_servers: FakeDevServers,
     pub(crate) e2e: FakeE2e,
     pub(crate) pages: FakePages,
+    pub(crate) bridges: FakeBridges,
+    /// What the harnesses say of MCP servers: the real facts, until a test swaps in its own
+    pub(crate) harness_mcp: Mutex<Arc<dyn HarnessMcp>>,
     pub(crate) samples: RecordedSink,
     /// The gateway classifier triage's spam check asks
     pub(crate) classifier: FakeClassifier,
@@ -547,6 +552,11 @@ impl Rig {
         self.open_with(vec![Arc::new(CodeRabbit), Arc::new(Cubic), Arc::new(Codex)])
     }
 
+    /// Has the runners this rig starts ask `facts` what a harness says of an MCP server
+    pub(crate) fn harness_mcp_is(&self, facts: Arc<dyn HarnessMcp>) {
+        *self.harness_mcp.lock().unwrap() = facts;
+    }
+
     /// Starts a runner that reads each review bot by its profile in `review_bots`
     pub(crate) fn open_with(
         &self,
@@ -569,11 +579,12 @@ impl Rig {
     ) -> Result<Mutex<Runner>, OpenError> {
         let tokens = Arc::new(self.github.tokens(&self.paths().kelpie_home));
         let forge = Arc::new(self.forge.clone());
+        let paths = self.paths();
         let ports = Ports {
             agents,
             forge: Arc::clone(&forge) as Arc<dyn Forge>,
             tickets: Arc::clone(&forge) as Arc<dyn Tickets>,
-            app_reads: None,
+            app_reads: Some(Arc::new(RegisteredApp::under(&paths.kelpie_home))),
             revalidated: crate::ports::Revalidated::default(),
             voice: Arc::new(AppVoice::new(tokens, Box::new(self.github.clone()))),
             meter: Box::new(self.meter.clone()),
@@ -590,13 +601,14 @@ impl Rig {
             dev_servers: Arc::new(self.dev_servers.clone()),
             e2e_runner: Arc::new(self.e2e.clone()),
             pages: Arc::new(self.pages.clone()),
+            bridges: Arc::new(self.bridges.clone()),
+            harness_mcp: Arc::clone(&self.harness_mcp.lock().unwrap()),
             metrics: Arc::new(self.samples.clone()),
             classifier: Arc::new(self.classifier.clone()),
             clock: Arc::new(self.clock.clone()),
             pace: Arc::clone(&self.pace),
             flock: Vec::new(),
         };
-        let paths = self.paths();
         Runner::open(
             self.project.clone(),
             self.try_settings()?,
