@@ -251,6 +251,10 @@ impl Runner {
                     }
                 }
             }
+            Err(AgentError::TimedOut(_)) if self.resumes_past_ceiling(item, now) => {
+                self.save(next)?;
+                return Ok(None);
+            }
             Err(AgentError::TimedOut(_)) => {
                 item.turn = Turn::Ended { at: now };
                 timed_out(self.names(), &mut next, issue)
