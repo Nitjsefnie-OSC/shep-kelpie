@@ -28,7 +28,7 @@ use crate::guard::Pause;
 use crate::pacer::Scope;
 use crate::ports::{
     AgentCall, AgentError, AgentReply, COMPACT, Cost, InstallationToken, Issue, Reach, Role,
-    Session, Timestamp, Tools,
+    Session, ThreadComment, Timestamp, Tools,
 };
 use crate::profile::{self, WorkerProfile};
 use crate::settings::{AgentHarness, Effort, Limit};
@@ -48,6 +48,7 @@ mod dep_reads;
 mod ended;
 mod handover;
 pub(super) mod held_up;
+mod issue_comments;
 pub(super) mod paused;
 mod unfinished;
 pub(super) mod unreachable;
@@ -96,12 +97,15 @@ pub(super) fn ticket_name(ticket: TicketId) -> String {
     }
 }
 
-fn first_prompt(ticket: TicketId, issue: &Issue) -> String {
+// The title and body, then the comments the maintainer wrote on the issue
+// before this turn began, if any.
+fn first_prompt(ticket: TicketId, issue: &Issue, comments: &[ThreadComment]) -> String {
     format!(
-        "Your work item is {}: {}\n\n{}\n",
+        "Your work item is {}: {}\n\n{}\n{}",
         ticket_name(ticket),
         issue.title,
-        issue.body.trim_end()
+        issue.body.trim_end(),
+        issue_comments::block(ticket, comments)
     )
 }
 
@@ -578,8 +582,9 @@ impl Runner {
                     .tickets
                     .issue(&self.remote, ticket)
                     .map_err(|e| format!("cannot read {}: {e}", ticket.shown()))?;
+                let comments = self.maintainer_comments(ticket)?;
                 self.skills
-                    .invoke(Step::Implement, &first_prompt(ticket, &issue))
+                    .invoke(Step::Implement, &first_prompt(ticket, &issue, &comments))
             }
         };
         // A `/compact` has nothing to bound, and would hand itself back after.

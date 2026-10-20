@@ -82,7 +82,7 @@ fn the_first_turn_starts_the_workers_session_in_its_own_worktree() {
 
 // The prompt a worker's first turn gets, for a ticket of each source. A
 // GitHub ticket's is worded as it always was: its id is its issue number.
-fn issue_of() -> Issue {
+pub(super) fn issue_of() -> Issue {
     Issue {
         title: "Title of #7".to_owned(),
         body: "Body of #7.\n\n".to_owned(),
@@ -96,7 +96,7 @@ fn issue_of() -> Issue {
 #[test]
 fn a_github_ticket_s_first_prompt_is_unchanged() {
     assert_eq!(
-        first_prompt(ticket(7), &issue_of()),
+        first_prompt(ticket(7), &issue_of(), &[]),
         "Your work item is issue #7: Title of #7\n\nBody of #7.\n"
     );
 }
@@ -105,7 +105,7 @@ fn a_github_ticket_s_first_prompt_is_unchanged() {
 fn a_ticket_from_another_source_names_its_first_prompt_by_its_id() {
     let local: TicketId = "k12".parse().unwrap();
     assert_eq!(
-        first_prompt(local, &issue_of()),
+        first_prompt(local, &issue_of(), &[]),
         "Your work item is ticket k12: Title of #7\n\nBody of #7.\n"
     );
 }
