@@ -55,6 +55,12 @@ impl Runner {
     /// go, as a journal that cannot be written is.
     pub(super) fn journal_outcomes(&mut self, review: &Review, sent: Sent<'_>, pushed: bool) {
         let item = self.current().expect("a fix is a work item's");
+        // Only a failed try to answer the threads sent sets this, and the
+        // step then runs again with some of them forgotten: the entry was
+        // written on the first try.
+        if item.resolve_failures > 0 {
+            return;
+        }
         let (issue, round) = (item.issue, review.round);
         let by_thread = item.threads_sent.len() == sent.findings.len();
         let answers = if by_thread {

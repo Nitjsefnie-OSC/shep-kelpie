@@ -177,3 +177,38 @@ fn a_bots_threads_journal_what_the_worker_said_of_each_with_the_bot_as_reviewer(
         ]
     );
 }
+
+#[test]
+fn a_step_that_runs_again_after_the_forge_refused_a_thread_journals_one_entry() {
+    let (rig, runner, _) = thread_replies::sent(&["P2: one", "P2: two"]);
+    rig.forge.coderabbit.set_resolve_down(true);
+    rig.claude.script([Scripted::PushSay(
+        "strip.txt",
+        "stripped\n",
+        "thread 1: declined: it is meant\nthread 2: fixed",
+    )]);
+    step(&runner).unwrap(); // the worker's fix turn
+    assert!(matches!(
+        step(&runner).unwrap(),
+        Some(StepReport::GateFailed { .. })
+    ));
+    rig.forge.coderabbit.set_resolve_down(false);
+    rig.next_look();
+    assert!(matches!(
+        step(&runner).unwrap(),
+        Some(StepReport::FixPushed { .. })
+    ));
+
+    let written = written(&rig);
+    assert_eq!(written.len(), 1, "{written:?}");
+    let said: Vec<_> = (written[0].2.iter())
+        .map(|o| (o.outcome, o.reason.as_deref()))
+        .collect();
+    assert_eq!(
+        said,
+        [
+            (Outcome::Declined, Some("it is meant")),
+            (Outcome::Fixed, None)
+        ]
+    );
+}
