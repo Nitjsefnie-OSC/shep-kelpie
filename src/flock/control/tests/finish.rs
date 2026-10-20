@@ -322,3 +322,38 @@ async fn finish_named_all_points_at_the_flag_when_no_project_is_called_that() {
     assert!(err.contains("no kelpie runner named all"), "{err}");
     assert!(err.contains("finish --all finishes every project"), "{err}");
 }
+
+#[tokio::test]
+async fn finish_all_goes_on_past_a_name_no_project_can_have() {
+    let mut shepherd = FakeShepherd::new();
+    let mut table = crate::test::project_table(EXAMPLE);
+    table["git"]["checkout"] = Value::String("/src/odd".into());
+    let mut odd = launch(&shepherd).runner(&project("koji"), table);
+    odd.name = "odd name".into();
+    shepherd.holds(odd, true);
+    runner(&shepherd, "koji", Path::new("/src/koji"), true);
+    runner(&shepherd, "rotom", Path::new("/src/rotom"), true);
+    for name in ["koji", "rotom"] {
+        let open = format!(r#"{{"project":"{name}","run":"finishing","work_items":[]}}"#);
+        shepherd.says(name, &[&open]);
+    }
+    let done = finished_all(&shepherd, Format::Plain).await.unwrap();
+    assert_eq!(done.refused.len(), 1, "{:?}", done.refused);
+    assert!(
+        done.refused[0].starts_with("odd name: "),
+        "{:?}",
+        done.refused
+    );
+    assert_eq!(
+        done.lines,
+        [
+            "koji has no work item open, so its runner stops now",
+            "rotom has no work item open, so its runner stops now",
+        ]
+    );
+    let sent = sent(&shepherd.writes());
+    assert!(
+        sent.contains(&("rotom".into(), "finish".into())),
+        "{sent:?}"
+    );
+}

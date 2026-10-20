@@ -378,7 +378,13 @@ pub async fn finish_all(
         refused: Vec::new(),
     };
     for sheep in tables(client).await?.into_keys() {
-        let project = ProjectName::try_from(sheep.as_str()).map_err(|e| e.to_string())?;
+        let project = match ProjectName::try_from(sheep.as_str()) {
+            Ok(project) => project,
+            Err(why) => {
+                done.refused.push(format!("{sheep}: {why}"));
+                continue;
+            }
+        };
         match finish(client, &project, format, patience, say).await {
             Ok(lines) if format == Format::Json => {
                 done.lines
