@@ -81,6 +81,30 @@ fn comments_from_anyone_else_a_bot_or_the_app_are_left_out() {
 }
 
 #[test]
+fn a_comment_kelpie_posted_under_the_maintainer_s_login_is_left_out() {
+    // No `git.maintainer`, so the maintainer is the login `gh` acts as, which
+    // is also the login kelpie comments with where no App covers the repo.
+    let rig = Rig::new("shep");
+    let runner = rig.open().unwrap();
+    rig.forge.open_issue(7, "Title of #7", "Body of #7.\n");
+    assert_eq!(
+        rig.ask(&runner, "add", Some("7"))["work_item"]["issue"],
+        "7"
+    );
+    runner
+        .lock()
+        .unwrap()
+        .comment_as_gh(7, "A review of #3 confirmed this too.")
+        .unwrap();
+    rig.forge.threads.write(7, VIEWER, "Use TOML.", at(4));
+
+    let prompt = first_turn_prompt(&rig, &runner);
+
+    assert!(prompt.contains("2026-01-05:\nUse TOML.\n"), "{prompt}");
+    assert!(!prompt.contains("A review of #3"), "{prompt}");
+}
+
+#[test]
 fn a_thread_with_no_comment_from_the_maintainer_leaves_the_prompt_as_it_was() {
     let (rig, runner) = with_maintainer();
     rig.forge.threads.write(7, "stranger", "Use YAML.", at(0));

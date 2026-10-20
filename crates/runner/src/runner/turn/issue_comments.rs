@@ -2,8 +2,9 @@
 //!
 //! A worker's first prompt is the issue's title and body. What the maintainer
 //! wrote under it since may change what the issue asks, so the comments they
-//! wrote go after the body, oldest first. Anyone else's do not: the prompt
-//! fences nothing, so it carries only words the maintainer wrote. Comments
+//! wrote go after the body, oldest first. Anyone else's do not, nor do the ones
+//! kelpie posted under the maintainer's login: the prompt fences nothing, so it
+//! carries only words the maintainer wrote. Comments
 //! posted after the first turn started reach no worker.
 
 use jiff::tz::TimeZone;
@@ -47,7 +48,11 @@ impl Runner {
             .tickets
             .issue_comments(&self.remote, ticket)
             .map_err(|e| format!("cannot read {} comments: {e}", ticket_name(ticket)))?;
-        comments.retain(|c| !c.bot && c.author.eq_ignore_ascii_case(&maintainer));
+        // Where no App covers the repo, kelpie comments as the login `gh` acts as,
+        // which may be the maintainer's. The ids it kept tell its comments from
+        // theirs.
+        let own = |id: u64| self.state.posted.contains(&id) || self.posted.borrow().contains(&id);
+        comments.retain(|c| !c.bot && c.author.eq_ignore_ascii_case(&maintainer) && !own(c.id));
         Ok(comments)
     }
 }
