@@ -5,7 +5,7 @@ use std::sync::Mutex;
 use serde_json::{Value, json};
 
 use super::pass_tests::{listing, read_through, write};
-use super::post::REACT;
+use super::post::{POST_TRIES, REACT};
 use super::release_tests::{ASKS, TAKEN, held, later, waiting};
 use super::ruling_tests::rule;
 use super::security_tests::{commit_on, contribute, contribution};
@@ -296,6 +296,29 @@ fn a_reaction_that_cannot_be_read_is_told_once_and_read_again() {
     rig.forge.threads.can_read_marks_of(note);
     poll(&rig, &runner);
     assert_eq!(rig.forge.merges(), [(30, head)]);
+}
+
+#[test]
+fn a_reaction_that_already_answered_does_not_answer_the_ruling_raised_again() {
+    let (rig, runner, _) = ruled_on();
+    let note = note_of(&rig, &runner);
+    rig.forge.threads.thumbs(note, MAINTAINER, true);
+    rig.forge.set_merges_down(true);
+
+    // The merge is refused until it is given up and the maintainer is asked again.
+    for _ in 0..POST_TRIES + 3 {
+        poll(&rig, &runner);
+    }
+    rig.forge.set_merges_down(false);
+    poll(&rig, &runner);
+    poll(&rig, &runner);
+
+    assert_eq!(rig.forge.merges(), [], "the old reaction answers nothing");
+    assert_eq!(
+        rulings(&rig, &runner).len(),
+        1,
+        "waiting for the maintainer"
+    );
 }
 
 #[test]

@@ -114,6 +114,12 @@ impl Runner {
         if !self.app_covers() {
             return false;
         }
+        // A reaction answers once: it stays on the comment, so a ruling raised
+        // again for the same head must not be answered by it.
+        let answered = format!("reacted:{number}:{note}");
+        if self.post_tries.borrow().contains_key(&answered) {
+            return false;
+        }
         let key = format!("react:{number}:{note}");
         let marks = self.maintainer().and_then(|maintainer| {
             let marks = self.ports.forge.comment_marks(&self.remote, note)?;
@@ -144,6 +150,7 @@ impl Runner {
         match self.rule_by(id, answer, Settler::Thread) {
             Ok(()) => {
                 self.answer_ends(&format!("refused:{number}:{note}"));
+                (self.post_tries.borrow_mut()).entry(answered).or_default();
                 true
             }
             Err(e) => {
