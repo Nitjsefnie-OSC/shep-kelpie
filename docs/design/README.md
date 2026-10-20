@@ -15,7 +15,7 @@ Kelpie: dog of the maintainer's shepherd; one runner per project takes ready iss
 - Home never moved from `~/.kelpie`: refuses to start naming each old file, exit 78 (in `stop_exit_codes`, no restart into it). #311, #345
 - State file version 72 (`VERSION` in `crates/core/src/state.rs`); each change one way: rollback means finishing or dropping open items first. `crates/core/src/state/removed.rs`
 - Business code is Rust; Tauri GUI after MVP, until then run and watched from a Claude session. #5
-- Crates under `crates/` use nothing above them. ADR 0015
+- Crates under `crates/` use nothing above them; the root package holds the binary and the verbs (`src/flock/`, `src/upgrade/`, `src/sheep/`, `src/doctor/`, `src/issues/`, `src/schema.rs`) and reaches every crate. ADR 0015
 - Never put budget numbers in agent prompts; never let a worker merge or post as the maintainer (see fence.md, github-app.md).
 
 ## Files

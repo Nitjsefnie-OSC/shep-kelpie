@@ -34,12 +34,15 @@ pub use shep_kelpie_dog::dog;
 pub use shep_kelpie_runner::runner;
 
 // The leaf crates under `crates/`, each module kept under the name it had here
+pub use shep_kelpie_facts::{mcp_use, request_use, tool_error};
 pub use shep_kelpie_panel::panel;
 pub use shep_kelpie_process::{spawn, terminal, tools, worktree};
+pub use shep_kelpie_trim::trim;
+pub use shep_kelpie_worker_folder::worker_folder;
 
-// The rig, kept under the name it had here
+// The rig, gathered from the crates that own its parts
 #[cfg(test)]
-use shep_kelpie_runner::test;
+mod test;
 
 #[cfg(test)]
 mod tests {

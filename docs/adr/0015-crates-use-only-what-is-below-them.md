@@ -13,6 +13,7 @@ The decision:
 - A crate's folder is `crates/<part>`, its package is the repo's name plus `-<part>`, and its modules keep their names, so test paths, `cargo test --lib <module path>` and the module names in the docs stay valid.
 - Every member takes its version and edition from `[workspace.package]` and its lints from `[workspace.lints]`, so the build stamp and `version --json` print what they printed. No member is published.
 - The test rig splits by the lowest crate that can hold each part. `crates/test_support` is a leaf used only as a dev-dependency: temp folders, stand-in scripts and git helpers, which name nothing but std and `tempfile`. The rest sits behind a `test-support` feature in the crate whose types it names.
+- A crate's manifest names what its line in the map names and nothing else, and a dev-dependency never points at a crate that depends on the crate, which would build two copies of it. Nothing depends on the root, which is the only package with a binary.
 - Each crate root re-exports what it uses from below under the old module names, so a move rewrites no `use` path. One later slice drops them, filed once the last move lands.
 - Visibility widens and behaviour does not: an item another crate needs becomes `pub`, with the docs and `Debug` the lints require.
 
