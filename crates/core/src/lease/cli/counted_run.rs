@@ -6,9 +6,17 @@
 //! that goes away is asked again once it is back: a waiting run asks
 //! afresh, and a running one asks to be counted. A connection made on such
 //! a rejoin is this process's alone, since the command already runs.
+//!
+//! A command that runs past its bound, counted from the grant and not from
+//! the wait in the queue, is ended with everything it started, so one hung
+//! test binary does not hold a place that others queue for.
 
 use std::path::Path;
 use std::time::Duration;
+
+use rustix::io::Errno;
+use rustix::process::{Pid, Signal, kill_process, kill_process_group};
+use tokio::time::Instant;
 
 use super::{Caught, Signals, exit_number, signal_process};
 use crate::lease::counted::CARGO_TEST;
@@ -19,6 +27,16 @@ pub const NO_LEASE: u8 = 75;
 
 /// What a run exits with when its command could not start, as a shell does
 pub const NOT_RUN: u8 = 127;
+
+/// What a run exits with when its command ran past its bound and was ended, as GNU `timeout` does
+pub const TIMED_OUT: u8 = 124;
+
+/// How long a command holds its place before the run ends it: a full suite
+/// takes minutes, and the hang this bounds held a place for 28
+pub const RUN_LIMIT: Duration = Duration::from_secs(20 * 60);
+
+/// How long a command has to end after SIGTERM before it is killed
+const KILL_AFTER: Duration = Duration::from_secs(5);
 
 /// How often a run whose dog went away knocks again; a restart takes seconds
 pub const REJOIN_EVERY: Duration = Duration::from_secs(1);
@@ -46,13 +64,19 @@ pub const PATIENCE: Patience = Patience {
 
 /// Runs `command` once the door at `socket` grants `cargo-test`, and
 /// returns the number to exit with: the command's own, or [`NO_LEASE`],
-/// [`NOT_RUN`], or a caught signal's
-pub async fn run(socket: &Path, command: &[&str]) -> u8 {
-    run_with_patience(socket, command, PATIENCE).await
+/// [`NOT_RUN`], [`TIMED_OUT`] if it ran past `limit` from the grant, or a
+/// caught signal's
+pub async fn run(socket: &Path, command: &[&str], limit: Duration) -> u8 {
+    run_with_patience(socket, command, limit, PATIENCE).await
 }
 
 /// [`run`], knocking as `patience` says when the dog is gone
-pub async fn run_with_patience(socket: &Path, command: &[&str], patience: Patience) -> u8 {
+pub async fn run_with_patience(
+    socket: &Path,
+    command: &[&str],
+    limit: Duration,
+    patience: Patience,
+) -> u8 {
     let Some((program, args)) = command.split_first() else {
         return NOT_RUN;
     };
@@ -66,6 +90,7 @@ pub async fn run_with_patience(socket: &Path, command: &[&str], patience: Patien
         Ok(Err(caught)) => return caught.number(),
         Err(e) => return failed(&unreached(&e), NO_LEASE),
     };
+    let granted = Instant::now();
     // A signal before the start reached nobody else, so it ends the run.
     if let Some(caught) = signals.already().await {
         visit.give_back().await;
@@ -76,20 +101,49 @@ pub async fn run_with_patience(socket: &Path, command: &[&str], patience: Patien
     }
     let spawned = tokio::process::Command::from(crate::spawn::command(program))
         .args(args)
+        .process_group(0)
         .spawn();
     let _ = visit.inheritable(false);
-    let mut child = match spawned {
+    let child = match spawned {
         Ok(child) => child,
         Err(e) => {
             visit.give_back().await;
             return failed(&format!("cannot run {program}: {e}"), NOT_RUN);
         }
     };
-    let rejoin = Ask {
-        running: true,
-        ..ask
+    let rejoin = Rejoin {
+        socket,
+        ask: Ask {
+            running: true,
+            ..ask
+        },
+        patience,
     };
-    let mut held = Some(visit);
+    tend(child, Some(visit), &rejoin, &mut signals, (granted, limit)).await
+}
+
+// What a run needs to be counted again when its dog went away.
+struct Rejoin<'a> {
+    socket: &'a Path,
+    ask: Ask,
+    patience: Patience,
+}
+
+// Waits for `child`, which leads its own process group, until it ends or
+// `limit` has passed since `granted`, and returns the number to exit with. The group is the
+// command and everything it started: a signal to the run is passed on to the
+// child alone, and so is an interrupt, which the terminal sends to the run's
+// group and not to the command's.
+async fn tend(
+    mut child: tokio::process::Child,
+    visit: Option<Visit>,
+    rejoin: &Rejoin<'_>,
+    signals: &mut Signals,
+    (granted, limit): (Instant, Duration),
+) -> u8 {
+    let deadline = granted + limit;
+    let patience = rejoin.patience;
+    let mut held = visit;
     let mut tries = 0;
     loop {
         let rejoining = held.is_none() && tries < patience.tries;
@@ -98,6 +152,7 @@ pub async fn run_with_patience(socket: &Path, command: &[&str], patience: Patien
             caught = signals.recv() => Event::Caught(caught),
             () = closed(held.as_mut()) => Event::DogGone,
             () = tokio::time::sleep(patience.every), if rejoining => Event::Rejoin,
+            () = tokio::time::sleep_until(deadline) => Event::Overran,
         };
         match event {
             Event::Ended(status) => {
@@ -107,8 +162,8 @@ pub async fn run_with_patience(socket: &Path, command: &[&str], patience: Patien
                 return status.map_or_else(|e| failed(&e.to_string(), 1), exit_number);
             }
             Event::Caught(caught) => {
-                if let (Some(pid), Some(name)) = (child.id(), caught.forward()) {
-                    signal_process(pid, name);
+                if let Some(pid) = child.id() {
+                    signal_process(pid, caught.forward().unwrap_or("INT"));
                 }
             }
             Event::DogGone => {
@@ -118,7 +173,7 @@ pub async fn run_with_patience(socket: &Path, command: &[&str], patience: Patien
             }
             Event::Rejoin => {
                 tries += 1;
-                match seat(socket, &rejoin).await {
+                match seat(rejoin.socket, &rejoin.ask).await {
                     Ok(visit) => {
                         held = Some(visit);
                         say("the dog counts this run again");
@@ -129,6 +184,17 @@ pub async fn run_with_patience(socket: &Path, command: &[&str], patience: Patien
                     Err(_) => {}
                 }
             }
+            Event::Overran => {
+                end(&mut child).await;
+                if let Some(visit) = held {
+                    visit.give_back().await;
+                }
+                say(&format!(
+                    "the command ran past its bound of {:?} and was ended, exiting {TIMED_OUT}: its output above shows where it was",
+                    limit
+                ));
+                return TIMED_OUT;
+            }
         }
     }
 }
@@ -138,6 +204,38 @@ enum Event {
     Caught(Caught),
     DogGone,
     Rejoin,
+    Overran,
+}
+
+// Ends the child's group: SIGTERM, then SIGKILL after `KILL_AFTER` whether or
+// not the child has gone, since what it started may hold on. A worker's sandbox
+// may refuse the group signal, so the child alone is signalled then.
+async fn end(child: &mut tokio::process::Child) {
+    let Some(pid) = child.id().and_then(|pid| i32::try_from(pid).ok()) else {
+        return;
+    };
+    let Some(group) = Pid::from_raw(pid) else {
+        return;
+    };
+    let mut alone = false;
+    for signal in [Signal::TERM, Signal::KILL] {
+        match kill_process_group(group, signal) {
+            // Nothing is left in the group, which is what was wanted.
+            Ok(()) | Err(Errno::SRCH) => {}
+            Err(_) => {
+                if !alone {
+                    say("cannot signal the command's process group: ending the command alone");
+                    alone = true;
+                }
+                let _ = kill_process(group, signal);
+            }
+        }
+        if signal == Signal::TERM {
+            // The leader going does not spare what it started: the kill follows.
+            let _ = tokio::time::timeout(KILL_AFTER, child.wait()).await;
+        }
+    }
+    let _ = child.wait().await;
 }
 
 // Knocks and waits for the grant, knocking again for a while if the dog
@@ -291,7 +389,38 @@ fn say(message: &str) {
 
 #[cfg(test)]
 mod tests {
+    use rustix::process::{Pid, test_kill_process};
+
     use super::*;
+
+    // A command in its own group, as `run` starts it.
+    fn start(script: &str) -> tokio::process::Child {
+        tokio::process::Command::new("sh")
+            .args(["-c", script])
+            .process_group(0)
+            .spawn()
+            .unwrap()
+    }
+
+    // Tends `child` with no dog and a bound `limit` from now.
+    async fn tended(child: tokio::process::Child, limit: Duration) -> u8 {
+        // A signal another test sends this process reaches every run alive.
+        let _turn = super::super::tests::LISTENING.lock().await;
+        let mut signals = Signals::new().unwrap();
+        let rejoin = Rejoin {
+            socket: Path::new("no.sock"),
+            ask: Ask::new(CARGO_TEST, std::process::id(), "test"),
+            patience: Patience {
+                tries: 0,
+                every: Duration::from_millis(10),
+            },
+        };
+        tend(child, None, &rejoin, &mut signals, (Instant::now(), limit)).await
+    }
+
+    fn alive(pid: i32) -> bool {
+        Pid::from_raw(pid).is_some_and(|pid| test_kill_process(pid).is_ok())
+    }
 
     #[test]
     fn the_first_failed_knock_says_how_long_it_will_ask() {
@@ -299,5 +428,37 @@ mod tests {
             asking_again("cannot reach the dog", PATIENCE),
             "cannot reach the dog: asking again every 1s, up to 60 times while the dog comes back, then exiting 75"
         );
+    }
+
+    #[tokio::test]
+    async fn a_command_past_its_bound_is_ended_with_its_children_and_exits_124() {
+        let dir = tempfile::tempdir().unwrap();
+        let pidfile = dir.path().join("sleep.pid");
+        let script = format!("sleep 300 & echo $! > {}; wait", pidfile.display());
+        let started = std::time::Instant::now();
+        let code = tended(start(&script), Duration::from_millis(300)).await;
+        assert_eq!(code, TIMED_OUT);
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "it waited for the sleep"
+        );
+        let sleeper: i32 = std::fs::read_to_string(&pidfile)
+            .unwrap()
+            .trim()
+            .parse()
+            .unwrap();
+        for _ in 0..100 {
+            if !alive(sleeper) {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        panic!("the command's child outlived the run");
+    }
+
+    #[tokio::test]
+    async fn a_command_that_ends_in_time_keeps_its_exit_code() {
+        assert_eq!(tended(start("exit 3"), Duration::from_secs(30)).await, 3);
+        assert_eq!(tended(start("true"), Duration::from_secs(30)).await, 0);
     }
 }

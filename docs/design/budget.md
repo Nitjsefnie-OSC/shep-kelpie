@@ -19,7 +19,7 @@ Pacing, leases, forge limits, time, usage, settings.
 - Runner asks dog's book for lease via `lease.<kind>.want.<epoch>`, epoch = its pid (dog reclaims a dead run's leases without racing the new one); bot window = `reviews` in `hours` from its file. `dog/mod.rs`
 - Dog saves book to `<kelpie home>/dog/book.json` on every change (restart grants no second summon in a window); unreadable book starts CodeRabbit closed 1h. #19
 - `cargo-test`: the one worker lease, 3 holders default, held while a connection to dog's `lease.sock` is open (nothing polls a pid). #218, `dog/mod.rs`
-- Workers build outside the lease, run `shep kelpie lease run cargo-test -- <command>` (exit 75 no lease, 127 no command), kelpie named by path (guard refuses program from a variable). #218
+- Workers build outside the lease, run `shep kelpie lease run cargo-test -- <command>` (exit 75 no lease, 127 no command, 124 the command ran past `RUN_LIMIT`, 20 minutes from the grant, and its process group was ended: SIGTERM, SIGKILL after 5 seconds, the lease given back), kelpie named by path (guard refuses program from a variable). #218
 - No GPU lease: paddock queues the GPU, so the `gpu` lock, `lease` in agent files (refused, pointing at `gateway`) and the `/api/ps` spill check are gone; `lease take|run gpu` are refused, pointing at `shep paddock run --model <m>`; no `gpu.lock` is created. `status.local_leases` shows a gateway model's paddock lease holder by model name. #390, #501, #502
 - Triggers that only ask (`status`, `timings`, `drain`) never wake loop; board read at most every 60s (`BOARD_POLL`). #394
 - Failing step backs off 15s to 10 min; rate-limit answer holds every forge call until reset (10 min for secondary limit, longer if hit again). #394
