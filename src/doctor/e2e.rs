@@ -4,7 +4,7 @@
 //! programs a run copies and runs with.
 
 use super::Line;
-use super::host::Host;
+use crate::adapters::host::Host;
 use crate::settings::Settings;
 
 // What a run calls on this machine: `ssh` runs the command, `rsync` copies

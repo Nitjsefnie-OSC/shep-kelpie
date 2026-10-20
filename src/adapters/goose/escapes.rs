@@ -5,10 +5,10 @@
 use std::process::{Command, Output};
 
 use super::tests::{FRESH_ID, URL, World, id};
-use super::web::{SEARCH_HOST, SERVER};
+use super::web::SEARCH_HOST;
 use super::*;
 use crate::adapters::SandboxRuntime;
-use crate::tools::Tools as KelpieTools;
+use crate::tools::{GOOSE_WEB_SERVER, Tools as KelpieTools};
 
 const NEEDS: &str = "needs kelpie's tools: KELPIE_TOOLS=<dir> from `shep kelpie tools install`";
 
@@ -23,7 +23,7 @@ fn a_researchers_fetch_reaches_only_the_hosts_its_policy_lists() {
     call.role = Role::Researcher;
     call.tools = Tools::Research;
     call.reach.mcp_servers = [(
-        SERVER.to_owned(),
+        GOOSE_WEB_SERVER.to_owned(),
         serde_json::json!({
             "type": "stdio",
             "command": "node",

@@ -9,9 +9,8 @@
 use std::path::Path;
 use std::process::Stdio;
 
-use crate::adapters::CLAUDE_REVIEW_TOOLS;
 use crate::ports::{AgentCall, Reach, Role, Session, Severity, Tools};
-use crate::settings::{Harness, RoleModel};
+use crate::settings::{CLAUDE_REVIEW_TOOLS, Harness, RoleModel};
 use crate::ticket::TicketId;
 use crate::work_item::new_session_id;
 

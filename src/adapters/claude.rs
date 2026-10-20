@@ -360,7 +360,7 @@ fn profile(call: &AgentCall) -> Vec<OsString> {
         (_, Kind::Advise) => Some(settings::ADVISE_TOOLS),
         (_, Kind::Research) => Some(settings::RESEARCH_TOOLS),
         (_, Kind::Work) => Some(own.unwrap_or(settings::WORK_TOOLS)),
-        (_, Kind::Review) => Some(own.unwrap_or(settings::REVIEW_TOOLS)),
+        (_, Kind::Review) => Some(own.unwrap_or(crate::settings::CLAUDE_REVIEW_TOOLS)),
         // Its call loads the repo's plugins and their servers on purpose, so
         // it is allow-listed without `--strict-mcp-config`.
         (_, Kind::Issues) => Some(settings::ISSUES_TOOLS),

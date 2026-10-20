@@ -16,12 +16,11 @@
 //! retro: it reads its worktree and changes nothing.
 
 use super::ask;
-use crate::adapters::goose::web;
 use crate::ports::{AgentCall, Reach, Role, Session, Tools};
 use crate::runner::Runner;
 use crate::settings::{AgentHarness, ExpertAgent};
 use crate::state::Ruling;
-use crate::tools::{GOOSE_WEB, GOOSE_WEB_FILE, PI_WEB_ACCESS};
+use crate::tools::{GOOSE_WEB, GOOSE_WEB_FILE, GOOSE_WEB_SERVER, PI_WEB_ACCESS};
 use crate::work_item::new_session_id;
 
 impl Runner {
@@ -142,7 +141,7 @@ impl Runner {
         }
         reach.read.extend(package.parent().map(ToOwned::to_owned));
         reach.mcp_servers.insert(
-            web::SERVER.to_owned(),
+            GOOSE_WEB_SERVER.to_owned(),
             serde_json::json!({
                 "type": "stdio",
                 "command": "node",

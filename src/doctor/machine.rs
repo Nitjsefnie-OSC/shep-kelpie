@@ -5,7 +5,7 @@ use std::path::Path;
 use shep_client::shep_core::protocol::request::ProcessInfo;
 
 use super::Line;
-use super::host::{Host, at_least};
+use crate::adapters::host::{Host, at_least};
 use crate::adapters::{GOOSE_MINIMUM, LOGIN_FIX, LOGIN_VAR, PI_MINIMUM};
 use crate::ports::{Clock, Forge, ForgeError, Meter, MeterError};
 use crate::shepherd::{ConnectRefused, Connection};

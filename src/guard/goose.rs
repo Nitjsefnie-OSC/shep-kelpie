@@ -25,11 +25,22 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use super::{Checkout, SHOWN_CHARS, judge_reading};
-use crate::adapters::goose::hooks::{SKILL_TOOL, TOOLS};
 use crate::confine::{self, Verdict};
 use crate::hooks::Hooks;
 use crate::local_paths::LocalPaths;
 use crate::spawn::shell_quote;
+
+/// The tools of goose's `developer` extension that a worker may call
+///
+/// `shell`, `write` and `edit` are judged and `tree` is let through. Any
+/// other name is refused, `read_image` included. A tool added here is one the
+/// worker may call.
+const TOOLS: [&str; 4] = ["shell", "write", "edit", "tree"];
+
+/// The tool of goose's `skills` extension, which every kind of call may call
+///
+/// It reads a skill's files inside goose, so the sandbox's read rules bound it.
+const SKILL_TOOL: &str = "load_skill";
 
 /// How the hook's command line names the worker's build folder, and asks for
 /// the goose worker's `PreToolUse` guard

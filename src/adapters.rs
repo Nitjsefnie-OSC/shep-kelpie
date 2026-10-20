@@ -19,7 +19,7 @@ mod git;
 mod github;
 pub(crate) mod goose;
 mod gpu;
-mod host;
+pub mod host;
 mod leases;
 mod local;
 pub(crate) mod mcp;
@@ -40,7 +40,6 @@ mod usage;
 pub(crate) use classifier::GatewayClassifier;
 #[cfg(test)]
 pub(crate) use claude::sandbox::fence_policy;
-pub(crate) use claude::settings::REVIEW_TOOLS as CLAUDE_REVIEW_TOOLS;
 pub(crate) use claude::settings::settings as claude_settings;
 pub(crate) use claude::settings::write_only as claude_write_only;
 #[cfg(test)]

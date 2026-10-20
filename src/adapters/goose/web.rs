@@ -15,9 +15,7 @@
 use std::ffi::OsString;
 
 use crate::ports::{AgentCall, Policy, Role, Tools};
-
-/// The name the server is loaded under, which its tools are prefixed with
-pub(crate) const SERVER: &str = "kelpie-web";
+use crate::tools::GOOSE_WEB_SERVER;
 
 /// The one host the server's search dials
 ///
@@ -31,7 +29,7 @@ pub(super) const SEARCH_HOST: &str = "html.duckduckgo.com";
 pub(super) fn loaded(call: &AgentCall) -> bool {
     call.role == Role::Researcher
         && call.tools == Tools::Research
-        && call.reach.mcp_servers.contains_key(SERVER)
+        && call.reach.mcp_servers.contains_key(GOOSE_WEB_SERVER)
 }
 
 /// The variables a call that has the web needs
