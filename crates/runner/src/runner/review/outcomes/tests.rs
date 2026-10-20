@@ -74,7 +74,11 @@ fn a_fix_that_pushed_journals_pushed_disputed_and_deferred() {
         format!("{}  the closure takes two values\n", line_of(&b)),
     )
     .unwrap();
-    std::fs::write(build.join("deferred-findings.md"), line_of(&c)).unwrap();
+    std::fs::write(
+        build.join("deferred-findings.md"),
+        format!("{}  it needs its own pull request\n", line_of(&c)),
+    )
+    .unwrap();
     rig.claude.script([Scripted::Push("fixed.txt", "fixed\n")]);
     step(&runner).unwrap(); // the fix turn pushes
     assert!(matches!(
@@ -90,7 +94,7 @@ fn a_fix_that_pushed_journals_pushed_disputed_and_deferred() {
             vec![
                 outcome(&a, Outcome::Pushed, None),
                 outcome(&b, Outcome::Disputed, Some("the closure takes two values")),
-                outcome(&c, Outcome::Deferred, None),
+                outcome(&c, Outcome::Deferred, Some("it needs its own pull request")),
             ]
         )]
     );

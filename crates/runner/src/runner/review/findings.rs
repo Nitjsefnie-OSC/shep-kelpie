@@ -64,20 +64,25 @@ pub(in crate::runner) fn disputed(build: &Path) -> Result<Vec<Disputed>, String>
             ));
         }
     };
-    let mut read: Vec<Disputed> = Vec::new();
+    Ok((with_reasons(&text).into_iter())
+        .map(|(finding, reason)| Disputed { finding, reason })
+        .collect())
+}
+
+// The findings in `text`, each with the reason the worker gave on the line
+// after it: indented by two spaces, and saying something.
+fn with_reasons(text: &str) -> Vec<(Finding, Option<String>)> {
+    let mut read: Vec<(Finding, Option<String>)> = Vec::new();
     for line in text.lines() {
         if let Some(finding) = parse_findings(line).pop() {
-            read.push(Disputed {
-                finding,
-                reason: None,
-            });
+            read.push((finding, None));
         } else if let Some(reason) = line.strip_prefix("  ")
-            && let Some(last) = read.last_mut().filter(|d| d.reason.is_none())
+            && let Some(last) = read.last_mut().filter(|(_, reason)| reason.is_none())
         {
-            last.reason = Some(reason.trim().to_owned()).filter(|r| !r.is_empty());
+            last.1 = Some(reason.trim().to_owned()).filter(|r| !r.is_empty());
         }
     }
-    Ok(read)
+    read
 }
 
 /// The findings the worker copied into the deferred findings file in
@@ -85,15 +90,42 @@ pub(in crate::runner) fn disputed(build: &Path) -> Result<Vec<Disputed>, String>
 ///
 /// # Errors
 ///
-/// A message naming the file when it is there but cannot be read.
+/// As [`deferred_with_reasons`].
 pub(in crate::runner) fn deferred(build: &Path) -> Result<Vec<Finding>, String> {
-    match worker_folder::read(build, Path::new(DEFERRED_FILE)) {
-        Ok(text) => Ok(text.map_or_else(Vec::new, |text| parse_findings(&text))),
-        Err(e) => Err(format!(
-            "cannot read {}: {e}",
-            deferred_path(build).display()
-        )),
-    }
+    let read = deferred_with_reasons(build)?;
+    Ok(read.into_iter().map(|d| d.finding).collect())
+}
+
+/// The findings the worker copied into the deferred findings file in
+/// `build`, each with its reason: none when there is no file
+///
+/// # Errors
+///
+/// A message naming the file when it is there but cannot be read.
+pub(in crate::runner) fn deferred_with_reasons(build: &Path) -> Result<Vec<Deferred>, String> {
+    let text = match worker_folder::read(build, Path::new(DEFERRED_FILE)) {
+        Ok(text) => text.unwrap_or_default(),
+        Err(e) => {
+            return Err(format!(
+                "cannot read {}: {e}",
+                deferred_path(build).display()
+            ));
+        }
+    };
+    Ok((with_reasons(&text).into_iter())
+        .map(|(finding, reason)| Deferred { finding, reason })
+        .collect())
+}
+
+/// A finding the worker copied into the deferred findings file, with the
+/// reason on the line after it
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(in crate::runner) struct Deferred {
+    /// The finding, as the worker copied it
+    pub finding: Finding,
+    /// The reason, when the next line is indented by two spaces and says
+    /// something
+    pub reason: Option<String>,
 }
 
 /// The findings a round sent the worker, and the deferred findings file's
@@ -146,7 +178,8 @@ pub(in crate::runner) fn write_findings_file(
     let mut text = format!(
         "Round {round}'s findings, at the reviewer's severity. Fix each one, then \
          commit and push. A finding that is out of scope for this pull request may be \
-         left: copy its line, as it stands here, onto a line of its own in {}. Kelpie \
+         left: copy its line, as it stands here, onto a line of its own in {}, and on the \
+         next line, indented by two spaces, give your reason for leaving it. Kelpie \
          files what is there as an issue once the pull request merges, except a LOW \
          one, which is dropped. A finding you show is wrong is not fixed or deferred: \
          copy its line, as it stands here, into {}, and on the next line, indented by \
@@ -308,7 +341,8 @@ mod tests {
         );
         assert!(
             text.contains(&format!(
-                "in {}. Kelpie files what is there as an issue",
+                "in {}, and on the next line, indented by two spaces, give your reason for \
+                 leaving it. Kelpie files what is there as an issue",
                 dir.path().join("deferred-findings.md").display()
             )),
             "the header names where a finding left unfixed goes: {text}"
@@ -495,6 +529,44 @@ mod tests {
         assert!(err.contains("deferred-findings.md"), "{err}");
         assert!(err.contains("not a regular file"), "{err}");
         assert!(!err.contains("a thing"), "{err}");
+    }
+
+    #[test]
+    fn a_deferred_line_reads_back_with_the_reason_on_the_line_after_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let (a, b, c) = (
+            "HIGH|src/a.rs:1|first|why a\n",
+            "MEDIUM|src/b.rs:2|second|why b\n",
+            "MEDIUM|src/c.rs:3|third|why c\n",
+        );
+        let text = format!("{a}  the fix is a new module\n{b}{c}  \n");
+        std::fs::write(deferred_path(dir.path()), text).unwrap();
+
+        let read = deferred_with_reasons(dir.path()).unwrap();
+
+        let reasons: Vec<_> = read.iter().map(|d| d.reason.as_deref()).collect();
+        assert_eq!(reasons, [Some("the fix is a new module"), None, None]);
+        let found: Vec<_> = read.into_iter().map(|d| d.finding).collect();
+        assert_eq!(found, parse_findings(&format!("{a}{b}{c}")));
+    }
+
+    #[test]
+    fn the_header_asks_for_the_reason_of_a_deferral_on_the_next_line() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("review-findings.md");
+        let finding = Finding::new(Severity::High, "src/lib.rs", 9, "looks racy", "it is");
+
+        write_findings_file(dir.path(), &path, 1, &[finding], false).unwrap();
+
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(
+            text.contains(&format!(
+                "onto a line of its own in {}, and on the next line, indented by two \
+                 spaces, give your reason for leaving it.",
+                dir.path().join("deferred-findings.md").display()
+            )),
+            "{text}"
+        );
     }
 
     // The path a findings header names for `name`, which it holds between a
