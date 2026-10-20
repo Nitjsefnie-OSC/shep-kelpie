@@ -3,7 +3,6 @@
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use crate::adapters::{GpuCurl, LocalReviewer};
@@ -13,72 +12,47 @@ use crate::cubic::Cubic;
 use crate::github::AppVoice;
 use crate::home::{ProjectName, ProjectPaths};
 use crate::ports::{
-    Agents, CLEAN, CallPacer, Checks, Clock, Cost, Forge, HarnessMcp, LocalPace, Meter, MeterError,
-    Pace, Ports, Role, SessionId, Tickets, Timestamp, Usage, Utilization, Window,
+    Agents, CLEAN, CallPacer, Checks, Clock, Forge, HarnessMcp, LocalPace, Pace, Ports, Tickets,
+    Timestamp, Utilization,
 };
 use crate::review_bot::Profile;
 use crate::runner::{CHECKS_SETTLE, OpenError, Runner, SETTLE_LEAST, StepReport, answer, step};
 use crate::settings::SettingsError;
 use crate::webhook::{KelpieSettings, Webhook};
-use crate::work_item::{CallRecord, Known, Phase, Seconds, TimingPhase, Timings, Turn, WorkItem};
 
-mod alerts;
-mod bridge;
-mod classifier;
 mod claude;
-mod coderabbit;
-mod codex;
-mod cubic;
-mod dev_server;
-mod disk;
-mod e2e_runner;
 mod elsewhere;
-mod endpoint;
-mod forge;
 mod fork;
-mod git;
 mod github;
 mod home;
-mod leased;
 mod leases;
-mod memory;
-mod pages;
 mod reads;
+mod registered_app;
 mod reviewer;
 mod rig_settings;
-mod samples;
-mod sandbox;
-mod shepherd;
-mod test_runner;
+mod rig_totp;
 
-pub(crate) use alerts::FakeAlerts;
-pub(crate) use bridge::FakeBridges;
-pub(crate) use classifier::{FakeClassifier, SeenAsk};
-pub(crate) use claude::{FakeClaude, Hold, LEFT_BEHIND, Scripted, Seen};
-pub(crate) use dev_server::FakeDevServers;
-pub(crate) use disk::{FakeDisk, GB};
-pub(crate) use e2e_runner::FakeE2e;
+// The stand-ins and helpers that name only `core` and the leaves, where `core`'s own tests use them
+pub(crate) use claude::{FakeClaude, LEFT_BEHIND, Scripted, Seen};
 pub(crate) use elsewhere::Elsewhere;
-pub(crate) use endpoint::{Answer, StandInEndpoint, Take, unreachable_url};
-pub(crate) use forge::{FakeForge, RegisteredApp, VIEWER};
-pub(crate) use git::{FakeGit, Synced};
 pub(crate) use github::{Asked, FakeGithub, FakeSigner, PEM, REVIEW_ID, SentReview};
-pub(crate) use home::Home;
 pub(crate) use leases::{DogStandIn, FakeLeases, Told};
-pub(crate) use memory::Memory;
-pub(crate) use pages::{FakePages, clean as clean_visit};
 pub(crate) use reads::{
     assert_granted, assert_reads, assert_refuses, installed_sources, sandbox_refuses,
     source_folders, tools_refuse,
 };
+pub(crate) use registered_app::RegisteredApp;
 pub(crate) use reviewer::{FakeReviewer, ScriptedRound, SeenRound};
-pub(crate) use samples::RecordedSink;
-pub(crate) use sandbox::OpenSandbox;
+pub(crate) use shep_kelpie_core::test::{
+    Answer, AppComments, EPOCH, FakeAlerts, FakeBridges, FakeClassifier, FakeClock, FakeCodeRabbit,
+    FakeDevServers, FakeDisk, FakeE2e, FakeForge, FakeGit, FakeMeter, FakePages, FakeShepherd,
+    FakeTests, GB, Hold, Home, LeaseReads, Memory, OpenSandbox, RecordedSink, SeenAsk,
+    StandInEndpoint, Synced, Take, VIEWER, a_work_item, clean_visit, project_table, ticket,
+    unreachable_url,
+};
 pub(crate) use shep_kelpie_test_support::{
     CALL_PATIENCE, git, linked_worktree, short_tempdir, write_in, write_script,
 };
-pub(crate) use shepherd::FakeShepherd;
-pub(crate) use test_runner::FakeTests;
 
 /// Makes an owner-only FIFO at `path`
 ///
@@ -91,99 +65,6 @@ pub(crate) fn make_fifo(path: &Path) {
         .status()
         .unwrap();
     assert!(made.success(), "mkfifo {}: {made}", path.display());
-}
-
-/// [`a_work_item`] as an older file's loads: the comments on its pull request
-/// are marked as seen
-pub(crate) fn a_work_item_from_before_comments() -> WorkItem {
-    let mut item = a_work_item();
-    item.talked.quiet = true;
-    item
-}
-
-/// A work item with one call, so every field of its format shows
-pub(crate) fn a_work_item() -> WorkItem {
-    WorkItem {
-        pinned: true,
-        turn: Turn::Running {
-            since: Timestamp(9),
-            prompt: None,
-        },
-        pull_request: Some(51),
-        phase: Phase::Ci {
-            head: Some("c0ffee".into()),
-            since: Timestamp(11),
-        },
-        red_head: Some("bad".into()),
-        conflict: Some(crate::work_item::Conflict {
-            head: "c0ffee".into(),
-            main: "a11ce".into(),
-            turns: 1,
-        }),
-        known: Known {
-            labels: vec!["review please".into()],
-            ready: false,
-            head: None,
-        },
-        timings: Some(Timings {
-            created: Timestamp(5),
-            since: Timestamp(12),
-            seconds: Seconds::of(&[(TimingPhase::Worker, 4), (TimingPhase::Ci, 3)]),
-            call: None,
-            queued: false,
-        }),
-        counts: crate::work_item::Counts {
-            review_rounds: 2,
-            fix_turns: 1,
-            rulings: 1,
-            ci_fix_turns: 1,
-            worker_unreported: 0,
-            reviewer_unreported: 0,
-            ci_failures: crate::work_item::CiFailures::default(),
-        },
-        calls: vec![CallRecord {
-            role: Role::Worker,
-            at: Timestamp(10),
-            session: SessionId("5e55".into()),
-            usage: Usage {
-                input: 1,
-                cache_write: 2,
-                cache_write_5m: 0,
-                cache_read: 3,
-                output: 4,
-            },
-            cost: Cost(5),
-            session_cost: Cost(6),
-            unpriced: false,
-        }],
-        ..WorkItem::new(
-            ticket(42),
-            "Add a thing",
-            "kelpie/42",
-            "/k/wt/shep/42".into(),
-            "/k/targets/shep/42".into(),
-            "opus-high".to_owned().try_into().unwrap(),
-            SessionId("5e55".into()),
-        )
-    }
-}
-
-/// The `[app.dogs.kelpie]` table of a runner's Flockfile entry, such as
-/// `settings.example.toml`, as shep hands it to the runner
-pub(crate) fn project_table(entry: &str) -> serde_json::Map<String, serde_json::Value> {
-    let parsed: toml::Table = toml::from_str(entry).unwrap();
-    match serde_json::to_value(&parsed["app"][0]["dogs"]["kelpie"]).unwrap() {
-        serde_json::Value::Object(table) => table,
-        other => panic!("the entry's kelpie table is {other}"),
-    }
-}
-
-/// A runner entry like `settings.example.toml` with `tables` added to its
-/// kelpie table, such as an older `[app.dogs.kelpie.review]`
-pub(crate) fn with_tables(entry: &str, tables: &str) -> String {
-    const PACING: &str = "\n[app.dogs.kelpie.pacing]\n";
-    assert!(entry.contains(PACING), "the example's pacing table moved");
-    entry.replace(PACING, &format!("\n{tables}{PACING}"))
 }
 
 /// The `git.checkout` in `settings.example.toml`, which the rig points at its own
@@ -211,71 +92,6 @@ defects. Output one finding per line as SEVERITY|file:line|what|why, or exactly 
 pub(crate) const RIG_REVIEWERS_AND_CODERABBIT: &str =
     "reviewers = [\"qwen\", \"claude\", \"coderabbit\"]\n";
 
-/// A meter that reports what a test sets, and counts its reads
-///
-/// It starts with the account idle: nothing used in either window, the
-/// week `Rig::EPOCH` begins and the session window five hours long.
-#[derive(Debug, Clone)]
-pub(crate) struct FakeMeter {
-    reading: Arc<Mutex<Result<Utilization, MeterError>>>,
-    reads: Arc<AtomicUsize>,
-}
-
-impl FakeMeter {
-    pub(crate) fn idle() -> Self {
-        Self {
-            reading: Arc::new(Mutex::new(Ok(Rig::utilization(0, 0)))),
-            reads: Arc::default(),
-        }
-    }
-
-    /// Reports `usage` from now on
-    pub(crate) fn set(&self, usage: Utilization) {
-        *self.reading.lock().unwrap() = Ok(usage);
-    }
-
-    /// Fails every read with `error`, until a test sets a reading
-    pub(crate) fn fail(&self, error: MeterError) {
-        *self.reading.lock().unwrap() = Err(error);
-    }
-
-    /// How many times usage was read
-    pub(crate) fn reads(&self) -> usize {
-        self.reads.load(Ordering::SeqCst)
-    }
-}
-
-impl Meter for FakeMeter {
-    fn read(&self, _now: Timestamp) -> Result<Utilization, MeterError> {
-        self.reads.fetch_add(1, Ordering::SeqCst);
-        self.reading.lock().unwrap().clone()
-    }
-}
-
-/// A clock that moves only when a test moves it
-#[derive(Debug, Clone)]
-pub(crate) struct FakeClock(Arc<AtomicU64>);
-
-impl FakeClock {
-    pub(crate) fn at(seconds: u64) -> Self {
-        Self(Arc::new(AtomicU64::new(seconds)))
-    }
-
-    pub(crate) fn advance(&self, seconds: u64) {
-        self.0.fetch_add(seconds, Ordering::SeqCst);
-    }
-}
-
-impl Clock for FakeClock {
-    fn now(&self) -> Timestamp {
-        Timestamp(self.0.load(Ordering::SeqCst))
-    }
-
-    fn wait(&self, seconds: u64) {
-        self.advance(seconds);
-    }
-}
-
 /// One project's world: kelpie's home, the maintainer's home, and the
 /// project's repo cloned from a bare origin
 #[derive(Debug)]
@@ -291,7 +107,7 @@ pub(crate) struct Rig {
     pub(crate) local_leases: LocalReviewer,
     // The gateway's leases, answered with nothing and counted, in place of the
     // real read, for a test that says who asked
-    counted_leases: Arc<Mutex<Option<Arc<leased::LeaseReads>>>>,
+    counted_leases: Arc<Mutex<Option<Arc<LeaseReads>>>>,
     pub(crate) alerts: FakeAlerts,
     pub(crate) disk: FakeDisk,
     pub(crate) leases: FakeLeases,
@@ -314,29 +130,17 @@ pub(crate) struct Rig {
     pub(crate) github: FakeGithub,
 }
 
-/// Where every fake clock starts, in seconds since the Unix epoch
-pub(crate) const EPOCH: u64 = 1_790_000_000;
-
 impl Rig {
     /// Where every rig's clock starts
     pub(crate) const EPOCH: u64 = EPOCH;
 
     /// One day, in seconds
-    pub(crate) const DAY: u64 = 86_400;
+    pub(crate) const DAY: u64 = shep_kelpie_core::test::DAY;
 
     /// Usage with `week` and `session` percent spent. The week began at
     /// [`Self::EPOCH`] and the session window resets five hours on.
     pub(crate) fn utilization(week: u32, session: u32) -> Utilization {
-        Utilization {
-            session: Window {
-                used_pct: session,
-                resets_at: Timestamp(Self::EPOCH + 5 * 3600),
-            },
-            week: Window {
-                used_pct: week,
-                resets_at: Timestamp(Self::EPOCH + 7 * Self::DAY),
-            },
-        }
+        shep_kelpie_core::test::utilization(week, session)
     }
 
     /// The repo the rig's project works on GitHub
@@ -757,9 +561,4 @@ pub(crate) fn main_commits(repo: &Path, file: &str, contents: &str) {
 /// Moves `worktree`'s branch to where `main` stands, the way a branch is cut
 pub(crate) fn cut_from_main(worktree: &Path) {
     git(worktree, &["reset", "--quiet", "--hard", "main"]);
-}
-
-/// The ticket of GitHub issue `number`
-pub(crate) fn ticket(number: u64) -> crate::ticket::TicketId {
-    crate::ticket::TicketId::from_issue(number).expect("a test's issue is not zero")
 }

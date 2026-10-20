@@ -4,6 +4,7 @@ members = ["crates/*"]
 # the root cover the whole workspace.
 default-members = [
     ".",
+    "crates/core",
     "crates/facts",
     "crates/panel",
     "crates/process",
@@ -30,6 +31,7 @@ all = { level = "warn", priority = -1 }
 [workspace.dependencies]
 # The members below the root. A member's own manifest names none of them,
 # except `test_support`, which every other member names as a dev-dependency.
+shep-kelpie-core = { path = "crates/core" }
 shep-kelpie-facts = { path = "crates/facts" }
 shep-kelpie-panel = { path = "crates/panel" }
 shep-kelpie-process = { path = "crates/process" }
@@ -83,20 +85,17 @@ exclude = ["/docs/"]
 workspace = true
 
 [dependencies]
+shep-kelpie-core.workspace = true
 shep-kelpie-facts.workspace = true
 shep-kelpie-panel.workspace = true
 shep-kelpie-process.workspace = true
 shep-kelpie-trim.workspace = true
 shep-kelpie-worker-folder.workspace = true
-hmac.workspace = true
 jiff.workspace = true
 rustix.workspace = true
-qrcode.workspace = true
-schemars.workspace = true
 serde.workspace = true
 serde-saphyr.workspace = true
 serde_json.workspace = true
-sha1.workspace = true
 shep-channel.workspace = true
 shep-client.workspace = true
 shep-handover.workspace = true
@@ -104,6 +103,7 @@ tokio = { workspace = true, features = ["io-util", "macros", "net", "process", "
 toml.workspace = true
 
 [dev-dependencies]
+shep-kelpie-core = { workspace = true, features = ["test-support"] }
 shep-kelpie-test-support.workspace = true
 shep-kelpie-trim = { workspace = true, features = ["test-support"] }
 # Only for the fake shepherds the tests run against

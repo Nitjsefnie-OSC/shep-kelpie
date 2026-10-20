@@ -4,7 +4,7 @@ Whether and how kelpie picks up other people's pull requests. It sees and lists 
 
 ## Settings
 
-- `[app.dogs.kelpie.contributions]`, `#[serde(default)]`: an absent table is `pick = "off"`. `deny_unknown_fields`, so a mistyped key is refused naming it. `src/settings/contributions.rs`
+- `[app.dogs.kelpie.contributions]`, `#[serde(default)]`: an absent table is `pick = "off"`. `deny_unknown_fields`, so a mistyped key is refused naming it. `crates/core/src/settings/contributions.rs`
 - `pick`: `off` (default, kelpie's own pull requests only), `label` (those the maintainer labels for it) or `all`. Kebab-case, any other word refused.
 - `reviewers`: ordered agent files whose role is `reviewer`, bots welcome, each once. Absent, it is the project's `agents.reviewers`, default included.
 - `security_reviewer`: a reviewer agent file, `security-reviewer` when absent, shipped as `agents/security-reviewer.md`. It must run sessions: a command, endpoint or bot is refused.
@@ -12,7 +12,7 @@ Whether and how kelpie picks up other people's pull requests. It sees and lists 
 
 ## Checks at start
 
-- `Settings::contribution_lineup` shares its body with `lineup` (`src/settings/reviewers.rs`), so the bot-order check applies. Its refusals name `contributions.reviewers` when that key is set, and `agents.reviewers` when it falls back.
+- `Settings::contribution_lineup` shares its body with `lineup` (`crates/core/src/settings/reviewers.rs`), so the bot-order check applies. Its refusals name `contributions.reviewers` when that key is set, and `agents.reviewers` when it falls back.
 - Agent files are checked only when `pick` is not `off`, so a project that never opts in needs none.
 - `Runner::open` refuses a `pick` other than `off` when `ports.voice.covers(&remote)` is false: `SettingsError::Invalid` on `contributions.pick`. The representative would otherwise post as the maintainer, which no worker or reviewer may do. `pick = "off"` starts on any repo. `src/runner.rs`
 - `Settings::security_reviewer` checks, whenever `pick` is not `off`, that `security_reviewer` has a file whose role is `reviewer` and that runs sessions. `Runner::open` calls it.
@@ -26,7 +26,7 @@ Whether and how kelpie picks up other people's pull requests. It sees and lists 
 - A contribution is an open pull request, not a draft, whose author is not the maintainer (`Runner::maintainer`), not the account kelpie acts as (`viewer`), and not a bot, and not one the maintainer left open (`left_open`). Logins compare ignoring case. `Runner::is_contribution`, `src/runner/contributions.rs`
 - Under `pick = "label"` it also carries `ready-for-agent`; under `"all"` it needs no label; under `"off"` nothing is one.
 - The author decides, never the branch name or the fork flag: a fork can name its branch `kelpie/5`. `OpenPullRequest.author_is_bot` is the listing's `author { __typename }` being `Bot`. `src/adapters/gh/board.rs`
-- `ProjectState.contributions` holds `Contribution { pull_request, author, head, seen }`, one per pull request, oldest first; `head` is the head commit, `seen` when that head was first seen. Absent in a file saved before version 40. `src/state/contributions.rs`
+- `ProjectState.contributions` holds `Contribution { pull_request, author, head, seen }`, one per pull request, oldest first; `head` is the head commit, `seen` when that head was first seen. Absent in a file saved before version 40. `crates/core/src/state/contributions.rs`
 - `Runner::follow_contributions` runs once a `BOARD_POLL` before the rotation, so it runs with every slot held. It reads the pass's listing, which the board then shares. A new head updates the record; a pull request closed, merged, a draft again, or unlabelled under `label` drops it, with no post. An unreadable listing or login changes nothing.
 - `adopt_waiting` leaves a labelled contribution alone when `pick` is not `off`. With `off` a labelled fork is refused as before. `rework_asked` still refuses a fork.
 - A released contribution is queued for adoption by `follow_adoption` and adopted in the next free slot, ahead of a new issue: `contribution-release.md`. Its record is gone once its work item is open.

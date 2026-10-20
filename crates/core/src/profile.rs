@@ -1,0 +1,369 @@
+//! The worker's profile: the sandbox and instructions kelpie starts it with
+//!
+//! The worker runs with no one to ask, so its sandbox is its whole fence.
+//! Writes go to its worktree, its build folder and what a commit and a push
+//! need, and never to agents' own files in the worktree. Credential
+//! paths are unreadable, hosts are GitHub's and the project's, and what only
+//! the project manager does is a command it may not run. Each harness's
+//! adapter enforces the fence its own way.
+
+use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
+
+use crate::fence;
+use crate::hooks::Hooks;
+use crate::lease::door;
+use crate::ports::{Fence, Guard, InstallationToken, Reach};
+use crate::settings::{BuildDir, EnvName, GuardHook, NonBlank};
+
+pub mod housekeeping;
+mod login;
+
+pub use login::{config_dir as login_dir, write as write_login};
+
+/// Kelpie's instructions to every worker, appended to its system prompt
+pub const INSTRUCTIONS: &str = include_str!("worker-instructions.md");
+
+// How a worker is told to get its pull request opened: by itself, as the
+// maintainer's login, or by writing its text where kelpie opens it from.
+const OPEN_YOURSELF: &str = "When the work is done, push the branch with `git push origin HEAD`. Unless the branch already has a pull request, open a draft one with `gh pr create --draft --base {base}`, giving it your own body and a `--title` that is a conventional commit subject.{resolves} When a later turn changes the branch, change the open pull request's body with `gh pr edit --body`.";
+
+const HAND_OVER: &str = "When the work is done, push the branch with `git push origin HEAD`. Do not open or edit the pull request yourself: your credential cannot, and kelpie does it. Write its title and body in `{file}`. The first line is the title, a conventional commit subject such as `fix(parser): keep the last line`, above any template's text: a template's heading is never the title, and kelpie opens nothing from a file whose first line is not a conventional commit subject. The rest is the body{ends}. Write the file before you end your turn, and write it again to change the title or body; kelpie opens the draft when a turn ends with the branch pushed, and sets the title and body to what the file says.";
+
+// What a worker's pull request body ends with when its ticket is a GitHub issue,
+// which merging the pull request then closes
+const RESOLVES: &str =
+    " End the body with the line `Resolves #<issue>`, naming your work item's issue.";
+const ENDS_WITH_RESOLVES: &str =
+    ", which ends with the line `Resolves #<issue>`, naming your work item's issue";
+
+/// Kelpie's own worker instructions, naming `kelpie`, the binary a worker
+/// runs its tests under the machine's test lease with
+///
+/// With `pull_request_file`, the worker holds a credential that opens no
+/// pull request, and is told to write its text there for kelpie to open.
+pub fn instructions(kelpie: &Path, pull_request_file: Option<&Path>) -> String {
+    instructions_for(
+        kelpie,
+        pull_request_file,
+        true,
+        crate::settings::DEFAULT_BASE,
+    )
+}
+
+/// [`instructions`] for a work item whose ticket is a GitHub issue when `resolves`, else a
+/// local ticket, whose pull request has no `Resolves` line because kelpie closes the ticket
+/// when it merges, and the project's `base` branch where the worker is told what it works against
+pub fn instructions_for(
+    kelpie: &Path,
+    pull_request_file: Option<&Path>,
+    resolves: bool,
+    base: &str,
+) -> String {
+    let (resolves, ends) = match resolves {
+        true => (RESOLVES, ENDS_WITH_RESOLVES),
+        false => ("", ""),
+    };
+    let pull_request = match pull_request_file {
+        Some(file) => HAND_OVER
+            .replace("{file}", &file.display().to_string())
+            .replace("{ends}", ends),
+        None => OPEN_YOURSELF.replace("{resolves}", resolves),
+    };
+    INSTRUCTIONS
+        .replace("{pull_request}", &pull_request)
+        .replace("{kelpie}", &kelpie.display().to_string())
+        .replace("{base}", base)
+}
+
+// Claude Code opens a worktree's whole common git dir to sandboxed writes.
+// These are the parts a commit and a push do not need, and whose change
+// would run code outside the sandbox. `refs/remotes` stays open for the
+// push's tracking ref; kelpie fetches `origin/main` before cutting from it.
+const GIT_DENY: [&str; 8] = [
+    "config",
+    "hooks",
+    "info",
+    "modules",
+    "HEAD",
+    "index",
+    "packed-refs",
+    "refs/tags",
+];
+
+/// Read and written by no worker. `~/.config/gh` stays readable for a worker
+/// that runs as the maintainer: `gh` will not start without its config, and
+/// the worker opens its own pull request. A worker holding the App's token has
+/// a config folder of its own.
+pub const CREDENTIALS: [&str; 12] = [
+    "~/.ssh/**",
+    "~/.aws/**",
+    "~/.gnupg/**",
+    "~/.docker/**",
+    "~/.netrc",
+    "~/.git-credentials",
+    "~/.npmrc",
+    "~/.cargo/credentials",
+    "~/.cargo/credentials.toml",
+    // Kelpie's old home. The maintainer's disk still holds a project's state
+    // and settings file, the webhook URL's old file and the authenticator
+    // secret there, so these rules still protect real files. Kelpie's home
+    // and the shepherd's are the profile's own.
+    "~/.kelpie/projects/**",
+    "~/.kelpie/settings.toml",
+    "~/.kelpie/totp/**",
+];
+
+// What only the project manager does: merge, mark ready, and summon. `kelpie
+// guard` refuses these in any shape; these match a command's prefix only.
+const PM_ONLY: [&str; 5] = [
+    "gh pr merge",
+    "gh pr merge *",
+    "gh pr ready",
+    "gh pr ready *",
+    "gh *review please*",
+];
+
+// `gh api` could merge or relabel around the rules above, and `gh auth token`
+// prints the maintainer's token. No worker needs either.
+const GH_DENY: [&str; 4] = ["gh api", "gh api *", "gh auth", "gh auth *"];
+
+// Pushes that rewrite or delete branches on the remote whatever they name:
+// `--mirror` and `--all` push every local branch, and a `+` refspec forces.
+// A rule's `*` needs something to match, so a flag straight after `push`
+// takes a rule of its own.
+const PUSH_FLAGS: [&str; 9] = [
+    "git push *--mirror*",
+    "git push *--all*",
+    "git push *--delete*",
+    "git push -d*",
+    "git push * -d*",
+    "git push *--force*",
+    "git push -f*",
+    "git push * -f*",
+    "git push * +*",
+];
+
+// What a worker holding the App's token may not read: `gh`'s own config
+// folder, which can hold the maintainer's token, and the keychain files. `gh`
+// runs on its own config folder then, so it needs neither.
+const MAINTAINERS_LOGIN: [&str; 2] = ["~/.config/gh/**", "~/Library/Keychains/**"];
+
+// `security` reads the keychain `gh` and git's osxkeychain helper keep the
+// maintainer's token in, and so does the helper itself, run by hand or with
+// `git credential`. Nothing a worker holding the App's token needs any of
+// them, git asks its helpers itself. These are a guardrail against a mistake,
+// not the boundary: the sandbox closes the keychain itself (#429).
+const KEYCHAIN_COMMANDS: [&str; 6] = [
+    "security",
+    "security *",
+    "git credential",
+    "git credential *",
+    "git credential-*",
+    "git -c credential*",
+];
+
+// What `git push` and `gh` reach. A project adds its own, such as a registry.
+const GITHUB: [&str; 2] = ["github.com", "api.github.com"];
+
+// Where GitHub redirects a download of a run's logs, a job's logs or an
+// artifact to. Listed by name, since `*.blob.core.windows.net` would reach any
+// Azure storage account. The storage hosts are the range GitHub's docs list.
+const GITHUB_DOWNLOADS: [&str; 21] = [
+    "results-receiver.actions.githubusercontent.com",
+    "productionresultssa0.blob.core.windows.net",
+    "productionresultssa1.blob.core.windows.net",
+    "productionresultssa2.blob.core.windows.net",
+    "productionresultssa3.blob.core.windows.net",
+    "productionresultssa4.blob.core.windows.net",
+    "productionresultssa5.blob.core.windows.net",
+    "productionresultssa6.blob.core.windows.net",
+    "productionresultssa7.blob.core.windows.net",
+    "productionresultssa8.blob.core.windows.net",
+    "productionresultssa9.blob.core.windows.net",
+    "productionresultssa10.blob.core.windows.net",
+    "productionresultssa11.blob.core.windows.net",
+    "productionresultssa12.blob.core.windows.net",
+    "productionresultssa13.blob.core.windows.net",
+    "productionresultssa14.blob.core.windows.net",
+    "productionresultssa15.blob.core.windows.net",
+    "productionresultssa16.blob.core.windows.net",
+    "productionresultssa17.blob.core.windows.net",
+    "productionresultssa18.blob.core.windows.net",
+    "productionresultssa19.blob.core.windows.net",
+];
+
+/// Where one worker may write, and what it runs under
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkerProfile<'a> {
+    /// The work item's worktree
+    pub worktree: &'a Path,
+    /// The worker's build folder, its `CARGO_TARGET_DIR`
+    pub build: &'a Path,
+    /// The project repo's common git dir, which holds objects and refs
+    pub git_common_dir: &'a Path,
+    /// The worktree's own git dir, inside the common one
+    pub git_dir: &'a Path,
+    /// The work item's branch
+    pub branch: &'a str,
+    /// The project's base branch, which the worker may not write or push to
+    pub base: &'a str,
+    /// The kelpie binary, which runs kelpie's own checks
+    pub kelpie: &'a Path,
+    /// Kelpie's home, whose path the guard keeps off the forge
+    pub kelpie_home: &'a Path,
+    /// The project's checkout, whose path the guard keeps off the forge
+    pub repo: &'a Path,
+    /// The project's own guard hooks, which run after kelpie's
+    pub guard_hooks: &'a [GuardHook],
+    /// The domains the project's settings add to GitHub's
+    pub allowed_domains: &'a [NonBlank],
+    /// Variables the project's settings point into the build folder
+    pub build_env: &'a BTreeMap<EnvName, BuildDir>,
+    /// The shepherd's home, whose `dogs.toml` holds the webhook's URL. The
+    /// worker reads none of it but its own folders in kelpie's.
+    pub shep_home: &'a Path,
+    /// The dog's door, the one Unix socket the worker may connect to
+    pub door: &'a Path,
+    /// The token of kelpie's App for the project's repo, on a repo the App
+    /// covers: the worker's only credential for GitHub, and the
+    /// maintainer's login is then out of its reach. Without one the worker
+    /// runs as the maintainer's login.
+    pub token: Option<&'a InstallationToken>,
+}
+
+impl WorkerProfile<'_> {
+    /// The worker's sandbox
+    pub fn reach(&self) -> Reach {
+        let git = |p: &str| self.git_common_dir.join(p);
+        let branch_ref = git("refs/heads").join(self.branch);
+        let tracking_ref = git("refs/remotes/origin").join(self.branch);
+        let write = vec![
+            self.worktree.to_owned(),
+            self.build.to_owned(),
+            git("objects"),
+            self.git_dir.to_owned(),
+            git("logs/refs/heads").join(self.branch),
+            with_suffix(&branch_ref, ".lock"),
+            branch_ref,
+            git("logs/refs/remotes/origin").join(self.branch),
+            with_suffix(&tracking_ref, ".lock"),
+            tracking_ref,
+            // A commit locks `packed-refs` before it finds nothing to delete from
+            // it. The lock is all it needs then, and the file stays denied
+            // below, so a write that needs the file still fails. One a killed
+            // git leaves is removed by `worktree::prepare`.
+            git("packed-refs.lock"),
+        ];
+        // The clone's own base branch, which a push of every branch would carry.
+        let no_write: Vec<PathBuf> = GIT_DENY
+            .iter()
+            .map(|p| git(p))
+            .chain([git("refs/heads").join(self.base)])
+            .chain(fence::deny_write(self.worktree))
+            .collect();
+        // Kelpie's home is the shepherd's too unless `KELPIE_HOME` puts it elsewhere.
+        let homes = [self.shep_home, self.kelpie_home]
+            .into_iter()
+            .enumerate()
+            .filter(|&(i, home)| i == 0 || !home.starts_with(self.shep_home))
+            .map(|(_, home)| format!("{}/**", home.display()));
+        let no_read = CREDENTIALS
+            .iter()
+            .chain(self.token.iter().flat_map(|_| &MAINTAINERS_LOGIN))
+            .map(|&p| p.to_owned())
+            .chain(homes)
+            .collect();
+        let read = [self.worktree, self.build, self.kelpie]
+            .into_iter()
+            .map(Path::to_owned)
+            .collect();
+        let no_commands = PM_ONLY
+            .iter()
+            .chain(&GH_DENY)
+            .chain(self.token.iter().flat_map(|_| &KEYCHAIN_COMMANDS))
+            .map(|&c| c.to_owned())
+            .chain(push_to_base(self.base))
+            .chain(PUSH_FLAGS.iter().map(|&c| c.to_owned()))
+            .collect();
+        let hosts = GITHUB
+            .into_iter()
+            .chain(GITHUB_DOWNLOADS)
+            .chain(self.allowed_domains.iter().map(NonBlank::as_str))
+            .map(str::to_owned)
+            .collect();
+        let fence = Fence {
+            write,
+            no_write,
+            no_read,
+            read,
+            hosts,
+            no_commands,
+            env: self.env(),
+            sockets: vec![self.door.to_owned()],
+            guard: Guard {
+                kelpie: self.kelpie.to_owned(),
+                worktree: self.worktree.to_owned(),
+                build: self.build.to_owned(),
+                git_common_dir: self.git_common_dir.to_owned(),
+                base: self.base.to_owned(),
+                folders: vec![self.kelpie_home.to_owned(), self.repo.to_owned()],
+                issues: None,
+                hooks: Hooks::default(),
+            },
+            hooks: self.guard_hooks.to_vec(),
+        };
+        Reach {
+            read: Vec::new(),
+            fence: Some(Box::new(fence)),
+            block_keychain: false,
+            code_graph: None,
+            browser: None,
+            mcp_servers: BTreeMap::new(),
+            extensions: Vec::new(),
+        }
+    }
+
+    fn env(&self) -> BTreeMap<String, String> {
+        let path = |p: &Path| p.to_string_lossy().into_owned();
+        let cargo = ("CARGO_TARGET_DIR".to_owned(), path(self.build));
+        let door = (door::SOCKET_VAR.to_owned(), path(self.door));
+        let project = self.build_env.iter().map(|(name, dir)| {
+            (
+                name.as_str().to_owned(),
+                path(&self.build.join(dir.as_path())),
+            )
+        });
+        let github = self.token.into_iter().flat_map(|_| login::env(self.build));
+        // One variable, so a covered worker's value carries both lists.
+        let git_config = [housekeeping::PARAMETERS]
+            .into_iter()
+            .chain(self.token.map(|_| login::GIT_CONFIG))
+            .collect::<Vec<_>>()
+            .join(" ");
+        [
+            cargo,
+            door,
+            ("GIT_CONFIG_PARAMETERS".to_owned(), git_config),
+        ]
+        .into_iter()
+        .chain(project)
+        .chain(github)
+        .collect()
+    }
+}
+
+// Pushes that name the branch kelpie cuts from, as `origin main`,
+// `HEAD:main` or `refs/heads/main`. A repo without branch protection
+// would otherwise take them. The guard reads every spelling; these are its backup.
+fn push_to_base(base: &str) -> impl Iterator<Item = String> {
+    [" {b}", " {b} *", ":{b}*", "/{b}*"]
+        .into_iter()
+        .map(move |p| format!("git push *{}", p.replace("{b}", base)))
+}
+
+fn with_suffix(path: &Path, suffix: &str) -> PathBuf {
+    let mut s = path.as_os_str().to_owned();
+    s.push(suffix);
+    s.into()
+}

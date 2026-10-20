@@ -4,7 +4,7 @@ What kelpie's numbers say of its work items: how many are in each phase, how eac
 
 ## Series
 
-- The ledger's `finished` line (`src/usage/finished.rs`, budget.md) names the worker's `agent`, and the `harness` and `model` its file runs on at the end (none once kelpie no longer runs it), with `ci_fix_turns`, `ci_failures` (red heads by `runnable`, `sandbox_only`, `no_tests`, as `kelpie_ci_failures_total`, kept in the work item's counts since state version 71) and `held` (findings above a nit by `high`, `medium`), so a work item's quality reads from one line.
+- The ledger's `finished` line (`crates/core/src/usage/finished.rs`, budget.md) names the worker's `agent`, and the `harness` and `model` its file runs on at the end (none once kelpie no longer runs it), with `ci_fix_turns`, `ci_failures` (red heads by `runnable`, `sandbox_only`, `no_tests`, as `kelpie_ci_failures_total`, kept in the work item's counts since state version 71) and `held` (findings above a nit by `high`, `medium`), so a work item's quality reads from one line.
 - `kelpie_work_items{phase}` gauge, sent after each step from the state file
 - `kelpie_work_items_finished_total{outcome}`: `merged`, `closed`, `dropped`, from the ledger's `finished` line
 - `kelpie_review_rounds_total`, `kelpie_fix_turns_total`, `kelpie_rulings_total`, from the same line

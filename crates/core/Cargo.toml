@@ -1,0 +1,46 @@
+[package]
+name = "shep-kelpie-core"
+description = "Kelpie's vocabulary, settings and ports, and the stand-ins that name only them. Uses only the leaf members"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[features]
+# The stand-ins in `test`, for the tests of the crates above this one
+test-support = ["dep:tempfile", "tokio/test-util", "shep-client/test-support"]
+
+[dependencies]
+shep-kelpie-facts.workspace = true
+shep-kelpie-panel.workspace = true
+shep-kelpie-process.workspace = true
+shep-kelpie-trim.workspace = true
+shep-kelpie-worker-folder.workspace = true
+hmac.workspace = true
+jiff.workspace = true
+rustix.workspace = true
+qrcode.workspace = true
+schemars.workspace = true
+serde.workspace = true
+serde-saphyr.workspace = true
+serde_json.workspace = true
+sha1.workspace = true
+shep-client.workspace = true
+tempfile = { workspace = true, optional = true }
+tokio = { workspace = true, features = ["io-util", "macros", "net", "process", "rt", "signal", "sync", "time"] }
+toml.workspace = true
+
+[dev-dependencies]
+shep-kelpie-test-support.workspace = true
+shep-kelpie-trim = { workspace = true, features = ["test-support"] }
+# Only for the fake shepherds the tests run against
+shep-client = { workspace = true, features = ["test-support"] }
+# Only for throwaway homes and repos in tests
+tempfile.workspace = true
+# Only for tests that pause the clock
+tokio = { workspace = true, features = ["test-util"] }

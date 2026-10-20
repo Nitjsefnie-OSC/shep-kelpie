@@ -9,50 +9,24 @@
 #![doc(test(attr(deny(warnings))))]
 
 pub mod adapters;
-pub mod agents;
-pub mod board;
-pub mod bridge;
-pub mod browse;
-pub mod coderabbit;
-pub mod codex;
-pub mod confine;
-pub mod cubic;
-mod dep_sources;
 pub mod doctor;
 pub mod dog;
-pub mod fence;
 pub mod flock;
-pub mod forge_ledger;
-pub mod forwarder;
 pub mod github;
-pub mod guard;
-pub mod home;
-pub mod hooks;
 pub mod issues;
-pub mod lease;
-pub mod local_paths;
-pub mod local_tickets;
-pub mod metrics;
-pub mod pacer;
-pub mod ports;
-pub mod profile;
-pub mod review_bot;
 pub mod runner;
 pub mod schema;
-pub mod settings;
 pub mod sheep;
-pub mod shep_home;
-pub mod shepherd;
-pub mod skills;
-pub mod state;
-pub mod ticket;
-pub mod totp;
-mod transcripts;
 pub mod upgrade;
-pub mod usage;
-pub mod watch;
-pub mod webhook;
-pub mod work_item;
+
+// The modules of `shep-kelpie-core`, each kept under the name it had here
+pub use shep_kelpie_core::{
+    agents, board, bridge, browse, coderabbit, codex, confine, cubic, fence, forge_ledger,
+    forwarder, guard, home, hooks, lease, local_paths, local_tickets, metrics, pacer, ports,
+    profile, review_bot, settings, shep_home, shepherd, skills, state, ticket, totp, usage, watch,
+    webhook, work_item,
+};
+use shep_kelpie_core::{dep_sources, transcripts};
 
 // The leaf crates under `crates/`, each module kept under the name it had here
 use shep_kelpie_facts::{mcp_use, request_use, tool_error};
@@ -61,8 +35,6 @@ pub use shep_kelpie_process::{spawn, terminal, tools, worktree};
 use shep_kelpie_trim::trim;
 use shep_kelpie_worker_folder::worker_folder;
 
-#[cfg(test)]
-mod parity;
 #[cfg(test)]
 mod test;
 

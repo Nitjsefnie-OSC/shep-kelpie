@@ -1,30 +1,8 @@
 //! The folder a rig works in
 
-use std::path::{Path, PathBuf};
-
-use tempfile::TempDir;
+use std::path::Path;
 
 use super::*;
-
-/// A rig's home: one it made and removes, or one an earlier rig made
-#[derive(Debug)]
-pub(crate) enum Home {
-    Made(TempDir),
-    Kept(PathBuf),
-}
-
-impl Home {
-    pub(super) fn made() -> Self {
-        Self::Made(tempfile::tempdir().unwrap())
-    }
-
-    pub(crate) fn path(&self) -> &Path {
-        match self {
-            Self::Made(dir) => dir.path(),
-            Self::Kept(path) => path,
-        }
-    }
-}
 
 impl Rig {
     /// The stand-ins over `home`, which holds whatever it holds
@@ -59,7 +37,7 @@ impl Rig {
         };
         rig.forge.threads.use_clock(rig.clock.clone());
         rig.github.use_threads(rig.forge.coderabbit.clone());
-        rig.forge.use_app_comments(rig.github.clone());
+        rig.forge.use_app_comments(Arc::new(rig.github.clone()));
         rig
     }
 

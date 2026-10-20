@@ -1,6 +1,6 @@
 # Browser dev server
 
-A worker's sandbox binds no port and a headless turn has no background tasks, so kelpie starts the project's dev server for it. `src/runner/dev_server.rs`, `src/ports/dev_server.rs`, `src/adapters/dev_server.rs`
+A worker's sandbox binds no port and a headless turn has no background tasks, so kelpie starts the project's dev server for it. `src/runner/dev_server.rs`, `crates/core/src/ports/dev_server.rs`, `src/adapters/dev_server.rs`
 
 - It starts before each worker turn that has the browser, from `.claude/launch.json` as `origin/main` has it (`git show`, never the worktree, so a worker cannot widen its own sandbox). `browser.configuration` names one, else the first. Fields read: `runtimeExecutable`, `runtimeArgs`, `port`, `cwd`, `autoPort`. No file on `main` starts nothing. `src/runner/dev_server/launch.rs`
 - `cwd` resolves under the worktree. One that leaves it by `..`, an absolute path or a link is refused, and the instructions say why.

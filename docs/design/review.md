@@ -4,16 +4,16 @@ Review passes, bots, rulings. CI and the merge are in merge.md.
 
 ## Review
 
-- One pass when CI green on draft head: `agents.reviewers` in order, each once; no loop or judge (gains come in the first two reads). ADR 0006, ADR 0008, `src/runner/review/`
+- One pass when CI green on draft head: `agents.reviewers` in order, each once; no loop or judge (the gains come early). ADR 0006, ADR 0008, `src/runner/review/`
 - Any finding, nits included, goes to one fix turn; next reviewer reads the fix (skipped nits left open threads). Nit-only fix starts nothing new; bot nits on a head it read stay open. ADR 0007, #354
-- Round waits for CI on its head first (red costs no read or window); `doctor` names CI that skips drafts. #423
+- A round waits for CI on its head (red costs no read or window); `doctor` names CI that skips drafts. #423
 - A contribution's head gets its held runs approved only after the security review, CI in `contributions[].ci`, and no reviewer reads it before `green` (ADR 0008); one pass of `contributions.reviewers` records findings, posting none. A released one's work item runs the full `agents.reviewers` pass (`contribution-release.md`). #622, #623, #634
 - Pass restarts only on a new head that needs it (merge `rework`, accepted foreign change, rework). ADR 0006
 - Merge ruling `no <note>` = fix turn back to the ruling, no new pass; restarts pass only after unread/open-thread warning. #354
 - Reviewer = agent file on session harness (read-only), `command`, `endpoint` or `bot`; runs no commands (running tests found fewer bugs). #314
 - `paths` limit a reviewer to matching changes; every round reads `<base>...HEAD`. Gets issue title + acceptance criteria (4,000 bytes), so no whole-issue check. #314, #484
 - `defect-hunter` (Opus 5.5 high, maintainer's prompt verbatim) uses `second_look`. `add` lists `["qwen", "defect-hunter"]` where qwen script exists, else `["defect-hunter"]`. `agents/defect-hunter.md`, `src/flock/verbs.rs`
-- `standards` and `spec` (Opus 5.5 high, one read, no `second_look`) are the two axes of the vendored `code-review` skill, one agent each since parallel sub-agents are forbidden. Smells are `LOW`; `add` writes both and lists neither, and a project's `reviewers` list replaces the default, so it names them with `defect-hunter`. They sit beside `defect-hunter`, which finds behaviour defects they do not. `agents/standards.md`, `agents/spec.md`, `src/agents.rs`. #363
+- `standards` and `spec` (Opus 5.5 high, one read, no `second_look`) are the two axes of the vendored `code-review` skill, one agent each (no parallel sub-agents). Smells are `LOW`; `add` writes both and lists neither, and a project's `reviewers` list replaces the default, so it names `defect-hunter` too. They sit beside `defect-hunter`, which finds the behaviour defects they miss. `agents/standards.md`, `agents/spec.md`, `crates/core/src/agents.rs`. #363
 - Reviewer failing 3 times passed over; pass nobody read marks item unreviewed (API outage can't auto-merge). #314
 - Round reads only pushed head; dirty worktree gets one turn to push, then parks `unpushed` (CI and merge take `origin`'s head). #290
 - Merge trusts only heads a round read or kelpie sent to CI unread on purpose; others raise `unread_head`. #290
@@ -30,7 +30,7 @@ Review passes, bots, rulings. CI and the merge are in merge.md.
 - Bots = `harness: bot` reviewer files named for the bot (its account owns the window): CodeRabbit 1 in 1h, cubic 20 in 720h, Codex 10 in 168h. #315
 - Bot round marks draft ready (CodeRabbit skips drafts), takes dog lease, summons; never summons a head a review covers. #65, #315
 - Threads read until two reads agree (forge lists review before threads). #350
-- Worker marks each bot thread `fixed` or `declined`; kelpie replies and resolves fixed ones, worker never posts. #367, `src/work_item/threads.rs`
+- Worker marks each bot thread `fixed` or `declined`; kelpie replies and resolves fixed ones, worker never posts. #367, `crates/core/src/work_item/threads.rs`
 - Merge yes accepts the threads it named. #455
 - Writer comments and review threads (owner, member, collaborator; other Apps ignored and logged) read at round start, green CI and while a merge ruling waits, batched into one noted turn; ambiguous ones become a `question` ruling; replies as #367; a comment while a merge ruling waits withdraws it as `no <note>`; 3 rounds per item then a `question` ruling. #368, `src/runner/talk.rs`
 - Bot passed over after far window, 2 silent hours or decline; re-read at green CI and every 5 min while merge ruling waits. #351, #399
@@ -48,7 +48,7 @@ Review passes, bots, rulings. CI and the merge are in merge.md.
 - A ruling is named by its ticket id where the maintainer reads it: `#<pr>`, `#<issue>` before there is a pull request, or `k12` locally. The question, the webhook title, kelpie's GitHub comment and card and `status`'s `id` show it, and a reply starts with it. Counter ids are gone, renamed on load (version 38). #508, #509, #1010
 - `rule <ruling> <answer>` (`rule 427`, `rule k12`; one ruling per item within a project), refuses an answer older than the ruling. An answer file left under an old counter id is read once, then refused. #509. Each trigger is `shep kelpie <verb>`, project from folder unless `-p`. #119, #507
 - `rule` reaches a stopped runner via `<kelpie home>/<project>/answers/<ruling>` files applied next pass. `src/runner/trigger.rs`
-- One webhook (`discord` or `ntfy`) until shep carries questions; URL is a credential, passed to `curl` on stdin. ADR 0005, #333, `src/webhook.rs`
+- One webhook (`discord` or `ntfy`) until shep carries questions; URL is a credential, passed to `curl` on stdin. ADR 0005, #333, `crates/core/src/webhook.rs`
 - ntfy reply carries TOTP (RFC 6238): a code posted on the alert sat on the topic it guarded. #111
 - `shep kelpie totp`: secret under `<kelpie home>/totp/` (0700, 0600); every code seen in any post spent first; used steps hard-linked claims (runners agree); 5 wrong codes disable ntfy answers until `--unlock` at terminal. RFC 4226, #111
 - Topic read every 15s while alerted ruling waits, backing off to 5 min. Limits fail closed: topic writer can lock answers or fake alerts, not act without code. #111

@@ -52,6 +52,8 @@ mod code_graph;
 mod coderabbit;
 mod compact;
 mod contributions;
+#[cfg(test)]
+mod core_tests;
 mod dependencies;
 mod dev_server;
 mod dispatch;

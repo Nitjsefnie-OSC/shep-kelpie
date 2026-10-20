@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex, mpsc};
 use std::time::Duration;
 
 use super::FakeClock;
-use super::coderabbit::FakeCodeRabbit;
+use super::{AppComments, FakeCodeRabbit};
 use crate::github::tokens::Jwt;
 use crate::github::{
     ApiError, AppTokens, Apps, Call, Conversion, GithubApi, Grant, Installation, IssuedToken, Pem,
@@ -433,6 +433,12 @@ impl FakeGithub {
     pub(crate) fn registered(&self, kelpie_home: &Path, repo: &str) {
         Apps::under(kelpie_home).save(&self.conversion()).unwrap();
         self.install(repo, 7);
+    }
+}
+
+impl AppComments for FakeGithub {
+    fn posted_on(&self, number: u64) -> Vec<crate::ports::ThreadComment> {
+        FakeGithub::posted_on(self, number)
     }
 }
 

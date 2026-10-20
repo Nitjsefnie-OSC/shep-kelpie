@@ -1,5 +1,5 @@
 name: macos nightly
-# The whole suite on macOS, where the APFS case folding in `src/fence.rs`
+# The whole suite on macOS, where the APFS case folding in `crates/core/src/fence.rs`
 # and the Seatbelt policy `src/adapters/srt.rs` writes run for real. Apart
 # from the runner, the trigger and the timeout it is test.yml's `test` job.
 #

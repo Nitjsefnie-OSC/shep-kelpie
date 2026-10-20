@@ -1,0 +1,146 @@
+//! cubic's profile as a review bot
+//!
+//! cubic has no label: a comment summons it, and a comment a few seconds on
+//! says it started. Its review posts whether or not it found anything, on
+//! the commit it read, with its summary between markers. Each finding is a
+//! thread whose text opens with its level, `P1` to `P3`, below a marker
+//! carrying its confidence out of 10. It sets no commit status and states
+//! no quota, and its refusal was never seen, so one reads as any comment
+//! of its since the summon that says a limit was reached.
+
+use crate::ports::{Finding, Severity, Timestamp};
+use crate::review_bot::{Activity, Bot, CLOCK_SLACK, Login, Profile, Reading, Thread, one_line};
+
+/// The comment that summons cubic
+pub const SUMMON: &str = "@cubic-dev-ai review";
+
+/// cubic's login on both of the forge's APIs
+pub const LOGIN: Login<'static> = Login {
+    rest: "cubic-dev-ai[bot]",
+    graphql: "cubic-dev-ai",
+};
+
+/// What cubic says when it starts a review
+pub const STARTED: &str = "I have started the AI code review";
+const SUMMARY: &str = "<!-- cubic:review-summary:start -->";
+const CONFIDENCE: &str = "<!-- metadata:{\"confidence\":";
+
+/// cubic, the second review bot
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Cubic;
+
+impl Profile for Cubic {
+    fn bot(&self) -> Bot {
+        Bot::Cubic
+    }
+
+    fn login(&self) -> Login<'_> {
+        LOGIN
+    }
+
+    fn label(&self) -> Option<&str> {
+        None
+    }
+
+    fn full_review(&self) -> Option<&str> {
+        Some(SUMMON)
+    }
+
+    fn read(&self, activity: &Activity, head: &str, since: Timestamp) -> Reading {
+        if self.covers(activity, head) {
+            return Reading::Reviewed;
+        }
+        // A refusal among its comments since the summon stands, whatever it
+        // posted after.
+        let from = since.0.saturating_sub(CLOCK_SLACK);
+        let mut since_summon = activity.comments.iter().filter(|c| c.at.0 >= from);
+        match since_summon.clone().next() {
+            Some(_) if since_summon.any(|c| refused(&c.body)) => Reading::Refused { opens: None },
+            Some(_) => Reading::Processing,
+            None => Reading::Silent,
+        }
+    }
+
+    fn heard(&self, activity: &Activity, _head: &str, since: Timestamp) -> bool {
+        let from = since.0.saturating_sub(CLOCK_SLACK);
+        activity.comments.iter().any(|c| c.at.0 >= from)
+            || activity.reviews.iter().any(|r| r.at.0 >= from)
+    }
+
+    fn covers(&self, activity: &Activity, head: &str) -> bool {
+        reviewed(activity).any(|commit| commit == head)
+    }
+
+    fn reviewed_besides(&self, activity: &Activity, head: &str) -> u32 {
+        let mut commits: Vec<&str> = reviewed(activity).filter(|c| *c != head).collect();
+        commits.sort_unstable();
+        commits.dedup();
+        u32::try_from(commits.len()).unwrap_or(u32::MAX)
+    }
+
+    fn quota(&self, _activity: &Activity) -> Option<(u32, Timestamp)> {
+        None
+    }
+
+    fn finding(&self, thread: &Thread) -> Finding {
+        finding(thread)
+    }
+}
+
+// The commits its reviews read. A reply in a thread posts a review with no
+// summary, which is no review.
+fn reviewed(activity: &Activity) -> impl Iterator<Item = &str> {
+    let posted = activity.reviews.iter().filter(|r| r.body.contains(SUMMARY));
+    posted.map(|r| r.commit.as_str())
+}
+
+/// Any comment that is not its start and names a limit reached or exceeded.
+pub fn refused(body: &str) -> bool {
+    let body = body.to_lowercase();
+    !body.contains(&STARTED.to_lowercase())
+        && body.contains("limit")
+        && (body.contains("reached") || body.contains("exceeded"))
+}
+
+/// A thread as a finding the worker is sent
+///
+/// The severity comes from cubic's level: P0 and P1 are high, P2 is
+/// medium, P3 is a nit. The level and confidence go to the worker as the why.
+fn finding(thread: &Thread) -> Finding {
+    let prose: Vec<&str> = thread
+        .body
+        .lines()
+        .take_while(|line| !line.starts_with("<details"))
+        .filter(|line| !line.trim_start().starts_with("<!--"))
+        .collect();
+    let prose = prose.join("\n");
+    let prose = prose.trim();
+    let (level, text) = match prose.split_once(": ") {
+        Some((level @ ("P0" | "P1" | "P2" | "P3"), text)) => (Some(level), text),
+        _ => (None, prose),
+    };
+    let severity = match level {
+        Some("P0" | "P1") => Severity::High,
+        Some("P3") => Severity::Low,
+        _ => Severity::Medium,
+    };
+    let confidence = thread
+        .body
+        .find(CONFIDENCE)
+        .map(|at| &thread.body[at + CONFIDENCE.len()..])
+        .and_then(|rest| rest.split('}').next())
+        .and_then(|n| n.trim().parse::<u8>().ok());
+    let why = match (level, confidence) {
+        (Some(level), Some(n)) => format!("cubic rates it {level}, with confidence {n} of 10."),
+        (Some(level), None) => format!("cubic rates it {level}."),
+        (None, Some(n)) => format!("cubic's confidence is {n} of 10."),
+        (None, None) => String::new(),
+    };
+    Finding::new(
+        severity,
+        thread.path.clone(),
+        thread.line.unwrap_or(0),
+        one_line(text),
+        why,
+    )
+}
