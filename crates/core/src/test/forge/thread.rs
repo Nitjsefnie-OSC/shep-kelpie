@@ -30,6 +30,8 @@ struct Threads {
     marks: HashMap<u64, CommentMarks>,
     // The comments whose marks cannot be read
     unreadable: HashSet<u64>,
+    // The threads whose comments cannot be listed
+    unlisted: HashSet<u64>,
 }
 
 /// What people wrote on the repo's issues and pull requests
@@ -242,6 +244,21 @@ impl FakeThreads {
                 body: c.body.clone(),
             })
             .collect()
+    }
+
+    /// Makes listing the comments on thread `number` fail, or work again
+    pub fn set_unlisted(&self, number: u64, unlisted: bool) {
+        let mut threads = self.threads.lock().unwrap();
+        if unlisted {
+            threads.unlisted.insert(number);
+        } else {
+            threads.unlisted.remove(&number);
+        }
+    }
+
+    /// Whether listing the comments on thread `number` fails
+    pub fn is_unlisted(&self, number: u64) -> bool {
+        self.threads.lock().unwrap().unlisted.contains(&number)
     }
 
     /// Whether `login` may write, noting the ask

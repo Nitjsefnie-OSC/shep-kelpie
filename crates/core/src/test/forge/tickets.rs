@@ -113,6 +113,11 @@ impl Tickets for FakeForge {
     ) -> Result<Vec<ThreadComment>, ForgeError> {
         let number = number(id);
         self.ask()?;
+        if self.threads.is_unlisted(number) {
+            return Err(ForgeError::Failed(format!(
+                "the comments on #{number} cannot be listed right now"
+            )));
+        }
         let mut on = self.threads.on(number);
         // An App's own comment is on the issue like anyone's: the forge lists it.
         if let Some(github) = self.app_comments.lock().unwrap().clone() {
