@@ -17,7 +17,7 @@ const THREAD: &str = "PRRT_cubic_71_0";
 
 // cubic, last after qwen and Claude, reads the head and leaves `threads`,
 // which go to the worker's fix turn, the next step.
-fn sent(threads: &[&str]) -> (Rig, Mutex<Runner>, String) {
+pub(in crate::runner) fn sent(threads: &[&str]) -> (Rig, Mutex<Runner>, String) {
     sent_in(listing("shep", &["cubic"]), threads)
 }
 

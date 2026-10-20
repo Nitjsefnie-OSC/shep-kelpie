@@ -4,6 +4,8 @@ Each pull request goes through a review before the merge gate, and no reviewer r
 
 A finding the worker leaves as out of scope goes into its deferred findings file; one it shows is wrong goes into its disputed findings file and is never filed. Once the pull request merges, `git.issues` decides what becomes of each one above a nit, whatever `git.merging` is: under `ask` a `follow-up` ruling comes first and a yes files each as a `ready-for-agent` issue linking the pull request, onto the board, since your yes is its triage. Under `file` they are filed with no ruling as `needs-triage`, which keeps them off the board until you read them and label them `ready-for-agent`; a repo without `needs-triage` gets it before the first one is filed. The one `follow-up` ruling `file` can raise comes when the forge has refused to take them for six hours: a yes there retries the filing, and they still go out `needs-triage`. Under `skip` nothing is filed and they stay in the review. A nit left there is dropped.
 
+When a fix turn settles, kelpie journals what became of each finding it was sent in `journal.jsonl`: `pushed`, `disputed`, `deferred` or `nit-declined`, and for a review bot's thread `fixed`, `declined` or `not-addressed`. `pushed` means the turn pushed and the worker neither disputed nor deferred the finding, which is not proof it was fixed. Nothing new is asked of the worker.
+
 A reviewer runs in one of four ways, by its file's `harness`:
 
 - `claude-code`, `codex` or `pi`: a fresh session on its `model` and `effort`, which reads the worktree with Read, Grep and Glob and runs no command. The file's body is its prompt.

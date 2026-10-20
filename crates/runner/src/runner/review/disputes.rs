@@ -86,6 +86,21 @@ pub(in crate::runner) fn answers(
 }
 
 impl Answers {
+    /// What the worker showed wrong, with its reason, by the finding's index
+    pub(in crate::runner) fn disputed(&self) -> &[(usize, String)] {
+        &self.disputed
+    }
+
+    /// Those disputed again after a reviewer raised them again
+    pub(in crate::runner) fn repeated_at(&self) -> &[usize] {
+        &self.repeated
+    }
+
+    /// Those deferred, and not disputed
+    pub(in crate::runner) fn deferred(&self) -> &[usize] {
+        &self.deferred
+    }
+
     /// Whether the worker disputed a finding again that a reviewer had raised
     /// again after an earlier dispute
     pub(in crate::runner) fn repeated(&self) -> bool {

@@ -59,6 +59,14 @@ pub(in crate::runner) enum Entry {
         round: u32,
         findings: Vec<Held>,
     },
+    /// What each finding a round's fix turn was sent came to, written when
+    /// the turn settles
+    FindingOutcomes {
+        issue: TicketId,
+        round: u32,
+        reviewer: String,
+        outcomes: Vec<FindingOutcome>,
+    },
     /// What slowed a work item's worker down, from its pull request's body
     Friction { issue: TicketId, text: String },
     /// A batch retro started over the work items finished until now
@@ -73,6 +81,42 @@ pub(in crate::runner) struct Held {
     pub(super) file: String,
     pub(super) line: u32,
     pub(super) what: String,
+}
+
+/// What became of one finding a fix turn was sent
+// wire format: changing this is a breaking change to the journal
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(in crate::runner) struct FindingOutcome {
+    pub(in crate::runner) severity: Severity,
+    pub(in crate::runner) file: String,
+    pub(in crate::runner) line: u32,
+    pub(in crate::runner) outcome: Outcome,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(in crate::runner) reason: Option<String>,
+}
+
+/// What a fix turn did with a finding, as far as kelpie can tell from what
+/// the worker said
+// wire format: changing this is a breaking change to the journal
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub(in crate::runner) enum Outcome {
+    /// The turn pushed and the worker neither disputed nor deferred the
+    /// finding, which is not proof it was fixed
+    Pushed,
+    /// The worker showed it wrong, with a reason where it gave one
+    Disputed,
+    /// The worker left it for a follow-up issue
+    Deferred,
+    /// A nit, and the turn pushed nothing
+    NitDeclined,
+    /// A bot's thread the worker said it fixed, in a turn that pushed
+    Fixed,
+    /// A bot's thread the worker left, with its reason
+    Declined,
+    /// A bot's thread the worker's reply did not mention, or said it fixed
+    /// in a turn that pushed nothing
+    NotAddressed,
 }
 
 /// The most characters of a finding's `what` the journal keeps
@@ -170,6 +214,7 @@ impl Entry {
             | Self::Findings { issue: n, .. }
             | Self::Round { issue: n, .. }
             | Self::FindingsSent { issue: n, .. }
+            | Self::FindingOutcomes { issue: n, .. }
             | Self::Friction { issue: n, .. } => *n == ticket,
             Self::Retro { issues } => issues.contains(&ticket),
         }
@@ -196,7 +241,7 @@ fn mentions(text: &str, ticket: TicketId) -> bool {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(in crate::runner) struct Stamped {
     pub(super) at: Timestamp,
-    pub(super) entry: Entry,
+    pub(in crate::runner) entry: Entry,
 }
 
 /// Adds `entry`, made at `at`, to the journal at `file`
@@ -301,6 +346,51 @@ mod tests {
             [Stamped {
                 at: Timestamp(1),
                 entry: Entry::Rebased { issue: ticket(3) }
+            }]
+        );
+    }
+
+    #[test]
+    fn finding_outcomes_read_back_and_a_line_of_an_unknown_entry_is_skipped() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("journal.jsonl");
+        let entry = Entry::FindingOutcomes {
+            issue: ticket(3),
+            round: 2,
+            reviewer: "qwen".to_owned(),
+            outcomes: vec![
+                FindingOutcome {
+                    severity: Severity::Medium,
+                    file: "src/a.rs".to_owned(),
+                    line: 4,
+                    outcome: Outcome::NitDeclined,
+                    reason: None,
+                },
+                FindingOutcome {
+                    severity: Severity::High,
+                    file: "src/b.rs".to_owned(),
+                    line: 9,
+                    outcome: Outcome::Disputed,
+                    reason: Some("it is wrong".to_owned()),
+                },
+            ],
+        };
+        append(&file, Timestamp(1), entry.clone()).unwrap();
+        let before = std::fs::read_to_string(&file).unwrap();
+        std::fs::write(
+            &file,
+            format!(
+                "{before}{{\"at\":2,\"entry\":{{\"entry\":\"from-a-later-build\",\"issue\":3}}}}\n"
+            ),
+        )
+        .unwrap();
+
+        assert!(before.contains("\"nit-declined\""), "{before}");
+        assert_eq!(
+            read(&file),
+            [Stamped {
+                at: Timestamp(1),
+                entry
             }]
         );
     }

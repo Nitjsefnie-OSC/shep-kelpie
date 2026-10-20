@@ -26,35 +26,36 @@ Kelpie: dog of the maintainer's shepherd; one runner per project takes ready iss
 | pm.md | the project manager, its board file | `runner/pm.rs`, `runner/pm/`, `runner/briefing.rs` |
 | workers.md | runner loop, turns | `runner/turn.rs`, `runner/flight.rs` |
 | fence.md | sandbox, guard, hooks, reads | `core/{profile,guard,hooks,dep_sources}.rs`, `runner/turn/dep_reads.rs` |
-| browser.md | a worker's browser outside its sandbox: bridge, filter, tools | `core/{bridge,browse}.rs`, `adapters/bridge.rs`, `runner/browser.rs`, `core/settings/browser.rs`, `crates/process/src/tools/` |
-| browser-dev-server.md | the dev server for a worker's browser: launch, port, readiness | `runner/dev_server.rs`, `runner/dev_server/launch.rs`, `core/ports/dev_server.rs`, `adapters/dev_server.rs` |
+| browser.md | a worker's browser beyond its sandbox: bridge, filter, tools | `core/{bridge,browse}.rs`, `adapters/bridge.rs`, `runner/browser.rs`, `core/settings/browser.rs`, `crates/process/src/tools/` |
+| browser-dev-server.md | a worker's browser dev server: launch, port, readiness | `runner/dev_server.rs`, `runner/dev_server/launch.rs`, `core/ports/dev_server.rs`, `adapters/dev_server.rs` |
 | compaction.md | when a session compacts, `worker.compact_window` per harness, `COMPACT` | `runner/compact.rs`, `adapters/pi/compact.rs`, `adapters/codex/context.rs`, `adapters/goose/compact.rs` |
 | skills.md | step skills, repo plugins, how harnesses load them | `core/skills.rs`, `core/skills/`, `adapters/skills.rs`, `runner/turn.rs` (`prepared`) |
 | agents.md | agent files, harnesses, gateways | `core/agents/`, `adapters/`, `core/settings/agents.rs`, `crates/process/src/spawn.rs` |
 | handover.md | a runner handing in-flight turns to a new image, `upgrade` | `src/sheep/handover.rs`, `runner/flight/carry.rs`, `adapters/process/adopt.rs`, `src/upgrade/handover.rs` |
 | waits-and-spend.md | a turn waiting for its model or host, spend by role | `runner/turn/unreachable.rs`, `adapters/unreachable.rs`, `adapters/codex.rs`, `core/usage.rs`, `core/settings/agents.rs` |
 | review.md | review, bots, rulings | `runner/review/`, `runner/ruling.rs`, `core/webhook.rs` |
+| review-outcomes.md | fix turn findings' outcomes, journaled | `runner/review/outcomes.rs` |
 | local-review.md | local reviewers (`command`, `endpoint`), their lock, rounds kept after an item | `runner/review/keep.rs`, `core/settings/local_rounds.rs`, `core/settings/local.rs`, `adapters/local/` |
 | merge.md | CI, catching up, merge, after it | `runner/gate.rs`, `runner/merge.rs`, `runner/close_merged.rs`, `runner/main_ci.rs` |
 | local-tickets.md | the local ticket store, `ticket` verbs, closing on merge | `core/local_tickets.rs`, `src/flock/ticket.rs`, `runner/close_merged.rs` |
 | github-app.md | App tokens, posting, answers, ruling panel | `runner/voice/`, `runner/panel/`, `crates/panel/`, `core/guard/gh.rs`, `crates/worker_folder/` |
-| contributions.md | other people's pull requests: `contributions` settings, detection | `core/settings/{contributions,reviewers}.rs`, `runner/contributions.rs`, `core/state/contributions.rs` |
+| contributions.md | others' pull requests: `contributions` settings, detection | `core/settings/{contributions,reviewers}.rs`, `runner/contributions.rs`, `core/state/contributions.rs` |
 | contribution-security.md | a contribution's security review, slots, budget | `runner/contributions/`, `runner/flight/security.rs`, `crates/process/src/worktree/` |
-| contribution-pass.md | the reviewers' pass over a green head: rotation, the record | `runner/contributions/pass.rs`, `crates/process/src/worktree/` |
-| contribution-talk.md | what contributors say: hearing, answering, the quiet clock | `runner/contributions/{heard,clock}.rs`, `runner/thread_replies.rs` |
-| contribution-release.md | asking a contributor for a release: yes, thumbs up or silence, the ruling | `runner/contributions/{release,ruling}.rs` |
-| contribution-merge.md | the merge ruling every contribution gets: yes, thanks and no | `runner/contributions/{merge,ruling}.rs`, `core/settings/rulings.rs` |
+| contribution-pass.md | reviewers' pass over a green head: rotation, the record | `runner/contributions/pass.rs`, `crates/process/src/worktree/` |
+| contribution-talk.md | what contributors say: hearing, answering, quiet clock | `runner/contributions/{heard,clock}.rs`, `runner/thread_replies.rs` |
+| contribution-release.md | asking a contributor for a release: yes, thumbs up, silence, the ruling | `runner/contributions/{release,ruling}.rs` |
+| contribution-merge.md | every contribution's merge ruling: yes, thanks and no | `runner/contributions/{merge,ruling}.rs`, `core/settings/rulings.rs` |
 | representative.md | the representative: its agent file, `agents.representative`, the call that words a post | `runner/representative.rs`, `core/agents/front.rs`, `core/settings/agents.rs`, `agents/representative.md` |
 | dependencies.md | the bumps bots open: `dependencies` settings, rebase asks, proof, merge, red | `core/settings/dependencies.rs`, `runner/dependencies.rs`, `runner/flight/proving.rs`, `runner/dev_server/bump.rs`, `core/state/bumps.rs`, `adapters/e2e_runner.rs`, `adapters/pages.rs`, `adapters/bridge/client.rs` |
-| triage.md | settings, the triager, the pick rule, `since`, the verb, `status` | `core/settings/triage.rs`, `runner/triage.rs`, `runner/open_checks.rs`, `core/ports/issue.rs` |
+| triage.md | settings, triager, pick rule, `since`, the verb, `status` | `core/settings/triage.rs`, `runner/triage.rs`, `runner/open_checks.rs`, `core/ports/issue.rs` |
 | triage-pass.md | one issue's pass: post, labels, duplicate close, agent-ready | `runner/triage/`, `runner/flight/`, `core/ports/voice.rs` |
-| triage-author.md | the author's round: the ask, `github`, `local`, `none`, answers | `runner/triage/{ask,heard,local}.rs`, `runner/representative/reading.rs` |
+| triage-author.md | author's round: the ask, `github`, `local`, `none`, answers | `runner/triage/{ask,heard,local}.rs`, `runner/representative/reading.rs` |
 | triage-spam.md | the spam check: `triage.spam`, `possible-spam` | `runner/triage/spam.rs` |
-| log-lines.md | what the runner and the dog log between steps: pause, handover, lease waits, skips, warnings | `runner/drain.rs`, `runner/skip_log.rs`, `runner/review_bot/lease_wait.rs`, `runner/claim.rs`, `dog/desk.rs`, `dog/door.rs` |
+| log-lines.md | what the runner and dog log between steps: pause, handover, lease waits, skips, warnings | `runner/drain.rs`, `runner/skip_log.rs`, `runner/review_bot/lease_wait.rs`, `runner/claim.rs`, `dog/desk.rs`, `dog/door.rs` |
 | metrics.md | kelpie's series on shep's metrics endpoint, alerts, dashboard | `core/metrics.rs`, `core/metrics/`, `core/ports/metrics.rs`, `core/metrics/shepherd_sink.rs`, `assets/prometheus/`, `assets/grafana/` |
 | metrics-work-items.md | work items' series, the `finished` line | `core/usage/finished.rs`, `runner/ci_failure.rs` |
 | metrics-dog.md | the dog's series: leases, summons, the forge hold | `core/metrics/dog.rs`, `dog/watch.rs` |
-| metrics-transcripts.md | series and reports read from a call's transcript: MCP servers, tool calls, `shep kelpie usage` | `crates/facts/`, `runner/transcript_count.rs`, `core/usage/` |
+| metrics-transcripts.md | series read from a call's transcript: MCP servers, tool calls, `shep kelpie usage` | `crates/facts/`, `runner/transcript_count.rs`, `core/usage/` |
 | budget.md | pacing, dog + leases, time, usage, settings | `runner/pace.rs`, `dog/`, `core/usage.rs`, `core/settings/`, `src/sheep.rs` |
 
 Each file stays under 8 KB, and an area past it splits in two with a new row here (`scripts/design-size.sh`). A changed decision updates its bullet in the same PR.

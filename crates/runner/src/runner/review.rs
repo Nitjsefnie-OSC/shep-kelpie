@@ -36,6 +36,7 @@ pub(super) use lineup::{changed_files, matches, touches};
 mod local;
 #[cfg(test)]
 mod nits;
+mod outcomes;
 pub(super) mod prompts;
 pub(super) mod pushed;
 #[cfg(test)]
@@ -351,7 +352,12 @@ impl Runner {
                         .filter(|f| !f.is_skipped_for_size())
                         .count();
                     if sent.findings.iter().all(Finding::is_nit) {
-                        return self.went_unfixed(number, review, Unfixed::NitsDeclined(count));
+                        return self.went_unfixed(
+                            number,
+                            review,
+                            sent,
+                            Unfixed::NitsDeclined(count),
+                        );
                     }
                     let already = (self.current()).map_or_else(Vec::new, |i| i.disputes.clone());
                     let answers = match disputes::answers(build, sent, round, &already) {
@@ -362,12 +368,17 @@ impl Runner {
                     let repeated = answers.repeated();
                     if let Some(settled) = answers.settled() {
                         let unfixed = self.disputed_by(&review, sent, settled);
-                        return self.went_unfixed(number, review, unfixed);
+                        return self.went_unfixed(number, review, sent, unfixed);
                     }
                     // A finding disputed again is never a deferral that goes on.
                     match findings::all_deferred(build, sent).map(|all| all && !repeated) {
                         Ok(true) => {
-                            return self.went_unfixed(number, review, Unfixed::Deferred(count));
+                            return self.went_unfixed(
+                                number,
+                                review,
+                                sent,
+                                Unfixed::Deferred(count),
+                            );
                         }
                         Ok(false) => {}
                         Err(reason) => return Ok(self.gate_failed(reason)),
@@ -381,6 +392,7 @@ impl Runner {
                     if let Some(reason) = self.record_pushed_disputes(&review, sent)? {
                         return Ok(self.gate_failed(reason));
                     }
+                    self.journal_outcomes(&review, sent, true);
                     match self.answer_sent(number, true)? {
                         Answered::Done => {}
                         Answered::Retry(reason) => return Ok(self.gate_failed(reason)),
@@ -451,6 +463,7 @@ impl Runner {
         &mut self,
         number: u64,
         review: Review,
+        sent: findings::Sent<'_>,
         unfixed: Unfixed,
     ) -> Result<Begin, StateError> {
         let issue = self.current().expect("a fix is a work item's").issue;
@@ -459,6 +472,7 @@ impl Runner {
         if let Unfixed::Disputed { disputes, .. } = &unfixed {
             self.update(|item| disputes::record(item, disputes))?;
         }
+        self.journal_outcomes(&review, sent, false);
         match self.answer_sent(number, false)? {
             Answered::Done => {}
             Answered::Retry(reason) => return Ok(self.gate_failed(reason)),
