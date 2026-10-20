@@ -81,6 +81,9 @@ pub(in crate::runner) struct Held {
     pub(super) file: String,
     pub(super) line: u32,
     pub(super) what: String,
+    /// A reviewer raised it again after an earlier round sent it
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub(in crate::runner) again: bool,
 }
 
 /// What became of one finding a fix turn was sent
@@ -130,7 +133,13 @@ impl Held {
             file: finding.file.clone(),
             line: finding.line,
             what: finding.what.chars().take(WHAT_KEPT).collect(),
+            again: false,
         }
+    }
+
+    /// The same finding, marked or not as raised again
+    pub(in crate::runner) fn again(self, again: bool) -> Self {
+        Self { again, ..self }
     }
 }
 
@@ -393,6 +402,35 @@ mod tests {
                 entry
             }]
         );
+    }
+
+    #[test]
+    fn a_finding_line_without_again_reads_as_false_and_a_false_value_is_not_written() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("journal.jsonl");
+        std::fs::write(
+            &file,
+            "{\"at\":1,\"entry\":{\"entry\":\"findings\",\"issue\":3,\"round\":1,\
+             \"findings\":[{\"severity\":\"medium\",\"file\":\"src/a.rs\",\"line\":4,\
+             \"what\":\"old\"}]}}\n",
+        )
+        .unwrap();
+        let Entry::Findings { findings, .. } = read(&file).remove(0).entry else {
+            panic!("a findings entry");
+        };
+        assert!(!findings[0].again, "{findings:?}");
+
+        let finding = Finding::new(Severity::Medium, "src/a.rs", 4, "old", "why");
+        let written = |held: Held| {
+            let entry = Entry::Findings {
+                issue: ticket(3),
+                round: 2,
+                findings: vec![held],
+            };
+            serde_json::to_string(&entry).unwrap()
+        };
+        assert!(!written(Held::of(&finding)).contains("again"));
+        assert!(written(Held::of(&finding).again(true)).contains("\"again\":true"));
     }
 
     #[test]

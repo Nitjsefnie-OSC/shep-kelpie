@@ -244,7 +244,8 @@ fn reviews(out: &mut String, mine: &[&Stamped]) {
 }
 
 // Each finding sent to the worker, with its round; one from a late round is
-// marked, since a defect found that late was missed in the rounds before
+// marked, since a defect found that late was missed in the rounds before, and
+// so is one an earlier round already sent, since its first fix did not fix it
 fn sent(out: &mut String, mine: &[&Stamped]) {
     let mut lines = Vec::new();
     for stamped in mine {
@@ -266,8 +267,9 @@ fn sent(out: &mut String, mine: &[&Stamped]) {
                 0 => String::new(),
                 n => format!(":{n}"),
             };
+            let again = if found.again { " (again)" } else { "" };
             lines.push(format!(
-                "  - round {round}{late} by {}, {}, {}{line}: {}",
+                "  - round {round}{late}{again} by {}, {}, {}{line}: {}",
                 reviewer.unwrap_or("?"),
                 name(&found.severity),
                 found.file,

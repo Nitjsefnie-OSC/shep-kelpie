@@ -334,6 +334,7 @@ fn held(severity: Severity, file: &str, line: u32, what: &str) -> Held {
         file: file.to_owned(),
         line,
         what: what.to_owned(),
+        again: false,
     }
 }
 
@@ -442,6 +443,42 @@ fn rounds_per_item_and_each_findings_round_are_given() {
         late.contains("  - round 3 (late) by claude, high, src/gate.rs:88: the design leaks"),
         "{late}"
     );
+}
+
+#[test]
+fn a_finding_a_later_round_raised_again_is_marked() {
+    let journal = [
+        stamped(1100, round(11, 1, 1)),
+        stamped(
+            1101,
+            Entry::Findings {
+                issue: ticket(11),
+                round: 1,
+                findings: vec![held(Severity::High, "src/a.rs", 4, "the lock leaks")],
+            },
+        ),
+        stamped(1200, round(11, 2, 2)),
+        stamped(
+            1201,
+            Entry::Findings {
+                issue: ticket(11),
+                round: 2,
+                findings: vec![
+                    held(Severity::High, "src/a.rs", 4, "the lock leaks").again(true),
+                    held(Severity::Medium, "src/b.rs", 9, "a new defect"),
+                ],
+            },
+        ),
+    ];
+
+    let digest = across(&journal, &[]);
+
+    let item = section(&digest, "## #11:");
+    let expected = "- Findings sent to the worker:\n  \
+        - round 1 by claude, high, src/a.rs:4: the lock leaks\n  \
+        - round 2 (again) by claude, high, src/a.rs:4: the lock leaks\n  \
+        - round 2 by claude, medium, src/b.rs:9: a new defect\n";
+    assert!(item.contains(expected), "{expected}: {item}");
 }
 
 #[test]
