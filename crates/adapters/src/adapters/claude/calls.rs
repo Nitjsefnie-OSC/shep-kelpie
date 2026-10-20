@@ -122,8 +122,12 @@ fn a_call_s_output_reaches_its_result_through_files() {
 
 #[test]
 fn a_running_call_has_a_record_and_an_ended_call_has_none() {
-    let w = World::new()
-        .script("echo $$ > {}pid\ntouch {}started\nwhile [ ! -e {}go ]; do sleep 0.02; done");
+    let w = World::new();
+    let waiting = format!(
+        "echo $$ > {{}}pid\ntouch {{}}started\n{}",
+        crate::test::waits_for(&w.path("go"), crate::test::CALL_PATIENCE)
+    );
+    let w = w.script(&waiting);
     let ending = Ending::default();
     ending.carry(Flying {
         left: 600,

@@ -20,7 +20,7 @@ use crate::adapters::ClaudeCli;
 use crate::ports::Routed;
 use crate::settings::Timing;
 use crate::settings::{EndpointUrl, Gateway, GatewayKind, GatewayName, Gateways, KeyVar};
-use crate::test::{Answer, OpenSandbox, StandInEndpoint, write_script};
+use crate::test::{Answer, OpenSandbox, StandInEndpoint, waits_for, write_script};
 
 const IMAGE: &str = "sheep::handover::tests::goose::an_image_of_the_runner";
 
@@ -203,13 +203,14 @@ fn goose_script(folder: &Path) {
          ls -t \"$(dirname \"$GOOSE_PATH_ROOT\")\"/*.sock | head -n 1 > \"$shared/socket\"\n\
          echo \"${{GOOSE_PATH_ROOT%.goose}}.call.json\" > \"$shared/record\"\n\
          touch \"$shared/started\"\n\
-         while [ ! -e \"$shared/go\" ]; do sleep 0.02; done\n\
+         {waits}\n\
          curl -sS --fail --unix-socket \"$(cat \"$shared/socket\")\" -X POST \
          -H 'content-type: application/json' -d '{{\"model\":\"coder\"}}' \
          http://model.kelpie.test/v1/chat/completions > \"$shared/chat\" || exit 3\n\
          sleep 0.4\n\
          cat \"$shared/fresh.jsonl\"\n",
-        shared = folder.display()
+        shared = folder.display(),
+        waits = waits_for(&folder.join("go"), CALL_PATIENCE)
     );
     write_script(&folder.join("goose"), &script);
 }
