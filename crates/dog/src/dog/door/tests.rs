@@ -117,7 +117,8 @@ async fn door_child() {
     let socket = PathBuf::from(socket);
     match job.split_once(':') {
         Some(("run", script)) => {
-            let code = counted_run::run(&socket, &["sh", "-c", script]).await;
+            let code =
+                counted_run::run(&socket, &["sh", "-c", script], counted_run::RUN_LIMIT).await;
             std::process::exit(code.into());
         }
         Some(("hurry", script)) => {
@@ -125,12 +126,24 @@ async fn door_child() {
                 tries: 1,
                 ..counted_run::PATIENCE
             };
-            let code =
-                counted_run::run_with_patience(&socket, &["sh", "-c", script], hurried).await;
+            let code = counted_run::run_with_patience(
+                &socket,
+                &["sh", "-c", script],
+                counted_run::RUN_LIMIT,
+                hurried,
+            )
+            .await;
+            std::process::exit(code.into());
+        }
+        // "<milliseconds>:<script>", with the bound the job gives
+        Some(("bounded", rest)) => {
+            let (millis, script) = rest.split_once(':').unwrap();
+            let limit = Duration::from_millis(millis.parse().unwrap());
+            let code = counted_run::run(&socket, &["sh", "-c", script], limit).await;
             std::process::exit(code.into());
         }
         Some(("exec", program)) => {
-            let code = counted_run::run(&socket, &[program]).await;
+            let code = counted_run::run(&socket, &[program], counted_run::RUN_LIMIT).await;
             std::process::exit(code.into());
         }
         _ if job == "dog" => {
@@ -244,6 +257,38 @@ async fn a_run_waits_for_room_and_keeps_its_commands_exit_code() {
     assert_eq!(exited(&mut run).await, Some(7));
     assert!(marker.exists());
     until("the run kept the lease", || holders(&desk).is_empty()).await;
+}
+
+// The bound counts from the grant: a run that queued longer than its bound
+// still gets all of it.
+#[tokio::test]
+async fn a_run_gets_its_whole_bound_after_waiting_in_the_queue() {
+    let (_dir, socket, desk) = door(1);
+    let mut first = Visit::knock(&socket, &ask("first")).await.unwrap();
+    answer(&mut first).await;
+    let mut run = child(&socket, "bounded:2000:sleep 1; exit 7");
+    until("the run never asked", || queued(&desk) == 1).await;
+    tokio::time::sleep(Duration::from_millis(3000)).await;
+    drop(first);
+    assert_eq!(exited(&mut run).await, Some(7));
+}
+
+#[tokio::test]
+async fn a_run_ended_at_its_bound_gives_the_lease_back() {
+    let (_dir, socket, desk) = door(1);
+    let mut run = child(&socket, "bounded:500:sleep 300");
+    until("the run never took the lease", || {
+        !holders(&desk).is_empty()
+    })
+    .await;
+    let mut next = Visit::knock(&socket, &ask("next")).await.unwrap();
+    assert_eq!(answer(&mut next).await, Some(Answer::Queued(0)));
+    assert_eq!(answer(&mut next).await, Some(Answer::Granted));
+    assert_eq!(
+        exited(&mut run).await,
+        Some(i32::from(counted_run::TIMED_OUT))
+    );
+    assert_eq!(holders(&desk), ["next"]);
 }
 
 #[tokio::test]
@@ -408,7 +453,7 @@ async fn a_queued_run_keeps_asking_after_each_dog_restart() {
         every: Duration::from_millis(5),
         ..counted_run::PATIENCE
     };
-    let run = counted_run::run_with_patience(&socket, &["true"], patience);
+    let run = counted_run::run_with_patience(&socket, &["true"], counted_run::RUN_LIMIT, patience);
     let code = tokio::time::timeout(BOUND, run)
         .await
         .expect("the run never ended");

@@ -53,6 +53,8 @@ struct Hub {
     issue_edits_refused: Option<ApiError>,
     // Why every new issue is refused, while it is
     issue_creates_refused: Option<ApiError>,
+    // Why every label taken off an issue is refused, while it is
+    label_removals_refused: Option<ApiError>,
     // Whether a review that carries line comments is refused with 422, as
     // GitHub does one naming a line the diff does not show
     line_comments_refused: bool,
@@ -191,6 +193,11 @@ impl FakeGithub {
     /// Makes every new issue answer `error` from now on
     pub fn refuse_issue_creates(&self, error: ApiError) {
         self.hub.lock().unwrap().issue_creates_refused = Some(error);
+    }
+
+    /// Makes every label taken off an issue answer `error` from now on
+    pub fn refuse_label_removals(&self, error: ApiError) {
+        self.hub.lock().unwrap().label_removals_refused = Some(error);
     }
 
     /// Takes new issues again after [`Self::refuse_issue_creates`]
@@ -590,6 +597,11 @@ impl GithubApi for FakeGithub {
             .issue_edits_refused
             .clone()
             .filter(|_| is_issue_edit(call))
+        {
+            return Err(error);
+        }
+        if let Some(error) =
+            (hub.label_removals_refused.clone()).filter(|_| call.verb == Verb::Delete)
         {
             return Err(error);
         }
