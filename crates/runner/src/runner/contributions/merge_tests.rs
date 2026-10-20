@@ -5,20 +5,30 @@ use std::sync::Mutex;
 use serde_json::{Value, json};
 
 use super::pass_tests::{listing, read_through, write};
+use super::post::{POST_TRIES, REACT};
 use super::release_tests::{ASKS, TAKEN, held, later, waiting};
 use super::ruling_tests::rule;
 use super::security_tests::{commit_on, contribute, contribution};
 use super::tests::{poll, poll_or_adopt};
 use crate::github::ApiError;
 use crate::ports::{AgentError, CLEAN, Checks, Finding, PullRequestState, Role, Severity};
+use crate::runner::coderabbit::tests::now;
+use crate::runner::review_bot::contribution_turns::{contributed, until_summoned};
 use crate::runner::words::NO_NOTE;
 use crate::runner::{Runner, StepReport, step};
 use crate::settings::Harness;
 use crate::test::{Rig, Scripted, ScriptedRound, ticket};
 
-const PASSED: &str = "The local reviewer found nothing. The maintainer has it now.";
+const MAINTAINER: &str = "Boss";
+const SAID: &str = "The local reviewer found nothing. The maintainer has it now.";
 const THANKS: &str = "Thank you for the pull request. It is merged now.";
 const DECLINE: &str = "The maintainer would like a test first, please add one.";
+
+// The clean pass's note as it is posted: the representative's words, then the
+// line that tells the maintainer how to answer
+fn passed() -> String {
+    format!("{SAID}\n\n{REACT}")
+}
 
 // Pull request 30, whose head passed the security review, whose CI is green
 // and whose pass over it has ended, with the ruling not yet looked at
@@ -27,7 +37,7 @@ fn reviewed() -> (Rig, Mutex<Runner>, String) {
     rig.claude.script([Scripted::Text(CLEAN)]);
     // The pass of a clean head says so to the contributor.
     rig.claude
-        .script_for(Role::Representative, [Scripted::Say(PASSED)]);
+        .script_for(Role::Representative, [Scripted::Say(SAID)]);
     let head = contribute(&rig, 30, |h| write(h, "one.txt", "one\n"));
     read_through(&rig, &runner, &head);
     (rig, runner, head)
@@ -47,6 +57,12 @@ fn ruled_on() -> (Rig, Mutex<Runner>, String) {
 fn rulings(rig: &Rig, runner: &Mutex<Runner>) -> Vec<Value> {
     let status = rig.ask(runner, "status", None);
     status["rulings"].as_array().cloned().unwrap_or_default()
+}
+
+// The id of the note the representative posted on the clean pass
+fn note_of(rig: &Rig, runner: &Mutex<Runner>) -> u64 {
+    let held = contribution(rig, runner);
+    held["pass"]["note"].as_u64().expect("the pass has a note")
 }
 
 fn found() -> Finding {
@@ -156,6 +172,176 @@ fn a_yes_merges_the_head_it_named() {
     assert_eq!(rig.forge.merges().len(), 1);
 }
 
+#[test]
+fn a_maintainers_thumbs_up_on_the_note_merges_the_head_it_names() {
+    let (rig, runner, head) = ruled_on();
+    let note = note_of(&rig, &runner);
+
+    rig.forge.threads.thumbs(note, MAINTAINER, true);
+    poll(&rig, &runner);
+
+    assert_eq!(rig.forge.merges(), [(30, head)]);
+    assert_eq!(rulings(&rig, &runner), Vec::<Value>::new());
+
+    // It merges once, however many polls follow.
+    poll(&rig, &runner);
+    assert_eq!(rig.forge.merges().len(), 1);
+}
+
+#[test]
+fn a_thumbs_up_from_the_contributor_or_a_stranger_answers_nothing() {
+    let (rig, runner, _) = ruled_on();
+    let note = note_of(&rig, &runner);
+
+    rig.forge.threads.thumbs(note, "newcomer", true);
+    rig.forge.threads.thumbs(note, "a-stranger", true);
+    rig.forge.threads.thumbs(note, "a-stranger", false);
+    poll(&rig, &runner);
+    poll(&rig, &runner);
+
+    assert_eq!(rig.forge.merges(), []);
+    assert_eq!(rulings(&rig, &runner).len(), 1, "still waiting");
+}
+
+#[test]
+fn the_maintainers_login_is_matched_ignoring_case() {
+    let (rig, runner, head) = ruled_on();
+    let note = note_of(&rig, &runner);
+
+    rig.forge.threads.thumbs(note, "BOSS", true);
+    poll(&rig, &runner);
+
+    assert_eq!(rig.forge.merges(), [(30, head)]);
+}
+
+#[test]
+fn a_maintainers_thumbs_down_answers_no_and_posts_nothing() {
+    let (rig, runner, head) = ruled_on();
+    let note = note_of(&rig, &runner);
+
+    rig.forge.threads.thumbs(note, MAINTAINER, false);
+    poll(&rig, &runner);
+    poll(&rig, &runner);
+
+    assert_eq!(rig.forge.merges(), []);
+    assert_eq!(rulings(&rig, &runner), Vec::<Value>::new());
+    assert_eq!(comments(&rig), [passed()], "nothing is posted for a no");
+    assert_eq!(prompts(&rig).len(), 1, "no note was worded");
+    assert_eq!(contribution(&rig, &runner)["head"], head);
+}
+
+#[test]
+fn a_thumbs_down_wins_over_a_thumbs_up() {
+    let (rig, runner, _) = ruled_on();
+    let note = note_of(&rig, &runner);
+
+    rig.forge.threads.thumbs(note, MAINTAINER, true);
+    rig.forge.threads.thumbs(note, MAINTAINER, false);
+    poll(&rig, &runner);
+
+    assert_eq!(rig.forge.merges(), []);
+    assert_eq!(rulings(&rig, &runner), Vec::<Value>::new());
+}
+
+#[test]
+fn a_reaction_on_the_note_of_an_older_head_is_ignored() {
+    let (rig, runner, _) = ruled_on();
+    let old = note_of(&rig, &runner);
+    rig.claude.script([Scripted::Text(CLEAN)]);
+    let moved = commit_on(&rig, 30, "topic/30", |h| write(h, "two.txt", "two\n"));
+    poll(&rig, &runner);
+    read_through(&rig, &runner, &moved);
+
+    rig.forge.threads.thumbs(old, MAINTAINER, true);
+    poll(&rig, &runner);
+    poll(&rig, &runner);
+
+    assert_eq!(rig.forge.merges(), [], "the old head is never merged");
+    let waiting = rulings(&rig, &runner);
+    assert_eq!(waiting.len(), 1);
+    assert_eq!(waiting[0]["kind"]["head"], moved);
+}
+
+#[test]
+fn a_reaction_after_the_terminal_answered_changes_nothing() {
+    let (rig, runner, _) = ruled_on();
+    let note = note_of(&rig, &runner);
+
+    rule(&rig, &runner, &format!("30 no {NO_NOTE}"));
+    rig.forge.threads.thumbs(note, MAINTAINER, true);
+    poll(&rig, &runner);
+    poll(&rig, &runner);
+
+    assert_eq!(rig.forge.merges(), []);
+    assert_eq!(rulings(&rig, &runner), Vec::<Value>::new());
+}
+
+#[test]
+fn a_reaction_that_cannot_be_read_is_told_once_and_read_again() {
+    let (rig, runner, head) = ruled_on();
+    let note = note_of(&rig, &runner);
+    rig.forge.threads.thumbs(note, MAINTAINER, true);
+    rig.forge.threads.cannot_read_marks_of(note);
+    runner.lock().unwrap().take_notes();
+
+    poll(&rig, &runner);
+    poll(&rig, &runner);
+
+    let told = runner.lock().unwrap().take_notes();
+    let told: Vec<_> = told.iter().filter(|n| n.contains("reaction")).collect();
+    assert_eq!(told.len(), 1, "{told:?}");
+    assert_eq!(rig.forge.merges(), []);
+
+    // The comment can be read at a later poll, and the reaction answers.
+    rig.forge.threads.can_read_marks_of(note);
+    poll(&rig, &runner);
+    assert_eq!(rig.forge.merges(), [(30, head)]);
+}
+
+#[test]
+fn a_reaction_that_already_answered_does_not_answer_the_ruling_raised_again() {
+    let (rig, runner, _) = ruled_on();
+    let note = note_of(&rig, &runner);
+    rig.forge.threads.thumbs(note, MAINTAINER, true);
+    rig.forge.set_merges_down(true);
+
+    // The merge is refused until it is given up and the maintainer is asked again.
+    for _ in 0..POST_TRIES + 3 {
+        poll(&rig, &runner);
+    }
+    rig.forge.set_merges_down(false);
+    poll(&rig, &runner);
+    poll(&rig, &runner);
+
+    assert_eq!(rig.forge.merges(), [], "the old reaction answers nothing");
+    assert_eq!(
+        rulings(&rig, &runner).len(),
+        1,
+        "waiting for the maintainer"
+    );
+}
+
+#[test]
+fn a_pass_a_bot_answered_has_no_note_and_stays_waiting() {
+    let (rig, runner, head) = contributed(&["cubic", "mine"]);
+    until_summoned(&rig, &runner);
+    rig.forge
+        .coderabbit
+        .cubic_review(30, &head, now(&rig) + 30, &[]);
+    let held = read_through(&rig, &runner, &head);
+    assert_eq!(held["pass"]["answered"], "cubic");
+    assert_eq!(held["pass"]["note"], Value::Null);
+    poll(&rig, &runner);
+
+    for comment in 0..200 {
+        rig.forge.threads.thumbs(comment, MAINTAINER, true);
+    }
+    poll(&rig, &runner);
+
+    assert_eq!(rig.forge.merges(), []);
+    assert_eq!(rulings(&rig, &runner).len(), 1, "still waiting");
+}
+
 fn down() -> AgentError {
     AgentError::Failed(Harness::ClaudeCode, "overloaded".into())
 }
@@ -188,7 +374,7 @@ fn a_merge_posts_thanks_in_the_representatives_words() {
 
     assert_eq!(
         comments(&rig),
-        [PASSED, THANKS],
+        [passed(), THANKS.to_owned()],
         "one thanks, however many polls"
     );
     let asked = prompts(&rig);
@@ -207,7 +393,7 @@ fn a_failed_thanks_call_does_not_hold_the_merge() {
     poll(&rig, &runner);
 
     assert_eq!(rig.forge.merges(), [(30, head)], "merged all the same");
-    assert_eq!(comments(&rig), [PASSED], "no thanks is posted");
+    assert_eq!(comments(&rig), [passed()], "no thanks is posted");
 }
 
 #[test]
@@ -242,7 +428,7 @@ fn a_no_with_a_note_posts_the_note_in_the_representatives_words() {
 
     assert_eq!(
         comments(&rig),
-        [PASSED, DECLINE],
+        [passed(), DECLINE.to_owned()],
         "one post, however many polls"
     );
     let asked = prompts(&rig);
@@ -272,7 +458,7 @@ fn a_no_with_no_note_posts_nothing() {
     poll(&rig, &runner);
     poll(&rig, &runner);
 
-    assert_eq!(comments(&rig), [PASSED]);
+    assert_eq!(comments(&rig), [passed()]);
     assert_eq!(prompts(&rig).len(), 1, "only the pass spoke");
     assert_eq!(rig.forge.merges(), []);
 }
@@ -328,7 +514,11 @@ fn a_closed_pull_request_drops_the_record_and_the_ruling_with_no_post() {
     assert_eq!(rulings(&rig, &runner), Vec::<Value>::new());
     let status = rig.ask(&runner, "status", None);
     assert_eq!(status.get("contributions"), None, "{status}");
-    assert_eq!(comments(&rig), [PASSED], "nothing was posted for the close");
+    assert_eq!(
+        comments(&rig),
+        [passed()],
+        "nothing was posted for the close"
+    );
     assert_eq!(
         prompts(&rig).len(),
         said,
