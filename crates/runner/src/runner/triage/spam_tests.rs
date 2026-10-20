@@ -15,6 +15,7 @@
 //! spends no place of a triage cap.
 
 use crate::test::ticket;
+use std::os::unix::fs::PermissionsExt;
 use std::sync::Mutex;
 
 use serde_json::{Value, json};
@@ -25,6 +26,7 @@ use super::pick_tests::{MAINTAINER, due, issue, list, rig_with};
 use super::research_tests::crashed_with;
 use super::research_tests::{WORDS, calls, crash, moves, reply, restart, triage};
 use super::spam::POSSIBLE_SPAM;
+use crate::github::ApiError;
 use crate::ports::{AuthorAssociation, ClassifierError, Clock, Role, Timestamp, Usage};
 use crate::runner::{Runner, step};
 use crate::test::{Rig, Scripted, SeenAsk};
@@ -106,6 +108,33 @@ fn checks(rig: &Rig) -> Vec<CallLine> {
         .into_iter()
         .filter(|call| call.kind == CallKind::SpamCheck)
         .collect()
+}
+
+// Every label the App made, put on an issue or took off one, in order
+fn label_moves(rig: &Rig) -> Vec<String> {
+    (rig.github.writes())
+        .into_iter()
+        .filter_map(|(_, call)| {
+            let name = call.path.rsplit('/').next()?;
+            let body: Value = serde_json::from_str(call.body.as_deref().unwrap_or("{}")).unwrap();
+            match (call.path.contains("/issues/"), name) {
+                (true, "labels") => Some(format!("label {}", body["labels"][0].as_str()?)),
+                (true, _) if call.path.contains("/labels/") => Some(format!("unlabel {name}")),
+                (false, "labels") => Some(format!("make {}", body["name"].as_str()?)),
+                _ => None,
+            }
+        })
+        .filter(|m| !m.starts_with("make agent:"))
+        .collect()
+}
+
+// Runs one step with the state folder shut, so nothing can be saved
+fn step_with_the_state_shut(rig: &Rig, runner: &Mutex<Runner>) {
+    let folder = rig.paths().state.parent().unwrap().to_owned();
+    let mode = |m| std::fs::set_permissions(&folder, PermissionsExt::from_mode(m)).unwrap();
+    mode(0o555);
+    let _ = step(runner);
+    mode(0o755);
 }
 
 // What kelpie told the log
@@ -823,4 +852,76 @@ fn a_check_that_failed_is_asked_again_at_the_next_start() {
 
     assert_eq!(rig.classifier.count(), 2, "the next start asks again");
     assert_eq!(calls(&rig, Role::Triager).len(), 2);
+}
+
+#[test]
+fn a_failed_save_takes_possible_spam_off_and_the_issue_is_read_again() {
+    let (rig, runner) = checked(0.9);
+
+    step_with_the_state_shut(&rig, &runner);
+
+    assert_eq!(rig.classifier.count(), 1);
+    assert_eq!(
+        label_moves(&rig),
+        [
+            format!("make {POSSIBLE_SPAM}"),
+            format!("label {POSSIBLE_SPAM}"),
+            format!("unlabel {POSSIBLE_SPAM}"),
+        ],
+        "the label that no record backs came off"
+    );
+    assert_eq!(
+        record(&rig, &runner, 30),
+        Value::Null,
+        "and no record was kept"
+    );
+
+    // The issue is untouched again, so the next look asks the classifier again.
+    rig.next_look();
+    assert_eq!(step(&runner).unwrap(), None);
+
+    assert_eq!(
+        rig.classifier.count(),
+        2,
+        "the classifier is asked a second time"
+    );
+    assert_eq!(
+        label_moves(&rig)[3..],
+        [
+            format!("make {POSSIBLE_SPAM}"),
+            format!("label {POSSIBLE_SPAM}")
+        ],
+        "and the issue is labelled"
+    );
+    assert_eq!(record(&rig, &runner, 30)["spam"], 0.9);
+    assert_eq!(
+        calls(&rig, Role::Triager).len(),
+        0,
+        "still no research call"
+    );
+}
+
+#[test]
+fn a_failed_save_and_a_failed_unlabel_is_told_in_a_note() {
+    let (rig, runner) = checked(0.9);
+    rig.github.refuse_label_removals(ApiError::Refused(403));
+
+    step_with_the_state_shut(&rig, &runner);
+
+    assert_eq!(
+        label_moves(&rig).last().map(String::as_str),
+        Some("unlabel possible-spam"),
+        "taking it off was tried"
+    );
+    assert_eq!(record(&rig, &runner, 30), Value::Null);
+    let notes: Vec<String> = told(&runner)
+        .into_iter()
+        .filter(|n| n.contains("#30") && n.contains(POSSIBLE_SPAM))
+        .collect();
+    assert_eq!(notes.len(), 1, "{notes:?}");
+    assert!(
+        notes[0].contains("403"),
+        "the unlabel's error: {}",
+        notes[0]
+    );
 }

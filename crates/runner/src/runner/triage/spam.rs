@@ -142,7 +142,20 @@ impl Runner {
             triage.issues.push(record);
             triage.prune();
         }
-        self.save(next)?;
+        if let Err(e) = self.save(next) {
+            // The label with no record is read by nothing: `untouched` skips the
+            // issue and the verb takes the label off only for a record that says
+            // spam. Off again, the issue is untouched and the next poll asks the
+            // classifier a second time.
+            if let Err(off) = self.label_issue(issue.number, POSSIBLE_SPAM, false) {
+                self.notes.push(format!(
+                    "triage #{}: it is labelled `{POSSIBLE_SPAM}` with no record of it: the \
+                     record could not be saved ({e}) and the label could not be taken off ({off})",
+                    issue.number
+                ));
+            }
+            return Err(e);
+        }
         self.triage_due.retain(|d| d.issue != issue.number);
         self.triage_queue.retain(|&n| n != issue.number);
         self.triage_tries.remove(&issue.number);
