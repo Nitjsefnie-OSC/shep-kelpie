@@ -185,6 +185,10 @@ impl Runner {
         if settings.triage.pick != self.settings.triage.pick {
             self.triage_due.clear();
         }
+        // A walk keeps the turn of a bot the lineup drops until it moves on, with its label on.
+        if contribution_lineup != self.contribution_lineup {
+            self.end_unlisted_turns(&contribution_lineup)?;
+        }
         self.settings = settings;
         if e2e_changed {
             // The dog reads the host from this file, so it follows the settings.
