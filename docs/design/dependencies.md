@@ -10,13 +10,13 @@ Whether kelpie merges the bumps bots open (Dependabot), and what it does with on
 - `on_red`: `close` (default) or `leave`. `fix` is not built.
 - `web`: paths that make a bump a web bump. A path ending `/` is a folder, any other is a file. Empty means no bump is one.
 - `wait_hours` (24): above 0. How long a head's checks may stay pending, or never start, before the bump is red.
-- `reread` keeps the running table like the other project tables, so a change waits for the next start. `runner/reread/`
+- A changed table takes effect at the next poll, whatever the change: `reread` lists `dependencies` as now in effect, and the runner builds nothing from it at start. Turning `pick` on starts recording bumps, and turning it off forgets the records as a start with `pick` off does (below); `wait_hours` and `on_red` apply to a bump already recorded. `runner/reread/`
 
 ## Detection
 
 - A bump is an open pull request, not a draft, from a branch of the repo itself, whose author is a listed bot. `is_bump`, `runner/dependencies/`. A bump takes no slot, no ruling and no model call.
 - `ProjectState.bumps` holds `Bump { pull_request, author, branch, head, seen, rebase_asked, e2e, standing, red }`, oldest first. A new head replaces `head` and `seen` and clears `e2e`; `rebase_asked` names the head last asked, so the new head is asked afresh. `crates/core/src/state/bumps.rs`
-- `Runner::follow_dependencies` runs once a `BOARD_POLL` after `follow_contributions`, off the same listing. A bump that left the board is dropped, unless kelpie had decided to close it and still owes its issue; that record is kept whether the pull request left the board, became a draft or stopped being a listed bot's. One closed by someone else before kelpie's comment or close skips them and gets the issue; one merged by hand gets none, and a pull request that cannot be read waits. `pick = "off"` forgets all.
+- `Runner::follow_dependencies` runs once a `BOARD_POLL` after `follow_contributions`, off the same listing. A bump that left the board is dropped, unless kelpie had decided to close it and still owes its issue; that record is kept whether the pull request left the board, became a draft or stopped being a listed bot's. One closed by someone else before kelpie's comment or close skips them and gets the issue; one merged by hand gets none, and a pull request that cannot be read waits. `pick = "off"` forgets all, close steps still owed included; an e2e run in flight finishes and its result is dropped.
 
 ## Proving a head
 
