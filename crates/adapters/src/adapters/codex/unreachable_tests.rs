@@ -4,15 +4,14 @@ use super::tests::{FRESH, WORKER_ID, World, id, stand_in};
 use super::*;
 use crate::ports::Role;
 
-const RETRY_LIMIT_503: &str =
-    include_str!("../../../../../fixtures/codex-exec-retry-limit-503.jsonl");
+const STATUS_503: &str = include_str!("../../../../../fixtures/codex-exec-503.jsonl");
+const STATUS_502: &str = include_str!("../../../../../fixtures/codex-exec-502.jsonl");
+const HIGH_DEMAND: &str = include_str!("../../../../../fixtures/codex-exec-high-demand.jsonl");
+const AT_CAPACITY: &str = include_str!("../../../../../fixtures/codex-exec-at-capacity.jsonl");
 const STREAM_DISCONNECTED: &str =
     include_str!("../../../../../fixtures/codex-exec-stream-disconnected.jsonl");
-const REQUEST_FAILED: &str =
-    include_str!("../../../../../fixtures/codex-exec-request-failed.jsonl");
-const CONNECTION_REFUSED: &str =
-    include_str!("../../../../../fixtures/codex-exec-connection-refused.jsonl");
-const OVERLOADED: &str = include_str!("../../../../../fixtures/codex-exec-overloaded.jsonl");
+const CONNECTION_FAILED: &str =
+    include_str!("../../../../../fixtures/codex-exec-connection-failed.jsonl");
 const RETRY_LIMIT_429: &str =
     include_str!("../../../../../fixtures/codex-exec-retry-limit-429.jsonl");
 const BAD_REQUEST: &str = include_str!("../../../../../fixtures/codex-exec-bad-request.jsonl");
@@ -31,23 +30,24 @@ fn first_turn(stdout: &str) -> Result<AgentReply, AgentError> {
 #[test]
 fn a_provider_that_cannot_be_reached_or_is_overloaded_is_unreachable() {
     for (case, stdout) in [
-        ("retry limit on a 503", RETRY_LIMIT_503),
+        ("a 503", STATUS_503),
+        ("a 502", STATUS_502),
         (
-            "retry limit on a 502",
-            &RETRY_LIMIT_503.replace("503 Service Unavailable", "502 Bad Gateway"),
+            "a 504",
+            &STATUS_503.replace("503 Service Unavailable", "504 Gateway Timeout"),
         ),
-        (
-            "retry limit on a 504",
-            &RETRY_LIMIT_503.replace("503 Service Unavailable", "504 Gateway Timeout"),
-        ),
+        ("a 500", HIGH_DEMAND),
+        ("a 503 from an overloaded server", AT_CAPACITY),
         ("stream ended early", STREAM_DISCONNECTED),
-        ("request failed", REQUEST_FAILED),
-        ("connection refused", CONNECTION_REFUSED),
+        ("connection failed", CONNECTION_FAILED),
+        (
+            "connection refused",
+            &CONNECTION_FAILED.replace("error sending request", "Connection refused"),
+        ),
         (
             "connection reset",
-            &CONNECTION_REFUSED.replace("Connection refused", "Connection reset by peer"),
+            &CONNECTION_FAILED.replace("error sending request", "Connection reset by peer"),
         ),
-        ("overloaded", OVERLOADED),
     ] {
         let err = first_turn(stdout).unwrap_err();
         assert!(
@@ -59,12 +59,12 @@ fn a_provider_that_cannot_be_reached_or_is_overloaded_is_unreachable() {
 
 #[test]
 fn the_detail_of_an_unreachable_provider_is_codexs_own_message() {
-    let Err(AgentError::Unreachable(Harness::Codex, why)) = first_turn(RETRY_LIMIT_503) else {
+    let Err(AgentError::Unreachable(Harness::Codex, why)) = first_turn(STATUS_503) else {
         panic!("a 503 was not unreachable");
     };
     assert_eq!(
         why,
-        "exceeded retry limit, last status: 503 Service Unavailable, request id: 9f3c1e7a2b4d5c60-AMS"
+        "unexpected status 503 Service Unavailable: stub 503, url: http://127.0.0.1:18700/v1/responses, request id: req-stub-30"
     );
 }
 
@@ -103,7 +103,7 @@ fn a_turn_that_ends_well_after_reconnects_succeeds() {
 fn a_first_turn_that_found_no_host_is_tried_again_as_a_new_session() {
     let w = World::new();
     let call = w.call(Role::Worker, Session::New(id(WORKER_ID)));
-    let down = stand_in(&w, OVERLOADED);
+    let down = stand_in(&w, AT_CAPACITY);
     down.prepare(&call).unwrap();
     assert!(matches!(
         down.run(&call, &Ending::default()),

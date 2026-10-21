@@ -1,4 +1,4 @@
-{"type":"thread.started","thread_id":"01a0f7fd-4ed5-7773-80ea-165edc292d8d"}
+{"type":"thread.started","thread_id":"01a15f02-13d5-7ad2-a239-6f7d10f41ea6"}
 {"type":"turn.started"}
-{"type":"error","message":"unexpected status 400 Bad Request: {\"detail\":\"Unsupported parameter: reasoning.effort\"}, url: https://chatgpt.com/backend-api/codex/responses, request id: 9f3c1e7a2b4d5c62-AMS"}
-{"type":"turn.failed","error":{"message":"unexpected status 400 Bad Request: {\"detail\":\"Unsupported parameter: reasoning.effort\"}, url: https://chatgpt.com/backend-api/codex/responses, request id: 9f3c1e7a2b4d5c62-AMS"}}
+{"type":"error","message":"{\"detail\": \"Unsupported parameter: reasoning.effort\"}"}
+{"type":"turn.failed","error":{"message":"{\"detail\": \"Unsupported parameter: reasoning.effort\"}"}}
