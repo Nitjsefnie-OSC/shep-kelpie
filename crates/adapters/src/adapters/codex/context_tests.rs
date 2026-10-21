@@ -222,3 +222,33 @@ fn a_turn_whose_rollout_has_no_token_usage_record_reports_the_turn_s_own_usage()
         }
     );
 }
+
+#[test]
+fn a_token_usage_record_from_an_earlier_turn_leaves_the_turn_s_own_report() {
+    let w = World::new();
+    let cli = stand_in(&w, FRESH);
+    let first = w.call(Role::Worker, Session::New(id(WORKER_ID)));
+    cli.prepare(&first).unwrap();
+    let first_turn = ROLLOUT.lines().take(3).collect::<Vec<_>>().join("\n");
+    rollout(&w, &first, &first_turn);
+    cli.run(&first, &Ending::default()).unwrap();
+    // The second turn wrote no record: the rollout still ends on the first turn's.
+    let call = w.call(Role::Worker, Session::Resume(id(WORKER_ID)));
+    let cli = stand_in(&w, COMPACTED);
+
+    let reply = cli.run(&call, &Ending::default()).unwrap();
+
+    // What `turn.completed` reports, not a record that is under it.
+    assert_eq!(
+        reply.usage,
+        Usage {
+            input: 1523,
+            cache_write: 0,
+            cache_write_5m: 0,
+            cache_read: 0,
+            output: 96,
+        }
+    );
+    let kept = thread(&Files::of(&call), &id(WORKER_ID)).unwrap().unwrap();
+    assert_eq!(kept.spent.input_tokens, 19_234);
+}

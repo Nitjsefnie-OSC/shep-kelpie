@@ -31,24 +31,33 @@ pub(super) fn last_request_input(home: &Path, thread: &str) -> Option<u64> {
 }
 
 /// The tokens the session `thread` has spent in all, as its rollout's last
-/// `token_usage_record` counts them, or `None` when it has none
+/// `token_usage_record` counts them, or `None` when it has none, or none that
+/// reaches `reported`, the total the turn's own report gave
 ///
 /// A compaction's own model request is in that count and not in the turn's
-/// report or the `token_count` events. The rollout holds no count of cache
-/// writes, so those stay what `known` had.
-pub(super) fn thread_total(home: &Path, thread: &str, known: Spent) -> Option<Spent> {
-    Some(spent(last_record(&rollout_text(home, thread)?)?, known))
+/// report or the `token_count` events. A running total never falls, so a
+/// record under `reported` is an earlier turn's, left by a Codex that wrote
+/// none for this one. The rollout holds no count of cache writes, so those
+/// stay what `reported` had.
+pub(super) fn thread_total(home: &Path, thread: &str, reported: Spent) -> Option<Spent> {
+    let total = last_record(&rollout_text(home, thread)?)?;
+    total
+        .reaches(reported.into())
+        .then(|| spent(total, reported))
 }
 
 /// The tokens the session `thread` has spent in all, beside its last
 /// request's input
 ///
-/// The total is the one `thread_total` reads, and a rollout with no record
-/// has the last `token_count` event's.
+/// The total is the last `token_usage_record`'s when it reaches the last
+/// `token_count` event's, which a record from before it does not, and that
+/// event's otherwise.
 pub(super) fn running_total(home: &Path, thread: &str, known: Spent) -> Option<(Spent, u64)> {
     let text = rollout_text(home, thread)?;
     let count = last_count(&text)?;
-    let total = last_record(&text).unwrap_or(count.total_token_usage);
+    let total = last_record(&text)
+        .filter(|record| record.reaches(count.total_token_usage))
+        .unwrap_or(count.total_token_usage);
     Some((spent(total, known), count.last_token_usage.input_tokens))
 }
 
@@ -148,6 +157,24 @@ struct Tokens {
     cached_input_tokens: u64,
     #[serde(default)]
     output_tokens: u64,
+}
+
+impl Tokens {
+    fn reaches(self, other: Self) -> bool {
+        self.input_tokens >= other.input_tokens
+            && self.cached_input_tokens >= other.cached_input_tokens
+            && self.output_tokens >= other.output_tokens
+    }
+}
+
+impl From<Spent> for Tokens {
+    fn from(spent: Spent) -> Self {
+        Self {
+            input_tokens: spent.input_tokens,
+            cached_input_tokens: spent.cached_input_tokens,
+            output_tokens: spent.output_tokens,
+        }
+    }
 }
 
 /// The `-c` options that make Codex compact the session at `window` tokens
