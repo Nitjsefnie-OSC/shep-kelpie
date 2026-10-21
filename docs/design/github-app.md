@@ -9,6 +9,7 @@ Per-user App: tokens, posting, answering rulings on GitHub, ruling panel.
 - Covered worker call gets a token for one repo, `contents` (and `workflows`) only; refused if GitHub grants more (guard parsing can't be complete; credential is the boundary). #420, #462
 - Token reaches worker as a `gh` config file, not a variable (every process shows those); git credential helpers emptied. #420, #429
 - Covered worker writes `pull-request.md`; kelpie opens and edits the PR, refusing a non-conventional title. Files read/written without following links. #420, #439, #898, `crates/worker_folder/`
+- A worker on a contributor's fork pushes nothing: the guard and profile refuse `git push`, and the runner pushes its commits to the fork with the maintainer's login, outside the sandbox, fast-forward only. #633, `runner/contributions/push.rs`
 - Workers can push any branch: `doctor` says protect `main`. Kelpie reads covered workers' failed CI logs (3 runs, 6000 bytes each, noise dropped) rather than widen token. #420
 - Worker token refreshed every 30 min during a call (lasts 1h). `runner/login_refresh.rs`
 - `shep kelpie github setup` registers an App from 127.0.0.1 with random `state`, refusing other hosts. #396
