@@ -3,7 +3,9 @@
 //! `codex exec --json` reports a session's tokens as a running total, which
 //! says what the session has spent and not what its next request carries.
 //! The rollout Codex keeps for the session has a `token_count` event after
-//! each model request, whose `last_token_usage` is that request's.
+//! each model request, whose `last_token_usage` is that request's, and a
+//! `token_usage_record` event whose `thread_token_usage` counts every request
+//! the session made, a compaction's included.
 
 use std::ffi::OsString;
 use std::num::NonZeroU32;
@@ -21,32 +23,61 @@ const DEPTH: usize = 3;
 /// `thread`, cached ones included, or `None` when the call left no rollout or
 /// no request in it
 pub(super) fn last_request_input(home: &Path, thread: &str) -> Option<u64> {
-    Some(last_count(home, thread)?.last_token_usage.input_tokens)
+    Some(
+        last_count(&rollout_text(home, thread)?)?
+            .last_token_usage
+            .input_tokens,
+    )
 }
 
 /// The tokens the session `thread` has spent in all, as its rollout's last
-/// `token_count` event ran them up, beside its last request's input
+/// `token_usage_record` counts them, or `None` when it has none
 ///
-/// The rollout holds no count of cache writes, so those stay what `known` had.
+/// A compaction's own model request is in that count and not in the turn's
+/// report or the `token_count` events. The rollout holds no count of cache
+/// writes, so those stay what `known` had.
+pub(super) fn thread_total(home: &Path, thread: &str, known: Spent) -> Option<Spent> {
+    Some(spent(last_record(&rollout_text(home, thread)?)?, known))
+}
+
+/// The tokens the session `thread` has spent in all, beside its last
+/// request's input
+///
+/// The total is the one `thread_total` reads, and a rollout with no record
+/// has the last `token_count` event's.
 pub(super) fn running_total(home: &Path, thread: &str, known: Spent) -> Option<(Spent, u64)> {
-    let count = last_count(home, thread)?;
-    let total = count.total_token_usage;
-    let spent = Spent {
+    let text = rollout_text(home, thread)?;
+    let count = last_count(&text)?;
+    let total = last_record(&text).unwrap_or(count.total_token_usage);
+    Some((spent(total, known), count.last_token_usage.input_tokens))
+}
+
+fn spent(total: Tokens, known: Spent) -> Spent {
+    Spent {
         input_tokens: total.input_tokens,
         cached_input_tokens: total.cached_input_tokens,
         cache_write_input_tokens: known.cache_write_input_tokens,
         output_tokens: total.output_tokens,
-    };
-    Some((spent, count.last_token_usage.input_tokens))
+    }
 }
 
-fn last_count(home: &Path, thread: &str) -> Option<Count> {
+fn rollout_text(home: &Path, thread: &str) -> Option<String> {
     let rollout = rollout_of(&home.join("sessions"), thread, DEPTH)?;
-    let text = std::fs::read_to_string(rollout).ok()?;
+    std::fs::read_to_string(rollout).ok()
+}
+
+fn last_count(text: &str) -> Option<Count> {
     text.lines()
         .rev()
         .filter(|line| line.contains("token_count"))
         .find_map(count)
+}
+
+fn last_record(text: &str) -> Option<Tokens> {
+    text.lines()
+        .rev()
+        .filter(|line| line.contains("token_usage_record"))
+        .find_map(record)
 }
 
 // The rollout is named for its thread: `rollout-<time>-<thread>.jsonl`.
@@ -84,13 +115,33 @@ fn count(line: &str) -> Option<Count> {
     (line.kind == "event_msg" && line.payload.kind == "token_count").then_some(line.payload.info?)
 }
 
+// A `token_usage_record` event's thread total, if the line is one: a
+// `compacted` line holds a record's usage too, under another name.
+fn record(line: &str) -> Option<Tokens> {
+    #[derive(Deserialize)]
+    struct Line {
+        #[serde(rename = "type")]
+        kind: String,
+        payload: Event,
+    }
+    #[derive(Deserialize)]
+    struct Event {
+        #[serde(rename = "type")]
+        kind: String,
+        thread_token_usage: Option<Tokens>,
+    }
+    let line: Line = serde_json::from_str(line).ok()?;
+    (line.kind == "event_msg" && line.payload.kind == "token_usage_record")
+        .then_some(line.payload.thread_token_usage?)
+}
+
 #[derive(Deserialize)]
 struct Count {
     last_token_usage: Tokens,
     total_token_usage: Tokens,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone, Copy)]
 struct Tokens {
     input_tokens: u64,
     #[serde(default)]

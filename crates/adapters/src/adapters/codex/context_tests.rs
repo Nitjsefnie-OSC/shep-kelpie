@@ -11,7 +11,8 @@ use crate::ports::{COMPACT, Role};
 /// A resumed turn that compacted first, in the session `FRESH` began
 const COMPACTED: &str = include_str!("../../../../../fixtures/codex-exec-compacted.jsonl");
 /// The session's rollout after that turn: the first turn's request, the
-/// compaction's, the turn's own, and a rate-limit update with no usage
+/// compaction's, the turn's own, a `token_usage_record` after each that counts
+/// the session's requests so far, and a rate-limit update with no usage
 const ROLLOUT: &str = include_str!("../../../../../fixtures/codex-rollout-compacted.jsonl");
 
 // Puts `rollout` where Codex keeps the rollout of `THREAD` in the call's home.
@@ -53,7 +54,9 @@ fn a_rollout_with_no_token_count_event_or_no_file_reports_no_context() {
     // A rollout that held only a session's start and a usage-less rate-limit update.
     let events = ROLLOUT
         .lines()
-        .filter(|l| !l.contains("\"last_token_usage\""))
+        .filter(|l| {
+            !l.contains("\"last_token_usage\"") && !l.contains("\"type\":\"token_usage_record\"")
+        })
         .collect::<Vec<_>>()
         .join("\n");
     assert_eq!(events.lines().count(), 3, "{events}");
@@ -153,16 +156,24 @@ fn the_turn_after_a_compact_call_passes_the_lower_of_the_window_and_the_recorded
     assert_eq!(limit(&w).as_deref(), Some("1000"));
 }
 
-// The running total after the turn is 36,989 input (28,416 cached) and 952
-// output, against 17,711 (10,752) and 44 before it. The compaction's own
-// request (17,755 input, 17,664 of them cached, 812 output) is inside that
-// total, so the turn's usage holds it with no count of its own: 91 uncached
-// input of the compaction and 1,523 of the turn, and 812 + 96 output.
+// The turn's `turn.completed` reports a running total that rose by its own
+// request only: 19,234 input (10,752 cached) and 140 output, against 17,711
+// (10,752) and 44 before it. The compaction's request (17,755 input, 17,664 of
+// them cached, 812 output) is in the rollout's last `token_usage_record`, whose
+// `thread_token_usage` is 36,989 input (28,416 cached) and 952 output, so the
+// turn's usage is that record's `turn_token_usage`: 1,614 uncached input of
+// the two requests, 17,664 cached, and 812 + 96 output.
 #[test]
-fn a_turn_that_compacted_reports_the_usage_of_the_compaction_in_its_total() {
+fn a_turn_that_compacted_reports_its_last_token_usage_records_turn_usage() {
     let w = World::new();
     let cli = stand_in(&w, FRESH);
-    let call = after_a_turn(&w, &cli);
+    let first = w.call(Role::Worker, Session::New(id(WORKER_ID)));
+    cli.prepare(&first).unwrap();
+    let first_turn = ROLLOUT.lines().take(3).collect::<Vec<_>>().join("\n");
+    rollout(&w, &first, &first_turn);
+    cli.run(&first, &Ending::default()).unwrap();
+    rollout(&w, &first, ROLLOUT);
+    let call = w.call(Role::Worker, Session::Resume(id(WORKER_ID)));
     let cli = stand_in(&w, COMPACTED);
 
     let reply = cli.run(&call, &Ending::default()).unwrap();
@@ -175,6 +186,39 @@ fn a_turn_that_compacted_reports_the_usage_of_the_compaction_in_its_total() {
             cache_write_5m: 0,
             cache_read: 17_664,
             output: 908,
+        }
+    );
+}
+
+#[test]
+fn a_turn_whose_rollout_has_no_token_usage_record_reports_the_turn_s_own_usage() {
+    let w = World::new();
+    let cli = stand_in(&w, FRESH);
+    let first = w.call(Role::Worker, Session::New(id(WORKER_ID)));
+    cli.prepare(&first).unwrap();
+    let first_turn = ROLLOUT.lines().take(2).collect::<Vec<_>>().join("\n");
+    rollout(&w, &first, &first_turn);
+    cli.run(&first, &Ending::default()).unwrap();
+    let without_records = ROLLOUT
+        .lines()
+        .filter(|l| !l.contains("\"type\":\"token_usage_record\""))
+        .collect::<Vec<_>>()
+        .join("\n");
+    rollout(&w, &first, &without_records);
+    let call = w.call(Role::Worker, Session::Resume(id(WORKER_ID)));
+    let cli = stand_in(&w, COMPACTED);
+
+    let reply = cli.run(&call, &Ending::default()).unwrap();
+
+    // What `turn.completed` reports: the turn's request, with no compaction in it.
+    assert_eq!(
+        reply.usage,
+        Usage {
+            input: 1523,
+            cache_write: 0,
+            cache_write_5m: 0,
+            cache_read: 0,
+            output: 96,
         }
     );
 }

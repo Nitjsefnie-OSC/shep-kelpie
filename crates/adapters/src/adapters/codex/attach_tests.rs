@@ -215,6 +215,9 @@ fn the_end_of_a_terminal_session_leaves_the_next_turn_to_count_only_its_own() {
             r#"{"type":"turn.completed","usage":{"input_tokens":38989,"cached_input_tokens":28416,"output_tokens":1052}}"#,
         ),
     );
+    // Codex appends the turn's record to the rollout.
+    let record = r#"{"type":"event_msg","payload":{"type":"token_usage_record","thread_token_usage":{"input_tokens":38989,"cached_input_tokens":28416,"output_tokens":1052}}}"#;
+    rollout_of_terminal(&call, &format!("{ROLLOUT}{record}\n"));
     let reply = next.run(&call, &Ending::default()).unwrap();
     assert_eq!(
         reply.usage,
