@@ -670,6 +670,7 @@ impl World {
             git_dir: &git,
             branch: "kelpie/7",
             base: "main",
+            kelpie_pushes: false,
             kelpie,
             kelpie_home: &self.path("kelpie"),
             repo: &self.path("repo"),

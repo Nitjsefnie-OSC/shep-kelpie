@@ -483,11 +483,13 @@ fn hooks(fence: &Fence) -> Value {
     // The project's own hooks, which the guard runs on a commit, a push and a post.
     let hooks = guard.hooks.flag().map(|flag| shell_quote(&flag));
     let base = guard.base_flag().map(|flag| shell_quote(&flag));
+    let pushes = guard.kelpie_pushes_flag().map(shell_quote);
     let commands: Vec<String> = (commands.into_iter())
         .chain(folders)
         .chain(issues)
         .chain(hooks)
         .chain(base)
+        .chain(pushes)
         .collect();
     let mut guarded = entry(Some(GUARDED_TOOLS), &commands.join(" "));
     // Claude Code lets a call through when its hook outlasts the hook's
@@ -675,6 +677,7 @@ mod tests {
                     build: "/k/build".into(),
                     git_common_dir: "/k/git".into(),
                     base: "main".into(),
+                    kelpie_pushes: false,
                     folders: Vec::new(),
                     issues: None,
                     hooks: Hooks::default(),
@@ -749,6 +752,7 @@ mod tests {
                     build: "/k/build".into(),
                     git_common_dir: "/k/git".into(),
                     base: "main".into(),
+                    kelpie_pushes: false,
                     folders: Vec::new(),
                     issues: None,
                     hooks,

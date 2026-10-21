@@ -833,10 +833,13 @@ fn decide(
                 phase,
             });
         }
-        // A worker cannot write agents' own files, so a note would not help it.
+        // A worker cannot write agents' own files or change a fork's settings, so a
+        // note would not help it.
         (
             Answer::No(_),
-            RulingKind::Stuck(Stuck::TurnTimeout { .. } | Stuck::TurnFailed { .. })
+            RulingKind::Stuck(
+                Stuck::TurnTimeout { .. } | Stuck::TurnFailed { .. } | Stuck::PushRefused { .. },
+            )
             | RulingKind::AgentFiles { .. },
         ) => Phase::Done {
             merged: false,
@@ -894,7 +897,10 @@ fn decide(
         (
             Answer::Yes,
             RulingKind::Stuck(
-                Stuck::Rebase { .. } | Stuck::StillRed { .. } | Stuck::MergeRefused { .. },
+                Stuck::Rebase { .. }
+                | Stuck::StillRed { .. }
+                | Stuck::MergeRefused { .. }
+                | Stuck::PushRefused { .. },
             ),
         ) => Phase::Ci {
             head: None,

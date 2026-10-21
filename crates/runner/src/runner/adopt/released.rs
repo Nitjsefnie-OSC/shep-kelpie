@@ -12,14 +12,14 @@ use crate::state::{How, Released};
 use crate::test::{Rig, Scripted, git, ticket};
 
 // The fork holds the pull request's head under the name the forge reports
-const FORK_BRANCH: &str = "topic/80";
+pub(in crate::runner) const FORK_BRANCH: &str = "topic/80";
 
 // What a case does to the forge before pull request 80 is adopted
 type Setup = fn(&Rig);
 
 // Pull request 80 by `newcomer`, closing issue 5, followed by a runner whose
 // project picks every contribution. Its branch on origin is `topic/80`.
-fn contributed() -> (Rig, Mutex<Runner>) {
+pub(in crate::runner) fn contributed() -> (Rig, Mutex<Runner>) {
     let (rig, runner) = picking("all");
     rig.push_by_hand("topic/80", "work.txt");
     rig.forge.open_pull_request(80, "topic/80", &[5]);
@@ -30,7 +30,7 @@ fn contributed() -> (Rig, Mutex<Runner>) {
 }
 
 // Records pull request 80's release, as the release stage does
-fn release(runner: &Mutex<Runner>) {
+pub(in crate::runner) fn release(runner: &Mutex<Runner>) {
     let mut runner = runner.lock().unwrap();
     let mut next = runner.state.clone();
     let held = (next.contributions.iter_mut()).find(|c| c.pull_request == 80);
@@ -41,7 +41,7 @@ fn release(runner: &Mutex<Runner>) {
     runner.save(next).unwrap();
 }
 
-fn adopted() -> StepReport {
+pub(in crate::runner) fn adopted() -> StepReport {
     StepReport::Adopted {
         issue: ticket(5),
         pull_request: 80,

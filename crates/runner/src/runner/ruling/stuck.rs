@@ -53,6 +53,10 @@ pub(in crate::runner) fn stuck_comment(reason: &Stuck) -> String {
         Stuck::Unpushed { .. } => {
             "Work in this pull request's worktree is not pushed, so its review waits.".to_owned()
         }
+        // The fork's own words stay off the contributor's pull request.
+        Stuck::PushRefused { .. } => {
+            "The fork refused a push of the work on this pull request, so it waits.".to_owned()
+        }
         Stuck::TurnTimeout { .. } => {
             "The work on this pull request ran too long and was stopped.".to_owned()
         }

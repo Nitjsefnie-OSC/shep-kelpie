@@ -5,8 +5,8 @@ loop and turns are in workers.md, agent files and harnesses in agents.md.
 
 
 - Workers start `--setting-sources project` + kelpie-written settings file; maintainer's hooks, plugins, skills don't load (on goose, the call's plugins' skills are linked into its own `config/skills`, `skills.md`). #98, `crates/core/src/profile/mod.rs`
-- Kelpie's guard in every worker's settings; `worker.guard_hooks` adds Claude Code hooks; an unresolvable hook stops the runner at start. #108, `runner/guard_hooks.rs`
-- Project `hooks` run own commands at `publish`, `commit`, `push`, `handover`, `command`, `write`, `turn_start`, `turn_end`, notices on every harness (`guard_hooks` reach Claude Code alone). ADR 0009, #454, `crates/core/src/hooks/mod.rs`
+- Kelpie's guard in every worker's settings; `worker.guard_hooks` adds Claude Code hooks; an unresolvable hook stops the runner at start and refuses a reread. #108, `runner/guard_hooks.rs`
+- Project `hooks` run own commands at `publish`, `commit`, `push`, `handover`, `command`, `write`, `turn_start`, `turn_end`, notices on every harness (`guard_hooks` reach Claude Code alone). A changed table is live: one `SharedHooks` handle held by the guarded ports and the runner, replaced by reread. ADR 0009, #454, #1120, `crates/core/src/hooks/`
 - Workers run `bypassPermissions` over `main` ruleset + OS sandbox + `kelpie guard` denylist; no auto mode (classifier outages blocked work). `crates/core/src/profile/mod.rs`
 - Sandbox and `kelpie confine` hold writes to worktree + build folder, hosts to GitHub, the model, `allowed_domains`. `crates/core/src/profile/mod.rs`
 - Guard denies what only kelpie does (merge, ready, `review please`, `gh api`, pushes to `main`, credential reads); a worker's `git fetch` is answered (merge.md); label or ready change kelpie didn't make parks the worker. A goose reviewer, advisor, retro: `--goose --read-only` (agents.md). `crates/core/src/guard/mod.rs`

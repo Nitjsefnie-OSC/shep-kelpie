@@ -838,6 +838,6 @@ pub(super) fn first_prompt(item: &WorkItem, then: Option<&str>) -> String {
 }
 
 #[cfg(test)]
-mod released;
+pub(in crate::runner) mod released;
 #[cfg(test)]
 mod tests;

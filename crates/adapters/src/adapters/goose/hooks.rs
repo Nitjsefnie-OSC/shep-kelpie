@@ -194,6 +194,7 @@ fn command(guard: &Guard, judging: Judging<'_>, servers: &[String]) -> String {
     .chain(folders)
     .chain(guard.hooks.flag().map(|flag| shell_quote(&flag)))
     .chain(guard.base_flag().map(|flag| shell_quote(&flag)))
+    .chain(guard.kelpie_pushes_flag().map(shell_quote))
     .chain([shell_quote(&format!(
         "{GOOSE_FLAG}{}",
         guard.build.display()

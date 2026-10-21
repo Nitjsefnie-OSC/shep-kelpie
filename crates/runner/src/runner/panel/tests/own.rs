@@ -206,6 +206,7 @@ fn the_repos_hook_runs_and_kelpies_guard_still_blocks_what_it_blocks() {
         git_common_dir: git_dir,
         worktree,
         base: "main",
+        kelpie_pushes: false,
     };
     let local = || guard::local_paths(None, &words[4..]).unwrap();
     let merge = json!({

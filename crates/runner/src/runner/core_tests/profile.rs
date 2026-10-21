@@ -52,6 +52,7 @@ fn profile<'a>(hooks: &'a [GuardHook], domains: &'a [NonBlank]) -> WorkerProfile
         git_dir: Path::new("/k/repos/shep/.git/worktrees/7"),
         branch: "kelpie/7",
         base: "main",
+        kelpie_pushes: false,
         kelpie: Path::new("/opt/kelpie's bin/kelpie"),
         kelpie_home: Path::new("/k"),
         repo: Path::new("/k/repos/shep"),
@@ -171,6 +172,7 @@ fn a_kelpie_home_outside_the_shepherds_is_denied_around_the_workers_own() {
         git_dir: Path::new("/r/.git/worktrees/7"),
         branch: "kelpie/7",
         base: "main",
+        kelpie_pushes: false,
         kelpie: Path::new("/opt/kelpie"),
         kelpie_home: &kelpie,
         repo: Path::new("/r"),
@@ -297,6 +299,7 @@ fn build_env_points_into_the_build_folder_beside_cargo() {
         git_dir: Path::new("/k/repos/lab/.git/worktrees/7"),
         branch: "kelpie/7",
         base: "main",
+        kelpie_pushes: false,
         kelpie: Path::new("/opt/kelpie"),
         kelpie_home: Path::new("/k"),
         repo: Path::new("/k/repos/shep"),
@@ -488,6 +491,7 @@ fn a_push_to_the_base_branch_or_with_a_forcing_flag_is_denied() {
 fn another_base_branch_is_denied_in_place_of_main() {
     let on_v2 = WorkerProfile {
         base: "v2",
+        kelpie_pushes: false,
         ..profile(&[], &[])
     };
     let s = on_v2.settings();
@@ -753,7 +757,7 @@ fn the_instructions_never_mention_money_or_limits() {
 #[test]
 fn a_worker_that_opens_its_own_pull_request_is_told_to_open_it_against_the_base() {
     let kelpie = Path::new("/bin/kelpie");
-    let on_next = instructions_for(kelpie, None, true, "next");
+    let on_next = instructions_for(kelpie, None, true, "next", false);
     assert!(
         on_next.contains("`gh pr create --draft --base next`"),
         "{on_next}"
@@ -789,4 +793,33 @@ fn the_instructions_ask_for_the_draft_pull_request_before_a_question_with_commit
         own.contains("open a draft one with `gh pr create --draft"),
         "{own}"
     );
+}
+
+// The push to a contributor's fork is kelpie's, made outside the sandbox with
+// the maintainer's login, so a worker on a fork gets no credential the
+// worker of a repo's own branch lacks: it only loses the right to push.
+#[test]
+fn the_maintainers_credential_is_not_in_the_workers_environment_or_files() {
+    let token = InstallationToken::new("ghs_scoped".to_owned());
+    let own = WorkerProfile {
+        token: Some(&token),
+        ..profile(&[], &[])
+    };
+    let forked = WorkerProfile {
+        kelpie_pushes: true,
+        ..own
+    };
+    let (own_fence, fence) = (*own.reach().fence.unwrap(), *forked.reach().fence.unwrap());
+
+    assert_eq!(fence.env, own_fence.env, "no variable is added");
+    assert_eq!(fence.no_read, own_fence.no_read, "no folder is opened");
+    for path in ["~/.config/gh/**", "~/Library/Keychains/**"] {
+        assert!(fence.no_read.contains(&path.to_owned()), "{path}");
+    }
+    for command in ["security", "git credential *", "git push", "git push *"] {
+        assert!(fence.no_commands.contains(&command.to_owned()), "{command}");
+    }
+    for text in [forked.settings().to_string(), format!("{fence:?}")] {
+        assert!(!text.contains("ghs_scoped"), "the token is in no file");
+    }
 }

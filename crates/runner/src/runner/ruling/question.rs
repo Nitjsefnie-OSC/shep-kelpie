@@ -155,6 +155,14 @@ pub(in crate::runner) fn question(
             } => {
                 return super::test_fails::question(&about, (&yes, &no), fix, head, tests);
             }
+            Stuck::PushRefused { why } => {
+                return format!(
+                    "The fork behind {about} refused kelpie's push of the worker's commits: {}. \
+                     They are kept in the worktree. {yes} pushes them again, once the reason is \
+                     cleared, and {no} stops the work item{kept}.",
+                    why.trim()
+                );
+            }
             Stuck::TurnTimeout { .. } => {
                 return format!(
                     "The worker on {about} has been running past its turn's ceiling, \

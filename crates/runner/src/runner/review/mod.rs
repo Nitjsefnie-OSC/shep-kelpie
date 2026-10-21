@@ -318,6 +318,12 @@ impl Runner {
         head: Option<String>,
         sent: findings::Sent<'_>,
     ) -> Result<Begin, StateError> {
+        // A fork worker only commits, so a fix is pushed by kelpie. The fork's
+        // head unchanged would otherwise read as a fix not pushed.
+        if let Some(held) = self.fork_commits_held()? {
+            return Ok(held);
+        }
+
         let issue = self.current().expect("a fix is a work item's").issue;
         let round = review.round;
         let mut left_open = None;

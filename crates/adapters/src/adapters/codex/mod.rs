@@ -682,6 +682,7 @@ fn hooks(fence: &Fence, tools: Tools) -> toml::Value {
     )
     .chain(guard.hooks.flag().map(|flag| shell_quote(&flag)))
     .chain(guard.base_flag().map(|flag| shell_quote(&flag)))
+    .chain(guard.kelpie_pushes_flag().map(shell_quote))
     .collect();
     let patch = match reading::patches_nothing(tools, fence) {
         true => refuse_patch(),

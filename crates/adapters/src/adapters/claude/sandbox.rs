@@ -207,6 +207,7 @@ mod tests {
                 git_dir: Path::new("/k/repo/.git/worktrees/7"),
                 branch: "kelpie/7",
                 base: "main",
+                kelpie_pushes: false,
                 kelpie: Path::new("/k/kelpie"),
                 kelpie_home: Path::new("/k"),
                 repo: Path::new("/k/repo"),

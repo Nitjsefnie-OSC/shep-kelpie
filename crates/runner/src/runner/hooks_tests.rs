@@ -214,6 +214,7 @@ fn guarded(fence: &crate::ports::Fence, command: &str) -> Verdict {
         git_common_dir: &guard.git_common_dir,
         worktree: &guard.worktree,
         base: "main",
+        kelpie_pushes: false,
     };
     judge_with(
         call.to_string().as_bytes(),

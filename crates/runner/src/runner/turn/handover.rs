@@ -84,7 +84,7 @@ impl Runner {
         let Some(head) = item.known.head.clone() else {
             return Handover::NotDue;
         };
-        if !self.hooks.has(HookPoint::Handover) || item.handed_over.as_ref() == Some(&head) {
+        if !self.hooks.get().has(HookPoint::Handover) || item.handed_over.as_ref() == Some(&head) {
             return Handover::NotDue;
         }
         let details = self.handover_details(item, &head, number);
@@ -98,7 +98,7 @@ impl Runner {
                 ));
             }
         };
-        let hooks = &self.hooks;
+        let hooks = self.hooks.get();
         match hooks.check(
             HookPoint::Handover,
             Role::Worker,

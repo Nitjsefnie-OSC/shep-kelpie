@@ -515,6 +515,7 @@ fn guard_extension(fence: &Fence, web: bool) -> String {
     );
     commands.extend(guard.hooks.flag());
     commands.extend(guard.base_flag());
+    commands.extend(guard.kelpie_pushes_flag().map(str::to_owned));
     // The project's `write` hooks ride on `confine`, and its `after_command` ones on
     // the guard again, run on each command's result.
     let mut confine = vec![
