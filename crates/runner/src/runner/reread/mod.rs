@@ -5,10 +5,11 @@
 //! and kelpie's gateways: a work item's worktree and pull request belong to
 //! the first three, the forge and voice ports hold the hooks built at start,
 //! the start picks the ticket port, and the adapters hold the gateways, so
-//! those wait for the runner's next start. The agent files are read again with them, and a change to
-//! those alone is a change too, but agents that name a gateway the runner
-//! lacks wait with it. A change is checked as a start checks it, and one
-//! that fails keeps the settings the runner has.
+//! those wait for the runner's next start. The agent files are read again
+//! with them, and a change to those alone is a change too, but agents that
+//! name a gateway the runner lacks wait with it, and so does
+//! `contributions.reviewers`. A change is checked as a start checks it, and
+//! one that fails keeps the settings the runner has.
 
 use super::{
     OpenError, Runner, check_bots, check_coderabbit, check_local, instructions, open_checks, triage,
@@ -103,6 +104,8 @@ impl Runner {
         if check_gateways(&self.gateways, &book, &agents, &lineup).is_err() {
             waiting.push("agents");
             settings.agents.clone_from(&self.settings.agents);
+            // The listed contributions' reviewers are agents too, and the old book may lack them.
+            (settings.contributions.reviewers).clone_from(&self.settings.contributions.reviewers);
             book.clone_from(&self.book);
             // The agents the runner has, under the new settings as a start reads them.
             agents = settings.role_agents(&book)?;
@@ -110,14 +113,21 @@ impl Runner {
         }
         let webhook = kelpie.webhook;
         let mut changed = changed::names((&self.settings, &self.webhook), (&settings, &webhook));
-        // The start's checks of the App and the agent files, against the new `pick`.
-        let contribution_lineup = open_checks::contributions(
-            &settings,
-            self.ports.voice.as_ref(),
-            &self.remote,
-            &book,
-            &self.home,
-        )?;
+        // The start's checks of the App and the agent files run on a changed table. The App
+        // can lose the repo while the runner runs, which must not refuse an unrelated edit.
+        let contribution_lineup = if settings.contributions != self.settings.contributions {
+            open_checks::contributions(
+                &settings,
+                self.ports.voice.as_ref(),
+                &self.remote,
+                &book,
+                &self.home,
+            )?
+        } else if settings.contributions.is_off() {
+            Vec::new()
+        } else {
+            settings.contribution_lineup(&book, &self.home)?
+        };
         if settings.triage != self.settings.triage {
             open_checks::triage(&settings, self.ports.voice.as_ref(), &self.remote, &book)?;
         }

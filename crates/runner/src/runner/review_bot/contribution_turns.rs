@@ -397,3 +397,26 @@ fn a_reread_dropping_a_bot_whose_turn_waits_for_its_lease_gives_the_ask_back() {
 
     assert!(!rig.leases.held(&cubic()), "the grant went back unused");
 }
+
+#[test]
+fn a_reread_that_cannot_save_the_dropped_turn_leaves_the_label_on() {
+    let (rig, runner, _head) = contributed(&["coderabbit", "mine"]);
+    for _ in 0..10 {
+        if rig.leases.held(&coderabbit()) {
+            break;
+        }
+        poll(&rig, &runner);
+    }
+    rig.edit_settings(|s| s.replace("[\"coderabbit\", \"mine\"]", "[\"mine\"]"));
+    let next = rig.settings();
+    let folder = rig.paths().state.parent().unwrap().to_owned();
+    std::fs::remove_dir_all(&folder).unwrap();
+    // A file where the folder was, which a save cannot make a folder of.
+    std::fs::write(&folder, "").unwrap();
+
+    let err = (runner.lock().unwrap()).reread(next, rig.kelpie_settings());
+
+    assert!(err.is_err(), "{err:?}");
+    assert_eq!(labels(&rig).last(), Some(&(30, LABEL.to_owned(), true)));
+    assert!(rig.leases.held(&coderabbit()));
+}

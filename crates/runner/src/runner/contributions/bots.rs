@@ -711,10 +711,9 @@ impl Runner {
             return Ok(());
         }
         let mut asked = Vec::new();
+        let mut labelled = Vec::new();
         for held in &ended {
-            if let Some(bot) = labelled_on(held) {
-                self.label_off(held.pull_request, bot);
-            }
+            labelled.extend(labelled_on(held).map(|bot| (held.pull_request, bot)));
             asked.extend(waiting_on(held));
         }
         let mut next = self.state.clone();
@@ -724,6 +723,10 @@ impl Runner {
             }
         }
         self.save(next)?;
+        // After the save, so a turn that stays in the state keeps its label.
+        for (number, bot) in labelled {
+            self.label_off(number, bot);
+        }
         self.give_up_asks(&asked)?;
         self.release_idle_bots()
     }

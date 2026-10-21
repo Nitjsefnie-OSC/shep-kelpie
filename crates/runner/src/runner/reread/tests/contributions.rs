@@ -8,7 +8,7 @@ use crate::runner::contributions::tests::{followed, opened, picking, poll};
 use crate::settings::Settings;
 use crate::test::{Rig, Scripted};
 
-use super::settings_with;
+use super::{list_local, paddock_keyed_by_cargo, settings_with};
 
 const TABLE: &str = "\n[app.dogs.kelpie.contributions]\n";
 
@@ -130,4 +130,43 @@ fn a_missing_security_reviewer_file_refuses_the_change_naming_its_setting() {
     let err = refused(&rig, &runner, next);
 
     assert!(err.contains("contributions.security_reviewer"), "{err}");
+}
+
+#[test]
+fn an_app_that_lost_the_repo_does_not_refuse_an_edit_to_another_setting() {
+    let (rig, runner) = picking("all");
+    rig.without_app();
+    let next = settings_with(&rig, |s| {
+        s.replace("per_item_usd = 10", "per_item_usd = 20")
+    });
+
+    let line = reread(&rig, &runner, next);
+
+    assert_eq!(
+        line.as_deref(),
+        Some("settings changed: budget now in effect")
+    );
+}
+
+#[test]
+fn reviewers_on_a_gateway_added_with_them_wait_with_the_agents() {
+    let (rig, runner) = picking("all");
+    paddock_keyed_by_cargo(&rig);
+    list_local(&rig);
+    let reviewer = "---\nrole: reviewer\nharness: endpoint\ngateway: paddock\nmodel: coder\n\
+                    context: 32768\n---\n";
+    rig.write_agent("paddocked", reviewer);
+    let next = settings_with(&rig, |s| {
+        s.replace(
+            "pick = \"all\"\n",
+            "pick = \"all\"\nreviewers = [\"paddocked\"]\n",
+        )
+    });
+
+    let line = reread(&rig, &runner, next);
+
+    assert_eq!(
+        line.as_deref(),
+        Some("settings changed; gateways and agents from the runner's next start")
+    );
 }
