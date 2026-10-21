@@ -2,9 +2,9 @@ use std::sync::Mutex;
 
 use serde_json::Value;
 
-use crate::ports::{AuthorAssociation, Clock, OpenIssue, Timestamp};
-use crate::runner::{Runner, step};
-use crate::test::Rig;
+use crate::ports::{AuthorAssociation, Clock, OpenIssue, Role, Timestamp};
+use crate::runner::{Pass, Runner, advance, step};
+use crate::test::{CALL_PATIENCE, Hold, Rig, Scripted};
 
 use super::settings_with;
 
@@ -187,4 +187,58 @@ fn a_missing_triager_file_is_refused_naming_triage_agent() {
 
     assert!(err.to_string().contains("triage.agent"), "{err}");
     assert!(runner.settings().triage.is_off(), "the old pick stays");
+}
+
+#[test]
+fn narrowing_pick_drops_the_listing_made_under_the_wider_one() {
+    let (rig, runner) = rig_picking("all");
+    rig.maintainer("Boss");
+    rig.forge.list_open_issue(issue(&rig, 30, 5));
+    assert_eq!(step(&runner).unwrap(), None);
+    assert_eq!(due(&rig, &runner), [30]);
+
+    let next = pick_now(&rig, "all", "maintainer");
+    runner
+        .lock()
+        .unwrap()
+        .reread(next, rig.kelpie_settings())
+        .unwrap();
+
+    assert_eq!(due(&rig, &runner), Vec::<u64>::new());
+}
+
+#[test]
+fn pick_turned_off_while_a_call_runs_posts_nothing_when_it_ends() {
+    let (rig, runner) = rig_picking("all");
+    rig.forge.list_open_issue(issue(&rig, 30, 5));
+    let hold = Hold::default();
+    let found = r#"{"type": null, "priority": null, "related": [], "files": [],
+        "tests": [], "criteria": [], "open": [], "body": null}"#;
+    rig.claude
+        .script_for(Role::Triager, [Scripted::HoldThenSay(hold.clone(), found)]);
+    rig.claude.script_for(
+        Role::Representative,
+        [Scripted::Say("Thanks for the report.")],
+    );
+    assert!(matches!(advance(&runner).unwrap(), Pass::Started));
+    assert!(hold.entered(CALL_PATIENCE), "the research never began");
+
+    let next = pick_now(&rig, "all", "off");
+    runner
+        .lock()
+        .unwrap()
+        .reread(next, rig.kelpie_settings())
+        .unwrap();
+    hold.release();
+    assert!(hold.answered(CALL_PATIENCE), "the research never answered");
+    let by = std::time::Instant::now() + CALL_PATIENCE;
+    while rig.ask(&runner, "status", None)["triage"]["running"].is_u64() {
+        assert!(std::time::Instant::now() < by, "the call never ended");
+        advance(&runner).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    rig.next_look();
+    assert_eq!(step(&runner).unwrap(), None);
+
+    assert_eq!(rig.github.comments(), []);
 }

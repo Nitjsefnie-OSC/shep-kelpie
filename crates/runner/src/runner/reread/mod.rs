@@ -186,7 +186,12 @@ impl Runner {
                 // The poll that listed them stops with `pick`, so they would stay as `status` says them.
                 self.triage_due.clear();
                 self.triage_queue.clear();
+                self.flights.end_triage();
             }
+        }
+        // The listing was made under the old pick, and the next poll is up to a minute off.
+        if settings.triage.pick != self.settings.triage.pick {
+            self.triage_due.clear();
         }
         self.settings = settings;
         if e2e_changed {
