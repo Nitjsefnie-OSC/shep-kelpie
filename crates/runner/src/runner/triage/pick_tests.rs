@@ -4,9 +4,11 @@ use std::sync::Mutex;
 
 use serde_json::Value;
 
-use crate::ports::{AuthorAssociation, Clock, OpenIssue, Timestamp};
+use super::research_tests::{WORDS, nothing, reply};
+use crate::ports::{AuthorAssociation, Clock, OpenIssue, Role, Timestamp};
 use crate::runner::{Runner, step};
-use crate::test::Rig;
+use crate::state::StateStore;
+use crate::test::{Rig, Scripted};
 
 // The maintainer is not kelpie's account, which is `the-maintainer`
 pub(super) const MAINTAINER: &str = "Boss";
@@ -92,7 +94,6 @@ fn an_issue_opened_before_pick_was_turned_on_is_not_listed() {
 fn an_issue_with_any_triage_label_is_not_listed() {
     let (rig, runner) = triaging("all");
     for (number, label) in [
-        (30, "needs-triage"),
         (31, "needs-info"),
         (32, "ready-for-agent"),
         (33, "ready-for-human"),
@@ -109,6 +110,63 @@ fn an_issue_with_any_triage_label_is_not_listed() {
     assert_eq!(step(&runner).unwrap(), None);
 
     assert_eq!(due(&rig, &runner), [35]);
+}
+
+#[test]
+fn an_issue_someone_labelled_needs_triage_by_hand_is_listed() {
+    let (rig, runner) = triaging("all");
+    let mut by_hand = issue(&rig, 30, "newcomer", 5);
+    by_hand.labels = vec!["needs-triage".to_owned()];
+    list(&rig, by_hand);
+
+    assert_eq!(step(&runner).unwrap(), None);
+
+    assert_eq!(due(&rig, &runner), [30]);
+}
+
+// The records of the issues kelpie triaged first went in a prune, which kept the
+// highest number it dropped: a `needs-triage` at or below it is kelpie's own
+#[test]
+fn a_needs_triage_on_an_issue_whose_record_was_pruned_is_not_read_as_by_hand() {
+    let rig = rig_with("pick = \"all\"");
+    let store = StateStore::new(rig.paths().state);
+    let runner = rig.open().unwrap();
+    drop(runner);
+    let mut saved = serde_json::to_value(store.load().unwrap().unwrap()).unwrap();
+    saved["triage"]["pruned_through"] = 30.into();
+    store.save(&serde_json::from_value(saved).unwrap()).unwrap();
+    let runner = rig.open().unwrap();
+    for number in [30, 31] {
+        let mut labelled = issue(&rig, number, "newcomer", 5);
+        labelled.labels = vec!["needs-triage".to_owned()];
+        list(&rig, labelled);
+    }
+
+    assert_eq!(step(&runner).unwrap(), None);
+
+    assert_eq!(due(&rig, &runner), [31]);
+}
+
+#[test]
+fn an_issue_kelpie_triaged_is_not_listed_again_whatever_its_labels() {
+    let (rig, runner) = triaging("all");
+    let mut by_hand = issue(&rig, 30, "newcomer", 5);
+    by_hand.labels = vec!["needs-triage".to_owned()];
+    list(&rig, by_hand);
+    rig.claude
+        .script_for(Role::Representative, [Scripted::Say(WORDS)]);
+    rig.claude.script_for(Role::Triager, [reply(nothing())]);
+
+    assert_eq!(step(&runner).unwrap(), None);
+    assert_eq!(rig.github.comments().len(), 1, "it was triaged");
+
+    for labels in [vec![], vec!["needs-triage"], vec!["bug"]] as [Vec<&str>; 3] {
+        let mut again = issue(&rig, 30, "newcomer", 5);
+        again.labels = labels.into_iter().map(str::to_owned).collect();
+        list(&rig, again);
+        assert_eq!(step(&runner).unwrap(), None);
+        assert_eq!(due(&rig, &runner), Vec::<u64>::new());
+    }
 }
 
 #[test]
