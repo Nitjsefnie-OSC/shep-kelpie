@@ -20,7 +20,7 @@ use super::{
     ThreadComment, Tickets, Timestamp, Visibility, Voice, Workflow,
 };
 use crate::board::OpenPullRequest;
-use crate::hooks::{Hooks, Role};
+use crate::hooks::{Hooks, Role, SharedHooks};
 use crate::local_paths::{Leak, LocalPaths, Surface, names_repo};
 use crate::review_bot::{Activity, Login};
 use crate::settings::ForgeSlug;
@@ -103,7 +103,7 @@ pub struct Guarded {
     tickets: Arc<dyn Tickets>,
     local: LocalPaths,
     flock: Flock,
-    hooks: Hooks,
+    hooks: SharedHooks,
 }
 
 impl Guarded {
@@ -115,13 +115,15 @@ impl Guarded {
             forge,
             tickets,
             local,
-            hooks: Hooks::default(),
+            hooks: SharedHooks::default(),
         }
     }
 
-    /// This forge, also refusing posts that one of `hooks`' publish hooks refuses
+    /// This forge, also refusing posts that one of `hooks`' publish hooks refuses,
+    /// as they stand when the post is checked
     #[must_use]
-    pub fn with_hooks(self, hooks: Hooks) -> Self {
+    pub fn with_hooks(self, hooks: impl Into<SharedHooks>) -> Self {
+        let hooks = hooks.into();
         Self { hooks, ..self }
     }
 
@@ -144,7 +146,7 @@ impl Guarded {
         what: &'static str,
         text: &str,
     ) -> Result<(), ForgeError> {
-        let checks = (&self.local, Some(&self.flock), &self.hooks);
+        let checks = (&self.local, Some(&self.flock), &*self.hooks.get());
         check(checks, role, repo, what, text)
     }
 }
@@ -374,7 +376,7 @@ pub struct GuardedVoice {
     voice: Arc<dyn Voice>,
     local: LocalPaths,
     flock: Option<Flock>,
-    hooks: Hooks,
+    hooks: SharedHooks,
 }
 
 impl GuardedVoice {
@@ -384,13 +386,15 @@ impl GuardedVoice {
             voice,
             local,
             flock: None,
-            hooks: Hooks::default(),
+            hooks: SharedHooks::default(),
         }
     }
 
-    /// This voice, also refusing writes that one of `hooks`' publish hooks refuses
+    /// This voice, also refusing writes that one of `hooks`' publish hooks refuses,
+    /// as they stand when the write is checked
     #[must_use]
-    pub fn with_hooks(self, hooks: Hooks) -> Self {
+    pub fn with_hooks(self, hooks: impl Into<SharedHooks>) -> Self {
+        let hooks = hooks.into();
         Self { hooks, ..self }
     }
 
@@ -408,7 +412,7 @@ impl GuardedVoice {
 
     // Everything the App writes is kelpie's own text.
     fn check(&self, repo: &ForgeSlug, what: &'static str, text: &str) -> Result<(), ForgeError> {
-        let checks = (&self.local, self.flock.as_ref(), &self.hooks);
+        let checks = (&self.local, self.flock.as_ref(), &*self.hooks.get());
         check(checks, Role::Kelpie, repo, what, text)
     }
 }

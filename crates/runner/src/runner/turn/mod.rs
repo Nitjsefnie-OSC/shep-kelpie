@@ -684,7 +684,7 @@ impl Runner {
         // `publish` hooks, so every harness reaches them with its own checks.
         let mut reach = profile.reach();
         if let Some(fence) = reach.fence.as_mut() {
-            fence.guard.hooks = self.hooks.clone().in_folder(&item.worktree);
+            fence.guard.hooks = self.hooks.get().as_ref().clone().in_folder(&item.worktree);
         }
         Ok(reach)
     }

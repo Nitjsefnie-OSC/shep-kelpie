@@ -342,6 +342,13 @@ async fn a_checkout_moved_to_one_no_other_project_runs_is_written_and_waits_for_
 }
 
 #[tokio::test]
+async fn a_changed_hooks_table_is_taken_at_the_next_wake() {
+    let scene = Scene::new().await;
+    let said = scene.set("hooks", "[]").await.unwrap();
+    assert!(said[0].ends_with("at its next wake"), "{said:?}");
+}
+
+#[tokio::test]
 async fn a_project_on_a_keyed_gateway_needs_no_key_in_the_shell_that_runs_set() {
     let scene = Scene::keyed_gateway().await;
     let said = scene.set("concurrency.active_items", "2").await.unwrap();

@@ -323,7 +323,7 @@ impl Runner {
         let held = ending.clone();
         let agents = self.counted(TurnHooks::around(
             Arc::clone(&self.ports.agents),
-            &self.hooks,
+            &self.hooks.get(),
             &self.notes,
             None,
         ));
@@ -511,7 +511,7 @@ impl Runner {
         let item = (self.state.work_items.iter()).find(|i| i.issue == ticket);
         let agents = self.counted(TurnHooks::around(
             Arc::clone(&self.ports.agents),
-            &self.hooks,
+            &self.hooks.get(),
             &self.notes,
             item,
         ));

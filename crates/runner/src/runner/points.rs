@@ -146,7 +146,7 @@ impl Runner {
     /// Runs the project's `turn_end` hooks on a worker's turn that ended
     /// with `last_message`, and says why one refused it, if one did
     pub(super) fn turn_end(&self, item: &WorkItem, last_message: &str) -> Option<String> {
-        if !self.hooks.has(HookPoint::TurnEnd) {
+        if !self.hooks.get().has(HookPoint::TurnEnd) {
             return None;
         }
         let details = json!({
@@ -155,7 +155,7 @@ impl Runner {
             "last_message": last_message,
             "head": item.known.head,
         });
-        let checked = self.hooks.check(
+        let checked = self.hooks.get().check(
             HookPoint::TurnEnd,
             Role::Worker,
             Some(&item.worktree),
@@ -167,11 +167,11 @@ impl Runner {
     /// Hands the project's notice hooks at `point` `details` to run, off
     /// the runner's lock, and logs the ones that did not exit 0
     pub fn tell_hooks(&self, point: HookPoint, role: Role, details: Value) {
-        if !self.hooks.has(point) {
+        if !self.hooks.get().has(point) {
             return;
         }
         let job = Job::Tell {
-            hooks: self.hooks.clone(),
+            hooks: self.hooks.get().as_ref().clone(),
             notes: self.notes.clone(),
             point,
             role,
@@ -197,7 +197,7 @@ impl Runner {
 
     /// Tells the `ruling` hooks each ruling raised since they last heard
     pub(super) fn tell_rulings(&mut self) {
-        if !self.hooks.has(HookPoint::Ruling) {
+        if !self.hooks.get().has(HookPoint::Ruling) {
             return;
         }
         let told = &mut self.told_points.rulings;
@@ -234,7 +234,7 @@ impl Runner {
         conclusion: &str,
         failed: &[String],
     ) {
-        if !self.hooks.has(HookPoint::Ci) {
+        if !self.hooks.get().has(HookPoint::Ci) {
             return;
         }
         if self

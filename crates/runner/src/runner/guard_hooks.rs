@@ -1,9 +1,9 @@
-//! A project's own hooks, checked when the runner starts
+//! A project's own hooks, checked when the runner starts and when its settings change
 //!
 //! A `worker.guard_hooks` command that is not there fails every tool call it
 //! matches, in every worker, and a `hooks` command that is not there refuses
-//! everything at its point, so the runner refuses to start on either and
-//! names it. A
+//! everything at its point, so the runner refuses to start on either, and a
+//! change that brings one is refused, naming it. A
 //! command resolves when its program is on `PATH` or at its path, and every
 //! later word that is an absolute or `~/` path exists. `~/` and `$HOME/` are
 //! the home folder, as the worker's shell reads them: the runner's own `HOME`
@@ -11,8 +11,38 @@
 
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
-use crate::settings::{Settings, SettingsError};
+use crate::home::ProjectName;
+use crate::hooks::Hooks;
+use crate::metrics::Recorder;
+use crate::settings::{ForgeSlug, Settings, SettingsError};
+
+/// The project's hooks as `settings` name them, each run counted by `metrics`
+pub(super) fn built(
+    project: &ProjectName,
+    remote: &ForgeSlug,
+    settings: &Settings,
+    metrics: &Arc<Recorder>,
+) -> Hooks {
+    let checkout = settings.git.checkout.as_path();
+    Hooks::new(project.as_str(), remote.as_str(), checkout, &settings.hooks)
+        .counted_by(Arc::clone(metrics))
+}
+
+/// [`check`] with the runner's own `HOME` and `PATH`, which a worker inherits
+///
+/// # Errors
+///
+/// [`SettingsError::Invalid`] as [`check`] gives it.
+pub(super) fn check_here(settings: &Settings) -> Result<(), SettingsError> {
+    let home = std::env::var_os("HOME").map(PathBuf::from);
+    check(
+        settings,
+        home.as_deref(),
+        std::env::var_os("PATH").as_deref(),
+    )
+}
 
 /// Checks that every one of the project's guard hooks and hooks resolves,
 /// with `home` and `path` the worker's `HOME` and `PATH`

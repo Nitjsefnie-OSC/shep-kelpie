@@ -1,12 +1,13 @@
 mod contributions;
 mod dependencies;
 mod e2e;
+mod hooks;
 mod triage;
 
 use std::path::Path;
 
 use crate::ports::Visibility;
-use crate::settings::{Filing, GatewayName, HookPoint, Merging};
+use crate::settings::{Filing, GatewayName, Merging};
 use crate::test::Rig;
 use crate::webhook::{KelpieSettings, WebhookKind};
 
@@ -226,27 +227,6 @@ fn a_changed_maintainer_alone_takes_effect_at_once() {
     );
     let login = runner.settings().git.maintainer.clone().unwrap();
     assert_eq!(login.as_str(), "octocat");
-}
-
-#[test]
-fn a_changed_hook_alone_waits_for_the_next_start() {
-    let rig = Rig::new("shep");
-    let runner = rig.open().unwrap();
-    rig.hook("check.sh", &["publish"], "exit 0");
-    let mut runner = runner.lock().unwrap();
-    let line = runner.reread(rig.settings(), rig.kelpie_settings());
-    assert_eq!(
-        line.unwrap().as_deref(),
-        Some("settings changed; hooks from the runner's next start")
-    );
-    assert!(runner.settings().hooks.is_empty(), "the old hooks stay");
-    assert!(!runner.hooks.has(HookPoint::Publish));
-    drop(runner);
-
-    let restarted = rig.open().unwrap();
-    let restarted = restarted.lock().unwrap();
-    assert_eq!(restarted.settings().hooks.len(), 1);
-    assert!(restarted.hooks.has(HookPoint::Publish));
 }
 
 fn paddock_at(rig: &Rig, url: &str) {
