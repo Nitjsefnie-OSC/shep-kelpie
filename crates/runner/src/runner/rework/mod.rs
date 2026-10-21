@@ -344,7 +344,12 @@ impl Runner {
             .labelled_agent(ticket, &found.labels)
             .map_err(ReworkError::Label)?;
         let session = new_session_id().map_err(|e| ReworkError::Session(e.to_string()))?;
-        let fresh = self.fresh(ticket, found.title, agent.clone(), session);
+        // The pull request merges into the branch it was opened against, whatever
+        // `git.base` says now.
+        let fresh = WorkItem {
+            base: Some(pr.base.clone()),
+            ..self.fresh(ticket, found.title, agent.clone(), session)
+        };
         // A rework stays on its pull request, so a listed bot's `rounds`
         // counts the reviews it gave it before. As an adoption does, it
         // leaves out a review of the current head, which the bot's round

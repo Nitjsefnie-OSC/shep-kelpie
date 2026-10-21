@@ -116,7 +116,7 @@ pub async fn set(
 
 // Whether a runner keeps the value it started with: its reread leaves these until a start.
 fn waits_for_start(key: &str) -> bool {
-    matches!(key, "git" | "git.checkout" | "git.remote" | "git.base")
+    matches!(key, "git" | "git.checkout" | "git.remote")
 }
 
 // The settings in `tables`, when they pass the checks a runner makes of them as it

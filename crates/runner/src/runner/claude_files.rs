@@ -40,12 +40,13 @@ impl Runner {
         };
         let accepted = item.claude_files_accepted.as_deref();
         let phase = item.phase.clone();
+        let base = self.item_base(item).to_owned();
         match fence::changed(
             &self.settings.git.checkout,
             &item.branch,
             &item.remote,
             accepted,
-            self.settings.git.base(),
+            &base,
         ) {
             Ok((_, files)) if files.is_empty() => Ok(None),
             Ok((head, files)) => {
@@ -67,7 +68,7 @@ impl Runner {
             &self.settings.git.checkout,
             &item.worktree,
             accepted,
-            self.settings.git.base(),
+            self.item_base(item),
         ) {
             Ok(files) if files.is_empty() => None,
             Ok(files) => Some(format!(

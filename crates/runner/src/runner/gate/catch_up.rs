@@ -29,7 +29,7 @@ impl Runner {
             head,
             rewrite,
             &item.remote,
-            self.settings.git.base(),
+            self.item_base(item),
         );
         match outcome {
             Ok(Rebase::Pushed(rebased)) => {

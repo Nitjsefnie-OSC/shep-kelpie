@@ -1,12 +1,14 @@
 //! A settings change reaching a running runner
 //!
 //! Every setting takes effect live, at the next step or call that reads
-//! it, except `git.checkout`, `git.remote`, `git.base` and kelpie's
-//! gateways: a work item's worktree and pull request belong to the first
-//! three, and the adapters hold the gateways, so those wait for the runner's
-//! next start. The agent files are read again with them, and a change to
-//! those alone is a change too, but agents that name a gateway the runner
-//! lacks wait with it, and so does `contributions.reviewers`. A change is checked as a start checks it, and
+//! it, except `git.checkout`, `git.remote` and kelpie's gateways: a work
+//! item's worktree and pull request belong to the first two, and the
+//! adapters hold the gateways, so those wait for the runner's next start. A
+//! new `git.base` reaches the work items opened after it; each one in flight
+//! keeps the base it was cut for. The agent files are read again with them,
+//! and a change to those alone is a change too, but agents that name a
+//! gateway the runner lacks wait with it, and so does
+//! `contributions.reviewers`. A change is checked as a start checks it, and
 //! one that fails keeps the settings the runner has.
 
 use super::{
@@ -55,11 +57,6 @@ impl Runner {
         if settings.git.remote != self.settings.git.remote {
             waiting.push("git.remote");
             settings.git.remote.clone_from(&self.settings.git.remote);
-        }
-        // The worktrees, the pull requests and the guard's flag were cut for the base the runner started with.
-        if settings.git.base != self.settings.git.base {
-            waiting.push("git.base");
-            settings.git.base.clone_from(&self.settings.git.base);
         }
         // The adapters were built with the gateways at start.
         if !kelpie.gateways().iter().eq(self.gateways.iter()) {
@@ -144,14 +141,14 @@ impl Runner {
         // Planned here and written once the checks below hold, so a reread that
         // fails leaves the plugin folders the runner is using as they were.
         let repo_plugins = RepoPlugins::plan(
-            &self.settings.git.checkout,
-            self.settings.git.base(),
+            &settings.git.checkout,
+            settings.git.base(),
             &self.paths.kelpie_home,
             &self.paths.skills,
             self.ports.git.as_ref(),
             &settings.repo_setup,
         );
-        let plugins_head = default_head(&self.settings.git.checkout, self.settings.git.base());
+        let plugins_head = default_head(&settings.git.checkout, settings.git.base());
         if repo_plugins != self.repo_plugins {
             changed.push("repo plugins");
         }

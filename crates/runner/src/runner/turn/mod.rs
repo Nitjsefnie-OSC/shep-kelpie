@@ -563,7 +563,7 @@ impl Runner {
                 browser: hosts,
                 dev_server: dev.as_ref(),
                 local_ticket: item.issue.github().is_none(),
-                base: Some(self.settings.git.base()),
+                base: Some(self.item_base(item)),
                 kelpie_pushes: !item.remote.is_origin(),
             },
             &item.worktree,
@@ -631,7 +631,7 @@ impl Runner {
             &item.worktree,
             &item.branch,
             start,
-            self.settings.git.base(),
+            self.item_base(item),
             &item.remote,
             &item.build,
         )
@@ -646,7 +646,7 @@ impl Runner {
                     "issue #{}'s worker runs with `origin/{}` where kelpie last fetched it: \
                      {why}",
                     item.issue,
-                    self.settings.git.base()
+                    self.item_base(item)
                 ),
             ),
             None => self.notes.ends(&key),
@@ -666,7 +666,7 @@ impl Runner {
             git_common_dir: &dirs.git_common_dir,
             git_dir: &dirs.git_dir,
             branch: &item.branch,
-            base: self.settings.git.base(),
+            base: self.item_base(item),
             // A contributor's fork is out of the worker's token's reach, and
             // the login that reaches it is kelpie's alone: it pushes there.
             kelpie_pushes: !item.remote.is_origin(),
@@ -740,12 +740,10 @@ impl Runner {
         if self.settings.repo_setup.reaches(call.role) {
             // A call in a worktree that matches `main` loads the repo's own
             // `.claude` files from it already, and must not get them twice.
+            let item = call.issue.and_then(|ticket| self.state.item(ticket));
+            let base = item.map_or(self.settings.git.base(), |item| self.item_base(item));
             let own_loaded = call.harness.reads_claude_files()
-                && crate::fence::matches_main(
-                    &self.settings.git.checkout,
-                    &call.cwd,
-                    self.settings.git.base(),
-                );
+                && crate::fence::matches_main(&self.settings.git.checkout, &call.cwd, base);
             for plugin in self.repo_plugins.dirs(own_loaded) {
                 if !call.plugin_dirs.iter().any(|dir| dir == plugin) {
                     call.plugin_dirs.push(plugin.to_owned());

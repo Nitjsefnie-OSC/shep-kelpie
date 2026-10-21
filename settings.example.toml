@@ -11,8 +11,8 @@
 # longer needed.
 # `shep kelpie get` prints a project's table and `shep kelpie set <key>
 # <value>` changes one key. A running runner takes a change at its next
-# wake, within a minute when idle. `git.checkout`, `git.remote`, `git.base`, `tickets`
-# and kelpie's gateways wait for its next start, and the log says so.
+# wake, within a minute when idle. `git.checkout`, `git.remote`, `tickets` and
+# kelpie's gateways wait for its next start, and the log says so.
 
 [[app]]
 name = "shep"
@@ -33,7 +33,7 @@ remote = "shep-pm/shep"
 # `origin/<base>`, their pull requests open against it and merge there.
 # The repo's default branch when absent. Set it for a repo whose work
 # happens on a long-lived branch that is not its default. `shep kelpie add
-# --base <branch>` writes it. A change waits for the runner's next start.
+# --base <branch>` writes it. A change reaches the work items opened after it.
 # base = "next"
 # Who merges a green, reviewed pull request. `ask` raises a merge ruling.
 # `auto` merges and sends a notice after, to the webhook, or the log when

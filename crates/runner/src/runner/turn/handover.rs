@@ -114,7 +114,7 @@ impl Runner {
     fn handover_details(&self, item: &WorkItem, head: &str, number: u64) -> Result<Value, String> {
         let run = worktree::trusted(&self.settings.git.checkout, &item.worktree)
             .map_err(|e| e.to_string())?;
-        let mut details = commits_past_base(&run, head, self.settings.git.base())
+        let mut details = commits_past_base(&run, head, self.item_base(item))
             .map_err(|e| e.to_string())?
             .unwrap_or_else(|| json!({ "head": head, "commits": [] }));
         details["pull_request"] = json!(number);

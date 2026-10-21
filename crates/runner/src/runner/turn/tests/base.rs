@@ -89,3 +89,43 @@ fn a_project_with_no_base_cuts_and_opens_against_main() {
     let log = git(&worktree, &["log", "--format=%H", "origin/main..HEAD"]);
     assert_eq!(log.lines().count(), 1, "one commit past origin/main: {log}");
 }
+
+#[test]
+fn a_worktree_cut_from_the_old_base_still_loads_its_own_claude_files_once_the_base_moves() {
+    let rig = Rig::new("shep");
+    rig.edit_settings(|s| format!("{s}\n[app.dogs.kelpie.repo_setup]\n\n"));
+    rig.land(".claude/skills/house/SKILL.md", "Rules.\n");
+    let runner = rig.open().unwrap();
+    rig.ask(&runner, "add", Some("7"));
+    // `dev` carries a `.claude` file the item's worktree, cut from `main`, does not.
+    rig.base_is("dev");
+    let repo = rig.repo();
+    git(&repo, &["checkout", "--quiet", "dev"]);
+    let skill = repo.join(".claude/skills/house/SKILL.md");
+    fs::create_dir_all(skill.parent().unwrap()).unwrap();
+    fs::write(skill, "Other rules.\n").unwrap();
+    git(&repo, &["add", ".claude"]);
+    git(&repo, &["commit", "--quiet", "-m", "change the skill"]);
+    git(&repo, &["push", "--quiet", "origin", "dev"]);
+    git(&repo, &["checkout", "--quiet", "main"]);
+    runner
+        .lock()
+        .unwrap()
+        .reread(rig.settings(), rig.kelpie_settings())
+        .unwrap();
+    rig.claude
+        .script([Scripted::Reply(usage(1), Cost(20_085_300))]);
+
+    step(&runner).unwrap();
+
+    let own = rig.paths().skills.join("repo/kelpie-repo");
+    let calls = rig.claude.calls();
+    let [call] = calls.as_slice() else {
+        panic!("one worker call: {calls:?}")
+    };
+    assert!(
+        !call.plugin_dirs.contains(&own),
+        "the worktree's own files load once: {:?}",
+        call.plugin_dirs
+    );
+}

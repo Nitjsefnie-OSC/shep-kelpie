@@ -20,8 +20,8 @@ pub struct Git {
     #[serde(default)]
     pub remote: Option<ForgeSlug>,
     /// The branch work items are cut from, opened pull requests against and
-    /// merged into, on `origin`. `main` when absent. A change waits for the
-    /// runner's next start.
+    /// merged into, on `origin`. `main` when absent. A change reaches the work
+    /// items opened after it: each one in flight keeps the base it was cut for.
     #[serde(default)]
     pub base: Option<BaseBranch>,
     /// Who merges a green, reviewed pull request

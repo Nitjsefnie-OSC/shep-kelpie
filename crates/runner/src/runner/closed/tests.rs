@@ -549,3 +549,27 @@ fn a_parked_item_stays_while_its_pull_request_cannot_be_read_and_is_read_again_l
     rig.clock.advance(PARKED_READ);
     assert!(steps(&runner).iter().any(finished_merged));
 }
+
+#[test]
+fn an_item_cut_from_a_base_the_settings_left_is_still_closed_with_no_change() {
+    let rig = Rig::new("acme");
+    rig.base_is("dev");
+    let runner = rig.open().unwrap();
+    rig.ask(&runner, "add", Some("7"));
+    rig.claude.script([Scripted::Say(ASKS)]);
+    step(&runner).unwrap();
+    step(&runner).unwrap();
+    rig.edit_settings(|s| s.replace("\nbase = \"dev\"", ""));
+    let line = (runner.lock().unwrap())
+        .reread(rig.settings(), rig.kelpie_settings())
+        .unwrap();
+    assert_eq!(
+        line.as_deref(),
+        Some("settings changed: git.base now in effect")
+    );
+
+    rig.forge.close_issue(7);
+    rig.clock.advance(PARKED_READ);
+
+    assert!(closed_with_no_change(step(&runner).unwrap()));
+}

@@ -558,7 +558,7 @@ impl Runner {
             &fresh.worktree,
             &branch,
             Start::Pushed,
-            self.settings.git.base(),
+            self.item_base(&fresh),
             &remote,
             &fresh.build,
         );

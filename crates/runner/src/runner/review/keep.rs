@@ -89,7 +89,7 @@ impl Runner {
             LocalRound::Command(_) => (None, None, "command"),
         };
         let (repo, worktree) = (&self.settings.git.checkout, &item.worktree);
-        let base = item.review_base(self.settings.git.base());
+        let base = item.review_base(self.item_base(item));
         let base = crate::worktree::change_start(repo, worktree, &base).unwrap_or(base);
         let head = match finished.head {
             Some(head) => head.to_owned(),

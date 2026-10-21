@@ -85,7 +85,7 @@ impl Runner {
         match self.choose_reviewer(
             &next,
             &item.worktree,
-            &item.review_base(self.settings.git.base()),
+            &item.review_base(self.item_base(item)),
         ) {
             Ok(None) if !next.unread && item.bots_skipped.is_empty() => Phase::Ci {
                 head: None,
