@@ -1,4 +1,4 @@
-{"type":"thread.started","thread_id":"01a0f7fd-4ed5-7773-80ea-165edc292d8d"}
+{"type":"thread.started","thread_id":"01a15f02-1110-7bf2-b928-b024ecc97d52"}
 {"type":"turn.started"}
-{"type":"error","message":"exceeded retry limit, last status: 429 Too Many Requests, request id: 9f3c1e7a2b4d5c61-AMS"}
-{"type":"turn.failed","error":{"message":"exceeded retry limit, last status: 429 Too Many Requests, request id: 9f3c1e7a2b4d5c61-AMS"}}
+{"type":"error","message":"exceeded retry limit, last status: 429 Too Many Requests, request id: req-stub-1"}
+{"type":"turn.failed","error":{"message":"exceeded retry limit, last status: 429 Too Many Requests, request id: req-stub-1"}}

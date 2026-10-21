@@ -97,7 +97,13 @@ fn a_new_worker_session_loads_nothing_of_the_maintainers_and_runs_kelpies_checks
     ] {
         assert!(argv.iter().any(|a| a == config), "{config} in {argv:?}");
     }
-    for feature in ["multi_agent", "plugins", "memories", "apps"] {
+    for feature in [
+        "multi_agent",
+        "plugins",
+        "memories",
+        "apps",
+        "unbounded_connection_retries",
+    ] {
         assert!(
             argv.windows(2).any(|w| w == ["--disable", feature]),
             "{feature}"
