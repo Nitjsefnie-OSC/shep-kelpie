@@ -9,7 +9,7 @@ use std::process::Output;
 use serde::{Deserialize, Serialize};
 
 use super::GOOSE;
-use crate::adapters::pi::tail;
+use crate::adapters::harness::tail;
 use crate::ports::{AgentError, AgentReply, Session, Usage};
 
 /// What goose says in place of a reply when it ran out of turns, and exits 0

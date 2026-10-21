@@ -19,10 +19,11 @@ fn waiting_codex(world: &World) -> CodexCli {
         world.path("stdout.jsonl").display()
     );
     crate::test::write_script(&world.path("codex"), &script);
-    ClaudeCli::default()
-        .sandboxed(Arc::new(OpenSandbox::default()), world.path("home"))
-        .codex(world.path("login"))
-        .with_program(world.path("codex"))
+    CodexCli::on(
+        &Base::default().sandboxed(Arc::new(OpenSandbox::default()), world.path("home")),
+        world.path("login"),
+    )
+    .with_program(world.path("codex"))
 }
 
 #[test]

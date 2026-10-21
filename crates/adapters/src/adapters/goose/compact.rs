@@ -18,7 +18,7 @@ use serde_json::Value;
 
 use super::output::{self, Read, failed};
 use super::{GOOSE, GooseCli};
-use crate::adapters::pi::tail;
+use crate::adapters::harness::tail;
 use crate::ports::{AgentCall, AgentError, AgentReply, COMPACT, Role, Session, SessionId};
 
 /// What a compact call sends in place of `COMPACT`: goose's own command
@@ -138,7 +138,7 @@ impl GooseCli {
         let (mut command, _forwarder) = self
             .wrapped_command(call, None, args.into(), None)
             .map_err(|e| e.to_string())?;
-        let output = (self.processes)
+        let output = (self.base.processes)
             .output_within(&mut command, LIST_LIMIT)
             .map_err(|e| format!("{e:?}"))?;
         if !output.status.success() {

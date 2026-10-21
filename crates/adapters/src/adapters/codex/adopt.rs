@@ -8,7 +8,7 @@
 use std::path::{Path, PathBuf};
 
 use super::{CODEX, CodexCli, Files, finish};
-use crate::adapters::claude::ClaudeCli;
+use crate::adapters::harness::adoption_of;
 use crate::adapters::process::RunError;
 use crate::ports::{Adopted, AgentCall, AgentError, AgentReply, Ending};
 use crate::settings::Harness;
@@ -17,8 +17,7 @@ impl CodexCli {
     /// What finishes `call` on another image, if it runs now as a worker's
     /// call that left a record, or why nothing does
     pub(super) fn adoption_of(&self, call: &AgentCall) -> Result<Adopted, String> {
-        let mut adopted = ClaudeCli::adoption_of(call)?;
-        adopted.harness = Harness::Codex;
+        let mut adopted = adoption_of(call, Harness::Codex)?;
         adopted.session = Some(call.session.id().clone());
         Ok(adopted)
     }
@@ -33,6 +32,7 @@ impl CodexCli {
             return self.unserved(adopted, ending, "the carried Codex call names no session");
         };
         let output = self
+            .base
             .processes
             .output_of_adopted(adopted, ending)
             .map_err(|e| match e {
@@ -52,7 +52,7 @@ impl CodexCli {
         why: &str,
     ) -> Result<AgentReply, AgentError> {
         ending.end();
-        let _ = self.processes.output_of_adopted(adopted, ending);
+        let _ = self.base.processes.output_of_adopted(adopted, ending);
         Err(AgentError::Setup(why.into()))
     }
 }

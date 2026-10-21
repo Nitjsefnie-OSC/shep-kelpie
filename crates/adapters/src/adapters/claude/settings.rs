@@ -294,12 +294,6 @@ pub fn settings(tools: Tools, reach: &Reach) -> Value {
     }))
 }
 
-/// Where the prompt that [`compacting`] hands back is kept, beside the call's
-/// `settings` file
-pub(crate) fn prompt_file(settings: &Path) -> PathBuf {
-    settings.with_extension("prompt.md")
-}
-
 /// Where the hook that hands the prompt back leaves one mark for each
 /// compaction, in the call's `scratch` folder
 pub(crate) fn compactions_file(scratch: &Path) -> PathBuf {

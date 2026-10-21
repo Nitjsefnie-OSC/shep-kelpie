@@ -16,9 +16,8 @@
 use super::compact;
 use super::files::Files;
 use super::{GOOSE, GooseCli};
-use crate::adapters::claude::ClaudeCli;
 use crate::adapters::forwarder::Forwarder;
-use crate::adapters::pi::adopt::host_of;
+use crate::adapters::harness::{adoption_of, host_of};
 use crate::adapters::process::RunError;
 use crate::ports::{Adopted, AgentCall, AgentError, AgentReply, Ending, Session, Unheld};
 use crate::settings::{Harness, ModelHost};
@@ -27,10 +26,9 @@ impl GooseCli {
     /// What finishes `call` on another image, if it runs now as a worker's
     /// call that left a record, or why nothing does
     pub(super) fn adoption_of(&self, call: &AgentCall) -> Result<Adopted, String> {
-        let mut adopted = ClaudeCli::adoption_of(call)?;
+        let mut adopted = adoption_of(call, Harness::Goose)?;
         let kept = self.carried.kept_by(&adopted.record);
         adopted.kept = Some(kept.ok_or("this image holds no forwarder for the call")?);
-        adopted.harness = Harness::Goose;
         Ok(adopted)
     }
 
@@ -41,7 +39,7 @@ impl GooseCli {
         adopted: &Adopted,
         ending: &Ending,
     ) -> Result<AgentReply, AgentError> {
-        let wait = || self.processes.output_of_adopted(adopted, ending);
+        let wait = || self.base.processes.output_of_adopted(adopted, ending);
         let Some(kept) = adopted.kept.as_ref() else {
             return self.unserved(
                 adopted,
@@ -116,7 +114,7 @@ impl GooseCli {
         why: String,
     ) -> Result<AgentReply, AgentError> {
         ending.end();
-        let _ = self.processes.output_of_adopted(adopted, ending);
+        let _ = self.base.processes.output_of_adopted(adopted, ending);
         Err(AgentError::Setup(why))
     }
 }

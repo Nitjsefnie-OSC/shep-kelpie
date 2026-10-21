@@ -7,84 +7,20 @@
 //! forwarder again at that path and goes on renewing the lease, from its own
 //! gateway settings, and holds both until the adopted call ends.
 
-use std::collections::HashMap;
-use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
-
 use super::{PI, PiCli, read_as};
-use crate::adapters::claude::ClaudeCli;
 use crate::adapters::forwarder::Forwarder;
+use crate::adapters::harness::{adoption_of, host_of};
 use crate::adapters::process::RunError;
-use crate::adapters::process::record::CallFiles;
-use crate::ports::{Adopted, AgentCall, AgentError, AgentReply, Ending, Kept, KeptServer, Unheld};
-use crate::settings::{EndpointUrl, GatewayName, Harness, ModelHost};
-
-/// What running calls keep in this image's memory, by the call's record
-#[derive(Debug, Clone, Default)]
-pub(in crate::adapters) struct Carried(Arc<Mutex<HashMap<PathBuf, Kept>>>);
-
-impl Carried {
-    fn lock(&self) -> MutexGuard<'_, HashMap<PathBuf, Kept>> {
-        self.0.lock().unwrap_or_else(PoisonError::into_inner)
-    }
-
-    /// What the call with `record` keeps, if a running call noted it
-    pub(in crate::adapters) fn kept_by(&self, record: &Path) -> Option<Kept> {
-        self.lock().get(record).cloned()
-    }
-
-    /// Notes what `call` keeps, until the returned guard is dropped
-    pub(in crate::adapters) fn note(&self, call: &AgentCall, kept: Kept) -> Noted {
-        let record = CallFiles::of(call).record;
-        self.lock().insert(record.clone(), kept);
-        Noted {
-            carried: self.clone(),
-            record,
-        }
-    }
-}
-
-/// A call's note in [`Carried`], which its end removes
-pub(in crate::adapters) struct Noted {
-    carried: Carried,
-    record: PathBuf,
-}
-
-impl Drop for Noted {
-    fn drop(&mut self) {
-        self.carried.lock().remove(&self.record);
-    }
-}
-
-/// How a call's model server is written in a [`Kept`]
-pub(in crate::adapters) fn kept_server(host: &ModelHost) -> KeptServer {
-    match host {
-        ModelHost::Url(url) => KeptServer::Url(url.as_str().to_owned()),
-        ModelHost::Gateway(name) => KeptServer::Gateway(name.to_string()),
-    }
-}
-
-pub(in crate::adapters) fn host_of(server: &KeptServer) -> Result<ModelHost, String> {
-    let unusable =
-        |what: &str, e: &str| format!("the carried model server {what} is unusable: {e}");
-    match server {
-        KeptServer::Url(url) => EndpointUrl::try_from(url.clone())
-            .map(ModelHost::Url)
-            .map_err(|e| unusable("URL", e)),
-        KeptServer::Gateway(name) => GatewayName::try_from(name.clone())
-            .map(ModelHost::Gateway)
-            .map_err(|e| unusable("gateway", e)),
-    }
-}
+use crate::ports::{Adopted, AgentCall, AgentError, AgentReply, Ending, Unheld};
+use crate::settings::{Harness, ModelHost};
 
 impl PiCli {
     /// What finishes `call` on another image, if it runs now as a worker's
     /// call that left a record, or why nothing does
     pub(super) fn adoption_of(&self, call: &AgentCall) -> Result<Adopted, String> {
-        let mut adopted = ClaudeCli::adoption_of(call)?;
-        let kept = self.carried.lock().get(&adopted.record).cloned();
+        let mut adopted = adoption_of(call, Harness::Pi)?;
+        let kept = self.carried.kept_by(&adopted.record);
         adopted.kept = Some(kept.ok_or("this image holds no forwarder for the call")?);
-        adopted.harness = Harness::Pi;
         Ok(adopted)
     }
 
@@ -95,7 +31,7 @@ impl PiCli {
         adopted: &Adopted,
         ending: &Ending,
     ) -> Result<AgentReply, AgentError> {
-        let wait = || self.processes.output_of_adopted(adopted, ending);
+        let wait = || self.base.processes.output_of_adopted(adopted, ending);
         let Some(kept) = adopted.kept.as_ref() else {
             return self.unserved(
                 adopted,
@@ -153,7 +89,7 @@ impl PiCli {
         why: String,
     ) -> Result<AgentReply, AgentError> {
         ending.end();
-        let _ = self.processes.output_of_adopted(adopted, ending);
+        let _ = self.base.processes.output_of_adopted(adopted, ending);
         Err(AgentError::Setup(why))
     }
 }

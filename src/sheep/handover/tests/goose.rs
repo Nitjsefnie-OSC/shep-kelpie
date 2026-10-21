@@ -16,7 +16,7 @@ use std::time::Duration;
 use super::super::super::{Hooks, JOIN_BOUND, Worker};
 use super::exec::{FOLDER, read, worker_of, write};
 use super::*;
-use crate::adapters::ClaudeCli;
+use crate::adapters::{Base, GooseCli};
 use crate::ports::Routed;
 use crate::settings::Timing;
 use crate::settings::{EndpointUrl, Gateway, GatewayKind, GatewayName, Gateways, KeyVar};
@@ -224,10 +224,10 @@ fn rig_for(rig: &Rig, host: &str) {
     rig.set_kelpie_settings(&format!("{settings}{gateway}"));
 }
 
-fn agents(rig: &Rig, folder: &Path, host: &str) -> (ClaudeCli, Arc<Routed>) {
-    let claude = ClaudeCli::default()
-        .sandboxed(Arc::new(OpenSandbox::default()), rig.home.path().to_owned());
-    let goose = (claude.goose())
+fn agents(rig: &Rig, folder: &Path, host: &str) -> (Base, Arc<Routed>) {
+    let base =
+        Base::default().sandboxed(Arc::new(OpenSandbox::default()), rig.home.path().to_owned());
+    let goose = GooseCli::on(&base)
         .with_program(folder.join("goose"))
         .with_gateways(gateways(host));
     let stand_in = Arc::new(rig.claude.clone());
@@ -237,7 +237,7 @@ fn agents(rig: &Rig, folder: &Path, host: &str) -> (ClaudeCli, Arc<Routed>) {
         stand_in,
         Arc::new(goose),
     );
-    (claude, Arc::new(routed))
+    (base, Arc::new(routed))
 }
 
 // The first image: a goose turn runs as a child, and the runner is asked to
@@ -247,10 +247,10 @@ fn outgoing(folder: &Path, host: &str) {
     write(folder, "home", &rig.home.path().display().to_string());
     rig_for(&rig, host);
     goose_script(folder);
-    let (claude, routed) = agents(&rig, folder, host);
+    let (base, routed) = agents(&rig, folder, host);
     let runner = Arc::new(rig.open_agents(routed).unwrap());
     rig.ask(&runner, "add", Some("7"));
-    let handing = Handing::installed_unchecked(claude);
+    let handing = Handing::installed_unchecked(base);
     let (_worker, wake) = worker_of(&runner, Arc::clone(&handing));
     eventually("the turn's child", || folder.join("started").exists());
     write(folder, "pid.before", &std::process::id().to_string());
@@ -264,7 +264,7 @@ fn outgoing(folder: &Path, host: &str) {
 fn incoming(folder: &Path, host: &str, carry: Carry) {
     write(folder, "pid.after", &std::process::id().to_string());
     let rig = Rig::over("shep", Path::new(read(folder, "home").trim()));
-    let (_claude, routed) = agents(&rig, folder, host);
+    let (_base, routed) = agents(&rig, folder, host);
     let runner = Arc::new(rig.open_agents(routed).unwrap());
     let (wake, woken) = mpsc::channel();
     {
@@ -305,7 +305,7 @@ fn a_goose_turn_whose_record_is_gone_refuses_the_handover_and_the_old_image_keep
     let rig = Rig::new("shep");
     rig_for(&rig, server.host());
     goose_script(folder);
-    let (_claude, routed) = agents(&rig, folder, server.host());
+    let (_base, routed) = agents(&rig, folder, server.host());
     let runner = Arc::new(rig.open_agents(routed).unwrap());
     rig.ask(&runner, "add", Some("7"));
     let (handing, tried) = refusing("unused", &Arc::default());

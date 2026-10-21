@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 use super::sandbox::{policy, transcripts};
-use crate::adapters::SandboxRuntime;
+use crate::adapters::{Base, SandboxRuntime};
 use crate::ports::{AgentCall, Ending, Role, Sandbox, Session, SessionId, Tools};
 use crate::profile::WorkerProfile;
 use crate::settings::Effort;
@@ -314,7 +314,9 @@ fn a_live_worker_turn_runs_inside_the_sandbox_and_resumes() {
         token: None,
     };
     let home = std::env::var_os("HOME").map(PathBuf::from).unwrap();
-    let cli = ClaudeCli::default().sandboxed(Arc::new(SandboxRuntime::new(tools)), home.clone());
+    let cli = ClaudeCli::on(
+        &Base::default().sandboxed(Arc::new(SandboxRuntime::new(tools)), home.clone()),
+    );
     let id = crate::work_item::new_session_id().unwrap();
     let mut call = AgentCall {
         issue: crate::ticket::TicketId::from_issue(7),

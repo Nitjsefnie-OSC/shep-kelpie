@@ -14,37 +14,35 @@
 //! lease on its model from start to end, where its kind offers one.
 
 use std::ffi::OsString;
-use std::net::{IpAddr, ToSocketAddrs};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
-use std::sync::Arc;
 
 use serde::Deserialize;
 use serde_json::json;
 
-use self::adopt::{Carried, kept_server};
 use self::compact::Tokens;
 use self::shared::profile;
-use super::claude::sandbox::{bind_in_scratch, call_policy};
-use super::claude::{ClaudeCli, LambLabels};
 use super::forwarder::Forwarder;
+use super::harness::{
+    Base, Carried, bind_in_scratch, call_policy, deny_the_server, kept_server, prompt_file,
+    step_skill, tail,
+};
+use super::process::RunError;
 use super::process::record::CallFiles;
-use super::process::{Processes, RunError};
 use super::unreachable::reaches_no_host;
 use crate::fence;
 use crate::forwarder::{Upstream, WORKER_HOST};
 use crate::guard::{AFTER_FLAG, FOLDER_FLAG, Pause};
 use crate::ports::{
     Adopted, AgentCall, AgentError, AgentReply, Agents, COMPACT, CallActivity, Ending, Fence,
-    Forward, Kept, Policy, Role, Sandbox, Session, SessionId, Stand, Taking, Tools, Transcript,
-    Unheld, Usage, Wait,
+    Forward, Kept, Policy, Role, Session, SessionId, Stand, Taking, Tools, Transcript, Unheld,
+    Usage, Wait,
 };
 use crate::settings::{AgentHarness, Gateways, Harness, HookPoint, ModelHost, ModelServer};
-use crate::skills::split_command;
 use crate::tool_error::GUARD_MARK;
 
 mod activity;
-pub(super) mod adopt;
+mod adopt;
 mod attach;
 mod compact;
 pub(crate) mod mcp;
@@ -157,12 +155,8 @@ fn mcp_config(call: &AgentCall) -> Option<serde_json::Value> {
 /// It shares Claude Code's calls in flight, so stopping either stops both.
 #[derive(Debug, Clone)]
 pub struct PiCli {
-    processes: Processes,
+    base: Base,
     program: OsString,
-    lambs: Option<Arc<dyn LambLabels>>,
-    sandbox: Arc<dyn Sandbox>,
-    // What a call with no fence may not read: the shepherd's home
-    unfenced_no_read: Vec<String>,
     gateways: Gateways,
     // What each running call keeps in memory that a handover must carry
     carried: Carried,
@@ -170,24 +164,18 @@ pub struct PiCli {
     terminals: attach::Terminals,
 }
 
-impl ClaudeCli {
-    /// pi, run the way this runs Claude Code: same sandbox, same lamb labels,
-    /// and stopped with it
-    pub fn pi(&self) -> PiCli {
-        PiCli {
-            processes: self.processes.clone(),
+impl PiCli {
+    /// pi on `base`: its sandbox, lamb labels and calls in flight
+    pub fn on(base: &Base) -> Self {
+        Self {
+            base: base.clone(),
             program: "pi".into(),
-            lambs: self.lambs.clone(),
-            sandbox: Arc::clone(&self.sandbox),
-            unfenced_no_read: self.unfenced_no_read.clone(),
             gateways: Gateways::default(),
             carried: Carried::default(),
             terminals: attach::Terminals::default(),
         }
     }
-}
 
-impl PiCli {
     /// Sends a model behind a gateway through `gateways`
     pub fn with_gateways(self, gateways: Gateways) -> Self {
         Self { gateways, ..self }
@@ -274,7 +262,7 @@ impl Agents for PiCli {
         refuse_missing_session(call)?;
         let label = call.label();
         let spawned = |pid| {
-            if let Some(lambs) = &self.lambs {
+            if let Some(lambs) = &self.base.lambs {
                 lambs.label(pid, &label);
             }
         };
@@ -290,7 +278,7 @@ impl Agents for PiCli {
                     lease: lease.map(str::to_owned),
                 },
             );
-            (self.processes)
+            (self.base.processes)
                 .output_of_call(&mut command, call, ending, &spawned)
                 .map_err(|e| match e {
                     RunError::Io(e) => AgentError::Spawn(PI, e.to_string()),
@@ -363,13 +351,13 @@ impl PiCli {
         let taking = Taking {
             model: &call.model,
             note: &note,
-            give_up: &|| ending.asked() || self.processes.stopping(),
+            give_up: &|| ending.asked() || self.base.processes.stopping(),
             tell: &tell,
             ending,
         };
         port.around_leased(&upstream, &taking, run)
             .map_err(|unheld| match unheld {
-                Unheld::GaveUp if self.processes.stopping() => AgentError::Stopped,
+                Unheld::GaveUp if self.base.processes.stopping() => AgentError::Stopped,
                 Unheld::GaveUp => AgentError::TimedOut(PI),
                 Unheld::Refused(why) => AgentError::Setup(format!(
                     "cannot take a lease on {} from gateway {name}: {why}",
@@ -434,9 +422,10 @@ impl PiCli {
             &files,
             &upstream,
             &forwarder.socket,
-            &self.unfenced_no_read,
+            &self.base.unfenced_no_read,
         );
         let wrapped = self
+            .base
             .sandbox
             .wrap(&policy, &files.sandbox_settings, &command)
             .map_err(|e| AgentError::Setup(e.to_string()))?;
@@ -513,7 +502,7 @@ impl Files {
             sandbox_settings: call.settings.with_extension("sandbox.json"),
             guard_path: call.settings.with_extension("guard.ts"),
             compact_path: call.settings.with_extension("compact.ts"),
-            prompt_path: super::claude::settings::prompt_file(&call.settings),
+            prompt_path: prompt_file(&call.settings),
         }
     }
 
@@ -638,42 +627,6 @@ fn skill_prompt(call: &AgentCall) -> (String, Option<PathBuf>) {
     }
 }
 
-/// The skill a step's prompt starts with, as Claude Code's `/<plugin>:<skill>`
-pub(super) struct StepSkill {
-    /// The skill's name
-    pub(super) name: String,
-    /// Its folder, which holds its `SKILL.md`
-    pub(super) dir: PathBuf,
-    /// The prompt after the command
-    pub(super) rest: String,
-}
-
-/// The skill `call`'s prompt runs, from one of its plugins, if any
-pub(super) fn step_skill(call: &AgentCall) -> Option<StepSkill> {
-    let (Some(command), rest) = split_command(&call.prompt) else {
-        return None;
-    };
-    let (plugin, skill) = command.trim_start_matches('/').split_once(':')?;
-    let dir = call
-        .plugin_dirs
-        .iter()
-        .filter(|dir| plugin_name(dir).as_deref() == Some(plugin))
-        .map(|dir| dir.join("skills").join(skill))
-        .find(|dir| dir.join("SKILL.md").is_file())?;
-    Some(StepSkill {
-        name: skill.to_owned(),
-        dir,
-        rest: rest.to_owned(),
-    })
-}
-
-// A plugin's name, from its manifest
-fn plugin_name(dir: &Path) -> Option<String> {
-    let text = std::fs::read_to_string(dir.join(".claude-plugin/plugin.json")).ok()?;
-    let manifest: serde_json::Value = serde_json::from_str(&text).ok()?;
-    manifest["name"].as_str().map(str::to_owned)
-}
-
 /// The guard extension's source for a call fenced by `fence`, which lets the web
 /// package's tools through when the call `web` loads it
 fn guard_extension(fence: &Fence, web: bool) -> String {
@@ -772,45 +725,6 @@ fn policy(
         socket: forwarder.to_owned(),
     });
     policy
-}
-
-// Whatever `allowed_domains` says, the sandbox never reaches the model server
-// or this machine's loopback by name or by the address the server resolves to.
-pub(super) fn deny_the_server(policy: &mut Policy, upstream: &Upstream) {
-    let bracketed = |host: &str| match host.contains(':') {
-        true => format!("[{host}]"),
-        false => host.to_owned(),
-    };
-    for host in [upstream.host(), "localhost", "127.0.0.1", "::1"] {
-        let host = bracketed(host);
-        if !policy.denied_hosts.contains(&host) {
-            policy.denied_hosts.push(host);
-        }
-    }
-    let resolved = upstream.address().to_socket_addrs().into_iter().flatten();
-    for address in resolved {
-        let address = match address.ip() {
-            IpAddr::V6(v6) => v6.to_ipv4_mapped().map_or(address.ip(), IpAddr::V4),
-            v4 => v4,
-        };
-        let address = address.to_string();
-        if !policy.denied_addresses.contains(&address) {
-            policy.denied_addresses.push(address);
-        }
-    }
-}
-
-/// How much of pi's output an error carries: its end, where the reason is
-const ERROR_TAIL: usize = 2048;
-
-// The last `ERROR_TAIL` bytes of `text`, since a worker's output runs to
-// megabytes and an error reaches a ruling, the state file and the webhook.
-pub(super) fn tail(text: &str) -> &str {
-    let mut start = text.len().saturating_sub(ERROR_TAIL);
-    while !text.is_char_boundary(start) {
-        start += 1;
-    }
-    &text[start..]
 }
 
 // A compact call's output is read for its compaction, any other call's for its turn.

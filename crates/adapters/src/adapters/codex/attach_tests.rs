@@ -3,6 +3,7 @@
 
 use std::ffi::OsStr;
 use std::process::Command;
+use std::sync::Arc;
 
 use super::tests::{THREAD, WORKER_ID, World, id, stand_in, strings};
 use super::*;
@@ -13,9 +14,10 @@ use crate::test::OpenSandbox;
 const ROLLOUT: &str = include_str!("../../../../../fixtures/codex-rollout-compacted.jsonl");
 
 fn codex_in(world: &World, sandbox: &OpenSandbox) -> CodexCli {
-    ClaudeCli::default()
-        .sandboxed(Arc::new(sandbox.clone()), world.path("home"))
-        .codex(world.path("login"))
+    CodexCli::on(
+        &Base::default().sandboxed(Arc::new(sandbox.clone()), world.path("home")),
+        world.path("login"),
+    )
 }
 
 // A worker's call whose Codex session kelpie has recorded, ready to resume.

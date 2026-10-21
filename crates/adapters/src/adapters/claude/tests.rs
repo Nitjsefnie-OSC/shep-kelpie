@@ -1,8 +1,10 @@
 use std::os::unix::process::ExitStatusExt;
 use std::path::PathBuf;
 use std::process::ExitStatus;
+use std::sync::Arc;
 
 use super::*;
+use crate::adapters::{Base, LambLabels};
 use crate::ports::Tools;
 use crate::settings::Effort;
 use crate::test::OpenSandbox;
@@ -14,10 +16,15 @@ fn a_runners_calls_on_every_harness_leave_kelpies_codex_login_unread() {
     std::fs::create_dir_all(tools.sandbox().parent().unwrap()).unwrap();
     std::fs::write(tools.sandbox(), "").unwrap();
     let login = dir.path().join("codex");
-    let claude =
-        ClaudeCli::default().in_runtime(tools, dir.path().join("home"), &login, Vec::new());
+    let claude = ClaudeCli::on(&Base::default().in_runtime(
+        tools,
+        dir.path().join("home"),
+        &login,
+        Vec::new(),
+    ));
     let settings = dir.path().join("call.srt.json");
     claude
+        .base
         .sandbox
         .wrap(
             &crate::ports::Policy::default(),
@@ -42,7 +49,8 @@ fn a_runners_calls_on_every_harness_leave_kelpies_codex_login_unread() {
 fn a_calls_activity_is_when_its_session_transcript_was_last_written() {
     let dir = tempfile::tempdir().unwrap();
     let home = dir.path().join("home");
-    let claude = ClaudeCli::default().sandboxed(Arc::new(OpenSandbox::default()), home.clone());
+    let claude =
+        ClaudeCli::on(&Base::default().sandboxed(Arc::new(OpenSandbox::default()), home.clone()));
     let mut call = call(Role::Worker, fresh());
     call.cwd = dir.path().join("wt");
     std::fs::create_dir_all(&call.cwd).unwrap();
@@ -67,7 +75,8 @@ fn a_calls_activity_is_when_its_session_transcript_was_last_written() {
 fn a_calls_transcript_is_in_the_folder_claude_code_names_for_its_working_folder() {
     let dir = tempfile::tempdir().unwrap();
     let home = dir.path().join("home");
-    let claude = ClaudeCli::default().sandboxed(Arc::new(OpenSandbox::default()), home.clone());
+    let claude =
+        ClaudeCli::on(&Base::default().sandboxed(Arc::new(OpenSandbox::default()), home.clone()));
     let mut call = call(Role::Worker, fresh());
     call.cwd = dir.path().join("wt");
     std::fs::create_dir_all(&call.cwd).unwrap();
@@ -528,11 +537,9 @@ fn a_call_s_lamb_carries_its_issue_and_role() {
     );
     crate::test::write_script(&claude, &script);
     let lambs = Arc::new(Recorded::default());
-    let cli = ClaudeCli {
-        program: claude.into(),
-        ..ClaudeCli::labelling(Arc::clone(&lambs) as Arc<dyn LambLabels>)
-    }
-    .sandboxed(Arc::new(OpenSandbox::default()), dir.path().join("home"));
+    let base = Base::labelling(Arc::clone(&lambs) as Arc<dyn LambLabels>)
+        .sandboxed(Arc::new(OpenSandbox::default()), dir.path().join("home"));
+    let cli = ClaudeCli::on(&base).with_program(claude);
     for role in [Role::Worker, Role::Reviewer] {
         let mut call = call(role, fresh());
         call.cwd = dir.path().to_owned();

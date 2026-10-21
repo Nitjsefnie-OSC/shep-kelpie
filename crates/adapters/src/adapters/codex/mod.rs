@@ -18,21 +18,18 @@
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
-use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
-use super::claude::sandbox::{bind_in_scratch, call_policy};
-use super::claude::{ClaudeCli, LambLabels};
-use super::pi::step_skill;
+use super::harness::{Base, bind_in_scratch, call_policy, step_skill, tail};
+use super::process::RunError;
 use super::process::record::CallFiles;
-use super::process::{Processes, RunError};
 use super::unreachable::reaches_no_host;
 use crate::fence;
 use crate::guard::{AFTER_FLAG, FOLDER_FLAG, PIN_FLAG};
 use crate::ports::{
     Adopted, AgentCall, AgentError, AgentReply, Agents, COMPACT, CallActivity, Ending, Fence,
-    Policy, Sandbox, Session, SessionId, Tools, Transcript, Usage, written_at,
+    Policy, Session, SessionId, Tools, Transcript, Usage, written_at,
 };
 use crate::settings::{AgentHarness, Harness, HookPoint};
 use crate::spawn::shell_quote;
@@ -157,26 +154,19 @@ const FEATURES_OFF: [&str; 17] = [
 /// It shares Claude Code's calls in flight, so stopping either stops both.
 #[derive(Debug, Clone)]
 pub struct CodexCli {
-    processes: Processes,
+    base: Base,
     program: OsString,
-    lambs: Option<Arc<dyn LambLabels>>,
-    sandbox: Arc<dyn Sandbox>,
-    // What a call with no fence may not read: the shepherd's home
-    unfenced_no_read: Vec<String>,
     login: PathBuf,
     terminals: attach::Terminals,
 }
 
-impl ClaudeCli {
-    /// Codex on the login in `codex_home`, run the way this runs Claude
-    /// Code: same sandbox and lamb labels, and stopped with it
-    pub fn codex(&self, codex_home: PathBuf) -> CodexCli {
-        CodexCli {
-            processes: self.processes.clone(),
+impl CodexCli {
+    /// Codex on `base` and the login in `codex_home`: same sandbox and lamb
+    /// labels, and stopped with it
+    pub fn on(base: &Base, codex_home: PathBuf) -> Self {
+        Self {
+            base: base.clone(),
             program: "codex".into(),
-            lambs: self.lambs.clone(),
-            sandbox: Arc::clone(&self.sandbox),
-            unfenced_no_read: self.unfenced_no_read.clone(),
             login: codex_home,
             terminals: attach::Terminals::default(),
         }
@@ -217,11 +207,12 @@ impl Agents for CodexCli {
         let mut command = self.sandboxed_command(call)?;
         let label = call.label();
         let spawned = |pid| {
-            if let Some(lambs) = &self.lambs {
+            if let Some(lambs) = &self.base.lambs {
                 lambs.label(pid, &label);
             }
         };
         let run = self
+            .base
             .processes
             .output_of_call(&mut command, call, ending, &spawned);
         let output = run.map_err(|e| match e {
@@ -348,9 +339,10 @@ impl CodexCli {
         if let Some(fence) = &call.reach.fence {
             command.envs(&fence.env);
         }
-        self.sandbox
+        self.base
+            .sandbox
             .wrap(
-                &policy(call, &self.login, files, &self.unfenced_no_read),
+                &policy(call, &self.login, files, &self.base.unfenced_no_read),
                 &files.sandbox_settings,
                 &command,
             )
@@ -825,19 +817,6 @@ fn policy(call: &AgentCall, login: &Path, files: &Files, unfenced: &[String]) ->
     // (`docs/facts/codex-as-an-agent.md`).
     policy.verify_tls = true;
     policy
-}
-
-/// How much of Codex's output an error carries: its end, where the reason is
-const ERROR_TAIL: usize = 2048;
-
-// The last `ERROR_TAIL` bytes of `text`, since a worker's output runs to
-// megabytes and an error reaches a ruling, the state file and the webhook.
-fn tail(text: &str) -> &str {
-    let mut start = text.len().saturating_sub(ERROR_TAIL);
-    while !text.is_char_boundary(start) {
-        start += 1;
-    }
-    &text[start..]
 }
 
 // An error for a turn that failed with `detail`, unreachable where Codex says

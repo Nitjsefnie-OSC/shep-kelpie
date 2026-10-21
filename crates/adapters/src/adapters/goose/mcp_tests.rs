@@ -463,7 +463,7 @@ fn a_researcher_that_loads_a_server_runs_in_auto_behind_the_hook_and_one_that_lo
     call.role = Role::Researcher;
     call.tools = Tools::Research;
     let vars = |call: &AgentCall| {
-        let goose = ClaudeCli::default().goose();
+        let goose = GooseCli::on(&Base::default());
         let server = server(call).unwrap();
         let upstream = goose.upstream(server).unwrap();
         let files = Files::of(&call.settings);
@@ -496,7 +496,7 @@ fn a_researcher_that_loads_a_server_runs_in_auto_behind_the_hook_and_one_that_lo
 fn the_sandbox_reads_the_code_graph_binary_and_writes_only_its_index_and_daemon_folder() {
     let w = World::new();
     let policy_of = |call: &AgentCall| {
-        let goose = ClaudeCli::default().goose();
+        let goose = GooseCli::on(&Base::default());
         let upstream = goose.upstream(server(call).unwrap()).unwrap();
         let files = Files::of(&call.settings);
         policy(call, &files, &upstream, &w.path("forwarder.sock"), &[])
@@ -541,7 +541,7 @@ fn a_new_session_with_a_browser_loads_playwright_and_the_sandbox_connects_only_t
     let w = World::new();
     let socket = w.path("0123456789abcdef0123456789abcdef.sock");
     let policy_of = |call: &AgentCall| {
-        let goose = ClaudeCli::default().goose();
+        let goose = GooseCli::on(&Base::default());
         let upstream = goose.upstream(server(call).unwrap()).unwrap();
         let files = Files::of(&call.settings);
         policy(call, &files, &upstream, &w.path("forwarder.sock"), &[])
@@ -651,7 +651,7 @@ fn an_http_server_goose_would_key_developer_is_refused_beside_the_builtin() {
 fn a_resumed_session_s_hook_and_mode_follow_the_set_it_was_created_with() {
     let w = World::new();
     let mode = |call: &AgentCall| {
-        let goose = ClaudeCli::default().goose();
+        let goose = GooseCli::on(&Base::default());
         let server = server(call).unwrap();
         let upstream = goose.upstream(server).unwrap();
         let files = Files::of(&call.settings);

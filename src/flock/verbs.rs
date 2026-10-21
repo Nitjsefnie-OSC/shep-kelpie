@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use super::control::Format;
 use super::{Checkout, Launch, add, attach, control, pm, rule, set, ticket, usage, watch};
-use crate::adapters::{ClaudeCli, Gh, LoginToken, SystemGit};
+use crate::adapters::{Base, ClaudeCli, Gh, LoginToken, SystemGit};
 use crate::agents::{Agents, Writer};
 use crate::home::{ProjectName, ProjectPaths};
 use crate::issues::{self, Mode, Project};
@@ -433,9 +433,8 @@ async fn issue(here: Here<'_>, name: &ProjectName, args: &[&str]) -> Result<Vec<
     let codex_home =
         (loaded.kelpie.codex_home(here.home, here.kelpie_home)).map_err(|e| e.to_string())?;
     let secret_vars = loaded.kelpie.gateways().key_vars();
-    let claude = ClaudeCli::default()
-        .in_runtime(tools, here.home.to_owned(), &codex_home, secret_vars)
-        .with_login(LoginToken::take());
+    let base = Base::default().in_runtime(tools, here.home.to_owned(), &codex_home, secret_vars);
+    let claude = ClaudeCli::on(&base).with_login(LoginToken::take());
     let gh = Gh::default();
     // What it filed is read back from the project's own ticket source.
     let tickets = Routed::new(

@@ -19,9 +19,7 @@ fn waiting_pi(world: &World, gateways: Gateways) -> PiCli {
         world.path("stdout.jsonl").display()
     );
     crate::test::write_script(&world.path("pi"), &script);
-    ClaudeCli::default()
-        .sandboxed(Arc::new(OpenSandbox::default()), world.path("home"))
-        .pi()
+    PiCli::on(&Base::default().sandboxed(Arc::new(OpenSandbox::default()), world.path("home")))
         .with_program(world.path("pi"))
         .with_gateways(gateways)
 }

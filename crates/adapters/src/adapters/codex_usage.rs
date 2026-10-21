@@ -17,7 +17,7 @@ use std::time::Duration;
 
 use serde::Deserialize;
 
-use super::claude::ClaudeCli;
+use super::harness::Base;
 use super::process::{Processes, RunError};
 use crate::ports::{Meter, MeterError, Timestamp, Utilization, Window};
 
@@ -51,7 +51,7 @@ pub struct CodexMeter {
     codex_home: PathBuf,
 }
 
-impl ClaudeCli {
+impl Base {
     /// A Codex meter on the login in `codex_home`, whose reads end with this
     /// one's calls when the runner stops
     pub fn codex_meter(&self, codex_home: PathBuf) -> CodexMeter {

@@ -2,20 +2,18 @@
 
 use std::ffi::OsString;
 use std::fmt;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::{Command, Output};
-use std::sync::Arc;
 
 use serde::Deserialize;
 
-use super::process::{Processes, RunError};
-use super::srt::SandboxRuntime;
+use super::harness::{Base, adoption_of, prompt_file};
+use super::process::RunError;
 use crate::ports::{
-    Adopted, AgentCall, AgentError, AgentReply, Agents, CallActivity, Cost, Ending, Role, Sandbox,
-    Session, SessionId, Transcript, Unreadable, Usage, written_at,
+    Adopted, AgentCall, AgentError, AgentReply, Agents, CallActivity, Cost, Ending, Role, Session,
+    SessionId, Transcript, Usage, written_at,
 };
 use crate::settings::Harness;
-use crate::tools::Tools;
 
 /// This adapter's harness, as its errors name it
 const CLAUDE: Harness = Harness::ClaudeCode;
@@ -73,102 +71,49 @@ impl fmt::Debug for LoginToken {
     }
 }
 
-/// Names a runner's child process in `shep describe`
-pub trait LambLabels: Send + Sync + fmt::Debug {
-    /// Labels the child `pid` with `label`
-    fn label(&self, pid: u32, label: &str);
-}
-
-impl LambLabels for shep_channel::Shepherd {
-    // A label kelpie builds is short and plain, so a refused one is dropped
-    // rather than failing the call it names.
-    fn label(&self, pid: u32, label: &str) {
-        if let Ok(label) = shep_channel::LambLabel::new(label) {
-            let _ = self.label_lamb(pid, label);
-        }
-    }
-}
-
 /// Headless Claude Code, one `claude -p` process per call, each inside the sandbox
 ///
 /// Clones share their calls in flight, so one clone can stop them all.
 #[derive(Debug, Clone)]
 pub struct ClaudeCli {
-    pub(super) processes: Processes,
+    pub(super) base: Base,
     program: OsString,
-    pub(super) lambs: Option<Arc<dyn LambLabels>>,
-    pub(super) sandbox: Arc<dyn Sandbox>,
-    pub(super) home: PathBuf,
-    // What a call with no fence may not read either: the shepherd's home
-    pub(super) unfenced_no_read: Vec<String>,
     // The login `claude` runs with, in place of the maintainer's in the keychain
     login: Option<LoginToken>,
     // Whether this is macOS, where a blocked keychain takes `claude`'s own login with it
     macos: bool,
 }
 
-// The default home and tools are the maintainer's: `$HOME` and kelpie's own tools.
 impl Default for ClaudeCli {
     fn default() -> Self {
-        let home = std::env::var_os("HOME")
-            .map(PathBuf::from)
-            .unwrap_or_default();
-        Self {
-            processes: Processes::default(),
-            program: "claude".into(),
-            lambs: None,
-            sandbox: Arc::new(SandboxRuntime::new(Tools::under(
-                &crate::home::kelpie_home().unwrap_or_else(|_| home.join(crate::home::OLD)),
-            ))),
-            home,
-            unfenced_no_read: Vec::new(),
-            login: None,
-            macos: cfg!(target_os = "macos"),
-        }
+        Self::on(&Base::default())
     }
 }
 
 impl ClaudeCli {
-    /// Labels each call's process with its issue and role, such as `#7 worker`
-    pub fn labelling(lambs: Arc<dyn LambLabels>) -> Self {
+    /// Claude Code on `base`: its sandbox, lamb labels and calls in flight
+    pub fn on(base: &Base) -> Self {
         Self {
-            lambs: Some(lambs),
-            ..Self::default()
+            base: base.clone(),
+            program: "claude".into(),
+            login: None,
+            macos: cfg!(target_os = "macos"),
         }
     }
 
     /// Runs `program` in place of `claude`, as a stand-in script does
     #[cfg(any(test, feature = "test-support"))]
-    pub fn with_program(program: PathBuf) -> Self {
+    #[must_use]
+    pub fn with_program(self, program: PathBuf) -> Self {
         Self {
             program: program.into(),
-            ..Self::default()
+            ..self
         }
-    }
-
-    /// Runs each call inside the sandbox runtime in `tools`, as Claude Code
-    /// with its home at `home`, the way a runner does
-    ///
-    /// No call on any harness reads kelpie's Codex login in `codex_home`,
-    /// apart from Codex's own link to its `auth.json`, or sees the variables
-    /// in `secret_vars`. pi and Codex made from this share its sandbox.
-    pub fn in_runtime(
-        self,
-        tools: Tools,
-        home: PathBuf,
-        codex_home: &Path,
-        secret_vars: Vec<String>,
-    ) -> Self {
-        let runtime = Arc::new(SandboxRuntime::new(tools));
-        let unread = vec![format!("{}/**", codex_home.display())];
-        let sandbox = Unreadable::new(runtime, unread).unsetting(secret_vars);
-        self.sandboxed(Arc::new(sandbox), home)
     }
 
     /// Runs `claude` with `login` in its environment, where there is one, in
     /// place of the keychain's login
-    ///
-    /// pi and Codex made from this get none of it.
+    #[must_use]
     pub fn with_login(self, login: Option<LoginToken>) -> Self {
         Self { login, ..self }
     }
@@ -178,51 +123,23 @@ impl ClaudeCli {
     pub(crate) fn on_macos(self, macos: bool) -> Self {
         Self { macos, ..self }
     }
-
-    /// Keeps a call with no fence, such as a reviewer's session, out of
-    /// `shep_home`, which holds the sheep entries' `env` and `dogs.toml`
-    ///
-    /// pi and Codex made from this after share it.
-    pub fn unfenced_unread(mut self, shep_home: &Path) -> Self {
-        self.unfenced_no_read = vec![format!("{}/**", shep_home.display())];
-        self
-    }
-
-    /// Runs each call inside `sandbox`, as Claude Code with its home at `home`
-    pub fn sandboxed(self, sandbox: Arc<dyn Sandbox>, home: PathBuf) -> Self {
-        Self {
-            sandbox,
-            home,
-            ..self
-        }
-    }
-
-    /// Refuses new calls as the runner stops, sends those in flight SIGTERM,
-    /// and leaves the rest to shep's stop
-    ///
-    /// A call refused, or one that ends after, returns [`AgentError::Stopped`].
-    pub fn stop(&self) {
-        self.processes.stop();
-    }
 }
 
 impl Agents for ClaudeCli {
     fn prepare(&self, call: &AgentCall) -> Result<(), AgentError> {
-        write_settings(call, &self.unfenced_no_read)?;
-        sandbox::policy(call, &self.home, &self.unfenced_no_read).map(drop)
+        write_settings(call, &self.base.unfenced_no_read)?;
+        sandbox::policy(call, &self.base.home, &self.base.unfenced_no_read).map(drop)
     }
 
     fn run(&self, call: &AgentCall, ending: &Ending) -> Result<AgentReply, AgentError> {
         let mut command = self.sandboxed_command(call)?;
         let label = call.label();
         let spawned = |pid| {
-            if let Some(lambs) = &self.lambs {
+            if let Some(lambs) = &self.base.lambs {
                 lambs.label(pid, &label);
             }
         };
-        let run = self
-            .processes
-            .output_of_call(&mut command, call, ending, &spawned);
+        let run = (self.base.processes).output_of_call(&mut command, call, ending, &spawned);
         let output = run.map_err(|e| match e {
             RunError::Io(e) => AgentError::Spawn(CLAUDE, e.to_string()),
             RunError::Stopped => AgentError::Stopped,
@@ -234,7 +151,7 @@ impl Agents for ClaudeCli {
     }
 
     fn adoption(&self, call: &AgentCall) -> Result<Adopted, String> {
-        Self::adoption_of(call)
+        adoption_of(call, Harness::ClaudeCode)
     }
 
     fn adopt(&self, adopted: &Adopted, ending: &Ending) -> Result<AgentReply, AgentError> {
@@ -242,7 +159,7 @@ impl Agents for ClaudeCli {
     }
 
     fn transcript(&self, call: &AgentCall) -> Option<Transcript> {
-        let folder = sandbox::transcripts(&self.home, &call.cwd).ok()?;
+        let folder = sandbox::transcripts(&self.base.home, &call.cwd).ok()?;
         Some(Transcript {
             folder,
             threads: None,
@@ -252,7 +169,7 @@ impl Agents for ClaudeCli {
     // Claude Code appends to the session's transcript at each message and
     // tool call, so a write is the session doing something.
     fn last_active(&self, call: &AgentCall) -> CallActivity {
-        let Ok(folder) = sandbox::transcripts(&self.home, &call.cwd) else {
+        let Ok(folder) = sandbox::transcripts(&self.base.home, &call.cwd) else {
             return CallActivity::Untracked;
         };
         written_at(&folder.join(format!("{}.jsonl", call.session.id().0)))
@@ -267,7 +184,7 @@ impl Agents for ClaudeCli {
 pub fn write_settings(call: &AgentCall, unfenced: &[String]) -> Result<(), AgentError> {
     let mut value = settings::settings(call.tools, &call.reach);
     // The prompt beside the settings file, for the hook that hands it back.
-    let again = settings::prompt_file(&call.settings);
+    let again = prompt_file(&call.settings);
     if let Some(window) = call.compact_window {
         let marks = settings::compactions_file(&sandbox::scratch(call));
         settings::compacting(&mut value, window, &again, &marks);

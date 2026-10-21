@@ -10,8 +10,7 @@ use crate::ports::Role;
 fn a_workers_scratch_folder_is_where_it_may_bind_sockets_and_a_reviewers_is_not() {
     let w = World::new();
     let reviewer = w.call(URL, Role::Reviewer, Session::New(id(FRESH_ID)));
-    let upstream = ClaudeCli::default()
-        .goose()
+    let upstream = GooseCli::on(&Base::default())
         .upstream(server(&reviewer).unwrap())
         .unwrap();
     let policy = |call: &AgentCall| {

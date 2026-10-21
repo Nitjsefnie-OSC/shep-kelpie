@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 use super::*;
 use crate::adapters::SandboxRuntime;
+use crate::adapters::harness::ERROR_TAIL;
 use crate::adapters::skills;
 use crate::ports::{Browser, CodeGraph, Role};
 use crate::profile::WorkerProfile;
@@ -54,9 +55,7 @@ pub(super) fn stand_in(world: &World, stdout: &str) -> PiCli {
         world.path("stdout.jsonl").display()
     );
     crate::test::write_script(&world.path("pi"), &script);
-    ClaudeCli::default()
-        .sandboxed(Arc::new(OpenSandbox::default()), world.path("home"))
-        .pi()
+    PiCli::on(&Base::default().sandboxed(Arc::new(OpenSandbox::default()), world.path("home")))
         .with_program(world.path("pi"))
 }
 
@@ -217,8 +216,7 @@ fn a_call_still_trusts_no_project_with_servers_loaded() {
 #[test]
 fn the_sandbox_reads_the_code_graph_binary_and_writes_only_its_index_and_daemon_folder() {
     let w = World::new();
-    let upstream = ClaudeCli::default()
-        .pi()
+    let upstream = PiCli::on(&Base::default())
         .upstream(&World::server(URL))
         .unwrap();
     let socket = w.path("forwarder.sock");
@@ -263,8 +261,7 @@ fn the_sandbox_reads_the_code_graph_binary_and_writes_only_its_index_and_daemon_
 #[test]
 fn the_sandbox_connects_only_to_the_browsers_socket_when_the_call_has_one() {
     let w = World::new();
-    let upstream = ClaudeCli::default()
-        .pi()
+    let upstream = PiCli::on(&Base::default())
         .upstream(&World::server(URL))
         .unwrap();
     let forwarder = w.path("forwarder.sock");
@@ -436,8 +433,7 @@ fn the_sandbox_reads_every_plugin_folder_a_call_loads_skills_from() {
     let style = plugin(&w, "style", &["house"]);
     let mut call = w.fenced(URL, Path::new("/k/kelpie"), Session::New(id(WORKER_ID)));
     call.plugin_dirs = vec![steps.clone(), style.clone()];
-    let upstream = ClaudeCli::default()
-        .pi()
+    let upstream = PiCli::on(&Base::default())
         .upstream(server(&call).unwrap())
         .unwrap();
     let policy = policy(
@@ -512,8 +508,7 @@ fn what_pi_cannot_give_a_worker_fails_before_the_call() {
 fn a_call_on_a_covered_repo_runs_without_the_keychain_and_any_other_with_it() {
     let w = World::new();
     let socket = w.path("forwarder.sock");
-    let upstream = ClaudeCli::default()
-        .pi()
+    let upstream = PiCli::on(&Base::default())
         .upstream(server(&w.call(URL, Role::Reviewer, Session::New(id(FRESH_ID)))).unwrap())
         .unwrap();
     let mut calls = [
@@ -547,8 +542,7 @@ fn the_sandbox_lets_pi_write_only_its_sessions_and_reach_only_the_forwarder() {
     let call = w.fenced(URL, Path::new("/k/kelpie"), Session::New(id(WORKER_ID)));
     let files = Files::of(&call);
     let socket = w.path("forwarder.sock");
-    let upstream = ClaudeCli::default()
-        .pi()
+    let upstream = PiCli::on(&Base::default())
         .upstream(server(&call).unwrap())
         .unwrap();
     let policy = policy(&call, &files, &upstream, &socket, &[]);
@@ -621,8 +615,7 @@ fn the_researchers_policy_reaches_its_allowed_domains_and_the_search_host_and_no
     call.reach.extensions = vec![w.path("kelpie/tools/node_modules/pi-web-access")];
     let hosts = ["docs.rs", "*.rust-lang.org"];
     call.reach.fence.as_mut().unwrap().hosts = hosts.map(str::to_owned).to_vec();
-    let upstream = ClaudeCli::default()
-        .pi()
+    let upstream = PiCli::on(&Base::default())
         .upstream(server(&call).unwrap())
         .unwrap();
     let policy = policy(&call, &Files::of(&call), &upstream, &w.path("f.sock"), &[]);
@@ -652,11 +645,12 @@ fn an_unfenced_pi_session_is_denied_the_shepherds_home_but_its_own_folder() {
     let w = World::new();
     stand_in(&w, FRESH);
     let sandbox = OpenSandbox::default();
-    let pi = ClaudeCli::default()
-        .unfenced_unread(&w.path("shep"))
-        .sandboxed(Arc::new(sandbox.clone()), w.path("home"))
-        .pi()
-        .with_program(w.path("pi"));
+    let pi = PiCli::on(
+        &Base::default()
+            .unfenced_unread(&w.path("shep"))
+            .sandboxed(Arc::new(sandbox.clone()), w.path("home")),
+    )
+    .with_program(w.path("pi"));
     let call = w.call(URL, Role::Reviewer, Session::New(id(FRESH_ID)));
     pi.prepare(&call).unwrap();
     pi.run(&call, &Ending::default()).unwrap();
@@ -947,12 +941,10 @@ fn record_a_turn_a_resumed_turn_and_two_refusals() {
     let (url, kelpie) = (env("KELPIE_PI_URL"), PathBuf::from(env("KELPIE_BIN")));
     let record = PathBuf::from(env("KELPIE_PI_RECORD"));
     let tools = KelpieTools::at(env("KELPIE_TOOLS").into());
-    let pi = ClaudeCli::default()
-        .sandboxed(
-            Arc::new(SandboxRuntime::new(tools)),
-            std::env::var_os("HOME").unwrap().into(),
-        )
-        .pi();
+    let pi = PiCli::on(&Base::default().sandboxed(
+        Arc::new(SandboxRuntime::new(tools)),
+        std::env::var_os("HOME").unwrap().into(),
+    ));
     let world = World::new();
     let fresh_id = id(FRESH_ID);
     let save = |name: &str, out: &Output| {

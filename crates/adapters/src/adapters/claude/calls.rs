@@ -7,7 +7,7 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use crate::adapters::ClaudeCli;
+use crate::adapters::{Base, ClaudeCli};
 use crate::ports::{
     AgentCall, AgentError, AgentReply, Agents, Ending, Flying, Role, Session, SessionId, Timestamp,
     Tools,
@@ -53,8 +53,8 @@ impl World {
     }
 
     fn cli(&self) -> ClaudeCli {
-        ClaudeCli::with_program(self.path("claude"))
-            .sandboxed(Arc::new(OpenSandbox::default()), self.path("home"))
+        let base = Base::default().sandboxed(Arc::new(OpenSandbox::default()), self.path("home"));
+        ClaudeCli::on(&base).with_program(self.path("claude"))
     }
 
     fn call(&self) -> AgentCall {
@@ -179,7 +179,7 @@ fn a_call_stopped_by_the_runner_leaves_no_record() {
     wait_for("start", || w.path("started").exists());
     assert!(w.record().exists());
 
-    cli.stop();
+    cli.base.stop();
 
     let result = ended.recv_timeout(Duration::from_secs(10)).unwrap();
     assert_eq!(result.unwrap_err(), AgentError::Stopped);

@@ -25,24 +25,19 @@
 use std::ffi::OsString;
 use std::path::Path;
 use std::process::Command;
-use std::sync::Arc;
 
 use self::files::Files;
 use self::output::Spent;
-use super::claude::sandbox::{bind_in_scratch, call_policy};
-use super::claude::{ClaudeCli, LambLabels};
 use super::forwarder::Forwarder;
-use super::pi::adopt::{Carried, kept_server};
-use super::pi::deny_the_server;
+use super::harness::{Base, Carried, bind_in_scratch, call_policy, deny_the_server, kept_server};
+use super::process::RunError;
 use super::process::record::CallFiles;
-use super::process::{Processes, RunError};
 use crate::fence;
 use crate::forwarder::{Upstream, WORKER_HOST};
 use crate::guard::READ_ONLY_COMMANDS;
 use crate::ports::{
     Adopted, AgentCall, AgentError, AgentReply, Agents, COMPACT, CallActivity, Ending, Forward,
-    Kept, Policy, Role, Sandbox, Session, SessionId, Stand, Taking, Tools, Transcript, Unheld,
-    Wait,
+    Kept, Policy, Role, Session, SessionId, Stand, Taking, Tools, Transcript, Unheld, Wait,
 };
 use crate::settings::{AgentHarness, Gateways, Harness, ModelHost, ModelServer};
 
@@ -124,12 +119,8 @@ const PROJECT_FILES: [&str; 2] = [".agents/plugins", ".config/goose"];
 /// It shares Claude Code's calls in flight, so stopping either stops both.
 #[derive(Debug, Clone)]
 pub struct GooseCli {
-    processes: Processes,
+    base: Base,
     program: OsString,
-    lambs: Option<Arc<dyn LambLabels>>,
-    sandbox: Arc<dyn Sandbox>,
-    // What a call with no fence may not read: the shepherd's home
-    unfenced_no_read: Vec<String>,
     gateways: Gateways,
     // What each running call keeps in memory that a handover must carry
     carried: Carried,
@@ -137,24 +128,18 @@ pub struct GooseCli {
     terminals: attach::Terminals,
 }
 
-impl ClaudeCli {
-    /// goose, run the way this runs Claude Code: same sandbox, same lamb
-    /// labels, and stopped with it
-    pub fn goose(&self) -> GooseCli {
-        GooseCli {
-            processes: self.processes.clone(),
+impl GooseCli {
+    /// goose on `base`: its sandbox, lamb labels and calls in flight
+    pub fn on(base: &Base) -> Self {
+        Self {
+            base: base.clone(),
             program: "goose".into(),
-            lambs: self.lambs.clone(),
-            sandbox: Arc::clone(&self.sandbox),
-            unfenced_no_read: self.unfenced_no_read.clone(),
             gateways: Gateways::default(),
             carried: Carried::default(),
             terminals: attach::Terminals::default(),
         }
     }
-}
 
-impl GooseCli {
     /// Sends a model behind a gateway through `gateways`
     pub fn with_gateways(self, gateways: Gateways) -> Self {
         Self { gateways, ..self }
@@ -212,7 +197,7 @@ impl Agents for GooseCli {
         };
         let label = call.label();
         let spawned = |pid| {
-            if let Some(lambs) = &self.lambs {
+            if let Some(lambs) = &self.base.lambs {
                 lambs.label(pid, &label);
             }
         };
@@ -228,7 +213,7 @@ impl Agents for GooseCli {
                     lease: lease.map(str::to_owned),
                 },
             );
-            (self.processes)
+            (self.base.processes)
                 .output_of_call(&mut command, call, ending, &spawned)
                 .map_err(|e| match e {
                     RunError::Io(e) => AgentError::Spawn(GOOSE, e.to_string()),
@@ -310,13 +295,13 @@ impl GooseCli {
         let taking = Taking {
             model: &call.model,
             note: &note,
-            give_up: &|| ending.asked() || self.processes.stopping(),
+            give_up: &|| ending.asked() || self.base.processes.stopping(),
             tell: &tell,
             ending,
         };
         port.around_leased(&upstream, &taking, run)
             .map_err(|unheld| match unheld {
-                Unheld::GaveUp if self.processes.stopping() => AgentError::Stopped,
+                Unheld::GaveUp if self.base.processes.stopping() => AgentError::Stopped,
                 Unheld::GaveUp => AgentError::TimedOut(GOOSE),
                 Unheld::Refused(why) => AgentError::Setup(format!(
                     "cannot take a lease on {} from gateway {name}: {why}",
@@ -383,9 +368,10 @@ impl GooseCli {
             &files,
             &upstream,
             &forwarder.socket,
-            &self.unfenced_no_read,
+            &self.base.unfenced_no_read,
         );
         let wrapped = self
+            .base
             .sandbox
             .wrap(&policy, &files.sandbox_settings, &command)
             .map_err(|e| AgentError::Setup(e.to_string()))?;

@@ -6,7 +6,9 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use super::*;
+use crate::adapters::ClaudeCli;
 use crate::adapters::SandboxRuntime;
+use crate::adapters::harness::ERROR_TAIL;
 use crate::ports::{Browser, CodeGraph, Role, Unreadable};
 use crate::profile::WorkerProfile;
 use crate::settings::Effort;
@@ -66,10 +68,11 @@ pub(super) fn stand_in(world: &World, stdout: &str) -> CodexCli {
     if !world.path("codex").exists() {
         crate::test::write_script(&world.path("codex"), &script);
     }
-    ClaudeCli::default()
-        .sandboxed(Arc::new(OpenSandbox::default()), world.path("home"))
-        .codex(world.path("login"))
-        .with_program(world.path("codex"))
+    CodexCli::on(
+        &Base::default().sandboxed(Arc::new(OpenSandbox::default()), world.path("home")),
+        world.path("login"),
+    )
+    .with_program(world.path("codex"))
 }
 
 #[test]
@@ -427,11 +430,13 @@ fn an_unfenced_codex_session_is_denied_the_shepherds_home_but_its_own_folder() {
     let w = World::new();
     stand_in(&w, FRESH);
     let sandbox = OpenSandbox::default();
-    let codex = ClaudeCli::default()
-        .unfenced_unread(&w.path("shep"))
-        .sandboxed(Arc::new(sandbox.clone()), w.path("home"))
-        .codex(w.path("login"))
-        .with_program(w.path("codex"));
+    let codex = CodexCli::on(
+        &Base::default()
+            .unfenced_unread(&w.path("shep"))
+            .sandboxed(Arc::new(sandbox.clone()), w.path("home")),
+        w.path("login"),
+    )
+    .with_program(w.path("codex"));
     let call = w.call(Role::Reviewer, Session::New(id(REVIEW_ID)));
     codex.prepare(&call).unwrap();
     codex.run(&call, &Ending::default()).unwrap();
@@ -818,9 +823,7 @@ fn live() -> CodexCli {
         Arc::new(SandboxRuntime::new(tools)),
         vec![format!("{}/**", login.display())],
     );
-    ClaudeCli::default()
-        .sandboxed(Arc::new(sandbox), home)
-        .codex(login)
+    CodexCli::on(&Base::default().sandboxed(Arc::new(sandbox), home), login)
 }
 
 fn run_raw(codex: &CodexCli, call: &AgentCall) -> Output {
@@ -828,6 +831,7 @@ fn run_raw(codex: &CodexCli, call: &AgentCall) -> Output {
     let mut command = codex.sandboxed_command(call).unwrap();
     let outputs = [files.stdout.as_path(), files.stderr.as_path()];
     codex
+        .base
         .processes
         .output_to_files(&mut command, None, &|_| {}, outputs)
         .unwrap()
@@ -969,7 +973,8 @@ fn measure_a_claude_code_worker_on_the_same_issue() {
     );
     let tools = KelpieTools::at(env("KELPIE_TOOLS").into());
     let home = PathBuf::from(std::env::var_os("HOME").unwrap());
-    let claude = ClaudeCli::default().sandboxed(Arc::new(SandboxRuntime::new(tools)), home);
+    let claude =
+        ClaudeCli::on(&Base::default().sandboxed(Arc::new(SandboxRuntime::new(tools)), home));
     let world = World::new();
     let mut call = worker_in(
         &repo,
