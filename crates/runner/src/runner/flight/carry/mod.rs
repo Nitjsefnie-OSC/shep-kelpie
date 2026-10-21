@@ -84,6 +84,7 @@ impl Runner {
                 ));
             }
         }
+        // parity: harness.attach-ends
         if let Some(issue) = self.sessions_attached_on(Harness::Codex).first() {
             return Err(format!(
                 "#{issue} is attached, and the codex session in the maintainer's terminal \
