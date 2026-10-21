@@ -11,20 +11,21 @@ use crate::ports::{
 };
 use crate::settings::{ForgeSlug, TicketSource};
 use crate::ticket::TicketId;
+pub use source::SharedSource;
 
 /// The project's GitHub tickets and its local store, each ticket sent to its own
 ///
 /// A work item keeps the ticket it was opened on across a change of the
-/// project's `tickets.source`, which takes effect at the next start, so a call
-/// about one ticket goes to the source its id names. The board's reads go to
-/// the project's source, and so do filing a ticket and listing the open ones,
-/// which tell a finding already filed. `create_issue` and `open_issues` stay
+/// project's `tickets.source`, so a call about one ticket goes to the source
+/// its id names. The board's reads go to the project's source, which a
+/// [`SharedSource`] changes while the port is in use, and so do filing a
+/// ticket and listing the open ones, which tell a finding already filed. `create_issue` and `open_issues` stay
 /// on GitHub, since adoption files a GitHub issue and needs its number, and
 /// triage reads GitHub's.
 pub struct Routed {
     github: Arc<dyn Tickets>,
     local: LocalTickets,
-    source: TicketSource,
+    source: SharedSource,
 }
 
 impl core::fmt::Debug for Routed {
@@ -37,13 +38,23 @@ impl core::fmt::Debug for Routed {
 }
 
 impl Routed {
-    /// `github` and `local`, with the board reading `source`
-    pub fn new(github: Arc<dyn Tickets>, local: LocalTickets, source: TicketSource) -> Self {
+    /// `github` and `local`, with the board reading `source`, a
+    /// [`TicketSource`] or a [`SharedSource`] the caller keeps to change it
+    pub fn new(
+        github: Arc<dyn Tickets>,
+        local: LocalTickets,
+        source: impl Into<SharedSource>,
+    ) -> Self {
         Self {
             github,
             local,
-            source,
+            source: source.into(),
         }
+    }
+
+    /// The handle to the source the board reads
+    pub fn source_cell(&self) -> SharedSource {
+        self.source.clone()
     }
 
     fn of(&self, ticket: TicketId) -> &dyn Tickets {
@@ -54,7 +65,7 @@ impl Routed {
     }
 
     fn board(&self) -> &dyn Tickets {
-        match self.source {
+        match self.source.get() {
             TicketSource::Github => self.github.as_ref(),
             TicketSource::Local => &self.local,
         }
@@ -150,6 +161,8 @@ impl Tickets for Routed {
         self.of(ticket).set_issue_label(repo, ticket, label, on)
     }
 }
+
+mod source;
 
 #[cfg(test)]
 mod tests;

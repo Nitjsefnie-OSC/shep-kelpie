@@ -17,7 +17,7 @@ use crate::forge_ledger::Ledger as ForgeLedger;
 use crate::home::{ProjectName, ProjectPaths};
 use crate::hooks::SharedHooks;
 use crate::local_paths::LocalPaths;
-use crate::local_tickets::{LocalTickets, Routed};
+use crate::local_tickets::{LocalTickets, Routed, SharedSource};
 use crate::pacer::Assessment;
 use crate::ports::{
     ForgeError, ForgeHold, Guarded, GuardedVoice, KeychainBlocked, PacedVoice, Ports, RateHeld,
@@ -383,6 +383,8 @@ pub struct Runner {
     // The project's own hooks, which the forge port, the workers' guard and
     // the handover run, held once for them all so a reread can replace them
     hooks: SharedHooks,
+    // The source the ticket port's board reads, which a reread changes
+    tickets_source: SharedSource,
     // What the notice points have told, in memory only
     told_points: points::Told,
     // The project manager's wakes and decisions, in memory only
@@ -535,11 +537,13 @@ impl Runner {
         let (held_forge, held_tickets) = rate_held.into_ports();
         // A local store is files in kelpie's home, which spend no forge call, so
         // the hold and the ledger stay out of it. The guard still checks what it writes.
-        let held_tickets: Arc<dyn Tickets> = Arc::new(Routed::new(
+        let routed = Routed::new(
             held_tickets,
             LocalTickets::new(paths.tickets()),
             settings.tickets.source,
-        ));
+        );
+        let tickets_source = routed.source_cell();
+        let held_tickets: Arc<dyn Tickets> = Arc::new(routed);
         let recorded =
             RecordedVoice::new(ports.voice, Arc::clone(&clock), Arc::clone(&forge_ledger));
         let paced = PacedVoice::new(
@@ -659,6 +663,7 @@ impl Runner {
             brief: briefing::BoardCache::default(),
             local,
             hooks,
+            tickets_source,
             told_points: spoken,
             pm: pm::Desk::default(),
             panel: panel::Desk::default(),
