@@ -158,3 +158,38 @@ fn text_posted_to_an_author_but_the_maintainer_holds_no_file_path() {
     let [comment] = posted(&rig).try_into().expect("one comment");
     assert!(comment.contains("README.md"), "{comment}");
 }
+
+#[test]
+fn a_p0_asks_a_reporter_what_they_saw_first_and_names_no_label() {
+    let open = json!([{ "question": "What did you see?", "recommended": "a crash" }]);
+    let (rig, runner) = filed_as(
+        "pick = \"all\"",
+        "newcomer",
+        Some(AuthorAssociation::None),
+        json!({ "priority": "P0", "open": open }),
+    );
+    assert_eq!(step(&runner).unwrap(), None);
+    let [comment] = posted(&rig).try_into().expect("one comment");
+    assert!(comment.contains("What did you see?"), "{comment}");
+    assert!(
+        !comment.contains("P0") && !comment.contains("urgent"),
+        "{comment}"
+    );
+}
+
+#[test]
+fn a_p0_with_no_other_question_asks_a_reporter_how_urgent_it_is_in_plain_words() {
+    let (rig, runner) = filed_as(
+        "pick = \"all\"",
+        "newcomer",
+        Some(AuthorAssociation::None),
+        json!({ "priority": "P0" }),
+    );
+    assert_eq!(step(&runner).unwrap(), None);
+    let [comment] = posted(&rig).try_into().expect("one comment");
+    assert!(comment.contains("How urgent is this for you?"), "{comment}");
+    assert!(
+        !comment.contains("P0") && !comment.contains("P1"),
+        "{comment}"
+    );
+}

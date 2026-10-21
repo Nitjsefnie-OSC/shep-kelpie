@@ -290,7 +290,7 @@ fn a_type_the_repo_lacks_is_left_off_and_a_priority_it_lacks_is_made() {
 
 #[test]
 fn a_p0_is_dropped_and_asked_as_an_open_question() {
-    let (rig, runner) = untouched();
+    let (rig, runner) = untouched_by_a_maintainer();
     rig.forge.set_repo_labels(&["bug", "P0", "P1"]);
     let open = json!([{ "question": "Which platform?", "recommended": "Linux" }]);
     rig.claude.script_for(

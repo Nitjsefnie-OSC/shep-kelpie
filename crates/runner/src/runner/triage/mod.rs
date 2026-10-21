@@ -486,6 +486,7 @@ impl Runner {
                 view,
                 open: listed,
                 most,
+                role,
                 pictures: Pictures {
                     tickets: Arc::clone(&self.ports.tickets),
                     repo: self.remote.clone(),

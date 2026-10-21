@@ -131,6 +131,10 @@ const P0_QUESTION: &str =
     "The research rates this P0, which only the maintainer sets. How urgent is it?";
 const P0_RECOMMENDED: &str = "P1";
 
+/// The same question for anyone but the maintainer: no label name, and no
+/// answer recommended, which would be one
+const P0_PLAIN_QUESTION: &str = "How urgent is this for you?";
+
 /// The issue a research call is given: its number, its title, its body, the
 /// size its body is cut at, 0 for no cut, and who opened it: how the forge
 /// counts them and the role they are asked as
@@ -267,7 +271,8 @@ pub(super) fn prompt(
 }
 
 /// Reads the triager's `text`, keeping a related number only if `open`
-/// holds it and a file only if `view` has it, and no more than `most` questions.
+/// holds it and a file only if `view` has it, and no more than `most` questions,
+/// `asking` being that and the role they are asked as.
 /// A cover named in words kelpie cannot read is dropped, and `notes` names the
 /// words the triager used
 ///
@@ -280,19 +285,31 @@ pub(in crate::runner) fn read_reply(
     issue: u64,
     open: &[Listed],
     view: &Path,
-    most: usize,
+    asking: (usize, AuthorRole),
     notes: &Notes,
 ) -> Result<Found, String> {
+    let (most, role) = asking;
     let json = object_in(text).ok_or("its reply holds no JSON object")?;
     let reply: Reply =
         serde_json::from_str(json).map_err(|e| format!("its reply is no triage: {e}"))?;
     let mut questions = Vec::new();
+    // The urgency question of anyone but the maintainer comes after the
+    // triager's own, so the cap drops it first, and names no label
+    let mut urgency = None;
     let priority = match reply.priority.as_deref().map(str::trim) {
         Some(p) if p.eq_ignore_ascii_case("p0") => {
-            questions.push(Question {
-                question: P0_QUESTION.to_owned(),
-                recommended: P0_RECOMMENDED.to_owned(),
-            });
+            match role {
+                AuthorRole::Maintainer => questions.push(Question {
+                    question: P0_QUESTION.to_owned(),
+                    recommended: P0_RECOMMENDED.to_owned(),
+                }),
+                _ => {
+                    urgency = Some(Question {
+                        question: P0_PLAIN_QUESTION.to_owned(),
+                        recommended: String::new(),
+                    })
+                }
+            }
             None
         }
         Some(p) => ["P1", "P2", "P3", "P4"]
@@ -306,6 +323,7 @@ pub(in crate::runner) fn read_reply(
             .into_iter()
             .filter(|q| !q.question.trim().is_empty()),
     );
+    questions.extend(urgency);
     questions.truncate(most);
     let listed: BTreeSet<u64> = open.iter().map(|(n, _)| *n).collect();
     let mut seen = BTreeSet::new();
