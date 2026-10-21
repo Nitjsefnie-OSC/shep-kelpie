@@ -256,7 +256,9 @@ impl Runner {
             Some(_) => {
                 let mut next = self.state.clone();
                 next.pm_attached = None;
-                self.save(next).map_err(PmError::State)
+                self.save(next).map_err(PmError::State)?;
+                self.pm_terminal_ended();
+                Ok(())
             }
         }
     }
@@ -277,7 +279,16 @@ impl Runner {
             return true;
         }
         eprintln!("the attach on the project manager ended, so its wakes go on");
+        self.pm_terminal_ended();
         false
+    }
+
+    // The terminal session of the project manager is over, and so is what its
+    // harness kept for it.
+    fn pm_terminal_ended(&self) {
+        if let Some(session) = &self.state.pm_session {
+            self.ports.agents.foreground_ended(session);
+        }
     }
 
     /// The project manager as `status` shows it, when the project has one
