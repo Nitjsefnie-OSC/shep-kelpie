@@ -100,6 +100,23 @@ impl TriageState {
         }
     }
 
+    /// Sets [`pruned_through`](Self::pruned_through) for a file saved before it
+    /// existed, which does not say what a prune dropped
+    ///
+    /// A project holding [`TRIAGED_KEPT`] finished records may have pruned
+    /// some, and a record a prune dropped may be above the oldest one kept, so
+    /// the floor is the highest recorded issue. A project short of the cap has
+    /// pruned none.
+    pub fn floor_pruned(&mut self) {
+        let finished = (self.issues.iter())
+            .filter(|t| matches!(t.step, TriageStep::Done | TriageStep::Ready))
+            .count();
+        if finished >= TRIAGED_KEPT {
+            let highest = self.issues.iter().map(|t| t.issue).max().unwrap_or(0);
+            self.pruned_through = self.pruned_through.max(highest);
+        }
+    }
+
     /// Records that a triager call on `issue` ended at `at`, for an issue that
     /// has no record to carry it yet
     pub fn record_call(&mut self, issue: u64, author: &str, at: Timestamp) {

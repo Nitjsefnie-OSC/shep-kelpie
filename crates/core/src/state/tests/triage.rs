@@ -560,3 +560,36 @@ fn a_record_keeps_the_time_of_every_call_its_issue_made() {
         Timestamp(1_792_051_200 + TRIAGE_CALLS_KEPT as u64 + 2)
     );
 }
+
+// A file saved before version 76 does not say what a prune dropped. A project
+// holding the cap's worth of finished records may have pruned some, so it loads
+// with the highest recorded issue as the floor; a project short of the cap has
+// pruned none and loads with none.
+#[test]
+fn a_file_saved_before_pruned_through_gets_a_floor_only_when_a_prune_may_have_run() {
+    let load = |finished: u64| {
+        let dir = tempfile::tempdir().unwrap();
+        let store = store_in(dir.path());
+        let mut old = serde_json::to_value(ProjectState::new()).unwrap();
+        old["version"] = 75.into();
+        old["triage"] = serde_json::json!({
+            "since": 1,
+            "issues": (0..finished)
+                .map(|n| serde_json::json!({
+                    "issue": 100 + n, "comment": 1, "at": 0, "step": "done"
+                }))
+                .collect::<Vec<_>>(),
+        });
+        fs::write(dir.path().join(STATE_FILE), old.to_string()).unwrap();
+        store
+            .load()
+            .unwrap()
+            .unwrap()
+            .triage
+            .unwrap()
+            .pruned_through
+    };
+
+    assert_eq!(load(TRIAGED_KEPT as u64), 100 + TRIAGED_KEPT as u64 - 1);
+    assert_eq!(load(3), 0);
+}
