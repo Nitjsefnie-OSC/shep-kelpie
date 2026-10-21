@@ -111,12 +111,14 @@ impl Runner {
     // worktree is compared with the fork's head. A head the contributor moved
     // goes to the gate, which raises the foreign change, and a refused push
     // parks the work item.
-    fn fork_commits_held(&mut self) -> Result<Option<Begin>, StateError> {
+    pub(in crate::runner::review) fn fork_commits_held(
+        &mut self,
+    ) -> Result<Option<Begin>, StateError> {
         let Some(number) = self.current().and_then(|item| item.pull_request) else {
             return Ok(None);
         };
         match self.push_to_fork() {
-            Sent::Moved => {
+            Sent::Moved | Sent::Ended => {
                 let now = self.ports.clock.now();
                 self.update(|item| {
                     item.turn = Turn::Ended { at: now };

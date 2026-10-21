@@ -16,6 +16,7 @@
 
 use super::super::Runner;
 use super::super::report::Begin;
+use crate::ports::PullRequestState;
 use crate::state::{StateError, Stuck};
 use crate::worktree;
 
@@ -29,6 +30,9 @@ pub(in crate::runner) enum Sent {
     /// The fork's head is not the one kelpie knew, so the contributor pushed
     /// to it and the commits wait
     Moved,
+    /// The pull request was merged or closed by hand, so its branch takes no
+    /// push and the gate rules on it
+    Ended,
     /// The fork refused, or could not be reached, for this reason
     Refused(String),
 }
@@ -42,6 +46,13 @@ impl Runner {
         };
         if item.remote.is_origin() {
             return Sent::Nothing;
+        }
+        // A pull request merged or closed by hand takes no push: its branch
+        // may be gone, and that is not a refusal. The gate rules on it.
+        if let Some(number) = item.pull_request
+            && matches!(self.pull_request_view(number), Ok(pr) if pr.state != PullRequestState::Open)
+        {
+            return Sent::Ended;
         }
         let repo = &self.settings.git.checkout;
         let local = match worktree::head(repo, &item.worktree) {
@@ -96,7 +107,7 @@ impl Runner {
                 .raise(number, Stuck::PushRefused { why }.into())
                 .map(Some),
             // A moved head is the gate's to raise: it reads the fork's head.
-            Sent::Nothing | Sent::Moved => Ok(None),
+            Sent::Nothing | Sent::Moved | Sent::Ended => Ok(None),
         }
     }
 }

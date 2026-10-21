@@ -18,6 +18,7 @@ use std::process::{Command, Stdio};
 use std::time::SystemTime;
 
 mod active;
+mod adopt;
 mod cache;
 mod catch_up;
 mod changed;
@@ -28,6 +29,7 @@ mod remote;
 mod stale_lock;
 
 pub use active::touched_since;
+pub use adopt::adopt;
 pub use cache::{Pruned, TurnMark, prune};
 pub use catch_up::{Rebase, rebase};
 pub use changed::changed_files;
@@ -623,45 +625,6 @@ fn status_names(status: &str) -> Vec<String> {
         names.extend(entry.splitn(fields, ' ').last().map(str::to_owned));
     }
     names
-}
-
-/// Moves the worktree's branch from `from`, the head kelpie knew, to `to`
-///
-/// `to` is a head on `remote` the maintainer accepted. A worktree at neither,
-/// or with changes not committed, holds work of the worker's, and is refused.
-///
-/// # Errors
-///
-/// [`WorktreeError`] naming the git command that failed, or
-/// [`WorktreeError::Unsettled`] for a worktree refused.
-pub fn adopt(
-    repo: &Path,
-    worktree: &Path,
-    branch: &str,
-    from: &str,
-    to: &str,
-    remote: &Remote,
-) -> Result<(), WorktreeError> {
-    let in_worktree = trusted(repo, worktree)?;
-    let unsettled = || WorktreeError::Unsettled(worktree.to_owned());
-    let full_ref = format!("refs/heads/{branch}");
-    let on_branch = in_worktree(&["symbolic-ref", "--quiet", "HEAD"])
-        .ok()
-        .as_deref()
-        == Some(&full_ref);
-    if !on_branch || !in_worktree(&["status", "--porcelain", "--untracked-files=no"])?.is_empty() {
-        return Err(unsettled());
-    }
-    let at = in_worktree(&["rev-parse", "HEAD"])?;
-    if at == to {
-        return Ok(());
-    }
-    if at != from {
-        return Err(unsettled());
-    }
-    remote.fetch(repo, branch)?;
-    in_worktree(&["reset", "--quiet", "--hard", to])?;
-    Ok(())
 }
 
 /// The range of a work item's own change for `git diff`: from the merge base

@@ -1,8 +1,8 @@
 use std::path::PathBuf;
 
 use crate::worktree::{
-    Base, Rebase, Remote, Start, Worktree, WorktreeError, base_of, head, origin_head, prepare,
-    push_commits, rebase, remove,
+    Base, Rebase, Remote, Start, Worktree, WorktreeError, adopt, base_of, head, origin_head,
+    prepare, push_commits, rebase, remove,
 };
 use shep_kelpie_test_support::git;
 
@@ -478,4 +478,76 @@ fn push_commits_leaves_origin_to_its_worker() {
     let refused = push_commits(&rig.repo(), &rig.worktree(), &Remote::Origin);
 
     assert!(refused.is_err());
+}
+
+// A contributor pushes while the worker's commits wait: the maintainer's yes
+// merges their head into those commits rather than refusing the worktree.
+#[test]
+fn adopt_merges_the_forks_new_head_into_commits_kelpie_has_not_pushed() {
+    let rig = Rig::new();
+    let remote = rig.fork("contrib");
+    rig.prepare("kelpie/7", Start::Pushed, &remote);
+    let known = rig.at_worktree(&["rev-parse", "HEAD"]);
+    std::fs::write(rig.worktree().join("mine.txt"), "mine\n").unwrap();
+    rig.at_worktree(&["add", "mine.txt"]);
+    rig.at_worktree(&["commit", "--quiet", "-m", "work"]);
+    let mine = rig.at_worktree(&["rev-parse", "HEAD"]);
+    git(&rig.repo(), &["checkout", "--quiet", "contrib"]);
+    std::fs::write(rig.repo().join("theirs.txt"), "theirs\n").unwrap();
+    git(&rig.repo(), &["add", "theirs.txt"]);
+    git(&rig.repo(), &["commit", "--quiet", "-m", "theirs"]);
+    git(&rig.repo(), &["push", "--quiet", "../fork.git", "contrib"]);
+    let theirs = rig.rev("fork.git", "contrib");
+
+    adopt(
+        &rig.repo(),
+        &rig.worktree(),
+        "kelpie/7",
+        &known,
+        &theirs,
+        &remote,
+    )
+    .unwrap();
+
+    let parents = rig.at_worktree(&["rev-list", "--parents", "-n1", "HEAD"]);
+    assert!(
+        parents.contains(&mine) && parents.contains(&theirs),
+        "{parents}"
+    );
+    push_commits(&rig.repo(), &rig.worktree(), &remote).unwrap();
+    assert_eq!(
+        rig.rev("fork.git", "contrib"),
+        rig.at_worktree(&["rev-parse", "HEAD"])
+    );
+}
+
+#[test]
+fn adopt_abandons_a_merge_that_conflicts_and_refuses_the_worktree() {
+    let rig = Rig::new();
+    let remote = rig.fork("contrib");
+    rig.prepare("kelpie/7", Start::Pushed, &remote);
+    let known = rig.at_worktree(&["rev-parse", "HEAD"]);
+    std::fs::write(rig.worktree().join("same.txt"), "mine\n").unwrap();
+    rig.at_worktree(&["add", "same.txt"]);
+    rig.at_worktree(&["commit", "--quiet", "-m", "work"]);
+    let mine = rig.at_worktree(&["rev-parse", "HEAD"]);
+    git(&rig.repo(), &["checkout", "--quiet", "contrib"]);
+    std::fs::write(rig.repo().join("same.txt"), "theirs\n").unwrap();
+    git(&rig.repo(), &["add", "same.txt"]);
+    git(&rig.repo(), &["commit", "--quiet", "-m", "theirs"]);
+    git(&rig.repo(), &["push", "--quiet", "../fork.git", "contrib"]);
+    let theirs = rig.rev("fork.git", "contrib");
+
+    let refused = adopt(
+        &rig.repo(),
+        &rig.worktree(),
+        "kelpie/7",
+        &known,
+        &theirs,
+        &remote,
+    );
+
+    assert!(matches!(refused, Err(WorktreeError::Unsettled(_))));
+    assert_eq!(rig.at_worktree(&["rev-parse", "HEAD"]), mine);
+    assert_eq!(rig.at_worktree(&["status", "--porcelain"]), "");
 }

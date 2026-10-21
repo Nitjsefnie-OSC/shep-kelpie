@@ -7,14 +7,15 @@
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::sync::Mutex;
+use std::time::Duration;
 
-use crate::ports::{CLEAN, Checks};
+use crate::ports::{CLEAN, Checks, Finding, PullRequestState, Severity};
 use crate::runner::adopt::released::{FORK_BRANCH, adopted, contributed, release};
 use crate::runner::contributions::Sent;
 use crate::runner::ruling::Answer;
 use crate::runner::{Runner, StepReport, step};
 use crate::state::{RulingKind, Stuck};
-use crate::test::{Rig, Scripted, git, ticket};
+use crate::test::{Hold, Rig, Scripted, ScriptedRound, git, ticket};
 
 // Pull request 80, released and adopted from a fork that allows edits, read by
 // the reviewers and awaiting the maintainer's merge ruling, which a no answers
@@ -185,4 +186,141 @@ fn a_fork_head_that_moved_under_a_worktree_with_no_new_commits_is_still_moved() 
 
     assert_eq!(sent, Sent::Moved);
     assert_eq!(on_fork(&url), theirs, "their push stands");
+}
+
+#[test]
+fn a_yes_on_the_foreign_change_merges_their_push_into_the_waiting_commits_and_pushes_them() {
+    let (rig, runner, url, _) = noted();
+    let (_, theirs) = rig.push_to_fork(FORK_BRANCH, "theirs.txt");
+    rig.claude.script([Scripted::Commit("fix.txt", "fixed\n")]);
+    step(&runner).unwrap();
+    rig.verdict(&runner);
+    let waiting = worktree_head(&rig);
+    assert_ne!(on_fork(&url), waiting, "the commits wait");
+
+    let answered = rig.ask(&runner, "rule", Some("80 yes"));
+    assert_eq!(answered.get("error"), None, "{answered}");
+
+    let merged = worktree_head(&rig);
+    let parents = git(
+        &rig.paths().worktree(ticket(5)),
+        &["rev-list", "--parents", "-n1", "HEAD"],
+    );
+    assert!(
+        parents.contains(&waiting) && parents.contains(&theirs),
+        "a merge of both: {parents}"
+    );
+    rig.forge.set_checks(&merged, Checks::Passed);
+    rig.claude.script([Scripted::Text(CLEAN)]);
+    for _ in 0..12 {
+        if on_fork(&url) == merged {
+            break;
+        }
+        rig.verdict(&runner);
+    }
+    assert_eq!(on_fork(&url), merged, "kelpie pushed the merge");
+}
+
+#[test]
+fn a_fix_the_fork_refuses_raises_push_refused_and_not_a_fix_not_pushed() {
+    let (rig, runner) = contributed();
+    let (url, head) = rig.push_to_fork(FORK_BRANCH, "fork.txt");
+    rig.forge.set_fork(80, &url, true);
+    release(&runner);
+    assert_eq!(rig.ask(&runner, "adopt", Some("80")).get("error"), None);
+    assert_eq!(step(&runner).unwrap(), Some(adopted()));
+    // The first reviewer finds something, and the fork refuses what is pushed.
+    rig.reviewer
+        .script([ScriptedRound::Findings(vec![Finding::new(
+            Severity::Medium,
+            "fork.txt",
+            1,
+            "the flag is misnamed",
+            "it reads as its opposite",
+        )])]);
+    let hook = Path::new(&url).join("hooks/pre-receive");
+    std::fs::create_dir_all(hook.parent().unwrap()).unwrap();
+    std::fs::write(&hook, "#!/bin/sh\necho 'edits are off' >&2\nexit 1\n").unwrap();
+    std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+    rig.forge.set_checks(&head, Checks::Passed);
+    rig.claude.script([Scripted::Commit("fix.txt", "fixed\n")]);
+
+    let refused = (0..12).any(|_| {
+        rig.verdict(&runner);
+        raised(&runner)
+            .iter()
+            .any(|kind| matches!(kind, RulingKind::Stuck(Stuck::PushRefused { .. })))
+    });
+
+    assert!(refused, "the refusal was ruled on: {:?}", raised(&runner));
+    assert!(
+        !raised(&runner)
+            .iter()
+            .any(|kind| matches!(kind, RulingKind::Stuck(Stuck::FixNotPushed { .. }))),
+        "no fix-not-pushed: {:?}",
+        raised(&runner)
+    );
+    assert_eq!(on_fork(&url), head, "nothing was pushed");
+}
+
+#[test]
+fn a_pull_request_closed_by_hand_is_pushed_nothing_and_raises_closed_not_push_refused() {
+    let (rig, runner, url, head) = noted();
+    // The fork would refuse a push, as it does once its branch is gone.
+    let hook = Path::new(&url).join("hooks/pre-receive");
+    std::fs::create_dir_all(hook.parent().unwrap()).unwrap();
+    std::fs::write(&hook, "#!/bin/sh\necho 'gone' >&2\nexit 1\n").unwrap();
+    std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+    // The worker commits, and the maintainer closes the pull request, while
+    // it is at work.
+    let hold = Hold::default();
+    rig.claude.script([Scripted::Hold(hold.clone())]);
+    std::thread::scope(|s| {
+        let turn = s.spawn(|| step(&runner).unwrap());
+        assert!(
+            hold.entered(Duration::from_secs(10)),
+            "the turn never began"
+        );
+        let worktree = rig.paths().worktree(ticket(5));
+        std::fs::write(worktree.join("fix.txt"), "fixed\n").unwrap();
+        git(&worktree, &["add", "fix.txt"]);
+        let who = [
+            "-c",
+            "user.name=worker",
+            "-c",
+            "user.email=worker@example.com",
+        ];
+        git(
+            &worktree,
+            &[who.as_slice(), &["commit", "-m", "fix"]].concat(),
+        );
+        rig.forge.set_state(80, PullRequestState::Closed);
+        hold.release();
+        turn.join().unwrap();
+    });
+    rig.verdict(&runner);
+
+    let kinds = raised(&runner);
+    assert!(
+        matches!(kinds.as_slice(), [RulingKind::Stuck(Stuck::Closed)]),
+        "{kinds:?}"
+    );
+    assert_eq!(on_fork(&url), head, "nothing was pushed");
+}
+
+#[test]
+fn a_commit_the_fork_refused_at_first_is_still_a_fix_sent_unread_on_purpose() {
+    let (rig, runner, url, _) = noted();
+    let hook = Path::new(&url).join("hooks/pre-receive");
+    std::fs::create_dir_all(hook.parent().unwrap()).unwrap();
+    std::fs::write(&hook, "#!/bin/sh\necho 'edits are off' >&2\nexit 1\n").unwrap();
+    std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+    rig.claude.script([Scripted::Commit("fix.txt", "fixed\n")]);
+
+    step(&runner).unwrap();
+
+    let committed = worktree_head(&rig);
+    let runner = runner.lock().unwrap();
+    let unread = &runner.current().unwrap().sent_unread;
+    assert!(unread.contains(&committed), "{unread:?}");
 }

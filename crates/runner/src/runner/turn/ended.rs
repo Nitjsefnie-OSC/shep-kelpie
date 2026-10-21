@@ -28,13 +28,18 @@ impl Runner {
         // branch before `origin`'s head is read. A push that is held or refused
         // is the gate's to tell, which tries it again, so the worker is not
         // sent back for a push it cannot make.
-        let held = result.is_ok() && matches!(self.push_to_fork(), Sent::Moved | Sent::Refused(_));
+        let held = result.is_ok()
+            && matches!(
+                self.push_to_fork(),
+                Sent::Moved | Sent::Ended | Sent::Refused(_)
+            );
         // Whatever the turn left on `origin` is the worker's own. A head
         // that cannot be read keeps the last one, which errs toward parking.
         let pushed = self.current().and_then(|_| self.own_push());
         // Whether the head on `origin` is the worktree's own commit, which a
         // push by anyone else is not.
-        let own_commit = pushed.is_some() && self.worktree_head() == pushed;
+        let local = self.worktree_head();
+        let own_commit = pushed.is_some() && local == pushed;
         let mut next = self.state.clone();
         let Some(item) = self.current_in(&mut next) else {
             return Ok(None);
@@ -192,7 +197,11 @@ impl Runner {
                             // red CI's, a conflict's.
                             Phase::Implement if item.pull_request.is_some() => {
                                 let fixed = !no_push && own_commit;
-                                if let Some(head) = item.known.head.clone().filter(|_| fixed) {
+                                // A fork worker's commit that waits for the gate
+                                // to push it is the same fix, under its own head.
+                                let waiting = local.clone().filter(|_| held);
+                                let sent = item.known.head.clone().filter(|_| fixed);
+                                if let Some(head) = waiting.or(sent) {
                                     item.send_unread(head);
                                 }
                                 item.phase = Phase::Ci {
