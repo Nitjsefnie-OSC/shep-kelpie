@@ -87,6 +87,30 @@ fn one_terminal_holds_its_session_while_it_or_the_session_runs() {
 }
 
 #[test]
+fn the_end_of_the_terminal_session_is_told_to_the_agent_on_a_detach_and_on_a_gone_attach() {
+    let (rig, runner) = with_pm("rotom");
+    let (cli, gone) = (Live::new(), Live::new());
+    let pm = |params: String| rig.ask(&runner, "pm", Some(&params));
+    let session = pm(format!("attach {}", cli.pid()))["session"].clone();
+    assert!(rig.claude.terminals_ended().is_empty());
+
+    pm(format!("detach {}", cli.pid()));
+
+    let told = |rig: &crate::test::Rig| -> Vec<serde_json::Value> {
+        (rig.claude.terminals_ended().iter())
+            .map(|s| json!(s.0))
+            .collect()
+    };
+    assert_eq!(told(&rig), vec![session.clone()]);
+
+    pm(format!("attach {}", gone.pid()));
+    drop(gone);
+    assert_eq!(step(&runner).unwrap(), None);
+
+    assert_eq!(told(&rig), vec![session.clone(), session]);
+}
+
+#[test]
 fn a_pid_that_runs_nothing_holds_nothing() {
     let (rig, runner) = with_pm("koji");
     let mut child = Command::new("true").spawn().unwrap();
