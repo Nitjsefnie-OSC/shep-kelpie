@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use crate::worktree::{
     Base, Rebase, Remote, Start, Worktree, WorktreeError, base_of, head, origin_head, prepare,
-    rebase, remove,
+    push_commits, rebase, remove,
 };
 use shep_kelpie_test_support::git;
 
@@ -431,4 +431,51 @@ fn rebase_and_remove_on_a_fork_remote_push_and_delete_on_the_fork() {
         git(&rig.root.join("fork.git"), &["branch", "--list", "contrib"]),
         ""
     );
+}
+
+// A worker commits and kelpie pushes: the commits land on the fork's branch,
+// by commit, so nothing but a fast-forward is accepted.
+#[test]
+fn push_commits_fast_forwards_the_forks_branch() {
+    let rig = Rig::new();
+    let remote = rig.fork("contrib");
+    rig.prepare("kelpie/7", Start::Pushed, &remote);
+    rig.at_worktree(&["commit", "--quiet", "--allow-empty", "-m", "work"]);
+
+    push_commits(&rig.repo(), &rig.worktree(), &remote).unwrap();
+
+    assert_eq!(
+        rig.rev("fork.git", "contrib"),
+        rig.at_worktree(&["rev-parse", "HEAD"])
+    );
+}
+
+#[test]
+fn push_commits_never_overwrites_a_head_the_worktree_lacks() {
+    let rig = Rig::new();
+    let remote = rig.fork("contrib");
+    rig.prepare("kelpie/7", Start::Pushed, &remote);
+    rig.at_worktree(&["commit", "--quiet", "--allow-empty", "-m", "work"]);
+    git(&rig.repo(), &["checkout", "--quiet", "contrib"]);
+    git(
+        &rig.repo(),
+        &["commit", "--quiet", "--allow-empty", "-m", "theirs"],
+    );
+    git(&rig.repo(), &["push", "--quiet", "../fork.git", "contrib"]);
+    let theirs = rig.rev("fork.git", "contrib");
+
+    let refused = push_commits(&rig.repo(), &rig.worktree(), &remote);
+
+    assert!(matches!(refused, Err(WorktreeError::Git { .. })));
+    assert_eq!(rig.rev("fork.git", "contrib"), theirs);
+}
+
+#[test]
+fn push_commits_leaves_origin_to_its_worker() {
+    let rig = Rig::new();
+    rig.prepare("kelpie/7", Start::Main, &Remote::Origin);
+
+    let refused = push_commits(&rig.repo(), &rig.worktree(), &Remote::Origin);
+
+    assert!(refused.is_err());
 }

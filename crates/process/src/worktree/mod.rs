@@ -22,6 +22,7 @@ mod cache;
 mod catch_up;
 mod changed;
 mod contribution;
+mod push;
 mod ref_folders;
 mod remote;
 mod stale_lock;
@@ -34,6 +35,7 @@ pub use contribution::{
     Change, Opaque, Touched, change as contribution_change, changed_paths,
     checkout as contribution_checkout,
 };
+pub use push::push_commits;
 pub use remote::Remote;
 
 /// Where a new worktree's branch starts
