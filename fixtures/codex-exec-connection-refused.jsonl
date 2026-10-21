@@ -1,4 +1,0 @@
-{"type":"thread.started","thread_id":"01a0f7fd-4ed5-7773-80ea-165edc292d8d"}
-{"type":"turn.started"}
-{"type":"error","message":"Connection failed: tcp connect error: Connection refused (os error 61)"}
-{"type":"turn.failed","error":{"message":"Connection failed: tcp connect error: Connection refused (os error 61)"}}

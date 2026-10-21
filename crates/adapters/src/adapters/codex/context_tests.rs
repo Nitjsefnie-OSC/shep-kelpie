@@ -1,17 +1,18 @@
 //! A Codex turn's context size and the compaction kelpie asks of it
 //!
-//! `fixtures/codex-exec-compacted.jsonl` and `fixtures/codex-rollout-compacted.jsonl`
-//! are written from the shapes in Codex's source at `rust-v0.159.3`, not
-//! recorded, until the maintainer's live run records them (#771).
+//! `fixtures/codex-exec-before-compaction.jsonl`, `fixtures/codex-exec-compacted.jsonl`
+//! and `fixtures/codex-rollout-compacted.jsonl` are recorded on codex-cli 0.159.3 (#771).
 
 use super::tests::{FRESH, THREAD, WORKER_ID, World, id, stand_in, strings};
 use super::*;
 use crate::ports::{COMPACT, Role};
 
-/// A resumed turn that compacted first, in the session `FRESH` began
+/// A session's first turn, which ran three model requests
+const BEFORE: &str = include_str!("../../../../../fixtures/codex-exec-before-compaction.jsonl");
+/// That session resumed with a limit under its context, so it compacted first
 const COMPACTED: &str = include_str!("../../../../../fixtures/codex-exec-compacted.jsonl");
-/// The session's rollout after that turn: the first turn's request, the
-/// compaction's, the turn's own, and a rate-limit update with no usage
+/// The session's rollout after that turn: each request's `token_usage_record`
+/// and `token_count`, and the `compacted` line between the turns
 const ROLLOUT: &str = include_str!("../../../../../fixtures/codex-rollout-compacted.jsonl");
 
 // Puts `rollout` where Codex keeps the rollout of `THREAD` in the call's home.
@@ -37,7 +38,7 @@ fn a_turn_s_context_is_the_last_token_count_events_last_request_input() {
     let reply = cli.run(&call, &Ending::default()).unwrap();
 
     // The turn's own request after the compaction, not the session's running total.
-    assert_eq!(reply.context, Some(1523));
+    assert_eq!(reply.context, Some(19_478));
 }
 
 #[test]
@@ -50,13 +51,13 @@ fn a_rollout_with_no_token_count_event_or_no_file_reports_no_context() {
     let no_file = cli.run(&call, &Ending::default()).unwrap();
     assert_eq!(no_file.context, None);
 
-    // A rollout that held only a session's start and a usage-less rate-limit update.
+    // A rollout that held only a session's start, its usage records and the compaction.
     let events = ROLLOUT
         .lines()
         .filter(|l| !l.contains("\"last_token_usage\""))
         .collect::<Vec<_>>()
         .join("\n");
-    assert_eq!(events.lines().count(), 3, "{events}");
+    assert_eq!(events.lines().count(), 7, "{events}");
     rollout(&w, &call, &events);
     let again = w.call(Role::Worker, Session::Resume(id(WORKER_ID)));
     let no_event = cli.run(&again, &Ending::default()).unwrap();
@@ -115,7 +116,7 @@ fn a_compact_call_runs_no_codex_and_records_the_context_it_read() {
     assert_eq!(reply.usage, Usage::default());
     assert_eq!(reply.context, None);
     let recorded = thread(&Files::of(&call), &id(WORKER_ID)).unwrap().unwrap();
-    assert_eq!(recorded.context, Some(1523));
+    assert_eq!(recorded.context, Some(19_478));
 }
 
 #[test]
@@ -136,11 +137,11 @@ fn the_turn_after_a_compact_call_passes_the_lower_of_the_window_and_the_recorded
             })
     };
 
-    // The session held 1523 tokens, so a limit of 1522 is already reached.
+    // The session held 19,478 tokens, so a limit of 19,477 is already reached.
     let mut next = w.call(Role::Worker, Session::Resume(id(WORKER_ID)));
     next.compact_window = std::num::NonZeroU32::new(200_000);
     cli.run(&next, &Ending::default()).unwrap();
-    assert_eq!(limit(&w).as_deref(), Some("1522"));
+    assert_eq!(limit(&w).as_deref(), Some("19477"));
 
     // That turn ran, so the one after it holds only the window.
     cli.run(&next, &Ending::default()).unwrap();
@@ -153,15 +154,14 @@ fn the_turn_after_a_compact_call_passes_the_lower_of_the_window_and_the_recorded
     assert_eq!(limit(&w).as_deref(), Some("1000"));
 }
 
-// The running total after the turn is 36,989 input (28,416 cached) and 952
-// output, against 17,711 (10,752) and 44 before it. The compaction's own
-// request (17,755 input, 17,664 of them cached, 812 output) is inside that
-// total, so the turn's usage holds it with no count of its own: 91 uncached
-// input of the compaction and 1,523 of the turn, and 812 + 96 output.
+// `turn.completed` runs from 67,840 input (38,272 cached) and 229 output to
+// 87,318 (50,048) and 249: the turn's own request alone. The compaction's
+// (29,387 input, 29,056 cached, 220 output) is only in the rollout's
+// `token_usage_record` and `compacted` lines, so the turn counts too few (#1128).
 #[test]
-fn a_turn_that_compacted_reports_the_usage_of_the_compaction_in_its_total() {
+fn a_turn_that_compacted_leaves_the_compaction_out_of_its_usage() {
     let w = World::new();
-    let cli = stand_in(&w, FRESH);
+    let cli = stand_in(&w, BEFORE);
     let call = after_a_turn(&w, &cli);
     let cli = stand_in(&w, COMPACTED);
 
@@ -170,11 +170,11 @@ fn a_turn_that_compacted_reports_the_usage_of_the_compaction_in_its_total() {
     assert_eq!(
         reply.usage,
         Usage {
-            input: 1614,
+            input: 7702,
             cache_write: 0,
             cache_write_5m: 0,
-            cache_read: 17_664,
-            output: 908,
+            cache_read: 11_776,
+            output: 20,
         }
     );
 }
