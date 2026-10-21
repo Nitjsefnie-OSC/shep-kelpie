@@ -154,27 +154,86 @@ fn the_turn_after_a_compact_call_passes_the_lower_of_the_window_and_the_recorded
     assert_eq!(limit(&w).as_deref(), Some("1000"));
 }
 
+// The rollout as the session's first turn left it: before the compaction's lines.
+fn first_turn_rollout() -> String {
+    ROLLOUT.lines().take(7).collect::<Vec<_>>().join("\n")
+}
+
+// The session `BEFORE` began, with `rollout` as the rollout left by the turn
+// that `COMPACTED` is the output of, which a resumed call reads.
+fn compacted_turn(w: &World, first: &str, rollout_after: &str) -> AgentReply {
+    let cli = stand_in(w, BEFORE);
+    let call = w.call(Role::Worker, Session::New(id(WORKER_ID)));
+    cli.prepare(&call).unwrap();
+    rollout(w, &call, first);
+    cli.run(&call, &Ending::default()).unwrap();
+    rollout(w, &call, rollout_after);
+    let resumed = w.call(Role::Worker, Session::Resume(id(WORKER_ID)));
+    stand_in(w, COMPACTED)
+        .run(&resumed, &Ending::default())
+        .unwrap()
+}
+
 // `turn.completed` runs from 67,840 input (38,272 cached) and 229 output to
 // 87,318 (50,048) and 249: the turn's own request alone. The compaction's
-// (29,387 input, 29,056 cached, 220 output) is only in the rollout's
-// `token_usage_record` and `compacted` lines, so the turn counts too few (#1128).
+// (29,387 input, 29,056 cached, 220 output) is in the rollout's last
+// `token_usage_record`, whose `thread_token_usage` runs on to 116,705 input
+// (79,104 cached) and 469 output, so the turn reports that record's
+// `turn_token_usage`: 48,865 input of which 40,832 cached, and 240 output.
 #[test]
-fn a_turn_that_compacted_leaves_the_compaction_out_of_its_usage() {
+fn a_turn_that_compacted_reports_its_last_token_usage_records_turn_usage() {
     let w = World::new();
-    let cli = stand_in(&w, BEFORE);
-    let call = after_a_turn(&w, &cli);
-    let cli = stand_in(&w, COMPACTED);
 
-    let reply = cli.run(&call, &Ending::default()).unwrap();
+    let reply = compacted_turn(&w, &first_turn_rollout(), ROLLOUT);
 
     assert_eq!(
         reply.usage,
         Usage {
-            input: 7702,
+            input: 8033,
             cache_write: 0,
             cache_write_5m: 0,
-            cache_read: 11_776,
-            output: 20,
+            cache_read: 40_832,
+            output: 240,
         }
     );
+}
+
+fn without_records(rollout: &str) -> String {
+    rollout
+        .lines()
+        .filter(|l| !l.contains("\"type\":\"token_usage_record\""))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+// What `turn.completed` reports: the turn's own request, with no compaction in it.
+const OWN_REQUEST: Usage = Usage {
+    input: 7702,
+    cache_write: 0,
+    cache_write_5m: 0,
+    cache_read: 11_776,
+    output: 20,
+};
+
+#[test]
+fn a_turn_whose_rollout_has_no_token_usage_record_reports_the_turn_s_own_usage() {
+    let w = World::new();
+
+    let reply = compacted_turn(
+        &w,
+        &without_records(&first_turn_rollout()),
+        &without_records(ROLLOUT),
+    );
+
+    assert_eq!(reply.usage, OWN_REQUEST);
+}
+
+#[test]
+fn a_token_usage_record_from_an_earlier_turn_leaves_the_turn_s_own_report() {
+    let w = World::new();
+
+    // The turn wrote no record: the rollout still ends on the first turn's.
+    let reply = compacted_turn(&w, &first_turn_rollout(), &first_turn_rollout());
+
+    assert_eq!(reply.usage, OWN_REQUEST);
 }

@@ -196,10 +196,10 @@ fn the_end_of_a_terminal_session_leaves_the_next_turn_to_count_only_its_own() {
     assert_eq!(
         kept.spent,
         Spent {
-            input_tokens: 87_318,
-            cached_input_tokens: 50_048,
+            input_tokens: 116_705,
+            cached_input_tokens: 79_104,
             cache_write_input_tokens: 0,
-            output_tokens: 249,
+            output_tokens: 469,
         }
     );
     assert_eq!(kept.context, Some(19_478));
@@ -215,6 +215,9 @@ fn the_end_of_a_terminal_session_leaves_the_next_turn_to_count_only_its_own() {
             r#"{"type":"turn.completed","usage":{"input_tokens":89318,"cached_input_tokens":50048,"output_tokens":349}}"#,
         ),
     );
+    // Codex appends the turn's record to the rollout.
+    let record = r#"{"type":"token_usage_record","payload":{"thread_token_usage":{"input_tokens":118705,"cached_input_tokens":79104,"output_tokens":569}}}"#;
+    rollout_of_terminal(&call, &format!("{ROLLOUT}{record}\n"));
     let reply = next.run(&call, &Ending::default()).unwrap();
     assert_eq!(
         reply.usage,
