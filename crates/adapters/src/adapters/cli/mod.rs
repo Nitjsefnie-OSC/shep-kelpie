@@ -17,6 +17,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::time::Duration;
 
+use serde_json::Value;
+
 pub use adapter::CliAdapter;
 
 use crate::forwarder::Upstream;
@@ -244,5 +246,17 @@ pub trait Cli: fmt::Debug + Clone + Send + Sync + 'static {
     fn last_active(&self, call: &AgentCall) -> CallActivity {
         let _ = call;
         CallActivity::Untracked
+    }
+
+    /// Why it cannot load the Claude-shaped MCP server `name`, if it cannot
+    fn mcp_refusal(name: &str, entry: &Value) -> Option<String> {
+        let _ = (name, entry);
+        None
+    }
+
+    /// What it drops of the server `name`, which it loads without, if it drops anything
+    fn mcp_skipped_env(name: &str, entry: &Value) -> Option<String> {
+        let _ = (name, entry);
+        None
     }
 }

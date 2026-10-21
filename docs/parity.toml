@@ -9,7 +9,9 @@
 # - an adapter's `refuse_unsupported` names the rows its provider lacks the
 #   same way;
 # - a harness row with `methods` lists `Agents` methods that have a refusing
-#   default, and its cells say which adapters override them.
+#   default, and its cells say which adapters override them. `CliAdapter`
+#   implements them all, so an adapter overrides one by the `Cli` method that
+#   answers it (`cli_hooks` in `crates/core/src/parity/tests.rs`).
 #
 # A cell is one of:
 #   "yes"

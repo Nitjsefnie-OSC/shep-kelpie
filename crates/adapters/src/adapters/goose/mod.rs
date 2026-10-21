@@ -38,14 +38,14 @@ use crate::ports::{
     Adopted, AgentCall, AgentError, AgentReply, COMPACT, CallActivity, Policy, Role, Session,
     Tools, Transcript,
 };
-use crate::settings::{AgentHarness, Harness, ModelServer};
+use crate::settings::{Harness, ModelServer};
 
 // What the module's tests take from it by glob.
 #[cfg(test)]
 use {
     super::forwarder::Forwarder,
     crate::ports::{Agents, Ending, Forward},
-    crate::settings::{Gateways, ModelHost},
+    crate::settings::{AgentHarness, Gateways, ModelHost},
     std::path::Path,
 };
 
@@ -191,6 +191,14 @@ impl Cli for Goose {
     // The totals the session had spent when the call began
     type Begun = Spent;
     const HARNESS: Harness = Harness::Goose;
+
+    fn mcp_refusal(name: &str, entry: &serde_json::Value) -> Option<String> {
+        mcp::refusal(name, entry)
+    }
+
+    fn mcp_skipped_env(name: &str, entry: &serde_json::Value) -> Option<String> {
+        mcp::skipped_env(name, entry)
+    }
 
     fn refuse(&self, call: &AgentCall) -> Result<(), AgentError> {
         refuse_unsupported(call)
@@ -359,10 +367,7 @@ fn unserved() -> AgentError {
 
 /// The server the call's model is on, which every goose call needs
 fn server(call: &AgentCall) -> Result<&ModelServer, AgentError> {
-    match &call.harness {
-        AgentHarness::Goose(server) => Ok(server),
-        _ => Err(unserved()),
-    }
+    call.harness.server().ok_or_else(unserved)
 }
 
 // What goose cannot give a call. The agent files already refuse a role goose

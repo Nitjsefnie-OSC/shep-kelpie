@@ -33,7 +33,7 @@ use crate::ports::{
     Adopted, AgentCall, AgentError, AgentReply, COMPACT, CallActivity, Fence, Policy, Session,
     SessionId, Tools, Transcript, Usage,
 };
-use crate::settings::{AgentHarness, Harness, HookPoint, ModelServer};
+use crate::settings::{Harness, HookPoint, ModelServer};
 use crate::tool_error::GUARD_MARK;
 
 // What the module's tests take from it by glob.
@@ -42,7 +42,7 @@ use {
     super::forwarder::Forwarder,
     crate::forwarder::WORKER_HOST,
     crate::ports::{Agents, Ending, Forward, Role},
-    crate::settings::{Gateways, ModelHost},
+    crate::settings::{AgentHarness, Gateways, ModelHost},
 };
 
 mod activity;
@@ -201,6 +201,10 @@ impl Cli for Pi {
     type Begun = ();
     const HARNESS: Harness = Harness::Pi;
 
+    fn mcp_refusal(name: &str, entry: &serde_json::Value) -> Option<String> {
+        mcp::refusal(name, entry)
+    }
+
     fn write_config(&self, call: &AgentCall, served: Option<&Upstream>) -> Result<(), AgentError> {
         let (server, upstream) = (server(call)?, served.ok_or_else(unserved)?);
         let files = Files::of(call);
@@ -338,10 +342,7 @@ fn refuse_missing_session(call: &AgentCall) -> Result<(), AgentError> {
 
 /// The server the call's model is on, which every pi call needs
 fn server(call: &AgentCall) -> Result<&ModelServer, AgentError> {
-    match &call.harness {
-        AgentHarness::Pi(server) => Ok(server),
-        _ => Err(unserved()),
-    }
+    call.harness.server().ok_or_else(unserved)
 }
 
 // A compact call, and a call bounded by a window that hands its prompt back

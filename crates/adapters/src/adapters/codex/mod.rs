@@ -203,6 +203,10 @@ impl Cli for Codex {
     type Begun = Option<Thread>;
     const HARNESS: Harness = CODEX;
 
+    fn mcp_refusal(name: &str, entry: &serde_json::Value) -> Option<String> {
+        mcp::refusal(name, entry)
+    }
+
     fn write_config(&self, call: &AgentCall, _: Option<&Upstream>) -> Result<(), AgentError> {
         let files = Files::of(call);
         let written = WRITTEN.map(|name| files.home.join(name));

@@ -2,9 +2,41 @@
 
 use serde_json::Value;
 
-use super::{codex, goose, pi};
+use super::{Cli, codex::Codex, goose::Goose, pi::Pi};
 use crate::ports::HarnessMcp;
-use crate::settings::AgentHarness;
+use crate::settings::{AgentHarness, Harness};
+
+type Says = fn(&str, &Value) -> Option<String>;
+
+// What one CLI says of a server entry
+struct Rules {
+    harness: Harness,
+    refusal: Says,
+    skipped_env: Says,
+}
+
+impl Rules {
+    const fn of<C: Cli>() -> Self {
+        Self {
+            harness: C::HARNESS,
+            refusal: C::mcp_refusal,
+            skipped_env: C::mcp_skipped_env,
+        }
+    }
+}
+
+// A CLI that is not listed loads every server whole.
+const RULES: [Rules; 3] = [
+    Rules::of::<Pi>(),
+    Rules::of::<Codex>(),
+    Rules::of::<Goose>(),
+];
+
+fn rules(harness: &AgentHarness) -> Option<&'static Rules> {
+    RULES
+        .iter()
+        .find(|rules| rules.harness == harness.harness())
+}
 
 /// What each harness's own MCP loading refuses and drops
 #[derive(Debug, Clone, Copy, Default)]
@@ -12,21 +44,11 @@ pub struct McpRules;
 
 impl HarnessMcp for McpRules {
     fn refusal(&self, harness: &AgentHarness, name: &str, entry: &Value) -> Option<String> {
-        match harness {
-            AgentHarness::Pi(_) => pi::mcp::refusal(name, entry),
-            AgentHarness::Codex => codex::mcp::refusal(name, entry),
-            AgentHarness::Goose(_) => goose::mcp::refusal(name, entry),
-            // parity: harness.mcp-servers
-            _ => None,
-        }
+        (rules(harness)?.refusal)(name, entry)
     }
 
     fn skipped_env(&self, harness: &AgentHarness, name: &str, entry: &Value) -> Option<String> {
-        match harness {
-            AgentHarness::Goose(_) => goose::mcp::skipped_env(name, entry),
-            // parity: harness.mcp-servers
-            _ => None,
-        }
+        (rules(harness)?.skipped_env)(name, entry)
     }
 }
 
