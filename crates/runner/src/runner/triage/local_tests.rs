@@ -348,6 +348,45 @@ fn no_edit_for_wait_days_ends_needs_triage() {
 }
 
 #[test]
+fn a_body_rewritten_by_the_deadline_is_read_and_not_ended_as_silence() {
+    let (rig, runner) = filed(
+        "pick = \"maintainer\"\nwait_days = 2",
+        MAINTAINER,
+        asked_with_files(),
+    );
+    local_round(&rig, &runner);
+
+    // The session rewrote the body, and no comment came: the wait's days are
+    // out on the same look that finds the edit.
+    rig.clock.advance(2 * Rig::DAY);
+    list(&rig, rewritten(&rig, MAINTAINER, EDITED));
+    rig.claude.script_for(Role::Triager, [reply(settled())]);
+    rig.claude
+        .script_for(Role::Representative, [Scripted::Say(A_WORDS)]);
+    for _ in 0..3 {
+        rig.next_look();
+        assert_eq!(step(&runner).unwrap(), None);
+    }
+
+    assert_eq!(
+        calls(&rig, Role::Triager).len(),
+        2,
+        "the rewritten body is triaged"
+    );
+    assert_eq!(
+        moves(&rig),
+        [
+            "comment",
+            "comment",
+            "label bug",
+            "label P2",
+            "label needs-triage",
+        ]
+    );
+    assert_eq!(record(&rig, &runner)["step"], "done");
+}
+
+#[test]
 fn a_restart_while_waiting_on_local_keeps_the_body_hash_and_its_clock() {
     let (rig, runner) = filed(
         "pick = \"maintainer\"\nwait_days = 2",

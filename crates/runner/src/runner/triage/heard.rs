@@ -12,7 +12,9 @@
 //! still starts the second pass, which reads it against the questions and asks
 //! again only what it left unsettled. The author's comments are kept in the
 //! pass until the second call is made with them. Silence `triage.wait_days`
-//! after the comment ends the wait as `none` does, with nothing posted. A wait
+//! after the comment ends the wait as `none` does, with nothing posted, unless
+//! the comment holds a prompt: [`Runner::watch_local_waits`] ends that one,
+//! since the author's session may have rewritten the body instead. A wait
 //! the prompt is on, with no questions, is not heard from at all: its author
 //! answers it by rewriting the issue body. An issue kelpie has given up on
 //! after five failures is not heard from either, as no other part of triage
@@ -86,7 +88,8 @@ impl Runner {
 
     // The author's comments after the triage comment are the answers: they go
     // to the pass, which starts the second triager call with them. With none,
-    // silence `triage.wait_days` after the comment counts as `none`.
+    // silence `triage.wait_days` after the comment counts as `none`, unless the
+    // comment holds a prompt.
     fn hear_answers(
         &mut self,
         record: &Triaged,
@@ -95,7 +98,11 @@ impl Runner {
     ) -> Result<(), StateError> {
         let issue = record.issue;
         if replies.is_empty() {
-            if self.ports.clock.now().0 < wait_at.0.saturating_add(self.wait_seconds()) {
+            // A record with a prompt is ended by `watch_local_waits`, which
+            // reads the body first: a session's rewrite is an answer too.
+            if record.local.is_some()
+                || self.ports.clock.now().0 < wait_at.0.saturating_add(self.wait_seconds())
+            {
                 return Ok(());
             }
             self.notes.push(format!(

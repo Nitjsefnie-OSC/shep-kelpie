@@ -91,10 +91,9 @@ impl Runner {
     // Reads each issue whose triage waits on a local session. Its body is what
     // the author's session was told to rewrite, so a body whose hash differs is
     // the round's answer: the triager reads the issue again, on the body this
-    // read saw. A wait that also holds questions is ended by silence in
-    // [`Runner::hear_triage`]; one with the prompt alone, which a file saved by
-    // an earlier kelpie holds, ends as `none` does with no edit
-    // `triage.wait_days` after the prompt.
+    // read saw. With no edit and no comment `triage.wait_days` after the
+    // prompt, it ends as `none` does. Silence is ended here and not in
+    // [`Runner::hear_triage`], so a rewrite is read before it counts.
     pub(super) fn watch_local_waits(&mut self) -> Result<(), StateError> {
         for record in self.triage_waiting() {
             let (Some(local), issue) = (record.local, record.issue) else {
@@ -130,14 +129,17 @@ impl Runner {
                 }
                 continue;
             }
-            if record.questions.is_some()
-                || self.ports.clock.now().0 < local.at.0.saturating_add(self.wait_seconds())
-            {
+            let heard = self
+                .triage_tries
+                .get(&issue)
+                .is_some_and(|t| t.answers.is_some());
+            if heard || self.ports.clock.now().0 < local.at.0.saturating_add(self.wait_seconds()) {
                 continue;
             }
             self.notes.push(format!(
-                "triage #{issue}: its author wrote no new body within `triage.wait_days` of the \
-                 prompt, which counts as `none`: the maintainer triages it as it stands"
+                "triage #{issue}: its author wrote no comment and no new body within \
+                 `triage.wait_days` of the prompt, which counts as `none`: the maintainer \
+                 triages it as it stands"
             ));
             self.triage_none(issue)?;
         }
