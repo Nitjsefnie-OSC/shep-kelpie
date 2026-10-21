@@ -104,8 +104,10 @@ fn the_end_of_the_terminal_session_is_told_to_the_agent_on_a_detach_and_on_a_gon
     assert_eq!(told(&rig), vec![session.clone()]);
 
     pm(format!("attach {}", gone.pid()));
+    rig.ask(&runner, "tell", Some("while you are attached"));
     drop(gone);
-    assert_eq!(step(&runner).unwrap(), None);
+    rig.claude.script([Scripted::Say("{\"pick\": null}")]);
+    answered(step(&runner).unwrap());
 
     assert_eq!(told(&rig), vec![session.clone(), session]);
 }
