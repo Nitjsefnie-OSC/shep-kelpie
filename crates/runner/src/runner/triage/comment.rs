@@ -469,8 +469,7 @@ impl Runner {
         // Only the maintainer is told the files, tests and criteria: text posted
         // to anyone else holds no file path or code term, so the words and the
         // prompt for their own terminal are made from a report without them.
-        let role = (self.triage_tries.get(&issue)).and_then(|t| t.role);
-        let plain = role.is_none_or(|role| role != AuthorRole::Maintainer);
+        let plain = self.posts_plain(issue);
         let found = &match plain {
             true => Found {
                 files: Vec::new(),
@@ -535,6 +534,14 @@ impl Runner {
         self.send_triage(issue)
     }
 
+    // Whether what is posted to `issue`'s author is worded plain, with no path
+    // or code term: it is for anyone but the maintainer, and for a pass that
+    // lost its role to a restart
+    fn posts_plain(&self, issue: u64) -> bool {
+        let role = (self.triage_tries.get(&issue)).and_then(|t| t.role);
+        role.is_none_or(|role| role != AuthorRole::Maintainer)
+    }
+
     // Words the short comment that names the other item, and posts it ahead of
     // the close. No label is asked for: a closed duplicate carries none.
     fn say_duplicate(
@@ -544,7 +551,10 @@ impl Runner {
         said: &str,
         named: &Addressed,
     ) -> Result<(), StateError> {
-        let facts = duplicate_facts(named);
+        let mut facts = duplicate_facts(named);
+        if self.posts_plain(issue) {
+            facts.push_str(PLAIN_FACTS);
+        }
         let earlier: Vec<u64> = self
             .triage_record(issue)
             .map(|t| t.comment)
