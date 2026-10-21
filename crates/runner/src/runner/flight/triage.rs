@@ -98,6 +98,13 @@ impl super::Flights {
         self.triaging.as_ref().map(|t| t.issue)
     }
 
+    /// Asks the call in flight to end, as triage turned off does
+    pub(in crate::runner) fn end_triage(&self) {
+        if let Some(flight) = &self.triaging {
+            flight.ending.end();
+        }
+    }
+
     /// Whether `issue` was looked at since the last poll
     pub(in crate::runner) fn triage_tried(&self, issue: u64) -> bool {
         self.triage_tried.contains(&issue)
@@ -242,6 +249,10 @@ impl Runner {
         // could not start, spends nothing.
         if spent {
             self.triage_call_made(issue)?;
+        }
+        // Triage turned off while it ran: nothing it found is posted.
+        if self.state.triage.is_none() {
+            return Ok(());
         }
         match (result, found) {
             // Stopped with the runner: the next poll asks again.

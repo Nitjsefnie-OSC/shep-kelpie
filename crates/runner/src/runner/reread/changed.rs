@@ -25,7 +25,7 @@ pub(super) fn names((old, was): Reach<'_>, (new, now): Reach<'_>) -> Vec<&'stati
         rulings: old_rulings,
         contributions: _, // waits for the next start, when the runner checks it
         dependencies: old_dependencies,
-        triage: _,  // waits for the next start, like `contributions`
+        triage: old_triage,
         tickets: _, // waits for the next start, when the runner picks the port
         hooks: _,   // waits for the next start, so `reread` keeps the old
         skills: old_skills,
@@ -48,7 +48,7 @@ pub(super) fn names((old, was): Reach<'_>, (new, now): Reach<'_>) -> Vec<&'stati
         rulings: new_rulings,
         contributions: _,
         dependencies: new_dependencies,
-        triage: _,
+        triage: new_triage,
         tickets: _,
         hooks: _,
         skills: new_skills,
@@ -94,6 +94,7 @@ pub(super) fn names((old, was): Reach<'_>, (new, now): Reach<'_>) -> Vec<&'stati
         ("researcher", old_researcher != new_researcher),
         ("rulings", old_rulings != new_rulings),
         ("dependencies", old_dependencies != new_dependencies),
+        ("triage", old_triage != new_triage),
         ("webhook", was != now),
     ]
     .into_iter()

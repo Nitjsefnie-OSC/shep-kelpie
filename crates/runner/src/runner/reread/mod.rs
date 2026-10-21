@@ -2,16 +2,18 @@
 //!
 //! Every setting takes effect live, at the next step or call that reads
 //! it, except `git.checkout`, `git.remote`, `git.base`, `hooks`,
-//! `contributions`, `triage`, `tickets` and kelpie's gateways: a work item's
+//! `contributions`, `tickets` and kelpie's gateways: a work item's
 //! worktree and pull request belong to the first three, the forge and voice
 //! ports hold the hooks built at start, the start checks and picks the next
-//! three, and the adapters hold the gateways, so those wait for the runner's
+//! two, and the adapters hold the gateways, so those wait for the runner's
 //! next start. The agent files are read again with them, and a change to
 //! those alone is a change too, but agents that name a gateway the runner
 //! lacks wait with it. A change is checked as a start checks it, and one
 //! that fails keeps the settings the runner has.
 
-use super::{OpenError, Runner, check_bots, check_coderabbit, check_local, instructions};
+use super::{
+    OpenError, Runner, check_bots, check_coderabbit, check_local, instructions, open_checks, triage,
+};
 use crate::agents::Agents;
 use crate::review_bot::Bot;
 use crate::settings::{AgentName, Gateways, ListedReviewer, RoleAgents, Settings, SettingsError};
@@ -71,11 +73,6 @@ impl Runner {
                 .contributions
                 .clone_from(&self.settings.contributions);
         }
-        // The start checks cover the App and the triager's file against `pick`.
-        if settings.triage != self.settings.triage {
-            waiting.push("triage");
-            settings.triage.clone_from(&self.settings.triage);
-        }
         // The ticket port was picked at start.
         if settings.tickets != self.settings.tickets {
             waiting.push("tickets");
@@ -121,6 +118,9 @@ impl Runner {
         }
         let webhook = kelpie.webhook;
         let mut changed = changed::names((&self.settings, &self.webhook), (&settings, &webhook));
+        if settings.triage != self.settings.triage {
+            open_checks::triage(&settings, self.ports.voice.as_ref(), &self.remote, &book)?;
+        }
         let (was, now) = (&self.settings.agents, &settings.agents);
         let writer =
             (was.issue_writer != now.issue_writer) || (was.fallback_after != now.fallback_after);
@@ -167,6 +167,24 @@ impl Runner {
             .then(|| Skills::load(&settings.skills, &self.paths.skills));
         let new_implementers = agents.implementer_names() != self.agents.implementer_names();
         let e2e_changed = settings.e2e != self.settings.e2e;
+        // A start stamps or clears it the same way, so it follows `pick` past `off`.
+        let was_triaging = self.state.triage.clone();
+        if triage::settle_since(&mut self.state, &settings, self.ports.clock.now()) {
+            if let Err(e) = self.store.save(&self.state) {
+                self.state.triage = was_triaging;
+                return Err(e.into());
+            }
+            if self.state.triage.is_none() {
+                // The poll that listed them stops with `pick`, so they would stay as `status` says them.
+                self.triage_due.clear();
+                self.triage_queue.clear();
+                self.flights.end_triage();
+            }
+        }
+        // The listing was made under the old pick, and the next poll is up to a minute off.
+        if settings.triage.pick != self.settings.triage.pick {
+            self.triage_due.clear();
+        }
         self.settings = settings;
         if e2e_changed {
             // The dog reads the host from this file, so it follows the settings.
