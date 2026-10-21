@@ -690,6 +690,48 @@ impl Runner {
     }
 }
 
+impl Runner {
+    // Ends the bot turns of reviewers `lineup` no longer lists, so a label
+    // they put on a pull request comes off and their lease goes back before
+    // the walk moves on and forgets them. A turn of a reviewer still listed
+    // goes on.
+    pub(in crate::runner) fn end_unlisted_turns(
+        &mut self,
+        lineup: &[ListedReviewer],
+    ) -> Result<(), StateError> {
+        let listed = |name: &AgentName| lineup.iter().any(|r| &r.name == name && r.bot().is_some());
+        let unlisted = |c: &Contribution| {
+            let turn = c.walking_head().and_then(|w| w.bot.as_ref());
+            turn.is_some_and(|t| !listed(&t.reviewer))
+        };
+        let ended: Vec<&Contribution> = (self.state.contributions.iter())
+            .filter(|c| unlisted(c))
+            .collect();
+        if ended.is_empty() {
+            return Ok(());
+        }
+        let mut asked = Vec::new();
+        let mut labelled = Vec::new();
+        for held in &ended {
+            labelled.extend(labelled_on(held).map(|bot| (held.pull_request, bot)));
+            asked.extend(waiting_on(held));
+        }
+        let mut next = self.state.clone();
+        for held in next.contributions.iter_mut().filter(|c| unlisted(c)) {
+            if let Some(walking) = held.walking.as_mut() {
+                walking.bot = None;
+            }
+        }
+        self.save(next)?;
+        // After the save, so a turn that stays in the state keeps its label.
+        for (number, bot) in labelled {
+            self.label_off(number, bot);
+        }
+        self.give_up_asks(&asked)?;
+        self.release_idle_bots()
+    }
+}
+
 // The bot `contribution`'s walk has summoned and has not yet landed the
 // review of, so its label may still be on
 fn labelled_on(contribution: &Contribution) -> Option<Bot> {

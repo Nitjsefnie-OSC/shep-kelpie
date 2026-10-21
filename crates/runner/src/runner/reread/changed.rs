@@ -23,7 +23,7 @@ pub(super) fn names((old, was): Reach<'_>, (new, now): Reach<'_>) -> Vec<&'stati
         worker: old_worker,
         researcher: old_researcher,
         rulings: old_rulings,
-        contributions: _, // waits for the next start, when the runner checks it
+        contributions: old_contributions,
         dependencies: old_dependencies,
         triage: old_triage,
         tickets: _, // waits for the next start, when the runner picks the port
@@ -46,7 +46,7 @@ pub(super) fn names((old, was): Reach<'_>, (new, now): Reach<'_>) -> Vec<&'stati
         worker: new_worker,
         researcher: new_researcher,
         rulings: new_rulings,
-        contributions: _,
+        contributions: new_contributions,
         dependencies: new_dependencies,
         triage: new_triage,
         tickets: _,
@@ -93,6 +93,7 @@ pub(super) fn names((old, was): Reach<'_>, (new, now): Reach<'_>) -> Vec<&'stati
         ("e2e", old_e2e != new_e2e),
         ("researcher", old_researcher != new_researcher),
         ("rulings", old_rulings != new_rulings),
+        ("contributions", old_contributions != new_contributions),
         ("dependencies", old_dependencies != new_dependencies),
         ("triage", old_triage != new_triage),
         ("webhook", was != now),

@@ -1,3 +1,4 @@
+mod contributions;
 mod dependencies;
 mod e2e;
 mod triage;
@@ -246,31 +247,6 @@ fn a_changed_hook_alone_waits_for_the_next_start() {
     let restarted = restarted.lock().unwrap();
     assert_eq!(restarted.settings().hooks.len(), 1);
     assert!(restarted.hooks.has(HookPoint::Publish));
-}
-
-#[test]
-fn a_changed_contributions_table_waits_for_the_next_start_whatever_else_changes() {
-    let rig = Rig::new("shep");
-    let runner = rig.open().unwrap();
-    // The App does not cover the repo, so a start would refuse `label`.
-    rig.edit_settings(|s| {
-        format!("{}\n[app.dogs.kelpie.contributions]\npick = \"label\"\n", s)
-            .replace("per_item_usd = 10", "per_item_usd = 20")
-    });
-    let mut runner = runner.lock().unwrap();
-    let line = runner.reread(rig.settings(), rig.kelpie_settings());
-    assert_eq!(
-        line.unwrap().as_deref(),
-        Some("settings changed: budget now in effect; contributions from the runner's next start")
-    );
-    assert!(
-        runner.settings().contributions.is_off(),
-        "the old pick stays"
-    );
-    drop(runner);
-
-    let err = rig.open().unwrap_err().to_string();
-    assert!(err.contains("contributions.pick"), "{err}");
 }
 
 fn paddock_at(rig: &Rig, url: &str) {
