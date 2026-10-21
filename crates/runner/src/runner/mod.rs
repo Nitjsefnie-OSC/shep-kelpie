@@ -579,6 +579,10 @@ impl Runner {
         check_coderabbit(&remote, &lineup, &ports)?;
         check_local(&lineup, &ports)?;
         let mut state = store.load()?.unwrap_or_default();
+        // An item saved before it recorded its base was cut for the one this start reads.
+        if fresh::record_bases(&mut state, settings.git.base()) {
+            store.save(&state)?;
+        }
         // A review call in flight when the runner stopped never resumes on
         // its own, unlike a turn: nothing reruns review_step to naturally
         // clear it, so a restart clears it here instead of leaving it stuck

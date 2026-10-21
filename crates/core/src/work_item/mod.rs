@@ -48,8 +48,13 @@ pub struct WorkItem {
     pub issue: TicketId,
     /// The ticket's title when it was added
     pub title: String,
-    /// Its branch, cut from `origin/main` unless it is a rework
+    /// Its branch, cut from `origin/<base>` unless it is a rework
     pub branch: String,
+    /// The project's base branch when it opened, which it is cut from, opened
+    /// against and merged into whatever `git.base` says later. None in a file
+    /// from before it was recorded, which the runner that loads it settles.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base: Option<String>,
     /// Whether it reworks a pull request kelpie opened before, from its
     /// latest review. Its worktree starts at the branch's head on `origin`.
     #[serde(default)]
@@ -456,6 +461,7 @@ impl WorkItem {
             issue,
             title: title.into(),
             branch: branch.into(),
+            base: None,
             rework: false,
             adopted: false,
             remote: Remote::Origin,

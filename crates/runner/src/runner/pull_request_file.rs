@@ -142,6 +142,7 @@ impl Runner {
         &self,
         build: &Path,
         branch: &str,
+        base: &str,
     ) -> Result<Option<u64>, Refused> {
         let Some(file) = self.read_handed_over(build) else {
             return Ok(None);
@@ -165,13 +166,7 @@ impl Runner {
             }
         };
         let number = (self.ports.forge)
-            .create_pull_request(
-                &self.remote,
-                branch,
-                self.settings.git.base(),
-                &text.title,
-                &text.body,
-            )
+            .create_pull_request(&self.remote, branch, base, &text.title, &text.body)
             .inspect_err(|e| {
                 self.notes
                     .push(format!("cannot open a pull request from {branch}: {e}"));
@@ -636,13 +631,19 @@ body
         let file = path(&build);
 
         crate::test::make_fifo(&file);
-        assert_eq!(runner.open_handed_over(&build, "kelpie/7"), Ok(None));
+        assert_eq!(
+            runner.open_handed_over(&build, "kelpie/7", "main"),
+            Ok(None)
+        );
         runner.edit_handed_over(&build, 500);
         std::fs::remove_file(&file).unwrap();
 
         let two_mib = format!("feat: x\n\n{}", "y".repeat(2 << 20));
         std::fs::write(&file, two_mib).unwrap();
-        assert_eq!(runner.open_handed_over(&build, "kelpie/7"), Ok(None));
+        assert_eq!(
+            runner.open_handed_over(&build, "kelpie/7", "main"),
+            Ok(None)
+        );
         runner.edit_handed_over(&build, 500);
 
         assert_eq!(rig.forge.text_of(500), None);

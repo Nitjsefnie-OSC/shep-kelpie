@@ -1,13 +1,13 @@
 # Settings
 
-A project's settings are its `[app.dogs.kelpie]` table. `shep kelpie get [<key>]` prints it, or one dotted key, as TOML, and `shep kelpie set <key> <value>` changes one key, such as `shep kelpie set git.merging auto` or `shep kelpie set agents.reviewers '["qwen"]'`. The value is a TOML value, and text that is not one is a string. `set` writes only a table the runner would accept, and refuses to move `git.checkout` or `git.remote` onto a checkout or repo another project runs, as `add` does. It says when a running runner takes the change: at its next wake, or for `git.checkout`, `git.remote`, `git.base`, `tickets` and kelpie's gateways, when it next starts. Lookout edits the table too, in the runner's pane. Every setting sits in a table of its own.
+A project's settings are its `[app.dogs.kelpie]` table. `shep kelpie get [<key>]` prints it, or one dotted key, as TOML, and `shep kelpie set <key> <value>` changes one key, such as `shep kelpie set git.merging auto` or `shep kelpie set agents.reviewers '["qwen"]'`. The value is a TOML value, and text that is not one is a string. `set` writes only a table the runner would accept, and refuses to move `git.checkout` or `git.remote` onto a checkout or repo another project runs, as `add` does. It says when a running runner takes the change: at its next wake, or for `git.checkout`, `git.remote`, `tickets` and kelpie's gateways, when it next starts. Lookout edits the table too, in the runner's pane. Every setting sits in a table of its own.
 
 Two example files hold what every setting means, in their comments, and nothing else says it:
 
 - [`settings.example.toml`](https://github.com/shep-pm/shep-kelpie/blob/main/settings.example.toml) has every project key, and shows a runner's Flockfile entry for a project set up by hand
 - [`kelpie-settings.example.toml`](https://github.com/shep-pm/shep-kelpie/blob/main/kelpie-settings.example.toml) has shep-kelpie's own settings, shared by every project: the `[kelpie]` section of `dogs.toml`, which lookout edits in the dog's pane. Keep `dogs.toml` private, since the webhook's URL is a credential
 
-A change reaches a running runner at its next wake, within a minute when idle. `git.checkout`, `git.remote`, `git.base`, `tickets` and kelpie's gateways wait for its next start, and the log says so. The dog reads `[kelpie.leases]`, and each review bot's window from its agent file, only when it starts, so after a change to either run `shep restart kelpie`.
+A change reaches a running runner at its next wake, within a minute when idle. `git.checkout`, `git.remote`, `tickets` and kelpie's gateways wait for its next start, and the log says so. A new `git.base` reaches the work items opened after the change; each one in flight finishes on the base it was cut from. The dog reads `[kelpie.leases]`, and each review bot's window from its agent file, only when it starts, so after a change to either run `shep restart kelpie`.
 
 A key kelpie no longer reads, such as `review.reviewers`, `coderabbit` or `planning`, stops the runner, naming the key and what replaces it. So does each top-level key from before the tables: `repo`, `forge`, `merge_authority`, `ci`, `max_items`, `max_parked` and `skills.ci` name the key that took each over, and `private_names` says to check text for your own words with a hook in `hooks` instead, which kelpie runs for every harness and role.
 
@@ -16,7 +16,7 @@ A key kelpie no longer reads, such as `review.reviewers`, `coderabbit` or `plann
 `add` writes the project's settings with these values. What each setting does is in [`settings.example.toml`](https://github.com/shep-pm/shep-kelpie/blob/main/settings.example.toml).
 
 - `git.checkout` and `git.remote`: the checkout and the GitHub repo its `origin` names
-- `git.base`: the branch `--base` named, or the repo's default branch. Work items branch from `origin/<base>`, and their pull requests open against and merge into it. Adoption and contributions accept a pull request into the base and refuse one into another branch
+- `git.base`: the branch `--base` named, or the repo's default branch. A work item records it when it opens. Work items branch from `origin/<base>`, and their pull requests open against and merge into it. Adoption and contributions accept a pull request into the base and refuse one into another branch
 - `git.merging = "ask"` and `git.issues = "ask"`
 - `ci.block` is on when the checkout has `.github/workflows`, and `ci.fix_attempts = -1`
 - `concurrency.active_items = 1` and `concurrency.pending_rulings = 2`

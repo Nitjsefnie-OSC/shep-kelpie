@@ -130,7 +130,7 @@ impl Runner {
         let held = worktree::uncommitted(repo, &item.worktree).unwrap_or_default();
         let mut files: Vec<String> = held.into_iter().filter(|f| agent_file(f)).collect();
         let accepted = item.claude_files_accepted.as_deref();
-        let base = self.settings.git.base();
+        let base = self.item_base(item);
         let differing = fence::differ(repo, &item.worktree, accepted, base).unwrap_or_default();
         if let Ok(git) = worktree::trusted(repo, &item.worktree) {
             files.extend(differing.into_iter().filter(|file| !in_head(&git, file)));

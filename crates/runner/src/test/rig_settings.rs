@@ -55,7 +55,7 @@ impl Rig {
     }
 
     /// Makes `branch` the project's base: origin gets it, one commit on from
-    /// `main` so the two differ, and `git.base` names it when a runner next opens
+    /// `main` so the two differ, and `git.base` names it for a runner that opens or rereads
     pub fn base_is(&self, branch: &str) {
         let repo = self.repo();
         let on = |args: &[&str]| crate::test::git(&repo, args);

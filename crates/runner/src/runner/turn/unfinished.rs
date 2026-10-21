@@ -134,7 +134,7 @@ impl Runner {
         }
         let since =
             UNIX_EPOCH + Duration::from_secs(now.0.saturating_sub(CEILING_WINDOW.as_secs()));
-        let base = self.settings.git.base();
+        let base = self.item_base(item);
         let touched =
             worktree::touched_since(&self.settings.git.checkout, &item.worktree, base, since);
         let issue = item.issue;
@@ -180,6 +180,7 @@ impl Runner {
             .filter(|_| !pushed_nothing)
             .map(|pr| pr.number);
         let (build, branch) = (item.build.clone(), item.branch.clone());
+        let base = self.item_base(item).to_owned();
         // A refusal from the turn's end is told to the worker before the file
         // is tried again.
         let retry = item.known.head.is_some() && item.pull_request_refused.is_none();
@@ -212,7 +213,7 @@ impl Runner {
         let mut refusal = None;
         let found = match found {
             None if handed_over && retry && !pushed_nothing && !known => {
-                match self.open_handed_over(&build, &branch) {
+                match self.open_handed_over(&build, &branch, &base) {
                     Ok(opened) => opened,
                     Err(refused) => {
                         refusal = Some(pull_request_file::told(&refused));

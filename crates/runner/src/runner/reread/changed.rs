@@ -62,7 +62,7 @@ pub(super) fn names((old, was): Reach<'_>, (new, now): Reach<'_>) -> Vec<&'stati
     let Git {
         checkout: _, // waits for the next start
         remote: _,   // waits for the next start
-        base: _,     // waits for the next start
+        base: old_base,
         merging: old_merging,
         issues: old_issues,
         maintainer: old_maintainer,
@@ -70,12 +70,13 @@ pub(super) fn names((old, was): Reach<'_>, (new, now): Reach<'_>) -> Vec<&'stati
     let Git {
         checkout: _,
         remote: _,
-        base: _,
+        base: new_base,
         merging: new_merging,
         issues: new_issues,
         maintainer: new_maintainer,
     } = new_git;
     [
+        ("git.base", old_base != new_base),
         ("git.merging", old_merging != new_merging),
         ("git.issues", old_issues != new_issues),
         ("git.maintainer", old_maintainer != new_maintainer),

@@ -1,3 +1,4 @@
+mod base;
 mod contributions;
 mod dependencies;
 mod e2e;
@@ -198,20 +199,6 @@ fn the_checkout_and_the_remote_wait_for_the_next_start() {
     );
     assert_eq!(runner.remote().as_str(), "shep-pm/shep");
     assert_eq!(runner.settings().git.checkout, rig.repo());
-}
-
-#[test]
-fn a_changed_base_waits_for_the_next_start() {
-    let rig = Rig::new("shep");
-    let runner = rig.open().unwrap();
-    rig.base_is("next");
-    let mut runner = runner.lock().unwrap();
-    let line = runner.reread(rig.settings(), rig.kelpie_settings());
-    assert_eq!(
-        line.unwrap().as_deref(),
-        Some("settings changed; git.base from the runner's next start")
-    );
-    assert_eq!(runner.settings().git.base(), "main", "the old base stays");
 }
 
 #[test]

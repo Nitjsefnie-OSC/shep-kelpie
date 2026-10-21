@@ -331,7 +331,7 @@ impl Runner {
             &item.branch,
             head,
             &item.remote,
-            self.settings.git.base(),
+            self.item_base(item),
         )
         .map_err(|e| format!("cannot fetch main: {e}"))
     }

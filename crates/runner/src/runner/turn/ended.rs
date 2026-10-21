@@ -71,7 +71,8 @@ impl Runner {
                     // A worker whose token opens no pull request wrote its text
                     // for kelpie to open it from, once the branch is pushed.
                     if handed_over && item.pull_request.is_none() && item.known.head.is_some() {
-                        match self.open_handed_over(&item.build, &item.branch) {
+                        match self.open_handed_over(&item.build, &item.branch, self.item_base(item))
+                        {
                             Ok(opened) => item.pull_request = opened,
                             // The worker can fix its own file, so it is told why.
                             Err(refusal) => {

@@ -563,7 +563,7 @@ impl Runner {
                 browser: hosts,
                 dev_server: dev.as_ref(),
                 local_ticket: item.issue.github().is_none(),
-                base: Some(self.settings.git.base()),
+                base: Some(self.item_base(item)),
                 kelpie_pushes: !item.remote.is_origin(),
             },
             &item.worktree,
@@ -631,7 +631,7 @@ impl Runner {
             &item.worktree,
             &item.branch,
             start,
-            self.settings.git.base(),
+            self.item_base(item),
             &item.remote,
             &item.build,
         )
@@ -646,7 +646,7 @@ impl Runner {
                     "issue #{}'s worker runs with `origin/{}` where kelpie last fetched it: \
                      {why}",
                     item.issue,
-                    self.settings.git.base()
+                    self.item_base(item)
                 ),
             ),
             None => self.notes.ends(&key),
@@ -666,7 +666,7 @@ impl Runner {
             git_common_dir: &dirs.git_common_dir,
             git_dir: &dirs.git_dir,
             branch: &item.branch,
-            base: self.settings.git.base(),
+            base: self.item_base(item),
             // A contributor's fork is out of the worker's token's reach, and
             // the login that reaches it is kelpie's alone: it pushes there.
             kelpie_pushes: !item.remote.is_origin(),

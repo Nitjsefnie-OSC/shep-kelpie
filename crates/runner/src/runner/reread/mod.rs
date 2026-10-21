@@ -1,14 +1,15 @@
 //! A settings change reaching a running runner
 //!
 //! Every setting takes effect live, at the next step or call that reads
-//! it, except `git.checkout`, `git.remote`, `git.base`, `tickets` and
-//! kelpie's gateways: a work item's worktree and pull request belong to the
-//! first three, the start picks the ticket port, and the adapters hold the
-//! gateways, so those wait for the runner's next start. The agent files are read again
-//! with them, and a change to those alone is a change too, but agents that
-//! name a gateway the runner lacks wait with it, and so does
-//! `contributions.reviewers`. A change is checked as a start checks it, and
-//! one that fails keeps the settings the runner has.
+//! it, except `git.checkout`, `git.remote`, `tickets` and kelpie's
+//! gateways: a work item's worktree and pull request belong to the first two,
+//! the start picks the ticket port, and the adapters hold the gateways, so
+//! those wait for the runner's next start. A new `git.base` reaches the work
+//! items opened after it; each one in flight keeps the base it was cut for.
+//! The agent files are read again with them, and a change to those alone is
+//! a change too, but agents that name a gateway the runner lacks wait with
+//! it, and so does `contributions.reviewers`. A change is checked as a start
+//! checks it, and one that fails keeps the settings the runner has.
 
 use super::{
     OpenError, Runner, check_bots, check_coderabbit, check_local, instructions, open_checks, triage,
@@ -54,11 +55,6 @@ impl Runner {
         if settings.git.remote != self.settings.git.remote {
             waiting.push("git.remote");
             settings.git.remote.clone_from(&self.settings.git.remote);
-        }
-        // The worktrees, the pull requests and the guard's flag were cut for the base the runner started with.
-        if settings.git.base != self.settings.git.base {
-            waiting.push("git.base");
-            settings.git.base.clone_from(&self.settings.git.base);
         }
         // The ticket port was picked at start.
         if settings.tickets != self.settings.tickets {
