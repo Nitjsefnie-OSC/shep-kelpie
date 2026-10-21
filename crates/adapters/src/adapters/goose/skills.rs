@@ -17,7 +17,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use super::files::Files;
-use crate::adapters::pi::step_skill;
+use crate::adapters::harness::step_skill;
 use crate::adapters::skills::skill_dirs;
 use crate::ports::{AgentCall, AgentError, Policy};
 

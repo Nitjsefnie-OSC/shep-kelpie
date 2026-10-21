@@ -51,8 +51,7 @@ fn call(w: &World, role: Role, tools: Tools, hosts: &[&str]) -> AgentCall {
 }
 
 fn made(call: &AgentCall) -> (Vec<String>, Policy) {
-    let upstream = ClaudeCli::default()
-        .goose()
+    let upstream = GooseCli::on(&Base::default())
         .upstream(server(call).unwrap())
         .unwrap();
     let files = Files::of(&call.settings);

@@ -312,3 +312,15 @@ fn a_drain_takes_up_an_undrain_that_landed_while_a_pass_held_the_lock() {
     drop(pass);
     hold.release();
 }
+
+#[test]
+fn every_harness_whose_attached_session_holds_a_handover_has_a_role() {
+    let held: Vec<_> = crate::settings::Harness::ALL
+        .into_iter()
+        .filter(|h| h.facts().holds_handover_at_attach.is_some())
+        .collect();
+    let roles: Vec<_> = super::ATTACHED.iter().map(|(h, _)| *h).collect();
+
+    assert!(held.iter().all(|h| roles.contains(h)), "{held:?} {roles:?}");
+    assert_eq!(roles.len(), held.len());
+}

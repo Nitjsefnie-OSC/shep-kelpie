@@ -10,7 +10,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use super::claude::sandbox::fence_policy;
+use super::harness::fence_policy;
 use super::process::{Processes, RunError};
 use crate::lease::counted::CARGO_TEST;
 use crate::lease::door::{Answer, Ask, Visit};
@@ -29,7 +29,7 @@ pub struct SandboxedTests {
     sandbox: Arc<dyn Sandbox>,
 }
 
-impl super::ClaudeCli {
+impl super::Base {
     /// A test runner in the sandbox this runs its calls in, and stopped with it
     pub fn test_runner(&self) -> SandboxedTests {
         SandboxedTests {

@@ -12,9 +12,7 @@ use crate::ports::Usage;
 use crate::test::{Answer, OpenSandbox, StandInEndpoint};
 
 fn goose_in(world: &World, sandbox: &OpenSandbox) -> GooseCli {
-    ClaudeCli::default()
-        .sandboxed(Arc::new(sandbox.clone()), world.path("home"))
-        .goose()
+    GooseCli::on(&Base::default().sandboxed(Arc::new(sandbox.clone()), world.path("home")))
 }
 
 // A worker's session goose has written, to be resumed with nothing to say first.

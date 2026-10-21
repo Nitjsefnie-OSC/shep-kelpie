@@ -72,9 +72,7 @@ pub(super) fn stand_in(world: &World, stdout: &str) -> GooseCli {
 }
 
 pub(super) fn goose_with(world: &World, program: PathBuf) -> GooseCli {
-    ClaudeCli::default()
-        .sandboxed(Arc::new(OpenSandbox::default()), world.path("home"))
-        .goose()
+    GooseCli::on(&Base::default().sandboxed(Arc::new(OpenSandbox::default()), world.path("home")))
         .with_program(program)
 }
 
@@ -163,8 +161,7 @@ fn instructions_goose_cannot_be_given_fail_before_the_call() {
 #[test]
 fn the_call_s_environment_relocates_goose_and_closes_every_door() {
     let w = World::new();
-    let goose = ClaudeCli::default()
-        .goose()
+    let goose = GooseCli::on(&Base::default())
         .with_gateways(gateways("http://192.0.2.9:11434", GatewayKind::Openai));
     let call = on_gateway(&w, Role::Researcher);
     goose.prepare(&call).unwrap();
@@ -217,8 +214,7 @@ fn the_sandbox_lets_goose_write_only_its_data_state_and_scratch_and_reach_only_t
     let call = researcher(&w, Session::New(id(FRESH_ID)));
     let files = Files::of(&call.settings);
     let socket = w.path("forwarder.sock");
-    let upstream = ClaudeCli::default()
-        .goose()
+    let upstream = GooseCli::on(&Base::default())
         .upstream(server(&call).unwrap())
         .unwrap();
     let open = policy(&call, &files, &upstream, &socket, &[]);
@@ -272,8 +268,7 @@ fn the_sandbox_lets_goose_write_only_its_data_state_and_scratch_and_reach_only_t
 fn goose_reads_no_harnesss_login_its_own_included() {
     let w = World::new();
     let call = researcher(&w, Session::New(id(FRESH_ID)));
-    let upstream = ClaudeCli::default()
-        .goose()
+    let upstream = GooseCli::on(&Base::default())
         .upstream(server(&call).unwrap())
         .unwrap();
     let files = Files::of(&call.settings);
@@ -331,8 +326,7 @@ fn what_goose_cannot_give_a_fenced_call_fails_before_the_call() {
 #[test]
 fn a_fence_adds_variables_but_replaces_none_of_the_calls() {
     let w = World::new();
-    let goose = ClaudeCli::default()
-        .goose()
+    let goose = GooseCli::on(&Base::default())
         .with_gateways(gateways("http://192.0.2.9:11434", GatewayKind::Openai));
     let mut call = on_gateway(&w, Role::Researcher);
     let mut fence = w
@@ -717,12 +711,10 @@ fn record_a_turn_a_resumed_turn_and_an_unreachable_server() {
     let url = env("KELPIE_GOOSE_URL");
     let record = PathBuf::from(env("KELPIE_GOOSE_RECORD"));
     let tools = KelpieTools::at(env("KELPIE_TOOLS").into());
-    let goose = ClaudeCli::default()
-        .sandboxed(
-            Arc::new(SandboxRuntime::new(tools)),
-            std::env::var_os("HOME").unwrap().into(),
-        )
-        .goose();
+    let goose = GooseCli::on(&Base::default().sandboxed(
+        Arc::new(SandboxRuntime::new(tools)),
+        std::env::var_os("HOME").unwrap().into(),
+    ));
     let world = World::new();
     let save = |name: &str, out: &Output| {
         let text = String::from_utf8_lossy(&out.stdout)
@@ -771,12 +763,10 @@ fn record_a_worker_whose_write_and_shell_the_fence_refuses() {
     let url = env("KELPIE_GOOSE_URL");
     let record = PathBuf::from(env("KELPIE_GOOSE_RECORD"));
     let tools = KelpieTools::at(env("KELPIE_TOOLS").into());
-    let goose = ClaudeCli::default()
-        .sandboxed(
-            Arc::new(SandboxRuntime::new(tools)),
-            std::env::var_os("HOME").unwrap().into(),
-        )
-        .goose();
+    let goose = GooseCli::on(&Base::default().sandboxed(
+        Arc::new(SandboxRuntime::new(tools)),
+        std::env::var_os("HOME").unwrap().into(),
+    ));
     let world = World::new();
 
     let kelpie = PathBuf::from(env("KELPIE_BIN"));

@@ -14,37 +14,38 @@
 //! lease on its model from start to end, where its kind offers one.
 
 use std::ffi::OsString;
-use std::net::{IpAddr, ToSocketAddrs};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
-use std::sync::Arc;
 
 use serde::Deserialize;
 use serde_json::json;
 
-use self::adopt::{Carried, kept_server};
 use self::compact::Tokens;
 use self::shared::profile;
-use super::claude::sandbox::{bind_in_scratch, call_policy};
-use super::claude::{ClaudeCli, LambLabels};
-use super::forwarder::Forwarder;
+use super::cli::{Cli, CliAdapter, Launch, Turn};
+use super::harness::{Base, bind_in_scratch, call_policy, prompt_file, step_skill, tail};
 use super::process::record::CallFiles;
-use super::process::{Processes, RunError};
 use super::unreachable::reaches_no_host;
 use crate::fence;
-use crate::forwarder::{Upstream, WORKER_HOST};
+use crate::forwarder::Upstream;
 use crate::guard::{AFTER_FLAG, FOLDER_FLAG, Pause};
 use crate::ports::{
-    Adopted, AgentCall, AgentError, AgentReply, Agents, COMPACT, CallActivity, Ending, Fence,
-    Forward, Kept, Policy, Role, Sandbox, Session, SessionId, Stand, Taking, Tools, Transcript,
-    Unheld, Usage, Wait,
+    Adopted, AgentCall, AgentError, AgentReply, COMPACT, CallActivity, Fence, Policy, Session,
+    SessionId, Tools, Transcript, Usage,
 };
-use crate::settings::{AgentHarness, Gateways, Harness, HookPoint, ModelHost, ModelServer};
-use crate::skills::split_command;
+use crate::settings::{Harness, HookPoint, ModelServer};
 use crate::tool_error::GUARD_MARK;
 
+// What the module's tests take from it by glob.
+#[cfg(test)]
+use {
+    super::forwarder::Forwarder,
+    crate::forwarder::WORKER_HOST,
+    crate::ports::{Agents, Ending, Forward, Role},
+    crate::settings::{AgentHarness, Gateways, ModelHost},
+};
+
 mod activity;
-pub(super) mod adopt;
 mod attach;
 mod compact;
 pub(crate) mod mcp;
@@ -152,62 +153,60 @@ fn mcp_config(call: &AgentCall) -> Option<serde_json::Value> {
     tools_of(call).and_then(|_| mcp::config(call))
 }
 
+/// What is true of pi: the part of a headless `pi -p` call that no other CLI shares
+#[derive(Debug, Clone)]
+pub struct Pi {
+    program: OsString,
+    // What a call with no fence may not read, besides its own folder
+    unfenced_no_read: Vec<String>,
+}
+
 /// Headless pi, one `pi -p` process per call, each inside the sandbox
 ///
 /// It shares Claude Code's calls in flight, so stopping either stops both.
-#[derive(Debug, Clone)]
-pub struct PiCli {
-    processes: Processes,
-    program: OsString,
-    lambs: Option<Arc<dyn LambLabels>>,
-    sandbox: Arc<dyn Sandbox>,
-    // What a call with no fence may not read: the shepherd's home
-    unfenced_no_read: Vec<String>,
-    gateways: Gateways,
-    // What each running call keeps in memory that a handover must carry
-    carried: Carried,
-    // The forwarder of each session the maintainer has open in a terminal
-    terminals: attach::Terminals,
-}
-
-impl ClaudeCli {
-    /// pi, run the way this runs Claude Code: same sandbox, same lamb labels,
-    /// and stopped with it
-    pub fn pi(&self) -> PiCli {
-        PiCli {
-            processes: self.processes.clone(),
-            program: "pi".into(),
-            lambs: self.lambs.clone(),
-            sandbox: Arc::clone(&self.sandbox),
-            unfenced_no_read: self.unfenced_no_read.clone(),
-            gateways: Gateways::default(),
-            carried: Carried::default(),
-            terminals: attach::Terminals::default(),
-        }
-    }
-}
+pub type PiCli = CliAdapter<Pi>;
 
 impl PiCli {
-    /// Sends a model behind a gateway through `gateways`
-    pub fn with_gateways(self, gateways: Gateways) -> Self {
-        Self { gateways, ..self }
+    /// pi on `base`: its sandbox, lamb labels and calls in flight
+    pub fn on(base: &Base) -> Self {
+        let pi = Pi {
+            program: "pi".into(),
+            unfenced_no_read: base.unfenced_no_read.clone(),
+        };
+        Self::new(pi, base)
     }
 
     /// Runs `program` in place of `pi`, as a stand-in script does
     #[cfg(any(test, feature = "test-support"))]
-    pub fn with_program(self, program: PathBuf) -> Self {
-        Self {
-            program: program.into(),
-            ..self
-        }
+    #[must_use]
+    pub fn with_program(mut self, program: PathBuf) -> Self {
+        self.cli.program = program.into();
+        self
+    }
+
+    /// The call's headless command inside its sandbox and the forwarder it dials
+    #[cfg(test)]
+    pub(crate) fn sandboxed_command(
+        &self,
+        call: &AgentCall,
+        lease: Option<&str>,
+    ) -> Result<(Command, super::forwarder::Forwarder), AgentError> {
+        let launched = self.launch(call, &(), Turn::Headless, lease)?;
+        let forwarder = launched.forwarder.expect("pi runs on a model server");
+        Ok((launched.command, forwarder))
     }
 }
 
-impl Agents for PiCli {
-    fn prepare(&self, call: &AgentCall) -> Result<(), AgentError> {
-        let server = server(call)?;
-        let upstream = self.upstream(server)?;
-        refuse_unsupported(call)?;
+impl Cli for Pi {
+    type Begun = ();
+    const HARNESS: Harness = Harness::Pi;
+
+    fn mcp_refusal(name: &str, entry: &serde_json::Value) -> Option<String> {
+        mcp::refusal(name, entry)
+    }
+
+    fn write_config(&self, call: &AgentCall, served: Option<&Upstream>) -> Result<(), AgentError> {
+        let (server, upstream) = (server(call)?, served.ok_or_else(unserved)?);
         let files = Files::of(call);
         let setup = |what: &Path, e: std::io::Error| {
             AgentError::Setup(format!("cannot write {}: {}", what.display(), e.kind()))
@@ -269,44 +268,50 @@ impl Agents for PiCli {
         mcp::prepare(mcp_config(call), &files)
     }
 
-    fn run(&self, call: &AgentCall, ending: &Ending) -> Result<AgentReply, AgentError> {
-        // A session that is not there never waits for a lease.
-        refuse_missing_session(call)?;
-        let label = call.label();
-        let spawned = |pid| {
-            if let Some(lambs) = &self.lambs {
-                lambs.label(pid, &label);
-            }
+    // A resumed session pi never wrote is a call that cannot run.
+    fn begin(&self, call: &AgentCall, _: Turn) -> Result<(), AgentError> {
+        refuse_missing_session(call)
+    }
+
+    // `pi` in the call's folder, its variables set by `env` inside the sandbox,
+    // after the sandbox has set its own.
+    fn command(
+        &self,
+        call: &AgentCall,
+        _: &(),
+        launch: &Launch<'_>,
+    ) -> Result<Command, AgentError> {
+        let files = Files::of(call);
+        let argv = match launch.turn {
+            Turn::Headless => argv(call, &files),
+            Turn::Terminal => attach::terminal_argv(call, &files),
         };
-        let output = self.leased(call, ending, |lease| {
-            // The forwarder stays until the call has ended.
-            let (mut command, forwarder) = self.sandboxed_command(call, lease)?;
-            let _noted = self.carried.note(
-                call,
-                Kept {
-                    forwarder: forwarder.socket.clone(),
-                    server: kept_server(&server(call)?.host),
-                    session: call.session.id().clone(),
-                    lease: lease.map(str::to_owned),
-                },
-            );
-            (self.processes)
-                .output_of_call(&mut command, call, ending, &spawned)
-                .map_err(|e| match e {
-                    RunError::Io(e) => AgentError::Spawn(PI, e.to_string()),
-                    RunError::Stopped => AgentError::Stopped,
-                    RunError::TimedOut => AgentError::TimedOut(PI),
-                })
-        })??;
-        read(call, &output)
+        let mut command = crate::spawn::command("env");
+        command
+            .args(env_args(call, &files))
+            .arg(&self.program)
+            .args(argv)
+            .current_dir(&call.cwd);
+        Ok(command)
     }
 
-    fn adoption(&self, call: &AgentCall) -> Result<Adopted, String> {
-        self.adoption_of(call)
+    fn policy(&self, call: &AgentCall, _: &Launch<'_>) -> Result<Policy, AgentError> {
+        Ok(fenced(call, &Files::of(call), &self.unfenced_no_read))
     }
 
-    fn adopt(&self, adopted: &Adopted, ending: &Ending) -> Result<AgentReply, AgentError> {
-        self.adopt_call(adopted, ending)
+    fn parse(&self, call: &AgentCall, _: (), output: &Output) -> Result<AgentReply, AgentError> {
+        read(call, output)
+    }
+
+    fn parse_adopted(
+        &self,
+        adopted: &Adopted,
+        _: (),
+        output: &Output,
+    ) -> Result<AgentReply, AgentError> {
+        let kept = adopted.kept.as_ref().ok_or_else(unserved)?;
+        let compacting = adopted.flying.as_ref().is_some_and(|f| f.compact);
+        read_as(compacting, output, &kept.session)
     }
 
     fn transcript(&self, call: &AgentCall) -> Option<Transcript> {
@@ -319,129 +324,10 @@ impl Agents for PiCli {
     fn last_active(&self, call: &AgentCall) -> CallActivity {
         activity::of_stdout(&CallFiles::of(call).stdout)
     }
-
-    fn foreground(&self, call: &AgentCall) -> Result<Command, AgentError> {
-        self.terminal_command(call)
-    }
-
-    fn foreground_ended(&self, session: &SessionId) {
-        self.drop_terminal(session);
-    }
 }
 
-impl PiCli {
-    /// What the forwarder passes the call's chat calls to, a gateway's key included
-    fn upstream(&self, server: &ModelServer) -> Result<Upstream, AgentError> {
-        self.gateways
-            .upstream(&server.host)
-            .map_err(AgentError::Setup)
-    }
-
-    // A call on a gateway's model holds a lease on it, so the gateway
-    // evicts nothing it runs on midway and queues the call behind any other
-    // lease. Its ceiling counts from the grant. A lease the gateway took back
-    // ended the call, whatever the run says of it. The run is told the
-    // lease's id, so its chat calls name the turn they belong to.
-    fn leased<T>(
-        &self,
-        call: &AgentCall,
-        ending: &Ending,
-        run: impl FnOnce(Option<&str>) -> T,
-    ) -> Result<T, AgentError> {
-        let server = server(call)?;
-        let ModelHost::Gateway(name) = &server.host else {
-            return Ok(run(None));
-        };
-        let upstream = self.upstream(server)?;
-        let port = crate::adapters::port_named(&self.gateways, name).map_err(AgentError::Setup)?;
-        let note = format!("kelpie {}", call.label());
-        let tell = |stand| match stand {
-            Stand::Asking | Stand::Turn => ending.wait(Wait::Lease),
-            Stand::Busy => ending.wait(Wait::Busy),
-            Stand::Granted => ending.begin(),
-        };
-        let taking = Taking {
-            model: &call.model,
-            note: &note,
-            give_up: &|| ending.asked() || self.processes.stopping(),
-            tell: &tell,
-            ending,
-        };
-        port.around_leased(&upstream, &taking, run)
-            .map_err(|unheld| match unheld {
-                Unheld::GaveUp if self.processes.stopping() => AgentError::Stopped,
-                Unheld::GaveUp => AgentError::TimedOut(PI),
-                Unheld::Refused(why) => AgentError::Setup(format!(
-                    "cannot take a lease on {} from gateway {name}: {why}",
-                    call.model
-                )),
-                Unheld::Lost(why) => AgentError::Failed(PI, why),
-            })
-    }
-
-    // The forwarder names `lease`, the gateway lease the call holds, on a worker's
-    // chat calls. A reviewer's session holds one too but names none.
-    fn sandboxed_command(
-        &self,
-        call: &AgentCall,
-        lease: Option<&str>,
-    ) -> Result<(Command, Forwarder), AgentError> {
-        let upstream = self.upstream(server(call)?)?;
-        let upstream = match lease.filter(|_| call.role == Role::Worker) {
-            Some(id) => upstream.with_lease(id),
-            None => upstream,
-        };
-        self.inside_sandbox(call, upstream, argv(call, &Files::of(call)))
-    }
-
-    // `pi` with `argv`, in the call's sandbox and its scratch folder emptied,
-    // with a forwarder to `upstream` that the caller keeps for as long as pi runs.
-    fn inside_sandbox(
-        &self,
-        call: &AgentCall,
-        upstream: Upstream,
-        argv: Vec<OsString>,
-    ) -> Result<(Command, Forwarder), AgentError> {
-        let files = Files::of(call);
-        match std::fs::remove_dir_all(&files.scratch) {
-            Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
-                return Err(AgentError::Setup(format!(
-                    "cannot empty {}: {}",
-                    files.scratch.display(),
-                    e.kind()
-                )));
-            }
-            _ => {}
-        }
-        std::fs::create_dir_all(&files.scratch).map_err(|e| {
-            AgentError::Setup(format!(
-                "cannot make {}: {}",
-                files.scratch.display(),
-                e.kind()
-            ))
-        })?;
-        let folder = call.settings.parent().unwrap_or(Path::new("/"));
-        let forwarder = Forwarder::open(folder, upstream.clone()).map_err(AgentError::Setup)?;
-        // `env` runs inside the sandbox, after the sandbox has set its own variables.
-        let mut command = crate::spawn::command("env");
-        command
-            .args(env_args(call, &files))
-            .arg(&self.program)
-            .args(argv)
-            .current_dir(&call.cwd);
-        let policy = policy(
-            call,
-            &files,
-            &upstream,
-            &forwarder.socket,
-            &self.unfenced_no_read,
-        );
-        let wrapped = self
-            .sandbox
-            .wrap(&policy, &files.sandbox_settings, &command)
-            .map_err(|e| AgentError::Setup(e.to_string()))?;
-        Ok((wrapped, forwarder))
-    }
+fn unserved() -> AgentError {
+    AgentError::Setup("kelpie routed a call to pi that names no model server".into())
 }
 
 // A resumed session pi never wrote is a call that cannot run.
@@ -456,31 +342,7 @@ fn refuse_missing_session(call: &AgentCall) -> Result<(), AgentError> {
 
 /// The server the call's model is on, which every pi call needs
 fn server(call: &AgentCall) -> Result<&ModelServer, AgentError> {
-    match &call.harness {
-        AgentHarness::Pi(server) => Ok(server),
-        _ => Err(AgentError::Setup(
-            "kelpie routed a call to pi that names no model server".into(),
-        )),
-    }
-}
-
-// What a worker on Claude Code has and pi cannot give it.
-// parity: harness.guard-hooks
-fn refuse_unsupported(call: &AgentCall) -> Result<(), AgentError> {
-    if call
-        .reach
-        .fence
-        .as_ref()
-        .is_some_and(|f| !f.hooks.is_empty())
-    {
-        return Err(AgentError::Setup(
-            "pi cannot run `worker.guard_hooks`, which are Claude Code hooks: \
-             remove them, move the check to a `command` or `write` hook in `hooks`, which \
-             runs on every harness, or put the worker on Claude Code"
-                .into(),
-        ));
-    }
-    Ok(())
+    call.harness.server().ok_or_else(unserved)
 }
 
 // A compact call, and a call bounded by a window that hands its prompt back
@@ -495,8 +357,6 @@ struct Files {
     home: PathBuf,
     /// The call's temporary files, emptied before each call
     scratch: PathBuf,
-    /// Where the sandbox's settings go
-    sandbox_settings: PathBuf,
     /// The guard extension, outside anything the call may write
     guard_path: PathBuf,
     /// The extension a compact call loads, outside anything the call may write
@@ -510,10 +370,9 @@ impl Files {
         Self {
             home: call.settings.with_extension("pi"),
             scratch: call.settings.with_extension("tmp"),
-            sandbox_settings: call.settings.with_extension("sandbox.json"),
             guard_path: call.settings.with_extension("guard.ts"),
             compact_path: call.settings.with_extension("compact.ts"),
-            prompt_path: super::claude::settings::prompt_file(&call.settings),
+            prompt_path: prompt_file(&call.settings),
         }
     }
 
@@ -638,42 +497,6 @@ fn skill_prompt(call: &AgentCall) -> (String, Option<PathBuf>) {
     }
 }
 
-/// The skill a step's prompt starts with, as Claude Code's `/<plugin>:<skill>`
-pub(super) struct StepSkill {
-    /// The skill's name
-    pub(super) name: String,
-    /// Its folder, which holds its `SKILL.md`
-    pub(super) dir: PathBuf,
-    /// The prompt after the command
-    pub(super) rest: String,
-}
-
-/// The skill `call`'s prompt runs, from one of its plugins, if any
-pub(super) fn step_skill(call: &AgentCall) -> Option<StepSkill> {
-    let (Some(command), rest) = split_command(&call.prompt) else {
-        return None;
-    };
-    let (plugin, skill) = command.trim_start_matches('/').split_once(':')?;
-    let dir = call
-        .plugin_dirs
-        .iter()
-        .filter(|dir| plugin_name(dir).as_deref() == Some(plugin))
-        .map(|dir| dir.join("skills").join(skill))
-        .find(|dir| dir.join("SKILL.md").is_file())?;
-    Some(StepSkill {
-        name: skill.to_owned(),
-        dir,
-        rest: rest.to_owned(),
-    })
-}
-
-// A plugin's name, from its manifest
-fn plugin_name(dir: &Path) -> Option<String> {
-    let text = std::fs::read_to_string(dir.join(".claude-plugin/plugin.json")).ok()?;
-    let manifest: serde_json::Value = serde_json::from_str(&text).ok()?;
-    manifest["name"].as_str().map(str::to_owned)
-}
-
 /// The guard extension's source for a call fenced by `fence`, which lets the web
 /// package's tools through when the call `web` loads it
 fn guard_extension(fence: &Fence, web: bool) -> String {
@@ -728,14 +551,9 @@ fn guard_extension(fence: &Fence, web: bool) -> String {
 
 /// The whole call's policy: its fence, or none, and what pi itself needs
 ///
-/// The model's host is not in it. The one host pi may dial is the forwarder's.
-fn policy(
-    call: &AgentCall,
-    files: &Files,
-    upstream: &Upstream,
-    forwarder: &Path,
-    unfenced: &[String],
-) -> Policy {
+/// The model's host is not in it. The one host pi may dial is the forwarder's,
+/// which the adapter adds.
+fn fenced(call: &AgentCall, files: &Files, unfenced: &[String]) -> Policy {
     let mut policy = call_policy(call, unfenced);
     policy.no_keychain = call.reach.block_keychain;
     // pi logs in nowhere, so no harness's login is its own, the maintainer's pi included.
@@ -767,51 +585,21 @@ fn policy(
     web::open(call, &mut policy);
     super::mcp::fence_the_graph(&mut policy, call);
     super::mcp::fence_the_browser(&mut policy, call);
-    deny_the_server(&mut policy, upstream);
-    policy.forward = Some(Forward {
-        host: WORKER_HOST.to_owned(),
-        socket: forwarder.to_owned(),
-    });
     policy
 }
 
-// Whatever `allowed_domains` says, the sandbox never reaches the model server
-// or this machine's loopback by name or by the address the server resolves to.
-pub(super) fn deny_the_server(policy: &mut Policy, upstream: &Upstream) {
-    let bracketed = |host: &str| match host.contains(':') {
-        true => format!("[{host}]"),
-        false => host.to_owned(),
-    };
-    for host in [upstream.host(), "localhost", "127.0.0.1", "::1"] {
-        let host = bracketed(host);
-        if !policy.denied_hosts.contains(&host) {
-            policy.denied_hosts.push(host);
-        }
-    }
-    let resolved = upstream.address().to_socket_addrs().into_iter().flatten();
-    for address in resolved {
-        let address = match address.ip() {
-            IpAddr::V6(v6) => v6.to_ipv4_mapped().map_or(address.ip(), IpAddr::V4),
-            v4 => v4,
-        };
-        let address = address.to_string();
-        if !policy.denied_addresses.contains(&address) {
-            policy.denied_addresses.push(address);
-        }
-    }
-}
-
-/// How much of pi's output an error carries: its end, where the reason is
-const ERROR_TAIL: usize = 2048;
-
-// The last `ERROR_TAIL` bytes of `text`, since a worker's output runs to
-// megabytes and an error reaches a ruling, the state file and the webhook.
-pub(super) fn tail(text: &str) -> &str {
-    let mut start = text.len().saturating_sub(ERROR_TAIL);
-    while !text.is_char_boundary(start) {
-        start += 1;
-    }
-    &text[start..]
+// The policy as a running call has it, the forwarder at `forwarder` its one host.
+#[cfg(test)]
+fn policy(
+    call: &AgentCall,
+    files: &Files,
+    upstream: &Upstream,
+    forwarder: &Path,
+    unfenced: &[String],
+) -> Policy {
+    let mut policy = fenced(call, files, unfenced);
+    super::harness::dial_the_forwarder(&mut policy, upstream, forwarder);
+    policy
 }
 
 // A compact call's output is read for its compaction, any other call's for its turn.

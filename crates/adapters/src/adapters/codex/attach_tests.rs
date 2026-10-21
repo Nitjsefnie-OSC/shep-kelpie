@@ -3,6 +3,7 @@
 
 use std::ffi::OsStr;
 use std::process::Command;
+use std::sync::Arc;
 
 use super::tests::{THREAD, WORKER_ID, World, id, stand_in, strings};
 use super::*;
@@ -13,9 +14,10 @@ use crate::test::OpenSandbox;
 const ROLLOUT: &str = include_str!("../../../../../fixtures/codex-rollout-compacted.jsonl");
 
 fn codex_in(world: &World, sandbox: &OpenSandbox) -> CodexCli {
-    ClaudeCli::default()
-        .sandboxed(Arc::new(sandbox.clone()), world.path("home"))
-        .codex(world.path("login"))
+    CodexCli::on(
+        &Base::default().sandboxed(Arc::new(sandbox.clone()), world.path("home")),
+        world.path("login"),
+    )
 }
 
 // A worker's call whose Codex session kelpie has recorded, ready to resume.
@@ -156,9 +158,10 @@ fn a_terminal_that_cannot_be_set_up_leaves_no_trust_behind() {
     let w = World::new();
     let codex = codex_in(&w, &OpenSandbox::default());
     let call = resumable(&w, &codex);
-    let refusing = ClaudeCli::default()
-        .sandboxed(Arc::new(Refusing), w.path("home"))
-        .codex(w.path("login"));
+    let refusing = CodexCli::on(
+        &Base::default().sandboxed(Arc::new(Refusing), w.path("home")),
+        w.path("login"),
+    );
 
     assert!(refusing.foreground(&call).is_err());
 

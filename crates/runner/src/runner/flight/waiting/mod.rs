@@ -14,7 +14,7 @@ use super::super::Runner;
 use super::super::report::{ReviewCall, StepReport};
 use super::Launch;
 use crate::ports::{AgentError, AgentReply, CallActivity, SessionId, Timestamp, Wait};
-use crate::settings::{AgentHarness, AgentName, GatewayName, LocalRound, ModelHost};
+use crate::settings::{AgentName, GatewayName, LocalRound, ModelHost};
 use crate::state::StateError;
 use crate::ticket::TicketId;
 use crate::work_item::{Turn, new_session_id};
@@ -224,13 +224,9 @@ impl Runner {
 pub(super) fn lease_of(launch: &Launch) -> Option<(GatewayName, String)> {
     let (host, model) = match launch {
         Launch::Turn { call, .. } | Launch::Review(ReviewCall::Session(call)) => {
-            match &call.harness {
-                AgentHarness::Pi(server) | AgentHarness::Goose(server) => {
-                    (server.host.clone(), call.model.clone())
-                }
-                // parity: harness.local-model
-                _ => return None,
-            }
+            // parity: harness.local-model
+            let server = call.harness.server()?;
+            (server.host.clone(), call.model.clone())
         }
         Launch::Review(ReviewCall::Local {
             local: LocalRound::Endpoint(endpoint),

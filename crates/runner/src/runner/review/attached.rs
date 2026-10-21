@@ -104,7 +104,7 @@ impl Runner {
         build: &Path,
     ) -> Result<Option<Reach>, String> {
         // parity: harness.reviewer-reads-repo
-        if !matches!(model.harness.harness(), Harness::Codex | Harness::Goose) {
+        if !model.harness.harness().facts().reads_from_an_empty_folder {
             return Ok(None);
         }
         let folder = build.join(READING_FOLDER);

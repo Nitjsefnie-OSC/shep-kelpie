@@ -383,7 +383,7 @@ fn branch_sites(matrix: &Matrix) -> Vec<(String, String, Vec<String>)> {
     for path in files {
         let lines = code_lines(&path);
         for (category, providers) in &matrix.providers {
-            if category == "harness" && is_adapter(&path, providers) {
+            if category == "harness" && (is_adapter(&path, providers) || is_facts_table(&path)) {
                 continue;
             }
             for (i, line) in lines.iter().enumerate() {
@@ -408,6 +408,12 @@ fn branch_sites(matrix: &Matrix) -> Vec<(String, String, Vec<String>)> {
         }
     }
     sites
+}
+
+// Whether `path` is the harness facts table, where the harnesses are told
+// apart and every other site reads a fact instead.
+fn is_facts_table(path: &Path) -> bool {
+    path == root().join("crates/core/src/settings/agents/facts.rs")
 }
 
 // Whether `path` is one harness's own adapter, whose branches on the

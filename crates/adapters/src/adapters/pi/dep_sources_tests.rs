@@ -21,8 +21,7 @@ fn the_sandbox_reads_the_dependency_sources_a_call_is_given_and_no_credential_of
         call.reach.read.push(folder.clone());
         call.reach.fence.as_mut().unwrap().read.push(folder.clone());
     }
-    let upstream = ClaudeCli::default()
-        .pi()
+    let upstream = PiCli::on(&Base::default())
         .upstream(server(&call).unwrap())
         .unwrap();
     let policy = policy(

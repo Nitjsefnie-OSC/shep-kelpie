@@ -44,9 +44,7 @@ fn pi_of_kind(
     std::fs::write(&out, stdout).unwrap();
     let script = format!("#!/bin/sh\ncat {}\nexit {code}\n", out.display());
     crate::test::write_script(&program, &script);
-    ClaudeCli::default()
-        .sandboxed(Arc::new(OpenSandbox::default()), world.path("home"))
-        .pi()
+    PiCli::on(&Base::default().sandboxed(Arc::new(OpenSandbox::default()), world.path("home")))
         .with_program(program)
         .with_gateways(gateways(server.host(), kind))
 }

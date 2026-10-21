@@ -87,8 +87,7 @@ fn a_worker_with_a_window_writes_its_prompt_beside_the_settings_and_loads_the_ex
         .position(|a| a.as_str() == compact.to_str().unwrap());
     assert_eq!(at.map(|at| argv[at - 1].as_str()), Some("--extension"));
 
-    let upstream = ClaudeCli::default()
-        .pi()
+    let upstream = PiCli::on(&Base::default())
         .upstream(server(&call).unwrap())
         .unwrap();
     let socket = w.path("forwarder.sock");

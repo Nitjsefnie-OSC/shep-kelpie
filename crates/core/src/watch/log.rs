@@ -42,9 +42,13 @@ pub(super) fn parse(line: &str) -> Option<Step> {
 /// Which program wrote a session's transcript, and so how it reads
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Format {
+    /// Claude Code's
     Claude,
+    /// Codex's
     Codex,
+    /// pi's
     Pi,
+    /// goose's
     Goose,
 }
 

@@ -32,7 +32,7 @@ pub struct SandboxedServers {
     sandbox: Arc<dyn Sandbox>,
 }
 
-impl super::ClaudeCli {
+impl super::Base {
     /// Dev servers in the sandbox this runs its calls in
     pub fn dev_servers(&self) -> SandboxedServers {
         SandboxedServers {
