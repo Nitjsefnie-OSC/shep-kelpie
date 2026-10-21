@@ -2,15 +2,17 @@
 
 use std::ffi::OsString;
 use std::fmt;
+#[cfg(any(test, feature = "test-support"))]
 use std::path::PathBuf;
 use std::process::{Command, Output};
 
 use serde::Deserialize;
 
-use super::harness::{Base, adoption_of, prompt_file};
-use super::process::RunError;
+use super::cli::{Cli, CliAdapter, Launch, Turn};
+use super::harness::{Base, prompt_file};
+use crate::forwarder::Upstream;
 use crate::ports::{
-    Adopted, AgentCall, AgentError, AgentReply, Agents, CallActivity, Cost, Ending, Role, Session,
+    Adopted, AgentCall, AgentError, AgentReply, CallActivity, Cost, Policy, Role, Session,
     SessionId, Transcript, Usage, written_at,
 };
 use crate::settings::Harness;
@@ -18,7 +20,6 @@ use crate::settings::Harness;
 /// This adapter's harness, as its errors name it
 const CLAUDE: Harness = Harness::ClaudeCode;
 
-mod adopt;
 #[cfg(test)]
 mod calls;
 #[cfg(test)]
@@ -71,18 +72,24 @@ impl fmt::Debug for LoginToken {
     }
 }
 
-/// Headless Claude Code, one `claude -p` process per call, each inside the sandbox
-///
-/// Clones share their calls in flight, so one clone can stop them all.
+/// What is true of Claude Code: the part of a headless `claude -p` call that no other CLI shares
 #[derive(Debug, Clone)]
-pub struct ClaudeCli {
-    pub(super) base: Base,
+pub struct Claude {
     program: OsString,
     // The login `claude` runs with, in place of the maintainer's in the keychain
     login: Option<LoginToken>,
     // Whether this is macOS, where a blocked keychain takes `claude`'s own login with it
     macos: bool,
+    // Where Claude Code keeps its folders
+    home: std::path::PathBuf,
+    // What a call with no fence may not read, besides its own folder
+    unfenced_no_read: Vec<String>,
 }
+
+/// Headless Claude Code, one `claude -p` process per call, each inside the sandbox
+///
+/// Clones share their calls in flight, so one clone can stop them all.
+pub type ClaudeCli = CliAdapter<Claude>;
 
 impl Default for ClaudeCli {
     fn default() -> Self {
@@ -93,73 +100,130 @@ impl Default for ClaudeCli {
 impl ClaudeCli {
     /// Claude Code on `base`: its sandbox, lamb labels and calls in flight
     pub fn on(base: &Base) -> Self {
-        Self {
-            base: base.clone(),
+        let claude = Claude {
             program: "claude".into(),
             login: None,
             macos: cfg!(target_os = "macos"),
-        }
+            home: base.home.clone(),
+            unfenced_no_read: base.unfenced_no_read.clone(),
+        };
+        Self::new(claude, base)
     }
 
     /// Runs `program` in place of `claude`, as a stand-in script does
     #[cfg(any(test, feature = "test-support"))]
     #[must_use]
-    pub fn with_program(self, program: PathBuf) -> Self {
-        Self {
-            program: program.into(),
-            ..self
-        }
+    pub fn with_program(mut self, program: PathBuf) -> Self {
+        self.cli.program = program.into();
+        self
     }
 
     /// Runs `claude` with `login` in its environment, where there is one, in
     /// place of the keychain's login
     #[must_use]
-    pub fn with_login(self, login: Option<LoginToken>) -> Self {
-        Self { login, ..self }
+    pub fn with_login(mut self, login: Option<LoginToken>) -> Self {
+        self.cli.login = login;
+        self
     }
 
     /// The same, as on macOS or not, which a test runs on either
     #[cfg(test)]
-    pub(crate) fn on_macos(self, macos: bool) -> Self {
-        Self { macos, ..self }
+    pub(crate) fn on_macos(mut self, macos: bool) -> Self {
+        self.cli.macos = macos;
+        self
+    }
+
+    /// The call's headless command inside its sandbox, its scratch folder emptied
+    #[cfg(test)]
+    pub(crate) fn sandboxed_command(&self, call: &AgentCall) -> Result<Command, AgentError> {
+        self.launch(call, &(), Turn::Headless, None)
+            .map(|l| l.command)
+    }
+
+    /// The call's session for the maintainer's terminal, inside the same sandbox
+    #[cfg(test)]
+    pub(crate) fn terminal_command(&self, call: &AgentCall) -> Result<Command, AgentError> {
+        self.launch(call, &(), Turn::Terminal, None)
+            .map(|l| l.command)
     }
 }
 
-impl Agents for ClaudeCli {
-    fn prepare(&self, call: &AgentCall) -> Result<(), AgentError> {
-        write_settings(call, &self.base.unfenced_no_read)?;
-        sandbox::policy(call, &self.base.home, &self.base.unfenced_no_read).map(drop)
+impl Cli for Claude {
+    type Begun = ();
+    const HARNESS: Harness = Harness::ClaudeCode;
+
+    fn write_config(&self, call: &AgentCall, _: Option<&Upstream>) -> Result<(), AgentError> {
+        write_settings(call, &self.unfenced_no_read)?;
+        sandbox::policy(call, &self.home, &self.unfenced_no_read).map(drop)
     }
 
-    fn run(&self, call: &AgentCall, ending: &Ending) -> Result<AgentReply, AgentError> {
-        let mut command = self.sandboxed_command(call)?;
-        let label = call.label();
-        let spawned = |pid| {
-            if let Some(lambs) = &self.base.lambs {
-                lambs.label(pid, &label);
-            }
+    // `claude` would start and fail with its own "not logged in", which a ruling
+    // would carry, in place of the fix.
+    fn ready(&self, call: &AgentCall) -> Result<(), AgentError> {
+        if call.reach.block_keychain && self.macos && self.login.is_none() {
+            return Err(AgentError::Setup(format!(
+                "the keychain is blocked in this repo's calls and {LOGIN_VAR} is not set in the \
+                 runner's environment, so claude has no login: {LOGIN_FIX}"
+            )));
+        }
+        Ok(())
+    }
+
+    fn scratch(&self, call: &AgentCall) -> std::path::PathBuf {
+        sandbox::scratch(call)
+    }
+
+    fn sandbox_settings(&self, call: &AgentCall) -> std::path::PathBuf {
+        sandbox::sandbox_settings(call)
+    }
+
+    fn folders(&self, call: &AgentCall) -> Result<Vec<std::path::PathBuf>, AgentError> {
+        Ok(vec![sandbox::transcripts(&self.home, &call.cwd)?])
+    }
+
+    fn command(
+        &self,
+        call: &AgentCall,
+        _: &(),
+        launch: &Launch<'_>,
+    ) -> Result<Command, AgentError> {
+        let mut command = match launch.turn {
+            Turn::Headless => self.program_command(call, argv(call)),
+            Turn::Terminal => self.program_command(call, terminal_argv(call)),
         };
-        let run = (self.base.processes).output_of_call(&mut command, call, ending, &spawned);
-        let output = run.map_err(|e| match e {
-            RunError::Io(e) => AgentError::Spawn(CLAUDE, e.to_string()),
-            RunError::Stopped => AgentError::Stopped,
-            RunError::TimedOut => AgentError::TimedOut(CLAUDE),
-        })?;
-        let mut reply = parse_result(&output, &call.session)?;
+        if launch.turn == Turn::Headless {
+            // A headless turn that ends is over, so nothing it waits on in
+            // the background can ever wake it.
+            command.env("CLAUDE_CODE_DISABLE_BACKGROUND_TASKS", "1");
+        }
+        Ok(command)
+    }
+
+    fn policy(&self, call: &AgentCall, _: &Launch<'_>) -> Result<Policy, AgentError> {
+        sandbox::policy(call, &self.home, &self.unfenced_no_read)
+    }
+
+    fn parse(&self, call: &AgentCall, _: (), output: &Output) -> Result<AgentReply, AgentError> {
+        let mut reply = parse_result(output, &call.session)?;
         reply.compactions = compactions(call);
         Ok(reply)
     }
 
-    fn adoption(&self, call: &AgentCall) -> Result<Adopted, String> {
-        adoption_of(call, Harness::ClaudeCode)
-    }
-
-    fn adopt(&self, adopted: &Adopted, ending: &Ending) -> Result<AgentReply, AgentError> {
-        self.adopt_call(adopted, ending)
+    fn parse_adopted(
+        &self,
+        adopted: &Adopted,
+        _: (),
+        output: &Output,
+    ) -> Result<AgentReply, AgentError> {
+        let session = match &adopted.resumes {
+            Some(id) => Session::Resume(id.clone()),
+            None => Session::New(SessionId(String::new())),
+        };
+        parse_result(output, &session)
     }
 
     fn transcript(&self, call: &AgentCall) -> Option<Transcript> {
-        let folder = sandbox::transcripts(&self.base.home, &call.cwd).ok()?;
+        let folder = sandbox::transcripts(&self.home, &call.cwd).ok()?;
         Some(Transcript {
             folder,
             threads: None,
@@ -169,14 +233,10 @@ impl Agents for ClaudeCli {
     // Claude Code appends to the session's transcript at each message and
     // tool call, so a write is the session doing something.
     fn last_active(&self, call: &AgentCall) -> CallActivity {
-        let Ok(folder) = sandbox::transcripts(&self.base.home, &call.cwd) else {
+        let Ok(folder) = sandbox::transcripts(&self.home, &call.cwd) else {
             return CallActivity::Untracked;
         };
         written_at(&folder.join(format!("{}.jsonl", call.session.id().0)))
-    }
-
-    fn foreground(&self, call: &AgentCall) -> Result<Command, AgentError> {
-        self.terminal_command(call)
     }
 }
 

@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use super::*;
 use crate::adapters::{Base, LambLabels};
-use crate::ports::Tools;
+use crate::ports::{Agents, Ending, Tools};
 use crate::settings::Effort;
 use crate::test::OpenSandbox;
 

@@ -9,49 +9,15 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use super::{ClaudeCli, LOGIN_FIX, LOGIN_VAR, argv, terminal_argv};
+use super::{Claude, LOGIN_VAR};
 use crate::adapters::harness::{bind_in_scratch, call_policy, prompt_file};
 use crate::fence;
 use crate::ports::{AgentCall, AgentError, Policy};
 
-impl ClaudeCli {
-    // The call's command inside its sandbox.
-    pub(super) fn sandboxed_command(&self, call: &AgentCall) -> Result<Command, AgentError> {
-        let mut command = self.command(call, argv(call))?;
-        // A headless turn that ends is over, so nothing it waits on in
-        // the background can ever wake it.
-        command.env("CLAUDE_CODE_DISABLE_BACKGROUND_TASKS", "1");
-        self.inside(call, &command)
-    }
-
-    // The call's session for the maintainer's terminal, inside the same sandbox.
-    pub(super) fn terminal_command(&self, call: &AgentCall) -> Result<Command, AgentError> {
-        let command = self.command(call, terminal_argv(call))?;
-        self.inside(call, &command)
-    }
-
-    // `claude` with `argv`, its scratch folder emptied and its transcript
-    // folder made. A scratch folder swapped for a link is removed, not followed.
-    fn command(&self, call: &AgentCall, argv: Vec<OsString>) -> Result<Command, AgentError> {
-        // `claude` would start and fail with its own "not logged in", which a ruling
-        // would carry, in place of the fix.
-        if call.reach.block_keychain && self.macos && self.login.is_none() {
-            return Err(AgentError::Setup(format!(
-                "the keychain is blocked in this repo's calls and {LOGIN_VAR} is not set in the \
-                 runner's environment, so claude has no login: {LOGIN_FIX}"
-            )));
-        }
+impl Claude {
+    // `claude` with `argv`, in the call's folder and with its own temporary files.
+    pub(super) fn program_command(&self, call: &AgentCall, argv: Vec<OsString>) -> Command {
         let scratch = scratch(call);
-        let setup = |what: &Path, e: std::io::Error| {
-            AgentError::Setup(format!("cannot make {}: {}", what.display(), e.kind()))
-        };
-        match std::fs::remove_dir_all(&scratch) {
-            Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(setup(&scratch, e)),
-            _ => {}
-        }
-        for folder in [&scratch, &transcripts(&self.base.home, &call.cwd)?] {
-            std::fs::create_dir_all(folder).map_err(|e| setup(folder, e))?;
-        }
         // A sheep has no `TMPDIR`, so a shell falls back to `/tmp`, which the
         // sandbox refuses, and a heredoc cannot make its temp file there. zsh
         // ignores `TMPDIR` for a heredoc and writes under `TMPPREFIX`, a prefix
@@ -75,15 +41,7 @@ impl ClaudeCli {
         if let Some(login) = &self.login {
             command.env(LOGIN_VAR, login.expose());
         }
-        Ok(command)
-    }
-
-    fn inside(&self, call: &AgentCall, command: &Command) -> Result<Command, AgentError> {
-        let policy = policy(call, &self.base.home, &self.base.unfenced_no_read)?;
-        self.base
-            .sandbox
-            .wrap(&policy, &sandbox_settings(call), command)
-            .map_err(|e| AgentError::Setup(e.to_string()))
+        command
     }
 }
 
