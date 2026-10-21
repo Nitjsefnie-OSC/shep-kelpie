@@ -47,6 +47,20 @@ fn running(rig: &Rig) -> Mutex<Runner> {
 }
 
 #[test]
+fn a_rework_keeps_the_base_its_pull_request_merges_into_when_git_base_moved_on() {
+    let rig = Rig::new("webapp");
+    reviewed_71(&rig);
+    rig.base_is("dev");
+    let runner = running(&rig);
+    rig.ask(&runner, "rework", Some("71"));
+
+    let saved = std::fs::read_to_string(rig.paths().state).unwrap();
+    let saved: serde_json::Value = serde_json::from_str(&saved).unwrap();
+    assert_eq!(rig.forge.base_of(71), "main");
+    assert_eq!(saved["work_items"][0]["base"], "main");
+}
+
+#[test]
 fn a_rework_starts_on_the_pull_requests_branch_with_the_review_as_its_first_turn() {
     let rig = Rig::new("webapp");
     let by_hand = reviewed_71(&rig);

@@ -740,12 +740,10 @@ impl Runner {
         if self.settings.repo_setup.reaches(call.role) {
             // A call in a worktree that matches `main` loads the repo's own
             // `.claude` files from it already, and must not get them twice.
+            let item = call.issue.and_then(|ticket| self.state.item(ticket));
+            let base = item.map_or(self.settings.git.base(), |item| self.item_base(item));
             let own_loaded = call.harness.reads_claude_files()
-                && crate::fence::matches_main(
-                    &self.settings.git.checkout,
-                    &call.cwd,
-                    self.settings.git.base(),
-                );
+                && crate::fence::matches_main(&self.settings.git.checkout, &call.cwd, base);
             for plugin in self.repo_plugins.dirs(own_loaded) {
                 if !call.plugin_dirs.iter().any(|dir| dir == plugin) {
                     call.plugin_dirs.push(plugin.to_owned());

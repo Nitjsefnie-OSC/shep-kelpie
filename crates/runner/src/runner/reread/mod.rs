@@ -144,14 +144,14 @@ impl Runner {
         // Planned here and written once the checks below hold, so a reread that
         // fails leaves the plugin folders the runner is using as they were.
         let repo_plugins = RepoPlugins::plan(
-            &self.settings.git.checkout,
-            self.settings.git.base(),
+            &settings.git.checkout,
+            settings.git.base(),
             &self.paths.kelpie_home,
             &self.paths.skills,
             self.ports.git.as_ref(),
             &settings.repo_setup,
         );
-        let plugins_head = default_head(&self.settings.git.checkout, self.settings.git.base());
+        let plugins_head = default_head(&settings.git.checkout, settings.git.base());
         if repo_plugins != self.repo_plugins {
             changed.push("repo plugins");
         }

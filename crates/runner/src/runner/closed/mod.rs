@@ -33,6 +33,7 @@ impl Runner {
     pub(super) fn closed_with_no_change(&mut self, ticket: TicketId) -> Result<bool, String> {
         let item = self.state.item(ticket).expect("an open work item");
         let (branch, tree) = (item.branch.clone(), item.worktree.clone());
+        let base = self.item_base(item).to_owned();
         let read = self.ports.tickets.issue(&self.remote, ticket);
         if read
             .map_err(|e| format!("cannot read {}: {e}", ticket.named().to_lowercase()))?
@@ -40,12 +41,7 @@ impl Runner {
         {
             return Ok(false);
         }
-        match worktree::holds_work(
-            &self.settings.git.checkout,
-            &tree,
-            &branch,
-            self.settings.git.base(),
-        ) {
+        match worktree::holds_work(&self.settings.git.checkout, &tree, &branch, &base) {
             Ok(held) => Ok(!held),
             Err(e) => {
                 let note = format!(
