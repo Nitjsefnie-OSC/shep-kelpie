@@ -183,7 +183,9 @@ fn a_codex_turn_whose_record_is_gone_refuses_the_handover_and_the_old_image_keep
     let (handing, tried) = refusing("unused", &Arc::default());
     let (worker, wake) = worker_of(&runner, Arc::clone(&handing));
     eventually("the turn's child", || folder.join("started").exists());
-    std::fs::remove_file(read(folder, "record").trim()).unwrap();
+    let record = read(folder, "record");
+    eventually("the call's record", || Path::new(record.trim()).exists());
+    std::fs::remove_file(record.trim()).unwrap();
 
     let answer: serde_json::Value = serde_json::from_str(&handing.ask(&wake)).unwrap();
 
