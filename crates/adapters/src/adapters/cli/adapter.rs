@@ -7,11 +7,13 @@ use super::served::Launched;
 use super::terminals::Terminals;
 use super::{Cli, Launch, Served, Turn};
 use crate::adapters::forwarder::Forwarder;
-use crate::adapters::harness::{Base, Carried, Noted, adoption_of, deny_the_server, kept_server};
+use crate::adapters::harness::{
+    Base, Carried, Noted, adoption_of, dial_the_forwarder, kept_server,
+};
 use crate::adapters::process::RunError;
-use crate::forwarder::{Upstream, WORKER_HOST};
+use crate::forwarder::Upstream;
 use crate::ports::{
-    Adopted, AgentCall, AgentError, AgentReply, Agents, CallActivity, Ending, Forward, Kept, Role,
+    Adopted, AgentCall, AgentError, AgentReply, Agents, CallActivity, Ending, Kept, Role,
     SessionId, Transcript,
 };
 use crate::settings::{Gateways, ModelServer, SessionIds};
@@ -146,11 +148,7 @@ impl<C: Cli> CliAdapter<C> {
         let command = self.cli.command(call, begun, &launch)?;
         let mut policy = self.cli.policy(call, &launch)?;
         if let Some(served) = served {
-            deny_the_server(&mut policy, served.upstream);
-            policy.forward = Some(Forward {
-                host: WORKER_HOST.to_owned(),
-                socket: served.socket.to_owned(),
-            });
+            dial_the_forwarder(&mut policy, served.upstream, served.socket);
         }
         let command = (self.base.sandbox)
             .wrap(&policy, &self.cli.sandbox_settings(call), &command)

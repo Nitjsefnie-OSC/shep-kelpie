@@ -3,8 +3,8 @@
 use std::net::{IpAddr, ToSocketAddrs};
 use std::path::Path;
 
-use crate::forwarder::Upstream;
-use crate::ports::{AgentCall, Fence, Policy, Tools};
+use crate::forwarder::{Upstream, WORKER_HOST};
+use crate::ports::{AgentCall, Fence, Forward, Policy, Tools};
 use crate::profile::CREDENTIALS;
 
 /// What a fenced session may do, from its fence alone
@@ -64,6 +64,15 @@ pub(crate) fn bind_in_scratch(policy: &mut Policy, call: &AgentCall, scratch: &P
             .socket_folders
             .push(real.unwrap_or_else(|_| scratch.to_owned()));
     }
+}
+
+/// Holds a call on a model server to the one host it may dial: the forwarder at `socket`
+pub(crate) fn dial_the_forwarder(policy: &mut Policy, upstream: &Upstream, socket: &Path) {
+    deny_the_server(policy, upstream);
+    policy.forward = Some(Forward {
+        host: WORKER_HOST.to_owned(),
+        socket: socket.to_owned(),
+    });
 }
 
 // Whatever `allowed_domains` says, the sandbox never reaches the model server

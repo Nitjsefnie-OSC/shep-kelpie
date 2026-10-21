@@ -16,7 +16,7 @@ pub use base::Base;
 pub(crate) use carried::{Carried, Noted};
 pub use labels::LambLabels;
 pub use policy::fence_policy;
-pub(crate) use policy::{bind_in_scratch, call_policy, deny_the_server};
+pub(crate) use policy::{bind_in_scratch, call_policy, deny_the_server, dial_the_forwarder};
 pub(crate) use skill::{StepSkill, step_skill};
 #[cfg(test)]
 pub(crate) use text::ERROR_TAIL;
