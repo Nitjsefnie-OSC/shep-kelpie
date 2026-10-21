@@ -13,7 +13,7 @@ mod text;
 
 pub(crate) use adopted::adoption_of;
 pub use base::Base;
-pub(crate) use carried::Carried;
+pub(crate) use carried::{Carried, Noted};
 pub use labels::LambLabels;
 pub use policy::fence_policy;
 pub(crate) use policy::{bind_in_scratch, call_policy, deny_the_server};

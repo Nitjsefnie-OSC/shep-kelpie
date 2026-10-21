@@ -10,27 +10,15 @@ use crate::settings::Harness;
 
 /// One adapter per harness, each taking the calls that name it
 pub struct Routed {
-    claude_code: Arc<dyn Agents>,
-    pi: Arc<dyn Agents>,
-    codex: Arc<dyn Agents>,
-    goose: Arc<dyn Agents>,
+    adapters: Vec<(Harness, Arc<dyn Agents>)>,
 }
 
 impl Routed {
-    /// Claude Code's calls to `claude_code`, pi's to `pi`, Codex's to `codex`
-    /// and goose's to `goose`
-    pub fn new(
-        claude_code: Arc<dyn Agents>,
-        pi: Arc<dyn Agents>,
-        codex: Arc<dyn Agents>,
-        goose: Arc<dyn Agents>,
-    ) -> Self {
-        Self {
-            claude_code,
-            pi,
-            codex,
-            goose,
-        }
+    /// Each harness's calls to the adapter listed with it
+    ///
+    /// A harness with no entry has no adapter, and a call naming it panics.
+    pub fn new(adapters: Vec<(Harness, Arc<dyn Agents>)>) -> Self {
+        Self { adapters }
     }
 
     fn adapter(&self, call: &AgentCall) -> &dyn Agents {
@@ -38,14 +26,18 @@ impl Routed {
     }
 
     fn adapter_of(&self, harness: Harness) -> &dyn Agents {
-        match harness {
-            Harness::ClaudeCode => self.claude_code.as_ref(),
-            Harness::Pi => self.pi.as_ref(),
-            Harness::Codex => self.codex.as_ref(),
-            Harness::Goose => self.goose.as_ref(),
-            #[cfg(any(test, feature = "test-support"))]
-            Harness::StandIn => self.claude_code.as_ref(),
-        }
+        // The stand-in runs wherever Claude Code does.
+        #[cfg(any(test, feature = "test-support"))]
+        let harness = if harness == Harness::StandIn {
+            Harness::ClaudeCode
+        } else {
+            harness
+        };
+        self.adapters
+            .iter()
+            .find(|(listed, _)| *listed == harness)
+            .map(|(_, adapter)| adapter.as_ref())
+            .unwrap_or_else(|| panic!("no adapter is listed for {}", harness.facts().name))
     }
 }
 
@@ -86,7 +78,7 @@ impl Agents for Routed {
 
     // Only the call names a harness, and a session id is unique to one.
     fn foreground_ended(&self, session: &SessionId) {
-        for adapter in [&self.claude_code, &self.pi, &self.codex, &self.goose] {
+        for (_, adapter) in &self.adapters {
             adapter.foreground_ended(session);
         }
     }
@@ -137,14 +129,18 @@ mod tests {
         }
     }
 
+    fn named(harness: Harness, name: &'static str) -> (Harness, Arc<dyn Agents>) {
+        (harness, Arc::new(Named(name)))
+    }
+
     #[test]
     fn each_call_goes_to_the_adapter_for_its_harness() {
-        let routed = Routed::new(
-            Arc::new(Named("claude")),
-            Arc::new(Named("pi")),
-            Arc::new(Named("codex")),
-            Arc::new(Named("goose")),
-        );
+        let routed = Routed::new(vec![
+            named(Harness::ClaudeCode, "claude"),
+            named(Harness::Pi, "pi"),
+            named(Harness::Codex, "codex"),
+            named(Harness::Goose, "goose"),
+        ]);
         let pi = AgentHarness::Pi(ModelServer {
             host: crate::settings::ModelHost::Url(
                 EndpointUrl::try_from("http://box:11434/v1".to_owned()).unwrap(),
@@ -193,13 +189,15 @@ mod tests {
     #[test]
     fn the_end_of_a_terminal_session_reaches_every_adapter() {
         let told = Arc::new(std::sync::Mutex::new(Vec::new()));
-        let noting = |name| Arc::new(Noting(Arc::clone(&told), name));
-        let routed = Routed::new(
-            noting("claude"),
-            noting("pi"),
-            noting("codex"),
-            noting("goose"),
-        );
+        let noting = |harness, name| -> (Harness, Arc<dyn Agents>) {
+            (harness, Arc::new(Noting(Arc::clone(&told), name)))
+        };
+        let routed = Routed::new(vec![
+            noting(Harness::ClaudeCode, "claude"),
+            noting(Harness::Pi, "pi"),
+            noting(Harness::Codex, "codex"),
+            noting(Harness::Goose, "goose"),
+        ]);
 
         routed.foreground_ended(&SessionId("s".into()));
 

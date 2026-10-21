@@ -17,7 +17,8 @@ use super::super::super::{Hooks, JOIN_BOUND, Worker};
 use super::exec::{FOLDER, read, worker_of, write};
 use super::*;
 use crate::adapters::{Base, GooseCli};
-use crate::ports::Routed;
+use crate::ports::{Agents, Routed};
+use crate::settings::Harness;
 use crate::settings::Timing;
 use crate::settings::{EndpointUrl, Gateway, GatewayKind, GatewayName, Gateways, KeyVar};
 use crate::test::{Answer, OpenSandbox, StandInEndpoint, waits_for, write_script};
@@ -230,13 +231,13 @@ fn agents(rig: &Rig, folder: &Path, host: &str) -> (Base, Arc<Routed>) {
     let goose = GooseCli::on(&base)
         .with_program(folder.join("goose"))
         .with_gateways(gateways(host));
-    let stand_in = Arc::new(rig.claude.clone());
-    let routed = Routed::new(
-        stand_in.clone(),
-        stand_in.clone(),
-        stand_in,
-        Arc::new(goose),
-    );
+    let stand_in: Arc<dyn Agents> = Arc::new(rig.claude.clone());
+    let routed = Routed::new(vec![
+        (Harness::ClaudeCode, stand_in.clone()),
+        (Harness::Pi, stand_in.clone()),
+        (Harness::Codex, stand_in),
+        (Harness::Goose, Arc::new(goose)),
+    ]);
     (base, Arc::new(routed))
 }
 

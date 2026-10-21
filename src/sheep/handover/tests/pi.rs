@@ -18,7 +18,8 @@ use super::exec::{FOLDER, read, worker_of, write};
 use super::*;
 use crate::adapters::{Base, PiCli};
 use crate::forwarder::Upstream;
-use crate::ports::Routed;
+use crate::ports::{Agents, Routed};
+use crate::settings::Harness;
 use crate::settings::Timing;
 use crate::settings::{EndpointUrl, Gateway, GatewayKind, GatewayName, Gateways, KeyVar};
 use crate::test::{Answer, Hold, OpenSandbox, StandInEndpoint, waits_for, write_script};
@@ -190,8 +191,13 @@ fn agents(rig: &Rig, folder: &Path, host: &str) -> (Base, Arc<Routed>) {
     let pi = PiCli::on(&base)
         .with_program(folder.join("pi"))
         .with_gateways(gateways(host));
-    let stand_in = Arc::new(rig.claude.clone());
-    let routed = Routed::new(stand_in.clone(), Arc::new(pi), stand_in.clone(), stand_in);
+    let stand_in: Arc<dyn Agents> = Arc::new(rig.claude.clone());
+    let routed = Routed::new(vec![
+        (Harness::ClaudeCode, stand_in.clone()),
+        (Harness::Pi, Arc::new(pi)),
+        (Harness::Codex, stand_in.clone()),
+        (Harness::Goose, stand_in),
+    ]);
     (base, Arc::new(routed))
 }
 

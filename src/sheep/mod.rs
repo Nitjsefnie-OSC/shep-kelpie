@@ -37,7 +37,7 @@ use crate::lease::saved::BookFile;
 use crate::lease::wire::GRANT;
 use crate::ports::{Forge, Leases, Ports, Revalidated, Routed, SandboxError, SystemClock, Tickets};
 use crate::runner::{ACTIONS, Pass, Posted, Runner, advance, answer, wakes};
-use crate::settings::Settings;
+use crate::settings::{Harness, Settings};
 use crate::shep_home;
 use crate::shepherd::{self, Dial, Socket};
 use crate::upgrade::restart::{Interrupt, Patience};
@@ -227,12 +227,24 @@ fn serve(project: &str, arrival: Option<Arrival<Carry>>) -> Result<(), Exit> {
     })?;
     let gh = Arc::new(Gh::new(etags));
     let ports = Ports {
-        agents: Arc::new(Routed::new(
-            Arc::new(ClaudeCli::on(&base).with_login(login)),
-            Arc::new(PiCli::on(&base).with_gateways(gateways.clone())),
-            Arc::new(CodexCli::on(&base, codex_home.clone())),
-            Arc::new(GooseCli::on(&base).with_gateways(gateways)),
-        )),
+        agents: Arc::new(Routed::new(vec![
+            (
+                Harness::ClaudeCode,
+                Arc::new(ClaudeCli::on(&base).with_login(login)),
+            ),
+            (
+                Harness::Pi,
+                Arc::new(PiCli::on(&base).with_gateways(gateways.clone())),
+            ),
+            (
+                Harness::Codex,
+                Arc::new(CodexCli::on(&base, codex_home.clone())),
+            ),
+            (
+                Harness::Goose,
+                Arc::new(GooseCli::on(&base).with_gateways(gateways)),
+            ),
+        ])),
         forge: Arc::clone(&gh) as Arc<dyn Forge>,
         tickets: Arc::clone(&gh) as Arc<dyn Tickets>,
         app_reads: Some(Arc::new(app_reads)),

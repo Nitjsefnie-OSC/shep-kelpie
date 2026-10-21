@@ -11,7 +11,8 @@ use super::super::super::{Hooks, JOIN_BOUND, Worker};
 use super::exec::{FOLDER, read, worker_of, write};
 use super::*;
 use crate::adapters::{Base, CodexCli};
-use crate::ports::Routed;
+use crate::ports::{Agents, Routed};
+use crate::settings::Harness;
 use crate::test::{OpenSandbox, waits_for, write_script};
 
 const IMAGE: &str = "sheep::handover::tests::codex::an_image_of_the_runner";
@@ -99,13 +100,13 @@ fn agents(rig: &Rig, folder: &Path) -> (Base, Arc<Routed>) {
         Base::default().sandboxed(Arc::new(OpenSandbox::default()), rig.home.path().to_owned());
     let codex =
         CodexCli::on(&base, rig.home.path().join("login")).with_program(folder.join("codex"));
-    let stand_in = Arc::new(rig.claude.clone());
-    let routed = Routed::new(
-        stand_in.clone(),
-        stand_in.clone(),
-        Arc::new(codex),
-        stand_in,
-    );
+    let stand_in: Arc<dyn Agents> = Arc::new(rig.claude.clone());
+    let routed = Routed::new(vec![
+        (Harness::ClaudeCode, stand_in.clone()),
+        (Harness::Pi, stand_in.clone()),
+        (Harness::Codex, Arc::new(codex)),
+        (Harness::Goose, stand_in),
+    ]);
     (base, Arc::new(routed))
 }
 

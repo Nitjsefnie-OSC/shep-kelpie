@@ -6,6 +6,7 @@
 pub(crate) mod bridge;
 mod classifier;
 mod claude;
+mod cli;
 mod codex;
 mod codex_usage;
 mod curl;
@@ -47,6 +48,7 @@ pub use claude::settings::write_only as claude_write_only;
 #[cfg(any(test, feature = "test-support"))]
 pub use claude::write_settings as write_claude_settings;
 pub use claude::{ClaudeCli, LOGIN_FIX, LOGIN_VAR, LoginToken};
+pub use cli::{Cli, CliAdapter, Launch, Served, Turn};
 pub use codex::CodexCli;
 pub use codex_usage::CodexMeter;
 pub use curl::Curl;

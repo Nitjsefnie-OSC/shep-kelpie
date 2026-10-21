@@ -163,7 +163,7 @@ const GOOSE: HarnessFacts = HarnessFacts {
         "goose's PostToolUse hook is not given a command's result, and the model \
          never reads what a hook prints",
     ),
-    sessions: SessionIds::Cli,
+    sessions: SessionIds::Kelpie,
     writing_tool: Some("write"),
     reads_claude_files: false,
     ends_at_tool: false,
