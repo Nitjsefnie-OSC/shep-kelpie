@@ -10,6 +10,24 @@ DeusData/codebase-memory-mcp, MIT per its badge, written in C. Indexing is local
 - Measured 2026-10-19 on Claude Code 2.1.302 and 2.1.303: a call whose server connects sends those 17 definitions in the request's `tools` array, beside a `DeferredToolPlaceholder` of 204 bytes, so the deferral above does not keep them out of a request. Before #948 no session held them at all, because the server never connected inside a call.
 - Not measured: how long a second index of a changed worktree takes.
 
+## Offered to the local model, called almost never (#600, measured 2026-10-17)
+
+The refactor matrix in the experiments repo, night2: one task, splitting shep-kelpie into a workspace at `04e5794152`, on pi with the local model (`iq3_xxs`), at least 60 minutes per arm and stopped at 120. Each arm had the tool set below as MCP servers; rust-analyzer ran through the experiments repo's `refactor/lsp_mcp.py`. Every arm's session listed the tools it was given.
+
+| arm | minutes | tool calls | graph calls | rust-analyzer calls |
+|---|---|---|---|---|
+| none | 88 | 484 | - | - |
+| graph | 74 | 477 | 3 | - |
+| rust-analyzer | 59 | 280 | - | 0 |
+| both | 75 | 357 | 2 | 0 |
+
+- 5 graph calls and no rust-analyzer call in 1,114 calls. The rest is `bash`, `read`, `edit` and `write`.
+- With so few calls, neither tool can have changed what an arm did, so the arms were not graded against each other.
+- The same holds in production: pi workers had the graph from #949 and made 0 of 2,408 calls to it (#966).
+- Not measured: Claude Code's own LSP tool on this task, or a prompt that tells the worker to use either tool.
+
+So the graph stays off for a worker's turns by default (`code_graph.worker`, `docs/design/fence.md`). A tool the worker does not call only costs its definitions in every request.
+
 ## The daemon (measured on macOS, v0.11.0, 2026-10-15)
 
 - The server and its CLI talk to a daemon, which the first one to need it starts and which stops when its last client disconnects. There is one daemon per runtime folder, `CBM_RUNTIME_DIR` (default `/private/tmp/cbm-daemon-<uid>` on macOS), and it serves one cache folder. Many repos can share one cache. A second cache under the same runtime folder fails with "active account daemon uses a different cache directory". A separate `CBM_RUNTIME_DIR` per cache runs side by side.
