@@ -64,7 +64,8 @@ impl Format {
     fn of_harness(harness: Harness) -> Option<Self> {
         // parity: harness.mcp-tool-calls, harness.mcp-failures, harness.request-usage,
         // harness.tool-errors
-        match harness.facts().transcript {
+        let facts = harness.facts();
+        match facts.transcript.filter(|_| facts.counts_calls) {
             Some(transcripts::Format::Claude) => Some(Self::Claude),
             Some(transcripts::Format::Pi) => Some(Self::Pi),
             _ => None,

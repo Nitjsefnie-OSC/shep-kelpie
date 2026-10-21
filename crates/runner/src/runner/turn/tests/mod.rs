@@ -994,3 +994,4 @@ mod held;
 mod main_fetch;
 mod pause_log;
 mod question;
+mod script_cli;

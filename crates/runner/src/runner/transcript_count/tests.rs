@@ -497,3 +497,14 @@ fn a_carried_turn_counts_its_failed_tool_calls_and_names_a_hook_that_is_not_kelp
         "the carried turn names the hook as the turn this image began would"
     );
 }
+
+#[test]
+fn a_stand_in_call_is_counted_as_no_harness_counts() {
+    let counted: Vec<Harness> = Harness::ALL
+        .into_iter()
+        .chain([Harness::StandIn])
+        .filter(|h| Format::of_harness(*h).is_some())
+        .collect();
+
+    assert_eq!(counted, [Harness::ClaudeCode, Harness::Pi]);
+}

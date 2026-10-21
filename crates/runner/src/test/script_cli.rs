@@ -1,4 +1,4 @@
-//! A CLI that is one shell line, run by the generic adapter on the rig's stand-ins
+//! A CLI that is one shell line, run by the generic adapter in the place of Claude Code in a rig
 
 use std::process::{Command, Output};
 use std::sync::Arc;
@@ -22,7 +22,7 @@ impl ScriptCli {
 
 impl Cli for ScriptCli {
     type Begun = ();
-    const HARNESS: Harness = Harness::StandIn;
+    const HARNESS: Harness = Harness::ClaudeCode;
 
     fn write_config(
         &self,
@@ -79,7 +79,7 @@ mod tests {
             ..AgentCall::new(
                 Role::Worker,
                 Tools::Work,
-                AgentHarness::StandIn,
+                AgentHarness::ClaudeCode,
                 "m",
                 Effort::Low,
                 session,

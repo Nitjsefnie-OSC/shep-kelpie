@@ -51,6 +51,14 @@ pub struct HarnessFacts {
     pub reads_from_an_empty_folder: bool,
     /// The format of the transcript it writes, if kelpie reads it
     pub transcript: Option<Format>,
+    /// Whether the runner counts a turn's MCP and tool calls from that transcript
+    pub counts_calls: bool,
+    /// Whether it can run the roles that need Claude Code's own tools: the
+    /// issue writer and the project manager
+    pub runs_claude_roles: bool,
+    /// Why a handover waits while a session on it is open in the maintainer's
+    /// terminal, if it does
+    pub holds_handover_at_attach: Option<&'static str>,
 }
 
 impl Harness {
@@ -96,6 +104,9 @@ impl AgentHarness {
     }
 }
 
+const FORWARDER: &str = "dials a forwarder this image holds, which the next image would not";
+const TRUST: &str = "ends only in this image, which removes the folder trust it was given";
+
 const CLAUDE_CODE: HarnessFacts = HarnessFacts {
     name: "claude-code",
     program: "claude",
@@ -112,6 +123,9 @@ const CLAUDE_CODE: HarnessFacts = HarnessFacts {
     keeps_its_servers: false,
     reads_from_an_empty_folder: false,
     transcript: Some(Format::Claude),
+    counts_calls: true,
+    runs_claude_roles: true,
+    holds_handover_at_attach: None,
 };
 
 const PI: HarnessFacts = HarnessFacts {
@@ -130,6 +144,9 @@ const PI: HarnessFacts = HarnessFacts {
     keeps_its_servers: false,
     reads_from_an_empty_folder: false,
     transcript: Some(Format::Pi),
+    counts_calls: true,
+    runs_claude_roles: false,
+    holds_handover_at_attach: Some(FORWARDER),
 };
 
 const CODEX: HarnessFacts = HarnessFacts {
@@ -148,6 +165,9 @@ const CODEX: HarnessFacts = HarnessFacts {
     keeps_its_servers: false,
     reads_from_an_empty_folder: true,
     transcript: Some(Format::Codex),
+    counts_calls: false,
+    runs_claude_roles: false,
+    holds_handover_at_attach: Some(TRUST),
 };
 
 // The watch reads goose's stdout file, which each call empties, so no file
@@ -171,6 +191,9 @@ const GOOSE: HarnessFacts = HarnessFacts {
     keeps_its_servers: true,
     reads_from_an_empty_folder: true,
     transcript: None,
+    counts_calls: false,
+    runs_claude_roles: false,
+    holds_handover_at_attach: Some(FORWARDER),
 };
 
 #[cfg(any(test, feature = "test-support"))]
@@ -190,4 +213,7 @@ const STAND_IN: HarnessFacts = HarnessFacts {
     keeps_its_servers: false,
     reads_from_an_empty_folder: false,
     transcript: Some(Format::Claude),
+    counts_calls: false,
+    runs_claude_roles: false,
+    holds_handover_at_attach: None,
 };
