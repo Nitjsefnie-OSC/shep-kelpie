@@ -9,7 +9,7 @@ use super::*;
 use crate::ports::Usage;
 use crate::test::OpenSandbox;
 
-/// The rollout of a session that ran two requests and compacted
+/// The rollout of a session that ran three requests, compacted and ran one more
 const ROLLOUT: &str = include_str!("../../../../../fixtures/codex-rollout-compacted.jsonl");
 
 fn codex_in(world: &World, sandbox: &OpenSandbox) -> CodexCli {
@@ -196,13 +196,13 @@ fn the_end_of_a_terminal_session_leaves_the_next_turn_to_count_only_its_own() {
     assert_eq!(
         kept.spent,
         Spent {
-            input_tokens: 36989,
-            cached_input_tokens: 28416,
+            input_tokens: 116_705,
+            cached_input_tokens: 79_104,
             cache_write_input_tokens: 0,
-            output_tokens: 952,
+            output_tokens: 469,
         }
     );
-    assert_eq!(kept.context, Some(1523));
+    assert_eq!(kept.context, Some(19_478));
     assert!(!kept.compact, "the session compacted when it resumed");
     let next = stand_in(
         &w,
@@ -212,11 +212,11 @@ fn the_end_of_a_terminal_session_leaves_the_next_turn_to_count_only_its_own() {
             "\"}\n",
             r#"{"type":"item.completed","item":{"id":"i","type":"agent_message","text":"ok"}}"#,
             "\n",
-            r#"{"type":"turn.completed","usage":{"input_tokens":38989,"cached_input_tokens":28416,"output_tokens":1052}}"#,
+            r#"{"type":"turn.completed","usage":{"input_tokens":89318,"cached_input_tokens":50048,"output_tokens":349}}"#,
         ),
     );
     // Codex appends the turn's record to the rollout.
-    let record = r#"{"type":"event_msg","payload":{"type":"token_usage_record","thread_token_usage":{"input_tokens":38989,"cached_input_tokens":28416,"output_tokens":1052}}}"#;
+    let record = r#"{"type":"token_usage_record","payload":{"thread_token_usage":{"input_tokens":118705,"cached_input_tokens":79104,"output_tokens":569}}}"#;
     rollout_of_terminal(&call, &format!("{ROLLOUT}{record}\n"));
     let reply = next.run(&call, &Ending::default()).unwrap();
     assert_eq!(

@@ -124,12 +124,12 @@ const WRITTEN: [&str; 5] = [
 const INSTALLATION_ID: &str = "installation_id";
 
 /// Codex's features no call runs, each one a way past the call's tools,
-/// its hooks or its sandbox
+/// its hooks or its sandbox, or a turn that never ends
 ///
 /// `unified_exec` is not among them: Codex turns it back on unless an
 /// administrator's `requirements.toml` pins it off
 /// (`docs/facts/codex-as-an-agent.md`).
-const FEATURES_OFF: [&str; 16] = [
+const FEATURES_OFF: [&str; 17] = [
     // A crew of Codex's own, whose calls kelpie's checks were not measured on
     "multi_agent",
     "apps",
@@ -147,6 +147,9 @@ const FEATURES_OFF: [&str; 16] = [
     "tool_suggest",
     "workspace_dependencies",
     "worktrees",
+    // Retrying a refused connection forever, so a turn whose model host is
+    // down would wait without end and never be read as unreachable
+    "unbounded_connection_retries",
 ];
 
 /// Headless Codex, one `codex exec` process per call, each inside the sandbox
@@ -848,7 +851,9 @@ fn failed(detail: &str) -> AgentError {
         .iter()
         .find_map(|marker| detail.split_once(marker))
         .map_or(detail, |(_, status)| status);
-    if reaches_no_host(status, &["502", "503", "504"], &UNREACHABLE) {
+    // A 400 prints the provider's JSON body alone, with no status: it answered.
+    let answered = detail.trim_start().starts_with('{');
+    if !answered && reaches_no_host(status, &["502", "503", "504"], &UNREACHABLE) {
         AgentError::Unreachable(CODEX, detail.to_owned())
     } else {
         AgentError::Failed(CODEX, detail.to_owned())
@@ -860,10 +865,15 @@ const STATUS_MARKERS: [&str; 2] = ["last status: ", "unexpected status "];
 
 /// What Codex prints, in lower case, when its provider cannot be reached or
 /// is overloaded, beyond a refused or reset connection
-const UNREACHABLE: [&str; 3] = [
+///
+/// Recorded from codex-cli 0.159.3 (`docs/facts/codex-as-an-agent.md`): a
+/// dropped stream, a failed connection, a 500 and a 503 that says the server
+/// is overloaded.
+const UNREACHABLE: [&str; 4] = [
     "stream disconnected before completion",
     "error sending request",
     "currently experiencing high demand",
+    "selected model is at capacity",
 ];
 
 /// One `codex exec` turn, read from what it printed

@@ -37,13 +37,10 @@ pub(super) fn last_request_input(home: &Path, thread: &str) -> Option<u64> {
 /// A compaction's own model request is in that count and not in the turn's
 /// report or the `token_count` events. A running total never falls, so a
 /// record under `reported` is an earlier turn's, left by a Codex that wrote
-/// none for this one. The rollout holds no count of cache writes, so those
-/// stay what `reported` had.
+/// none for this one.
 pub(super) fn thread_total(home: &Path, thread: &str, reported: Spent) -> Option<Spent> {
     let total = last_record(&rollout_text(home, thread)?)?;
-    total
-        .reaches(reported.into())
-        .then(|| spent(total, reported))
+    total.reaches(reported.into()).then(|| spent(total))
 }
 
 /// The tokens the session `thread` has spent in all, beside its last
@@ -52,20 +49,20 @@ pub(super) fn thread_total(home: &Path, thread: &str, reported: Spent) -> Option
 /// The total is the last `token_usage_record`'s when it reaches the last
 /// `token_count` event's, which a record from before it does not, and that
 /// event's otherwise.
-pub(super) fn running_total(home: &Path, thread: &str, known: Spent) -> Option<(Spent, u64)> {
+pub(super) fn running_total(home: &Path, thread: &str) -> Option<(Spent, u64)> {
     let text = rollout_text(home, thread)?;
     let count = last_count(&text)?;
     let total = last_record(&text)
         .filter(|record| record.reaches(count.total_token_usage))
         .unwrap_or(count.total_token_usage);
-    Some((spent(total, known), count.last_token_usage.input_tokens))
+    Some((spent(total), count.last_token_usage.input_tokens))
 }
 
-fn spent(total: Tokens, known: Spent) -> Spent {
+fn spent(total: Tokens) -> Spent {
     Spent {
         input_tokens: total.input_tokens,
         cached_input_tokens: total.cached_input_tokens,
-        cache_write_input_tokens: known.cache_write_input_tokens,
+        cache_write_input_tokens: total.cache_write_input_tokens,
         output_tokens: total.output_tokens,
     }
 }
@@ -124,24 +121,21 @@ fn count(line: &str) -> Option<Count> {
     (line.kind == "event_msg" && line.payload.kind == "token_count").then_some(line.payload.info?)
 }
 
-// A `token_usage_record` event's thread total, if the line is one: a
+// A `token_usage_record` line's thread total, if the line is one: a
 // `compacted` line holds a record's usage too, under another name.
 fn record(line: &str) -> Option<Tokens> {
     #[derive(Deserialize)]
     struct Line {
         #[serde(rename = "type")]
         kind: String,
-        payload: Event,
+        payload: Record,
     }
     #[derive(Deserialize)]
-    struct Event {
-        #[serde(rename = "type")]
-        kind: String,
-        thread_token_usage: Option<Tokens>,
+    struct Record {
+        thread_token_usage: Tokens,
     }
     let line: Line = serde_json::from_str(line).ok()?;
-    (line.kind == "event_msg" && line.payload.kind == "token_usage_record")
-        .then_some(line.payload.thread_token_usage?)
+    (line.kind == "token_usage_record").then_some(line.payload.thread_token_usage)
 }
 
 #[derive(Deserialize)]
@@ -156,6 +150,8 @@ struct Tokens {
     #[serde(default)]
     cached_input_tokens: u64,
     #[serde(default)]
+    cache_write_input_tokens: u64,
+    #[serde(default)]
     output_tokens: u64,
 }
 
@@ -163,6 +159,7 @@ impl Tokens {
     fn reaches(self, other: Self) -> bool {
         self.input_tokens >= other.input_tokens
             && self.cached_input_tokens >= other.cached_input_tokens
+            && self.cache_write_input_tokens >= other.cache_write_input_tokens
             && self.output_tokens >= other.output_tokens
     }
 }
@@ -172,6 +169,7 @@ impl From<Spent> for Tokens {
         Self {
             input_tokens: spent.input_tokens,
             cached_input_tokens: spent.cached_input_tokens,
+            cache_write_input_tokens: spent.cache_write_input_tokens,
             output_tokens: spent.output_tokens,
         }
     }

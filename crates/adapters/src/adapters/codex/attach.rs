@@ -93,7 +93,7 @@ impl CodexCli {
         let Ok(Some(known)) = thread(&files, session) else {
             return;
         };
-        let Some((spent, context)) = context::running_total(&files.home, &known.id, known.spent)
+        let Some((spent, context)) = context::running_total(&files.home, &known.id)
         else {
             return;
         };

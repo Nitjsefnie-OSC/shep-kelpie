@@ -1,0 +1,9 @@
+{"type":"thread.started","thread_id":"01a15f0a-cba1-7c12-8a77-ab053d9598e3"}
+{"type":"turn.started"}
+{"type":"error","message":"Reconnecting... 1/5 (unexpected status 502 Bad Gateway: stub 502, url: http://127.0.0.1:18701/v1/responses, request id: req-stub-5)"}
+{"type":"error","message":"Reconnecting... 2/5 (unexpected status 502 Bad Gateway: stub 502, url: http://127.0.0.1:18701/v1/responses, request id: req-stub-10)"}
+{"type":"error","message":"Reconnecting... 3/5 (unexpected status 502 Bad Gateway: stub 502, url: http://127.0.0.1:18701/v1/responses, request id: req-stub-15)"}
+{"type":"error","message":"Reconnecting... 4/5 (unexpected status 502 Bad Gateway: stub 502, url: http://127.0.0.1:18701/v1/responses, request id: req-stub-20)"}
+{"type":"error","message":"Reconnecting... 5/5 (unexpected status 502 Bad Gateway: stub 502, url: http://127.0.0.1:18701/v1/responses, request id: req-stub-25)"}
+{"type":"error","message":"unexpected status 502 Bad Gateway: stub 502, url: http://127.0.0.1:18701/v1/responses, request id: req-stub-30"}
+{"type":"turn.failed","error":{"message":"unexpected status 502 Bad Gateway: stub 502, url: http://127.0.0.1:18701/v1/responses, request id: req-stub-30"}}

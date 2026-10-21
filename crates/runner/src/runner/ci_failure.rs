@@ -51,17 +51,16 @@ use crate::state::StateError;
 /// entries part ways, so a new red module cannot slip past the count. A module
 /// covers its child modules, and a `tests/<name>.rs` entry covers every test of
 /// that binary.
-const SANDBOX_RED: [&str; 18] = [
+const SANDBOX_RED: [&str; 16] = [
     "adapters::curl",
     "adapters::dev_server",
     "adapters::gpu",
     "adapters::goose::gateway_tests",
     "adapters::local::endpoint",
+    "adapters::openai_gateway",
     "adapters::paddock",
     "adapters::pi::gateway_tests",
-    "adapters::test_runner",
     "doctor::gateways",
-    "dog::door",
     "runner::attach",
     "runner::gpu_tests",
     "runner::pm::tests::attach",
@@ -69,7 +68,6 @@ const SANDBOX_RED: [&str; 18] = [
     "runner::slots_tests",
     "sheep::handover::tests::goose",
     "sheep::handover::tests::pi",
-    "tests/upgrade.rs",
 ];
 
 /// The repo `SANDBOX_RED` and `docs/agents/sandbox-red-tests.md` are of: kelpie's
@@ -482,6 +480,14 @@ mod tests {
         failed_tests(logs, 0, &SANDBOX_RED)
     }
 
+    // The doc listed `tests/upgrade.rs` whole until #1085 found it passes in a
+    // worker, and lists no binary now, so these tests list it themselves.
+    const LISTED_BINARY: [&str; 1] = ["tests/upgrade.rs"];
+
+    fn tests_listing_the_binary(logs: &str) -> CiTests {
+        failed_tests(logs, 0, &LISTED_BINARY)
+    }
+
     // A failed run of a project whose tests are not cargo's, written by hand in the
     // shape the recorded logs show: the job and the step before each line, `##[group]`
     // and `##[endgroup]` around the command, and the runner's failure line at the end.
@@ -647,7 +653,7 @@ mod tests {
 
     // The two recorded logs joined, as one head red on a lib test and on an
     // integration binary would leave them, with the second one's binary named as
-    // `tests/upgrade.rs`, which the doc lists whole. Only the binary's name is
+    // `tests/upgrade.rs`, listed whole. Only the binary's name is
     // changed, in both places cargo prints it.
     #[test]
     fn each_run_in_a_log_is_judged_on_its_own_target() {
@@ -666,25 +672,29 @@ mod tests {
 
         // Each half on its own, then the pair: the lib test is one a worker could
         // have run, so the head is runnable whatever target the log ends on.
-        assert_eq!(tests_of(UNLISTED_TEST), CiTests::Runnable);
-        assert_eq!(tests_of(&upgrade), CiTests::SandboxOnly);
-        assert_eq!(tests_of(&joined), CiTests::Runnable);
+        assert_eq!(tests_listing_the_binary(UNLISTED_TEST), CiTests::Runnable);
+        assert_eq!(tests_listing_the_binary(&upgrade), CiTests::SandboxOnly);
+        assert_eq!(tests_listing_the_binary(&joined), CiTests::Runnable);
     }
 
     #[test]
     fn a_test_of_a_listed_integration_binary_is_sandbox_only() {
-        // The recorded log above with its binary named as `tests/upgrade.rs`, which
-        // the doc's table lists whole. Only the name the log carries is changed here.
+        // The recorded log above with its binary named as `tests/upgrade.rs`, listed
+        // whole. Only the name the log carries is changed here.
         let listed = INTEGRATION.replace("settings_examples", "upgrade");
-        assert_eq!(tests_of(&listed), CiTests::SandboxOnly);
-        assert_eq!(tests_of(INTEGRATION), CiTests::Runnable);
+        assert_eq!(tests_listing_the_binary(&listed), CiTests::SandboxOnly);
+        assert_eq!(tests_listing_the_binary(INTEGRATION), CiTests::Runnable);
     }
 
     #[test]
     fn a_module_is_listed_from_its_own_tests_down() {
-        assert!(sandbox_red("dog::door", &Some(Target::Lib), &SANDBOX_RED));
         assert!(sandbox_red(
-            "dog::door::e2e::a_call_that_hangs_is_stopped",
+            "doctor::gateways",
+            &Some(Target::Lib),
+            &SANDBOX_RED
+        ));
+        assert!(sandbox_red(
+            "doctor::gateways::tests::a_refused_key_is_missing_and_one_not_set_here_is_unsure",
             &Some(Target::Lib),
             &SANDBOX_RED
         ));
@@ -714,8 +724,8 @@ mod tests {
     #[test]
     fn a_module_the_doc_lists_in_part_is_not_listed_at_all() {
         for name in [
-            "adapters::pi::tests::a_turn_that_ends",
-            "runner::turn::tests::dev_server::a_server_that_answers_counts_as_an_ok_run",
+            "adapters::forwarder::tests::a_reply_is_relayed",
+            "adapters::goose::attach_tests::the_terminal_session_has_a_forwarder",
             "adapters::bridge::proxy::tests::an_address_that_is_not_a_loopback",
             "github::a_run_that_needs_a_port",
         ] {
