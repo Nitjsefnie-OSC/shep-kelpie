@@ -17,7 +17,9 @@ use serde::Deserialize;
 
 use super::super::untrusted::fenced;
 use super::limits;
+use crate::ports::AuthorAssociation;
 use crate::runner::claim::Notes;
+use crate::settings::AuthorRole;
 
 /// An open issue, by number and title
 pub(in crate::runner) type Listed = (u64, String);
@@ -129,13 +131,46 @@ const P0_QUESTION: &str =
     "The research rates this P0, which only the maintainer sets. How urgent is it?";
 const P0_RECOMMENDED: &str = "P1";
 
-/// The issue a research call is given: its number, its title, its body, and
-/// the size its body is cut at, 0 for no cut
+/// The same question for anyone but the maintainer: no label name, and no
+/// answer recommended, which would be one
+const P0_PLAIN_QUESTION: &str = "How urgent is this for you?";
+
+/// The issue a research call is given: its number, its title, its body, the
+/// size its body is cut at, 0 for no cut, and who opened it: how the forge
+/// counts them and the role they are asked as
 pub(in crate::runner) struct Subject<'a> {
     pub(in crate::runner) number: u64,
     pub(in crate::runner) title: &'a str,
     pub(in crate::runner) body: &'a str,
     pub(in crate::runner) max_body_kb: u32,
+    pub(in crate::runner) association: Option<AuthorAssociation>,
+    pub(in crate::runner) role: AuthorRole,
+}
+
+// What the call says of who opened the issue: their association, the role they
+// are asked as, and what that role may be asked
+fn author_line(association: Option<AuthorAssociation>, role: AuthorRole) -> String {
+    let counted = match association {
+        Some(association) => format!("counted by the forge as `{}`", association.word()),
+        None => "given no association by the forge".to_owned(),
+    };
+    let asked = match role {
+        AuthorRole::Maintainer => {
+            "the maintainer: decisions with recommended answers are fine, in the repo's terms"
+        }
+        AuthorRole::Developer => {
+            "a developer: ask what they saw and what they expected, and a decision only when \
+             their issue proposes one. Never ask them about logs, config, deployments or code, \
+             and put design choices in your report for the maintainer, not in `open`"
+        }
+        AuthorRole::Reporter => {
+            "a reporter: ask in plain language, with no file path or code term, and only what \
+             they saw or expected. Never ask them about logs, config, deployments or code, and \
+             put design choices in your report for the maintainer, not in `open`. Each \
+             question stands alone and holds one question"
+        }
+    };
+    format!("The issue's author is {counted}, and is asked as {asked}.")
 }
 
 /// What the triager is asked about `subject`'s issue: the issue, then the open
@@ -156,7 +191,14 @@ pub(super) fn prompt(
         title,
         body,
         max_body_kb,
+        association,
+        role,
     } = *subject;
+    let author = author_line(association, role);
+    let questions = match max_questions {
+        1 => "1 question".to_owned(),
+        n => format!("{n} questions"),
+    };
     // The body is what the limit cuts, never the title, and the cut says so in
     // the fence beside the text it left out.
     let (body, cut) = limits::cut_body(body, max_body_kb);
@@ -207,7 +249,7 @@ pub(super) fn prompt(
          {}\n\n{}\n\n{}{}\n\n\
          The open issues, and the open pull requests with the issues each body says it \
          closes, are listed above so you can tell one that already covers this issue; you \
-         cannot list them yourself. Ask at most {max_questions} questions in `open`. Kelpie \
+         cannot list them yourself. {author} Ask at most {questions} in `open`. Kelpie \
          never sets `P0`: answer it if you think the issue is one, and the author is asked \
          how urgent it is. When you are sure of everything, answer `body` with the whole \
          agent-ready issue body: kelpie writes it over the issue and labels the issue \
@@ -229,7 +271,8 @@ pub(super) fn prompt(
 }
 
 /// Reads the triager's `text`, keeping a related number only if `open`
-/// holds it and a file only if `view` has it, and no more than `most` questions.
+/// holds it and a file only if `view` has it, and no more than `most` questions,
+/// `asking` being that and the role they are asked as.
 /// A cover named in words kelpie cannot read is dropped, and `notes` names the
 /// words the triager used
 ///
@@ -242,19 +285,31 @@ pub(in crate::runner) fn read_reply(
     issue: u64,
     open: &[Listed],
     view: &Path,
-    most: usize,
+    asking: (usize, AuthorRole),
     notes: &Notes,
 ) -> Result<Found, String> {
+    let (most, role) = asking;
     let json = object_in(text).ok_or("its reply holds no JSON object")?;
     let reply: Reply =
         serde_json::from_str(json).map_err(|e| format!("its reply is no triage: {e}"))?;
     let mut questions = Vec::new();
+    // The urgency question of anyone but the maintainer comes after the
+    // triager's own, so the cap drops it first, and names no label
+    let mut urgency = None;
     let priority = match reply.priority.as_deref().map(str::trim) {
         Some(p) if p.eq_ignore_ascii_case("p0") => {
-            questions.push(Question {
-                question: P0_QUESTION.to_owned(),
-                recommended: P0_RECOMMENDED.to_owned(),
-            });
+            match role {
+                AuthorRole::Maintainer => questions.push(Question {
+                    question: P0_QUESTION.to_owned(),
+                    recommended: P0_RECOMMENDED.to_owned(),
+                }),
+                _ => {
+                    urgency = Some(Question {
+                        question: P0_PLAIN_QUESTION.to_owned(),
+                        recommended: String::new(),
+                    })
+                }
+            }
             None
         }
         Some(p) => ["P1", "P2", "P3", "P4"]
@@ -268,6 +323,7 @@ pub(in crate::runner) fn read_reply(
             .into_iter()
             .filter(|q| !q.question.trim().is_empty()),
     );
+    questions.extend(urgency);
     questions.truncate(most);
     let listed: BTreeSet<u64> = open.iter().map(|(n, _)| *n).collect();
     let mut seen = BTreeSet::new();

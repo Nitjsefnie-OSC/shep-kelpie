@@ -23,6 +23,7 @@ use super::{End, News};
 use crate::dep_sources::grant;
 use crate::metrics::Recorder;
 use crate::ports::{AgentCall, AgentError, Agents, Ending, Timestamp};
+use crate::settings::AuthorRole;
 use crate::state::StateError;
 use crate::ticket::TicketId;
 use crate::usage::{CallKind, Draft};
@@ -61,6 +62,7 @@ pub(in crate::runner) struct Research {
     pub(in crate::runner) view: PathBuf,
     pub(in crate::runner) open: Vec<Listed>,
     pub(in crate::runner) most: usize,
+    pub(in crate::runner) role: AuthorRole,
     pub(in crate::runner) pictures: Pictures,
 }
 
@@ -287,6 +289,7 @@ fn researched(
         view,
         open,
         most,
+        role,
         pictures,
     } = research;
     // A view a crash left behind would stop the new one.
@@ -303,7 +306,7 @@ fn researched(
     }
     indexed(call, notes, metrics, ending);
     let ran = agents.prepare(call).and_then(|()| agents.run(call, ending));
-    let found =
-        (ran.as_ref().ok()).map(|reply| read_reply(&reply.text, issue, open, view, *most, notes));
+    let found = (ran.as_ref().ok())
+        .map(|reply| read_reply(&reply.text, issue, open, view, (*most, *role), notes));
     (End::Turn(ran), found)
 }

@@ -6,7 +6,7 @@ use serde_json::json;
 use super::comment::{MARKER, duplicate_marker};
 use super::pick_tests::{issue, list};
 use super::research_tests::{
-    APP, WORDS, calls, crashed_with, facts, moves, pump, reply, triage, untouched,
+    APP, WORDS, calls, crashed_with, facts, moves, pump, reply, researching, triage, untouched,
 };
 use crate::github::ApiError;
 use crate::ports::{IssueCloseReason, PullRequestState, Role, Timestamp};
@@ -446,4 +446,28 @@ fn the_pull_requests_and_issues_reach_the_call_fenced_and_without_the_issue_itse
         !prompt.contains("#30 Crash on start"),
         "the issue is not listed against itself: {prompt}"
     );
+}
+
+#[test]
+fn a_duplicate_comment_to_anyone_but_the_maintainer_is_worded_plain() {
+    let plain = "write in plain language, with no file path";
+    let (rig, runner) = untouched();
+    rig.forge
+        .list_open_pull(41, "Fix the crash on start", &[30]);
+    rig.claude.script_for(
+        Role::Triager,
+        [covered(41, "pull_request", "It fixes the same crash.")],
+    );
+    assert_eq!(step(&runner).unwrap(), None);
+    assert!(facts(&rig).contains(plain), "a contributor is asked plain");
+
+    let (rig, runner) = researching("pick = \"all\"\nauthors = { \"newcomer\" = \"maintainer\" }");
+    rig.forge
+        .list_open_pull(41, "Fix the crash on start", &[30]);
+    rig.claude.script_for(
+        Role::Triager,
+        [covered(41, "pull_request", "It fixes the same crash.")],
+    );
+    assert_eq!(step(&runner).unwrap(), None);
+    assert!(!facts(&rig).contains(plain), "the maintainer is not");
 }
