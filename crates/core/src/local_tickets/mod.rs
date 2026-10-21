@@ -15,7 +15,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 pub use file::{Comment, FileError, Standing, Stored};
-pub use routed::Routed;
+pub use routed::{Routed, SharedSource};
 
 use crate::board::{Blocker, READY, ReadyIssue, SubIssues};
 use crate::ports::{

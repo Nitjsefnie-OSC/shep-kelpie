@@ -2,6 +2,7 @@ mod contributions;
 mod dependencies;
 mod e2e;
 mod hooks;
+mod tickets;
 mod triage;
 
 use std::path::Path;

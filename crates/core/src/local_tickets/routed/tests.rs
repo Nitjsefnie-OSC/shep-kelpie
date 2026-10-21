@@ -203,3 +203,57 @@ fn a_ticket_for_the_project_is_filed_listed_and_commented_in_its_own_source() {
     );
     assert!(local.all().unwrap().is_empty());
 }
+
+#[test]
+fn a_source_changed_to_local_through_the_cell_moves_the_board_and_leaves_a_github_ticket() {
+    let (_home, github, routed, local) = stand_up(TicketSource::Github);
+    local
+        .create("Ready", "", &[crate::board::READY], Links::default())
+        .unwrap();
+    routed.source_cell().set(TicketSource::Local);
+
+    assert_eq!(routed.ready_issues(&repo()).unwrap().len(), 1);
+    routed.finished_parents(&repo()).unwrap();
+    assert_eq!(routed.open_tickets(&repo()).unwrap().len(), 1);
+    let filed = routed.file_ticket(&repo(), "Filed", "", &[]).unwrap();
+    assert_eq!(filed, id("k2"));
+    assert!(github.calls.lock().unwrap().is_empty());
+
+    // A ticket opened on GitHub before the change is still there.
+    assert_eq!(routed.issue(&repo(), id("12")).unwrap().title, "on GitHub");
+    routed.close_issue(&repo(), id("12")).unwrap();
+    assert_eq!(
+        *github.calls.lock().unwrap(),
+        ["issue 12", "close_issue 12"]
+    );
+}
+
+#[test]
+fn a_source_changed_to_github_through_the_cell_moves_the_board_and_leaves_a_local_ticket() {
+    let (_home, github, routed, local) = stand_up(TicketSource::Local);
+    local
+        .create("Ready", "", &[crate::board::READY], Links::default())
+        .unwrap();
+    routed.source_cell().set(TicketSource::Github);
+
+    assert!(routed.ready_issues(&repo()).unwrap().is_empty());
+    routed.finished_parents(&repo()).unwrap();
+    routed.open_tickets(&repo()).unwrap();
+    let filed = routed.file_ticket(&repo(), "Filed", "", &[]).unwrap();
+    assert_eq!(filed, id("900"));
+    assert_eq!(
+        *github.calls.lock().unwrap(),
+        [
+            "ready_issues",
+            "finished_parents",
+            "open_issues",
+            "create_issue Filed"
+        ]
+    );
+
+    // A ticket opened in the store before the change is still there.
+    assert_eq!(routed.issue(&repo(), id("k1")).unwrap().title, "Ready");
+    routed.close_issue(&repo(), id("k1")).unwrap();
+    assert!(!routed.issue(&repo(), id("k1")).unwrap().open);
+    assert_eq!(github.calls.lock().unwrap().len(), 4);
+}
