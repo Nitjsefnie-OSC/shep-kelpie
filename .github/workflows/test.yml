@@ -158,7 +158,8 @@ jobs:
       - run: cargo +1.88 check --all-targets --locked
 
   # Reports whether the workspace compiles on Windows while #241 ports it
-  # crate by crate. `continue-on-error` keeps a red run from blocking a
+  # crate by crate. `--keep-going` reports every failing crate, not the
+  # first. `continue-on-error` keeps a red run from blocking a
   # merge; drop it, and add the job to the ruleset's required checks, when
   # #241 is done.
   windows:
@@ -184,4 +185,4 @@ jobs:
             choco install llvm -y --no-progress
           }
           'C:\Program Files\LLVM\bin' | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
-      - run: cargo check --workspace --all-targets --locked
+      - run: cargo check --workspace --all-targets --locked --keep-going
