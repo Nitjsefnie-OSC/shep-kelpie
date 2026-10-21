@@ -60,6 +60,14 @@ pub(super) fn reply(sheep: &str, action: &str, params: Option<&str>, body: &str)
             "{sheep}: opened a work item for {}",
             params.map_or_else(|| "?".to_owned(), ticket_name)
         )],
+        // The runner answers these with its status, which says nothing of the
+        // request: it only queued the issue or took the pull request up.
+        "triage" => vec![format!(
+            "{sheep}: queued {} for triage",
+            params.map_or_else(|| "?".to_owned(), ticket_name)
+        )],
+        "rework" => vec![format!("{sheep}: reworking PR #{}", params.unwrap_or("?"))],
+        "adopt" => vec![format!("{sheep}: adopting PR #{}", params.unwrap_or("?"))],
         _ => vec![body.to_owned()],
     }
 }

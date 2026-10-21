@@ -707,6 +707,40 @@ fn a_plain_board_numbers_each_issue_with_its_title_priority_and_why_it_waits() {
     );
 }
 
+const STATUS_OBJECT: &str = r#"{"project":"koji","work_items":[],"rulings":[]}"#;
+
+#[test]
+fn a_plain_triage_says_the_issue_is_queued_for_triage() {
+    assert_eq!(
+        plain_reply("koji", "triage", Some("80"), STATUS_OBJECT),
+        ["koji: queued #80 for triage"]
+    );
+    assert_eq!(
+        plain_reply("koji", "triage", Some("k12"), STATUS_OBJECT),
+        ["koji: queued k12 for triage"]
+    );
+    assert_eq!(
+        plain_reply("koji", "triage", None, STATUS_OBJECT),
+        ["koji: queued ? for triage"]
+    );
+    assert_eq!(
+        plain_reply("koji", "triage", Some("80"), "not json"),
+        ["not json"]
+    );
+}
+
+#[test]
+fn a_plain_rework_and_adopt_name_the_pull_request() {
+    assert_eq!(
+        plain_reply("koji", "rework", Some("40"), STATUS_OBJECT),
+        ["koji: reworking PR #40"]
+    );
+    assert_eq!(
+        plain_reply("koji", "adopt", Some("40"), STATUS_OBJECT),
+        ["koji: adopting PR #40"]
+    );
+}
+
 #[test]
 fn a_plain_status_of_an_idle_runner_says_so() {
     let idle = r#"{"project":"koji","work_items":[],"rulings":[],
