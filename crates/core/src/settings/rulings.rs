@@ -76,6 +76,8 @@ pub enum RulingName {
     TestStillFails,
     /// Work in the worktree is not pushed
     Unpushed,
+    /// A contributor's fork refused kelpie's push of the worker's commits
+    PushRefused,
     /// A turn ran past its ceiling
     TurnTimeout,
     /// A turn failed
@@ -125,6 +127,7 @@ impl RulingName {
                 Stuck::FixNotPushed { .. } => Self::FixNotPushed,
                 Stuck::TestStillFails { .. } => Self::TestStillFails,
                 Stuck::Unpushed { .. } => Self::Unpushed,
+                Stuck::PushRefused { .. } => Self::PushRefused,
                 Stuck::TurnTimeout { .. } => Self::TurnTimeout,
                 Stuck::TurnFailed { .. } => Self::TurnFailed,
                 Stuck::Unlabelled { .. } => Self::Unlabelled,
@@ -149,6 +152,7 @@ impl RulingName {
             Self::FixNotPushed => "fix-not-pushed",
             Self::TestStillFails => "test-still-fails",
             Self::Unpushed => "unpushed",
+            Self::PushRefused => "push-refused",
             Self::TurnTimeout => "turn-timeout",
             Self::TurnFailed => "turn-failed",
             Self::Unlabelled => "unlabelled",

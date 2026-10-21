@@ -794,3 +794,32 @@ fn the_instructions_ask_for_the_draft_pull_request_before_a_question_with_commit
         "{own}"
     );
 }
+
+// The push to a contributor's fork is kelpie's, made outside the sandbox with
+// the maintainer's login, so a worker on a fork gets no credential the
+// worker of a repo's own branch lacks: it only loses the right to push.
+#[test]
+fn the_maintainers_credential_is_not_in_the_workers_environment_or_files() {
+    let token = InstallationToken::new("ghs_scoped".to_owned());
+    let own = WorkerProfile {
+        token: Some(&token),
+        ..profile(&[], &[])
+    };
+    let forked = WorkerProfile {
+        kelpie_pushes: true,
+        ..own
+    };
+    let (own_fence, fence) = (*own.reach().fence.unwrap(), *forked.reach().fence.unwrap());
+
+    assert_eq!(fence.env, own_fence.env, "no variable is added");
+    assert_eq!(fence.no_read, own_fence.no_read, "no folder is opened");
+    for path in ["~/.config/gh/**", "~/Library/Keychains/**"] {
+        assert!(fence.no_read.contains(&path.to_owned()), "{path}");
+    }
+    for command in ["security", "git credential *", "git push", "git push *"] {
+        assert!(fence.no_commands.contains(&command.to_owned()), "{command}");
+    }
+    for text in [forked.settings().to_string(), format!("{fence:?}")] {
+        assert!(!text.contains("ghs_scoped"), "the token is in no file");
+    }
+}

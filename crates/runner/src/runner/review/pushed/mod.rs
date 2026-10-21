@@ -9,6 +9,7 @@
 //! back once to commit its turn's work has had that one turn.
 
 use super::super::Runner;
+use super::super::contributions::Sent;
 use super::super::gate::short;
 use super::super::report::{Begin, StepReport};
 use super::super::turn::named_files;
@@ -36,6 +37,9 @@ impl Runner {
         &mut self,
         review: &mut Review,
     ) -> Result<Option<Begin>, StateError> {
+        if let Some(held) = self.fork_commits_held()? {
+            return Ok(Some(held));
+        }
         let off = match self.off_pushed() {
             Ok(Ok(head)) => {
                 review.reading = Some(head);
@@ -101,6 +105,31 @@ impl Runner {
             review: round,
         };
         self.raise(number, kind.into())
+    }
+
+    // A fork worker only commits, so kelpie pushes what it left before the
+    // worktree is compared with the fork's head. A head the contributor moved
+    // goes to the gate, which raises the foreign change, and a refused push
+    // parks the work item.
+    fn fork_commits_held(&mut self) -> Result<Option<Begin>, StateError> {
+        let Some(number) = self.current().and_then(|item| item.pull_request) else {
+            return Ok(None);
+        };
+        match self.push_to_fork() {
+            Sent::Moved => {
+                let now = self.ports.clock.now();
+                self.update(|item| {
+                    item.turn = Turn::Ended { at: now };
+                    item.resume = None;
+                    item.phase = Phase::Ci {
+                        head: None,
+                        since: now,
+                    };
+                })?;
+                self.check_ci().map(Some)
+            }
+            sent => self.sent(number, sent),
+        }
     }
 
     // Git could not say where the worktree stands. A branch merged or closed

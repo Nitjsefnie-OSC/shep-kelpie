@@ -16,6 +16,7 @@ use super::adopt;
 use super::browser;
 use super::claim::main_fetch_key;
 use super::claude_files::Unchecked;
+use super::contributions::Sent;
 use super::instructions;
 use super::pace::Pace;
 use super::pm::WORKER_COMPACT_PAST;

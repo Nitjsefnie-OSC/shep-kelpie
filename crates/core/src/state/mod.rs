@@ -660,6 +660,14 @@ pub enum Stuck {
         /// The review, at the round that did not run
         review: Review,
     },
+    /// The fork a contributor's branch lives on refused kelpie's push of the
+    /// worker's commits (edits turned off since, the branch deleted, or a
+    /// branch that does not extend the contributor's). The commits stay in
+    /// the worktree. A yes pushes them again.
+    PushRefused {
+        /// What git said
+        why: String,
+    },
     /// A worker's turn ran past its ceiling and kelpie stopped it, keeping
     /// its session. A yes resumes it; a no stops the work item.
     TurnTimeout {

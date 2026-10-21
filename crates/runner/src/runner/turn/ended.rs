@@ -24,6 +24,11 @@ impl Runner {
             return paused;
         }
         let now = self.ports.clock.now();
+        // A fork worker only commits: its commits go to the contributor's
+        // branch before `origin`'s head is read. A push that is held or refused
+        // is the gate's to tell, which tries it again, so the worker is not
+        // sent back for a push it cannot make.
+        let held = result.is_ok() && matches!(self.push_to_fork(), Sent::Moved | Sent::Refused(_));
         // Whatever the turn left on `origin` is the worker's own. A head
         // that cannot be read keeps the last one, which errs toward parking.
         let pushed = self.current().and_then(|_| self.own_push());
@@ -38,7 +43,7 @@ impl Runner {
         // A rework or adoption turn that moved nothing on `origin` pushed no fix.
         let before = item.known.head.clone();
         let no_push = pushed.as_ref().is_none_or(|p| Some(p) == before.as_ref());
-        let pushed_nothing = before.is_some() && no_push;
+        let pushed_nothing = before.is_some() && no_push && !held;
         if pushed.is_some() {
             item.known.head = pushed;
         }
