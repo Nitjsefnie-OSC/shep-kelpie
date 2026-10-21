@@ -14,7 +14,9 @@ use super::{
 };
 use crate::agents::Agents;
 use crate::review_bot::Bot;
-use crate::settings::{AgentName, Gateways, ListedReviewer, RoleAgents, Settings, SettingsError};
+use crate::settings::{
+    AgentName, Gateways, ListedReviewer, RoleAgents, Settings, SettingsError, TicketSource,
+};
 use crate::skills::{RepoPlugins, Skills, default_head};
 use crate::webhook::KelpieSettings;
 
@@ -174,6 +176,9 @@ impl Runner {
         let skills = (settings.skills != self.settings.skills)
             .then(|| Skills::load(&settings.skills, &self.paths.skills));
         let new_implementers = agents.implementer_names() != self.agents.implementer_names();
+        // A local start made no `agent:` label on the repo, so a board now on GitHub needs them.
+        let to_github = settings.tickets.source != self.settings.tickets.source
+            && settings.tickets.source == TicketSource::Github;
         let e2e_changed = settings.e2e != self.settings.e2e;
         // A start stamps or clears it the same way, so it follows `pick` past `off`.
         let was_triaging = self.state.triage.clone();
@@ -219,7 +224,7 @@ impl Runner {
         // A call already running holds the reviewers it started with.
         self.contribution_lineup = contribution_lineup;
         self.agents = agents;
-        if new_implementers {
+        if new_implementers || to_github {
             self.make_agent_labels();
         }
         if book != self.book {

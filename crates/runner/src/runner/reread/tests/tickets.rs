@@ -144,9 +144,30 @@ fn a_work_item_on_a_local_ticket_finishes_on_it_across_a_change_to_github() {
         shown.iter().any(|line| line == "state: closed"),
         "{shown:?}"
     );
-    assert_eq!(rig.forge.issue_writes(), Vec::<String>::new());
+    // The change to GitHub made the agent labels, and nothing was written to the issues.
+    let writes = rig.forge.issue_writes();
+    assert!(
+        writes.iter().all(|w| w.starts_with("label made: agent:")),
+        "{writes:?}"
+    );
     assert!(
         rig.forge.comments().is_empty(),
         "nothing was said on GitHub"
     );
+}
+
+#[test]
+fn a_change_to_github_makes_the_agent_labels_a_local_start_skipped() {
+    let rig = Rig::new("shep");
+    rig.tickets_local();
+    let runner = rig.open().unwrap();
+    let made = |rig: &Rig| {
+        let writes = rig.forge.issue_writes();
+        writes.iter().any(|w| w.starts_with("label made: agent:"))
+    };
+    assert!(!made(&rig), "a local start makes no label on the repo");
+
+    change_source_to(&rig, &runner, "github");
+
+    assert!(made(&rig), "{:?}", rig.forge.issue_writes());
 }
