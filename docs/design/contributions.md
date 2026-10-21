@@ -1,6 +1,6 @@
 # Contributions
 
-Whether and how kelpie picks up other people's pull requests. It sees and lists the others (below), reads each new head for security (`contribution-security.md`), hears what they say (`contribution-talk.md`), asks for a release (`contribution-release.md`), runs nothing of theirs but the CI runs of a head that passed the security review (below), records the reviewers' pass over a green head (`contribution-pass.md`), rules every merge (`contribution-merge.md`), and takes a released one over as its own work item (`contribution-release.md`), telling its contributor when it fixes red CI (below). #617 to #619, #622 to #625, #634, #635
+Whether and how kelpie picks up other people's pull requests. It sees and lists the others (below), reads each new head for security (`contribution-security.md`), hears what they say (`contribution-talk.md`), asks for a release (`contribution-release.md`), runs nothing of theirs but the CI runs of a head that passed the security review (below), records the reviewers' pass over a green head (`contribution-pass.md`), rules every merge (`contribution-merge.md`), and takes a released one over as its own work item (`contribution-release.md`). #617 to #619, #622 to #625, #634
 
 ## Settings
 
@@ -53,11 +53,3 @@ Whether and how kelpie picks up other people's pull requests. It sees and lists 
 - Passed over, so the next reviewer reads and the local agent at the end is the backstop: a bot whose window opens more than `FAR` (an hour) on, one that refuses with such a window or declines, and one silent, processing or failed two hours after its summon (`REVIEW_WAIT`), and CodeRabbit where the repo is not public. A pass every reviewer was passed over for ends unread, with each reason.
 - A review of the head ends the pass once its threads settle (two reads that agree, 60 to 120 seconds, as `lands`). Its open threads above a nit are `pass.findings`, its nits are `pass.nits`, and the bot is `last_answered`. Kelpie posts nothing for it.
 - A push or a dropped pull request clears the walk, takes the label off and returns the lease or the ask, unless another turn needs it. Threads recorded on a head are not carried to the next unless the bot reads that head too.
-
-## After the release
-
-- Red CI on an adopted contribution starts the worker's CI fix turn as for any work item, and the representative posts one comment saying kelpie is on it, once for each fix turn. The turn is saved first, so a restart does not post twice. `Runner::tell_of_fix`, `runner/contributions/after.rs`. #635
-- It is a representative call (`Runner::represent`) with the pull request, the head and the failed checks' names as facts, the names fenced as data since a workflow file sets them. A call or a post that fails is logged as `contribution #<pr>: cannot tell the contributor kelpie is fixing CI: <why>` and not tried again, and the fix turn never waits on it.
-- It is never a promise to merge: the instruction forbids it, as the release ask's does, and only the maintainer's ruling decides a merge.
-- The work item knows its contributor: `WorkItem.contributor` is the login of the released record, set when `start_adoption` takes it and left out for any other work item, so an ordinary pull request's red CI posts nothing. State version 78.
-- A push of the contributor's after the release moves the head kelpie knew. The gate raises `foreign-change` as for any adopted pull request, and the commits kelpie has not pushed wait (`contribution-push.md`). A yes adopts the new head into the worktree. It is ruled on, never silently followed.

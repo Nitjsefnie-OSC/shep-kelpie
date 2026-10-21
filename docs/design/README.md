@@ -43,7 +43,7 @@ Kelpie: dog of the maintainer's shepherd; one runner per project takes ready iss
 | contribution-security.md | a contribution's security review, slots, budget | `runner/contributions/`, `runner/flight/security.rs`, `crates/process/src/worktree/` |
 | contribution-pass.md | reviewers' pass over a green head: rotation, the record | `runner/contributions/pass.rs`, `crates/process/src/worktree/` |
 | contribution-talk.md | what contributors say: hearing, answering, quiet clock | `runner/contributions/{heard,clock}.rs`, `runner/thread_replies/` |
-| contribution-push.md | a fork worker's commits pushed by kelpie | `runner/contributions/push.rs` |
+| contribution-push.md | a fork worker's push; the red-CI comment | `runner/contributions/{push,after}.rs` |
 | contribution-release.md | asking for a release: yes, thumbs up, silence, ruling | `runner/contributions/{release,ruling}.rs` |
 | contribution-merge.md | every contribution's merge ruling: yes, thanks and no | `runner/contributions/{merge,ruling}.rs`, `core/settings/rulings.rs` |
 | representative.md | its agent file, `agents.representative`, the call that words a post | `runner/representative/`, `core/agents/front/`, `core/settings/agents/`, `agents/representative.md` |
