@@ -27,7 +27,7 @@ pub(super) fn names((old, was): Reach<'_>, (new, now): Reach<'_>) -> Vec<&'stati
         dependencies: old_dependencies,
         triage: old_triage,
         tickets: _, // waits for the next start, when the runner picks the port
-        hooks: _,   // waits for the next start, so `reread` keeps the old
+        hooks: old_hooks,
         skills: old_skills,
         repo_setup: old_repo_setup,
         code_graph: old_code_graph,
@@ -50,7 +50,7 @@ pub(super) fn names((old, was): Reach<'_>, (new, now): Reach<'_>) -> Vec<&'stati
         dependencies: new_dependencies,
         triage: new_triage,
         tickets: _,
-        hooks: _,
+        hooks: new_hooks,
         skills: new_skills,
         repo_setup: new_repo_setup,
         code_graph: new_code_graph,
@@ -84,6 +84,7 @@ pub(super) fn names((old, was): Reach<'_>, (new, now): Reach<'_>) -> Vec<&'stati
         ("budget", old_budget != new_budget),
         ("pacing", old_pacing != new_pacing),
         ("worker", old_worker != new_worker),
+        ("hooks", old_hooks != new_hooks),
         ("skills", old_skills != new_skills),
         ("repo_setup", old_repo_setup != new_repo_setup),
         ("code_graph", old_code_graph != new_code_graph),

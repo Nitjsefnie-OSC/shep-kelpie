@@ -358,7 +358,7 @@ impl Runner {
         let calls = called;
         let agents = self.counted(TurnHooks::around(
             Arc::clone(&self.ports.agents),
-            &self.hooks,
+            &self.hooks.get(),
             &self.notes,
             None,
         ));

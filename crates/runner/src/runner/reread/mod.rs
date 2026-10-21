@@ -1,11 +1,10 @@
 //! A settings change reaching a running runner
 //!
 //! Every setting takes effect live, at the next step or call that reads
-//! it, except `git.checkout`, `git.remote`, `git.base`, `hooks`, `tickets`
-//! and kelpie's gateways: a work item's worktree and pull request belong to
-//! the first three, the forge and voice ports hold the hooks built at start,
-//! the start picks the ticket port, and the adapters hold the gateways, so
-//! those wait for the runner's next start. The agent files are read again
+//! it, except `git.checkout`, `git.remote`, `git.base`, `tickets` and
+//! kelpie's gateways: a work item's worktree and pull request belong to the
+//! first three, the start picks the ticket port, and the adapters hold the
+//! gateways, so those wait for the runner's next start. The agent files are read again
 //! with them, and a change to those alone is a change too, but agents that
 //! name a gateway the runner lacks wait with it, and so does
 //! `contributions.reviewers`. A change is checked as a start checks it, and
@@ -61,11 +60,6 @@ impl Runner {
             waiting.push("git.base");
             settings.git.base.clone_from(&self.settings.git.base);
         }
-        // The forge and voice ports hold the hooks built at start.
-        if settings.hooks != self.settings.hooks {
-            waiting.push("hooks");
-            settings.hooks.clone_from(&self.settings.hooks);
-        }
         // The ticket port was picked at start.
         if settings.tickets != self.settings.tickets {
             waiting.push("tickets");
@@ -111,8 +105,18 @@ impl Runner {
             agents = settings.role_agents(&book)?;
             lineup = settings.lineup(&book, &self.home)?;
         }
+        // A start refuses a hook that does not resolve, and a change to either table is checked as one.
+        if settings.hooks != self.settings.hooks
+            || settings.worker.guard_hooks != self.settings.worker.guard_hooks
+        {
+            super::guard_hooks::check_here(&settings)?;
+        }
         let webhook = kelpie.webhook;
         let mut changed = changed::names((&self.settings, &self.webhook), (&settings, &webhook));
+        let hooks = (settings.hooks != self.settings.hooks).then(|| {
+            let (project, remote) = (&self.project, &self.remote);
+            super::guard_hooks::built(project, remote, &settings, &self.metrics)
+        });
         // The start's checks of the App and the agent files run on a changed table. The App
         // can lose the repo while the runner runs, which must not refuse an unrelated edit.
         let contribution_lineup = if settings.contributions != self.settings.contributions {
@@ -209,6 +213,10 @@ impl Runner {
                 self.settings.e2e.as_ref(),
                 &self.paths,
             ));
+        }
+        // A call or a write already running holds the hooks it started with.
+        if let Some(hooks) = hooks {
+            self.hooks.replace(hooks);
         }
         self.refresh_features();
         self.lineup = lineup;

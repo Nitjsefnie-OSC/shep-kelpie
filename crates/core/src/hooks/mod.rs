@@ -35,6 +35,9 @@ use crate::metrics::{Feature, Recorder};
 use crate::settings::{HookPoint, ProjectHook};
 use crate::worktree::WorktreeError;
 
+mod shared;
+pub use shared::SharedHooks;
+
 /// How long a hook may run before it is killed and counts as failed
 pub const TIMEOUT: Duration = Duration::from_secs(30);
 
