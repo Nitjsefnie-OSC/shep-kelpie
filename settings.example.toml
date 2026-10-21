@@ -11,7 +11,7 @@
 # longer needed.
 # `shep kelpie get` prints a project's table and `shep kelpie set <key>
 # <value>` changes one key. A running runner takes a change at its next
-# wake, within a minute when idle. `git.checkout`, `git.remote`, `git.base`, `hooks`
+# wake, within a minute when idle. `git.checkout`, `git.remote`, `git.base`, `tickets`
 # and kelpie's gateways wait for its next start, and the log says so.
 
 [[app]]
@@ -231,8 +231,9 @@ compact_window = 200000
 # reason, and anything else is a hook that failed, which also refuses. A
 # notice that exits non-zero or hangs is logged by name and kelpie goes on. A hook that
 # runs past 30 seconds has failed. Each command must resolve when the runner
-# starts, as a guard hook's must, and a runner reads `hooks` only then, so a
-# change waits for its next start. A point that is not one of these stops the
+# starts, as a guard hook's must, and a change that adds one that does not is
+# refused. A call or a write already running finishes under the hooks it
+# started with. A point that is not one of these stops the
 # runner at load, naming the points there are.
 # The payload carries what the point is about: `command` has the `command`
 # line and its `cwd`; `write` the `path`, `tool` and `content` or `patch`;

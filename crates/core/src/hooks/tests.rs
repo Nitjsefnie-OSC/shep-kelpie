@@ -271,3 +271,25 @@ fn every_notice_hook_for_the_point_runs_even_after_one_fails() {
     assert!(line.contains("`reset` hook"), "{line}");
     assert!(folder.path().join("ran").exists());
 }
+
+#[test]
+fn a_clone_of_the_handle_sees_the_hooks_put_in_place_of_the_old() {
+    let held = SharedHooks::new(hooks(&[]));
+    let other = held.clone();
+    assert!(!other.get().has(HookPoint::Publish));
+
+    held.replace(hooks(&[hook(HookPoint::Publish, NO_ACME)]));
+
+    assert!(other.get().has(HookPoint::Publish));
+}
+
+#[test]
+fn a_check_that_began_before_the_replacement_finishes_under_the_hooks_it_began_with() {
+    let held = SharedHooks::new(hooks(&[hook(HookPoint::Publish, NO_ACME)]));
+    let began_with = held.get();
+
+    held.replace(hooks(&[]));
+
+    assert!(publish(&began_with, "Acme").is_err());
+    assert_eq!(publish(&held.get(), "Acme"), Ok(()));
+}
