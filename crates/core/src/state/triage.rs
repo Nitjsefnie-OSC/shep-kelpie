@@ -56,6 +56,9 @@ pub const TRIAGED_KEPT: usize = 200;
 /// rewrote.
 pub const TRIAGE_CALLS_KEPT: usize = 8;
 
+/// The last format before a triage kept the highest issue number a prune dropped
+const BEFORE_PRUNED_THROUGH: u32 = 75;
+
 impl TriageState {
     /// Drops the oldest finished records past [`TRIAGED_KEPT`], keeping every
     /// one that closed an issue as a duplicate, and the records that hold a call
@@ -100,18 +103,18 @@ impl TriageState {
         }
     }
 
-    /// Sets [`pruned_through`](Self::pruned_through) for a file saved before it
-    /// existed, which does not say what a prune dropped
+    /// Brings a triage saved at format `found` up to this one
     ///
-    /// A project holding [`TRIAGED_KEPT`] finished records may have pruned
-    /// some, and a record a prune dropped may be above the oldest one kept, so
-    /// the floor is the highest recorded issue. A project short of the cap has
-    /// pruned none.
-    pub fn floor_pruned(&mut self) {
+    /// A file saved before [`pruned_through`](Self::pruned_through) existed, at
+    /// version 75 or earlier, does not say what a prune dropped. A project
+    /// holding [`TRIAGED_KEPT`] finished records may have pruned some, and a
+    /// record a prune dropped may be above the oldest one kept, so the floor is
+    /// the highest recorded issue. A project short of the cap has pruned none.
+    pub(super) fn migrate(&mut self, found: u32) {
         let finished = (self.issues.iter())
             .filter(|t| matches!(t.step, TriageStep::Done | TriageStep::Ready))
             .count();
-        if finished >= TRIAGED_KEPT {
+        if found <= BEFORE_PRUNED_THROUGH && finished >= TRIAGED_KEPT {
             let highest = self.issues.iter().map(|t| t.issue).max().unwrap_or(0);
             self.pruned_through = self.pruned_through.max(highest);
         }

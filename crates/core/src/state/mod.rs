@@ -84,9 +84,6 @@ const BEFORE_TALKED: u32 = 38;
 /// The last format before a contribution recorded what it had answered
 const BEFORE_ANSWERED: u32 = 57;
 
-/// The last format before a triage kept the highest issue number a prune dropped
-const BEFORE_PRUNED_THROUGH: u32 = 75;
-
 /// The format that named rulings by their work item's number, so a file
 /// saved before it has its rulings renamed as it loads
 const NUMBERED: u32 = 38;
@@ -940,11 +937,7 @@ impl StateStore {
                 held.answered = held.unanswered();
             }
         }
-        if found <= BEFORE_PRUNED_THROUGH
-            && let Some(triage) = state.triage.as_mut()
-        {
-            triage.floor_pruned();
-        }
+        state.triage.iter_mut().for_each(|t| t.migrate(found));
         let state = state.one_item_moved();
         let state = if found < NUMBERED {
             state.rulings_numbered()

@@ -35,7 +35,7 @@ Kelpie: dog of the maintainer's shepherd; one runner per project takes ready iss
 | waits-and-spend.md | a turn waiting for its model or host, spend by role | `runner/turn/unreachable/`, `adapters/unreachable/`, `adapters/codex/`, `core/usage/`, `core/settings/agents/` |
 | review.md | review, bots, rulings | `runner/review/`, `runner/ruling/`, `core/webhook.rs` |
 | review-outcomes.md | fix turn findings' outcomes, journaled | `runner/review/outcomes/` |
-| local-review.md | local reviewers (`command`, `endpoint`), their lock, rounds kept after an item | `runner/review/keep.rs`, `core/settings/local_rounds.rs`, `core/settings/local.rs`, `adapters/local/` |
+| local-review.md | local reviewers (`command`, `endpoint`), lock, kept rounds | `runner/review/keep.rs`, `core/settings/local_rounds.rs`, `core/settings/local.rs`, `adapters/local/` |
 | merge.md | CI, catching up, merge, after it | `runner/gate/`, `runner/merge/`, `runner/close_merged.rs`, `runner/main_ci/` |
 | local-tickets.md | the local ticket store, `ticket` verbs, closing on merge | `core/local_tickets/`, `src/flock/ticket.rs`, `runner/close_merged.rs` |
 | github-app.md | App tokens, posting, answers, ruling panel | `runner/voice/`, `runner/panel/`, `crates/panel/`, `core/guard/gh.rs`, `crates/worker_folder/` |
@@ -45,10 +45,10 @@ Kelpie: dog of the maintainer's shepherd; one runner per project takes ready iss
 | contribution-talk.md | what contributors say: hearing, answering, quiet clock | `runner/contributions/{heard,clock}.rs`, `runner/thread_replies/` |
 | contribution-release.md | asking a contributor for a release: yes, thumbs up, silence, the ruling | `runner/contributions/{release,ruling}.rs` |
 | contribution-merge.md | every contribution's merge ruling: yes, thanks and no | `runner/contributions/{merge,ruling}.rs`, `core/settings/rulings.rs` |
-| representative.md | the representative: its agent file, `agents.representative`, the call that words a post | `runner/representative/`, `core/agents/front/`, `core/settings/agents/`, `agents/representative.md` |
-| dependencies.md | the bumps bots open: `dependencies` settings, rebase asks, proof, merge, red | `core/settings/dependencies.rs`, `runner/dependencies/`, `runner/flight/proving.rs`, `runner/dev_server/bump/`, `core/state/bumps.rs`, `adapters/e2e_runner.rs`, `adapters/pages.rs`, `adapters/bridge/client/` |
+| representative.md | its agent file, `agents.representative`, the call that words a post | `runner/representative/`, `core/agents/front/`, `core/settings/agents/`, `agents/representative.md` |
+| dependencies.md | bot bumps: `dependencies` settings, rebase asks, proof, merge, red | `core/settings/dependencies.rs`, `runner/dependencies/`, `runner/flight/proving.rs`, `runner/dev_server/bump/`, `core/state/bumps.rs`, `adapters/e2e_runner.rs`, `adapters/pages.rs`, `adapters/bridge/client/` |
 | triage.md | settings, triager, pick rule, `since`, the verb, `status` | `core/settings/triage.rs`, `runner/triage/`, `runner/open_checks.rs`, `core/ports/issue.rs` |
-| triage-limits.md | the four triage limits | `runner/triage/limits.rs` |
+| triage-limits.md | the four limits | `runner/triage/limits.rs` |
 | triage-pass.md | one issue's pass: post, labels, duplicate close, agent-ready | `runner/triage/`, `runner/flight/`, `core/ports/voice.rs` |
 | triage-images.md | an issue's images | `runner/triage/images.rs`, `adapters/gh/attachment.rs` |
 | triage-author.md | author's round: the ask, `github`, `local`, `none`, answers | `runner/triage/{ask,heard,local}.rs`, `runner/representative/reading.rs` |
