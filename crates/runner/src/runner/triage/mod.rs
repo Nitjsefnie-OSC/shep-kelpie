@@ -133,7 +133,7 @@ pub struct TriageStatus<'a> {
     pub daily: Option<DailyStatus>,
 }
 
-/// Sets `state.triage` for a start under `settings`: stamped `now` when
+/// Sets `state.triage` for a start or a reread under `settings`: stamped `now` when
 /// `triage.pick` is not `off` and none is saved, cleared when it is `off`.
 /// Returns whether it changed.
 pub(super) fn settle_since(state: &mut ProjectState, settings: &Settings, now: Timestamp) -> bool {

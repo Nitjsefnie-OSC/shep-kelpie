@@ -1,4 +1,5 @@
 mod e2e;
+mod triage;
 
 use std::path::Path;
 
@@ -269,25 +270,6 @@ fn a_changed_contributions_table_waits_for_the_next_start_whatever_else_changes(
 
     let err = rig.open().unwrap_err().to_string();
     assert!(err.contains("contributions.pick"), "{err}");
-}
-
-#[test]
-fn a_changed_triage_table_waits_for_the_next_start() {
-    let rig = Rig::new("shep");
-    let runner = rig.open().unwrap();
-    // The App does not cover the repo, so a start would refuse `maintainer`.
-    rig.edit_settings(|s| format!("{s}\n[app.dogs.kelpie.triage]\npick = \"maintainer\"\n"));
-    let mut runner = runner.lock().unwrap();
-    let line = runner.reread(rig.settings(), rig.kelpie_settings());
-    assert_eq!(
-        line.unwrap().as_deref(),
-        Some("settings changed; triage from the runner's next start")
-    );
-    assert!(runner.settings().triage.is_off(), "the old pick stays");
-    drop(runner);
-
-    let err = rig.open().unwrap_err().to_string();
-    assert!(err.contains("triage.pick"), "{err}");
 }
 
 #[test]
