@@ -140,6 +140,32 @@ fn the_terminal_opens_on_a_folder_already_trusted_that_the_call_cannot_change() 
 }
 
 #[test]
+fn a_terminal_that_cannot_be_set_up_leaves_no_trust_behind() {
+    #[derive(Debug)]
+    struct Refusing;
+    impl crate::ports::Sandbox for Refusing {
+        fn wrap(
+            &self,
+            _: &crate::ports::Policy,
+            _: &Path,
+            _: &Command,
+        ) -> Result<Command, crate::ports::SandboxError> {
+            Err(crate::ports::SandboxError::Missing(PathBuf::from("/srt")))
+        }
+    }
+    let w = World::new();
+    let codex = codex_in(&w, &OpenSandbox::default());
+    let call = resumable(&w, &codex);
+    let refusing = ClaudeCli::default()
+        .sandboxed(Arc::new(Refusing), w.path("home"))
+        .codex(w.path("login"));
+
+    assert!(refusing.foreground(&call).is_err());
+
+    assert!(!Files::of(&call).home.join("config.toml").exists());
+}
+
+#[test]
 fn a_session_kelpie_never_started_is_refused() {
     let w = World::new();
     let codex = codex_in(&w, &OpenSandbox::default());

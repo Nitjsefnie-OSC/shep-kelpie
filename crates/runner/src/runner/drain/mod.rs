@@ -87,6 +87,9 @@ pub enum CallRole {
     /// A goose session in the maintainer's terminal, whose forwarder a restart
     /// would take with it
     GooseSession,
+    /// A Codex session in the maintainer's terminal, whose trusted folder
+    /// only this image's record of the session removes
+    CodexSession,
 }
 
 impl Runner {
@@ -235,7 +238,8 @@ impl Runner {
             })
         };
         let attached = attached_on(Harness::Pi, CallRole::PiSession)
-            .chain(attached_on(Harness::Goose, CallRole::GooseSession));
+            .chain(attached_on(Harness::Goose, CallRole::GooseSession))
+            .chain(attached_on(Harness::Codex, CallRole::CodexSession));
         let at_tool = (self.state.work_items.iter())
             .filter(|item| self.flights.runs_turn(item.issue))
             .filter(|item| Pause::in_build(&item.build).is_requested())

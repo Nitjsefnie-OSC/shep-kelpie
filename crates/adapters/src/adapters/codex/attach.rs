@@ -94,9 +94,10 @@ impl CodexCli {
             return Err(AgentError::NoSession(CODEX, id.clone()));
         };
         let instructions = instructions(call)?;
-        trust_folder(&files.home, &call.cwd)?;
         let argv = terminal_argv(call, &files.home, &resumed, instructions.as_deref())?;
         let command = self.in_sandbox(call, &files, argv)?;
+        // Last, so a setup that fails leaves no trust behind for an end that is never told.
+        trust_folder(&files.home, &call.cwd)?;
         self.terminals
             .lock()
             .insert(id.0.clone(), call.settings.clone());
