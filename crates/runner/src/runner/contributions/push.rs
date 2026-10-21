@@ -1,10 +1,12 @@
 //! Pushing a fork worker's commits to the contributor's branch
 //!
-//! A worker on a contributor's fork only commits: its credential is scoped to
-//! the repo and cannot reach a fork, and the maintainer's login, which can,
-//! must never be in its reach. So the runner pushes, outside the sandbox, with
-//! the login git holds there: after each worker turn, and at the CI gate,
-//! which tries a push that was refused again once the maintainer says yes.
+//! A worker on a contributor's fork only commits, and the maintainer's login,
+//! which can push to the fork, must never be in its reach. So the runner
+//! pushes, outside the sandbox, with the login git holds there: after each
+//! worker turn, and at the CI gate, which tries a push that was refused again
+//! once the maintainer says yes. The guard and profile refuse the worker's own
+//! push as guardrails; its token, which #1134 measured able to push to a fork
+//! while edits are on, is the boundary.
 //!
 //! The push is fast-forward only and never forced. A fork head that is not the
 //! one kelpie last knew is the contributor's own push: nothing is pushed, and
@@ -49,10 +51,8 @@ impl Runner {
                 return Sent::Nothing;
             }
         };
-        // A worktree at the head kelpie knew holds nothing new, and costs no fetch.
-        if item.known.head.as_deref() == Some(local.as_str()) {
-            return Sent::Nothing;
-        }
+        // The fork is read even where the worktree holds nothing new: the
+        // contributor may have pushed since, and only the gate can rule on it.
         let theirs = match self.origin_head() {
             Ok(theirs) => theirs,
             Err(reason) => return Sent::Refused(reason),

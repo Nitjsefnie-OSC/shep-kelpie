@@ -10,6 +10,7 @@ use std::sync::Mutex;
 
 use crate::ports::{CLEAN, Checks};
 use crate::runner::adopt::released::{FORK_BRANCH, adopted, contributed, release};
+use crate::runner::contributions::Sent;
 use crate::runner::ruling::Answer;
 use crate::runner::{Runner, StepReport, step};
 use crate::state::{RulingKind, Stuck};
@@ -168,4 +169,20 @@ fn a_yes_on_a_refused_push_pushes_the_kept_commits_again() {
 
     assert_eq!(on_fork(&url), worktree_head(&rig));
     assert_ne!(on_fork(&url), head);
+}
+
+#[test]
+fn a_fork_head_that_moved_under_a_worktree_with_no_new_commits_is_still_moved() {
+    let (rig, runner, url, head) = noted();
+    assert_eq!(
+        worktree_head(&rig),
+        head,
+        "the worker has committed nothing"
+    );
+    let (_, theirs) = rig.push_to_fork(FORK_BRANCH, "theirs.txt");
+
+    let sent = runner.lock().unwrap().push_to_fork();
+
+    assert_eq!(sent, Sent::Moved);
+    assert_eq!(on_fork(&url), theirs, "their push stands");
 }
