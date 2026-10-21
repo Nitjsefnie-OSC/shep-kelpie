@@ -13,7 +13,7 @@ Kelpie: dog of the maintainer's shepherd; one runner per project takes ready iss
 - The shepherd is reached through the `Dial` port (`crates/core/src/shepherd/connection.rs`): `Socket` is shep's control socket; tests dial `FakeShepherd`, which answers in memory. #587
 - Socket path over 103 bytes: runner refuses to start (macOS caps 104). `crates/runner/src/runner/mod.rs`
 - Home never moved from `~/.kelpie`: refuses to start naming each old file, exit 78 (in `stop_exit_codes`, no restart into it). #311, #345
-- State file version 74 (`VERSION` in `crates/core/src/state/mod.rs`); each change one way: rollback means finishing or dropping open items first. `crates/core/src/state/removed/mod.rs`
+- State file version 76 (`VERSION` in `crates/core/src/state/mod.rs`); each change one way: rollback means finishing or dropping open items first. `crates/core/src/state/removed/mod.rs`
 - Business code is Rust; Tauri GUI after MVP, until then run and watched from a Claude session. #5
 - Crates under `crates/` use nothing above them; the root package holds the binary and the verbs (`src/flock/`, `src/upgrade/`, `src/sheep/`, `src/doctor/`, `src/issues/`, `src/schema.rs`) and reaches every crate. ADR 0015
 - Never put budget numbers in agent prompts; never let a worker merge or post as the maintainer (see fence.md, github-app.md).
@@ -27,7 +27,7 @@ Kelpie: dog of the maintainer's shepherd; one runner per project takes ready iss
 | workers.md | runner loop, turns | `runner/turn/`, `runner/flight/` |
 | fence.md | sandbox, guard, hooks, reads | `core/{profile,guard,hooks}/`, `core/dep_sources.rs`, `runner/turn/dep_reads.rs` |
 | browser.md | a worker's browser beyond its sandbox: bridge, filter, tools | `core/{bridge,browse}.rs`, `adapters/bridge/`, `runner/browser.rs`, `core/settings/browser.rs`, `crates/process/src/tools/` |
-| browser-dev-server.md | a worker's browser dev server: launch, port, readiness | `runner/dev_server/`, `runner/dev_server/launch/`, `core/ports/dev_server.rs`, `adapters/dev_server/` |
+| browser-dev-server.md | a worker's browser dev server: launch, port, readiness | `runner/dev_server/`, `core/ports/dev_server.rs`, `adapters/dev_server/` |
 | compaction.md | when a session compacts, `worker.compact_window` per harness, `COMPACT` | `runner/compact/`, `adapters/pi/compact.rs`, `adapters/codex/context.rs`, `adapters/goose/compact.rs` |
 | skills.md | step skills, repo plugins, how harnesses load them | `core/skills/`, `adapters/skills.rs`, `runner/turn/` (`prepared`) |
 | agents.md | agent files, harnesses, gateways | `core/agents/`, `adapters/`, `core/settings/agents/`, `crates/process/src/spawn.rs` |
@@ -48,6 +48,7 @@ Kelpie: dog of the maintainer's shepherd; one runner per project takes ready iss
 | representative.md | the representative: its agent file, `agents.representative`, the call that words a post | `runner/representative/`, `core/agents/front/`, `core/settings/agents/`, `agents/representative.md` |
 | dependencies.md | the bumps bots open: `dependencies` settings, rebase asks, proof, merge, red | `core/settings/dependencies.rs`, `runner/dependencies/`, `runner/flight/proving.rs`, `runner/dev_server/bump/`, `core/state/bumps.rs`, `adapters/e2e_runner.rs`, `adapters/pages.rs`, `adapters/bridge/client/` |
 | triage.md | settings, triager, pick rule, `since`, the verb, `status` | `core/settings/triage.rs`, `runner/triage/`, `runner/open_checks.rs`, `core/ports/issue.rs` |
+| triage-limits.md | the four triage limits | `runner/triage/limits.rs` |
 | triage-pass.md | one issue's pass: post, labels, duplicate close, agent-ready | `runner/triage/`, `runner/flight/`, `core/ports/voice.rs` |
 | triage-images.md | an issue's images | `runner/triage/images.rs`, `adapters/gh/attachment.rs` |
 | triage-author.md | author's round: the ask, `github`, `local`, `none`, answers | `runner/triage/{ask,heard,local}.rs`, `runner/representative/reading.rs` |

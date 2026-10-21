@@ -27,6 +27,7 @@ fn a_file_saved_before_this_version_loads_with_no_since() {
         since: Timestamp(1_791_964_800),
         issues: Vec::new(),
         unrecorded: Vec::new(),
+        pruned_through: 0,
     });
     store.save(&loaded).unwrap();
     let text = fs::read_to_string(dir.path().join(STATE_FILE)).unwrap();
@@ -183,6 +184,7 @@ fn the_oldest_finished_records_go_past_the_cap() {
         since: Timestamp(1),
         issues: vec![record(1, TriageStep::Commented)],
         unrecorded: Vec::new(),
+        pruned_through: 0,
     };
     let cap = TRIAGED_KEPT as u64;
     triage
@@ -195,6 +197,10 @@ fn the_oldest_finished_records_go_past_the_cap() {
     assert_eq!(triage.issues[0].issue, 1, "an unfinished record stays");
     assert_eq!(triage.issues[1].issue, 5, "the oldest finished ones went");
     assert_eq!(triage.issues.last().map(|t| t.issue), Some(cap + 4));
+    assert_eq!(
+        triage.pruned_through, 4,
+        "the highest issue number a prune dropped is kept"
+    );
 }
 
 // The daily caps count the calls the records hold, so a record that holds one is
@@ -229,6 +235,7 @@ fn a_prune_past_the_cap_lets_the_records_that_hold_no_call_go_first() {
             })
             .collect(),
         unrecorded: Vec::new(),
+        pruned_through: 0,
     };
 
     triage.prune();
@@ -280,6 +287,7 @@ fn a_record_that_closed_a_duplicate_is_kept_past_the_cap() {
             })
             .collect(),
         unrecorded: Vec::new(),
+        pruned_through: 0,
     };
 
     triage.prune();

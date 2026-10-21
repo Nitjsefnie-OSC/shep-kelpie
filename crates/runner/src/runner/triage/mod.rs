@@ -3,8 +3,9 @@
 //! While `triage.pick` is not `off`, the runner lists the open issues once a
 //! [`BOARD_POLL`](super::BOARD_POLL), and `status` shows the untouched ones
 //! under `triage.due`, oldest first. An issue is untouched when it carries
-//! none of [`TRIAGE_LABELS`] but `needs-triage`, no bot opened it, it was opened after
-//! `triage.since`, and, under `maintainer`, the maintainer opened it.
+//! none of [`TRIAGE_LABELS`] but a `needs-triage` above `pruned_through`, no bot
+//! opened it, it was opened after `triage.since`, and, under `maintainer`, the
+//! maintainer opened it.
 //!
 //! [`Runner::triage_due`], asked by the board's dispatch after a contribution's
 //! call and before the board's pick, starts the research on the oldest of
@@ -143,6 +144,7 @@ pub(super) fn settle_since(state: &mut ProjectState, settings: &Settings, now: T
                 since: now,
                 issues: Vec::new(),
                 unrecorded: Vec::new(),
+                pruned_through: 0,
             })
         }
         _ => return false,
@@ -157,7 +159,9 @@ impl Runner {
     // The same poll lets an issue that failed be tried again, and finishes the
     // triage a restart cut short.
     pub(super) fn follow_triage(&mut self) -> Result<(), StateError> {
-        let Some(since) = self.state.triage.as_ref().map(|t| t.since) else {
+        let Some((since, pruned_through)) =
+            (self.state.triage.as_ref()).map(|t| (t.since, t.pruned_through))
+        else {
             return Ok(());
         };
         let now = self.ports.clock.now();
@@ -190,7 +194,8 @@ impl Runner {
         };
         let mut due: Vec<&OpenIssue> = (open.iter())
             .filter(|i| {
-                untouched(i, since, only.as_deref()) && self.triage_record(i.number).is_none()
+                untouched(i, since, pruned_through, only.as_deref())
+                    && self.triage_record(i.number).is_none()
             })
             .collect();
         due.sort_by_key(|issue| (issue.created, issue.number));
@@ -585,10 +590,15 @@ impl Runner {
 }
 
 // Whether `issue` is untouched, opened after `since`, and by `only` when one is named
-fn untouched(issue: &OpenIssue, since: Timestamp, only: Option<&str>) -> bool {
-    // `needs-triage` is a queue state, not a decision: whether kelpie has triaged
-    // an issue is its record, so a hand-added one does not keep the issue out.
-    let decided = (issue.labels.iter()).any(|l| l != TRIAGE && TRIAGE_LABELS.contains(&l.as_str()));
+//
+// `needs-triage` is a queue state, not a decision: whether kelpie has triaged an
+// issue is its record, so a hand-added one does not keep the issue out. Past
+// `pruned_through` the record of an issue kelpie triaged may be gone, and its
+// own `needs-triage` is then all that says so.
+fn untouched(issue: &OpenIssue, since: Timestamp, pruned_through: u64, only: Option<&str>) -> bool {
+    let decided = (issue.labels.iter()).any(|l| {
+        TRIAGE_LABELS.contains(&l.as_str()) && (l != TRIAGE || issue.number <= pruned_through)
+    });
     !decided
         && !issue.author_is_bot
         && issue.created > since

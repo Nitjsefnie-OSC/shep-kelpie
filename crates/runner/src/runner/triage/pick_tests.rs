@@ -7,6 +7,7 @@ use serde_json::Value;
 use super::research_tests::{WORDS, nothing, reply};
 use crate::ports::{AuthorAssociation, Clock, OpenIssue, Role, Timestamp};
 use crate::runner::{Runner, step};
+use crate::state::StateStore;
 use crate::test::{Rig, Scripted};
 
 // The maintainer is not kelpie's account, which is `the-maintainer`
@@ -121,6 +122,29 @@ fn an_issue_someone_labelled_needs_triage_by_hand_is_listed() {
     assert_eq!(step(&runner).unwrap(), None);
 
     assert_eq!(due(&rig, &runner), [30]);
+}
+
+// The records of the issues kelpie triaged first went in a prune, which kept the
+// highest number it dropped: a `needs-triage` at or below it is kelpie's own
+#[test]
+fn a_needs_triage_on_an_issue_whose_record_was_pruned_is_not_read_as_by_hand() {
+    let rig = rig_with("pick = \"all\"");
+    let store = StateStore::new(rig.paths().state);
+    let runner = rig.open().unwrap();
+    drop(runner);
+    let mut saved = serde_json::to_value(store.load().unwrap().unwrap()).unwrap();
+    saved["triage"]["pruned_through"] = 30.into();
+    store.save(&serde_json::from_value(saved).unwrap()).unwrap();
+    let runner = rig.open().unwrap();
+    for number in [30, 31] {
+        let mut labelled = issue(&rig, number, "newcomer", 5);
+        labelled.labels = vec!["needs-triage".to_owned()];
+        list(&rig, labelled);
+    }
+
+    assert_eq!(step(&runner).unwrap(), None);
+
+    assert_eq!(due(&rig, &runner), [31]);
 }
 
 #[test]

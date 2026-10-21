@@ -26,11 +26,24 @@ pub struct TriageState {
     /// Left out while empty.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub unrecorded: Vec<UnrecordedCall>,
+    /// The highest issue number a prune dropped the record of, so an issue at or
+    /// below it that carries `needs-triage` and has no record is told from one
+    /// someone labelled by hand: kelpie triaged it and the record went.
+    ///
+    /// Left out while zero.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub pruned_through: u64,
+}
+
+fn is_zero(n: &u64) -> bool {
+    *n == 0
 }
 
 /// How many finished records are kept, the oldest going first. An issue whose
 /// record went is told apart from an untouched one by its `needs-triage` label
-/// and, if that is taken off, by the marker in its comments.
+/// and, if that is taken off, by the marker in its comments. The label alone
+/// does not say who put it on, so [`TriageState::pruned_through`] says which
+/// issue numbers kelpie may have triaged.
 ///
 /// A record that closed an issue as a duplicate is kept past the count: the
 /// issue carries no `needs-triage` label, and the record is what keeps a
@@ -63,16 +76,24 @@ impl TriageState {
             .filter(|t| finished(t))
             .count()
             .saturating_sub(TRIAGED_KEPT);
+        let mut through = self.pruned_through;
         self.issues.retain(|t| {
             let drop = extra > 0 && finished(t) && t.calls.is_empty();
             extra -= usize::from(drop);
+            if drop {
+                through = through.max(t.issue);
+            }
             !drop
         });
         self.issues.retain(|t| {
             let drop = extra > 0 && finished(t);
             extra -= usize::from(drop);
+            if drop {
+                through = through.max(t.issue);
+            }
             !drop
         });
+        self.pruned_through = through;
         if self.unrecorded.len() > TRIAGED_KEPT {
             self.unrecorded
                 .drain(..self.unrecorded.len() - TRIAGED_KEPT);
