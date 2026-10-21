@@ -12,10 +12,10 @@ Kelpie: dog of the maintainer's shepherd; one runner per project takes ready iss
 - Home: `$SHEP_HOME/kelpie` (`KELPIE_HOME`), shep plugin, folder per project; dog files stay under `$SHEP_HOME`. #253
 - The shepherd is reached through the `Dial` port (`crates/core/src/shepherd/connection.rs`): `Socket` is shep's control socket; tests dial `FakeShepherd`, which answers in memory. #587
 - Socket path over 103 bytes: runner refuses to start (macOS caps 104). `crates/runner/src/runner/mod.rs`
-- Home never moved from `~/.kelpie`: refuses to start naming each old file, exit 78 (in `stop_exit_codes`). #311, #345
-- State file version 77 (`VERSION` in `crates/core/src/state/mod.rs`); each change one way: rollback means finishing or dropping open items first. `crates/core/src/state/removed/mod.rs`
-- Business code is Rust; Tauri GUI after MVP, until then watched from a Claude session. #5
-- Crates under `crates/` use nothing above them; the root package holds the binary and the verbs (`src/flock/`, `src/upgrade/`, `src/sheep/`, `src/doctor/`, `src/issues/`, `src/schema.rs`) and reaches every crate. ADR 0015
+- Home never moved from `~/.kelpie`: refuses to start naming each old file, exit 78 (in `stop_exit_codes`, no restart into it). #311, #345
+- State file version 78 (`VERSION` in `crates/core/src/state/mod.rs`); each change one way: rollback means finishing or dropping open items first. `crates/core/src/state/removed/mod.rs`
+- Business code is Rust; Tauri GUI after MVP, until then run and watched from a Claude session. #5
+- Crates under `crates/` use nothing above them; the root package holds the binary and the verbs (`src/{flock,upgrade,sheep,doctor,issues}/`, `src/schema.rs`) and reaches every crate. ADR 0015
 - No budget numbers in agent prompts; no worker merges or posts as the maintainer (fence.md, github-app.md).
 
 ## Files
@@ -31,7 +31,7 @@ Kelpie: dog of the maintainer's shepherd; one runner per project takes ready iss
 | compaction.md | when a session compacts, `worker.compact_window` per harness, `COMPACT` | `runner/compact/`, `adapters/pi/compact.rs`, `adapters/codex/context.rs`, `adapters/goose/compact.rs` |
 | skills.md | step skills, repo plugins, how harnesses load them | `core/skills/`, `adapters/skills.rs`, `runner/turn/` (`prepared`) |
 | agents.md | agent files, harnesses, gateways | `core/agents/`, `adapters/`, `core/settings/agents/`, `crates/process/src/spawn.rs` |
-| cli-adapter.md | one adapter for every CLI | `adapters/cli/` |
+| cli-adapter.md | a new CLI | `adapters/cli/` |
 | handover.md | in-flight turns handed to a new image, `upgrade` | `src/sheep/handover/mod.rs`, `runner/flight/carry/`, `adapters/process/adopt/`, `src/upgrade/handover.rs` |
 | waits-and-spend.md | a turn waiting for its model or host, spend by role | `runner/turn/unreachable/`, `adapters/unreachable/`, `adapters/codex/`, `core/usage/`, `core/settings/agents/` |
 | review.md | review, bots, rulings | `runner/review/`, `runner/ruling/`, `core/webhook.rs` |
@@ -44,7 +44,7 @@ Kelpie: dog of the maintainer's shepherd; one runner per project takes ready iss
 | contribution-security.md | a contribution's security review, slots, budget | `runner/contributions/`, `runner/flight/security.rs`, `crates/process/src/worktree/` |
 | contribution-pass.md | reviewers' pass over a green head: rotation, the record | `runner/contributions/pass.rs`, `crates/process/src/worktree/` |
 | contribution-talk.md | what contributors say: hearing, answering, quiet clock | `runner/contributions/{heard,clock}.rs`, `runner/thread_replies/` |
-| contribution-push.md | a fork worker's commits pushed by kelpie | `runner/contributions/push.rs` |
+| contribution-push.md | a fork worker's push; the red-CI comment | `runner/contributions/{push,after}.rs` |
 | contribution-release.md | asking for a release: yes, thumbs up, silence, ruling | `runner/contributions/{release,ruling}.rs` |
 | contribution-merge.md | every contribution's merge ruling: yes, thanks and no | `runner/contributions/{merge,ruling}.rs`, `core/settings/rulings.rs` |
 | representative.md | its agent file, `agents.representative`, the call that words a post | `runner/representative/`, `core/agents/front/`, `core/settings/agents/`, `agents/representative.md` |

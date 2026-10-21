@@ -26,6 +26,7 @@
 //! ([`budget`]).
 
 mod adopt;
+mod after;
 mod answer;
 mod bots;
 mod budget;
@@ -265,6 +266,8 @@ impl Runner {
 
 #[cfg(test)]
 mod adopt_tests;
+#[cfg(test)]
+mod after_tests;
 #[cfg(test)]
 mod answer_tests;
 #[cfg(test)]
