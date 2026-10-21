@@ -27,7 +27,7 @@ Kelpie is a shep dog that runs Claude Code workers from a planned work item to a
 ## Code and checks
 
 - Invoke the `rust-house-style` skill before writing or reviewing Rust (shep-pm/rust-house-style, IR-1 to IR-48). Read `CODING_STANDARDS.md` when reviewing.
-- CI (`.github/workflows/test.yml`): `cargo fmt --all --check`, `cargo clippy --all-targets --locked -- -D warnings`, `cargo test --locked`, rustdoc with `-D warnings`, `cargo +1.88 check` (MSRV).
+- CI (`.github/workflows/test.yml`): `cargo fmt --all --check`, `cargo clippy --all-targets --locked -- -D warnings`, `cargo test --locked`, rustdoc with `-D warnings`, `cargo +1.88 check` (MSRV), and a non-blocking `windows` job that runs `cargo check --workspace --all-targets --locked` while #241 ports kelpie.
 - Before handing a branch over: fmt, clippy and the tests for what changed (`cargo test --lib <module path>`, or `--test <name>`). Leave the full suite (about six minutes), rustdoc and the MSRV check to CI.
 - One cargo command shape per session, one cargo command at a time.
 - No `.rs` file over 1000 lines (IR-48, `.github/workflows/file-size.yml`). Run `scripts/file-size.sh` before pushing and after merging `main`.

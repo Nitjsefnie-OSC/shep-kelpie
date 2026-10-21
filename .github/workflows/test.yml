@@ -156,3 +156,32 @@ jobs:
       # Matches `rust-version` in Cargo.toml, which matches shep's.
       - run: rustup toolchain install 1.88 --profile minimal
       - run: cargo +1.88 check --all-targets --locked
+
+  # Reports whether the workspace compiles on Windows while #241 ports it
+  # crate by crate. `continue-on-error` keeps a red run from blocking a
+  # merge; drop it, and add the job to the ruleset's required checks, when
+  # #241 is done.
+  windows:
+    runs-on: windows-11-arm
+    timeout-minutes: 30
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install rustup if the image lacks it
+        shell: pwsh
+        run: |
+          if (-not (Get-Command rustup -ErrorAction SilentlyContinue)) {
+            Invoke-WebRequest https://static.rust-lang.org/rustup/dist/aarch64-pc-windows-msvc/rustup-init.exe -OutFile rustup-init.exe
+            ./rustup-init.exe -y --default-toolchain none --profile minimal
+            "$env:USERPROFILE\.cargo\bin" | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
+          }
+      - run: rustup toolchain install stable --profile minimal
+      # `ring` compiles C with `clang` on `aarch64-pc-windows-msvc`.
+      - name: Put LLVM on the PATH
+        shell: pwsh
+        run: |
+          if (-not (Test-Path 'C:\Program Files\LLVM\bin\clang.exe')) {
+            choco install llvm -y --no-progress
+          }
+          'C:\Program Files\LLVM\bin' | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
+      - run: cargo check --workspace --all-targets --locked
