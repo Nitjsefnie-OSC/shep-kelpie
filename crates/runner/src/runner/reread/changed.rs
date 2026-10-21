@@ -34,7 +34,7 @@ pub(super) fn names((old, was): Reach<'_>, (new, now): Reach<'_>) -> Vec<&'stati
         browser: old_browser,
         local_rounds: old_local_rounds,
         builds: old_builds,
-        e2e: _, // waits for the next start, when the runner writes it for the dog
+        e2e: old_e2e,
     } = old;
     let Settings {
         git: new_git,
@@ -57,7 +57,7 @@ pub(super) fn names((old, was): Reach<'_>, (new, now): Reach<'_>) -> Vec<&'stati
         browser: new_browser,
         local_rounds: new_local_rounds,
         builds: new_builds,
-        e2e: _,
+        e2e: new_e2e,
     } = new;
     let Git {
         checkout: _, // waits for the next start
@@ -90,6 +90,7 @@ pub(super) fn names((old, was): Reach<'_>, (new, now): Reach<'_>) -> Vec<&'stati
         ("browser", old_browser != new_browser),
         ("local_rounds", old_local_rounds != new_local_rounds),
         ("builds", old_builds != new_builds),
+        ("e2e", old_e2e != new_e2e),
         ("researcher", old_researcher != new_researcher),
         ("rulings", old_rulings != new_rulings),
         ("webhook", was != now),
