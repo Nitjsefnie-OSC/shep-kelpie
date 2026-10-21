@@ -23,13 +23,13 @@ Kelpie: dog of the maintainer's shepherd; one runner per project takes ready iss
 | file | covers | read when you touch (`core/` is `crates/core/src/`, `dog/` is `crates/dog/src/dog/`, `adapters/` and `github/` are in `crates/adapters/src/`, `runner/` is `crates/runner/src/runner/`, here and in every area file) |
 |---|---|---|
 | work.md | projects, board, adoption, slots, issue writer | `core/board/`, `src/issues/mod.rs`, `runner/adopt/`, `runner/slots.rs`, `src/flock/verbs.rs`, `core/guard/issues/` |
-| pm.md | the project manager, its board file | `runner/pm/`, `runner/pm/`, `runner/briefing/` |
+| pm.md | the project manager, its board file | `runner/pm/`, `runner/briefing/` |
 | workers.md | runner loop, turns | `runner/turn/`, `runner/flight/` |
 | fence.md | sandbox, guard, hooks, reads | `core/{profile,guard,hooks}/`, `core/dep_sources.rs`, `runner/turn/dep_reads.rs` |
 | browser.md | a worker's browser beyond its sandbox: bridge, filter, tools | `core/{bridge,browse}.rs`, `adapters/bridge/`, `runner/browser.rs`, `core/settings/browser.rs`, `crates/process/src/tools/` |
 | browser-dev-server.md | a worker's browser dev server: launch, port, readiness | `runner/dev_server/`, `runner/dev_server/launch/`, `core/ports/dev_server.rs`, `adapters/dev_server/` |
 | compaction.md | when a session compacts, `worker.compact_window` per harness, `COMPACT` | `runner/compact/`, `adapters/pi/compact.rs`, `adapters/codex/context.rs`, `adapters/goose/compact.rs` |
-| skills.md | step skills, repo plugins, how harnesses load them | `core/skills/`, `core/skills/`, `adapters/skills.rs`, `runner/turn/` (`prepared`) |
+| skills.md | step skills, repo plugins, how harnesses load them | `core/skills/`, `adapters/skills.rs`, `runner/turn/` (`prepared`) |
 | agents.md | agent files, harnesses, gateways | `core/agents/`, `adapters/`, `core/settings/agents/`, `crates/process/src/spawn.rs` |
 | handover.md | a runner handing in-flight turns to a new image, `upgrade` | `src/sheep/handover/mod.rs`, `runner/flight/carry/`, `adapters/process/adopt/`, `src/upgrade/handover.rs` |
 | waits-and-spend.md | a turn waiting for its model or host, spend by role | `runner/turn/unreachable/`, `adapters/unreachable/`, `adapters/codex/`, `core/usage/`, `core/settings/agents/` |
@@ -49,10 +49,11 @@ Kelpie: dog of the maintainer's shepherd; one runner per project takes ready iss
 | dependencies.md | the bumps bots open: `dependencies` settings, rebase asks, proof, merge, red | `core/settings/dependencies.rs`, `runner/dependencies/`, `runner/flight/proving.rs`, `runner/dev_server/bump/`, `core/state/bumps.rs`, `adapters/e2e_runner.rs`, `adapters/pages.rs`, `adapters/bridge/client/` |
 | triage.md | settings, triager, pick rule, `since`, the verb, `status` | `core/settings/triage.rs`, `runner/triage/`, `runner/open_checks.rs`, `core/ports/issue.rs` |
 | triage-pass.md | one issue's pass: post, labels, duplicate close, agent-ready | `runner/triage/`, `runner/flight/`, `core/ports/voice.rs` |
+| triage-images.md | an issue's images | `runner/triage/images.rs`, `adapters/gh/attachment.rs` |
 | triage-author.md | author's round: the ask, `github`, `local`, `none`, answers | `runner/triage/{ask,heard,local}.rs`, `runner/representative/reading.rs` |
 | triage-spam.md | the spam check: `triage.spam`, `possible-spam` | `runner/triage/spam.rs` |
-| log-lines.md | what the runner and dog log between steps: pause, handover, lease waits, skips, warnings | `runner/drain/`, `runner/skip_log.rs`, `runner/review_bot/lease_wait.rs`, `runner/claim.rs`, `dog/desk.rs`, `dog/door/` |
-| metrics.md | kelpie's series on shep's metrics endpoint, alerts, dashboard | `core/metrics/`, `core/metrics/`, `core/ports/metrics.rs`, `core/metrics/shepherd_sink.rs`, `assets/prometheus/`, `assets/grafana/` |
+| log-lines.md | what the runner and dog log: pause, handover, lease waits, skips, warnings | `runner/drain/`, `runner/skip_log.rs`, `runner/review_bot/lease_wait.rs`, `runner/claim.rs`, `dog/desk.rs`, `dog/door/` |
+| metrics.md | kelpie's series on shep's metrics endpoint, alerts, dashboard | `core/metrics/`, `core/ports/metrics.rs`, `core/metrics/shepherd_sink.rs`, `assets/prometheus/`, `assets/grafana/` |
 | metrics-work-items.md | work items' series, the `finished` line | `core/usage/finished.rs`, `runner/ci_failure.rs` |
 | metrics-dog.md | the dog's series: leases, summons, the forge hold | `core/metrics/dog.rs`, `dog/watch/` |
 | metrics-transcripts.md | series read from a call's transcript: MCP servers, tool calls, `shep kelpie usage` | `crates/facts/`, `runner/transcript_count/`, `core/usage/` |

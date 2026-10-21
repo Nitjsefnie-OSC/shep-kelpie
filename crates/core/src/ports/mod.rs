@@ -19,6 +19,7 @@ use crate::ticket::TicketId;
 use crate::webhook::Webhook;
 
 mod agent;
+mod attachment;
 mod bridge;
 mod classifier;
 mod dev_server;
@@ -60,6 +61,7 @@ pub use agent::{
     Cost, Ending, Fence, Flying, Guard, Kept, KeptServer, PM_NOTES, Reach, Role, Session,
     SessionId, Tools, Transcript, Usage, Wait, written_at,
 };
+pub use attachment::is_github_attachment;
 pub use bridge::{Bridges, OpenBridge, Playwright};
 pub use classifier::{Classifier, ClassifierError, Probability, SpamState};
 pub use dev_server::{DevPort, DevRun, DevServers, READY_WITHIN, Started};

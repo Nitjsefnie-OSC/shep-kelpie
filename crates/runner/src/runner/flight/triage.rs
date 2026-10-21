@@ -17,8 +17,10 @@ use super::super::claim::Notes;
 use super::super::code_graph::{indexed, remove};
 use super::super::in_flight::Key;
 use super::super::triage::ask::Purpose;
+use super::super::triage::images::{self, Pictures};
 use super::super::triage::research::{Found, Listed, read_reply};
 use super::{End, News};
+use crate::dep_sources::grant;
 use crate::metrics::Recorder;
 use crate::ports::{AgentCall, AgentError, Agents, Ending, Timestamp};
 use crate::state::StateError;
@@ -59,6 +61,7 @@ pub(in crate::runner) struct Research {
     pub(in crate::runner) view: PathBuf,
     pub(in crate::runner) open: Vec<Listed>,
     pub(in crate::runner) most: usize,
+    pub(in crate::runner) pictures: Pictures,
 }
 
 /// The triager's call in flight for an issue
@@ -159,6 +162,7 @@ impl Runner {
             if let Err(e) = worktree::remove_view(&research.checkout, &research.view) {
                 eprintln!("triage #{issue}: cannot remove its view of main: {e}");
             }
+            research.pictures.remove();
             let _ = fs::remove_file(&research.call.settings);
             if let Some(graph) = graph
                 && let Err(e) = remove(&graph)
@@ -300,12 +304,19 @@ fn researched(
         view,
         open,
         most,
+        pictures,
     } = research;
     // A view a crash left behind would stop the new one.
     let _ = worktree::remove_view(checkout, view);
     if let Err(e) = worktree::view(checkout, view, base) {
         let reason = format!("cannot make a view of origin/{base}: {e}");
         return (End::Turn(Err(AgentError::Setup(reason))), None);
+    }
+    let shown = pictures.gather(notes, ending);
+    if !shown.is_empty() {
+        call.prompt.push_str("\n\n");
+        call.prompt.push_str(&images::listing(&shown));
+        grant(call, std::slice::from_ref(&pictures.folder));
     }
     indexed(call, notes, metrics, ending);
     let ran = agents.prepare(call).and_then(|()| agents.run(call, ending));

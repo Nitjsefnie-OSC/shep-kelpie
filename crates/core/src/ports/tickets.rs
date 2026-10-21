@@ -13,6 +13,8 @@
 //! order, the project manager's holds and picks, drops and the file-overlap
 //! check are kelpie's scheduling, not the source's.
 
+use std::path::{Path, PathBuf};
+
 #[cfg(doc)]
 use super::Forge;
 use super::{
@@ -102,6 +104,26 @@ pub trait Tickets: Send + Sync {
         repo: &ForgeSlug,
         ticket: TicketId,
     ) -> Result<Vec<ThreadComment>, ForgeError>;
+
+    /// Downloads the image at `url`, a link from a ticket's text that
+    /// [`is_github_attachment`](super::is_github_attachment) accepts, to a file
+    /// named `stem` plus the extension its type gives, and returns that path
+    ///
+    /// The source's own login goes with the request, so an image on a repo
+    /// that needs a login can be read. It goes to GitHub's hosts alone. Nothing is left
+    /// behind on an error.
+    ///
+    /// # Errors
+    ///
+    /// [`ForgeError`] when the link is not one this source may fetch, the
+    /// download fails or runs past `most` bytes, or what came is not a PNG,
+    /// JPEG, GIF or WebP image. A source with no attachments always refuses.
+    fn fetch_image(&self, url: &str, stem: &Path, most: u64) -> Result<PathBuf, ForgeError> {
+        let _ = (url, stem, most);
+        Err(ForgeError::Failed(
+            "this source holds no attachments".to_owned(),
+        ))
+    }
 
     /// Opens a ticket on `repo` with these labels, and returns its id
     ///

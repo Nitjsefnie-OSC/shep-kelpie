@@ -270,6 +270,13 @@ impl ProjectPaths {
         self.triage.join(ticket.to_string())
     }
 
+    /// The folder the images of the issue `ticket` are downloaded to for the
+    /// triager to read, beside its view of `main` and outside the repo, which
+    /// goes when the call ends
+    pub fn triage_images(&self, ticket: TicketId) -> PathBuf {
+        self.triage.join(format!("{ticket}-images"))
+    }
+
     /// The folder for the issue writer's settings, prompt and checkouts,
     /// apart from every work item's
     pub fn issues(&self) -> PathBuf {
@@ -335,6 +342,11 @@ mod tests {
                 "{id}"
             );
             assert_eq!(paths.triage(ticket), folder.join("triage").join(id), "{id}");
+            assert_eq!(
+                paths.triage_images(ticket),
+                folder.join("triage").join(format!("{id}-images")),
+                "{id}"
+            );
         }
     }
 
