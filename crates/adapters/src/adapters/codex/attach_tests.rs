@@ -72,7 +72,8 @@ fn a_codex_session_for_the_terminal_resumes_in_the_workers_sandbox() {
     let pair = |a: &str, b: &str| args.windows(2).any(|w| w == [a, b]);
     assert!(pair("--model", "gpt-6-sol"), "{args:?}");
     assert!(pair("--sandbox", "danger-full-access"), "{args:?}");
-    assert!(pair("--ask-for-approval", "untrusted"), "{args:?}");
+    assert!(pair("--ask-for-approval", "on-request"), "{args:?}");
+    assert!(!args.iter().any(|a| a == "untrusted"), "{args:?}");
     assert!(args.iter().any(|a| a == "--dangerously-bypass-hook-trust"));
     let set = overrides(&args);
     for key in [
@@ -106,6 +107,36 @@ fn a_codex_session_for_the_terminal_resumes_in_the_workers_sandbox() {
         wrapped[0], wrapped[1],
         "the terminal is held to the headless call's policy"
     );
+}
+
+#[test]
+fn the_terminal_opens_on_a_folder_already_trusted_that_the_call_cannot_change() {
+    let w = World::new();
+    let sandbox = OpenSandbox::default();
+    let codex = codex_in(&w, &sandbox);
+    let call = resumable(&w, &codex);
+    let config = Files::of(&call).home.join("config.toml");
+    std::fs::write(&config, "stale").unwrap();
+
+    codex.foreground(&call).unwrap();
+
+    let trusted: toml::Table = std::fs::read_to_string(&config).unwrap().parse().unwrap();
+    let cwd = call.cwd.to_str().unwrap();
+    assert_eq!(
+        trusted["projects"][cwd]["trust_level"].as_str(),
+        Some("trusted")
+    );
+    let (policy, _) = &sandbox.wrapped()[0];
+    assert!(
+        !policy.write.iter().any(|p| config.starts_with(p)),
+        "the call may write {}: {:?}",
+        config.display(),
+        policy.write
+    );
+
+    codex.foreground_ended(call.session.id());
+
+    assert!(!config.exists(), "a later call finds the trust left behind");
 }
 
 #[test]
