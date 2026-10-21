@@ -10,7 +10,7 @@ use crate::test::{CALL_PATIENCE, Hold, Rig};
 
 // A runner for a project with `[app.dogs.kelpie.dependencies]` set to `pick = "on"`
 // and `table`'s lines
-pub(super) fn bumping(table: &str) -> (Rig, Mutex<Runner>) {
+pub(in crate::runner) fn bumping(table: &str) -> (Rig, Mutex<Runner>) {
     let rig = Rig::new("shep");
     let table = format!("[app.dogs.kelpie.dependencies]\npick = \"on\"\n{table}\n");
     rig.edit_settings(|s| format!("{s}\n{table}"));
@@ -35,32 +35,32 @@ fn opened_by(rig: &Rig, number: u64, author: &str, file: &str) -> String {
     head
 }
 
-pub(super) fn bump(rig: &Rig, number: u64, file: &str) -> String {
+pub(in crate::runner) fn bump(rig: &Rig, number: u64, file: &str) -> String {
     opened_by(rig, number, "dependabot", file)
 }
 
-pub(super) fn poll(rig: &Rig, runner: &Mutex<Runner>) {
+pub(in crate::runner) fn poll(rig: &Rig, runner: &Mutex<Runner>) {
     rig.next_look();
     assert_eq!(step(runner).unwrap(), None);
 }
 
 // A first poll that records the bump, and one after its checks have settled
-pub(super) fn settle(rig: &Rig, runner: &Mutex<Runner>) {
+pub(in crate::runner) fn settle(rig: &Rig, runner: &Mutex<Runner>) {
     assert_eq!(step(runner).unwrap(), None);
     rig.clock.advance(CHECKS_SETTLE);
     assert_eq!(step(runner).unwrap(), None);
 }
 
-pub(super) fn notes(runner: &Mutex<Runner>) -> Vec<String> {
+pub(in crate::runner) fn notes(runner: &Mutex<Runner>) -> Vec<String> {
     runner.lock().unwrap().take_notes()
 }
 
-pub(super) fn bumps(rig: &Rig, runner: &Mutex<Runner>) -> Vec<Value> {
+pub(in crate::runner) fn bumps(rig: &Rig, runner: &Mutex<Runner>) -> Vec<Value> {
     let status = rig.ask(runner, "status", None);
     status["bumps"].as_array().cloned().unwrap_or_default()
 }
 
-pub(super) fn words(notes: &[String], needle: &str) -> usize {
+pub(in crate::runner) fn words(notes: &[String], needle: &str) -> usize {
     notes.iter().filter(|n| n.contains(needle)).count()
 }
 

@@ -2,15 +2,14 @@
 //!
 //! Every setting takes effect live, at the next step or call that reads
 //! it, except `git.checkout`, `git.remote`, `git.base`, `hooks`,
-//! `contributions`, `tickets`, `dependencies` and kelpie's gateways: a work
-//! item's worktree and pull request belong to the first three, the forge
-//! and voice ports hold the hooks built at start, the start checks and
-//! picks the next three, and the adapters hold the gateways, so those wait
-//! for the runner's next start. The agent files
-//! are read again with them, and a change to those alone is a change too,
-//! but agents that name a gateway the runner lacks wait with it. A change is
-//! checked as a start checks it, and one that fails keeps the settings the
-//! runner has.
+//! `contributions`, `tickets` and kelpie's gateways: a work item's
+//! worktree and pull request belong to the first three, the forge and voice
+//! ports hold the hooks built at start, the start checks and picks the next
+//! two, and the adapters hold the gateways, so those wait for the runner's
+//! next start. The agent files are read again with them, and a change to
+//! those alone is a change too, but agents that name a gateway the runner
+//! lacks wait with it. A change is checked as a start checks it, and one
+//! that fails keeps the settings the runner has.
 
 use super::{
     OpenError, Runner, check_bots, check_coderabbit, check_local, instructions, open_checks, triage,
@@ -78,13 +77,6 @@ impl Runner {
         if settings.tickets != self.settings.tickets {
             waiting.push("tickets");
             settings.tickets.clone_from(&self.settings.tickets);
-        }
-        // Merging a bot's pull request begins only at a start.
-        if settings.dependencies != self.settings.dependencies {
-            waiting.push("dependencies");
-            settings
-                .dependencies
-                .clone_from(&self.settings.dependencies);
         }
         // The adapters were built with the gateways at start.
         if !kelpie.gateways().iter().eq(self.gateways.iter()) {

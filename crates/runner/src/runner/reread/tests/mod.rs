@@ -1,3 +1,4 @@
+mod dependencies;
 mod e2e;
 mod triage;
 
@@ -270,34 +271,6 @@ fn a_changed_contributions_table_waits_for_the_next_start_whatever_else_changes(
 
     let err = rig.open().unwrap_err().to_string();
     assert!(err.contains("contributions.pick"), "{err}");
-}
-
-#[test]
-fn a_changed_dependencies_table_waits_for_the_next_start() {
-    let rig = Rig::new("shep");
-    let runner = rig.open().unwrap();
-    rig.edit_settings(|s| format!("{s}\n[app.dogs.kelpie.dependencies]\npick = \"on\"\n"));
-    let mut runner = runner.lock().unwrap();
-    let line = runner.reread(rig.settings(), rig.kelpie_settings());
-    assert_eq!(
-        line.unwrap().as_deref(),
-        Some("settings changed; dependencies from the runner's next start")
-    );
-    assert!(
-        runner.settings().dependencies.is_off(),
-        "the old pick stays"
-    );
-    drop(runner);
-
-    assert!(
-        !rig.open()
-            .unwrap()
-            .lock()
-            .unwrap()
-            .settings()
-            .dependencies
-            .is_off()
-    );
 }
 
 fn paddock_at(rig: &Rig, url: &str) {

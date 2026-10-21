@@ -576,4 +576,4 @@ pub struct BumpStatus {
 #[cfg(test)]
 mod browser_tests;
 #[cfg(test)]
-mod tests;
+pub(in crate::runner) mod tests;
