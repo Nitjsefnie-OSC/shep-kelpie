@@ -16,6 +16,7 @@ When a worker's session compacts, on each harness. Runner loop and turns are in 
 ## Codex
 
 - Compacts at the window; `COMPACT` lowers the next turn's limit under its context. `crates/adapters/src/adapters/codex/context.rs`. #770
+- Measured on codex-cli 0.159.3 (#771): the compaction's own request is in neither `turn.completed` nor `total_token_usage`, so a turn that compacts counts too few tokens until #1128.
 
 ## goose
 

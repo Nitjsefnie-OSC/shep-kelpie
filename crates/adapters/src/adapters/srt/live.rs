@@ -160,7 +160,8 @@ fn a_covered_call_still_reaches_github_signs_and_runs_a_program() {
         ),
         (
             "codesign",
-            "cp /usr/bin/true ./true && codesign --force --sign - ./true && ./true",
+            "printf 'int main(void){return 0;}' > t.c && TMPDIR=. cc -o t t.c \\
+             && codesign --force --sign - ./t && ./t",
         ),
     ];
     for (name, script) in work {
