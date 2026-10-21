@@ -105,6 +105,24 @@ impl<C: Cli> CliAdapter<C> {
         turn: Turn,
         lease: Option<&str>,
     ) -> Result<Launched, AgentError> {
+        self.launch_with(call, turn, lease, |launch| {
+            self.cli.command(call, begun, launch)
+        })
+    }
+
+    /// As [`CliAdapter::launch`], for a command of the CLI's that is neither
+    /// the call nor the terminal session, which `command` builds
+    ///
+    /// # Errors
+    ///
+    /// As [`CliAdapter::launch`], and whatever `command` fails with.
+    pub(crate) fn launch_with(
+        &self,
+        call: &AgentCall,
+        turn: Turn,
+        lease: Option<&str>,
+        command: impl FnOnce(&Launch<'_>) -> Result<Command, AgentError>,
+    ) -> Result<Launched, AgentError> {
         let upstream = match self.routed(call)? {
             Some(server) => Some(match lease.filter(|_| call.role == Role::Worker) {
                 Some(id) => self.upstream(server)?.with_lease(id),
@@ -145,7 +163,7 @@ impl<C: Cli> CliAdapter<C> {
                 socket: &forwarder.socket,
             });
         let launch = Launch { turn, served };
-        let command = self.cli.command(call, begun, &launch)?;
+        let command = command(&launch)?;
         let mut policy = self.cli.policy(call, &launch)?;
         if let Some(served) = served {
             dial_the_forwarder(&mut policy, served.upstream, served.socket);
@@ -165,6 +183,22 @@ impl<C: Cli> CliAdapter<C> {
         self.gateways
             .upstream(&server.host)
             .map_err(AgentError::Setup)
+    }
+
+    // The reply with what the CLI says when asked after the call, if it has to be.
+    fn completed(&self, call: &AgentCall, reply: AgentReply) -> AgentReply {
+        let Some(follow) = self.cli.follow_up(call) else {
+            return reply;
+        };
+        let asked = self
+            .launch_with(call, Turn::Headless, None, follow.command)
+            .map_err(|e| e.to_string())
+            .and_then(|mut launched| {
+                (self.base.processes)
+                    .output_within(&mut launched.command, follow.within)
+                    .map_err(|e| format!("{e:?}"))
+            });
+        (follow.read)(reply, asked)
     }
 
     // Notes what a handover must carry for the call, until the guard is dropped.
@@ -239,7 +273,8 @@ impl<C: Cli> Agents for CliAdapter<C> {
                     RunError::TimedOut => AgentError::TimedOut(C::HARNESS),
                 })
         })??;
-        self.cli.parse(call, begun, &output)
+        let reply = self.cli.parse(call, begun, &output)?;
+        Ok(self.completed(call, reply))
     }
 
     fn adoption(&self, call: &AgentCall) -> Result<Adopted, String> {

@@ -26,7 +26,7 @@ const NO_SESSION: &str = "No session found with name";
 /// goose reports the session's running totals, not the call's own.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
-pub(super) struct Spent {
+pub struct Spent {
     /// Every input token, cached or not
     pub(super) input_tokens: u64,
     /// Every output token

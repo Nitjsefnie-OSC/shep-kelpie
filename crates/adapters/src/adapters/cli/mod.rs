@@ -15,6 +15,7 @@ mod terminals;
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
+use std::time::Duration;
 
 pub use adapter::CliAdapter;
 
@@ -50,6 +51,31 @@ pub struct Launch<'a> {
     pub turn: Turn,
     /// The model server, for a CLI that runs its model on one
     pub served: Option<Served<'a>>,
+}
+
+/// How a [`FollowUp`] builds its command
+pub type BuildCommand<'a> = Box<dyn FnOnce(&Launch<'_>) -> Result<Command, AgentError> + 'a>;
+
+/// How a [`FollowUp`] completes the reply from what its command printed
+pub type CompleteReply<'a> = Box<dyn FnOnce(AgentReply, Result<Output, String>) -> AgentReply + 'a>;
+
+/// A second command run after a call, in the call's sandbox, whose output
+/// completes the call's reply
+pub struct FollowUp<'a> {
+    /// The command, built as the call's is
+    pub command: BuildCommand<'a>,
+    /// How long it may run
+    pub within: Duration,
+    /// The reply with what the command printed, or why it printed nothing
+    pub read: CompleteReply<'a>,
+}
+
+impl fmt::Debug for FollowUp<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("FollowUp")
+            .field("within", &self.within)
+            .finish_non_exhaustive()
+    }
 }
 
 /// What is true of one CLI, which [`CliAdapter`] runs every call of
@@ -164,6 +190,12 @@ pub trait Cli: fmt::Debug + Clone + Send + Sync + 'static {
         begun: Self::Begun,
         output: &Output,
     ) -> Result<AgentReply, AgentError>;
+
+    /// What to ask the CLI once the call has ended, for what its output does not say
+    fn follow_up<'a>(&'a self, call: &'a AgentCall) -> Option<FollowUp<'a>> {
+        let _ = call;
+        None
+    }
 
     /// What a call another image started needs from `adopted`, in place of [`Cli::begin`]
     ///

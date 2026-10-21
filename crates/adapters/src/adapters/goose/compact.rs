@@ -17,7 +17,8 @@ use std::time::Duration;
 use serde_json::Value;
 
 use super::output::{self, Read, failed};
-use super::{GOOSE, GooseCli};
+use super::{GOOSE, Goose};
+use crate::adapters::cli::FollowUp;
 use crate::adapters::harness::tail;
 use crate::ports::{AgentCall, AgentError, AgentReply, COMPACT, Role, Session, SessionId};
 
@@ -112,42 +113,40 @@ fn compacted(reply: AgentReply, output: &Output) -> Result<AgentReply, AgentErro
     }
 }
 
-impl GooseCli {
-    /// `reply` with the tokens of its session's last request, for a worker's
-    /// call that compacted nothing
-    pub(super) fn with_context(&self, call: &AgentCall, reply: AgentReply) -> AgentReply {
-        if call.role != Role::Worker || call.prompt == COMPACT {
-            return reply;
-        }
-        let context = self.context_of(call).map_err(|why| {
-            eprintln!(
-                "kelpie: cannot read the context of goose session {}: {why}",
-                call.session.id().0
-            );
-        });
-        AgentReply {
-            context: context.ok(),
-            ..reply
-        }
+/// What asks goose for the tokens of its session's last request, for a worker's
+/// call that compacted nothing
+///
+/// It runs `goose session list` as the call's goose, in its sandbox and root. A
+/// failed read is logged, never an error of the call.
+pub(super) fn context_of<'a>(goose: &'a Goose, call: &'a AgentCall) -> Option<FollowUp<'a>> {
+    if call.role != Role::Worker || call.prompt == COMPACT {
+        return None;
     }
-
-    // Runs `goose session list` as the call's goose, in its sandbox and root. A
-    // failed read is the caller's to log, never an error of the call.
-    fn context_of(&self, call: &AgentCall) -> Result<u64, String> {
-        let args = ["session", "list", "--format", "json"].map(OsString::from);
-        let (mut command, _forwarder) = self
-            .wrapped_command(call, None, args.into(), None)
-            .map_err(|e| e.to_string())?;
-        let output = (self.base.processes)
-            .output_within(&mut command, LIST_LIMIT)
-            .map_err(|e| format!("{e:?}"))?;
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(format!("it exited {}: {}", output.status, tail(&stderr)));
-        }
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        input_tokens(&stdout, call.session.id())
-    }
+    let args = ["session", "list", "--format", "json"].map(OsString::from);
+    Some(FollowUp {
+        command: Box::new(move |launch| goose.program_command(call, launch, args.into(), None)),
+        within: LIST_LIMIT,
+        read: Box::new(move |reply, asked| {
+            let context = asked.and_then(|output| {
+                if !output.status.success() {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    return Err(format!("it exited {}: {}", output.status, tail(&stderr)));
+                }
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                input_tokens(&stdout, call.session.id())
+            });
+            let context = context.map_err(|why| {
+                eprintln!(
+                    "kelpie: cannot read the context of goose session {}: {why}",
+                    call.session.id().0
+                );
+            });
+            AgentReply {
+                context: context.ok(),
+                ..reply
+            }
+        }),
+    })
 }
 
 // The `usage.input_tokens` of the session `asked` in the list's JSON, or why
