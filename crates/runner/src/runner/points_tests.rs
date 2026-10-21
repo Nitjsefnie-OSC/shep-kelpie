@@ -214,8 +214,9 @@ fn a_notice_that_hangs_is_stopped_logged_and_holds_nothing_up() {
     let runner = rig.open().unwrap();
     let timeout = std::time::Duration::from_millis(200);
     {
-        let mut runner = runner.lock().unwrap();
-        runner.hooks = runner.hooks.clone().with_timeout(timeout);
+        let runner = runner.lock().unwrap();
+        let hooks = runner.hooks.get().as_ref().clone();
+        runner.hooks.replace(hooks.with_timeout(timeout));
     }
     rig.ask(&runner, "add", Some("7"));
     rig.forge.open_pull_request(71, "kelpie/7", &[7]);

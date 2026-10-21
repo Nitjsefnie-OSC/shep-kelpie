@@ -15,7 +15,7 @@ use crate::agents::{Agents, AgentsError};
 use crate::board::{LabelError, Skip, agent_label, old_worker_label, pinned};
 use crate::forge_ledger::Ledger as ForgeLedger;
 use crate::home::{ProjectName, ProjectPaths};
-use crate::hooks::Hooks;
+use crate::hooks::SharedHooks;
 use crate::local_paths::LocalPaths;
 use crate::local_tickets::{LocalTickets, Routed};
 use crate::pacer::Assessment;
@@ -381,8 +381,8 @@ pub struct Runner {
     // What the board withholds, as the forge does
     local: LocalPaths,
     // The project's own hooks, which the forge port, the workers' guard and
-    // the handover run
-    hooks: Hooks,
+    // the handover run, held once for them all so a reread can replace them
+    hooks: SharedHooks,
     // What the notice points have told, in memory only
     told_points: points::Told,
     // The project manager's wakes and decisions, in memory only
@@ -509,8 +509,7 @@ impl Runner {
         open_checks::triage(&settings, ports.voice.as_ref(), &remote, &book)?;
         // What the project's `publish` hooks judge is every text bound for the forge.
         let metrics = Arc::new(crate::metrics::Recorder::new(Arc::clone(&ports.metrics)));
-        let hooks = Hooks::new(project.as_str(), remote.as_str(), checkout, &settings.hooks)
-            .counted_by(Arc::clone(&metrics));
+        let hooks = SharedHooks::new(guard_hooks::built(&project, &remote, &settings, &metrics));
         let clock = Arc::clone(&ports.clock);
         let say_to = |told: &claim::Notes| -> Say {
             let told = told.clone();
@@ -564,12 +563,7 @@ impl Runner {
         let (owner_template, note) =
             owner_template::refreshed(ports.forge.as_ref(), remote.owner(), None);
         told.extend(note);
-        let env_home = std::env::var_os("HOME").map(PathBuf::from);
-        guard_hooks::check(
-            &settings,
-            env_home.as_deref(),
-            std::env::var_os("PATH").as_deref(),
-        )?;
+        guard_hooks::check_here(&settings)?;
         check_bots(&lineup, &ports)?;
         crate::skills::check(&settings.skills, &paths.skills)?;
         let skills = Skills::load(&settings.skills, &paths.skills);
