@@ -1,13 +1,12 @@
 //! A settings change reaching a running runner
 //!
 //! Every setting takes effect live, at the next step or call that reads
-//! it, except `git.checkout`, `git.remote`, `git.base`, `tickets` and
-//! kelpie's gateways: a work item's worktree and pull request belong to the
-//! first three, the start picks the ticket port, and the adapters hold the
-//! gateways, so those wait for the runner's next start. The agent files are read again
-//! with them, and a change to those alone is a change too, but agents that
-//! name a gateway the runner lacks wait with it, and so does
-//! `contributions.reviewers`. A change is checked as a start checks it, and
+//! it, except `git.checkout`, `git.remote`, `git.base` and kelpie's
+//! gateways: a work item's worktree and pull request belong to the first
+//! three, and the adapters hold the gateways, so those wait for the runner's
+//! next start. The agent files are read again with them, and a change to
+//! those alone is a change too, but agents that name a gateway the runner
+//! lacks wait with it, and so does `contributions.reviewers`. A change is checked as a start checks it, and
 //! one that fails keeps the settings the runner has.
 
 use super::{
@@ -59,11 +58,6 @@ impl Runner {
         if settings.git.base != self.settings.git.base {
             waiting.push("git.base");
             settings.git.base.clone_from(&self.settings.git.base);
-        }
-        // The ticket port was picked at start.
-        if settings.tickets != self.settings.tickets {
-            waiting.push("tickets");
-            settings.tickets.clone_from(&self.settings.tickets);
         }
         // The adapters were built with the gateways at start.
         if !kelpie.gateways().iter().eq(self.gateways.iter()) {
@@ -219,6 +213,8 @@ impl Runner {
             self.hooks.replace(hooks);
         }
         self.refresh_features();
+        // A work item open on a ticket keeps it: the port sends a call about one ticket where its id names.
+        self.tickets_source.set(self.settings.tickets.source);
         self.lineup = lineup;
         // A call already running holds the reviewers it started with.
         self.contribution_lineup = contribution_lineup;

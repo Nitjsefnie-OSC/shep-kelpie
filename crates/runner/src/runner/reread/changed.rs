@@ -26,7 +26,7 @@ pub(super) fn names((old, was): Reach<'_>, (new, now): Reach<'_>) -> Vec<&'stati
         contributions: old_contributions,
         dependencies: old_dependencies,
         triage: old_triage,
-        tickets: _, // waits for the next start, when the runner picks the port
+        tickets: old_tickets,
         hooks: old_hooks,
         skills: old_skills,
         repo_setup: old_repo_setup,
@@ -49,7 +49,7 @@ pub(super) fn names((old, was): Reach<'_>, (new, now): Reach<'_>) -> Vec<&'stati
         contributions: new_contributions,
         dependencies: new_dependencies,
         triage: new_triage,
-        tickets: _,
+        tickets: new_tickets,
         hooks: new_hooks,
         skills: new_skills,
         repo_setup: new_repo_setup,
@@ -97,6 +97,7 @@ pub(super) fn names((old, was): Reach<'_>, (new, now): Reach<'_>) -> Vec<&'stati
         ("contributions", old_contributions != new_contributions),
         ("dependencies", old_dependencies != new_dependencies),
         ("triage", old_triage != new_triage),
+        ("tickets", old_tickets != new_tickets),
         ("webhook", was != now),
     ]
     .into_iter()

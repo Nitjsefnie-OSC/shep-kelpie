@@ -7,7 +7,7 @@ A project can take its tickets from files in kelpie's home in place of GitHub is
 source = "local"   # "github" when absent
 ```
 
-A change waits for the runner's next start, and a work item already open keeps the ticket it was opened on, in whichever source holds it. A project with no `tickets` table behaves as it always did.
+A change reaches a running runner at its next wake: the board reads the new source from then on, and a work item already open keeps the ticket it was opened on, in whichever source holds it. A project with no `tickets` table behaves as it always did.
 
 ## Filing and reading
 
