@@ -20,9 +20,7 @@ fn waiting_goose(world: &World, gateways: Gateways) -> GooseCli {
         world.path("stdout.jsonl").display()
     );
     crate::test::write_script(&world.path("goose"), &script);
-    ClaudeCli::default()
-        .sandboxed(Arc::new(OpenSandbox::default()), world.path("home"))
-        .goose()
+    GooseCli::on(&Base::default().sandboxed(Arc::new(OpenSandbox::default()), world.path("home")))
         .with_program(world.path("goose"))
         .with_gateways(gateways)
 }

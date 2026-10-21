@@ -2,31 +2,53 @@
 
 use serde_json::Value;
 
-use super::{codex, goose, pi};
+use super::{Cli, codex::Codex, goose::Goose, pi::Pi};
 use crate::ports::HarnessMcp;
-use crate::settings::AgentHarness;
+use crate::settings::{AgentHarness, Harness};
 
-/// The facts of each harness's own MCP loading
-#[derive(Debug, Clone, Copy, Default)]
-pub struct HarnessFacts;
+type Says = fn(&str, &Value) -> Option<String>;
 
-impl HarnessMcp for HarnessFacts {
-    fn refusal(&self, harness: &AgentHarness, name: &str, entry: &Value) -> Option<String> {
-        match harness {
-            AgentHarness::Pi(_) => pi::mcp::refusal(name, entry),
-            AgentHarness::Codex => codex::mcp::refusal(name, entry),
-            AgentHarness::Goose(_) => goose::mcp::refusal(name, entry),
-            // parity: harness.mcp-servers
-            _ => None,
+// What one CLI says of a server entry
+struct Rules {
+    harness: Harness,
+    refusal: Says,
+    skipped_env: Says,
+}
+
+impl Rules {
+    const fn of<C: Cli>() -> Self {
+        Self {
+            harness: C::HARNESS,
+            refusal: C::mcp_refusal,
+            skipped_env: C::mcp_skipped_env,
         }
+    }
+}
+
+// A CLI that is not listed loads every server whole.
+const RULES: [Rules; 3] = [
+    Rules::of::<Pi>(),
+    Rules::of::<Codex>(),
+    Rules::of::<Goose>(),
+];
+
+fn rules(harness: &AgentHarness) -> Option<&'static Rules> {
+    RULES
+        .iter()
+        .find(|rules| rules.harness == harness.harness())
+}
+
+/// What each harness's own MCP loading refuses and drops
+#[derive(Debug, Clone, Copy, Default)]
+pub struct McpRules;
+
+impl HarnessMcp for McpRules {
+    fn refusal(&self, harness: &AgentHarness, name: &str, entry: &Value) -> Option<String> {
+        (rules(harness)?.refusal)(name, entry)
     }
 
     fn skipped_env(&self, harness: &AgentHarness, name: &str, entry: &Value) -> Option<String> {
-        match harness {
-            AgentHarness::Goose(_) => goose::mcp::skipped_env(name, entry),
-            // parity: harness.mcp-servers
-            _ => None,
-        }
+        (rules(harness)?.skipped_env)(name, entry)
     }
 }
 
@@ -47,7 +69,7 @@ mod tests {
     #[test]
     fn each_harness_answers_with_its_own_refusal() {
         let sse = json!({ "type": "sse", "url": "https://old.example.com/sse" });
-        let facts = HarnessFacts;
+        let facts = McpRules;
 
         for harness in [
             AgentHarness::Pi(server()),
@@ -63,7 +85,7 @@ mod tests {
     #[test]
     fn only_goose_skips_env_keys() {
         let entry = json!({ "command": "/bin/true", "env": { "PATH": "/x", "TOKEN": "t" } });
-        let facts = HarnessFacts;
+        let facts = McpRules;
 
         let skipped = facts.skipped_env(&AgentHarness::Goose(server()), "skips", &entry);
 

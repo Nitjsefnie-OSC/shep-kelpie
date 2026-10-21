@@ -12,6 +12,7 @@ use super::tests::{URL, WORKER_ID, World, id};
 use super::*;
 use crate::adapters::SandboxRuntime;
 use crate::ports::Role;
+use crate::ports::Sandbox;
 use crate::test::{Answer, StandInEndpoint};
 use crate::tools::Tools as KelpieTools;
 
@@ -32,8 +33,7 @@ fn curl_allowing(
     args: &[&str],
 ) -> Output {
     let tools = KelpieTools::at(std::env::var("KELPIE_TOOLS").expect(NEEDS).into());
-    let upstream = ClaudeCli::default()
-        .pi()
+    let upstream = PiCli::on(&Base::default())
         .upstream(server(call).unwrap())
         .unwrap();
     let mut policy = policy(call, &Files::of(call), &upstream, &forwarder.socket, &[]);
@@ -76,7 +76,7 @@ fn a_worker_reaches_the_model_only_through_a_forwarder_that_passes_chat() {
         Path::new("/k/kelpie"),
         Session::New(id(WORKER_ID)),
     );
-    let upstream = (ClaudeCli::default().pi()).upstream(super::server(&call).unwrap());
+    let upstream = (PiCli::on(&Base::default())).upstream(super::server(&call).unwrap());
     let upstream = upstream.unwrap();
     let folder = call.settings.parent().unwrap();
     let forwarder = Forwarder::open(folder, upstream).unwrap();
@@ -166,12 +166,10 @@ fn pi_answers_through_the_forwarder_with_no_model_host_in_its_sandbox() {
     let server = StandInEndpoint::start([Answer::Says("ok")]);
     let world = World::new();
     let tools = KelpieTools::at(std::env::var("KELPIE_TOOLS").expect(NEEDS).into());
-    let pi = ClaudeCli::default()
-        .sandboxed(
-            Arc::new(SandboxRuntime::new(tools)),
-            std::env::var_os("HOME").unwrap().into(),
-        )
-        .pi();
+    let pi = PiCli::on(&Base::default().sandboxed(
+        Arc::new(SandboxRuntime::new(tools)),
+        std::env::var_os("HOME").unwrap().into(),
+    ));
     let session = id(WORKER_ID);
     let mut call = world.call(server.url(), Role::Reviewer, Session::New(session.clone()));
     call.prompt = "Reply with the single word ok.".into();
@@ -206,8 +204,7 @@ fn a_researchers_fetch_reaches_only_the_hosts_its_policy_lists() {
     call.tools = Tools::Research;
     call.reach.extensions = vec![world.path("tools/node_modules/pi-web-access")];
     call.reach.fence.as_mut().unwrap().hosts = vec!["example.com".to_owned()];
-    let upstream = ClaudeCli::default()
-        .pi()
+    let upstream = PiCli::on(&Base::default())
         .upstream(server(&call).unwrap())
         .unwrap();
     let forwarder = Forwarder::open(call.settings.parent().unwrap(), upstream).unwrap();

@@ -20,7 +20,7 @@ fn call(world: &World) -> AgentCall {
 }
 
 fn goose() -> GooseCli {
-    ClaudeCli::default().goose()
+    GooseCli::on(&Base::default())
 }
 
 // Writes `text` as the call's stdout file, last written at `WRITTEN`.

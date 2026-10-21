@@ -9,49 +9,15 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use super::{ClaudeCli, LOGIN_FIX, LOGIN_VAR, argv, terminal_argv};
+use super::{Claude, LOGIN_VAR};
+use crate::adapters::harness::{bind_in_scratch, call_policy, prompt_file};
 use crate::fence;
-use crate::ports::{AgentCall, AgentError, Fence, Policy, Tools};
-use crate::profile::CREDENTIALS;
+use crate::ports::{AgentCall, AgentError, Policy};
 
-impl ClaudeCli {
-    // The call's command inside its sandbox.
-    pub(super) fn sandboxed_command(&self, call: &AgentCall) -> Result<Command, AgentError> {
-        let mut command = self.command(call, argv(call))?;
-        // A headless turn that ends is over, so nothing it waits on in
-        // the background can ever wake it.
-        command.env("CLAUDE_CODE_DISABLE_BACKGROUND_TASKS", "1");
-        self.inside(call, &command)
-    }
-
-    // The call's session for the maintainer's terminal, inside the same sandbox.
-    pub(super) fn terminal_command(&self, call: &AgentCall) -> Result<Command, AgentError> {
-        let command = self.command(call, terminal_argv(call))?;
-        self.inside(call, &command)
-    }
-
-    // `claude` with `argv`, its scratch folder emptied and its transcript
-    // folder made. A scratch folder swapped for a link is removed, not followed.
-    fn command(&self, call: &AgentCall, argv: Vec<OsString>) -> Result<Command, AgentError> {
-        // `claude` would start and fail with its own "not logged in", which a ruling
-        // would carry, in place of the fix.
-        if call.reach.block_keychain && self.macos && self.login.is_none() {
-            return Err(AgentError::Setup(format!(
-                "the keychain is blocked in this repo's calls and {LOGIN_VAR} is not set in the \
-                 runner's environment, so claude has no login: {LOGIN_FIX}"
-            )));
-        }
+impl Claude {
+    // `claude` with `argv`, in the call's folder and with its own temporary files.
+    pub(super) fn program_command(&self, call: &AgentCall, argv: Vec<OsString>) -> Command {
         let scratch = scratch(call);
-        let setup = |what: &Path, e: std::io::Error| {
-            AgentError::Setup(format!("cannot make {}: {}", what.display(), e.kind()))
-        };
-        match std::fs::remove_dir_all(&scratch) {
-            Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(setup(&scratch, e)),
-            _ => {}
-        }
-        for folder in [&scratch, &transcripts(&self.home, &call.cwd)?] {
-            std::fs::create_dir_all(folder).map_err(|e| setup(folder, e))?;
-        }
         // A sheep has no `TMPDIR`, so a shell falls back to `/tmp`, which the
         // sandbox refuses, and a heredoc cannot make its temp file there. zsh
         // ignores `TMPDIR` for a heredoc and writes under `TMPPREFIX`, a prefix
@@ -75,14 +41,7 @@ impl ClaudeCli {
         if let Some(login) = &self.login {
             command.env(LOGIN_VAR, login.expose());
         }
-        Ok(command)
-    }
-
-    fn inside(&self, call: &AgentCall, command: &Command) -> Result<Command, AgentError> {
-        let policy = policy(call, &self.home, &self.unfenced_no_read)?;
-        self.sandbox
-            .wrap(&policy, &sandbox_settings(call), command)
-            .map_err(|e| AgentError::Setup(e.to_string()))
+        command
     }
 }
 
@@ -100,65 +59,6 @@ const MODEL_HOST: &str = "api.anthropic.com";
 // Claude Code names a working folder's transcript folder this way, and
 // hashes past this length. Kelpie refuses a folder it cannot name.
 const LONGEST_NAME: usize = 200;
-
-/// What a fenced session may do, from its fence alone
-pub fn fence_policy(fence: &Fence) -> Policy {
-    Policy {
-        write: fence.write.clone(),
-        no_write: fence.no_write.clone(),
-        no_read: fence.no_read.clone(),
-        read: fence.read.clone(),
-        open: Vec::new(),
-        scratch: Vec::new(),
-        hosts: fence.hosts.clone(),
-        sockets: fence.sockets.clone(),
-        socket_folders: Vec::new(),
-        forward: None,
-        denied_hosts: Vec::new(),
-        denied_addresses: Vec::new(),
-        // Without it, `gh` fails TLS verification on macOS: x509 OSStatus -26276.
-        verify_tls: true,
-        no_keychain: false,
-        listen: false,
-        services: Vec::new(),
-    }
-}
-
-/// What a call is held to before its harness adds its own needs: its fence's
-/// policy, or with no fence the credentials and `unfenced` unread
-///
-/// Every harness starts here, so a call with no fence is denied `unfenced`
-/// whichever one runs it. Its own folder stays readable, since a worktree
-/// can sit inside the shepherd's home.
-pub(crate) fn call_policy(call: &AgentCall, unfenced: &[String]) -> Policy {
-    match &call.reach.fence {
-        Some(fence) => fence_policy(fence),
-        None => {
-            let no_read = CREDENTIALS.iter().map(|&p| p.to_owned());
-            let mut policy = Policy {
-                no_read: no_read.chain(unfenced.iter().cloned()).collect(),
-                ..Policy::default()
-            };
-            if !unfenced.is_empty() {
-                policy.read.push(call.cwd.clone());
-            }
-            policy
-        }
-    }
-}
-
-/// Lets a call that runs a work item's tests bind Unix sockets in `scratch`,
-/// the folder its `TMPDIR` names, where the tests make theirs
-///
-/// srt matches the real path, so `scratch` is resolved where it exists.
-pub(crate) fn bind_in_scratch(policy: &mut Policy, call: &AgentCall, scratch: &Path) {
-    if call.tools == Tools::Work {
-        let real = scratch.canonicalize();
-        policy
-            .socket_folders
-            .push(real.unwrap_or_else(|_| scratch.to_owned()));
-    }
-}
 
 /// The whole call's policy: its fence, or none, and what Claude Code itself needs
 ///
@@ -190,9 +90,7 @@ pub(crate) fn policy(
     );
     // The hook that hands the prompt back after a compaction reads it inside the sandbox.
     if call.compact_window.is_some() {
-        policy
-            .read
-            .push(super::settings::prompt_file(&call.settings));
+        policy.read.push(prompt_file(&call.settings));
     }
     // The servers run inside the call's sandbox, and the code graph keeps its index in its own folder.
     if crate::ports::mcp::loads(call) {
@@ -246,9 +144,10 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
-    use crate::adapters::{ClaudeCli, LoginToken, SandboxRuntime};
+    use crate::adapters::{Base, ClaudeCli, LoginToken, SandboxRuntime};
     use crate::ports::Ending;
     use crate::ports::{Agents, Role, Session, SessionId, Tools};
+    use crate::profile::CREDENTIALS;
     use crate::profile::WorkerProfile;
     use crate::settings::Effort;
     use crate::test::OpenSandbox;
@@ -333,9 +232,10 @@ mod tests {
         }
 
         fn cli(&self, sandbox: Arc<dyn crate::ports::Sandbox>) -> ClaudeCli {
-            ClaudeCli::with_program(self.path("claude"))
+            let base = Base::default()
                 .unfenced_unread(&self.path("shep"))
-                .sandboxed(sandbox, self.path("home"))
+                .sandboxed(sandbox, self.path("home"));
+            ClaudeCli::on(&base).with_program(self.path("claude"))
         }
     }
 

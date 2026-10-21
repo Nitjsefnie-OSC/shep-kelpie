@@ -11,9 +11,7 @@ use super::*;
 use crate::test::{Answer, OpenSandbox, StandInEndpoint};
 
 fn pi_in(world: &World, sandbox: &OpenSandbox) -> PiCli {
-    ClaudeCli::default()
-        .sandboxed(Arc::new(sandbox.clone()), world.path("home"))
-        .pi()
+    PiCli::on(&Base::default().sandboxed(Arc::new(sandbox.clone()), world.path("home")))
 }
 
 // A worker's session pi has written, resumed with nothing to say first.

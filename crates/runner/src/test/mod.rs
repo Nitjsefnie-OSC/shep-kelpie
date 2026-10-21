@@ -26,6 +26,7 @@ mod reads;
 mod registered_app;
 mod rig_settings;
 mod rig_totp;
+mod script_cli;
 
 // The stand-ins and helpers that name only `core` and the leaves, where `core`'s own tests use them
 pub use claude::{FakeClaude, LEFT_BEHIND, Scripted, Seen};
@@ -35,6 +36,7 @@ pub use reads::{
     source_folders, tools_refuse,
 };
 pub use registered_app::RegisteredApp;
+pub use script_cli::ScriptCli;
 pub use shep_kelpie_adapters::test::{
     Asked, DogStandIn, FakeGithub, FakeLeases, FakeReviewer, REVIEW_ID, ScriptedRound, SeenRound,
     SentReview, Told,

@@ -23,8 +23,8 @@ use serde::Deserialize;
 use crate::board::AGENT_LABEL;
 use crate::review_bot::BotReviewer;
 use crate::settings::{
-    AgentHarness, AgentName, Effort, Endpoint, GatewayName, Implementer, Limit, LocalCommand,
-    LocalRound, ModelHost, ModelServer, NonBlank, RoleAgents, RoleModel,
+    AgentName, Effort, Endpoint, GatewayName, Implementer, Limit, LocalCommand, LocalRound,
+    ModelHost, ModelServer, NonBlank, RoleAgents, RoleModel,
 };
 
 mod extends;
@@ -243,16 +243,11 @@ impl Runs {
     /// The gateway its model is behind, and the model's name there, if any
     pub fn gateway(&self) -> Option<(&GatewayName, &str)> {
         match self {
-            Self::Session { model, .. } => match &model.harness {
-                AgentHarness::Pi(ModelServer {
-                    host: ModelHost::Gateway(name),
-                    ..
-                })
-                | AgentHarness::Goose(ModelServer {
+            Self::Session { model, .. } => match model.harness.server() {
+                Some(ModelServer {
                     host: ModelHost::Gateway(name),
                     ..
                 }) => Some((name, model.model.as_str())),
-                // parity: harness.local-model
                 _ => None,
             },
             Self::Endpoint(Endpoint {

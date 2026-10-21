@@ -18,7 +18,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use crate::adapters::host::Host;
-use crate::adapters::{ClaudeCli, Curl, CurlGithub, Gh, LocalReviewer, Openssl, SystemHost};
+use crate::adapters::{Base, Curl, CurlGithub, Gh, LocalReviewer, Openssl, SystemHost};
 use crate::agents::Agents;
 use crate::coderabbit::CodeRabbit;
 use crate::flock;
@@ -305,11 +305,10 @@ pub fn main(args: &[String]) -> ExitCode {
             project: project.as_ref(),
             test_alert,
         };
-        let claude = ClaudeCli::default();
-        let meter = claude.meter();
-        let codex_meter = |codex_home: &Path| {
-            Box::new(claude.codex_meter(codex_home.to_owned())) as Box<dyn Meter>
-        };
+        let base = Base::default();
+        let meter = base.meter();
+        let codex_meter =
+            |codex_home: &Path| Box::new(base.codex_meter(codex_home.to_owned())) as Box<dyn Meter>;
         let github = AppTokens::new(
             Apps::under(&kelpie_home),
             Box::new(CurlGithub),

@@ -1,6 +1,6 @@
 # Design
 
-Kelpie: dog of the maintainer's shepherd; one runner per project takes ready issues off a board, workers build, PRs go through reviewers, CI, merge gate. Maintainer asked only via rulings.
+Kelpie: dog of the maintainer's shepherd; one runner per project takes ready issues off a board, workers build, PRs pass reviewers, CI, merge gate. Maintainer asked only via rulings.
 
 ## Always
 
@@ -15,8 +15,8 @@ Kelpie: dog of the maintainer's shepherd; one runner per project takes ready iss
 - Home never moved from `~/.kelpie`: refuses to start naming each old file, exit 78 (in `stop_exit_codes`, no restart into it). #311, #345
 - State file version 79 (`VERSION` in `crates/core/src/state/mod.rs`); each change one way: rollback means finishing or dropping open items first. `crates/core/src/state/removed/mod.rs`
 - Business code is Rust; Tauri GUI after MVP, until then run and watched from a Claude session. #5
-- Crates under `crates/` use nothing above them; the root package holds the binary and the verbs (`src/flock/`, `src/upgrade/`, `src/sheep/`, `src/doctor/`, `src/issues/`, `src/schema.rs`) and reaches every crate. ADR 0015
-- Never put budget numbers in agent prompts; never let a worker merge or post as the maintainer (see fence.md, github-app.md).
+- Crates under `crates/` use nothing above them; the root package holds the binary and the verbs (`src/{flock,upgrade,sheep,doctor,issues}/`, `src/schema.rs`) and reaches every crate. ADR 0015
+- No budget numbers in agent prompts; no worker merges or posts as the maintainer (fence.md, github-app.md).
 
 ## Files
 
@@ -31,6 +31,7 @@ Kelpie: dog of the maintainer's shepherd; one runner per project takes ready iss
 | compaction.md | when a session compacts, `worker.compact_window` per harness, `COMPACT` | `runner/compact/`, `adapters/pi/compact.rs`, `adapters/codex/context.rs`, `adapters/goose/compact.rs` |
 | skills.md | step skills, repo plugins, how harnesses load them | `core/skills/`, `adapters/skills.rs`, `runner/turn/` (`prepared`) |
 | agents.md | agent files, harnesses, gateways | `core/agents/`, `adapters/`, `core/settings/agents/`, `crates/process/src/spawn.rs` |
+| cli-adapter.md | a new CLI | `adapters/cli/` |
 | handover.md | in-flight turns handed to a new image, `upgrade` | `src/sheep/handover/mod.rs`, `runner/flight/carry/`, `adapters/process/adopt/`, `src/upgrade/handover.rs` |
 | waits-and-spend.md | a turn waiting for its model or host, spend by role | `runner/turn/unreachable/`, `adapters/unreachable/`, `adapters/codex/`, `core/usage/`, `core/settings/agents/` |
 | review.md | review, bots, rulings | `runner/review/`, `runner/ruling/`, `core/webhook.rs` |

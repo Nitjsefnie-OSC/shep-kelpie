@@ -23,9 +23,10 @@ use crate::ports::{
     AgentCall, AgentError, AgentReply, Agents, CallActivity, Ending, Role, SessionId, Transcript,
 };
 use crate::request_use::{self, Request};
-use crate::settings::{AgentHarness, Harness};
+use crate::settings::Harness;
 use crate::ticket::TicketId;
 use crate::tool_error::{self, ToolError};
+use crate::transcripts;
 
 /// Agents that count each call's MCP servers, tool calls and requests as it ends
 pub(super) struct TranscriptCount {
@@ -57,20 +58,16 @@ impl Format {
     // available and what it answers say which connected, and its tool calls are
     // counted as Claude Code's are.
     fn of(call: &AgentCall) -> Option<Self> {
-        // parity: harness.mcp-tool-calls, harness.mcp-failures, harness.request-usage,
-        // harness.tool-errors
-        match call.harness {
-            AgentHarness::ClaudeCode => Some(Self::Claude),
-            AgentHarness::Pi(_) => Some(Self::Pi),
-            _ => None,
-        }
+        Self::of_harness(call.harness.harness())
     }
 
     fn of_harness(harness: Harness) -> Option<Self> {
-        // parity: harness.request-usage, harness.tool-errors
-        match harness {
-            Harness::ClaudeCode => Some(Self::Claude),
-            Harness::Pi => Some(Self::Pi),
+        // parity: harness.mcp-tool-calls, harness.mcp-failures, harness.request-usage,
+        // harness.tool-errors
+        let facts = harness.facts();
+        match facts.transcript.filter(|_| facts.counts_calls) {
+            Some(transcripts::Format::Claude) => Some(Self::Claude),
+            Some(transcripts::Format::Pi) => Some(Self::Pi),
             _ => None,
         }
     }

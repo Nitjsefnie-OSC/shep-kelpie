@@ -32,7 +32,7 @@ use log::Started;
 use tail::Tail;
 
 pub(crate) use line::{Event as Said, Kind as SaidKind};
-pub(crate) use log::Format;
+pub use log::Format;
 
 /// What one line of a `format` transcript records, in the words the stream
 /// shows it

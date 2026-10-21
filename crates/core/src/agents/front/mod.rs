@@ -299,7 +299,7 @@ impl OnClaude {
         (who, why): (&str, &str),
     ) -> Result<Agent, String> {
         // parity: harness.issue-writer, harness.pm
-        if self.harness != Harness::ClaudeCode {
+        if !self.harness.facts().runs_claude_roles {
             let name = self.harness.as_str();
             return Err(at_key(
                 yaml,
@@ -498,38 +498,33 @@ const LEASE_GONE: &str = "kelpie holds no lock of its own on a GPU now, so `leas
      and leave `lease` out";
 
 fn role_model(keys: &SessionKeys<'_>) -> Result<RoleModel, String> {
+    let facts = keys.harness.facts();
     // parity: harness.tool-allow-list
-    if keys.tools.is_some() && keys.harness != Harness::ClaudeCode {
-        let name = keys.harness.as_str();
+    if keys.tools.is_some() && !facts.takes_tools {
         return Err(format!(
-            "runs on {name}, which takes no `tools`: only claude-code has an allow-list to name"
+            "runs on {}, which takes no `tools`: only claude-code has an allow-list to name",
+            facts.name
         ));
     }
-    let harness = match (keys.harness, &keys.host, keys.context) {
-        (Harness::ClaudeCode, None, None) => AgentHarness::ClaudeCode,
-        (Harness::ClaudeCode, ..) => {
-            return Err("runs on claude-code, which takes no `url`, `gateway` or `context`".into());
-        }
-        (Harness::Pi, Some(host), Some(context)) => {
-            AgentHarness::Pi(model_server("pi", host, context)?)
-        }
-        (Harness::Goose, Some(host), Some(context)) => {
-            AgentHarness::Goose(model_server("goose", host, context)?)
-        }
-        (Harness::Pi | Harness::Goose, ..) => {
+    let server = match (facts.needs_model_server, &keys.host, keys.context) {
+        (true, Some(host), Some(context)) => Some(model_server(facts.name, host, context)?),
+        (true, ..) => {
             return Err(format!(
                 "runs on {}, which needs the model's server as `url` or a \
                  `gateway`, and its context size as `context`",
-                keys.harness.as_str()
+                facts.name
             ));
         }
-        (Harness::Codex, None, None) => AgentHarness::Codex,
-        (Harness::Codex, ..) => {
-            return Err("runs on codex, which takes no `url`, `gateway` or `context`".into());
+        (false, None, None) => None,
+        (false, ..) => {
+            return Err(format!(
+                "runs on {}, which takes no `url`, `gateway` or `context`",
+                facts.name
+            ));
         }
-        #[cfg(any(test, feature = "test-support"))]
-        (Harness::StandIn, ..) => AgentHarness::StandIn,
     };
+    let harness = AgentHarness::on(keys.harness, server)
+        .ok_or_else(|| format!("runs on {}, which cannot take that server", facts.name))?;
     Ok(RoleModel {
         model: keys.model.clone(),
         effort: keys.effort,
@@ -562,13 +557,9 @@ fn model_server(
 /// The reader must be the harness's own: an agent on Claude Code spends
 /// the Claude account whatever its `usage` says.
 fn limit(keys: &SessionKeys<'_>) -> Result<Limit, String> {
-    let own = match keys.harness {
-        Harness::ClaudeCode => UsageReader::Claude,
-        Harness::Pi | Harness::Goose => UsageReader::None,
-        Harness::Codex => UsageReader::Codex,
-        #[cfg(any(test, feature = "test-support"))]
-        Harness::StandIn => keys.usage.unwrap_or(UsageReader::Claude),
-    };
+    let own = (keys.harness.facts().usage)
+        .or(keys.usage)
+        .unwrap_or(UsageReader::Claude);
     let usage = keys.usage.unwrap_or(own);
     if usage != own {
         return Err(format!(

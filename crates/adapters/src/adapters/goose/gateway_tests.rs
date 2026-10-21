@@ -40,9 +40,7 @@ fn goose_of_kind(
     stdout: &str,
     code: u8,
 ) -> GooseCli {
-    ClaudeCli::default()
-        .sandboxed(Arc::new(OpenSandbox::default()), world.path("home"))
-        .goose()
+    GooseCli::on(&Base::default().sandboxed(Arc::new(OpenSandbox::default()), world.path("home")))
         .with_program(script(world, stdout, "", code))
         .with_gateways(gateways(server.host(), kind))
 }

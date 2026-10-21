@@ -10,8 +10,7 @@ fn a_workers_scratch_folder_is_where_it_may_bind_sockets_and_a_reviewers_is_not(
     let w = World::new();
     let socket = w.path("forwarder.sock");
     let reviewer = w.call(URL, Role::Reviewer, Session::New(id(FRESH_ID)));
-    let upstream = ClaudeCli::default()
-        .pi()
+    let upstream = PiCli::on(&Base::default())
         .upstream(server(&reviewer).unwrap())
         .unwrap();
     let policy = |call: &AgentCall| {

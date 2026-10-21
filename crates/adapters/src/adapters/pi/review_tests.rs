@@ -59,8 +59,7 @@ fn a_pi_reviewer_asked_for_tests_gets_write_and_the_guard() {
     assert_eq!(checks["confine"], json!(["confine", folder, folder]));
 
     let socket = w.path("forwarder.sock");
-    let upstream = ClaudeCli::default()
-        .pi()
+    let upstream = PiCli::on(&Base::default())
         .upstream(server(&call).unwrap())
         .unwrap();
     let policy = policy(&call, &Files::of(&call), &upstream, &socket, &[]);

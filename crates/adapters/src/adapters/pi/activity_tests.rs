@@ -33,7 +33,7 @@ fn call(world: &World) -> AgentCall {
 }
 
 fn pi() -> PiCli {
-    ClaudeCli::default().pi()
+    PiCli::on(&Base::default())
 }
 
 // Writes `text` as the call's stdout file, last written at `WRITTEN`.

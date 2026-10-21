@@ -10,7 +10,7 @@ use std::process::Command;
 
 use super::super::super::{Hooks, JOIN_BOUND, Worker};
 use super::*;
-use crate::adapters::ClaudeCli;
+use crate::adapters::{Base, ClaudeCli};
 use crate::test::{CALL_PATIENCE, OpenSandbox, waits_for, write_script};
 
 const IMAGE: &str = "sheep::handover::tests::exec::an_image_of_the_runner";
@@ -76,9 +76,11 @@ pub(super) fn write(folder: &Path, name: &str, text: &str) {
     std::fs::write(folder.join(name), text).unwrap();
 }
 
-fn agents(rig: &Rig, folder: &Path) -> ClaudeCli {
-    ClaudeCli::with_program(folder.join("claude"))
-        .sandboxed(Arc::new(OpenSandbox::default()), rig.home.path().to_owned())
+fn agents(rig: &Rig, folder: &Path) -> (Base, ClaudeCli) {
+    let base =
+        Base::default().sandboxed(Arc::new(OpenSandbox::default()), rig.home.path().to_owned());
+    let claude = ClaudeCli::on(&base).with_program(folder.join("claude"));
+    (base, claude)
 }
 
 pub(super) fn worker_of(
@@ -108,10 +110,10 @@ fn outgoing(folder: &Path) {
         waits_for(&folder.join("go"), CALL_PATIENCE)
     );
     write_script(&folder.join("claude"), &script);
-    let claude = agents(&rig, folder);
-    let runner = Arc::new(rig.open_agents(Arc::new(claude.clone())).unwrap());
+    let (base, claude) = agents(&rig, folder);
+    let runner = Arc::new(rig.open_agents(Arc::new(claude)).unwrap());
     rig.ask(&runner, "add", Some("7"));
-    let handing = Handing::installed_unchecked(claude);
+    let handing = Handing::installed_unchecked(base);
     let (_worker, wake) = worker_of(&runner, Arc::clone(&handing));
     eventually("the turn's child", || folder.join("started").exists());
     write(folder, "pid.before", &std::process::id().to_string());
@@ -124,7 +126,7 @@ fn outgoing(folder: &Path) {
 fn incoming(folder: &Path, carry: Carry) {
     write(folder, "pid.after", &std::process::id().to_string());
     let rig = Rig::over("shep", Path::new(read(folder, "home").trim()));
-    let runner = Arc::new(rig.open_agents(Arc::new(agents(&rig, folder))).unwrap());
+    let runner = Arc::new(rig.open_agents(Arc::new(agents(&rig, folder).1)).unwrap());
     let (wake, woken) = mpsc::channel();
     {
         let mut runner = runner.lock().unwrap();

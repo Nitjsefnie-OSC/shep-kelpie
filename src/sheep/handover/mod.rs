@@ -27,7 +27,7 @@ use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 use shep_handover::{Handover, State, Verdict};
 
-use crate::adapters::{ClaudeCli, ShepLeases};
+use crate::adapters::{Base, ShepLeases};
 use crate::home::Build;
 use crate::lease::Epoch;
 use crate::lease::saved::BookFile;
@@ -176,22 +176,21 @@ pub(super) struct Handing {
 
 impl Handing {
     /// The handover to the installed build, held while a child's stdin is
-    /// written and with `claude`'s calls kept from ending while it is made
-    pub(super) fn installed(claude: ClaudeCli) -> Arc<Self> {
-        Self::installed_with(claude, true)
+    /// written and with the calls kept from ending while it is made
+    pub(super) fn installed(base: Base) -> Arc<Self> {
+        Self::installed_with(base, true)
     }
 
     /// The same, with a test's image as the target, which cannot be asked to
     /// start as a runner
     #[cfg(test)]
-    pub(super) fn installed_unchecked(claude: ClaudeCli) -> Arc<Self> {
-        Self::installed_with(claude, false)
+    pub(super) fn installed_unchecked(base: Base) -> Arc<Self> {
+        Self::installed_with(base, false)
     }
 
-    fn installed_with(claude: ClaudeCli, check: bool) -> Arc<Self> {
+    fn installed_with(base: Base, check: bool) -> Arc<Self> {
         let seal: Seal = Box::new(move || {
-            claude
-                .seal()
+            base.seal()
                 .map(|sealed| Box::new(sealed) as Box<dyn Any + Send>)
         });
         Self::with(
