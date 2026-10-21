@@ -6,7 +6,7 @@ Review passes, bots, rulings. CI and the merge are in merge.md.
 
 - One pass when CI green on draft head: `agents.reviewers` in order, each once; no loop or judge (the gains come early). ADR 0006, ADR 0008, `runner/review/`
 - Any finding, nits included, goes to one fix turn; next reviewer reads the fix (skipped nits left open threads). Nit-only fix starts nothing new; bot nits on a head it read stay open. ADR 0007, #354
-- A round waits for CI on its head (red costs no read or window); `doctor` names CI that skips drafts. #423
+- A round waits for CI on its head (red costs no read or window); `doctor` names CI that skips drafts. #423. Where the work item adopted a released contribution, the red run's fix turn also gets the representative's one comment saying kelpie is on it (`contributions.md`). #635
 - A contribution's head gets its held runs approved only after the security review, CI in `contributions[].ci`, and no reviewer reads it before `green` (ADR 0008); one pass of `contributions.reviewers` records findings, posting none. A released one's work item runs the full `agents.reviewers` pass (`contribution-release.md`). #622, #623, #634
 - Pass restarts only on a new head that needs it (merge `rework`, accepted foreign change, rework). ADR 0006
 - Merge ruling `no <note>` = fix turn back to the ruling, no new pass; restarts pass only after unread/open-thread warning. #354

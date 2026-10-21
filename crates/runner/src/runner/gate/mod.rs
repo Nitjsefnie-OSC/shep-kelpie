@@ -280,7 +280,12 @@ impl Runner {
             Step::CiFix,
             &red_prompt(number, &head, &checks, &help, repeated),
         );
-        self.back_to_worker(number, head, checks, prompt, true, review)
+        // The fix turn is saved before the contributor is told, so a restart
+        // does not tell them twice.
+        let begin =
+            self.back_to_worker(number, head.clone(), checks.clone(), prompt, true, review)?;
+        self.tell_of_fix(number, &head, &checks);
+        Ok(begin)
     }
 
     // The failure becomes the worker's next turn, and this head is marked red
