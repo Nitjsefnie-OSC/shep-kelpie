@@ -154,6 +154,7 @@ mod tests {
 
     use super::super::tests::{FRESH, FRESH_ID, URL, World, id, stand_in, strings};
     use super::*;
+    use crate::adapters::{Base, PiCli};
     use crate::ports::{Agents, Session};
 
     const ROLES: [Role; 6] = [
@@ -246,8 +247,7 @@ mod tests {
     #[test]
     fn no_other_call_loads_the_package_or_gets_its_host() {
         let w = World::new();
-        let upstream = crate::adapters::claude::ClaudeCli::default()
-            .pi()
+        let upstream = PiCli::on(&Base::default())
             .upstream(
                 super::super::server(&w.call(URL, Role::Reviewer, Session::New(id(FRESH_ID))))
                     .unwrap(),
@@ -315,8 +315,7 @@ mod tests {
 
         // The call may read its home, not write the file.
         let policy = {
-            let upstream = crate::adapters::claude::ClaudeCli::default()
-                .pi()
+            let upstream = PiCli::on(&Base::default())
                 .upstream(super::super::server(&call).unwrap())
                 .unwrap();
             let files = super::super::Files::of(&call);

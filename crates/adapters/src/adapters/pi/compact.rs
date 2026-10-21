@@ -14,7 +14,8 @@ use std::process::Output;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use super::{PI, StepSkill, failed, step_skill, tail};
+use super::{PI, failed};
+use crate::adapters::harness::{StepSkill, step_skill, tail};
 use crate::ports::{AgentCall, AgentError, AgentReply, SessionId, Usage};
 
 /// What a compact call sends in place of `COMPACT`

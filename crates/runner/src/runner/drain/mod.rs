@@ -92,6 +92,14 @@ pub enum CallRole {
     CodexSession,
 }
 
+// The role a session open in the maintainer's terminal runs as, for each
+// harness whose facts have a handover wait for it.
+const ATTACHED: [(Harness, CallRole); 3] = [
+    (Harness::Pi, CallRole::PiSession),
+    (Harness::Goose, CallRole::GooseSession),
+    (Harness::Codex, CallRole::CodexSession),
+];
+
 impl Runner {
     /// Starts no new call from now until a restart or [`Runner::undrain`]
     ///
@@ -231,15 +239,12 @@ impl Runner {
             .max(triaging.unwrap_or(0))
             .max(retro.unwrap_or(0))
             .max(panel.unwrap_or(0));
-        let attached_on = |harness, role| {
+        let attached = ATTACHED.into_iter().flat_map(|(harness, role)| {
             (self.sessions_attached_on(harness).into_iter()).map(move |issue| CallRunning {
                 issue: Some(issue),
                 role,
             })
-        };
-        let attached = attached_on(Harness::Pi, CallRole::PiSession)
-            .chain(attached_on(Harness::Goose, CallRole::GooseSession))
-            .chain(attached_on(Harness::Codex, CallRole::CodexSession));
+        });
         let at_tool = (self.state.work_items.iter())
             .filter(|item| self.flights.runs_turn(item.issue))
             .filter(|item| Pause::in_build(&item.build).is_requested())

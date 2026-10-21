@@ -10,7 +10,7 @@ use std::path::Path;
 use std::process::Stdio;
 
 use crate::ports::{AgentCall, Reach, Role, Session, Severity, Tools};
-use crate::settings::{CLAUDE_REVIEW_TOOLS, Harness, RoleModel};
+use crate::settings::{CLAUDE_REVIEW_TOOLS, RoleModel};
 use crate::ticket::TicketId;
 use crate::work_item::new_session_id;
 
@@ -38,7 +38,7 @@ pub(super) fn reviewer_call(
         // `agent_tools` is Claude's tool list, which pi ignores: its own tools
         // follow the reach's write folder.
         // parity: harness.tool-allow-list
-        if model.harness.harness() == Harness::ClaudeCode {
+        if model.harness.harness().facts().takes_tools {
             let own = call.agent_tools.as_deref().unwrap_or(CLAUDE_REVIEW_TOOLS);
             call.agent_tools = Some(format!("{own},Write"));
         }

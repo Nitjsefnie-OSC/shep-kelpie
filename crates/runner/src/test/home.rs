@@ -27,7 +27,7 @@ impl Rig {
             e2e: FakeE2e::default(),
             pages: FakePages::default(),
             bridges: super::FakeBridges::default(),
-            harness_mcp: Mutex::new(Arc::new(crate::adapters::HarnessFacts)),
+            harness_mcp: Mutex::new(Arc::new(crate::adapters::McpRules)),
             samples: super::RecordedSink::default(),
             classifier: FakeClassifier::new(),
             github: FakeGithub::new(clock.clone(), "shep-pm"),

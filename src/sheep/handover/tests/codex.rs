@@ -10,8 +10,9 @@ use std::process::Command;
 use super::super::super::{Hooks, JOIN_BOUND, Worker};
 use super::exec::{FOLDER, read, worker_of, write};
 use super::*;
-use crate::adapters::ClaudeCli;
-use crate::ports::Routed;
+use crate::adapters::{Base, CodexCli};
+use crate::ports::{Agents, Routed};
+use crate::settings::Harness;
 use crate::test::{OpenSandbox, waits_for, write_script};
 
 const IMAGE: &str = "sheep::handover::tests::codex::an_image_of_the_runner";
@@ -94,20 +95,19 @@ fn codex_script(folder: &Path) {
     write_script(&folder.join("codex"), &script);
 }
 
-fn agents(rig: &Rig, folder: &Path) -> (ClaudeCli, Arc<Routed>) {
-    let claude = ClaudeCli::default()
-        .sandboxed(Arc::new(OpenSandbox::default()), rig.home.path().to_owned());
-    let codex = claude
-        .codex(rig.home.path().join("login"))
-        .with_program(folder.join("codex"));
-    let stand_in = Arc::new(rig.claude.clone());
-    let routed = Routed::new(
-        stand_in.clone(),
-        stand_in.clone(),
-        Arc::new(codex),
-        stand_in,
-    );
-    (claude, Arc::new(routed))
+fn agents(rig: &Rig, folder: &Path) -> (Base, Arc<Routed>) {
+    let base =
+        Base::default().sandboxed(Arc::new(OpenSandbox::default()), rig.home.path().to_owned());
+    let codex =
+        CodexCli::on(&base, rig.home.path().join("login")).with_program(folder.join("codex"));
+    let stand_in: Arc<dyn Agents> = Arc::new(rig.claude.clone());
+    let routed = Routed::new(vec![
+        (Harness::ClaudeCode, stand_in.clone()),
+        (Harness::Pi, stand_in.clone()),
+        (Harness::Codex, Arc::new(codex)),
+        (Harness::Goose, stand_in),
+    ]);
+    (base, Arc::new(routed))
 }
 
 fn rig_for(rig: &Rig) {
@@ -122,10 +122,10 @@ fn outgoing(folder: &Path) {
     write(folder, "home", &rig.home.path().display().to_string());
     rig_for(&rig);
     codex_script(folder);
-    let (claude, routed) = agents(&rig, folder);
+    let (base, routed) = agents(&rig, folder);
     let runner = Arc::new(rig.open_agents(routed).unwrap());
     rig.ask(&runner, "add", Some("7"));
-    let handing = Handing::installed_unchecked(claude);
+    let handing = Handing::installed_unchecked(base);
     let (_worker, wake) = worker_of(&runner, Arc::clone(&handing));
     eventually("the turn's child", || folder.join("started").exists());
     write(folder, "pid.before", &std::process::id().to_string());
@@ -138,7 +138,7 @@ fn outgoing(folder: &Path) {
 fn incoming(folder: &Path, carry: Carry) {
     write(folder, "pid.after", &std::process::id().to_string());
     let rig = Rig::over("shep", Path::new(read(folder, "home").trim()));
-    let (_claude, routed) = agents(&rig, folder);
+    let (_base, routed) = agents(&rig, folder);
     let runner = Arc::new(rig.open_agents(routed).unwrap());
     let (wake, woken) = mpsc::channel();
     {
@@ -177,7 +177,7 @@ fn a_codex_turn_whose_record_is_gone_refuses_the_handover_and_the_old_image_keep
     let rig = Rig::new("shep");
     rig_for(&rig);
     codex_script(folder);
-    let (_claude, routed) = agents(&rig, folder);
+    let (_base, routed) = agents(&rig, folder);
     let runner = Arc::new(rig.open_agents(routed).unwrap());
     rig.ask(&runner, "add", Some("7"));
     let (handing, tried) = refusing("unused", &Arc::default());

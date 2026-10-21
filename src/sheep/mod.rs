@@ -22,9 +22,9 @@ use std::time::Duration;
 use shep_handover::Arrival;
 
 use crate::adapters::{
-    ClaudeCli, Curl, CurlGithub, DogE2e, DoorPace, Etags, GatewayClassifier, Gh, GhApps, GpuCurl,
-    HarnessFacts, LocalReviewer, LoginToken, Openssl, PlaywrightBridges, PlaywrightPages,
-    ShepLeases, ShepherdSink, StatDisk, SystemGit, stop_calls,
+    Base, ClaudeCli, CodexCli, Curl, CurlGithub, DogE2e, DoorPace, Etags, GatewayClassifier, Gh,
+    GhApps, GooseCli, GpuCurl, LocalReviewer, LoginToken, McpRules, Openssl, PiCli,
+    PlaywrightBridges, PlaywrightPages, ShepLeases, ShepherdSink, StatDisk, SystemGit, stop_calls,
 };
 use crate::coderabbit::CodeRabbit;
 use crate::codex::Codex;
@@ -37,7 +37,7 @@ use crate::lease::saved::BookFile;
 use crate::lease::wire::GRANT;
 use crate::ports::{Forge, Leases, Ports, Revalidated, Routed, SandboxError, SystemClock, Tickets};
 use crate::runner::{ACTIONS, Pass, Posted, Runner, advance, answer, wakes};
-use crate::settings::Settings;
+use crate::settings::{Harness, Settings};
 use crate::shep_home;
 use crate::shepherd::{self, Dial, Socket};
 use crate::upgrade::restart::{Interrupt, Patience};
@@ -196,15 +196,14 @@ fn serve(project: &str, arrival: Option<Arrival<Carry>>) -> Result<(), Exit> {
     crate::spawn::hide(gateways.key_vars());
     // The runner's `env` holds the token `claude` logs in with, for `claude` alone.
     let login = LoginToken::take();
-    let claude = ClaudeCli::labelling(Arc::new(shepherd.clone()))
+    let base = Base::labelling(Arc::new(shepherd.clone()))
         .in_runtime(
             paths.tools.clone(),
             home.clone(),
             &codex_home,
             gateways.key_vars(),
         )
-        .unfenced_unread(&shep_home)
-        .with_login(login);
+        .unfenced_unread(&shep_home);
     let reviewer = LocalReviewer::default().with_gateways(gateways.clone());
     let epoch = Epoch(u64::from(std::process::id()));
     let book = BookFile::new(kelpie_home.join(crate::dog::BOOK));
@@ -228,19 +227,31 @@ fn serve(project: &str, arrival: Option<Arrival<Carry>>) -> Result<(), Exit> {
     })?;
     let gh = Arc::new(Gh::new(etags));
     let ports = Ports {
-        agents: Arc::new(Routed::new(
-            Arc::new(claude.clone()),
-            Arc::new(claude.pi().with_gateways(gateways.clone())),
-            Arc::new(claude.codex(codex_home.clone())),
-            Arc::new(claude.goose().with_gateways(gateways)),
-        )),
+        agents: Arc::new(Routed::new(vec![
+            (
+                Harness::ClaudeCode,
+                Arc::new(ClaudeCli::on(&base).with_login(login)),
+            ),
+            (
+                Harness::Pi,
+                Arc::new(PiCli::on(&base).with_gateways(gateways.clone())),
+            ),
+            (
+                Harness::Codex,
+                Arc::new(CodexCli::on(&base, codex_home.clone())),
+            ),
+            (
+                Harness::Goose,
+                Arc::new(GooseCli::on(&base).with_gateways(gateways)),
+            ),
+        ])),
         forge: Arc::clone(&gh) as Arc<dyn Forge>,
         tickets: Arc::clone(&gh) as Arc<dyn Tickets>,
         app_reads: Some(Arc::new(app_reads)),
         revalidated,
         voice: Arc::new(AppVoice::new(app_tokens, Box::new(CurlGithub))),
-        meter: Box::new(claude.meter()),
-        codex_meter: Box::new(claude.codex_meter(codex_home)),
+        meter: Box::new(base.meter()),
+        codex_meter: Box::new(base.codex_meter(codex_home)),
         reviewer: Arc::new(reviewer.clone()),
         git: Arc::new(SystemGit),
         gpu: Arc::new(GpuCurl),
@@ -248,12 +259,12 @@ fn serve(project: &str, arrival: Option<Arrival<Carry>>) -> Result<(), Exit> {
         local_leases: Arc::new(reviewer.clone()),
         review_bots: vec![Arc::new(CodeRabbit), Arc::new(Cubic), Arc::new(Codex)],
         alerts: Arc::new(Curl),
-        test_runner: Arc::new(claude.test_runner()),
-        dev_servers: Arc::new(claude.dev_servers()),
+        test_runner: Arc::new(base.test_runner()),
+        dev_servers: Arc::new(base.dev_servers()),
         e2e_runner: Arc::new(DogE2e),
         pages: Arc::new(PlaywrightPages),
         bridges: Arc::new(PlaywrightBridges),
-        harness_mcp: Arc::new(HarnessFacts),
+        harness_mcp: Arc::new(McpRules),
         leases: Arc::clone(&leases) as Arc<dyn Leases>,
         metrics: Arc::new(ShepherdSink::new(shepherd.clone())),
         classifier: Arc::new(GatewayClassifier),
@@ -295,7 +306,7 @@ fn serve(project: &str, arrival: Option<Arrival<Carry>>) -> Result<(), Exit> {
         runner.wake_with(wake.clone());
         runner.adopt_calls(arrival.state.into_turns());
     }
-    let handover = Handing::installed(claude.clone());
+    let handover = Handing::installed(base.clone());
     let asked = wake.clone();
     let handing = Arc::clone(&handover);
     shepherd.on_action(handover::ACTION, move |_, _| handing.ask(&asked));
@@ -343,7 +354,7 @@ fn serve(project: &str, arrival: Option<Arrival<Carry>>) -> Result<(), Exit> {
     // gets SIGTERM, shep's stop ends what is left once the runner exits, and
     // each work item's turn resumes from its session on restart.
     let why = stopped.recv();
-    let let_go = worker.stop(JOIN_BOUND, || stop_calls(&claude, &reviewer));
+    let let_go = worker.stop(JOIN_BOUND, || stop_calls(&base, &reviewer));
     // Their ends will not be heard now, and a pass that did not let go
     // still holds the runner's lock, which this needs none of.
     let stopped = stopping.record(crate::ports::Clock::now(&SystemClock));

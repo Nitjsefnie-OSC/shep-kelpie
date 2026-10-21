@@ -8,6 +8,7 @@ use super::tests::{FRESH_ID, URL, World, id};
 use super::web::SEARCH_HOST;
 use super::*;
 use crate::adapters::SandboxRuntime;
+use crate::ports::Sandbox;
 use crate::tools::{GOOSE_WEB_SERVER, Tools as KelpieTools};
 
 const NEEDS: &str = "needs kelpie's tools: KELPIE_TOOLS=<dir> from `shep kelpie tools install`";
@@ -32,8 +33,7 @@ fn a_researchers_fetch_reaches_only_the_hosts_its_policy_lists() {
     )]
     .into();
     call.reach.fence.as_mut().unwrap().hosts = vec!["example.com".to_owned()];
-    let upstream = ClaudeCli::default()
-        .goose()
+    let upstream = GooseCli::on(&Base::default())
         .upstream(server(&call).unwrap())
         .unwrap();
     let forwarder = Forwarder::open(call.settings.parent().unwrap(), upstream).unwrap();
@@ -72,8 +72,7 @@ fn a_researchers_fetch_reaches_only_the_hosts_its_policy_lists() {
 // `env` first, since the sandbox sets its own `no_proxy`.
 fn curl(world: &World, call: &AgentCall, forwarder: &Forwarder, args: &[&str]) -> Output {
     let tools = KelpieTools::at(std::env::var("KELPIE_TOOLS").expect(NEEDS).into());
-    let upstream = ClaudeCli::default()
-        .goose()
+    let upstream = GooseCli::on(&Base::default())
         .upstream(server(call).unwrap())
         .unwrap();
     let policy = policy(

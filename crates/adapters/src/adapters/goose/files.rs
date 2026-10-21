@@ -3,6 +3,7 @@
 use std::path::{Path, PathBuf};
 
 use super::output::Spent;
+use crate::adapters::harness::Records;
 use crate::ports::{AgentError, SessionId};
 
 /// The files one call keeps beside its settings path
@@ -67,69 +68,31 @@ impl Files {
     /// The tokens goose's session `id` had spent when its last call ended, or
     /// `None` when kelpie never started that session
     pub(super) fn spent(&self, id: &SessionId) -> Result<Option<Spent>, AgentError> {
-        let path = self.spent_file(id)?;
-        let text = match std::fs::read_to_string(&path) {
-            Ok(text) => text,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-            Err(e) => return Err(setup("read", &path, e)),
-        };
-        serde_json::from_str(&text)
-            .map(Some)
-            .map_err(|e| AgentError::Setup(format!("cannot read {}: {e}", path.display())))
+        self.totals().get(id)
     }
 
     /// Notes that session `id` has spent `spent` so far
     pub(super) fn keep(&self, id: &SessionId, spent: Spent) -> Result<(), AgentError> {
-        let path = self.spent_file(id)?;
-        let folder = self.root.join("spent");
-        std::fs::create_dir_all(&folder).map_err(|e| setup("write", &folder, e))?;
-        let text = serde_json::to_string(&spent).expect("token counts are JSON");
-        std::fs::write(&path, text).map_err(|e| setup("write", &path, e))
+        self.totals().put(id, &spent)
     }
 
     /// The keys of the MCP servers session `id` was created with, or `None` when kelpie never
     /// recorded any for it
     pub(super) fn servers(&self, id: &SessionId) -> Result<Option<Vec<String>>, AgentError> {
-        let path = self.servers_file(id)?;
-        let text = match std::fs::read_to_string(&path) {
-            Ok(text) => text,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-            Err(e) => return Err(setup("read", &path, e)),
-        };
-        serde_json::from_str(&text)
-            .map(Some)
-            .map_err(|e| AgentError::Setup(format!("cannot read {}: {e}", path.display())))
+        self.created_with().get(id)
     }
 
     /// Notes that session `id` was created with the servers `keys`
     pub(super) fn keep_servers(&self, id: &SessionId, keys: &[String]) -> Result<(), AgentError> {
-        let path = self.servers_file(id)?;
-        let folder = self.root.join("servers");
-        std::fs::create_dir_all(&folder).map_err(|e| setup("write", &folder, e))?;
-        let text = serde_json::to_string(keys).expect("keys are JSON");
-        std::fs::write(&path, text).map_err(|e| setup("write", &path, e))
+        self.created_with().put(id, &keys.to_vec())
     }
 
-    fn servers_file(&self, id: &SessionId) -> Result<PathBuf, AgentError> {
-        Ok(self
-            .spent_file(id)?
-            .parent()
-            .and_then(Path::parent)
-            .expect("the spent file is two folders under the root")
-            .join("servers")
-            .join(format!("{}.json", id.0)))
+    fn totals(&self) -> Records<Spent> {
+        Records::in_folder(self.root.join("spent"))
     }
 
-    fn spent_file(&self, id: &SessionId) -> Result<PathBuf, AgentError> {
-        let plain = !id.0.is_empty()
-            && (id.0.chars()).all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
-        if !plain {
-            return Err(AgentError::Setup(format!(
-                "{} is not a session id kelpie makes",
-                id.0
-            )));
-        }
-        Ok(self.root.join("spent").join(format!("{}.json", id.0)))
+    fn created_with(&self) -> Records<Vec<String>> {
+        Records::in_folder(self.root.join("servers"))
     }
 }
 

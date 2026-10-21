@@ -38,7 +38,7 @@ fn names(folder: &Path) -> Vec<String> {
 }
 
 pub(super) fn env_vars(call: &AgentCall) -> Vec<String> {
-    let goose = ClaudeCli::default().goose();
+    let goose = GooseCli::on(&Base::default());
     let server = server(call).unwrap();
     let upstream = goose.upstream(server).unwrap();
     let files = Files::of(&call.settings);
@@ -47,7 +47,7 @@ pub(super) fn env_vars(call: &AgentCall) -> Vec<String> {
 }
 
 pub(super) fn policy_of(w: &World, call: &AgentCall) -> Policy {
-    let goose = ClaudeCli::default().goose();
+    let goose = GooseCli::on(&Base::default());
     let upstream = goose.upstream(server(call).unwrap()).unwrap();
     let files = Files::of(&call.settings);
     policy(call, &files, &upstream, &w.path("forwarder.sock"), &[])

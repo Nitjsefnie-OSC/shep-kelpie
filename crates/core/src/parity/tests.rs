@@ -42,6 +42,18 @@ fn every_row_has_a_cell_for_each_provider_and_evidence_for_each_it_lacks() {
     assert!(matrix.problems.is_empty(), "{}", matrix.problems.join("\n"));
 }
 
+// The `Cli` methods in which an adapter says what `CliAdapter` does for `method`
+// of `Agents`. A terminal session's end also drops the forwarder of a CLI on a
+// model server, which `CliAdapter` holds.
+fn cli_hooks(method: &str) -> Vec<&str> {
+    match method {
+        "adoption" | "adopt" => vec!["parse_adopted"],
+        "foreground" => vec!["command"],
+        "foreground_ended" => vec!["ended"],
+        other => vec![other],
+    }
+}
+
 #[test]
 fn every_agents_default_is_a_harness_row_whose_cells_match_the_adapters() {
     let matrix = read_matrix();
@@ -60,11 +72,16 @@ fn every_agents_default_is_a_harness_row_whose_cells_match_the_adapters() {
             continue;
         };
         for (provider, cell) in &row.cells {
+            let hooks = cli_hooks(&method);
             let overrides = adapter_files(provider).iter().any(|f| {
-                code_lines(f)
-                    .iter()
-                    .any(|l| l.trim_start().starts_with(&format!("fn {method}(")))
-            });
+                code_lines(f).iter().any(|l| {
+                    let l = l.trim_start();
+                    hooks
+                        .iter()
+                        .any(|hook| l.starts_with(&format!("fn {hook}(")))
+                })
+            }) || (method == "foreground_ended"
+                && harness(provider).facts().needs_model_server);
             if overrides != (*cell == Cell::Yes) {
                 let has = if overrides {
                     "overrides"

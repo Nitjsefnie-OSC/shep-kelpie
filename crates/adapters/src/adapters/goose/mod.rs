@@ -23,31 +23,33 @@
 //! gateway's lease on its model from start to end, where its kind offers one.
 
 use std::ffi::OsString;
-use std::path::Path;
-use std::process::Command;
-use std::sync::Arc;
+use std::path::PathBuf;
+use std::process::{Command, Output};
 
 use self::files::Files;
 use self::output::Spent;
-use super::claude::sandbox::{bind_in_scratch, call_policy};
-use super::claude::{ClaudeCli, LambLabels};
-use super::forwarder::Forwarder;
-use super::pi::adopt::{Carried, kept_server};
-use super::pi::deny_the_server;
+use super::cli::{Cli, CliAdapter, FollowUp, Launch, Turn};
+use super::harness::{Base, bind_in_scratch, call_policy};
 use super::process::record::CallFiles;
-use super::process::{Processes, RunError};
 use crate::fence;
-use crate::forwarder::{Upstream, WORKER_HOST};
+use crate::forwarder::Upstream;
 use crate::guard::READ_ONLY_COMMANDS;
 use crate::ports::{
-    Adopted, AgentCall, AgentError, AgentReply, Agents, COMPACT, CallActivity, Ending, Forward,
-    Kept, Policy, Role, Sandbox, Session, SessionId, Stand, Taking, Tools, Transcript, Unheld,
-    Wait,
+    Adopted, AgentCall, AgentError, AgentReply, COMPACT, CallActivity, Policy, Role, Session,
+    Tools, Transcript,
 };
-use crate::settings::{AgentHarness, Gateways, Harness, ModelHost, ModelServer};
+use crate::settings::{Harness, ModelServer};
+
+// What the module's tests take from it by glob.
+#[cfg(test)]
+use {
+    super::forwarder::Forwarder,
+    crate::ports::{Agents, Ending, Forward},
+    crate::settings::{AgentHarness, Gateways, ModelHost},
+    std::path::Path,
+};
 
 mod activity;
-mod adopt;
 mod attach;
 mod compact;
 mod files;
@@ -119,62 +121,90 @@ const CONTEXT_FILES: [&str; 2] = ["AGENTS.md", "CLAUDE.md"];
 /// `--no-profile` says
 const PROJECT_FILES: [&str; 2] = [".agents/plugins", ".config/goose"];
 
+/// goose's own part of a call
+#[derive(Debug, Clone)]
+pub struct Goose {
+    program: OsString,
+    // What a call with no fence may not read, besides its own folder
+    unfenced_no_read: Vec<String>,
+}
+
 /// Headless goose, one `goose run` process per call, each inside the sandbox
 ///
 /// It shares Claude Code's calls in flight, so stopping either stops both.
-#[derive(Debug, Clone)]
-pub struct GooseCli {
-    processes: Processes,
-    program: OsString,
-    lambs: Option<Arc<dyn LambLabels>>,
-    sandbox: Arc<dyn Sandbox>,
-    // What a call with no fence may not read: the shepherd's home
-    unfenced_no_read: Vec<String>,
-    gateways: Gateways,
-    // What each running call keeps in memory that a handover must carry
-    carried: Carried,
-    // The forwarder of each terminal session, until its end
-    terminals: attach::Terminals,
-}
-
-impl ClaudeCli {
-    /// goose, run the way this runs Claude Code: same sandbox, same lamb
-    /// labels, and stopped with it
-    pub fn goose(&self) -> GooseCli {
-        GooseCli {
-            processes: self.processes.clone(),
-            program: "goose".into(),
-            lambs: self.lambs.clone(),
-            sandbox: Arc::clone(&self.sandbox),
-            unfenced_no_read: self.unfenced_no_read.clone(),
-            gateways: Gateways::default(),
-            carried: Carried::default(),
-            terminals: attach::Terminals::default(),
-        }
-    }
-}
+pub type GooseCli = CliAdapter<Goose>;
 
 impl GooseCli {
-    /// Sends a model behind a gateway through `gateways`
-    pub fn with_gateways(self, gateways: Gateways) -> Self {
-        Self { gateways, ..self }
+    /// goose on `base`: its sandbox, lamb labels and calls in flight
+    pub fn on(base: &Base) -> Self {
+        let goose = Goose {
+            program: "goose".into(),
+            unfenced_no_read: base.unfenced_no_read.clone(),
+        };
+        Self::new(goose, base)
     }
 
     /// Runs `program` in place of `goose`, as a stand-in script does
     #[cfg(any(test, feature = "test-support"))]
-    pub fn with_program(self, program: std::path::PathBuf) -> Self {
-        Self {
-            program: program.into(),
-            ..self
-        }
+    #[must_use]
+    pub fn with_program(mut self, program: PathBuf) -> Self {
+        self.cli.program = program.into();
+        self
+    }
+
+    /// The call's headless command inside its sandbox and the forwarder it dials
+    #[cfg(test)]
+    pub(crate) fn sandboxed_command(
+        &self,
+        call: &AgentCall,
+        lease: Option<&str>,
+    ) -> Result<(Command, Forwarder), AgentError> {
+        let launched = self.launch(call, &Spent::default(), Turn::Headless, lease)?;
+        let forwarder = launched.forwarder.expect("goose runs on a model server");
+        Ok((launched.command, forwarder))
     }
 }
 
-impl Agents for GooseCli {
-    fn prepare(&self, call: &AgentCall) -> Result<(), AgentError> {
-        let server = server(call)?;
-        refuse_unsupported(call)?;
-        self.upstream(server)?;
+impl Goose {
+    // `goose` with `args`, its variables set by `env` inside the sandbox, after the sandbox
+    // has set its own. `mode` is the `GOOSE_MODE` the call is given in place of its headless one.
+    fn program_command(
+        &self,
+        call: &AgentCall,
+        launch: &Launch<'_>,
+        args: Vec<OsString>,
+        mode: Option<&str>,
+    ) -> Result<Command, AgentError> {
+        let served = launch.served.ok_or_else(unserved)?;
+        let files = Files::of(&call.settings);
+        let mut command = crate::spawn::command("env");
+        command
+            .args(env_args(call, server(call)?, &files, served.upstream, mode))
+            .arg(&self.program)
+            .args(args)
+            .current_dir(&call.cwd);
+        Ok(command)
+    }
+}
+
+impl Cli for Goose {
+    // The totals the session had spent when the call began
+    type Begun = Spent;
+    const HARNESS: Harness = Harness::Goose;
+
+    fn mcp_refusal(name: &str, entry: &serde_json::Value) -> Option<String> {
+        mcp::refusal(name, entry)
+    }
+
+    fn mcp_skipped_env(name: &str, entry: &serde_json::Value) -> Option<String> {
+        mcp::skipped_env(name, entry)
+    }
+
+    fn refuse(&self, call: &AgentCall) -> Result<(), AgentError> {
+        refuse_unsupported(call)
+    }
+
+    fn write_config(&self, call: &AgentCall, _: Option<&Upstream>) -> Result<(), AgentError> {
         system_text(call)?;
         let files = Files::of(&call.settings);
         hooks::only_ours(&files)?;
@@ -197,59 +227,122 @@ impl Agents for GooseCli {
         }
     }
 
-    fn run(&self, call: &AgentCall, ending: &Ending) -> Result<AgentReply, AgentError> {
+    // A session kelpie never started never waits for a lease, and a new one is
+    // recorded as started with nothing spent. The maintainer's terminal resumes
+    // one, and `goose session` has no flag for a first message.
+    fn begin(&self, call: &AgentCall, turn: Turn) -> Result<Spent, AgentError> {
         let files = Files::of(&call.settings);
         let id = call.session.id();
-        // A session kelpie never started never waits for a lease.
-        let before = match &call.session {
-            Session::New(_) => {
+        match (turn, &call.session) {
+            (Turn::Headless, Session::New(_)) => {
                 files.keep(id, Spent::default())?;
-                Spent::default()
+                Ok(Spent::default())
             }
-            Session::Resume(_) => files
+            (Turn::Terminal, _) if !call.prompt.is_empty() => Err(AgentError::Setup(
+                "goose cannot start a terminal session with a first message: `goose session` \
+                 takes none"
+                    .into(),
+            )),
+            _ => files
                 .spent(id)?
-                .ok_or_else(|| AgentError::NoSession(GOOSE, id.clone()))?,
-        };
-        let label = call.label();
-        let spawned = |pid| {
-            if let Some(lambs) = &self.lambs {
-                lambs.label(pid, &label);
+                .ok_or_else(|| AgentError::NoSession(GOOSE, id.clone())),
+        }
+    }
+
+    fn scratch(&self, call: &AgentCall) -> PathBuf {
+        Files::of(&call.settings).scratch
+    }
+
+    fn sandbox_settings(&self, call: &AgentCall) -> PathBuf {
+        Files::of(&call.settings).sandbox_settings
+    }
+
+    fn command(
+        &self,
+        call: &AgentCall,
+        _: &Spent,
+        launch: &Launch<'_>,
+    ) -> Result<Command, AgentError> {
+        match launch.turn {
+            Turn::Headless => self.program_command(call, launch, argv(call)?, None),
+            Turn::Terminal => {
+                self.program_command(call, launch, attach::argv(call), Some(attach::MODE))
             }
-        };
-        let output = self.leased(call, ending, |lease| {
-            // The forwarder stays until the call has ended.
-            let (mut command, forwarder) = self.sandboxed_command(call, lease)?;
-            let _noted = self.carried.note(
-                call,
-                Kept {
-                    forwarder: forwarder.socket.clone(),
-                    server: kept_server(&server(call)?.host),
-                    session: id.clone(),
-                    lease: lease.map(str::to_owned),
-                },
-            );
-            (self.processes)
-                .output_of_call(&mut command, call, ending, &spawned)
-                .map_err(|e| match e {
-                    RunError::Io(e) => AgentError::Spawn(GOOSE, e.to_string()),
-                    RunError::Stopped => AgentError::Stopped,
-                    RunError::TimedOut => AgentError::TimedOut(GOOSE),
-                })
-        })??;
-        let read = compact::read(call.prompt == COMPACT, &output, &call.session, before);
+        }
+    }
+
+    fn policy(&self, call: &AgentCall, _: &Launch<'_>) -> Result<Policy, AgentError> {
+        Ok(fenced(
+            call,
+            &Files::of(&call.settings),
+            &self.unfenced_no_read,
+        ))
+    }
+
+    fn parse(
+        &self,
+        call: &AgentCall,
+        before: Spent,
+        output: &Output,
+    ) -> Result<AgentReply, AgentError> {
+        let id = call.session.id();
+        let read = compact::read(call.prompt == COMPACT, output, &call.session, before);
         // The session's totals grow whatever the call's reply was.
         if let Some(spent) = read.spent {
-            files.keep(id, spent)?;
+            Files::of(&call.settings).keep(id, spent)?;
         }
-        read.reply.map(|reply| self.with_context(call, reply))
+        read.reply
     }
 
-    fn adoption(&self, call: &AgentCall) -> Result<Adopted, String> {
-        self.adoption_of(call)
+    fn follow_up<'a>(&'a self, call: &'a AgentCall) -> Option<FollowUp<'a>> {
+        compact::context_of(self, call)
     }
 
-    fn adopt(&self, adopted: &Adopted, ending: &Ending) -> Result<AgentReply, AgentError> {
-        self.adopt_call(adopted, ending)
+    // The totals the call began with, which `begin` kept before it spawned. A
+    // file that is gone is no reason to end a turn that is running: the session
+    // counts from nothing, as a new one does.
+    fn adopted_begin(&self, adopted: &Adopted) -> Result<Spent, String> {
+        let kept = adopted
+            .kept
+            .as_ref()
+            .ok_or_else(|| unserved().to_string())?;
+        let before = Files::beside(&adopted.record).spent(&kept.session);
+        before
+            .map(Option::unwrap_or_default)
+            .map_err(|e| e.to_string())
+    }
+
+    fn parse_adopted(
+        &self,
+        adopted: &Adopted,
+        before: Spent,
+        output: &Output,
+    ) -> Result<AgentReply, AgentError> {
+        let kept = adopted.kept.as_ref().ok_or_else(unserved)?;
+        let session = match &adopted.resumes {
+            Some(id) => Session::Resume(id.clone()),
+            None => Session::New(kept.session.clone()),
+        };
+        let compacting = adopted.flying.as_ref().is_some_and(|f| f.compact);
+        let read = compact::read(compacting, output, &session, before);
+        // The session's totals grow whatever the call's reply was.
+        if let Some(spent) = read.spent {
+            Files::beside(&adopted.record).keep(&kept.session, spent)?;
+        }
+        read.reply
+    }
+
+    // The terminal session runs on the session's model requests, so goose's totals will
+    // hold tokens kelpie cannot count: they are in goose's database. The record notes that
+    // when the session starts, not when it ends, since the hold outlives a runner that
+    // restarts and nothing in memory then remembers the session. The next headless turn
+    // counts from the totals it reports.
+    fn started(&self, call: &AgentCall, known: &Spent) -> Result<(), AgentError> {
+        let rebased = Spent {
+            rebase: true,
+            ..*known
+        };
+        Files::of(&call.settings).keep(call.session.id(), rebased)
     }
 
     // goose keeps its sessions in SQLite, which cannot be tailed. The call's
@@ -266,146 +359,20 @@ impl Agents for GooseCli {
     fn last_active(&self, call: &AgentCall) -> CallActivity {
         activity::of_stdout(&CallFiles::of(call).stdout)
     }
-
-    fn foreground(&self, call: &AgentCall) -> Result<Command, AgentError> {
-        self.terminal_command(call)
-    }
-
-    fn foreground_ended(&self, session: &SessionId) {
-        self.terminal_ended(session);
-    }
 }
 
-impl GooseCli {
-    /// What the forwarder passes the call's chat calls to, a gateway's key included
-    fn upstream(&self, server: &ModelServer) -> Result<Upstream, AgentError> {
-        self.gateways
-            .upstream(&server.host)
-            .map_err(AgentError::Setup)
-    }
-
-    // A call on a gateway's model holds a lease on it, so the gateway
-    // evicts nothing it runs on midway and queues the call behind any other
-    // lease. Its ceiling counts from the grant. A lease the gateway took back
-    // ended the call, whatever the run says of it. The run is told the
-    // lease's id, so its chat calls name the turn they belong to.
-    fn leased<T>(
-        &self,
-        call: &AgentCall,
-        ending: &Ending,
-        run: impl FnOnce(Option<&str>) -> T,
-    ) -> Result<T, AgentError> {
-        let server = server(call)?;
-        let ModelHost::Gateway(name) = &server.host else {
-            return Ok(run(None));
-        };
-        let upstream = self.upstream(server)?;
-        let port = crate::adapters::port_named(&self.gateways, name).map_err(AgentError::Setup)?;
-        let note = format!("kelpie {}", call.label());
-        let tell = |stand| match stand {
-            Stand::Asking | Stand::Turn => ending.wait(Wait::Lease),
-            Stand::Busy => ending.wait(Wait::Busy),
-            Stand::Granted => ending.begin(),
-        };
-        let taking = Taking {
-            model: &call.model,
-            note: &note,
-            give_up: &|| ending.asked() || self.processes.stopping(),
-            tell: &tell,
-            ending,
-        };
-        port.around_leased(&upstream, &taking, run)
-            .map_err(|unheld| match unheld {
-                Unheld::GaveUp if self.processes.stopping() => AgentError::Stopped,
-                Unheld::GaveUp => AgentError::TimedOut(GOOSE),
-                Unheld::Refused(why) => AgentError::Setup(format!(
-                    "cannot take a lease on {} from gateway {name}: {why}",
-                    call.model
-                )),
-                Unheld::Lost(why) => AgentError::Failed(GOOSE, why),
-            })
-    }
-
-    // The forwarder names `lease`, the gateway lease the call holds, on a worker's
-    // chat calls. Any other role's call holds one too but names none.
-    fn sandboxed_command(
-        &self,
-        call: &AgentCall,
-        lease: Option<&str>,
-    ) -> Result<(Command, Forwarder), AgentError> {
-        self.wrapped_command(call, lease, argv(call)?, None)
-    }
-
-    // `goose` with `args`, in the call's sandbox and with its variables. `mode` is the
-    // `GOOSE_MODE` the call is given in place of its headless one.
-    pub(super) fn wrapped_command(
-        &self,
-        call: &AgentCall,
-        lease: Option<&str>,
-        args: Vec<OsString>,
-        mode: Option<&str>,
-    ) -> Result<(Command, Forwarder), AgentError> {
-        let server = server(call)?;
-        let upstream = self.upstream(server)?;
-        let upstream = match lease.filter(|_| call.role == Role::Worker) {
-            Some(id) => upstream.with_lease(id),
-            None => upstream,
-        };
-        let files = Files::of(&call.settings);
-        match std::fs::remove_dir_all(&files.scratch) {
-            Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
-                return Err(AgentError::Setup(format!(
-                    "cannot empty {}: {}",
-                    files.scratch.display(),
-                    e.kind()
-                )));
-            }
-            _ => {}
-        }
-        std::fs::create_dir_all(&files.scratch).map_err(|e| {
-            AgentError::Setup(format!(
-                "cannot make {}: {}",
-                files.scratch.display(),
-                e.kind()
-            ))
-        })?;
-        let folder = call.settings.parent().unwrap_or(Path::new("/"));
-        let forwarder = Forwarder::open(folder, upstream.clone()).map_err(AgentError::Setup)?;
-        // `env` runs inside the sandbox, after the sandbox has set its own variables.
-        let mut command = crate::spawn::command("env");
-        command
-            .args(env_args(call, server, &files, &upstream, mode))
-            .arg(&self.program)
-            .args(args)
-            .current_dir(&call.cwd);
-        let policy = policy(
-            call,
-            &files,
-            &upstream,
-            &forwarder.socket,
-            &self.unfenced_no_read,
-        );
-        let wrapped = self
-            .sandbox
-            .wrap(&policy, &files.sandbox_settings, &command)
-            .map_err(|e| AgentError::Setup(e.to_string()))?;
-        Ok((wrapped, forwarder))
-    }
+fn unserved() -> AgentError {
+    AgentError::Setup("kelpie routed a call to goose that names no model server".into())
 }
 
 /// The server the call's model is on, which every goose call needs
 fn server(call: &AgentCall) -> Result<&ModelServer, AgentError> {
-    match &call.harness {
-        AgentHarness::Goose(server) => Ok(server),
-        _ => Err(AgentError::Setup(
-            "kelpie routed a call to goose that names no model server".into(),
-        )),
-    }
+    call.harness.server().ok_or_else(unserved)
 }
 
 // What goose cannot give a call. The agent files already refuse a role goose
 // does not take, so this is the second line.
-// parity: harness.issue-writer, harness.pm, harness.guard-hooks
+// parity: harness.issue-writer, harness.pm
 fn refuse_unsupported(call: &AgentCall) -> Result<(), AgentError> {
     let refused = match (call.role, call.tools) {
         (Role::Researcher, _) => None,
@@ -437,14 +404,6 @@ fn refuse_unsupported(call: &AgentCall) -> Result<(), AgentError> {
     };
     if let Some(why) = refused {
         return Err(AgentError::Setup(why));
-    }
-    if (call.reach.fence.as_ref()).is_some_and(|f| !f.hooks.is_empty()) {
-        return Err(AgentError::Setup(
-            "goose cannot run `worker.guard_hooks`, which are Claude Code hooks: \
-             remove them, move the check to a `command` or `write` hook in `hooks`, which \
-             runs on every harness, or put the worker on Claude Code"
-                .into(),
-        ));
     }
     // goose discovers these from the working folder, and `settings.local.json`
     // there can disable any plugin by name.
@@ -645,14 +604,9 @@ fn argv(call: &AgentCall) -> Result<Vec<OsString>, AgentError> {
 
 /// The whole call's policy: its fence, or none, and what goose itself needs
 ///
-/// The model's host is not in it. The one host goose may dial is the forwarder's.
-fn policy(
-    call: &AgentCall,
-    files: &Files,
-    upstream: &Upstream,
-    forwarder: &Path,
-    unfenced: &[String],
-) -> Policy {
+/// The model's host is not in it. The one host goose may dial is the forwarder's,
+/// which the adapter adds.
+fn fenced(call: &AgentCall, files: &Files, unfenced: &[String]) -> Policy {
     let mut policy = call_policy(call, unfenced);
     // A retro and an advisor run under a fence that can write, which their
     // read-only shell must not use: the hook is the first layer, this the second.
@@ -681,10 +635,18 @@ fn policy(
     crate::adapters::mcp::fence_the_graph(&mut policy, call);
     crate::adapters::mcp::fence_the_browser(&mut policy, call);
     web::open(call, &mut policy);
-    deny_the_server(&mut policy, upstream);
-    policy.forward = Some(Forward {
-        host: WORKER_HOST.to_owned(),
-        socket: forwarder.to_owned(),
-    });
+    policy
+}
+
+#[cfg(test)]
+fn policy(
+    call: &AgentCall,
+    files: &Files,
+    upstream: &Upstream,
+    forwarder: &Path,
+    unfenced: &[String],
+) -> Policy {
+    let mut policy = fenced(call, files, unfenced);
+    super::harness::dial_the_forwarder(&mut policy, upstream, forwarder);
     policy
 }

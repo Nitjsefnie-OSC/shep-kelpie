@@ -69,9 +69,10 @@ mod tests {
     use crate::test::OpenSandbox;
 
     fn cli(w: &World) -> CodexCli {
-        ClaudeCli::default()
-            .sandboxed(Arc::new(OpenSandbox::default()), w.path("home"))
-            .codex(w.path("login"))
+        CodexCli::on(
+            &Base::default().sandboxed(Arc::new(OpenSandbox::default()), w.path("home")),
+            w.path("login"),
+        )
     }
 
     // A plugin at `name` holding a skill folder with a `SKILL.md` for each of `skills`.

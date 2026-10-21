@@ -10,7 +10,7 @@ use jiff::civil::{Date, DateTime};
 use jiff::tz::TimeZone;
 use serde::Deserialize;
 
-use super::claude::ClaudeCli;
+use super::harness::Base;
 use super::process::{Processes, RunError};
 use crate::ports::{Meter, MeterError, Timestamp, Utilization, Window};
 
@@ -31,7 +31,7 @@ pub struct UsageMeter {
     processes: Processes,
 }
 
-impl ClaudeCli {
+impl Base {
     /// A meter whose reads end with this one's calls when the runner stops
     pub fn meter(&self) -> UsageMeter {
         UsageMeter {
@@ -388,7 +388,7 @@ mod tests {
     #[ignore = "runs the real `claude -p /usage` against the maintainer's account, about 2 s"]
     fn the_real_claude_answers_with_both_windows() {
         let now = crate::ports::SystemClock.now();
-        let usage = ClaudeCli::default().meter().read(now).unwrap();
+        let usage = Base::default().meter().read(now).unwrap();
         assert!(usage.week.resets_at > now && usage.session.resets_at > now);
         assert!(usage.week.used_pct <= 100 && usage.session.used_pct <= 100);
     }
