@@ -197,3 +197,19 @@ fn a_call_with_no_image_to_show_reads_as_it_did() {
     assert!(rig.forge.images.asked().is_empty());
     assert!(!(call.reach.read.iter()).any(|p| p.ends_with("30-images")));
 }
+
+#[test]
+fn many_links_that_fail_are_not_all_tried_and_the_triage_runs() {
+    let links: Vec<String> = (0..20)
+        .map(|n| format!("https://github.com/user-attachments/assets/gone{n}"))
+        .collect();
+    let (rig, runner) = opened(&links.join("\n"));
+    rig.claude.script_for(Role::Triager, [reply(json!({}))]);
+
+    assert_eq!(step(&runner).unwrap(), None);
+
+    let asked = rig.forge.images.asked();
+    assert!(asked.len() < links.len(), "{}", asked.len());
+    assert_eq!(asked, links[..asked.len()]);
+    assert_eq!(rig.github.comments().len(), 1, "the triage still ran");
+}

@@ -312,7 +312,7 @@ fn researched(
         let reason = format!("cannot make a view of origin/{base}: {e}");
         return (End::Turn(Err(AgentError::Setup(reason))), None);
     }
-    let shown = pictures.gather(notes);
+    let shown = pictures.gather(notes, ending);
     if !shown.is_empty() {
         call.prompt.push_str("\n\n");
         call.prompt.push_str(&images::listing(&shown));

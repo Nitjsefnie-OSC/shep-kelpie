@@ -13,9 +13,10 @@
 use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use super::super::claim::Notes;
-use crate::ports::{Tickets, is_github_attachment};
+use crate::ports::{Ending, Tickets, is_github_attachment};
 use crate::settings::ForgeSlug;
 use crate::ticket::TicketId;
 
@@ -25,8 +26,15 @@ pub(in crate::runner) const MOST_IMAGES: usize = 5;
 /// The most bytes one image may be, the size the API reads an image up to
 pub(in crate::runner) const MOST_BYTES: u64 = 5 << 20;
 
-/// The most links read out of the text, so a body of links costs no more than this
+/// The most links read out of the text
 const MOST_LINKS: usize = 20;
+
+/// The most downloads tried, whether or not they come to an image, since each
+/// may take a minute
+const MOST_TRIES: usize = 10;
+
+/// The longest the downloads together may take, a small part of the call's ceiling
+const BUDGET: Duration = Duration::from_secs(3 * 60);
 
 /// What the thread of a research call needs to fetch an issue's images
 pub(in crate::runner) struct Pictures {
@@ -43,7 +51,11 @@ pub(in crate::runner) struct Pictures {
 impl Pictures {
     /// Downloads the issue's images into the folder, and returns their paths
     /// in the order the text gives them
-    pub(in crate::runner) fn gather(&self, notes: &Notes) -> Vec<PathBuf> {
+    ///
+    /// It stops asking for more once `MOST_TRIES` were tried, `BUDGET` has
+    /// passed or `ending` is asked, so the downloads never keep the call's slot
+    /// past its ceiling.
+    pub(in crate::runner) fn gather(&self, notes: &Notes, ending: &Ending) -> Vec<PathBuf> {
         let issue = self.ticket;
         let mut texts = vec![self.body.clone()];
         match self.tickets.issue_comments(&self.repo, issue) {
@@ -68,10 +80,17 @@ impl Pictures {
             return Vec::new();
         }
         let mut kept = Vec::new();
-        for link in links {
+        let started = Instant::now();
+        for (tried, link) in links.into_iter().enumerate() {
             if kept.len() == MOST_IMAGES {
                 notes.push(format!(
                     "triage {issue}: past {MOST_IMAGES} images, the rest are not fetched"
+                ));
+                break;
+            }
+            if tried == MOST_TRIES || started.elapsed() >= BUDGET || ending.asked() {
+                notes.push(format!(
+                    "triage {issue}: out of tries or time for images, the rest are not fetched"
                 ));
                 break;
             }
