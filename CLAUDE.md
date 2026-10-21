@@ -39,7 +39,7 @@ These hold for a kelpie worker too.
 
 - First read the issue, its parent spec #5, `GLOSSARY.md`, `docs/adr/` and `docs/design/`. Ask only for a decision they leave open.
 - Tests follow #5: the runner's work-item loop through its stand-ins, the dog's lease book with a fake clock, adapter parsing against real recorded output. Assert only what the outside world sees.
-- A worker's sandbox binds no socket or port. `docs/agents/sandbox-red-tests.md` lists the tests that fail there and pass in CI. Say in the pull request which tests only CI ran.
+- A worker's sandbox binds no TCP port, and on macOS binds Unix sockets only in its own scratch folder. `docs/agents/sandbox-red-tests.md` lists the tests that fail there and pass in CI. Say in the pull request which tests only CI ran.
 - Workers run on Claude Code, pi and Codex. A change to one adapter (`crates/adapters/src/adapters/claude*`, `pi*`, `codex*`) or to code that branches on `AgentHarness` reaches pi in the same pull request, or names the open pi issue that does. Codex may follow in its own issue. See `CODING_STANDARDS.md`.
 - New measured facts go in their `docs/facts/` file (or a new one listed in its README) in the same pull request. A changed decision updates `docs/design/` too.
 - Done when every acceptance criterion is met, with the evidence in the pull request body, which ends `Resolves #<n>`.
