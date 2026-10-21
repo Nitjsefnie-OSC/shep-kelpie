@@ -74,7 +74,8 @@ fn a_codex_session_for_the_terminal_resumes_in_the_workers_sandbox() {
     let pair = |a: &str, b: &str| args.windows(2).any(|w| w == [a, b]);
     assert!(pair("--model", "gpt-6-sol"), "{args:?}");
     assert!(pair("--sandbox", "danger-full-access"), "{args:?}");
-    assert!(pair("--ask-for-approval", "untrusted"), "{args:?}");
+    assert!(pair("--ask-for-approval", "on-request"), "{args:?}");
+    assert!(!args.iter().any(|a| a == "untrusted"), "{args:?}");
     assert!(args.iter().any(|a| a == "--dangerously-bypass-hook-trust"));
     let set = overrides(&args);
     for key in [
@@ -108,6 +109,63 @@ fn a_codex_session_for_the_terminal_resumes_in_the_workers_sandbox() {
         wrapped[0], wrapped[1],
         "the terminal is held to the headless call's policy"
     );
+}
+
+#[test]
+fn the_terminal_opens_on_a_folder_already_trusted_that_the_call_cannot_change() {
+    let w = World::new();
+    let sandbox = OpenSandbox::default();
+    let codex = codex_in(&w, &sandbox);
+    let call = resumable(&w, &codex);
+    let config = Files::of(&call).home.join("config.toml");
+    std::fs::write(&config, "stale").unwrap();
+
+    codex.foreground(&call).unwrap();
+
+    let trusted: toml::Table = std::fs::read_to_string(&config).unwrap().parse().unwrap();
+    let cwd = call.cwd.to_str().unwrap();
+    assert_eq!(
+        trusted["projects"][cwd]["trust_level"].as_str(),
+        Some("trusted")
+    );
+    let (policy, _) = &sandbox.wrapped()[0];
+    assert!(
+        !policy.write.iter().any(|p| config.starts_with(p)),
+        "the call may write {}: {:?}",
+        config.display(),
+        policy.write
+    );
+
+    codex.foreground_ended(call.session.id());
+
+    assert!(!config.exists(), "a later call finds the trust left behind");
+}
+
+#[test]
+fn a_terminal_that_cannot_be_set_up_leaves_no_trust_behind() {
+    #[derive(Debug)]
+    struct Refusing;
+    impl crate::ports::Sandbox for Refusing {
+        fn wrap(
+            &self,
+            _: &crate::ports::Policy,
+            _: &Path,
+            _: &Command,
+        ) -> Result<Command, crate::ports::SandboxError> {
+            Err(crate::ports::SandboxError::Missing(PathBuf::from("/srt")))
+        }
+    }
+    let w = World::new();
+    let codex = codex_in(&w, &OpenSandbox::default());
+    let call = resumable(&w, &codex);
+    let refusing = CodexCli::on(
+        &Base::default().sandboxed(Arc::new(Refusing), w.path("home")),
+        w.path("login"),
+    );
+
+    assert!(refusing.foreground(&call).is_err());
+
+    assert!(!Files::of(&call).home.join("config.toml").exists());
 }
 
 #[test]
@@ -198,10 +256,10 @@ fn the_end_of_a_terminal_session_leaves_the_next_turn_to_count_only_its_own() {
     assert_eq!(
         kept.spent,
         Spent {
-            input_tokens: 87_318,
-            cached_input_tokens: 50_048,
+            input_tokens: 116_705,
+            cached_input_tokens: 79_104,
             cache_write_input_tokens: 0,
-            output_tokens: 249,
+            output_tokens: 469,
         }
     );
     assert_eq!(kept.context, Some(19_478));
@@ -217,6 +275,9 @@ fn the_end_of_a_terminal_session_leaves_the_next_turn_to_count_only_its_own() {
             r#"{"type":"turn.completed","usage":{"input_tokens":89318,"cached_input_tokens":50048,"output_tokens":349}}"#,
         ),
     );
+    // Codex appends the turn's record to the rollout.
+    let record = r#"{"type":"token_usage_record","payload":{"thread_token_usage":{"input_tokens":118705,"cached_input_tokens":79104,"output_tokens":569}}}"#;
+    rollout_of_terminal(&call, &format!("{ROLLOUT}{record}\n"));
     let reply = next.run(&call, &Ending::default()).unwrap();
     assert_eq!(
         reply.usage,

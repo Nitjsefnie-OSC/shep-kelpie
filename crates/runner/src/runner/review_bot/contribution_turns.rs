@@ -355,3 +355,68 @@ fn a_turn_passing_a_bot_over_leaves_the_ask_another_contributions_turn_waits_on(
         "31 used the grant 30 passed by"
     );
 }
+
+#[test]
+fn a_reread_dropping_a_summoned_bot_takes_its_label_off_and_returns_its_lease() {
+    let (rig, runner, _head) = contributed(&["coderabbit", "mine"]);
+    for _ in 0..10 {
+        if rig.leases.held(&coderabbit()) {
+            break;
+        }
+        poll(&rig, &runner);
+    }
+    assert_eq!(labels(&rig).last(), Some(&(30, LABEL.to_owned(), true)));
+
+    rig.edit_settings(|s| s.replace("[\"coderabbit\", \"mine\"]", "[\"mine\"]"));
+    let line = (runner.lock().unwrap()).reread(rig.settings(), rig.kelpie_settings());
+    assert!(line.unwrap().is_some());
+
+    assert_eq!(labels(&rig).last(), Some(&(30, LABEL.to_owned(), false)));
+    assert!(!rig.leases.held(&coderabbit()));
+    // The walk goes on to the reviewer that is left, and the label stays off.
+    poll(&rig, &runner);
+    assert_eq!(labels(&rig).last(), Some(&(30, LABEL.to_owned(), false)));
+}
+
+#[test]
+fn a_reread_dropping_a_bot_whose_turn_waits_for_its_lease_gives_the_ask_back() {
+    let (rig, runner, _head) = contributed(&["cubic", "mine"]);
+    rig.leases.close(&cubic(), true);
+    for _ in 0..4 {
+        poll(&rig, &runner);
+    }
+    assert!(
+        want_count(&rig, &cubic()) > 0,
+        "the turn asked for the lease"
+    );
+    rig.leases.grant(&cubic());
+
+    rig.edit_settings(|s| s.replace("[\"cubic\", \"mine\"]", "[\"mine\"]"));
+    let line = (runner.lock().unwrap()).reread(rig.settings(), rig.kelpie_settings());
+    assert!(line.unwrap().is_some());
+
+    assert!(!rig.leases.held(&cubic()), "the grant went back unused");
+}
+
+#[test]
+fn a_reread_that_cannot_save_the_dropped_turn_leaves_the_label_on() {
+    let (rig, runner, _head) = contributed(&["coderabbit", "mine"]);
+    for _ in 0..10 {
+        if rig.leases.held(&coderabbit()) {
+            break;
+        }
+        poll(&rig, &runner);
+    }
+    rig.edit_settings(|s| s.replace("[\"coderabbit\", \"mine\"]", "[\"mine\"]"));
+    let next = rig.settings();
+    let folder = rig.paths().state.parent().unwrap().to_owned();
+    std::fs::remove_dir_all(&folder).unwrap();
+    // A file where the folder was, which a save cannot make a folder of.
+    std::fs::write(&folder, "").unwrap();
+
+    let err = (runner.lock().unwrap()).reread(next, rig.kelpie_settings());
+
+    assert!(err.is_err(), "{err:?}");
+    assert_eq!(labels(&rig).last(), Some(&(30, LABEL.to_owned(), true)));
+    assert!(rig.leases.held(&coderabbit()));
+}

@@ -306,6 +306,11 @@ impl Cli for Codex {
         finish(&Files::at(&adopt::settings_of(&adopted.record)), id, output)
     }
 
+    // Last, so a setup that fails leaves no trust behind for an end that is never told.
+    fn started(&self, call: &AgentCall, _: &Self::Begun) -> Result<(), AgentError> {
+        attach::trust_folder(&Files::of(call).home, &call.cwd)
+    }
+
     fn ended(&self, settings: &Path, session: &SessionId) {
         attach::ended(settings, session);
     }
@@ -340,9 +345,11 @@ fn finish(files: &Files, id: &SessionId, output: &Output) -> Result<AgentReply, 
     let turn = parse_result(output, known.as_ref())?;
     let before = known.map(|k| k.spent).unwrap_or_default();
     let context = context::last_request_input(&files.home, &turn.thread);
+    // The turn's report leaves out a compaction's request, which the rollout counts.
+    let spent = context::thread_total(&files.home, &turn.thread, turn.spent).unwrap_or(turn.spent);
     let record = Thread {
         id: turn.thread,
-        spent: turn.spent,
+        spent,
         context,
         compact: false,
     };
@@ -350,7 +357,7 @@ fn finish(files: &Files, id: &SessionId, output: &Output) -> Result<AgentReply, 
     Ok(AgentReply {
         session_id: id.clone(),
         text: turn.text,
-        usage: turn.spent.since(before),
+        usage: spent.since(before),
         session_cost: None,
         context,
         compactions: 0,

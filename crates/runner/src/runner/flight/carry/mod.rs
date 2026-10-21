@@ -85,6 +85,13 @@ impl Runner {
                 ));
             }
         }
+        // parity: harness.attach-ends
+        if let Some(issue) = self.sessions_attached_on(Harness::Codex).first() {
+            return Err(format!(
+                "#{issue} is attached, and the codex session in the maintainer's terminal \
+                 ends only in this image, which removes the folder trust it was given"
+            ));
+        }
         flights
             .flying
             .iter()

@@ -248,7 +248,7 @@ fn now_is_read_first_or_last_and_once() {
 fn a_draining_answer_names_each_call() {
     let body = r#"{"draining":{"calls":[{"issue":"7","role":"worker"},
         {"issue":"8","role":"reviewer"},{"role":"pm"},{"issue":"k12","role":"pi_session"},
-        {"issue":"10","role":"goose_session"}],
+        {"issue":"10","role":"goose_session"},{"issue":"11","role":"codex_session"}],
         "ceiling":3600}}"#;
     assert_eq!(
         drained(body),
@@ -259,6 +259,7 @@ fn a_draining_answer_names_each_call() {
                 "the project manager's wake".into(),
                 "k12's attached pi session".into(),
                 "#10's attached goose session".into(),
+                "#11's attached codex session".into(),
             ],
             ceiling: 3600,
             at_tool: Vec::new(),

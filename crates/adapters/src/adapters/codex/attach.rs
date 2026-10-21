@@ -3,10 +3,16 @@
 //! The interactive twin of a headless call: the same home, scratch folder,
 //! sandbox and policy, with the same `-c` overrides, features and hooks, resumed
 //! with `codex resume`. Codex's own sandbox stays off, as in the headless call,
-//! since it cannot start inside kelpie's, so Codex asks before each command
-//! that is not on its list of trusted ones, as Claude Code asks before each
-//! tool call. The terminal session and the headless call share the home's
+//! since it cannot start inside kelpie's, so Codex asks before each command it
+//! cannot tell is safe (`on-request`), as Claude Code asks before each tool
+//! call. The terminal session and the headless call share the home's
 //! `thread-writer-locks`, which attach keeps apart by ending every call first.
+//!
+//! Codex opens on "Trust this folder?" for the call's folder and saves the
+//! answer to the home's `config.toml`, which the policy refuses. Kelpie writes
+//! the answer there first, outside the sandbox, and removes it when the session
+//! ends. The headless call passes `--ignore-user-config`, so it never reads it.
+//! This is Codex's CLI only: pi's attach is unaffected.
 
 use std::ffi::OsString;
 use std::path::Path;
@@ -15,6 +21,21 @@ use super::{
     AgentCall, AgentError, Files, SessionId, Thread, context, overrides, prompt, reading,
     save_thread, thread,
 };
+
+const TRUST: &str = "config.toml";
+
+// `config.toml` in `home` saying `cwd` is trusted, in place of any left before.
+pub(super) fn trust_folder(home: &Path, cwd: &Path) -> Result<(), AgentError> {
+    let mut project = toml::Table::new();
+    project.insert("trust_level".into(), "trusted".into());
+    let mut projects = toml::Table::new();
+    projects.insert(cwd.to_string_lossy().into_owned(), project.into());
+    let mut config = toml::Table::new();
+    config.insert("projects".into(), projects.into());
+    let file = home.join(TRUST);
+    std::fs::write(&file, config.to_string())
+        .map_err(|e| AgentError::Setup(format!("cannot write {}: {}", file.display(), e.kind())))
+}
 
 // The session resumed by Codex's own id for it, with the call's prompt as the
 // first message if it has one. The interactive command takes no
@@ -36,7 +57,7 @@ pub(super) fn terminal_argv(
             "--sandbox",
             "danger-full-access",
             "--ask-for-approval",
-            "untrusted",
+            "on-request",
         ]
         .map(OsString::from),
     );
@@ -54,10 +75,15 @@ pub(super) fn terminal_argv(
 // total. A rollout that cannot be read leaves the record as it was.
 pub(super) fn ended(settings: &Path, session: &SessionId) {
     let files = Files::at(settings);
+    if let Err(e) = std::fs::remove_file(files.home.join(TRUST))
+        && e.kind() != std::io::ErrorKind::NotFound
+    {
+        eprintln!("cannot remove the trust of {}: {e}", session.0);
+    }
     let Ok(Some(known)) = thread(&files, session) else {
         return;
     };
-    let Some((spent, context)) = context::running_total(&files.home, &known.id, known.spent) else {
+    let Some((spent, context)) = context::running_total(&files.home, &known.id) else {
         return;
     };
     let record = Thread {

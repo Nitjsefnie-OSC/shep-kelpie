@@ -20,6 +20,13 @@ impl Rig {
         self.github.registered(&kelpie_home, Self::REMOTE);
     }
 
+    /// Takes the App's registration away, as an owner removing it does, so
+    /// the voice stops covering the repo
+    pub fn without_app(&self) {
+        let kelpie_home = self.paths().kelpie_home;
+        std::fs::remove_dir_all(kelpie_home.join(crate::github::FOLDER)).unwrap();
+    }
+
     /// Makes the rig's project kelpie's own repo, which is the one the sandbox-red
     /// list in `crates/runner/src/runner/ci_failure.rs` is of
     pub fn remote_is_kelpie(&self) {
