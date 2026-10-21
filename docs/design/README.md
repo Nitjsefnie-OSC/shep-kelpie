@@ -13,7 +13,7 @@ Kelpie: dog of the maintainer's shepherd; one runner per project takes ready iss
 - The shepherd is reached through the `Dial` port (`crates/core/src/shepherd/connection.rs`): `Socket` is shep's control socket; tests dial `FakeShepherd`, which answers in memory. #587
 - Socket path over 103 bytes: runner refuses to start (macOS caps 104). `crates/runner/src/runner/mod.rs`
 - Home never moved from `~/.kelpie`: refuses to start naming each old file, exit 78 (in `stop_exit_codes`, no restart into it). #311, #345
-- State file version 74 (`VERSION` in `crates/core/src/state/mod.rs`); each change one way: rollback means finishing or dropping open items first. `crates/core/src/state/removed/mod.rs`
+- State file version 76 (`VERSION` in `crates/core/src/state/mod.rs`); each change one way: rollback means finishing or dropping open items first. `crates/core/src/state/removed/mod.rs`
 - Business code is Rust; Tauri GUI after MVP, until then run and watched from a Claude session. #5
 - Crates under `crates/` use nothing above them; the root package holds the binary and the verbs (`src/flock/`, `src/upgrade/`, `src/sheep/`, `src/doctor/`, `src/issues/`, `src/schema.rs`) and reaches every crate. ADR 0015
 - Never put budget numbers in agent prompts; never let a worker merge or post as the maintainer (see fence.md, github-app.md).
@@ -27,7 +27,7 @@ Kelpie: dog of the maintainer's shepherd; one runner per project takes ready iss
 | workers.md | runner loop, turns | `runner/turn/`, `runner/flight/` |
 | fence.md | sandbox, guard, hooks, reads | `core/{profile,guard,hooks}/`, `core/dep_sources.rs`, `runner/turn/dep_reads.rs` |
 | browser.md | a worker's browser beyond its sandbox: bridge, filter, tools | `core/{bridge,browse}.rs`, `adapters/bridge/`, `runner/browser.rs`, `core/settings/browser.rs`, `crates/process/src/tools/` |
-| browser-dev-server.md | a worker's browser dev server: launch, port, readiness | `runner/dev_server/`, `runner/dev_server/launch/`, `core/ports/dev_server.rs`, `adapters/dev_server/` |
+| browser-dev-server.md | a worker's browser dev server: launch, port, readiness | `runner/dev_server/`, `core/ports/dev_server.rs`, `adapters/dev_server/` |
 | compaction.md | when a session compacts, `worker.compact_window` per harness, `COMPACT` | `runner/compact/`, `adapters/pi/compact.rs`, `adapters/codex/context.rs`, `adapters/goose/compact.rs` |
 | skills.md | step skills, repo plugins, how harnesses load them | `core/skills/`, `adapters/skills.rs`, `runner/turn/` (`prepared`) |
 | agents.md | agent files, harnesses, gateways | `core/agents/`, `adapters/`, `core/settings/agents/`, `crates/process/src/spawn.rs` |
@@ -35,7 +35,7 @@ Kelpie: dog of the maintainer's shepherd; one runner per project takes ready iss
 | waits-and-spend.md | a turn waiting for its model or host, spend by role | `runner/turn/unreachable/`, `adapters/unreachable/`, `adapters/codex/`, `core/usage/`, `core/settings/agents/` |
 | review.md | review, bots, rulings | `runner/review/`, `runner/ruling/`, `core/webhook.rs` |
 | review-outcomes.md | fix turn findings' outcomes, journaled | `runner/review/outcomes/` |
-| local-review.md | local reviewers (`command`, `endpoint`), their lock, rounds kept after an item | `runner/review/keep.rs`, `core/settings/local_rounds.rs`, `core/settings/local.rs`, `adapters/local/` |
+| local-review.md | local reviewers (`command`, `endpoint`), lock, kept rounds | `runner/review/keep.rs`, `core/settings/local_rounds.rs`, `core/settings/local.rs`, `adapters/local/` |
 | merge.md | CI, catching up, merge, after it | `runner/gate/`, `runner/merge/`, `runner/close_merged.rs`, `runner/main_ci/` |
 | local-tickets.md | the local ticket store, `ticket` verbs, closing on merge | `core/local_tickets/`, `src/flock/ticket.rs`, `runner/close_merged.rs` |
 | github-app.md | App tokens, posting, answers, ruling panel | `runner/voice/`, `runner/panel/`, `crates/panel/`, `core/guard/gh.rs`, `crates/worker_folder/` |
@@ -45,9 +45,10 @@ Kelpie: dog of the maintainer's shepherd; one runner per project takes ready iss
 | contribution-talk.md | what contributors say: hearing, answering, quiet clock | `runner/contributions/{heard,clock}.rs`, `runner/thread_replies/` |
 | contribution-release.md | asking a contributor for a release: yes, thumbs up, silence, the ruling | `runner/contributions/{release,ruling}.rs` |
 | contribution-merge.md | every contribution's merge ruling: yes, thanks and no | `runner/contributions/{merge,ruling}.rs`, `core/settings/rulings.rs` |
-| representative.md | the representative: its agent file, `agents.representative`, the call that words a post | `runner/representative/`, `core/agents/front/`, `core/settings/agents/`, `agents/representative.md` |
-| dependencies.md | the bumps bots open: `dependencies` settings, rebase asks, proof, merge, red | `core/settings/dependencies.rs`, `runner/dependencies/`, `runner/flight/proving.rs`, `runner/dev_server/bump/`, `core/state/bumps.rs`, `adapters/e2e_runner.rs`, `adapters/pages.rs`, `adapters/bridge/client/` |
+| representative.md | its agent file, `agents.representative`, the call that words a post | `runner/representative/`, `core/agents/front/`, `core/settings/agents/`, `agents/representative.md` |
+| dependencies.md | bot bumps: `dependencies` settings, rebase asks, proof, merge, red | `core/settings/dependencies.rs`, `runner/dependencies/`, `runner/flight/proving.rs`, `runner/dev_server/bump/`, `core/state/bumps.rs`, `adapters/e2e_runner.rs`, `adapters/pages.rs`, `adapters/bridge/client/` |
 | triage.md | settings, triager, pick rule, `since`, the verb, `status` | `core/settings/triage.rs`, `runner/triage/`, `runner/open_checks.rs`, `core/ports/issue.rs` |
+| triage-limits.md | the four limits | `runner/triage/limits.rs` |
 | triage-pass.md | one issue's pass: post, labels, duplicate close, agent-ready | `runner/triage/`, `runner/flight/`, `core/ports/voice.rs` |
 | triage-images.md | an issue's images | `runner/triage/images.rs`, `adapters/gh/attachment.rs` |
 | triage-author.md | author's round: the ask with the questions and local prompt, the answers, silence | `runner/triage/{ask,heard,local}.rs` |

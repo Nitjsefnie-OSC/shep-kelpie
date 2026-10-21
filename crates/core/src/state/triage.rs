@@ -26,11 +26,24 @@ pub struct TriageState {
     /// Left out while empty.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub unrecorded: Vec<UnrecordedCall>,
+    /// The highest issue number a prune dropped the record of, so an issue at or
+    /// below it that carries `needs-triage` and has no record is told from one
+    /// someone labelled by hand: kelpie triaged it and the record went.
+    ///
+    /// Left out while zero.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub pruned_through: u64,
+}
+
+fn is_zero(n: &u64) -> bool {
+    *n == 0
 }
 
 /// How many finished records are kept, the oldest going first. An issue whose
 /// record went is told apart from an untouched one by its `needs-triage` label
-/// and, if that is taken off, by the marker in its comments.
+/// and, if that is taken off, by the marker in its comments. The label alone
+/// does not say who put it on, so [`TriageState::pruned_through`] says which
+/// issue numbers kelpie may have triaged.
 ///
 /// A record that closed an issue as a duplicate is kept past the count: the
 /// issue carries no `needs-triage` label, and the record is what keeps a
@@ -41,6 +54,9 @@ pub const TRIAGED_KEPT: usize = 200;
 /// most one issue can make in a day: its first pass, its author's answers and
 /// a body the author rewrote.
 pub const TRIAGE_CALLS_KEPT: usize = 8;
+
+/// The last format before a triage kept the highest issue number a prune dropped
+const BEFORE_PRUNED_THROUGH: u32 = 75;
 
 impl TriageState {
     /// Drops the oldest finished records past [`TRIAGED_KEPT`], keeping every
@@ -62,19 +78,44 @@ impl TriageState {
             .filter(|t| finished(t))
             .count()
             .saturating_sub(TRIAGED_KEPT);
+        let mut through = self.pruned_through;
         self.issues.retain(|t| {
             let drop = extra > 0 && finished(t) && t.calls.is_empty();
             extra -= usize::from(drop);
+            if drop {
+                through = through.max(t.issue);
+            }
             !drop
         });
         self.issues.retain(|t| {
             let drop = extra > 0 && finished(t);
             extra -= usize::from(drop);
+            if drop {
+                through = through.max(t.issue);
+            }
             !drop
         });
+        self.pruned_through = through;
         if self.unrecorded.len() > TRIAGED_KEPT {
             self.unrecorded
                 .drain(..self.unrecorded.len() - TRIAGED_KEPT);
+        }
+    }
+
+    /// Brings a triage saved at format `found` up to this one
+    ///
+    /// A file saved before [`pruned_through`](Self::pruned_through) existed, at
+    /// version 75 or earlier, does not say what a prune dropped. A project
+    /// holding [`TRIAGED_KEPT`] finished records may have pruned some, and a
+    /// record a prune dropped may be above the oldest one kept, so the floor is
+    /// the highest recorded issue. A project short of the cap has pruned none.
+    pub(super) fn migrate(&mut self, found: u32) {
+        let finished = (self.issues.iter())
+            .filter(|t| matches!(t.step, TriageStep::Done | TriageStep::Ready))
+            .count();
+        if found <= BEFORE_PRUNED_THROUGH && finished >= TRIAGED_KEPT {
+            let highest = self.issues.iter().map(|t| t.issue).max().unwrap_or(0);
+            self.pruned_through = self.pruned_through.max(highest);
         }
     }
 

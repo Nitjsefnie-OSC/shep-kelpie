@@ -27,6 +27,7 @@ fn a_file_saved_before_this_version_loads_with_no_since() {
         since: Timestamp(1_791_964_800),
         issues: Vec::new(),
         unrecorded: Vec::new(),
+        pruned_through: 0,
     });
     store.save(&loaded).unwrap();
     let text = fs::read_to_string(dir.path().join(STATE_FILE)).unwrap();
@@ -183,6 +184,7 @@ fn the_oldest_finished_records_go_past_the_cap() {
         since: Timestamp(1),
         issues: vec![record(1, TriageStep::Commented)],
         unrecorded: Vec::new(),
+        pruned_through: 0,
     };
     let cap = TRIAGED_KEPT as u64;
     triage
@@ -195,6 +197,10 @@ fn the_oldest_finished_records_go_past_the_cap() {
     assert_eq!(triage.issues[0].issue, 1, "an unfinished record stays");
     assert_eq!(triage.issues[1].issue, 5, "the oldest finished ones went");
     assert_eq!(triage.issues.last().map(|t| t.issue), Some(cap + 4));
+    assert_eq!(
+        triage.pruned_through, 4,
+        "the highest issue number a prune dropped is kept"
+    );
 }
 
 // The daily caps count the calls the records hold, so a record that holds one is
@@ -229,6 +235,7 @@ fn a_prune_past_the_cap_lets_the_records_that_hold_no_call_go_first() {
             })
             .collect(),
         unrecorded: Vec::new(),
+        pruned_through: 0,
     };
 
     triage.prune();
@@ -280,6 +287,7 @@ fn a_record_that_closed_a_duplicate_is_kept_past_the_cap() {
             })
             .collect(),
         unrecorded: Vec::new(),
+        pruned_through: 0,
     };
 
     triage.prune();
@@ -551,4 +559,37 @@ fn a_record_keeps_the_time_of_every_call_its_issue_made() {
         record.calls.last().cloned().unwrap(),
         Timestamp(1_792_051_200 + TRIAGE_CALLS_KEPT as u64 + 2)
     );
+}
+
+// A file saved before version 76 does not say what a prune dropped. A project
+// holding the cap's worth of finished records may have pruned some, so it loads
+// with the highest recorded issue as the floor; a project short of the cap has
+// pruned none and loads with none.
+#[test]
+fn a_file_saved_before_pruned_through_gets_a_floor_only_when_a_prune_may_have_run() {
+    let load = |finished: u64| {
+        let dir = tempfile::tempdir().unwrap();
+        let store = store_in(dir.path());
+        let mut old = serde_json::to_value(ProjectState::new()).unwrap();
+        old["version"] = 75.into();
+        old["triage"] = serde_json::json!({
+            "since": 1,
+            "issues": (0..finished)
+                .map(|n| serde_json::json!({
+                    "issue": 100 + n, "comment": 1, "at": 0, "step": "done"
+                }))
+                .collect::<Vec<_>>(),
+        });
+        fs::write(dir.path().join(STATE_FILE), old.to_string()).unwrap();
+        store
+            .load()
+            .unwrap()
+            .unwrap()
+            .triage
+            .unwrap()
+            .pruned_through
+    };
+
+    assert_eq!(load(TRIAGED_KEPT as u64), 100 + TRIAGED_KEPT as u64 - 1);
+    assert_eq!(load(3), 0);
 }

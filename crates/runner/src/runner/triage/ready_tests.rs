@@ -118,6 +118,33 @@ fn a_maintainer_issue_it_is_sure_of_gets_the_new_body_its_labels_and_ready_for_a
 }
 
 #[test]
+fn a_needs_triage_put_on_by_hand_comes_off_when_the_issue_is_made_ready() {
+    let (rig, runner) = filed_before("maintainer", MAINTAINER, |rig| {
+        rig.forge.label(30, "needs-triage");
+        let mut by_hand = issue(rig, 30, MAINTAINER, 5);
+        by_hand.title = "Crash on start".to_owned();
+        by_hand.body = "It crashes when I run it.".to_owned();
+        by_hand.labels = vec!["needs-triage".to_owned()];
+        list(rig, by_hand);
+    });
+    rig.claude.script_for(Role::Triager, [reply(sure())]);
+
+    assert_eq!(step(&runner).unwrap(), None);
+
+    assert_eq!(rig.github.issue_edits(), [(30, BODY.trim_end().to_owned())]);
+    assert_eq!(
+        rig.github.label_takes(),
+        [(30, "needs-triage".to_owned())],
+        "the hand-put label is not read as one that stands"
+    );
+    assert_eq!(
+        moves(&rig),
+        ["comment", "label bug", "label P2", "label ready-for-agent"]
+    );
+    assert_eq!(triage(&rig, &runner)["issues"][0]["step"], "ready");
+}
+
+#[test]
 fn an_outside_issue_it_is_sure_of_still_ends_needs_triage() {
     let (rig, runner) = filed("all", "newcomer");
     rig.claude.script_for(Role::Triager, [reply(sure())]);

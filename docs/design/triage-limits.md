@@ -1,0 +1,14 @@
+# Triage's limits
+
+The four limits an issue passes before the spam check and the research call (#887): the daily cap, the author's cap, the account's age and the body's size. The settings, the pick rule and the verb are in `triage.md`, the pass itself in `triage-pass.md`, the author's round in `triage-author.md`, the classifier in `triage-spam.md`.
+
+- The four limits are checked in order before the spam check and the research call, none a model call. `runner/triage/limits.rs`
+  - `per_day`: at most this many calls in any 24 hours, counted from the calls the records save and those saved for an issue with no record yet, which a restart does not lose. Past it an issue waits in `triage.due` for the next free place and is never dropped. A cap above `MOST_PER_DAY` (200, the same as `TRIAGED_KEPT`) is refused at the settings check: that many finished records, a call-holding one ahead of one holding none, is all a 24 hour count can see.
+  - `per_author_per_day`: the same count over one author's issues, logins compared ignoring case. Past it the issue gets `needs-triage` with no call and no comment, and its record says which limit held it.
+  - `min_account_days`: an author younger than this whose `author_association` is `NONE`, `FIRST_TIMER` or `FIRST_TIME_CONTRIBUTOR` is held the same way. The age is read once per author per start; an age the forge cannot say holds nothing.
+  - `max_body_kb`: the body the call is given is cut at that many kilobytes, on no character, with a line in the fence naming the whole body's size. The title is never cut.
+  - The maintainer's own issues and one `shep kelpie triage` asked for skip all four and the spam check, which is why `triage_job` is told whether the limits reach it. A hold is final for that issue: its label and its record keep it out of the due list, and only the verb reaches it again.
+  - The author's cap and the account's age decide which of an author's issues kelpie takes on, so they reach an issue that has spent no call. An issue kelpie is already working on is gated by the day's cap alone: a hold is final, and calls that came to nothing are no reason to label an issue over for good.
+  - The author's round is gated by the day's cap as the first pass is, since its calls spend the same budget: a round call with no free place waits for the next poll, which reads the round from the records again. It is never held: a hold would label over an issue already triaged.
+  - An author the listing gives no login for, which an account deleted since the issue went up leaves, counts with no one: their records share no bucket, so they cannot spend each other's allowance.
+  - A record that names no author, which a file saved before the caps leaves, gets it from the listing at the next poll: the author is what the cap counts by and what separates the maintainer's issues from everyone else's.
