@@ -19,7 +19,7 @@ Whether and how kelpie picks up other people's pull requests. It sees and lists 
 
 ## Rereads
 
-- `reread` keeps the running `contributions` and logs it as waiting for the next start, like `git.*`, whatever else changed: the checks above run only when the runner opens. `runner/reread/`
+- A changed table takes effect at the next poll: `reread` runs the checks above and refuses it as a start does. A call running keeps its reviewer; `off` forgets the followed. `runner/reread/`
 
 ## Detection
 

@@ -1,12 +1,11 @@
 //! A settings change reaching a running runner
 //!
 //! Every setting takes effect live, at the next step or call that reads
-//! it, except `git.checkout`, `git.remote`, `git.base`, `hooks`,
-//! `contributions`, `tickets` and kelpie's gateways: a work item's
-//! worktree and pull request belong to the first three, the forge and voice
-//! ports hold the hooks built at start, the start checks and picks the next
-//! two, and the adapters hold the gateways, so those wait for the runner's
-//! next start. The agent files are read again with them, and a change to
+//! it, except `git.checkout`, `git.remote`, `git.base`, `hooks`, `tickets`
+//! and kelpie's gateways: a work item's worktree and pull request belong to
+//! the first three, the forge and voice ports hold the hooks built at start,
+//! the start picks the ticket port, and the adapters hold the gateways, so
+//! those wait for the runner's next start. The agent files are read again with them, and a change to
 //! those alone is a change too, but agents that name a gateway the runner
 //! lacks wait with it. A change is checked as a start checks it, and one
 //! that fails keeps the settings the runner has.
@@ -66,13 +65,6 @@ impl Runner {
             waiting.push("hooks");
             settings.hooks.clone_from(&self.settings.hooks);
         }
-        // The start checks cover the App and the agent files against `pick`.
-        if settings.contributions != self.settings.contributions {
-            waiting.push("contributions");
-            settings
-                .contributions
-                .clone_from(&self.settings.contributions);
-        }
         // The ticket port was picked at start.
         if settings.tickets != self.settings.tickets {
             waiting.push("tickets");
@@ -118,6 +110,14 @@ impl Runner {
         }
         let webhook = kelpie.webhook;
         let mut changed = changed::names((&self.settings, &self.webhook), (&settings, &webhook));
+        // The start's checks of the App and the agent files, against the new `pick`.
+        let contribution_lineup = open_checks::contributions(
+            &settings,
+            self.ports.voice.as_ref(),
+            &self.remote,
+            &book,
+            &self.home,
+        )?;
         if settings.triage != self.settings.triage {
             open_checks::triage(&settings, self.ports.voice.as_ref(), &self.remote, &book)?;
         }
@@ -198,6 +198,8 @@ impl Runner {
         }
         self.refresh_features();
         self.lineup = lineup;
+        // A call already running holds the reviewers it started with.
+        self.contribution_lineup = contribution_lineup;
         self.agents = agents;
         if new_implementers {
             self.make_agent_labels();
