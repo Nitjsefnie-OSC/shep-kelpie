@@ -1,6 +1,6 @@
 # Contribution push
 
-How kelpie pushes a fork worker's commits to the contributor's branch. Settings and detection are in `contributions.md`, the adoption of a released pull request in `contribution-release.md`. #633
+How kelpie pushes a fork worker's commits to the contributor's branch, and what it tells the contributor after the release. Settings and detection are in `contributions.md`, the adoption of a released pull request in `contribution-release.md`. #633, #635
 
 ## Push to the fork
 
@@ -11,3 +11,11 @@ How kelpie pushes a fork worker's commits to the contributor's branch. Settings 
 - A fork that refuses the push (edits turned off since, the branch deleted, or a branch the commit does not extend), or cannot be reached, raises `stuck` `push-refused { why }` with git's words. The public comment says only that the fork refused. A yes pushes the kept commits again at the gate; a no stops the work item. A fix turn in a review round has its push tried at the end of the turn, so a refusal is this ruling and not `fix-not-pushed`. A pull request merged or closed by hand takes no push (the branch may be gone), so the gate rules on it as `merged` or `closed`.
 - A yes or a no on the foreign change calls `worktree::adopt`, which on a fork keeps the commits kelpie has not pushed and merges the contributor's head into them; a merge that conflicts is abandoned and the worktree refused, and the maintainer drops the work item. State version 77.
 - Measured by #1134 (`docs/facts/pushing-to-a-contributors-branch.md`): the App's token and the maintainer's login both push to the branch while "Allow edits" is on, and neither once it is off. The push uses the maintainer's login because only it can approve a pending run.
+
+## After the release
+
+- Red CI on an adopted contribution starts the worker's CI fix turn as for any work item, and the representative posts one comment saying kelpie is on it, once for each fix turn. The turn is saved first, so a restart does not post twice. `Runner::tell_of_fix`, `runner/contributions/after.rs`. #635
+- It is a representative call (`Runner::represent`) with the pull request, the head and the failed checks' names as facts, the names fenced as data since a workflow file sets them. A call or a post that fails is logged as `contribution #<pr>: cannot tell the contributor kelpie is fixing CI: <why>` and not tried again, and the fix turn never waits on it.
+- It is never a promise to merge: the instruction forbids it, as the release ask's does, and only the maintainer's ruling decides a merge.
+- The work item knows its contributor: `WorkItem.contributor` is the login of the released record, set when `start_adoption` takes it and left out for any other work item, so an ordinary pull request's red CI posts nothing. State version 78.
+- A push of the contributor's after the release moves the head kelpie knew. The gate raises `foreign-change` as for any adopted pull request, and the commits kelpie has not pushed wait (see Push to the fork). A yes adopts the new head into the worktree. It is ruled on, never silently followed.

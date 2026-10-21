@@ -660,6 +660,7 @@ impl Runner {
             branch,
             remote,
             adopted: true,
+            contributor: (released.as_ref()).map(|c| c.author.clone()),
             arrived: Some(head.clone()),
             pull_request: Some(number),
             turn,

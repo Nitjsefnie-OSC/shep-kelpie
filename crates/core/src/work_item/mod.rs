@@ -64,6 +64,11 @@ pub struct WorkItem {
     /// fork's own name for it is in the remote.
     #[serde(default, skip_serializing_if = "Remote::is_origin")]
     pub remote: Remote,
+    /// The login of the contributor whose released pull request this adopted
+    /// work item is, left out for any other. Kelpie tells them when it fixes
+    /// red CI on their branch.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub contributor: Option<String>,
     /// An adopted pull request's head as it arrived, which its review diffs
     /// against instead of `origin/main`
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -454,6 +459,7 @@ impl WorkItem {
             rework: false,
             adopted: false,
             remote: Remote::Origin,
+            contributor: None,
             arrived: None,
             worktree,
             build,
