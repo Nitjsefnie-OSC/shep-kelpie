@@ -1,15 +1,15 @@
 //! A settings change reaching a running runner
 //!
 //! Every setting takes effect live, at the next step or call that reads
-//! it, except `git.checkout`, `git.remote`, `git.base`, `hooks`,
-//! `contributions`, `tickets` and kelpie's gateways: a work item's
-//! worktree and pull request belong to the first three, the forge and voice
-//! ports hold the hooks built at start, the start checks and picks the next
-//! two, and the adapters hold the gateways, so those wait for the runner's
-//! next start. The agent files are read again with them, and a change to
-//! those alone is a change too, but agents that name a gateway the runner
-//! lacks wait with it. A change is checked as a start checks it, and one
-//! that fails keeps the settings the runner has.
+//! it, except `git.checkout`, `git.remote`, `git.base`, `hooks`, `tickets`
+//! and kelpie's gateways: a work item's worktree and pull request belong to
+//! the first three, the forge and voice ports hold the hooks built at start,
+//! the start picks the ticket port, and the adapters hold the gateways, so
+//! those wait for the runner's next start. The agent files are read again
+//! with them, and a change to those alone is a change too, but agents that
+//! name a gateway the runner lacks wait with it, and so does
+//! `contributions.reviewers`. A change is checked as a start checks it, and
+//! one that fails keeps the settings the runner has.
 
 use super::{
     OpenError, Runner, check_bots, check_coderabbit, check_local, instructions, open_checks, triage,
@@ -66,13 +66,6 @@ impl Runner {
             waiting.push("hooks");
             settings.hooks.clone_from(&self.settings.hooks);
         }
-        // The start checks cover the App and the agent files against `pick`.
-        if settings.contributions != self.settings.contributions {
-            waiting.push("contributions");
-            settings
-                .contributions
-                .clone_from(&self.settings.contributions);
-        }
         // The ticket port was picked at start.
         if settings.tickets != self.settings.tickets {
             waiting.push("tickets");
@@ -111,6 +104,8 @@ impl Runner {
         if check_gateways(&self.gateways, &book, &agents, &lineup).is_err() {
             waiting.push("agents");
             settings.agents.clone_from(&self.settings.agents);
+            // The listed contributions' reviewers are agents too, and the old book may lack them.
+            (settings.contributions.reviewers).clone_from(&self.settings.contributions.reviewers);
             book.clone_from(&self.book);
             // The agents the runner has, under the new settings as a start reads them.
             agents = settings.role_agents(&book)?;
@@ -118,6 +113,21 @@ impl Runner {
         }
         let webhook = kelpie.webhook;
         let mut changed = changed::names((&self.settings, &self.webhook), (&settings, &webhook));
+        // The start's checks of the App and the agent files run on a changed table. The App
+        // can lose the repo while the runner runs, which must not refuse an unrelated edit.
+        let contribution_lineup = if settings.contributions != self.settings.contributions {
+            open_checks::contributions(
+                &settings,
+                self.ports.voice.as_ref(),
+                &self.remote,
+                &book,
+                &self.home,
+            )?
+        } else if settings.contributions.is_off() {
+            Vec::new()
+        } else {
+            settings.contribution_lineup(&book, &self.home)?
+        };
         if settings.triage != self.settings.triage {
             open_checks::triage(&settings, self.ports.voice.as_ref(), &self.remote, &book)?;
         }
@@ -185,6 +195,10 @@ impl Runner {
         if settings.triage.pick != self.settings.triage.pick {
             self.triage_due.clear();
         }
+        // A walk keeps the turn of a bot the lineup drops until it moves on, with its label on.
+        if contribution_lineup != self.contribution_lineup {
+            self.end_unlisted_turns(&contribution_lineup)?;
+        }
         self.settings = settings;
         if e2e_changed {
             // The dog reads the host from this file, so it follows the settings.
@@ -198,6 +212,8 @@ impl Runner {
         }
         self.refresh_features();
         self.lineup = lineup;
+        // A call already running holds the reviewers it started with.
+        self.contribution_lineup = contribution_lineup;
         self.agents = agents;
         if new_implementers {
             self.make_agent_labels();
