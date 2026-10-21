@@ -5,26 +5,17 @@ use std::sync::Mutex;
 
 use serde_json::{Value, json};
 
-use super::ask::{ASK_MARKER, QUESTIONS_MARKER};
 use super::comment::MARKER;
 use super::pick_tests::{MAINTAINER, issue, list, rig_with};
-use super::research_tests::{calls, moves, reply, restart, triage};
-use crate::github::ApiError;
-use crate::ports::{Clock, Cooldown, Role};
+use super::research_tests::{calls, crashed_with, moves, reply, restart, triage};
+use crate::ports::{Clock, Role};
 use crate::runner::{Runner, step};
 use crate::test::{Rig, Scripted};
 
-// What the representative says for the triage comment, and for the questions
-pub(super) const ASK_WORDS: &str = "Thanks for the report. Reply `github` or `none`.";
-pub(super) const Q_WORDS: &str = "A few things I still need from you.";
+// What the representative says for the triage comment that asks, and for the one that reads the answers
+pub(super) const ASK_WORDS: &str =
+    "Thanks for the report. Answer the questions below in one comment.";
 pub(super) const A_WORDS: &str = "That settles most of it.";
-
-// What the reading answers, as the JSON it was asked for
-pub(super) fn read(word: &str) -> Scripted {
-    Scripted::Text(Box::leak(
-        json!({ "reading": word }).to_string().into_boxed_str(),
-    ))
-}
 
 // The labels a repo may hold for the pass, named bare
 const REPO_LABELS: [&str; 7] = [
@@ -58,10 +49,10 @@ pub(super) fn filed_before(
     crash.title = "Crash on start".to_owned();
     crash.body = "It crashes when I run it.".to_owned();
     list(&rig, crash);
+    before(&rig);
     rig.claude
         .script_for(Role::Representative, [Scripted::Say(ASK_WORDS)]);
     rig.claude.script_for(Role::Triager, [reply(found)]);
-    before(&rig);
     let runner = rig.open().unwrap();
     (rig, runner)
 }
@@ -137,31 +128,83 @@ pub(super) fn posted(rig: &Rig) -> Vec<String> {
         .collect()
 }
 
+// The questions as the first comment lists them, the grilling skill's shape
+const ONE_QUESTION: &str = "❓ Q1 - Which OS crashes?\n\n➡️ Linux";
+
+// The part of the comment inside its collapsed section
+fn collapsed(comment: &str) -> &str {
+    let (_, rest) = comment
+        .split_once("<details>")
+        .expect("a <details> section");
+    rest.split_once("</details>").expect("a closed section").0
+}
+
+// How many of the representative's calls have run
+fn worded(rig: &Rig) -> usize {
+    calls(rig, Role::Representative).len()
+}
+
+// What the second triager call was asked, which holds the answers fenced
+fn answers_prompt(rig: &Rig) -> String {
+    let mut seen = calls(rig, Role::Triager);
+    assert_eq!(seen.len(), 2, "the first pass and the second");
+    seen.remove(1).call.prompt
+}
+
 #[test]
-fn a_maintainer_issue_with_an_open_question_asks_github_or_none_and_adds_no_label() {
+fn the_first_comment_asks_the_questions_and_holds_the_local_prompt_collapsed() {
     let (rig, runner) = filed("pick = \"maintainer\"", MAINTAINER, asked());
 
     assert_eq!(step(&runner).unwrap(), None);
 
-    assert_eq!(posted(&rig), [format!("{ASK_WORDS}\n\n{MARKER}")]);
+    let [comment] = posted(&rig).try_into().expect("one comment");
+    assert!(
+        comment.starts_with(&format!("{ASK_WORDS}\n\n{ONE_QUESTION}\n\n<details>")),
+        "{comment}"
+    );
+    assert!(comment.ends_with(MARKER), "{comment}");
+    let prompt = collapsed(&comment);
+    assert!(prompt.contains("/grill-with-docs Issue "), "{prompt}");
+    assert!(prompt.contains("#30: Crash on start."), "{prompt}");
+    assert!(prompt.contains("(recommended: Linux)"), "{prompt}");
+    assert!(
+        !comment.replace(prompt, "").contains("/grill-with-docs"),
+        "the prompt is only inside the section"
+    );
     assert_eq!(moves(&rig), ["comment"], "no label goes on while it waits");
-    // The facts the comment was worded from end asking the author.
-    let asked_facts = rig
-        .claude
-        .all_seen()
-        .into_iter()
-        .find(|s| s.call.role == Role::Representative)
-        .expect("a wording call")
-        .call
-        .prompt;
-    assert!(asked_facts.contains("`github`"), "{asked_facts}");
-    assert!(asked_facts.contains("`none`"), "{asked_facts}");
     let held = record(&rig, &runner);
     assert_eq!(held["step"], "commented");
     // The labels the pass owes wait in the record until the wait ends.
     assert_eq!(held["labels"], json!(["bug", "P2"]), "{held}");
-    assert!(held["asked"]["at"].is_number(), "{held}");
-    assert!(held.get("questions").is_none(), "{held}");
+    assert!(held["questions"]["comment"].is_number(), "{held}");
+    assert!(held["questions"]["at"].is_number(), "{held}");
+    assert!(held["local"]["body"].is_number(), "{held}");
+    assert!(held.get("asked").is_none(), "{held}");
+    // The facts the comment was worded from no longer ask for a word.
+    let facts = calls(&rig, Role::Representative).remove(0).call.prompt;
+    assert!(!facts.contains("`github`"), "{facts}");
+    assert!(!facts.contains("`none`"), "{facts}");
+}
+
+#[test]
+fn the_comment_lists_the_questions_up_to_max_questions_with_their_recommended_answers() {
+    let (rig, runner) = filed(
+        "pick = \"maintainer\"\nmax_questions = 2",
+        MAINTAINER,
+        asked_as(4),
+    );
+
+    assert_eq!(step(&runner).unwrap(), None);
+
+    let [comment] = posted(&rig).try_into().expect("one comment");
+    assert!(
+        comment.starts_with(&format!(
+            "{ASK_WORDS}\n\n❓ Q1 - Which one, 1?\n\n➡️ the 1th\n\n---\n\n❓ Q2 - Which one, 2?\n\n\
+             ➡️ the 2th\n\n<details>"
+        )),
+        "{comment}"
+    );
+    assert!(!comment.contains("Which one, 3?"), "{comment}");
 }
 
 #[test]
@@ -169,7 +212,7 @@ fn an_outside_issue_is_asked_under_pick_all_and_ends_needs_triage_under_pick_mai
     let (rig, runner) = filed("pick = \"all\"", "newcomer", asked());
     assert_eq!(step(&runner).unwrap(), None);
     let held = record(&rig, &runner);
-    assert!(held["asked"]["at"].is_number(), "{held}");
+    assert!(held["questions"]["at"].is_number(), "{held}");
     assert_eq!(moves(&rig), ["comment"], "asked, so no label yet");
 
     // Asked by hand under `pick = "maintainer"`, it is triaged and not asked.
@@ -177,41 +220,73 @@ fn an_outside_issue_is_asked_under_pick_all_and_ends_needs_triage_under_pick_mai
     rig.ask(&runner, "triage", Some("30"));
     assert_eq!(step(&runner).unwrap(), None);
     let held = record(&rig, &runner);
-    assert!(held.get("asked").is_none(), "{held}");
+    assert!(held.get("questions").is_none(), "{held}");
+    assert!(held.get("local").is_none(), "{held}");
     assert_eq!(held["step"], "done");
     assert_eq!(
         moves(&rig),
         ["comment", "label bug", "label P2", "label needs-triage"],
         "an outside author is not asked"
     );
+    assert!(!posted(&rig)[0].contains("<details>"), "{:?}", posted(&rig));
 }
 
 #[test]
-fn none_adds_needs_triage_and_posts_nothing() {
+fn a_comment_with_no_keyword_starts_the_second_pass_with_it_as_the_answers() {
     let (rig, runner) = filed("pick = \"maintainer\"", MAINTAINER, asked());
     assert_eq!(step(&runner).unwrap(), None);
 
-    wrote(&rig, MAINTAINER, "none");
-    rig.claude.script_for(Role::Representative, [read("none")]);
+    wrote(&rig, MAINTAINER, "Linux, it dies right on start.");
+    rig.claude.script_for(Role::Triager, [reply(settled())]);
+    rig.claude
+        .script_for(Role::Representative, [Scripted::Say(A_WORDS)]);
     rig.next_look();
     assert_eq!(step(&runner).unwrap(), None);
 
-    assert_eq!(
-        posted(&rig),
-        [format!("{ASK_WORDS}\n\n{MARKER}")],
-        "no post"
+    let prompt = answers_prompt(&rig);
+    assert!(
+        prompt.contains("Linux, it dies right on start."),
+        "{prompt}"
     );
-    assert_eq!(
-        moves(&rig),
-        ["comment", "label bug", "label P2", "label needs-triage"]
-    );
-    let held = record(&rig, &runner);
-    assert_eq!(held["step"], "done");
-    assert!(held.get("asked").is_none(), "{held}");
+    assert!(prompt.contains(ONE_QUESTION), "{prompt}");
+    assert_eq!(posted(&rig).len(), 2, "the answers comment, and no other");
+    assert_eq!(worded(&rig), 2, "no reply is read for a word");
+    assert_eq!(record(&rig, &runner)["step"], "done");
 }
 
 #[test]
-fn silence_for_wait_days_counts_as_none() {
+fn a_github_followed_by_answers_is_read_as_answers_and_no_question_is_posted_again() {
+    let (rig, runner) = filed("pick = \"all\"", "newcomer", asked());
+    assert_eq!(step(&runner).unwrap(), None);
+
+    wrote(&rig, "newcomer", "github\n\nQ1: Linux, on start.");
+    rig.claude.script_for(Role::Triager, [reply(settled())]);
+    rig.claude
+        .script_for(Role::Representative, [Scripted::Say(A_WORDS)]);
+    rig.next_look();
+    assert_eq!(step(&runner).unwrap(), None);
+
+    let prompt = answers_prompt(&rig);
+    assert!(
+        prompt.contains("github\n\nQ1: Linux, on start."),
+        "{prompt}"
+    );
+    let posted = posted(&rig);
+    assert_eq!(posted.len(), 2, "{posted:?}");
+    assert_eq!(posted[1], format!("{A_WORDS}\n\n{MARKER}"));
+    assert!(!posted[1].contains("❓"), "no question is posted again");
+    assert_eq!(
+        rig.github.issue_edits(),
+        [(
+            30,
+            "It crashes when I run it.\n\n## Settled\n\n- Linux, on start.".to_owned()
+        )]
+    );
+    assert_eq!(record(&rig, &runner)["step"], "done");
+}
+
+#[test]
+fn silence_for_wait_days_hands_the_issue_to_the_maintainer_and_asks_nothing_more() {
     let (rig, runner) = filed("pick = \"maintainer\"\nwait_days = 2", MAINTAINER, asked());
     assert_eq!(step(&runner).unwrap(), None);
 
@@ -224,149 +299,33 @@ fn silence_for_wait_days_counts_as_none() {
     rig.next_look();
     assert_eq!(step(&runner).unwrap(), None);
 
-    assert_eq!(posted(&rig), [format!("{ASK_WORDS}\n\n{MARKER}")]);
+    assert_eq!(posted(&rig).len(), 1, "no second ask");
     assert_eq!(
         moves(&rig),
         ["comment", "label bug", "label P2", "label needs-triage"]
     );
-    assert_eq!(
-        rig.claude
-            .all_seen()
-            .into_iter()
-            .filter(|s| s.call.role == Role::Representative)
-            .count(),
-        1,
-        "nothing was there to read"
-    );
-}
-
-#[test]
-fn a_reply_that_is_none_of_them_gets_one_plain_ask_and_a_second_counts_as_none() {
-    let (rig, runner) = filed("pick = \"maintainer\"", MAINTAINER, asked());
-    assert_eq!(step(&runner).unwrap(), None);
-
-    wrote(&rig, MAINTAINER, "what do you mean?");
-    rig.claude.script_for(
-        Role::Representative,
-        [
-            read("other"),
-            Scripted::Say("Reply `github` or `none`, please."),
-        ],
-    );
-    rig.next_look();
-    assert_eq!(step(&runner).unwrap(), None);
-
-    assert_eq!(posted(&rig).len(), 2);
-    assert!(posted(&rig)[1].ends_with(ASK_MARKER), "{}", posted(&rig)[1]);
-    let held = record(&rig, &runner);
-    assert_eq!(held["asked"]["asks"], 2, "{held}");
-    assert_eq!(moves(&rig), ["comment", "comment"], "still no label");
-
-    wrote(&rig, MAINTAINER, "I still do not follow.");
-    rig.claude.script_for(Role::Representative, [read("other")]);
-    rig.next_look();
-    assert_eq!(step(&runner).unwrap(), None);
-
-    assert_eq!(posted(&rig).len(), 2, "it asks once again, not twice");
-    assert_eq!(
-        moves(&rig),
-        [
-            "comment",
-            "comment",
-            "label bug",
-            "label P2",
-            "label needs-triage"
-        ]
-    );
-}
-
-#[test]
-fn a_reply_by_anyone_but_the_author_is_not_read() {
-    let (rig, runner) = filed("pick = \"maintainer\"", MAINTAINER, asked());
-    assert_eq!(step(&runner).unwrap(), None);
-
-    wrote(&rig, "someone-else", "github");
-    wrote(&rig, "kelpie-shep-pm[bot]", "none");
-    rig.next_look();
-    assert_eq!(step(&runner).unwrap(), None);
-
-    assert_eq!(posted(&rig), [format!("{ASK_WORDS}\n\n{MARKER}")]);
-    assert_eq!(moves(&rig), ["comment"], "the wait still holds");
-    assert!(record(&rig, &runner)["asked"]["at"].is_number());
-    assert_eq!(
-        rig.claude
-            .all_seen()
-            .into_iter()
-            .filter(|s| s.call.role == Role::Representative)
-            .count(),
-        1,
-        "no reply was read"
-    );
-}
-
-#[test]
-fn github_posts_numbered_questions_with_recommended_answers_up_to_max_questions() {
-    let (rig, runner) = filed(
-        "pick = \"maintainer\"\nmax_questions = 2",
-        MAINTAINER,
-        asked_as(4),
-    );
-    assert_eq!(step(&runner).unwrap(), None);
-
-    wrote(&rig, MAINTAINER, "github");
-    rig.claude.script_for(
-        Role::Representative,
-        [read("github"), Scripted::Say(Q_WORDS)],
-    );
-    rig.next_look();
-    assert_eq!(step(&runner).unwrap(), None);
-
-    let round = posted(&rig).remove(1);
-    assert_eq!(
-        round,
-        format!(
-            "{Q_WORDS}\n\n❓ Q1 - Which one, 1?\n\n➡️ the 1th\n\n---\n\n❓ Q2 - Which one, 2?\n\n➡️ \
-             the 2th\n\n{QUESTIONS_MARKER}"
-        )
-    );
-    let held = record(&rig, &runner);
-    assert!(held.get("asked").is_none(), "{held}");
-    assert!(held["questions"]["comment"].is_number(), "{held}");
-    assert!(held["questions"]["at"].is_number(), "{held}");
-    assert_eq!(moves(&rig), ["comment", "comment"], "no label yet");
-}
-
-#[test]
-fn no_answers_for_wait_days_ends_needs_triage() {
-    let (rig, runner) = filed("pick = \"maintainer\"\nwait_days = 2", MAINTAINER, asked());
-    assert_eq!(step(&runner).unwrap(), None);
-    wrote(&rig, MAINTAINER, "github");
-    rig.claude.script_for(
-        Role::Representative,
-        [read("github"), Scripted::Say(Q_WORDS)],
-    );
-    rig.next_look();
-    assert_eq!(step(&runner).unwrap(), None);
-
-    rig.clock.advance(2 * Rig::DAY);
-    rig.next_look();
-    assert_eq!(step(&runner).unwrap(), None);
-
-    assert_eq!(posted(&rig).len(), 2, "no second triage comment");
-    assert_eq!(
-        moves(&rig),
-        [
-            "comment",
-            "comment",
-            "label bug",
-            "label P2",
-            "label needs-triage"
-        ]
-    );
+    assert_eq!(worded(&rig), 1, "nothing was there to read");
     assert_eq!(calls(&rig, Role::Triager).len(), 1);
     let held = record(&rig, &runner);
-    assert!(held.get("questions").is_none(), "{held}");
     assert_eq!(held["step"], "done");
+    assert!(held.get("questions").is_none(), "{held}");
+    assert!(held.get("local").is_none(), "{held}");
+}
+
+#[test]
+fn a_reply_by_anyone_but_the_author_is_not_the_answers() {
+    let (rig, runner) = filed("pick = \"maintainer\"", MAINTAINER, asked());
+    assert_eq!(step(&runner).unwrap(), None);
+
+    wrote(&rig, "someone-else", "Linux");
+    wrote(&rig, "kelpie-shep-pm[bot]", "Linux");
+    rig.next_look();
+    assert_eq!(step(&runner).unwrap(), None);
+
+    assert_eq!(posted(&rig).len(), 1);
+    assert_eq!(moves(&rig), ["comment"], "the wait still holds");
+    assert!(record(&rig, &runner)["questions"]["at"].is_number());
+    assert_eq!(calls(&rig, Role::Triager).len(), 1, "no second pass");
 }
 
 #[test]
@@ -381,35 +340,36 @@ fn a_triage_label_put_on_by_hand_or_a_closed_issue_ends_the_wait_with_no_post() 
     list(&rig, labelled);
     rig.next_look();
     assert_eq!(step(&runner).unwrap(), None);
-    assert_eq!(posted(&rig), [format!("{ASK_WORDS}\n\n{MARKER}")]);
+    assert_eq!(taken(&rig), 1);
     assert_eq!(moves(&rig), ["comment"], "kelpie labels it no further");
     let held = record(&rig, &runner);
     assert_eq!(held["step"], "done");
-    assert!(held.get("asked").is_none(), "{held}");
+    assert!(held.get("questions").is_none(), "{held}");
+    assert!(held.get("local").is_none(), "{held}");
 
     let (rig, runner) = filed("pick = \"maintainer\"", MAINTAINER, asked());
     assert_eq!(step(&runner).unwrap(), None);
     rig.forge.unlist_open_issue(30);
     rig.next_look();
     assert_eq!(step(&runner).unwrap(), None);
-    assert_eq!(posted(&rig), [format!("{ASK_WORDS}\n\n{MARKER}")]);
+    assert_eq!(taken(&rig), 1);
     assert_eq!(moves(&rig), ["comment"]);
     let held = record(&rig, &runner);
     assert_eq!(held["step"], "done");
-    assert!(held.get("asked").is_none(), "{held}");
+    assert!(held.get("questions").is_none(), "{held}");
 }
 
 #[test]
-fn a_restart_while_waiting_keeps_the_ask_and_its_clock() {
+fn a_restart_while_waiting_keeps_the_questions_and_their_clock() {
     let (rig, runner) = filed("pick = \"maintainer\"\nwait_days = 2", MAINTAINER, asked());
     assert_eq!(step(&runner).unwrap(), None);
-    let at = record(&rig, &runner)["asked"]["at"].clone();
+    let at = record(&rig, &runner)["questions"]["at"].clone();
 
     let runner = restart(&rig, runner);
     assert_eq!(step(&runner).unwrap(), None);
     let held = record(&rig, &runner);
     assert_eq!(
-        held["asked"]["at"], at,
+        held["questions"]["at"], at,
         "its clock is the one it began with"
     );
     assert_eq!(held["step"], "commented");
@@ -418,157 +378,38 @@ fn a_restart_while_waiting_keeps_the_ask_and_its_clock() {
     rig.clock.advance(2 * Rig::DAY);
     rig.next_look();
     assert_eq!(step(&runner).unwrap(), None);
-}
-
-#[test]
-fn an_ask_kelpie_cannot_post_is_given_up_on_and_its_reply_is_not_read_again() {
-    let (rig, runner) = filed("pick = \"maintainer\"", MAINTAINER, asked());
-    assert_eq!(step(&runner).unwrap(), None);
-
-    wrote(&rig, MAINTAINER, "what do you mean?");
-    rig.github.refuse_comments(ApiError::Refused(502));
-    rig.claude.script_for(
-        Role::Representative,
-        [
-            read("other"),
-            Scripted::Say("Reply `github` or `none`, please."),
-            Scripted::Say("Reply `github` or `none`, please."),
-            Scripted::Say("Reply `github` or `none`, please."),
-            Scripted::Say("Reply `github` or `none`, please."),
-            Scripted::Say("Reply `github` or `none`, please."),
-            read("other"),
-            Scripted::Say("Reply `github` or `none`, please."),
-            read("other"),
-            Scripted::Say("Reply `github` or `none`, please."),
-        ],
-    );
-
-    // Each poll is one failure, and five is where triage gives up on the issue.
-    for _ in 0..5 {
-        rig.next_look();
-        assert_eq!(step(&runner).unwrap(), None);
-    }
-    let worded = calls(&rig, Role::Representative).len();
-    let done = moves(&rig);
-    assert_eq!(
-        worded, 7,
-        "the ask comment, the reply read once, the ask worded five times"
-    );
-
-    // The author keeps writing, and nothing is tried again until kelpie restarts.
-    for _ in 0..2 {
-        wrote(&rig, MAINTAINER, "still not following");
-        rig.next_look();
-        assert_eq!(step(&runner).unwrap(), None);
-    }
-
-    assert_eq!(
-        calls(&rig, Role::Representative).len(),
-        worded,
-        "nothing worded"
-    );
-    assert_eq!(moves(&rig), done, "nothing posted");
-    let held = record(&rig, &runner);
-    assert!(held["asked"]["at"].is_number(), "{held}");
-    assert!(
-        !(done.iter().any(|m| m == "label needs-triage")),
-        "{done:?}"
-    );
-}
-
-// GitHub is too busy to take the questions, for longer than a read reaches
-// back. The author's `github` is still there when it can go up.
-#[test]
-fn a_github_reply_is_still_read_after_the_forge_was_too_busy_to_post_the_questions() {
-    let (rig, runner) = filed("pick = \"maintainer\"\nwait_days = 30", MAINTAINER, asked());
-    assert_eq!(step(&runner).unwrap(), None);
-    wrote(&rig, MAINTAINER, "github");
-    rig.github.refuse_comments(ApiError::RateLimited(Cooldown {
-        retry_after: Some(60),
-        reset: None,
-    }));
-    rig.claude.script_for(
-        Role::Representative,
-        [
-            read("github"),
-            Scripted::Say(Q_WORDS),
-            Scripted::Say(Q_WORDS),
-            Scripted::Say(Q_WORDS),
-            Scripted::Say(Q_WORDS),
-            Scripted::Say(Q_WORDS),
-            Scripted::Say(Q_WORDS),
-            Scripted::Say(Q_WORDS),
-        ],
-    );
-
-    // Six polls is past the slack a read reaches back, and each post failed.
-    for _ in 0..6 {
-        rig.next_look();
-        step(&runner).unwrap();
-        assert_eq!(taken(&rig), 1, "only the ask went up");
-    }
-
-    rig.github.accept_comments();
-    rig.next_look();
-    assert_eq!(step(&runner).unwrap(), None);
-
-    assert_eq!(taken(&rig), 2, "the questions went up at last");
-    let held = record(&rig, &runner);
-    assert!(held["questions"]["comment"].is_number(), "{held}");
-    assert!(held.get("asked").is_none(), "{held}");
-    assert_eq!(
-        calls(&rig, Role::Representative).len(),
-        9,
-        "the triage comment, the reply read once, the questions worded seven times"
-    );
-}
-
-// The author wrote a question and then `github` before the next read. The word
-// they gave is taken, and they are not asked again for it.
-
-// The author wrote a question and then `github` before the next read. The word
-// they gave is taken, and they are not asked again for it.
-#[test]
-fn a_github_after_a_reply_kelpie_cannot_read_posts_the_questions() {
-    let (rig, runner) = filed("pick = \"maintainer\"", MAINTAINER, asked());
-    assert_eq!(step(&runner).unwrap(), None);
-    wrote(&rig, MAINTAINER, "what do you mean by settled?");
-    wrote(&rig, MAINTAINER, "github");
-    rig.claude.script_for(
-        Role::Representative,
-        [read("other"), read("github"), Scripted::Say(Q_WORDS)],
-    );
-
-    rig.next_look();
-    assert_eq!(step(&runner).unwrap(), None);
-
-    let posted = posted(&rig);
-    assert_eq!(posted.len(), 2, "{posted:?}");
-    assert!(posted[1].contains(QUESTIONS_MARKER), "{posted:?}");
-    assert!(!posted[1].contains(ASK_MARKER), "{posted:?}");
-    let held = record(&rig, &runner);
-    assert!(held["questions"]["comment"].is_number(), "{held}");
-    assert!(held.get("asked").is_none(), "{held}");
-}
-
-// Two replies kelpie cannot read, written before one read, are the second
-// answer: they count as `none` with no ask posted again.
-#[test]
-fn two_replies_kelpie_cannot_read_in_one_read_count_as_none() {
-    let (rig, runner) = filed("pick = \"maintainer\"", MAINTAINER, asked());
-    assert_eq!(step(&runner).unwrap(), None);
-    wrote(&rig, MAINTAINER, "what do you mean?");
-    wrote(&rig, MAINTAINER, "I do not follow this.");
-    rig.claude
-        .script_for(Role::Representative, [read("other"), read("other")]);
-
-    rig.next_look();
-    assert_eq!(step(&runner).unwrap(), None);
-
-    assert_eq!(taken(&rig), 1, "no ask posted again");
-    assert_eq!(
-        moves(&rig),
-        ["comment", "label bug", "label P2", "label needs-triage"]
-    );
     assert_eq!(record(&rig, &runner)["step"], "done");
+}
+
+// A file saved while kelpie waited on the word `github`, `local` or `none`
+// holds an `asked` and no questions: what the author writes after it is the
+// answers to the triage comment it was saved with.
+#[test]
+fn a_wait_saved_on_the_old_ask_takes_the_authors_comment_as_the_answers() {
+    let (rig, runner) = filed("pick = \"maintainer\"", MAINTAINER, asked());
+    assert_eq!(step(&runner).unwrap(), None);
+    let held = record(&rig, &runner);
+    drop(runner);
+    crashed_with(
+        &rig,
+        json!({
+            "issue": 30, "comment": held["questions"]["comment"], "step": "commented",
+            "labels": ["bug", "P2"], "seen": [],
+            "asked": { "at": held["questions"]["at"] },
+        }),
+    );
+    let runner = rig.open().unwrap();
+    assert_eq!(step(&runner).unwrap(), None);
+    assert_eq!(moves(&rig), ["comment"], "a restart labels nothing early");
+
+    wrote(&rig, MAINTAINER, "Linux, on start.");
+    rig.claude.script_for(Role::Triager, [reply(settled())]);
+    rig.claude
+        .script_for(Role::Representative, [Scripted::Say(A_WORDS)]);
+    rig.next_look();
+    assert_eq!(step(&runner).unwrap(), None);
+
+    let prompt = calls(&rig, Role::Triager).remove(1).call.prompt;
+    assert!(prompt.contains("Linux, on start."), "{prompt}");
+    assert!(prompt.contains(ONE_QUESTION), "{prompt}");
 }

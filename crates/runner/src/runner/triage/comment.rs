@@ -13,8 +13,6 @@
 //! A step that fails is told once in the log and tried at the next poll, and
 //! five failures give the issue up until kelpie restarts.
 
-use std::collections::BTreeMap;
-
 use super::super::Runner;
 use super::super::contributions::post::{forge_is_busy, refused_text};
 use super::super::representative::IssuePost;
@@ -25,7 +23,7 @@ use super::ready;
 use super::research::{Addressed, Found, Question};
 use crate::board::{self, TRIAGE};
 use crate::ports::{ForgeError, NewLabel};
-use crate::state::{StateError, TriageAsked, TriageStep, Triaged};
+use crate::state::{StateError, TriageLocal, TriageQuestions, TriageStep, Triaged};
 
 /// What marks a comment as kelpie's triage comment
 pub(in crate::runner) const MARKER: &str = "<!-- kelpie:triage -->";
@@ -104,13 +102,15 @@ const KIND: &str = "Write the first triage comment on this issue, from what kelp
     comment, not a review: no verdict, and nothing promised.";
 
 /// What kind of post the representative is asked for on an issue whose author
-/// is asked to settle the open questions: the comment ends asking them to
-/// reply `github` or `none`
-const ASK_KIND: &str = "Write the first triage comment on this issue, from what kelpie found in \
-    the repo. Greet the author, say what was found, ask only the questions listed, and end by \
-    asking the author how they want to settle them: reply `github` and kelpie posts its \
-    questions on GitHub, reply `none` and the maintainer triages it as it stands. It is a \
-    comment, not a review: no verdict, and nothing promised.";
+/// is asked to settle the open questions: kelpie lists them under the words,
+/// with a collapsed prompt for the author's own terminal
+const ASK_KIND: &str = "Write the lead-in to the first triage comment on this issue, from what \
+    kelpie found in the repo. Greet the author, say what was found, and say kelpie asks the open \
+    questions below and they can answer them all in one comment, or settle them in their own \
+    terminal with the prompt kelpie put in the collapsed section, and that the maintainer \
+    triages what is still open. Do not restate or renumber the questions or the prompt: kelpie \
+    posts them under your words. It is a comment, not a review: no verdict, and nothing \
+    promised.";
 
 /// What kind of post the representative is asked for on the second pass, the
 /// one that reads the author's answers
@@ -169,25 +169,19 @@ pub(in crate::runner) struct Tries {
     // The login of whoever opened the issue, kept so what they write while the
     // triage waits is told from what anyone else writes
     pub(in crate::runner) author: Option<String>,
-    // That the triage comment asked its author `github`, `local` or `none`, and
-    // the questions the questions comment posts under its lead-in
+    // That the triage comment asks its author the open questions, and the
+    // hash of the body its prompt was written against
     pub(in crate::runner) ask: bool,
+    local_seen: Option<u64>,
+    // The questions the pass left open, which the answers pass falls back on
+    // when the comment that holds them cannot be read
     pub(in crate::runner) open: Vec<Question>,
-    // The files the triage comment named, which the local prompt tells the
-    // author's session to read
-    pub(in crate::runner) files: Vec<String>,
-    // What the triager call on this issue is for: the first pass, the
-    // questions comment, or the pass that reads the author's answers
+    // What the triager call on this issue is for: the first pass, the pass
+    // that reads the author's answers, or the one that reads a rewritten body
     pub(in crate::runner) purpose: Purpose,
     // The author's answers, heard while the questions wait and kept until the
     // second call is made with them
     pub(in crate::runner) answers: Option<String>,
-    // That the questions comment is owed and the research must run again for
-    // it, which is what a restart leaves when it lost the questions
-    pub(in crate::runner) questions_call: bool,
-    // That the local prompt is owed and the research must run again for it, the
-    // same loss for a prompt
-    pub(in crate::runner) local_call: bool,
     // That the body the author's own session was told to rewrite has changed, so
     // the triager reads the issue again
     pub(in crate::runner) local_edit: bool,
@@ -197,9 +191,6 @@ pub(in crate::runner) struct Tries {
     // The issue body with the settled answers under its author's text, kept
     // until the record carries it
     pub(in crate::runner) answers_body: Option<String>,
-    // The author's replies the pass already read, each with the word it was
-    // read as, so a post that failed is not paid for again at the next poll
-    pub(in crate::runner) heard: BTreeMap<u64, String>,
 }
 
 impl Tries {
@@ -304,7 +295,6 @@ impl Runner {
         tries.purpose = purpose;
         tries.author = Some(author.to_owned());
         tries.open = found.open.clone();
-        tries.files = found.files.clone();
         tries.waiting = Some(Waiting {
             author: author.to_owned(),
             said: said.to_owned(),
@@ -494,8 +484,18 @@ impl Runner {
                 return Ok(());
             }
         };
+        // The comment that asks lists the questions under the words and holds the
+        // prompt for the author's own terminal, collapsed.
+        let (body, local_seen) = match ask {
+            true => match self.ask_comment(issue, &words, found) {
+                Some((body, seen)) => (body, Some(seen)),
+                None => return Ok(()),
+            },
+            false => (format!("{words}\n\n{MARKER}"), None),
+        };
         let tries = self.triage_tries.entry(issue).or_default();
-        tries.body = Some(format!("{words}\n\n{MARKER}"));
+        tries.body = Some(body);
+        tries.local_seen = local_seen;
         tries.labels = match stood {
             Some(_) => Vec::new(),
             None => labels,
@@ -651,11 +651,15 @@ impl Runner {
             .and_then(|t| t.seen.clone())
             .unwrap_or_default();
         let stood = (self.triage_tries.get(&issue)).is_some_and(|t| t.stood.is_some());
-        // The ask goes into the record with the comment: the wait is on the
-        // comment's time, and a restart reads it from here.
-        let asked = (self.triage_tries.get(&issue))
-            .is_some_and(|t| t.ask)
-            .then(|| TriageAsked::first(self.ports.clock.now()));
+        // The wait goes into the record with the comment: the answers are what
+        // the author writes after it, a rewritten body is what its prompt asks
+        // for, and a restart reads both from here.
+        let now = self.ports.clock.now();
+        let seen_body = (self.triage_tries.get(&issue))
+            .filter(|t| t.ask)
+            .and_then(|t| t.local_seen);
+        let questions = seen_body.map(|_| TriageQuestions { comment, at: now });
+        let local = seen_body.map(|body| TriageLocal { at: now, body });
         let answers_body = (self.triage_tries.get(&issue)).and_then(|t| t.answers_body.clone());
         let step = match (duplicate_of, stood, answers_body.as_ref()) {
             (Some(_), _, _) => TriageStep::Closed,
@@ -681,9 +685,9 @@ impl Runner {
             duplicate_of,
             ready_body: ready_body.or(answers_body),
             seen,
-            asked,
-            questions: None,
-            local: None,
+            asked: None,
+            questions,
+            local,
             spam: None,
         };
         for at in made {
@@ -707,8 +711,8 @@ impl Runner {
             tries.ready_body = None;
             tries.stood = None;
             tries.ask = false;
+            tries.local_seen = None;
             tries.answers_body = None;
-            tries.local_call = false;
             tries.local_edit = false;
             tries.local_read = None;
         }
@@ -852,7 +856,7 @@ fn duplicate_facts(named: &Addressed) -> String {
 // What the representative words the comment from: the labels that go on, the
 // related issues as `#n`, the files, tests and draft criteria, the questions,
 // whether the pass is sure enough to make the issue its board's, and how the
-// author's round ends: asking them `github`, `local` or `none`, reading their
+// author's round ends: asking them the questions, reading their
 // answers as the last round, or reading the issue again after their own session
 // rewrote its body
 fn facts(
@@ -923,11 +927,13 @@ fn facts(
             }
             match (ask, answers, local) {
                 (true, _, _) => facts.push_str(
-                    "\nKelpie asks its author how they want to settle these: reply `github` and \
-                     kelpie posts these questions on GitHub for the author to answer, reply \
-                     `local` and kelpie gives them one prompt to settle them in their own \
-                     terminal, or reply `none` and the maintainer triages the issue as it \
-                     stands.\n",
+                    "\nKelpie posts these questions under your words, each with the answer the \
+                     research recommends, and under them a collapsed prompt the author can \
+                     paste into an agent session of their own. The author answers them all in \
+                     one comment, whatever they write, or rewrites the issue body from their \
+                     own session. Kelpie then reads the issue again, and what is still open \
+                     goes to the maintainer. With no reply the maintainer triages the issue as \
+                     it stands.\n",
                 ),
                 (false, true, _) | (false, false, true) => facts.push_str(
                     "\nThis is the last round of questions: what is still open goes to the \

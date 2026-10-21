@@ -47,8 +47,8 @@ pub struct Triage {
     /// needs the GitHub App to cover the repo, since the triager would
     /// otherwise post as the maintainer.
     pub pick: TriagePick,
-    /// Whole days without a word from the author before kelpie asks again or
-    /// closes the triage, above 0. 7 when absent.
+    /// Whole days without a comment from the author before kelpie hands the
+    /// issue to the maintainer as it stands, above 0. 7 when absent.
     pub wait_days: NonZeroU32,
     /// The most questions one triage comment asks, 1 to 10. 10 when absent.
     pub max_questions: NonZeroU8,

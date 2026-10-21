@@ -51,7 +51,7 @@ Kelpie: dog of the maintainer's shepherd; one runner per project takes ready iss
 | triage-limits.md | the four limits | `runner/triage/limits.rs` |
 | triage-pass.md | one issue's pass: post, labels, duplicate close, agent-ready | `runner/triage/`, `runner/flight/`, `core/ports/voice.rs` |
 | triage-images.md | an issue's images | `runner/triage/images.rs`, `adapters/gh/attachment.rs` |
-| triage-author.md | author's round: the ask, `github`, `local`, `none`, answers | `runner/triage/{ask,heard,local}.rs`, `runner/representative/reading.rs` |
+| triage-author.md | author's round: the ask with the questions and local prompt, the answers, silence | `runner/triage/{ask,heard,local}.rs` |
 | triage-spam.md | the spam check: `triage.spam`, `possible-spam` | `runner/triage/spam.rs` |
 | log-lines.md | what the runner and dog log: pause, handover, lease waits, skips, warnings | `runner/drain/`, `runner/skip_log.rs`, `runner/review_bot/lease_wait.rs`, `runner/claim.rs`, `dog/desk.rs`, `dog/door/` |
 | metrics.md | kelpie's series on shep's metrics endpoint, alerts, dashboard | `core/metrics/`, `core/ports/metrics.rs`, `core/metrics/shepherd_sink.rs`, `assets/prometheus/`, `assets/grafana/` |

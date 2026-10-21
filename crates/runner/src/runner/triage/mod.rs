@@ -438,7 +438,7 @@ impl Runner {
         // written into the issue as if it came from the author.
         let settling = match purpose {
             Purpose::Answers => self.answers_round(issue),
-            Purpose::First | Purpose::Questions | Purpose::LocalPrompt | Purpose::LocalRead => None,
+            Purpose::First | Purpose::LocalRead => None,
         };
         if matches!(purpose, Purpose::Answers) && settling.is_none() {
             return None;

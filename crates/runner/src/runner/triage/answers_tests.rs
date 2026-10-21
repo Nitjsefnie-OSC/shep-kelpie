@@ -6,8 +6,7 @@ use std::sync::Mutex;
 use serde_json::{Value, json};
 
 use super::ask_tests::{
-    A_WORDS, Q_WORDS, asked, filed, filed_before, posted, read, record, settled, settled_ready,
-    wrote,
+    A_WORDS, asked, filed, filed_before, posted, record, settled, settled_ready, wrote,
 };
 use super::comment::MARKER;
 use super::pick_tests::{MAINTAINER, issue, list};
@@ -19,13 +18,6 @@ use crate::test::{CALL_PATIENCE, Hold, Rig, Scripted};
 #[test]
 fn answers_settling_everything_on_a_maintainer_issue_make_it_ready_for_agent() {
     let (rig, runner) = filed("pick = \"maintainer\"", MAINTAINER, asked());
-    assert_eq!(step(&runner).unwrap(), None);
-    wrote(&rig, MAINTAINER, "github");
-    rig.claude.script_for(
-        Role::Representative,
-        [read("github"), Scripted::Say(Q_WORDS)],
-    );
-    rig.next_look();
     assert_eq!(step(&runner).unwrap(), None);
 
     wrote(&rig, MAINTAINER, "Q1: Linux, on start. That is all of it.");
@@ -51,7 +43,6 @@ fn answers_settling_everything_on_a_maintainer_issue_make_it_ready_for_agent() {
         [
             "comment",
             "comment",
-            "comment",
             "label bug",
             "label P2",
             "label ready-for-agent"
@@ -64,13 +55,6 @@ fn answers_settling_everything_on_a_maintainer_issue_make_it_ready_for_agent() {
 #[test]
 fn answers_on_an_outside_issue_go_under_the_authors_text_and_end_needs_triage() {
     let (rig, runner) = filed("pick = \"all\"", "newcomer", asked());
-    assert_eq!(step(&runner).unwrap(), None);
-    wrote(&rig, "newcomer", "github");
-    rig.claude.script_for(
-        Role::Representative,
-        [read("github"), Scripted::Say(Q_WORDS)],
-    );
-    rig.next_look();
     assert_eq!(step(&runner).unwrap(), None);
 
     wrote(&rig, "newcomer", "Q1: Linux, on start.");
@@ -93,7 +77,6 @@ fn answers_on_an_outside_issue_go_under_the_authors_text_and_end_needs_triage() 
         [
             "comment",
             "comment",
-            "comment",
             "label bug",
             "label P2",
             "label needs-triage"
@@ -105,13 +88,6 @@ fn answers_on_an_outside_issue_go_under_the_authors_text_and_end_needs_triage() 
 #[test]
 fn a_question_still_open_after_the_answers_ends_needs_triage_with_no_second_round() {
     let (rig, runner) = filed("pick = \"maintainer\"", MAINTAINER, asked());
-    assert_eq!(step(&runner).unwrap(), None);
-    wrote(&rig, MAINTAINER, "github");
-    rig.claude.script_for(
-        Role::Representative,
-        [read("github"), Scripted::Say(Q_WORDS)],
-    );
-    rig.next_look();
     assert_eq!(step(&runner).unwrap(), None);
 
     wrote(&rig, MAINTAINER, "Q1: Linux.");
@@ -126,11 +102,10 @@ fn a_question_still_open_after_the_answers_ends_needs_triage_with_no_second_roun
         2,
         "one round of questions is the whole of it"
     );
-    assert_eq!(posted(&rig).len(), 3, "no second questions comment");
+    assert_eq!(posted(&rig).len(), 2, "no second questions comment");
     assert_eq!(
         moves(&rig),
         [
-            "comment",
             "comment",
             "comment",
             "label bug",
@@ -150,13 +125,6 @@ fn a_question_still_open_after_the_answers_ends_needs_triage_with_no_second_roun
 fn a_restart_while_waiting_on_the_answers_keeps_the_questions_and_their_clock() {
     let (rig, runner) = filed("pick = \"maintainer\"\nwait_days = 2", MAINTAINER, asked());
     assert_eq!(step(&runner).unwrap(), None);
-    wrote(&rig, MAINTAINER, "github");
-    rig.claude.script_for(
-        Role::Representative,
-        [read("github"), Scripted::Say(Q_WORDS)],
-    );
-    rig.next_look();
-    assert_eq!(step(&runner).unwrap(), None);
     let held = record(&rig, &runner);
     let (comment, at) = (
         held["questions"]["comment"].clone(),
@@ -171,11 +139,7 @@ fn a_restart_while_waiting_on_the_answers_keeps_the_questions_and_their_clock() 
         held["questions"]["at"], at,
         "its clock is the one it began with"
     );
-    assert_eq!(
-        moves(&rig),
-        ["comment", "comment"],
-        "a restart labels nothing early"
-    );
+    assert_eq!(moves(&rig), ["comment"], "a restart labels nothing early");
 
     // The author's answer after the restart is still heard, and the second
     // pass runs.
@@ -197,7 +161,6 @@ fn a_restart_while_waiting_on_the_answers_keeps_the_questions_and_their_clock() 
     assert_eq!(
         moves(&rig),
         [
-            "comment",
             "comment",
             "comment",
             "label bug",
@@ -241,13 +204,6 @@ fn said(found: Value) -> &'static str {
 fn the_answers_call_is_not_made_when_its_questions_cannot_be_read() {
     let (rig, runner) = filed("pick = \"maintainer\"", MAINTAINER, asked());
     assert_eq!(step(&runner).unwrap(), None);
-    wrote(&rig, MAINTAINER, "github");
-    rig.claude.script_for(
-        Role::Representative,
-        [read("github"), Scripted::Say(Q_WORDS)],
-    );
-    rig.next_look();
-    assert_eq!(step(&runner).unwrap(), None);
     let mut lost = record(&rig, &runner)["questions"].clone();
     assert!(lost["comment"].is_number(), "{lost}");
 
@@ -283,21 +239,14 @@ fn the_answers_call_is_not_made_when_its_questions_cannot_be_read() {
         [],
         "nothing is written into the body from what is not there"
     );
-    assert_eq!(posted(&rig).len(), 2, "no answers comment");
-    assert_eq!(moves(&rig), ["comment", "comment"], "the wait still holds");
+    assert_eq!(posted(&rig).len(), 1, "no answers comment");
+    assert_eq!(moves(&rig), ["comment"], "the wait still holds");
     assert_eq!(record(&rig, &runner)["questions"]["comment"], 4242);
 }
 
 #[test]
 fn a_hand_label_while_the_answers_call_runs_is_not_settled_under_it() {
     let (rig, runner) = filed("pick = \"maintainer\"", MAINTAINER, asked());
-    assert_eq!(step(&runner).unwrap(), None);
-    wrote(&rig, MAINTAINER, "github");
-    rig.claude.script_for(
-        Role::Representative,
-        [read("github"), Scripted::Say(Q_WORDS)],
-    );
-    rig.next_look();
     assert_eq!(step(&runner).unwrap(), None);
 
     wrote(&rig, MAINTAINER, "Q1: Linux, on start.");
@@ -325,20 +274,16 @@ fn a_hand_label_while_the_answers_call_runs_is_not_settled_under_it() {
     advance(&runner).unwrap();
     let held = record(&rig, &runner);
     assert!(held["questions"].is_object(), "{held}");
-    assert_eq!(
-        moves(&rig),
-        ["comment", "comment"],
-        "no label goes on early"
-    );
+    assert_eq!(moves(&rig), ["comment"], "no label goes on early");
 
     hold.release();
-    pump(&runner, || rig.github.comments().len() == 3);
+    pump(&runner, || rig.github.comments().len() == 2);
 
-    assert_eq!(posted(&rig).len(), 3);
+    assert_eq!(posted(&rig).len(), 2);
     assert_eq!(rig.forge.issue_labels(30), ["ready-for-human"]);
     assert_eq!(
         moves(&rig),
-        ["comment", "comment", "comment"],
+        ["comment", "comment"],
         "the hand label stands and kelpie labels no further"
     );
     let held = record(&rig, &runner);
@@ -352,13 +297,6 @@ fn a_hand_label_while_the_answers_call_runs_is_not_settled_under_it() {
 // The answers pass on an outside issue, up to its comment: the ask went up, the
 // author said `github`, the questions went up and they answered them.
 pub(super) fn asked_and_answered(rig: &Rig, runner: &Mutex<Runner>, author: &str, answers: &str) {
-    assert_eq!(step(runner).unwrap(), None);
-    wrote(rig, author, "github");
-    rig.claude.script_for(
-        Role::Representative,
-        [read("github"), Scripted::Say(Q_WORDS)],
-    );
-    rig.next_look();
     assert_eq!(step(runner).unwrap(), None);
     wrote(rig, author, answers);
 }
@@ -389,15 +327,14 @@ fn answers_a_hook_refused_still_put_the_type_and_priority_on() {
         "the refused body never reaches the forge"
     );
     let posted = posted(&rig);
-    assert_eq!(posted.len(), 4, "{posted:?}");
+    assert_eq!(posted.len(), 3, "{posted:?}");
     assert!(
-        posted[3].contains("did not write the answers"),
+        posted[2].contains("did not write the answers"),
         "{posted:?}"
     );
     assert_eq!(
         moves(&rig),
         [
-            "comment",
             "comment",
             "comment",
             "comment",
@@ -428,14 +365,8 @@ fn answers_whose_issue_body_cannot_be_read_post_nothing_and_are_tried_again() {
     rig.next_look();
     assert_eq!(step(&runner).unwrap(), None);
     let posted = posted(&rig);
-    for n in runner.lock().unwrap().take_notes() {
-        println!("NOTE: {n}");
-    }
-    println!("POSTED: {posted:?}");
-    println!("MOVES: {:?}", moves(&rig));
-    assert_eq!(posted.len(), 2, "{posted:?}");
-    assert!(!posted[1].contains(A_WORDS), "{posted:?}");
-    assert_eq!(moves(&rig), ["comment", "comment"], "no label goes on");
+    assert_eq!(posted.len(), 1, "{posted:?}");
+    assert_eq!(moves(&rig), ["comment"], "no label goes on");
     let held = record(&rig, &runner);
     assert!(held["questions"]["comment"].is_number(), "{held}");
     assert_eq!(held["step"], "commented", "the round is still open");
@@ -454,7 +385,6 @@ fn answers_whose_issue_body_cannot_be_read_post_nothing_and_are_tried_again() {
     assert_eq!(
         moves(&rig),
         [
-            "comment",
             "comment",
             "comment",
             "label bug",
