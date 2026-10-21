@@ -376,7 +376,8 @@ pub(super) fn answers_wait(record: &Triaged) -> Option<(u64, Timestamp)> {
 // The questions as the grilling skill shapes a round, without its bold: each
 // numbered, each with the answer the research recommends, each apart from the
 // next. Code writes them; the representative words only the lead-in. A fence
-// in a question is dropped, as it would swallow the collapsed prompt after it.
+// in a question, backtick or tilde, is dropped, as it would swallow the
+// collapsed prompt after it.
 pub(super) fn questions_block(questions: &[Question]) -> String {
     let round: Vec<String> = questions
         .iter()
@@ -393,5 +394,5 @@ pub(super) fn questions_block(questions: &[Question]) -> String {
 }
 
 fn unfenced(text: &str) -> String {
-    text.replace("```", "").trim().to_owned()
+    text.replace("```", "").replace("~~~", "").trim().to_owned()
 }
