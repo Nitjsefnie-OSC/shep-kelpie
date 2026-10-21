@@ -16,7 +16,7 @@ use std::sync::Mutex;
 
 use serde_json::{Value, json};
 
-use super::ask_tests::{A_WORDS, Q_WORDS, asked as one_question, filed, read, settled, wrote};
+use super::ask_tests::{A_WORDS, asked as one_question, filed, settled, wrote};
 use super::comment::MARKER;
 use super::limits::DAY;
 use super::pick_tests::{MAINTAINER, due, issue, list, rig_with, status, triaging};
@@ -132,17 +132,9 @@ fn fresh(rig: &Rig, number: u64, author: &str, after: u64) -> OpenIssue {
     fresh
 }
 
-// The author's round on issue 30, driven as the ask tests drive it: their word
-// on the ask, the questions comment, and their answers, with the second
-// triager call scripted and not yet run.
-fn answered(rig: &Rig, runner: &Mutex<Runner>) {
-    wrote(rig, "newcomer", "github");
-    rig.claude.script_for(
-        Role::Representative,
-        [read("github"), Scripted::Say(Q_WORDS)],
-    );
-    rig.next_look();
-    assert_eq!(step(runner).unwrap(), None, "the questions comment");
+// The author's round on issue 30, driven as the ask tests drive it: their
+// answers, with the second triager call scripted and not yet run.
+fn answered(rig: &Rig) {
     wrote(rig, "newcomer", "Q1: Linux, on start.");
     rig.claude.script_for(Role::Triager, [reply(settled())]);
     rig.claude
@@ -555,7 +547,7 @@ fn the_day_counts_every_call_on_one_issue_and_not_the_issue_once() {
     assert_eq!(step(&runner).unwrap(), None);
     assert_eq!(calls(&rig, Role::Triager).len(), 1, "the first pass");
 
-    answered(&rig, &runner);
+    answered(&rig);
     rig.next_look();
     assert_eq!(step(&runner).unwrap(), None);
 
@@ -584,7 +576,7 @@ fn an_authors_answers_call_past_the_days_cap_waits_and_is_made_once_a_place_open
         "the first pass takes the day's one place"
     );
 
-    answered(&rig, &runner);
+    answered(&rig);
     rig.next_look();
     assert_eq!(step(&runner).unwrap(), None);
 
@@ -593,11 +585,7 @@ fn an_authors_answers_call_past_the_days_cap_waits_and_is_made_once_a_place_open
         1,
         "the answers call waits on the day's cap"
     );
-    assert_eq!(
-        posted(&rig).len(),
-        2,
-        "the triage comment and the questions"
-    );
+    assert_eq!(posted(&rig).len(), 1, "only the triage comment");
     assert_eq!(triage(&rig, &runner)["daily"]["used"], 1);
 
     // A round is read from the records at every poll, so a call that waited is
@@ -608,7 +596,7 @@ fn an_authors_answers_call_past_the_days_cap_waits_and_is_made_once_a_place_open
     assert_eq!(step(&runner).unwrap(), None);
 
     assert_eq!(calls(&rig, Role::Triager).len(), 2, "the call is made");
-    assert_eq!(posted(&rig).len(), 3, "and its comment goes up");
+    assert_eq!(posted(&rig).len(), 2, "and its comment goes up");
     assert_eq!(record(&rig, &runner, 30).get("held"), None);
 }
 
@@ -674,25 +662,23 @@ fn a_round_call_spends_its_place_before_the_next_issue_is_called() {
     assert_eq!(step(&runner).unwrap(), None);
     assert_eq!(calls(&rig, Role::Triager).len(), 1, "the first pass");
 
-    // The author answers `github` and kelpie restarts before the questions
-    // comment goes up, so it owes a research call for the comment it lost.
-    wrote(&rig, "newcomer", "github");
+    // The author answers and kelpie restarts before the second pass runs, so it
+    // owes the call for the answers.
+    wrote(&rig, "newcomer", "Q1: Linux, on start.");
     let runner = restart(&rig, runner);
     rig.claude.script_for(Role::Triager, [reply(json!({}))]);
-    rig.claude.script_for(
-        Role::Representative,
-        [read("github"), Scripted::Say(Q_WORDS)],
-    );
+    rig.claude
+        .script_for(Role::Representative, [Scripted::Say(A_WORDS)]);
 
-    assert_eq!(step(&runner).unwrap(), None, "the word is read");
+    assert_eq!(step(&runner).unwrap(), None, "the answers are heard");
     rig.next_look();
     assert_eq!(
         step(&runner).unwrap(),
         None,
-        "and the lost questions are researched"
+        "and the second pass is called"
     );
 
-    assert_eq!(calls(&rig, Role::Triager).len(), 2, "the questions call");
+    assert_eq!(calls(&rig, Role::Triager).len(), 2, "the answers call");
     assert_eq!(triage(&rig, &runner)["daily"]["used"], 2, "the day is full");
     assert_eq!(
         record(&rig, &runner, 30)["calls"].as_array().unwrap().len(),
@@ -839,21 +825,19 @@ fn the_maintainers_own_round_is_called_when_its_record_names_no_author() {
     assert_eq!(step(&runner).unwrap(), None);
     assert_eq!(calls(&rig, Role::Triager).len(), 1, "the first pass");
 
-    // The author answers `github`. The record is as a file saved before the caps
+    // The author answers. The record is as a file saved before the caps
     // existed leaves it: no author, no calls. The day's one place is spent on
     // someone else's issue.
-    wrote(&rig, MAINTAINER, "github");
+    wrote(&rig, MAINTAINER, "Q1: Linux, on start.");
     drop(runner);
     stripped(&rig, 30);
     seeded_more(&rig, &[("someone", rig.clock.now().0, 1)]);
     let runner = rig.open().unwrap();
     rig.claude.script_for(Role::Triager, [reply(json!({}))]);
-    rig.claude.script_for(
-        Role::Representative,
-        [read("github"), Scripted::Say(Q_WORDS)],
-    );
+    rig.claude
+        .script_for(Role::Representative, [Scripted::Say(A_WORDS)]);
 
-    assert_eq!(step(&runner).unwrap(), None, "the word is read");
+    assert_eq!(step(&runner).unwrap(), None, "the answers are heard");
     assert_eq!(
         record(&rig, &runner, 30)["author"],
         MAINTAINER,

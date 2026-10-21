@@ -38,9 +38,8 @@ pub struct TriageState {
 pub const TRIAGED_KEPT: usize = 200;
 
 /// How many of one issue's triage call times are kept, which is more than the
-/// most one issue can make in a day: its first pass, its author's answers, a
-/// questions comment or a local prompt a restart lost, and a body the author
-/// rewrote.
+/// most one issue can make in a day: its first pass, its author's answers and
+/// a body the author rewrote.
 pub const TRIAGE_CALLS_KEPT: usize = 8;
 
 impl TriageState {
@@ -201,21 +200,27 @@ pub struct Triaged {
     /// Left out while empty.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub seen: Vec<String>,
-    /// The ask kelpie's triage comment put to the author, while the triage
-    /// waits for their word: `github` or `none`. No label goes on meanwhile.
+    /// The ask a kelpie that asked for a word (`github`, `local` or `none`)
+    /// saved while the triage waited on it. Kelpie no longer asks for a word:
+    /// the triage comment carries the questions, and the record holds
+    /// `questions` and `local`. A file saved before that still loads, and the
+    /// author's comment after this ask is read as the answers to the triage
+    /// comment.
     ///
-    /// Left out unless the triage waits on the ask.
+    /// Left out unless a file saved before the change holds one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub asked: Option<TriageAsked>,
-    /// The questions comment kelpie posted for the author to answer, while the
-    /// triage waits for the answers.
+    /// The triage comment that carries the questions for the author to answer,
+    /// while the triage waits for the answers. Any comment the author writes
+    /// after it is the answers.
     ///
     /// Left out unless the triage waits on the answers.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub questions: Option<TriageQuestions>,
-    /// The prompt kelpie posted for the author to run in their own terminal,
-    /// while the triage waits for the body their session writes back. No label
-    /// goes on meanwhile.
+    /// The prompt the triage comment holds for the author to run in their own
+    /// terminal, while the triage waits for the body their session writes back.
+    /// It is set with `questions`, and either ends the wait. No label goes on
+    /// meanwhile.
     ///
     /// Left out unless the triage waits on a local session.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -240,17 +245,15 @@ impl Triaged {
     }
 }
 
-/// The ask kelpie waits an author's answer to
+/// The ask a kelpie that asked for a word was waiting an author's answer to
 // wire format: changing this is a breaking change to the state file
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TriageAsked {
-    /// When the ask kelpie waits on went up: the triage comment's, or the
-    /// plain ask that followed a reply kelpie could not read as either word.
-    /// Silence this long past it counts as `none`.
+    /// When the ask went up: the author's comments after it are the answers,
+    /// and silence this long past it ends the wait
     pub at: Timestamp,
-    /// How many times kelpie has asked: 1, or 2 once its plain ask has gone
-    /// up. A second reply it can read as neither word counts as `none`.
+    /// How many times it asked, 1 or 2. Kelpie no longer reads it.
     ///
     /// Left out while it has asked once.
     #[serde(default = "asked_once", skip_serializing_if = "is_once")]
@@ -271,20 +274,7 @@ fn is_once(asks: &u32) -> bool {
     *asks <= 1
 }
 
-impl TriageAsked {
-    /// The first ask, the one the triage comment ends with
-    pub fn first(at: Timestamp) -> Self {
-        Self { at, asks: 1 }
-    }
-
-    /// Whether kelpie has put its one plain ask again, so the next reply it
-    /// cannot read counts as `none`
-    pub fn asked_again(&self) -> bool {
-        self.asks > 1
-    }
-}
-
-/// The questions comment kelpie waits an author's answers to
+/// The triage comment whose questions kelpie waits an author's answers to
 // wire format: changing this is a breaking change to the state file
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -296,7 +286,8 @@ pub struct TriageQuestions {
     pub at: Timestamp,
 }
 
-/// The prompt kelpie waits an author's own session to answer
+/// The prompt in the triage comment, which kelpie waits an author's own
+/// session to answer
 // wire format: changing this is a breaking change to the state file
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

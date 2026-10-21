@@ -1,71 +1,39 @@
-//! The author's round: the ask, the questions, the answers
+//! The author's round: the questions, the answers
 //!
 //! An open question goes to the issue's author before it goes to the
-//! maintainer. The triage comment asks them to settle it on GitHub, in their
-//! own terminal, or not at all: reply `github` and kelpie posts its questions
-//! there for them to answer, reply `local` and kelpie gives them one prompt to
-//! run in a session of their own ([`super::local`]), reply `none` and the
-//! maintainer triages the issue as it stands. Nothing is asked of an author
-//! kelpie does not ask: only the maintainer's own issue, and any issue under
-//! `pick = "all"` ([`Runner::askable`]).
+//! maintainer. The first triage comment lists the questions with the answer the
+//! research recommends, and holds a prompt for the author's own terminal in a
+//! collapsed section ([`super::local`]). Whatever the author writes next is
+//! their answers: kelpie reads no word in it. No reply `triage.wait_days` after
+//! the comment, and the maintainer triages the issue as it stands. Nothing is
+//! asked of an author kelpie does not ask: only the maintainer's own issue, and
+//! any issue under `pick = "all"` ([`Runner::askable`]).
 //!
-//! While the triage waits on a word from the author, no status label goes on:
+//! While the triage waits on the author, no status label goes on:
 //! [`Runner::finish_triage`] returns at a record whose `asked`, `questions` or
 //! `local` are open, and the labels the pass owed wait in its record. The wait
 //! holds no slot and no call. What the author writes is heard by
-//! [`super::heard`], which reads only their own comments on that issue after
-//! the ask, and read as one of the words it was given by
-//! [`crate::runner::representative::reading`].
+//! [`super::heard`], which keeps only their own comments on that issue after
+//! the triage comment.
 //!
-//! The paths each field takes. `asked` is set by [`Runner::record_triage`]
-//! when the triage comment ends with the ask, and again by
-//! [`Runner::triage_ask_again`] with the plain ask that follows a reply kelpie could
-//! not read as any of its words; it is cleared by [`Runner::set_questions`] when
-//! the questions go up, by [`Runner::set_local`] when the prompt goes up, by
-//! [`Runner::triage_none`] when the wait ends as `none`, by
-//! [`Runner::triage_wait_stood`] when a triage label the maintainer
-//! put on by hand or a closed issue ends it, and by [`Runner::record_triage`]
-//! when a pass that asks nothing records its comment. `questions` is set by
-//! [`Runner::set_questions`] and cleared by [`Runner::triage_none`],
-//! [`Runner::triage_wait_stood`] and [`Runner::record_triage`], whose record
-//! carries no questions once the answers round's comment is up. `local` is set
-//! by [`Runner::set_local`] and cleared by the same three, and what its body
-//! hash is measured against is in [`super::local`].
+//! The paths each field takes. `questions` and `local` are set together by
+//! [`Runner::record_triage`] when the triage comment that asks is recorded.
+//! Both are cleared by [`Runner::triage_none`] when the wait ends as `none`, by
+//! [`Runner::triage_wait_stood`] when a triage label the maintainer put on by
+//! hand or a closed issue ends it, and by [`Runner::record_triage`], whose
+//! record carries neither once the answers round's comment is up. `asked` is
+//! only read: a file saved by a kelpie that asked for a word holds one, and
+//! [`answers_wait`] takes the comment it was saved with as the questions. What
+//! the body hash of `local` is measured against is in [`super::local`].
 
 use super::super::Runner;
 use super::super::contributions::post::{forge_is_busy, refused_text};
-use super::super::representative::IssuePost;
-use super::super::thread_replies::plain_login;
 use super::TRIAGE_LABELS;
 use super::research::Question;
 use crate::board::TRIAGE;
-use crate::ports::{ForgeError, OpenIssue, ThreadComment, Timestamp};
+use crate::ports::{OpenIssue, Timestamp};
 use crate::settings::TriagePick;
-use crate::state::{StateError, TriageAsked, TriageQuestions, TriageStep, Triaged};
-
-/// What marks kelpie's plain ask again, after a reply it could not read as
-/// `github`, `local` or `none`
-pub(in crate::runner) const ASK_MARKER: &str = "<!-- kelpie:triage ask -->";
-
-/// What marks kelpie's questions comment, the one round it asks on GitHub
-pub(in crate::runner) const QUESTIONS_MARKER: &str = "<!-- kelpie:triage questions -->";
-
-/// What kind of post the representative is asked for beside the questions of
-/// the one round kelpie asks on GitHub. The questions themselves are code's
-/// and go under the lead-in.
-const QUESTIONS_KIND: &str = "Write the short lead-in to kelpie's numbered questions for the \
-    author of this issue. Greet them, say kelpie asks the open questions below and they can \
-    answer them all in one comment, and say kelpie reads the answers and leaves what is still \
-    open to the maintainer. Do not restate or renumber the questions: kelpie posts them under \
-    your words. It is a comment, not a review: no verdict, and nothing promised.";
-
-/// What kind of post the representative is asked for when kelpie asks an
-/// author `github`, `local` or `none` once more, plainly
-const ASK_AGAIN_KIND: &str = "Write the short comment that asks the author of this issue once \
-    more, plainly, to reply `github`, `local` or `none` to kelpie's triage comment. Say this is \
-    the last time kelpie asks, and that with no word either way the maintainer triages the issue \
-    as it stands. Friendly and short. It is a comment, not a review: no verdict, and nothing \
-    promised.";
+use crate::state::{StateError, TriageStep, Triaged};
 
 /// What a triager call on an issue is for
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -73,13 +41,8 @@ pub(in crate::runner) enum Purpose {
     /// The first pass, the one that asks
     #[default]
     First,
-    /// The pass that posts the questions, asked again where a restart lost them
-    Questions,
     /// The pass that reads the author's answers
     Answers,
-    /// The research that recovers what the local prompt names, which a restart
-    /// lost before its comment went up
-    LocalPrompt,
     /// The pass that reads the issue again after its author's own session
     /// rewrote its body
     LocalRead,
@@ -125,7 +88,7 @@ impl Runner {
         }
     }
 
-    // How long kelpie waits for the author's word, in seconds
+    // How long kelpie waits for the author's answers, in seconds
     pub(super) fn wait_seconds(&self) -> u64 {
         u64::from(self.settings.triage.wait_days.get()).saturating_mul(86_400)
     }
@@ -138,13 +101,7 @@ impl Runner {
             triage
                 .issues
                 .iter()
-                .filter_map(|record| {
-                    let at = record
-                        .questions
-                        .map(|q| q.at)
-                        .or_else(|| record.asked.map(|a| a.at));
-                    at.map(|at| (record.issue, at))
-                })
+                .filter_map(|record| answers_wait(record).map(|(_, at)| (record.issue, at)))
                 .collect()
         })
     }
@@ -241,7 +198,7 @@ impl Runner {
         Ok(())
     }
 
-    // Ends the wait as `none`: the ask and the questions come off the record,
+    // Ends the wait as `none`: the questions and the prompt come off the record,
     // and what the pass owed goes on, which is its labels and then
     // `needs-triage`. The triage comment stays as the maintainer's starting
     // point: nothing new is posted.
@@ -259,218 +216,11 @@ impl Runner {
         self.save(next)?;
         if let Some(tries) = self.triage_tries.get_mut(&issue) {
             tries.answers = None;
-            tries.questions_call = false;
-            tries.local_call = false;
             tries.local_edit = false;
             tries.local_read = None;
             tries.open.clear();
         }
         self.finish_triage(issue)
-    }
-
-    // The newest comment on `issue` that the App covering the repo wrote after
-    // `after`, whose last line begins with `marker`. Kelpie's own markers in
-    // anyone else's comment count for nothing. The whole comment comes back, so
-    // a marker that carries a value can be read off it.
-    pub(in crate::runner) fn app_comment_after(
-        &self,
-        issue: u64,
-        marker: &str,
-        after: Timestamp,
-    ) -> Result<Option<ThreadComment>, ForgeError> {
-        let comments = self
-            .ports
-            .tickets
-            .issue_comments(&self.remote, super::ticket(issue)?)?;
-        let Some(app) = self.app_login().map(|app| plain_login(&app)) else {
-            return Ok(None);
-        };
-        Ok(comments
-            .iter()
-            .filter(|c| {
-                plain_login(&c.author) == app
-                    && c.created > after
-                    && c.body
-                        .trim_end()
-                        .lines()
-                        .last()
-                        .is_some_and(|line| line.starts_with(marker))
-            })
-            .max_by_key(|c| c.id)
-            .cloned())
-    }
-
-    // Posts the one round of questions kelpie asks on GitHub: the numbered
-    // questions with the answer each recommends, under a lead-in the
-    // representative words. The questions come from the triager's reply, and
-    // kelpie's code lists them.
-    pub(in crate::runner) fn post_questions(
-        &mut self,
-        issue: u64,
-        said: &str,
-    ) -> Result<(), StateError> {
-        let Some(record) = self.triage_record(issue).cloned() else {
-            return Ok(());
-        };
-        let Some(asked) = record.asked else {
-            return Ok(());
-        };
-        let questions = self
-            .triage_tries
-            .get(&issue)
-            .map(|t| t.open.clone())
-            .unwrap_or_default();
-        if questions.is_empty() {
-            self.notes.push(format!(
-                "triage #{issue}: its author replied `github`, but the pass left no question to \
-                 ask, so the maintainer triages it as it stands"
-            ));
-            return self.triage_none(issue);
-        }
-        let author = self
-            .triage_tries
-            .get(&issue)
-            .and_then(|t| t.author.clone())
-            .unwrap_or_default();
-        // The forge may take a post whose answer is lost, so the marker is read
-        // again before asking a second time.
-        match self.app_comment_after(issue, QUESTIONS_MARKER, asked.at) {
-            Ok(Some(prompt)) => return self.set_questions(issue, prompt.id),
-            Ok(None) => {}
-            Err(e) => {
-                let why = format!("cannot read its comments: {e}");
-                self.triage_failed(issue, &why, !forge_is_busy(&e));
-                return Ok(());
-            }
-        }
-        let facts = questions_facts(questions.len());
-        let kind = QUESTIONS_KIND;
-        let earlier = [record.comment];
-        let post = IssuePost {
-            kind,
-            facts: &facts,
-            earlier: &earlier,
-            author: &author,
-            said,
-        };
-        let words = match self.represent_issue(issue, &post) {
-            Ok(words) => words,
-            Err(e) => {
-                self.triage_failed(issue, &e.to_string(), true);
-                return Ok(());
-            }
-        };
-        let block = questions_block(&questions);
-        let body = format!("{words}\n\n{block}\n\n{QUESTIONS_MARKER}");
-        match self.ports.voice.post(&self.remote, issue, &body) {
-            Ok(posted) => {
-                if let Some(tries) = self.triage_tries.get_mut(&issue) {
-                    tries.questions_call = false;
-                }
-                self.set_questions(issue, posted.id)
-            }
-            Err(e) => {
-                let why = format!("cannot post the questions: {e}");
-                self.triage_failed(issue, &why, !forge_is_busy(&e));
-                Ok(())
-            }
-        }
-    }
-
-    // Saves the record as waiting on the answers, with the comment that holds
-    // the questions and when it went up. The ask comes off: the questions
-    // replace it, and their own `wait_days` is what silence is measured from.
-    pub(in crate::runner) fn set_questions(
-        &mut self,
-        issue: u64,
-        comment: u64,
-    ) -> Result<(), StateError> {
-        let mut next = self.state.clone();
-        if let Some(record) = next
-            .triage
-            .as_mut()
-            .and_then(|t| t.issues.iter_mut().find(|t| t.issue == issue))
-        {
-            record.asked = None;
-            record.questions = Some(TriageQuestions {
-                comment,
-                at: self.ports.clock.now(),
-            });
-        }
-        self.save(next)
-    }
-
-    // Asks an author `github` or `none` once more, plainly, after a reply
-    // kelpie could not read as either word. This is the last time it asks: a
-    // second reply it cannot read counts as `none`.
-    pub(in crate::runner) fn triage_ask_again(
-        &mut self,
-        issue: u64,
-        said: &str,
-    ) -> Result<(), StateError> {
-        let Some(record) = self.triage_record(issue).cloned() else {
-            return Ok(());
-        };
-        let Some(asked) = record.asked else {
-            return Ok(());
-        };
-        let author = self
-            .triage_tries
-            .get(&issue)
-            .and_then(|t| t.author.clone())
-            .unwrap_or_default();
-        match self.app_comment_after(issue, ASK_MARKER, asked.at) {
-            Ok(Some(_)) => {}
-            Ok(None) => {
-                let facts = "Kelpie asked the author of this issue to reply `github`, `local` or \
-                    `none` to its triage comment. Their reply was none of them. This is the last \
-                    time kelpie asks: with no word either way the maintainer triages the issue as \
-                    it stands."
-                    .to_owned();
-                let kind = ASK_AGAIN_KIND;
-                let earlier = [record.comment];
-                let post = IssuePost {
-                    kind,
-                    facts: &facts,
-                    earlier: &earlier,
-                    author: &author,
-                    said,
-                };
-                let words = match self.represent_issue(issue, &post) {
-                    Ok(words) => words,
-                    Err(e) => {
-                        self.triage_failed(issue, &e.to_string(), true);
-                        return Ok(());
-                    }
-                };
-                let body = format!("{words}\n\n{ASK_MARKER}");
-                match self.ports.voice.post(&self.remote, issue, &body) {
-                    Ok(_) => {}
-                    Err(e) => {
-                        let why = format!("cannot post the ask: {e}");
-                        self.triage_failed(issue, &why, !forge_is_busy(&e));
-                        return Ok(());
-                    }
-                }
-            }
-            Err(e) => {
-                let why = format!("cannot read its comments: {e}");
-                self.triage_failed(issue, &why, !forge_is_busy(&e));
-                return Ok(());
-            }
-        }
-        let mut next = self.state.clone();
-        if let Some(record) = next
-            .triage
-            .as_mut()
-            .and_then(|t| t.issues.iter_mut().find(|t| t.issue == issue))
-        {
-            record.asked = Some(TriageAsked {
-                at: self.ports.clock.now(),
-                asks: 2,
-            });
-        }
-        self.save(next)
     }
 
     // Saves the record as commented with its labels still owed, which is what
@@ -578,14 +328,12 @@ impl Runner {
     // the second pass reads fenced with the issue. `None` when neither can be
     // had, which is no call this poll.
     pub(super) fn answers_round(&mut self, issue: u64) -> Option<(String, String)> {
-        let asked = self.triage_record(issue)?.questions?;
+        let (comment, _) = answers_wait(self.triage_record(issue)?)?;
         let answers = self.triage_tries.get(&issue)?.answers.clone()?;
         let read = super::ticket(issue)
             .and_then(|ticket| self.ports.tickets.issue_comments(&self.remote, ticket));
         let round = match read {
-            Ok(comments) => {
-                (comments.iter().find(|c| c.id == asked.comment)).map(|c| c.body.clone())
-            }
+            Ok(comments) => (comments.iter().find(|c| c.id == comment)).map(|c| c.body.clone()),
             Err(e) => {
                 let why = format!("cannot read its questions: {e}");
                 self.triage_failed(issue, &why, !forge_is_busy(&e));
@@ -616,16 +364,26 @@ impl Runner {
     }
 }
 
+// The comment whose questions the author answers and when the wait on them
+// began. A record saved by a kelpie that asked for a word holds an `asked`
+// instead of `questions`, and the triage comment it was saved with is the one
+// its author answers.
+pub(super) fn answers_wait(record: &Triaged) -> Option<(u64, Timestamp)> {
+    (record.questions.map(|q| (q.comment, q.at)))
+        .or_else(|| record.asked.map(|a| (record.comment, a.at)))
+}
+
 // The questions as the grilling skill shapes a round, without its bold: each
 // numbered, each with the answer the research recommends, each apart from the
-// next. Code writes them; the representative words only the lead-in.
-fn questions_block(questions: &[Question]) -> String {
+// next. Code writes them; the representative words only the lead-in. A fence
+// in a question is dropped, as it would swallow the collapsed prompt after it.
+pub(super) fn questions_block(questions: &[Question]) -> String {
     let round: Vec<String> = questions
         .iter()
         .enumerate()
         .map(|(i, q)| {
-            let question = format!("❓ Q{} - {}", i + 1, q.question.trim());
-            match q.recommended.trim() {
+            let question = format!("❓ Q{} - {}", i + 1, unfenced(&q.question));
+            match unfenced(&q.recommended).as_str() {
                 "" => question,
                 recommended => format!("{question}\n\n➡️ {recommended}"),
             }
@@ -634,25 +392,6 @@ fn questions_block(questions: &[Question]) -> String {
     round.join("\n\n---\n\n")
 }
 
-// What the representative words the lead-in from: that the author chose GitHub
-// for this, and how many questions kelpie posts under the lead-in. The
-// questions themselves are not facts to restate.
-fn questions_facts(most: usize) -> String {
-    let mut facts = String::from(
-        "Kelpie asked the author of this issue to settle its open questions, and they replied \
-         `github`.\n",
-    );
-    let many = match most == 1 {
-        true => "",
-        false => "s",
-    };
-    facts.push_str(&format!(
-        "\nKelpie posts {most} numbered question{many} below your words, each with the answer \
-         its research recommends.\n"
-    ));
-    facts.push_str(
-        "\nThe author answers them in one comment. Kelpie reads the answers, and what is still \
-         open after that one round goes to the maintainer.\n",
-    );
-    facts
+fn unfenced(text: &str) -> String {
+    text.replace("```", "").trim().to_owned()
 }
