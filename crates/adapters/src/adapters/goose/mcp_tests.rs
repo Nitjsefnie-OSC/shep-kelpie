@@ -420,6 +420,7 @@ fn the_hook_lets_each_loaded_server_s_tools_through_and_nothing_else_it_refused(
             git_common_dir: Path::new("/nowhere"),
             worktree: &w.path("wt"),
             base: "main",
+            kelpie_pushes: false,
         };
         judge_goose(
             payload.to_string().as_bytes(),

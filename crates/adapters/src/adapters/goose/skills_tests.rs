@@ -404,6 +404,7 @@ fn judged(judge: Judging, tool: &str) -> Verdict {
                 git_common_dir: Path::new("/nowhere"),
                 worktree: Path::new("/k/wt"),
                 base: "main",
+                kelpie_pushes: false,
             },
             Path::new("/k/build"),
             &[],

@@ -129,6 +129,9 @@ fn call(call: &Value) -> String {
         (Some("goose_session"), Some(ticket)) => {
             format!("{}'s attached goose session", ticket.shown())
         }
+        (Some("codex_session"), Some(ticket)) => {
+            format!("{}'s attached codex session", ticket.shown())
+        }
         (Some("reviewer"), Some(ticket)) => format!("{}'s review", ticket.shown()),
         (_, Some(ticket)) => format!("a call for {}", ticket.shown()),
         (_, None) => "a call".to_owned(),
