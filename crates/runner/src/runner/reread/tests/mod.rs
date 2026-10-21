@@ -1,3 +1,5 @@
+mod e2e;
+
 use std::path::Path;
 
 use crate::ports::Visibility;

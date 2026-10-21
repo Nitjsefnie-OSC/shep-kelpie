@@ -1,11 +1,12 @@
 //! A settings change reaching a running runner
 //!
 //! Every setting takes effect live, at the next step or call that reads
-//! it, except `git.checkout`, `git.remote`, `git.base`, `hooks` and kelpie's
+//! it, except `git.checkout`, `git.remote`, `git.base`, `hooks`,
+//! `contributions`, `triage`, `tickets`, `dependencies` and kelpie's
 //! gateways: a work item's worktree and pull request belong to the first
-//! three, and the
-//! forge and voice ports hold the hooks built at start, as the adapters hold
-//! the gateways, so those wait for the runner's next start. The agent files
+//! three, the forge and voice ports hold the hooks built at start, the
+//! start checks and picks the next four, and the adapters hold the
+//! gateways, so those wait for the runner's next start. The agent files
 //! are read again with them, and a change to those alone is a change too,
 //! but agents that name a gateway the runner lacks wait with it. A change is
 //! checked as a start checks it, and one that fails keeps the settings the
@@ -173,7 +174,18 @@ impl Runner {
         let skills = (settings.skills != self.settings.skills)
             .then(|| Skills::load(&settings.skills, &self.paths.skills));
         let new_implementers = agents.implementer_names() != self.agents.implementer_names();
+        let e2e_changed = settings.e2e != self.settings.e2e;
         self.settings = settings;
+        if e2e_changed {
+            // The dog reads the host from this file, so it follows the settings.
+            let file = self.paths.e2e();
+            self.notes
+                .extend(super::e2e::record(self.settings.e2e.as_ref(), &file));
+            self.notes.extend(super::e2e::dog_cannot_find(
+                self.settings.e2e.as_ref(),
+                &self.paths,
+            ));
+        }
         self.refresh_features();
         self.lineup = lineup;
         self.agents = agents;

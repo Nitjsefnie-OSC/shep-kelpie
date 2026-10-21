@@ -47,7 +47,7 @@ Pacing, leases, forge limits, time, usage, settings.
 ## Settings
 
 - Read through shep client: runner sheep's `[app.dogs.kelpie]` table + kelpie's `[kelpie]` in `dogs.toml` (start needs no dog); missing required key stops runner by name. #114, #332, `crates/core/src/settings/mod.rs`; `settings/x.rs` below is in `crates/core/src/settings/`
-- Changes apply at next wake (polled); `git.*`, `hooks`, gateways wait for restart. Failing change keeps old settings, alerts once a reason, shows in `status`; hand-written table checked at start, reread. #809, `runner/reread/`
+- Changes apply at next wake (polled); some wait for restart (guide: settings). Failing change keeps old settings, alerts once a reason, shows in `status`; hand-written table checked at start, reread. #809, `runner/reread/`
 - Every setting is read by something; removed key refused by name with replacement. Pre-table files named. #332, `settings/removed.rs`
 - `git`: `checkout`, `remote` (`origin`'s GitHub repo when absent), `merging`, `issues`. `settings/git.rs`
 - `ci`: `block`, `fix_attempts` (-1); `concurrency`: `active_items` (1), `pending_rulings` (2). `settings/ci.rs`

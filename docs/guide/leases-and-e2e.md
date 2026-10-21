@@ -23,7 +23,7 @@ host = "e2e-box"
 
 - `host` is an ssh alias from your `~/.ssh/config`, so the key, user and address stay out of kelpie's settings. It takes letters, digits, `.`, `_` and `-`, and may not start with `-`
 - `command` is a file in the repo, `scripts/e2e-remote.sh` by default, and `results` is a folder in it, `test-results` by default. Both are relative, take letters, digits, `.`, `_`, `-` and `/`, and may not contain `..`, and `results` may not be `.git`
-- A runner writes the table to `e2e.json` in the project's folder when it starts, and removes the file when the table is gone. A worker cannot write that file, and a change to the table waits for the runner's next start
+- A runner writes the table to `e2e.json` in the project's folder when it starts and when the settings change, and removes the file when the table is gone. A worker cannot write that file
 
 Read this before you set one. The project's script runs on the host as the alias's account, and a worker edits that script, so a worker can run anything on the host that account can. Name a host that exists for this and holds nothing else: a disposable machine or VM, never your own, and no account that reaches your keys, your other hosts or your network. The ask a worker sends names none of host, command or results folder, so the dog takes them from the table alone. A worker runs `shep kelpie lease e2e` from its worktree (its instructions say so when the table is set), and the dog places the ask by which project's `worktrees` folder holds that folder. A project without the table, or a folder outside every worktree, is told it has no e2e host. The dog looks under `$SHEP_HOME/kelpie` only, so a runner started with another `KELPIE_HOME` cannot use e2e, and says so in its log.
 
