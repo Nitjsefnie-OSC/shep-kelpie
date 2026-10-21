@@ -122,6 +122,8 @@ pub struct FakeForge {
     pub coderabbit: FakeCodeRabbit,
     /// What people wrote on the threads, and who may write to the repo
     pub threads: thread::FakeThreads,
+    /// The images the issues' links lead to
+    pub images: images::FakeImages,
     // The App whose comments the forge then lists beside what people wrote,
     // which is what an App's own post looks like on a real repo
     app_comments: Arc<Mutex<Option<Arc<dyn AppComments>>>>,
@@ -206,6 +208,7 @@ impl FakeForge {
             limited: Arc::default(),
             coderabbit: FakeCodeRabbit::default(),
             threads: thread::FakeThreads::default(),
+            images: images::FakeImages::default(),
             app_comments: Arc::default(),
         }
     }
@@ -822,6 +825,7 @@ mod comments;
 mod down;
 mod handed;
 mod held;
+mod images;
 mod issues;
 mod lookup;
 mod pulls;

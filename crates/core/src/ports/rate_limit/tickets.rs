@@ -6,6 +6,7 @@
 //! impl stands here rather than in `rate_limit` itself, so no call site there
 //! has both ports in scope at once.
 
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use super::RateHeld;
@@ -74,6 +75,11 @@ impl Tickets for RateHeld {
         ticket: TicketId,
     ) -> Result<Vec<ThreadComment>, ForgeError> {
         self.call_tickets(Kind::IssueComments, |t| t.issue_comments(repo, ticket))
+    }
+
+    // Not a call to the forge's API, so it spends none of the hold's allowance.
+    fn fetch_image(&self, url: &str, stem: &Path, most: u64) -> Result<PathBuf, ForgeError> {
+        self.tickets.fetch_image(url, stem, most)
     }
 
     fn create_issue(

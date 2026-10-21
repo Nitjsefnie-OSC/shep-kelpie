@@ -1,5 +1,6 @@
 //! A project's two ticket sources behind one port
 
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use super::LocalTickets;
@@ -91,6 +92,10 @@ impl Tickets for Routed {
         ticket: TicketId,
     ) -> Result<Vec<ThreadComment>, ForgeError> {
         self.of(ticket).issue_comments(repo, ticket)
+    }
+
+    fn fetch_image(&self, url: &str, stem: &Path, most: u64) -> Result<PathBuf, ForgeError> {
+        self.github.fetch_image(url, stem, most)
     }
 
     fn file_ticket(

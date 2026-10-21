@@ -7,6 +7,7 @@
 //! impls stand here rather than in `local_paths` itself, so no call site there
 //! has both ports in scope at once.
 
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use super::Guarded;
@@ -63,6 +64,10 @@ impl Tickets for Guarded {
         ticket: TicketId,
     ) -> Result<Vec<ThreadComment>, ForgeError> {
         self.tickets.issue_comments(repo, ticket)
+    }
+
+    fn fetch_image(&self, url: &str, stem: &Path, most: u64) -> Result<PathBuf, ForgeError> {
+        self.tickets.fetch_image(url, stem, most)
     }
 
     fn file_ticket(

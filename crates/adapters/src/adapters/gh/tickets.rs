@@ -10,7 +10,9 @@
 //! the number the `gh` call needs. A ticket of another source has no issue
 //! number, and this source has no such ticket.
 
-use super::{Gh, board, issue, issues, thread};
+use std::path::{Path, PathBuf};
+
+use super::{Gh, attachment, board, issue, issues, thread};
 use crate::board::ReadyIssue;
 use crate::ports::{
     FinishedParent, ForgeError, Issue, IssueCloseReason, OpenIssue, SubIssue, ThreadComment,
@@ -51,6 +53,10 @@ impl Tickets for Gh {
         ticket: TicketId,
     ) -> Result<Vec<ThreadComment>, ForgeError> {
         thread::issue_comments(&self.etags, repo, number(ticket)?)
+    }
+
+    fn fetch_image(&self, url: &str, stem: &Path, most: u64) -> Result<PathBuf, ForgeError> {
+        attachment::fetch_image(url, stem, most)
     }
 
     fn create_issue(

@@ -2,6 +2,7 @@
 
 mod access;
 mod app;
+mod attachment;
 mod board;
 mod conditional;
 mod contents;

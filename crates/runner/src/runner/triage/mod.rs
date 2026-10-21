@@ -15,6 +15,7 @@
 //! issue the pass is sure of, which [`ready`] rewrites and makes `ready-for-agent`.
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use serde::Serialize;
 
@@ -34,6 +35,7 @@ pub(super) mod addressed;
 pub(super) mod ask;
 pub(super) mod comment;
 pub(super) mod heard;
+pub(super) mod images;
 pub(super) mod limits;
 pub(super) mod local;
 pub(super) mod ready;
@@ -42,6 +44,7 @@ pub(super) mod spam;
 
 use super::contributions::post::forge_is_busy;
 use super::flight::triage::{Job, Research};
+use images::Pictures;
 use spam::POSSIBLE_SPAM;
 
 /// The labels that say an issue has been looked at, so triage leaves it alone.
@@ -473,6 +476,14 @@ impl Runner {
                 view,
                 open: listed,
                 most,
+                pictures: Pictures {
+                    tickets: Arc::clone(&self.ports.tickets),
+                    repo: self.remote.clone(),
+                    ticket,
+                    author: this.author.clone(),
+                    body: this.body.clone(),
+                    folder: self.paths.triage_images(ticket),
+                },
             },
         })
     }
@@ -593,6 +604,8 @@ mod addressed_tests;
 mod answers_tests;
 #[cfg(test)]
 mod ask_tests;
+#[cfg(test)]
+mod images_tests;
 #[cfg(test)]
 mod limits_tests;
 #[cfg(test)]

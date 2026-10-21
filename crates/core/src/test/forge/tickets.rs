@@ -9,6 +9,7 @@
 //! the rig's forge impl whichever port it was asked of. Which port a call used
 //! is a rule over the source, and `scripts/ticket-port.sh` holds it.
 
+use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
 
 use super::{CreatedIssue, FakeForge, held};
@@ -125,6 +126,11 @@ impl Tickets for FakeForge {
             on.sort_by_key(|c| c.id);
         }
         Ok(on)
+    }
+
+    fn fetch_image(&self, url: &str, stem: &Path, most: u64) -> Result<PathBuf, ForgeError> {
+        self.ask()?;
+        self.images.fetch(url, stem, most)
     }
 
     // Numbers start at 900, clear of every issue a test opens by hand.
