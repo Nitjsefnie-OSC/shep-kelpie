@@ -16,6 +16,7 @@ use super::adopt;
 use super::browser;
 use super::claim::main_fetch_key;
 use super::claude_files::Unchecked;
+use super::contributions::Sent;
 use super::instructions;
 use super::pace::Pace;
 use super::pm::WORKER_COMPACT_PAST;
@@ -563,6 +564,7 @@ impl Runner {
                 dev_server: dev.as_ref(),
                 local_ticket: item.issue.github().is_none(),
                 base: Some(self.settings.git.base()),
+                kelpie_pushes: !item.remote.is_origin(),
             },
             &item.worktree,
             &self.skills,
@@ -665,6 +667,9 @@ impl Runner {
             git_dir: &dirs.git_dir,
             branch: &item.branch,
             base: self.settings.git.base(),
+            // A contributor's fork is out of the worker's token's reach, and
+            // the login that reaches it is kelpie's alone: it pushes there.
+            kelpie_pushes: !item.remote.is_origin(),
             kelpie: &self.kelpie,
             guard_hooks: &self.settings.worker.guard_hooks,
             kelpie_home: &self.paths.kelpie_home,

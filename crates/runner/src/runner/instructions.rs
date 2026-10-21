@@ -66,6 +66,8 @@ pub(super) struct Extra<'a> {
     pub(super) local_ticket: bool,
     /// The project's base branch, `main` when none is given
     pub(super) base: Option<&'a str>,
+    /// Kelpie pushes the worker's commits, so the worker only commits
+    pub(super) kelpie_pushes: bool,
 }
 
 /// What a worker with a browser is told of the project's dev server
@@ -93,7 +95,13 @@ pub(super) fn e2e_command(kelpie: &Path) -> String {
 pub(super) fn compose(extra: Extra<'_>, worktree: &Path, skills: &Skills, kelpie: &Path) -> String {
     let resolves = !extra.local_ticket;
     let base = extra.base.unwrap_or(crate::settings::DEFAULT_BASE);
-    let mut text = profile::instructions_for(kelpie, extra.pull_request_file, resolves, base);
+    let mut text = profile::instructions_for(
+        kelpie,
+        extra.pull_request_file,
+        resolves,
+        base,
+        extra.kelpie_pushes,
+    );
     let mut lines = Vec::new();
     if let Some(tdd) = skills.command(Step::Tests) {
         lines.push(format!(

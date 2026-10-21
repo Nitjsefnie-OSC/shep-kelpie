@@ -185,6 +185,12 @@ pub(super) fn judge(
             key.chars().take(SHOWN_CHARS).collect::<String>()
         ));
     }
+    // On a contributor's fork the worker's token cannot push, and the login
+    // that can is never its own: kelpie pushes its commits after the turn.
+    if sub == "push" && checkout.kelpie_pushes {
+        out.push(commit_only());
+        return out;
+    }
     // Where a push goes is judged wherever it runs from.
     let pushed = if sub == "push" {
         match refspecs(args) {
@@ -376,6 +382,14 @@ fn fetch_answered(base: &str) -> String {
          clone's other refs are not yours to write, so a fetch here fails. To take {base} \
          into your branch, run `git merge origin/{base}`."
     )
+}
+
+/// The refusal for a push by a worker whose branch is a contributor's
+fn commit_only() -> String {
+    "this branch is a contributor's, and your credential cannot push to it: commit your work \
+     and end your turn. Kelpie pushes your commits to their branch after each turn, so a \
+     commit is all it needs."
+        .into()
 }
 
 /// The refusal for a push to the base branch

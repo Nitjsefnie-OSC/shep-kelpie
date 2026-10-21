@@ -35,12 +35,14 @@ mod heard;
 mod merge;
 mod pass;
 pub(in crate::runner) mod post;
+mod push;
 mod release;
 mod ruling;
 mod security;
 
 pub(super) use bots::waiting_on;
 pub use clock::Followed;
+pub(super) use push::Sent;
 pub(super) use ruling::{
     ADOPT_ANYWAY, CLOSE_WITH_THANKS, KEEP_WAITING, LEAVE_OPEN, flagged_lines, keep_answer,
     raise_budget, rule_merge, settle, trust,
@@ -279,6 +281,8 @@ mod merge_tests;
 pub(in crate::runner) mod pass_tests;
 #[cfg(test)]
 mod post_tests;
+#[cfg(test)]
+mod push_tests;
 #[cfg(test)]
 mod release_tests;
 #[cfg(test)]

@@ -53,6 +53,7 @@ impl Worker {
             git_common_dir: Path::new("/nowhere"),
             worktree: self.worktree.path(),
             base: "main",
+            kelpie_pushes: false,
         };
         judge_goose(
             payload,
@@ -85,6 +86,7 @@ impl Worker {
             git_common_dir: Path::new("/nowhere"),
             worktree: self.worktree.path(),
             base: "main",
+            kelpie_pushes: false,
         };
         crate::guard::judge(
             call.to_string().as_bytes(),

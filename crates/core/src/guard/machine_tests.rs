@@ -20,6 +20,7 @@ fn judged(command: &str, home: &str) -> Verdict {
         git_common_dir: Path::new("/nowhere"),
         worktree: Path::new("/nowhere"),
         base: "main",
+        kelpie_pushes: false,
     };
     judge(
         call.to_string().as_bytes(),
@@ -150,6 +151,7 @@ fn commit_of(text: &str) -> Verdict {
         git_common_dir: &common,
         worktree: &wt,
         base: "main",
+        kelpie_pushes: false,
     };
     judge(
         call.to_string().as_bytes(),
@@ -195,6 +197,7 @@ fn the_folders_the_hook_is_given_are_kept_off_the_forge_too() {
             git_common_dir: Path::new("/nowhere"),
             worktree: Path::new("/nowhere"),
             base: "main",
+            kelpie_pushes: false,
         };
         judge(
             call.to_string().as_bytes(),

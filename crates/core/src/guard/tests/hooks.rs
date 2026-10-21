@@ -36,6 +36,7 @@ impl WorkerTree {
             git_common_dir: &common,
             worktree: &worktree,
             base: "main",
+            kelpie_pushes: false,
         };
         judge_with(
             call.to_string().as_bytes(),

@@ -534,6 +534,11 @@ fn stuck(reason: &Stuck) -> (&'static str, &'static str, Option<&'static str>) {
             "Gives the worker another turn to push or discard its work",
             Some(SENDS_BACK),
         ),
+        Stuck::PushRefused { .. } => (
+            "The fork refused the worker's commits. Push them again?",
+            "Pushes the worker's commits to the contributor's branch again",
+            Some(STOPS),
+        ),
         Stuck::TurnTimeout { .. } => (
             "The worker ran past its turn's ceiling. Resume it?",
             "Resumes the worker's session for another turn",
