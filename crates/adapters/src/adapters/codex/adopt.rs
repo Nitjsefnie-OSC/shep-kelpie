@@ -7,56 +7,6 @@
 
 use std::path::{Path, PathBuf};
 
-use super::{CODEX, CodexCli, Files, finish};
-use crate::adapters::harness::adoption_of;
-use crate::adapters::process::RunError;
-use crate::ports::{Adopted, AgentCall, AgentError, AgentReply, Ending};
-use crate::settings::Harness;
-
-impl CodexCli {
-    /// What finishes `call` on another image, if it runs now as a worker's
-    /// call that left a record, or why nothing does
-    pub(super) fn adoption_of(&self, call: &AgentCall) -> Result<Adopted, String> {
-        let mut adopted = adoption_of(call, Harness::Codex)?;
-        adopted.session = Some(call.session.id().clone());
-        Ok(adopted)
-    }
-
-    /// Finishes `adopted` as `run` finishes a call it started
-    pub(super) fn adopt_call(
-        &self,
-        adopted: &Adopted,
-        ending: &Ending,
-    ) -> Result<AgentReply, AgentError> {
-        let Some(id) = adopted.session.as_ref() else {
-            return self.unserved(adopted, ending, "the carried Codex call names no session");
-        };
-        let output = self
-            .base
-            .processes
-            .output_of_adopted(adopted, ending)
-            .map_err(|e| match e {
-                RunError::Io(e) => AgentError::Failed(CODEX, e.to_string()),
-                RunError::Stopped => AgentError::Stopped,
-                RunError::TimedOut => AgentError::TimedOut(CODEX),
-            })?;
-        finish(&Files::at(&settings_of(&adopted.record)), id, &output)
-    }
-
-    // A call that cannot be finished is ended and waited out, so no `codex`
-    // is left running with no one to finish it.
-    fn unserved(
-        &self,
-        adopted: &Adopted,
-        ending: &Ending,
-        why: &str,
-    ) -> Result<AgentReply, AgentError> {
-        ending.end();
-        let _ = self.base.processes.output_of_adopted(adopted, ending);
-        Err(AgentError::Setup(why.into()))
-    }
-}
-
 // The settings path a call's record sits beside, which every other file of
 // the call is named from: `<stem>.call.json` for the settings `<stem>.json`.
 pub(super) fn settings_of(record: &Path) -> PathBuf {

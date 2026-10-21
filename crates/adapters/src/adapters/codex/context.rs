@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
-use super::{AgentCall, AgentError, AgentReply, CODEX, CodexCli, Files, Spent, Thread, is_codex};
+use super::{AgentCall, AgentError, AgentReply, CODEX, Files, Spent, Thread};
 use crate::ports::Usage;
 
 /// How deep under its `sessions` folder Codex keeps a rollout: year, month, day
@@ -128,32 +128,29 @@ pub(super) fn limit_args(window: Option<NonZeroU32>, resumed: Option<&Thread>) -
     .collect()
 }
 
-impl CodexCli {
-    /// Answers a `COMPACT` call without running Codex, which has no command
-    /// for it in `codex exec`, and leaves the session to compact before its
-    /// next turn
-    pub(super) fn compact(&self, call: &AgentCall) -> Result<AgentReply, AgentError> {
-        is_codex(call)?;
-        let files = Files::of(call);
-        let id = call.session.id();
-        let Some(known) = super::thread(&files, id)? else {
-            return Err(AgentError::NoSession(CODEX, id.clone()));
-        };
-        super::save_thread(
-            &files,
-            id,
-            &Thread {
-                compact: true,
-                ..known
-            },
-        )?;
-        Ok(AgentReply {
-            session_id: id.clone(),
-            text: String::new(),
-            usage: Usage::default(),
-            session_cost: None,
-            context: None,
-            compactions: 0,
-        })
-    }
+/// Answers a `COMPACT` call without running Codex, which has no command
+/// for it in `codex exec`, and leaves the session to compact before its
+/// next turn
+pub(super) fn compact(call: &AgentCall) -> Result<AgentReply, AgentError> {
+    let files = Files::of(call);
+    let id = call.session.id();
+    let Some(known) = super::thread(&files, id)? else {
+        return Err(AgentError::NoSession(CODEX, id.clone()));
+    };
+    super::save_thread(
+        &files,
+        id,
+        &Thread {
+            compact: true,
+            ..known
+        },
+    )?;
+    Ok(AgentReply {
+        session_id: id.clone(),
+        text: String::new(),
+        usage: Usage::default(),
+        session_cost: None,
+        context: None,
+        compactions: 0,
+    })
 }

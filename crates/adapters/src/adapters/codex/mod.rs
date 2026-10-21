@@ -21,18 +21,26 @@ use std::process::{Command, Output};
 
 use serde::{Deserialize, Serialize};
 
-use super::harness::{Base, bind_in_scratch, call_policy, step_skill, tail};
-use super::process::RunError;
+use super::cli::{Cli, CliAdapter, Launch, Turn};
+use super::harness::{Base, Records, bind_in_scratch, call_policy, step_skill, tail};
 use super::process::record::CallFiles;
 use super::unreachable::reaches_no_host;
 use crate::fence;
+use crate::forwarder::Upstream;
 use crate::guard::{AFTER_FLAG, FOLDER_FLAG, PIN_FLAG};
 use crate::ports::{
-    Adopted, AgentCall, AgentError, AgentReply, Agents, COMPACT, CallActivity, Ending, Fence,
-    Policy, Session, SessionId, Tools, Transcript, Usage, written_at,
+    Adopted, AgentCall, AgentError, AgentReply, COMPACT, CallActivity, Fence, Policy, Session,
+    SessionId, Tools, Transcript, Usage, written_at,
 };
-use crate::settings::{AgentHarness, Harness, HookPoint};
+use crate::settings::{Harness, HookPoint};
 use crate::spawn::shell_quote;
+
+// What the module's tests take from it by glob.
+#[cfg(test)]
+use {
+    crate::ports::{Agents, Ending},
+    crate::settings::AgentHarness,
+};
 
 mod adopt;
 mod attach;
@@ -149,45 +157,53 @@ const FEATURES_OFF: [&str; 17] = [
     "unbounded_connection_retries",
 ];
 
+/// Codex's own part of a call
+#[derive(Debug, Clone)]
+pub struct Codex {
+    program: OsString,
+    login: PathBuf,
+    // What a call with no fence may not read, besides its own folder
+    unfenced_no_read: Vec<String>,
+}
+
 /// Headless Codex, one `codex exec` process per call, each inside the sandbox
 ///
 /// It shares Claude Code's calls in flight, so stopping either stops both.
-#[derive(Debug, Clone)]
-pub struct CodexCli {
-    base: Base,
-    program: OsString,
-    login: PathBuf,
-    terminals: attach::Terminals,
-}
+pub type CodexCli = CliAdapter<Codex>;
 
 impl CodexCli {
     /// Codex on `base` and the login in `codex_home`: same sandbox and lamb
     /// labels, and stopped with it
     pub fn on(base: &Base, codex_home: PathBuf) -> Self {
-        Self {
-            base: base.clone(),
+        let codex = Codex {
             program: "codex".into(),
             login: codex_home,
-            terminals: attach::Terminals::default(),
-        }
+            unfenced_no_read: base.unfenced_no_read.clone(),
+        };
+        Self::new(codex, base)
     }
-}
 
-impl CodexCli {
     /// Runs `program` in place of `codex`, as a stand-in script does
     #[cfg(any(test, feature = "test-support"))]
-    pub fn with_program(self, program: PathBuf) -> Self {
-        Self {
-            program: program.into(),
-            ..self
-        }
+    #[must_use]
+    pub fn with_program(mut self, program: PathBuf) -> Self {
+        self.cli.program = program.into();
+        self
+    }
+
+    /// The call's headless command inside its sandbox
+    #[cfg(test)]
+    pub(crate) fn sandboxed_command(&self, call: &AgentCall) -> Result<Command, AgentError> {
+        let begun = self.cli.begin(call, Turn::Headless)?;
+        Ok(self.launch(call, &begun, Turn::Headless, None)?.command)
     }
 }
 
-impl Agents for CodexCli {
-    fn prepare(&self, call: &AgentCall) -> Result<(), AgentError> {
-        is_codex(call)?;
-        refuse_unsupported(call)?;
+impl Cli for Codex {
+    type Begun = Option<Thread>;
+    const HARNESS: Harness = CODEX;
+
+    fn write_config(&self, call: &AgentCall, _: Option<&Upstream>) -> Result<(), AgentError> {
         let files = Files::of(call);
         let written = WRITTEN.map(|name| files.home.join(name));
         for folder in [&files.threads, &files.home].into_iter().chain(&written) {
@@ -199,36 +215,95 @@ impl Agents for CodexCli {
         skills::link_skills(call, &files.home)
     }
 
-    fn run(&self, call: &AgentCall, ending: &Ending) -> Result<AgentReply, AgentError> {
-        if call.prompt == COMPACT {
-            return self.compact(call);
+    fn answer(&self, call: &AgentCall) -> Option<Result<AgentReply, AgentError>> {
+        (call.prompt == COMPACT).then(|| context::compact(call))
+    }
+
+    // A new session is one kelpie has not recorded, and a resumed one, or the
+    // maintainer's terminal, is one it has.
+    fn begin(&self, call: &AgentCall, turn: Turn) -> Result<Option<Thread>, AgentError> {
+        let id = call.session.id();
+        let known = thread(&Files::of(call), id)?;
+        match (turn, &call.session, known) {
+            (Turn::Headless, Session::New(_), None) => Ok(None),
+            (Turn::Headless, Session::New(_), Some(_)) => Err(AgentError::Setup(format!(
+                "kelpie already started a Codex session as {}",
+                id.0
+            ))),
+            (_, _, Some(thread)) => Ok(Some(thread)),
+            (_, _, None) => Err(AgentError::NoSession(CODEX, id.clone())),
         }
+    }
+
+    // `argv` run as the call: Codex's home and scratch folder, and the fence's
+    // environment.
+    fn command(
+        &self,
+        call: &AgentCall,
+        begun: &Option<Thread>,
+        launch: &Launch<'_>,
+    ) -> Result<Command, AgentError> {
         let files = Files::of(call);
-        let mut command = self.sandboxed_command(call)?;
-        let label = call.label();
-        let spawned = |pid| {
-            if let Some(lambs) = &self.base.lambs {
-                lambs.label(pid, &label);
+        let instructions = instructions(call)?;
+        let argv = match (launch.turn, begun) {
+            (Turn::Headless, resumed) => {
+                argv(call, &files.home, resumed.as_ref(), instructions.as_deref())?
+            }
+            (Turn::Terminal, Some(resumed)) => {
+                attach::terminal_argv(call, &files.home, resumed, instructions.as_deref())?
+            }
+            (Turn::Terminal, None) => {
+                return Err(AgentError::NoSession(CODEX, call.session.id().clone()));
             }
         };
-        let run = self
-            .base
-            .processes
-            .output_of_call(&mut command, call, ending, &spawned);
-        let output = run.map_err(|e| match e {
-            RunError::Io(e) => AgentError::Spawn(CODEX, e.to_string()),
-            RunError::Stopped => AgentError::Stopped,
-            RunError::TimedOut => AgentError::TimedOut(CODEX),
-        })?;
-        finish(&files, call.session.id(), &output)
+        let mut command = crate::spawn::command(&self.program);
+        command
+            .args(argv)
+            .current_dir(&call.cwd)
+            .env("CODEX_HOME", &files.home)
+            .env("TMPDIR", &files.scratch)
+            // zsh ignores `TMPDIR` for a heredoc and writes under this prefix.
+            .env("TMPPREFIX", files.scratch.join("zsh"));
+        if let Some(fence) = &call.reach.fence {
+            command.envs(&fence.env);
+        }
+        Ok(command)
     }
 
-    fn adoption(&self, call: &AgentCall) -> Result<Adopted, String> {
-        self.adoption_of(call)
+    fn policy(&self, call: &AgentCall, _: &Launch<'_>) -> Result<Policy, AgentError> {
+        let files = Files::of(call);
+        Ok(policy(call, &self.login, &files, &self.unfenced_no_read))
     }
 
-    fn adopt(&self, adopted: &Adopted, ending: &Ending) -> Result<AgentReply, AgentError> {
-        self.adopt_call(adopted, ending)
+    fn parse(
+        &self,
+        call: &AgentCall,
+        _: Option<Thread>,
+        output: &Output,
+    ) -> Result<AgentReply, AgentError> {
+        finish(&Files::of(call), call.session.id(), output)
+    }
+
+    fn adopted_begin(&self, adopted: &Adopted) -> Result<Option<Thread>, String> {
+        adopted
+            .session
+            .as_ref()
+            .map(|_| None)
+            .ok_or_else(|| NO_SESSION.to_owned())
+    }
+
+    fn parse_adopted(
+        &self,
+        adopted: &Adopted,
+        _: Option<Thread>,
+        output: &Output,
+    ) -> Result<AgentReply, AgentError> {
+        let id = (adopted.session.as_ref()).ok_or_else(|| AgentError::Setup(NO_SESSION.into()))?;
+        finish(&Files::at(&adopt::settings_of(&adopted.record)), id, output)
+    }
+
+    fn ended(&self, settings: &Path, session: &SessionId) {
+        attach::ended(settings, session);
     }
 
     fn transcript(&self, call: &AgentCall) -> Option<Transcript> {
@@ -243,15 +318,10 @@ impl Agents for CodexCli {
     fn last_active(&self, call: &AgentCall) -> CallActivity {
         written_at(&Files::of(call).stdout)
     }
-
-    fn foreground(&self, call: &AgentCall) -> Result<Command, AgentError> {
-        self.terminal_command(call)
-    }
-
-    fn foreground_ended(&self, session: &SessionId) {
-        self.terminal_ended(session);
-    }
 }
+
+/// Why a carried call cannot be finished without the session kelpie gave it
+const NO_SESSION: &str = "the carried Codex call names no session";
 
 // Reads what the ended call left and writes its thread record, so its tokens
 // are counted from where the session stood before it.
@@ -283,73 +353,6 @@ fn finish(files: &Files, id: &SessionId, output: &Output) -> Result<AgentReply, 
     })
 }
 
-impl CodexCli {
-    fn sandboxed_command(&self, call: &AgentCall) -> Result<Command, AgentError> {
-        is_codex(call)?;
-        let files = Files::of(call);
-        let resumed = match &call.session {
-            Session::New(id) => {
-                if thread(&files, id)?.is_some() {
-                    return Err(AgentError::Setup(format!(
-                        "kelpie already started a Codex session as {}",
-                        id.0
-                    )));
-                }
-                None
-            }
-            Session::Resume(id) => match thread(&files, id)? {
-                Some(thread) => Some(thread),
-                None => return Err(AgentError::NoSession(CODEX, id.clone())),
-            },
-        };
-        let instructions = instructions(call)?;
-        self.in_sandbox(
-            call,
-            &files,
-            argv(call, &files.home, resumed.as_ref(), instructions.as_deref())?,
-        )
-    }
-
-    // `argv` run as the call: Codex's home and scratch folder, the fence's
-    // environment, and the call's sandbox around it.
-    fn in_sandbox(
-        &self,
-        call: &AgentCall,
-        files: &Files,
-        argv: Vec<OsString>,
-    ) -> Result<Command, AgentError> {
-        let setup = |what: &Path, e: std::io::Error| {
-            AgentError::Setup(format!("cannot make {}: {}", what.display(), e.kind()))
-        };
-        match std::fs::remove_dir_all(&files.scratch) {
-            Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
-                return Err(setup(&files.scratch, e));
-            }
-            _ => {}
-        }
-        std::fs::create_dir_all(&files.scratch).map_err(|e| setup(&files.scratch, e))?;
-        let mut command = crate::spawn::command(&self.program);
-        command
-            .args(argv)
-            .current_dir(&call.cwd)
-            .env("CODEX_HOME", &files.home)
-            .env("TMPDIR", &files.scratch)
-            // zsh ignores `TMPDIR` for a heredoc and writes under this prefix.
-            .env("TMPPREFIX", files.scratch.join("zsh"));
-        if let Some(fence) = &call.reach.fence {
-            command.envs(&fence.env);
-        }
-        self.base
-            .sandbox
-            .wrap(
-                &policy(call, &self.login, files, &self.base.unfenced_no_read),
-                &files.sandbox_settings,
-                &command,
-            )
-            .map_err(|e| AgentError::Setup(e.to_string()))
-    }
-}
-
 // The developer instructions the call carries, read from their file.
 fn instructions(call: &AgentCall) -> Result<Option<String>, AgentError> {
     call.instructions
@@ -362,35 +365,6 @@ fn instructions(call: &AgentCall) -> Result<Option<String>, AgentError> {
         .transpose()
 }
 
-/// Fails a call that names another harness
-fn is_codex(call: &AgentCall) -> Result<(), AgentError> {
-    match call.harness {
-        AgentHarness::Codex => Ok(()),
-        _ => Err(AgentError::Setup(
-            "kelpie routed a call to codex that names another harness".into(),
-        )),
-    }
-}
-
-// What a worker on Claude Code has and Codex here does not give it.
-// parity: harness.guard-hooks
-fn refuse_unsupported(call: &AgentCall) -> Result<(), AgentError> {
-    if call
-        .reach
-        .fence
-        .as_ref()
-        .is_some_and(|f| !f.hooks.is_empty())
-    {
-        return Err(AgentError::Setup(
-            "kelpie does not run `worker.guard_hooks` on codex: remove them, move the check \
-             to a `command` or `write` hook in `hooks`, which runs on every harness, or put \
-             the worker on Claude Code"
-                .into(),
-        ));
-    }
-    Ok(())
-}
-
 /// The files one call keeps beside its settings path
 struct Files {
     /// The call's own Codex home: its sessions, Codex's database and logs,
@@ -401,8 +375,6 @@ struct Files {
     threads: PathBuf,
     /// The call's temporary files, emptied before each call
     scratch: PathBuf,
-    /// Where the sandbox's settings go
-    sandbox_settings: PathBuf,
     /// Codex's stdout, which kelpie opens for it outside the call's reach
     stdout: PathBuf,
 }
@@ -417,13 +389,17 @@ impl Files {
             home: settings.with_extension("codex"),
             threads: settings.with_extension("threads"),
             scratch: settings.with_extension("tmp"),
-            sandbox_settings: settings.with_extension("sandbox.json"),
             stdout: CallFiles::at(settings).stdout,
         }
     }
 
+    fn threads(&self) -> Records<Thread> {
+        Records::in_folder(self.threads.clone())
+    }
+
+    #[cfg(test)]
     fn thread(&self, id: &SessionId) -> PathBuf {
-        self.threads.join(format!("{}.json", id.0))
+        self.threads().file(id).expect("a session id kelpie makes")
     }
 }
 
@@ -447,7 +423,7 @@ fn link_login(login: &Path, home: &Path) -> Result<(), AgentError> {
 /// The Codex session one of kelpie's session ids is
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Thread {
+pub struct Thread {
     /// Codex's own id for it
     id: String,
     /// The session's tokens as Codex last reported them, which a resumed
@@ -502,40 +478,12 @@ impl Spent {
 }
 
 fn save_thread(files: &Files, id: &SessionId, record: &Thread) -> Result<(), AgentError> {
-    let path = files.thread(id);
-    let text = serde_json::to_string(record).expect("a thread is JSON");
-    std::fs::write(&path, text)
-        .map_err(|e| AgentError::Setup(format!("cannot write {}: {}", path.display(), e.kind())))
+    files.threads().put(id, record)
 }
 
 /// The Codex session kelpie started as `id`, if any
 fn thread(files: &Files, id: &SessionId) -> Result<Option<Thread>, AgentError> {
-    let plain = !id.0.is_empty()
-        && id
-            .0
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
-    if !plain {
-        return Err(AgentError::Setup(format!(
-            "{} is not a session id kelpie makes",
-            id.0
-        )));
-    }
-    let path = files.thread(id);
-    let text = match std::fs::read_to_string(&path) {
-        Ok(text) => text,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(e) => {
-            return Err(AgentError::Setup(format!(
-                "cannot read {}: {}",
-                path.display(),
-                e.kind()
-            )));
-        }
-    };
-    serde_json::from_str(&text)
-        .map(Some)
-        .map_err(|e| AgentError::Setup(format!("cannot read {}: {e}", path.display())))
+    files.threads().get(id)
 }
 
 /// `key=value` for `-c`, with the value written as TOML
@@ -855,7 +803,7 @@ const UNREACHABLE: [&str; 4] = [
 
 /// One `codex exec` turn, read from what it printed
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct Turn {
+struct ExecTurn {
     /// The Codex session it ran in
     thread: String,
     /// Its last message's text
@@ -870,7 +818,7 @@ struct Turn {
 // session's so far, a resumed session's earlier turns included
 // (`docs/facts/codex-as-an-agent.md`). A ChatGPT plan has no price per call,
 // so kelpie records each one as unpriced.
-fn parse_result(output: &Output, known: Option<&Thread>) -> Result<Turn, AgentError> {
+fn parse_result(output: &Output, known: Option<&Thread>) -> Result<ExecTurn, AgentError> {
     #[derive(Deserialize)]
     struct Event {
         #[serde(rename = "type")]
@@ -955,7 +903,7 @@ fn parse_result(output: &Output, known: Option<&Thread>) -> Result<Turn, AgentEr
         return Err(failed(tail(&stderr)));
     }
     match (thread, text, usage) {
-        (Some(thread), Some(text), Some(spent)) => Ok(Turn {
+        (Some(thread), Some(text), Some(spent)) => Ok(ExecTurn {
             thread,
             text,
             spent,
