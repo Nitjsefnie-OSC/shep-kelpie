@@ -365,6 +365,16 @@ compact_window = 200000
 # min_account_days = 30
 # max_body_kb = 20
 #
+# What the triager may ask an author depends on who they are. The forge's
+# association sets it: `OWNER` and the maintainer's own login are asked as the
+# `maintainer`, `MEMBER`, `COLLABORATOR` and `CONTRIBUTOR` as a `developer`, and
+# the rest as a `reporter`. `authors` gives a login a role of its own in place of
+# that, since the association says how someone relates to the repo and not what
+# they can answer: a collaborator who tests the app can only say what they saw.
+# Logins are compared ignoring case, and any other word is refused naming
+# `triage.authors`.
+# authors = { "qc-tester" = "reporter" }
+#
 # A text classifier the project's gateway can be asked before an issue's research
 # call, so a spam issue costs a classifier call and no comment. `gateway` is a
 # gateway from `[gateways.<name>]` in kelpie's own settings, and no gateway means

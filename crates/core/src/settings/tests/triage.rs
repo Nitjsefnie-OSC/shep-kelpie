@@ -5,7 +5,7 @@ use std::num::NonZeroU32;
 
 use super::{EXAMPLE, parse, parse_err};
 use crate::ports::Probability;
-use crate::settings::TriagePick;
+use crate::settings::{AuthorRole, TriagePick};
 
 const TABLE: &str = "[app.dogs.kelpie.triage]\n";
 
@@ -298,5 +298,66 @@ fn triage_is_refused_on_the_local_store_and_allowed_with_it_off() {
             err.contains("triage.pick") && err.contains("local"),
             "{err}"
         );
+    }
+}
+
+#[test]
+fn an_absent_authors_table_overrides_no_login() {
+    let t = parse(EXAMPLE).unwrap().triage;
+    assert!(t.authors.is_empty());
+    assert_eq!(t.role_of("anyone"), None);
+}
+
+#[test]
+fn authors_gives_a_listed_login_a_role_whatever_its_case() {
+    let t = parse(&with(
+        "authors = { \"Qc-Tester\" = \"reporter\", \"dev\" = \"developer\", \"boss\" = \"maintainer\" }\n",
+    ))
+    .unwrap()
+    .triage;
+    assert_eq!(t.role_of("qc-tester"), Some(AuthorRole::Reporter));
+    assert_eq!(t.role_of("QC-TESTER"), Some(AuthorRole::Reporter));
+    assert_eq!(t.role_of("dev"), Some(AuthorRole::Developer));
+    assert_eq!(t.role_of("boss"), Some(AuthorRole::Maintainer));
+    assert_eq!(t.role_of("someone-else"), None);
+}
+
+#[test]
+fn an_unknown_author_role_is_refused_naming_the_setting() {
+    let err = parse_err(&with("authors = { \"qc\" = \"tester\" }\n"));
+    assert!(
+        err.contains("triage.authors") && err.contains("tester"),
+        "{err}"
+    );
+    let err = parse_err(&with("authors = { \"qc\" = 3 }\n"));
+    assert!(err.contains("triage.authors"), "{err}");
+}
+
+#[test]
+fn a_role_asks_up_to_its_own_cap_and_never_past_max_questions() {
+    let t = parse(&with("max_questions = 10\n")).unwrap().triage;
+    assert_eq!(AuthorRole::Maintainer.most_questions(t.max_questions), 10);
+    assert_eq!(AuthorRole::Developer.most_questions(t.max_questions), 3);
+    assert_eq!(AuthorRole::Reporter.most_questions(t.max_questions), 1);
+    let t = parse(&with("max_questions = 2\n")).unwrap().triage;
+    assert_eq!(AuthorRole::Maintainer.most_questions(t.max_questions), 2);
+    assert_eq!(AuthorRole::Developer.most_questions(t.max_questions), 2);
+    assert_eq!(AuthorRole::Reporter.most_questions(t.max_questions), 1);
+}
+
+#[test]
+fn the_forge_association_decides_a_role_when_no_login_is_listed() {
+    use crate::ports::AuthorAssociation as A;
+    for (association, role) in [
+        (Some(A::Owner), AuthorRole::Maintainer),
+        (Some(A::Member), AuthorRole::Developer),
+        (Some(A::Collaborator), AuthorRole::Developer),
+        (Some(A::Contributor), AuthorRole::Developer),
+        (Some(A::FirstTimeContributor), AuthorRole::Reporter),
+        (Some(A::FirstTimer), AuthorRole::Reporter),
+        (Some(A::None), AuthorRole::Reporter),
+        (None, AuthorRole::Reporter),
+    ] {
+        assert_eq!(AuthorRole::of(association), role, "{association:?}");
     }
 }

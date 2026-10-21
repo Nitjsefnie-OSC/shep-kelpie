@@ -71,6 +71,12 @@ pub(super) fn untouched() -> (Rig, Mutex<Runner>) {
     researching("pick = \"all\"")
 }
 
+// [`untouched`], with the author listed as the maintainer, who is the only one
+// text with file paths is posted to
+fn untouched_by_a_maintainer() -> (Rig, Mutex<Runner>) {
+    researching("pick = \"all\"\nauthors = { \"newcomer\" = \"maintainer\" }")
+}
+
 pub(super) fn calls(rig: &Rig, role: Role) -> Vec<Seen> {
     let all = rig.claude.all_seen();
     all.into_iter().filter(|s| s.call.role == role).collect()
@@ -202,7 +208,7 @@ fn the_issue_text_and_the_open_issue_titles_reach_the_call_fenced_as_data() {
 
 #[test]
 fn the_call_runs_read_only_on_a_view_of_origin_main_removed_after() {
-    let (rig, runner) = untouched();
+    let (rig, runner) = untouched_by_a_maintainer();
     let before = (
         git(&rig.repo(), &["rev-parse", "HEAD"]),
         git(&rig.repo(), &["branch", "--list"]),
@@ -313,7 +319,7 @@ fn a_p0_is_dropped_and_asked_as_an_open_question() {
 
 #[test]
 fn a_related_number_or_file_that_does_not_exist_is_left_out_of_the_comment() {
-    let (rig, runner) = untouched();
+    let (rig, runner) = untouched_by_a_maintainer();
     let mut other = issue(&rig, 12, "someone", 0);
     other.title = "Add retries".to_owned();
     list(&rig, other);

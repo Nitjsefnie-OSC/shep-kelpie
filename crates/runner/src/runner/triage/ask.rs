@@ -31,8 +31,8 @@ use super::super::contributions::post::{forge_is_busy, refused_text};
 use super::TRIAGE_LABELS;
 use super::research::Question;
 use crate::board::TRIAGE;
-use crate::ports::{OpenIssue, Timestamp};
-use crate::settings::TriagePick;
+use crate::ports::{AuthorAssociation, OpenIssue, Timestamp};
+use crate::settings::{AuthorRole, TriagePick};
 use crate::state::{StateError, TriageStep, Triaged};
 
 /// What a triager call on an issue is for
@@ -85,6 +85,24 @@ impl Runner {
         match self.maintainer() {
             Ok(login) => login.eq_ignore_ascii_case(author),
             Err(_) => false,
+        }
+    }
+
+    // What `author` may be asked: the role `triage.authors` lists them in, else
+    // the maintainer's own, else the one their association implies. The
+    // association says how they relate to the repo, not what they can answer,
+    // which is why a listed login wins over it.
+    pub(in crate::runner) fn author_role(
+        &self,
+        author: &str,
+        association: Option<AuthorAssociation>,
+    ) -> AuthorRole {
+        if let Some(role) = self.settings.triage.role_of(author) {
+            return role;
+        }
+        match self.maintainer() {
+            Ok(login) if login.eq_ignore_ascii_case(author) => AuthorRole::Maintainer,
+            _ => AuthorRole::of(association),
         }
     }
 

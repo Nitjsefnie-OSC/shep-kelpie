@@ -23,6 +23,7 @@ use super::ready;
 use super::research::{Addressed, Found, Question};
 use crate::board::{self, TRIAGE};
 use crate::ports::{ForgeError, NewLabel};
+use crate::settings::AuthorRole;
 use crate::state::{StateError, TriageLocal, TriageQuestions, TriageStep, Triaged};
 
 /// What marks a comment as kelpie's triage comment
@@ -126,6 +127,12 @@ const DUPLICATE_KIND: &str = "Write the short comment that closes this issue as 
     covers it and say why in one sentence, and say kelpie is closing the issue as a duplicate of \
     it. It is a comment, not a review: no verdict, and nothing promised.";
 
+/// What the representative is told of a comment posted to an author who is not
+/// the maintainer
+const PLAIN_FACTS: &str = "\nThe author is not the maintainer: write in plain language, with no \
+    file path, no code term and no mention of logs, config or deployments, and end with one line \
+    on what happens next.\n";
+
 /// A research that read, whose comment is not yet on the issue
 #[derive(Debug)]
 pub(super) struct Waiting {
@@ -169,6 +176,9 @@ pub(in crate::runner) struct Tries {
     // The login of whoever opened the issue, kept so what they write while the
     // triage waits is told from what anyone else writes
     pub(in crate::runner) author: Option<String>,
+    // What the author may be asked, which also says what text posted to them
+    // may name; a pass that lost it to a restart is worded for a reporter
+    pub(super) role: Option<AuthorRole>,
     // That the triage comment asks its author the open questions, and the
     // hash of the body its prompt was written against
     pub(in crate::runner) ask: bool,
@@ -456,7 +466,21 @@ impl Runner {
             (false, false, true) => ASK_KIND,
             (false, false, false) => KIND,
         };
-        let facts = facts(
+        // Only the maintainer is told the files, tests and criteria: text posted
+        // to anyone else holds no file path or code term, so the words and the
+        // prompt for their own terminal are made from a report without them.
+        let role = (self.triage_tries.get(&issue)).and_then(|t| t.role);
+        let plain = role.is_none_or(|role| role != AuthorRole::Maintainer);
+        let found = &match plain {
+            true => Found {
+                files: Vec::new(),
+                tests: Vec::new(),
+                criteria: Vec::new(),
+                ..found.clone()
+            },
+            false => found.clone(),
+        };
+        let mut facts = facts(
             found,
             &labels,
             ready_body.is_some(),
@@ -465,6 +489,9 @@ impl Runner {
             local,
             answers_body.is_some(),
         );
+        if plain {
+            facts.push_str(PLAIN_FACTS);
+        }
         let earlier: Vec<u64> = self
             .triage_record(issue)
             .map(|t| t.comment)

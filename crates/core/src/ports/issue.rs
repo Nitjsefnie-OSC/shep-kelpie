@@ -157,6 +157,19 @@ impl AuthorAssociation {
         }
     }
 
+    /// The word the forge names it with, which [`Self::from_word`] reads back
+    pub fn word(&self) -> &'static str {
+        match self {
+            Self::None => "NONE",
+            Self::FirstTimer => "FIRST_TIMER",
+            Self::FirstTimeContributor => "FIRST_TIME_CONTRIBUTOR",
+            Self::Contributor => "CONTRIBUTOR",
+            Self::Member => "MEMBER",
+            Self::Collaborator => "COLLABORATOR",
+            Self::Owner => "OWNER",
+        }
+    }
+
     /// Whether the forge counts this author as having no history on the repo:
     /// nothing of theirs is on it yet
     pub fn no_history(&self) -> bool {

@@ -1,6 +1,7 @@
 //! Whether and how kelpie triages issues other people open,
 //! `[app.dogs.kelpie.triage]`
 
+use std::collections::BTreeMap;
 use std::num::{NonZeroU8, NonZeroU32};
 
 use schemars::JsonSchema;
@@ -10,7 +11,7 @@ use super::agents::find;
 use super::gateway::GatewayName;
 use super::{AgentName, ExpertAgent, Settings, SettingsError};
 use crate::agents::{Agents, Role, Runs, TRIAGER};
-use crate::ports::Probability;
+use crate::ports::{AuthorAssociation, Probability};
 use crate::state::TRIAGED_KEPT;
 
 /// The most questions one triage comment may ask
@@ -38,6 +39,56 @@ pub enum TriagePick {
     /// Every person's issues
     All,
 }
+
+/// What the triager may ask the person who opened an issue, which is what
+/// they can answer
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, JsonSchema)]
+#[serde(rename_all = "kebab-case")]
+pub enum AuthorRole {
+    /// The maintainer: decisions with recommended answers, in the repo's own
+    /// terms
+    Maintainer,
+    /// Someone who works on the repo: what they saw and what they expected,
+    /// and a decision only when their issue proposes one
+    Developer,
+    /// Someone who can only say what they saw: plain language, one question
+    Reporter,
+}
+
+impl AuthorRole {
+    /// The role the forge's association implies, for a login `triage.authors`
+    /// does not list. An association the listing did not say is a reporter.
+    pub fn of(association: Option<AuthorAssociation>) -> Self {
+        match association {
+            Some(AuthorAssociation::Owner) => Self::Maintainer,
+            Some(
+                AuthorAssociation::Member
+                | AuthorAssociation::Collaborator
+                | AuthorAssociation::Contributor,
+            ) => Self::Developer,
+            Some(
+                AuthorAssociation::FirstTimeContributor
+                | AuthorAssociation::FirstTimer
+                | AuthorAssociation::None,
+            )
+            | None => Self::Reporter,
+        }
+    }
+
+    /// The most questions one comment may ask this role, never past
+    /// `max_questions`
+    pub fn most_questions(&self, max_questions: NonZeroU8) -> usize {
+        let cap = match self {
+            Self::Maintainer => MOST_QUESTIONS,
+            Self::Developer => MOST_DEVELOPER_QUESTIONS,
+            Self::Reporter => 1,
+        };
+        usize::from(cap.min(max_questions.get()))
+    }
+}
+
+/// The most questions a developer is asked at once
+const MOST_DEVELOPER_QUESTIONS: u8 = 3;
 
 /// Whether and how kelpie triages issues other people open
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, JsonSchema)]
@@ -71,6 +122,12 @@ pub struct Triage {
     /// call is given cut at that size with a line saying so. The title is
     /// never cut. 20 when absent, 0 sends the whole body.
     pub max_body_kb: u32,
+    /// The role of each login listed, in place of the one its association
+    /// implies: `{ "login" = "reporter" }`, the roles being `maintainer`,
+    /// `developer` and `reporter`. The association says how someone relates to
+    /// the repo, not what they can answer. Logins are compared ignoring case.
+    /// No login is overridden when absent.
+    pub authors: BTreeMap<String, AuthorRole>,
     /// The classifier check each issue goes through after the limits and
     /// before its research call. No check when the table is absent.
     #[serde(default)]
@@ -88,6 +145,7 @@ impl Default for Triage {
             per_author_per_day: 2,
             min_account_days: 30,
             max_body_kb: 20,
+            authors: BTreeMap::new(),
             spam: TriageSpam::default(),
         }
     }
@@ -98,6 +156,13 @@ impl Triage {
     #[inline]
     pub fn is_off(&self) -> bool {
         self.pick == TriagePick::Off
+    }
+
+    /// The role `triage.authors` gives `login`, if it lists them
+    pub fn role_of(&self, login: &str) -> Option<AuthorRole> {
+        (self.authors.iter())
+            .find(|(listed, _)| listed.eq_ignore_ascii_case(login))
+            .map(|(_, role)| *role)
     }
 
     /// Checks the keys against their limits

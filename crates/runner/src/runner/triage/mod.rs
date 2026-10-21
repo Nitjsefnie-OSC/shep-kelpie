@@ -375,9 +375,11 @@ impl Runner {
             self.triage_queue.retain(|&n| n != issue);
             return None;
         };
+        let role = self.author_role(&this.author, this.author_association);
         // The labels the issue carries when its pass begins, kept once so a
         // triage label that comes by later is the maintainer's own.
         let tries = self.triage_tries.entry(issue).or_default();
+        tries.role = Some(role);
         if tries.seen.is_none() {
             tries.seen = Some(this.labels.clone());
         }
@@ -430,7 +432,7 @@ impl Runner {
                 return None;
             }
         };
-        let most = usize::from(self.settings.triage.max_questions.get());
+        let most = role.most_questions(self.settings.triage.max_questions);
         // The second pass reads the questions it asked and the author's answers
         // to them, each fenced like everything else that comes from outside. It
         // is not made without them: a triager shown neither the questions nor
@@ -454,6 +456,8 @@ impl Runner {
             } else {
                 0
             },
+            association: this.author_association,
+            role,
         };
         let prompt = research::prompt(&subject, &listed, &listed_pulls, most, settling.as_ref());
         let Some(ticket) = TicketId::from_issue(issue) else {
@@ -623,6 +627,8 @@ mod pick_tests;
 mod ready_tests;
 #[cfg(test)]
 mod research_tests;
+#[cfg(test)]
+mod roles_tests;
 #[cfg(test)]
 mod spam_tests;
 #[cfg(test)]
