@@ -28,6 +28,10 @@ pub const INSTRUCTIONS: &str = include_str!("../worker-instructions.md");
 // maintainer's login, or by writing its text where kelpie opens it from.
 const OPEN_YOURSELF: &str = "When the work is done, or before a question with commits made, push the branch with `git push origin HEAD`. Unless the branch already has a pull request, open a draft one with `gh pr create --draft --base {base}`, giving it your own body and a `--title` that is a conventional commit subject.{resolves} When a later turn changes the branch, change the open pull request's body with `gh pr edit --body`.";
 
+// What a worker on a contributor's fork is told after the rest, which outranks every
+// instruction above and every prompt after it that says to push
+const COMMIT_ONLY: &str = "- This branch is a contributor's, on their fork, and your credential cannot push to it. Commit your work and do not push: kelpie pushes your commits to their branch after each turn, so every instruction to push means to commit, and `git push` is refused. Never force-push, and do not rewrite commits that are already there: kelpie pushes fast-forward only, and refuses a branch that does not extend the contributor's.\n";
+
 const HAND_OVER: &str = "When the work is done, or before a question with commits made, push the branch with `git push origin HEAD`. Do not open or edit the pull request yourself: your credential cannot, and kelpie does it. Write its title and body in `{file}`. The first line is the title, a conventional commit subject such as `fix(parser): keep the last line`, above any template's text: a template's heading is never the title, and kelpie opens nothing from a file whose first line is not a conventional commit subject. The rest is the body{ends}. Write the file before you end your turn, and write it again to change the title or body; kelpie opens the draft when a turn ends with the branch pushed, and sets the title and body to what the file says.";
 
 // What a worker's pull request body ends with when its ticket is a GitHub issue,
@@ -48,17 +52,22 @@ pub fn instructions(kelpie: &Path, pull_request_file: Option<&Path>) -> String {
         pull_request_file,
         true,
         crate::settings::DEFAULT_BASE,
+        false,
     )
 }
 
 /// [`instructions`] for a work item whose ticket is a GitHub issue when `resolves`, else a
 /// local ticket, whose pull request has no `Resolves` line because kelpie closes the ticket
 /// when it merges, and the project's `base` branch where the worker is told what it works against
+///
+/// With `kelpie_pushes`, the branch is a contributor's, on their fork: the worker is told to
+/// commit and never to push, whatever else its instructions say of pushing.
 pub fn instructions_for(
     kelpie: &Path,
     pull_request_file: Option<&Path>,
     resolves: bool,
     base: &str,
+    kelpie_pushes: bool,
 ) -> String {
     let (resolves, ends) = match resolves {
         true => (RESOLVES, ENDS_WITH_RESOLVES),
@@ -70,10 +79,14 @@ pub fn instructions_for(
             .replace("{ends}", ends),
         None => OPEN_YOURSELF.replace("{resolves}", resolves),
     };
-    INSTRUCTIONS
+    let mut text = INSTRUCTIONS
         .replace("{pull_request}", &pull_request)
         .replace("{kelpie}", &kelpie.display().to_string())
-        .replace("{base}", base)
+        .replace("{base}", base);
+    if kelpie_pushes {
+        text.push_str(COMMIT_ONLY);
+    }
+    text
 }
 
 // Claude Code opens a worktree's whole common git dir to sandboxed writes.
@@ -144,6 +157,10 @@ const PUSH_FLAGS: [&str; 9] = [
     "git push * +*",
 ];
 
+// Every push, for a worker whose commits kelpie pushes. The guard refuses it
+// in any shape; these match a command's prefix only.
+const KELPIE_PUSHES: [&str; 2] = ["git push", "git push *"];
+
 // What a worker holding the App's token may not read: `gh`'s own config
 // folder, which can hold the maintainer's token, and the keychain files. `gh`
 // runs on its own config folder then, so it needs neither.
@@ -208,6 +225,10 @@ pub struct WorkerProfile<'a> {
     pub branch: &'a str,
     /// The project's base branch, which the worker may not write or push to
     pub base: &'a str,
+    /// Whether kelpie pushes the worker's commits itself, because its branch
+    /// is a contributor's, on their fork: the worker's token cannot reach it,
+    /// and the login that can is never the worker's. Its own push is refused.
+    pub kelpie_pushes: bool,
     /// The kelpie binary, which runs kelpie's own checks
     pub kelpie: &'a Path,
     /// Kelpie's home, whose path the guard keeps off the forge
@@ -285,6 +306,13 @@ impl WorkerProfile<'_> {
             .map(|&c| c.to_owned())
             .chain(push_to_base(self.base))
             .chain(PUSH_FLAGS.iter().map(|&c| c.to_owned()))
+            .chain(
+                (self.kelpie_pushes)
+                    .then_some(KELPIE_PUSHES)
+                    .into_iter()
+                    .flatten()
+                    .map(str::to_owned),
+            )
             .collect();
         let hosts = GITHUB
             .into_iter()
@@ -307,6 +335,7 @@ impl WorkerProfile<'_> {
                 build: self.build.to_owned(),
                 git_common_dir: self.git_common_dir.to_owned(),
                 base: self.base.to_owned(),
+                kelpie_pushes: self.kelpie_pushes,
                 folders: vec![self.kelpie_home.to_owned(), self.repo.to_owned()],
                 issues: None,
                 hooks: Hooks::default(),

@@ -33,6 +33,7 @@ fn nowhere() -> Checkout<'static> {
         git_common_dir: Path::new("/nowhere"),
         worktree: Path::new("/nowhere"),
         base: "main",
+        kelpie_pushes: false,
     }
 }
 
@@ -118,6 +119,7 @@ impl WorkerTree {
             git_common_dir: &common,
             worktree: &worktree,
             base,
+            kelpie_pushes: false,
         };
         call(cwd, command, checkout)
     }
@@ -567,6 +569,7 @@ fn a_project_subagent_defined_with_isolation_is_refused() {
             git_common_dir: &common,
             worktree: &worktree,
             base: "main",
+            kelpie_pushes: false,
         };
         judge(
             call.to_string().as_bytes(),
@@ -673,6 +676,7 @@ fn a_commit_from_the_home_folder_by_tilde_reads_the_worktree() {
         git_common_dir: &common,
         worktree: &worktree,
         base: "main",
+        kelpie_pushes: false,
     };
     for command in [
         "cd ~/wt && git commit -m 'docs: notes'",
@@ -932,6 +936,7 @@ fn an_unreadable_call_is_refused() {
 mod agents;
 mod base;
 mod fetch;
+mod fork;
 mod hooks;
 mod killing;
 mod manager;

@@ -76,6 +76,9 @@ pub struct Checkout<'a> {
     pub worktree: &'a Path,
     /// The project's base branch, which only the project manager changes
     pub base: &'a str,
+    /// Whether kelpie pushes the worker's commits itself, so the worker's own
+    /// push is refused: its branch is a contributor's, on their fork
+    pub kelpie_pushes: bool,
 }
 
 // A message file larger than this is not a message.
@@ -111,6 +114,10 @@ pub const PIN_FLAG: &str = "--pin-folder";
 /// judged it in
 pub const HERE_FLAG: &str = "--judge-here";
 
+/// How the hook's command line says kelpie pushes the worker's commits, so
+/// the worker's own push is refused
+pub const KELPIE_PUSHES_FLAG: &str = "--kelpie-pushes";
+
 /// The flag that names `base` on the hook's command line: none for the
 /// default, which a guard without it takes
 pub fn base_flag(base: &str) -> Option<String> {
@@ -125,6 +132,11 @@ pub fn take_base(args: &[String]) -> (String, Vec<String>) {
         named.unwrap_or(DEFAULT_BASE).to_owned(),
         rest.cloned().collect(),
     )
+}
+
+/// Whether `args` asks for [`KELPIE_PUSHES_FLAG`], and the rest of them
+pub fn kelpie_pushes_flag(args: &[String]) -> (bool, Vec<String>) {
+    take_flag(args, KELPIE_PUSHES_FLAG)
 }
 
 /// Whether `args` asks for [`PIN_FLAG`], and the rest of them

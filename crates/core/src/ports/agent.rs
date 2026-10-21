@@ -241,6 +241,9 @@ pub struct Guard {
     pub git_common_dir: PathBuf,
     /// The project's base branch, which only the project manager changes
     pub base: String,
+    /// Whether kelpie pushes the worker's commits itself, so the guard refuses
+    /// the worker's own push: its branch is a contributor's, on their fork
+    pub kelpie_pushes: bool,
     /// Folders besides the home folder whose paths stay off the forge: kelpie's
     /// home and the project's checkout
     pub folders: Vec<PathBuf>,
@@ -257,6 +260,12 @@ impl Guard {
     /// none for the default
     pub fn base_flag(&self) -> Option<String> {
         crate::guard::base_flag(&self.base)
+    }
+
+    /// The flag that says kelpie pushes the worker's commits, when it does
+    pub fn kelpie_pushes_flag(&self) -> Option<&'static str> {
+        self.kelpie_pushes
+            .then_some(crate::guard::KELPIE_PUSHES_FLAG)
     }
 }
 

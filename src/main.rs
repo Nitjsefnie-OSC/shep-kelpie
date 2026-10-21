@@ -119,10 +119,12 @@ fn main() -> ExitCode {
             // `local` keeps the hooks' and the base's flags, which a pinned command
             // judges with again.
             let (base, named) = guard::take_base(&local);
+            let (kelpie_pushes, named) = guard::kelpie_pushes_flag(&named);
             let checkout = Checkout {
                 git_common_dir: Path::new(git_common_dir),
                 worktree: Path::new(worktree),
                 base: &base,
+                kelpie_pushes,
             };
             let (hooks, folders) = match Hooks::take(&named) {
                 Ok(taken) => taken,

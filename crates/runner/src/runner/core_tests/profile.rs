@@ -52,6 +52,7 @@ fn profile<'a>(hooks: &'a [GuardHook], domains: &'a [NonBlank]) -> WorkerProfile
         git_dir: Path::new("/k/repos/shep/.git/worktrees/7"),
         branch: "kelpie/7",
         base: "main",
+        kelpie_pushes: false,
         kelpie: Path::new("/opt/kelpie's bin/kelpie"),
         kelpie_home: Path::new("/k"),
         repo: Path::new("/k/repos/shep"),
@@ -171,6 +172,7 @@ fn a_kelpie_home_outside_the_shepherds_is_denied_around_the_workers_own() {
         git_dir: Path::new("/r/.git/worktrees/7"),
         branch: "kelpie/7",
         base: "main",
+        kelpie_pushes: false,
         kelpie: Path::new("/opt/kelpie"),
         kelpie_home: &kelpie,
         repo: Path::new("/r"),
@@ -297,6 +299,7 @@ fn build_env_points_into_the_build_folder_beside_cargo() {
         git_dir: Path::new("/k/repos/lab/.git/worktrees/7"),
         branch: "kelpie/7",
         base: "main",
+        kelpie_pushes: false,
         kelpie: Path::new("/opt/kelpie"),
         kelpie_home: Path::new("/k"),
         repo: Path::new("/k/repos/shep"),
@@ -488,6 +491,7 @@ fn a_push_to_the_base_branch_or_with_a_forcing_flag_is_denied() {
 fn another_base_branch_is_denied_in_place_of_main() {
     let on_v2 = WorkerProfile {
         base: "v2",
+        kelpie_pushes: false,
         ..profile(&[], &[])
     };
     let s = on_v2.settings();
@@ -753,7 +757,7 @@ fn the_instructions_never_mention_money_or_limits() {
 #[test]
 fn a_worker_that_opens_its_own_pull_request_is_told_to_open_it_against_the_base() {
     let kelpie = Path::new("/bin/kelpie");
-    let on_next = instructions_for(kelpie, None, true, "next");
+    let on_next = instructions_for(kelpie, None, true, "next", false);
     assert!(
         on_next.contains("`gh pr create --draft --base next`"),
         "{on_next}"
