@@ -6,11 +6,11 @@ use super::{codex, goose, pi};
 use crate::ports::HarnessMcp;
 use crate::settings::AgentHarness;
 
-/// The facts of each harness's own MCP loading
+/// What each harness's own MCP loading refuses and drops
 #[derive(Debug, Clone, Copy, Default)]
-pub struct HarnessFacts;
+pub struct McpRules;
 
-impl HarnessMcp for HarnessFacts {
+impl HarnessMcp for McpRules {
     fn refusal(&self, harness: &AgentHarness, name: &str, entry: &Value) -> Option<String> {
         match harness {
             AgentHarness::Pi(_) => pi::mcp::refusal(name, entry),
@@ -47,7 +47,7 @@ mod tests {
     #[test]
     fn each_harness_answers_with_its_own_refusal() {
         let sse = json!({ "type": "sse", "url": "https://old.example.com/sse" });
-        let facts = HarnessFacts;
+        let facts = McpRules;
 
         for harness in [
             AgentHarness::Pi(server()),
@@ -63,7 +63,7 @@ mod tests {
     #[test]
     fn only_goose_skips_env_keys() {
         let entry = json!({ "command": "/bin/true", "env": { "PATH": "/x", "TOKEN": "t" } });
-        let facts = HarnessFacts;
+        let facts = McpRules;
 
         let skipped = facts.skipped_env(&AgentHarness::Goose(server()), "skips", &entry);
 

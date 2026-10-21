@@ -76,8 +76,9 @@ impl Runner {
                 "{what} is in flight, and only a worker's turn is carried"
             ));
         }
-        for (harness, name) in [(Harness::Pi, "pi"), (Harness::Goose, "goose")] {
-            if let Some(issue) = self.sessions_attached_on(harness).first() {
+        for harness in Harness::ALL.iter().filter(|h| h.facts().needs_model_server) {
+            let name = harness.as_str();
+            if let Some(issue) = self.sessions_attached_on(*harness).first() {
                 return Err(format!(
                     "#{issue} is attached, and the {name} session in the maintainer's terminal \
                      dials a forwarder this image holds, which the next image would not"

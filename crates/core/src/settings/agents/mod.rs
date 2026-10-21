@@ -13,6 +13,10 @@ use std::num::NonZeroU32;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+mod facts;
+
+pub use facts::{HarnessFacts, SessionIds};
+
 use super::gateway::ModelHost;
 use super::local::ContextSize;
 use super::reviewers::lowercase_name;
@@ -86,38 +90,17 @@ impl Harness {
     /// The tool a reviewer on this harness writes its test with, or `None` when the
     /// fence cannot hold that harness's writes to a folder
     pub fn writing_tool(self) -> Option<&'static str> {
-        match self {
-            Self::ClaudeCode => Some("Write"),
-            Self::Pi => Some("write"),
-            Self::Codex => Some("apply_patch"),
-            Self::Goose => Some("write"),
-            #[cfg(any(test, feature = "test-support"))]
-            Self::StandIn => None,
-        }
+        self.facts().writing_tool
     }
 
     /// The harness's name, as settings write it
     pub fn as_str(self) -> &'static str {
-        match self {
-            Self::ClaudeCode => "claude-code",
-            Self::Pi => "pi",
-            Self::Codex => "codex",
-            Self::Goose => "goose",
-            #[cfg(any(test, feature = "test-support"))]
-            Self::StandIn => "stand-in",
-        }
+        self.facts().name
     }
 
     /// The program that runs it, as an error names it
     pub fn command(self) -> &'static str {
-        match self {
-            Self::ClaudeCode => "claude",
-            Self::Pi => "pi",
-            Self::Codex => "codex",
-            Self::Goose => "goose",
-            #[cfg(any(test, feature = "test-support"))]
-            Self::StandIn => "stand-in",
-        }
+        self.facts().program
     }
 }
 
@@ -141,54 +124,28 @@ pub enum AgentHarness {
 impl AgentHarness {
     /// Whether a call on it loads the `.claude` folder of the folder it runs in
     pub fn reads_claude_files(&self) -> bool {
-        match self {
-            Self::ClaudeCode => true,
-            Self::Pi(_) | Self::Codex | Self::Goose(_) => false,
-            #[cfg(any(test, feature = "test-support"))]
-            Self::StandIn => true,
-        }
+        self.harness().facts().reads_claude_files
     }
 
     /// Whether a call on it loads the MCP servers kelpie hands it: the repo's, its plugins' and the code graph
     pub fn loads_mcp(&self) -> bool {
-        match self {
-            Self::ClaudeCode | Self::Pi(_) | Self::Codex | Self::Goose(_) => true,
-            #[cfg(any(test, feature = "test-support"))]
-            Self::StandIn => true,
-        }
+        true
     }
 
     /// Whether a pause ends a turn on it at its next tool result, through
     /// kelpie's hook or guard extension; a call on any other runs to its end
     pub fn ends_at_tool(&self) -> bool {
-        // parity: harness.boundary-pause
-        match self {
-            Self::ClaudeCode | Self::Pi(_) => true,
-            Self::Codex | Self::Goose(_) => false,
-            #[cfg(any(test, feature = "test-support"))]
-            Self::StandIn => true,
-        }
+        self.harness().facts().ends_at_tool
     }
 
     /// Whether a worker's turn on it can load the browser's MCP bridge
     pub fn drives_a_browser(&self) -> bool {
-        // parity: harness.browser
-        match self {
-            Self::ClaudeCode | Self::Pi(_) | Self::Codex | Self::Goose(_) => true,
-            #[cfg(any(test, feature = "test-support"))]
-            Self::StandIn => true,
-        }
+        self.harness().facts().drives_a_browser
     }
 
     /// Whether a session keeps the MCP servers it began with, whatever a later call loads
     pub fn keeps_its_servers(&self) -> bool {
-        // parity: harness.resumed-servers
-        match self {
-            Self::Goose(_) => true,
-            Self::ClaudeCode | Self::Pi(_) | Self::Codex => false,
-            #[cfg(any(test, feature = "test-support"))]
-            Self::StandIn => false,
-        }
+        self.harness().facts().keeps_its_servers
     }
 
     /// The harness, as settings name it
@@ -562,31 +519,22 @@ impl Settings {
         name: &AgentName,
         agent: &RoleModel,
     ) -> Result<(), SettingsError> {
-        let other = match &agent.harness {
-            AgentHarness::Pi(_) => Some("pi"),
-            AgentHarness::Codex => Some("codex"),
-            AgentHarness::Goose(_) => Some("goose"),
-            // parity: harness.guard-hooks
-            _ => None,
-        };
-        if let Some(harness) = other
-            && !self.worker.guard_hooks.is_empty()
-        {
+        let facts = agent.harness.harness().facts();
+        // parity: harness.guard-hooks
+        if !facts.runs_guard_hooks && !self.worker.guard_hooks.is_empty() {
             let what = "`worker.guard_hooks`, which are Claude Code hooks";
             return Err(SettingsError::Invalid {
                 setting: IMPLEMENTERS,
                 reason: format!(
-                    "implementer {name} runs on {harness}, which cannot run {what}: \
+                    "implementer {name} runs on {}, which cannot run {what}: \
                      turn those off, move the check to a `command` or `write` hook in \
-                     `hooks`, which runs on every harness, or build on Claude Code"
+                     `hooks`, which runs on every harness, or build on Claude Code",
+                    facts.name
                 ),
             });
         }
-        // goose's PostToolUse payload names the tool and its input, not the result,
-        // and the model never reads a hook's output, so `--after` has nothing to
-        // judge and nowhere to report.
         // parity: harness.after-command
-        if matches!(agent.harness, AgentHarness::Goose(_))
+        if let Some(why) = facts.no_after_command
             && self
                 .hooks
                 .iter()
@@ -595,15 +543,15 @@ impl Settings {
             return Err(SettingsError::Invalid {
                 setting: IMPLEMENTERS,
                 reason: format!(
-                    "implementer {name} runs on goose, which cannot run an `after_command` hook: \
-                     goose's PostToolUse hook is not given a command's result, and the model \
-                     never reads what a hook prints. Move the check to a `command` or `write` \
-                     hook, or build on another harness"
+                    "implementer {name} runs on {}, which cannot run an `after_command` hook: \
+                     {why}. Move the check to a `command` or `write` \
+                     hook, or build on another harness",
+                    facts.name
                 ),
             });
         }
         // parity: harness.local-model
-        if let AgentHarness::Pi(server) | AgentHarness::Goose(server) = &agent.harness
+        if let Some(server) = agent.harness.server()
             && let ModelHost::Url(url) = &server.host
             && let Ok(upstream) = Upstream::new(url)
             && let Some(domain) =

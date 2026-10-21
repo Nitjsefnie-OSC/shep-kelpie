@@ -202,13 +202,12 @@ impl Runner {
 
     // Each model the project's local agents call behind a gateway, once.
     fn gateway_models(&self) -> BTreeSet<(GatewayName, String)> {
-        let behind = |harness: &AgentHarness, model: &str| match harness {
-            AgentHarness::Pi(server) | AgentHarness::Goose(server) => match &server.host {
+        let behind = |harness: &AgentHarness, model: &str| {
+            // parity: harness.local-model
+            match &harness.server()?.host {
                 ModelHost::Gateway(name) => Some((name.clone(), model.to_owned())),
                 ModelHost::Url(_) => None,
-            },
-            // parity: harness.local-model
-            _ => None,
+            }
         };
         let implementers = self.agents.implementers.iter().map(|i| &i.model);
         let sessions = self.lineup.iter().filter_map(|r| r.runs.session());

@@ -24,7 +24,8 @@ use std::time::SystemTime;
 
 use serde_json::Value;
 
-use crate::watch::{Format, Said, SaidKind, said_in};
+pub use crate::watch::Format;
+use crate::watch::{Said, SaidKind, said_in};
 
 /// How deep under a folder the maintainer names a session file may lie: Codex's
 /// year, month and day
@@ -86,17 +87,7 @@ pub(crate) const KEPT: [Kept; 3] = [
 
 /// The format of the transcript `harness` writes, if kelpie reads it
 pub fn format_of(harness: crate::settings::Harness) -> Option<Format> {
-    use crate::settings::Harness;
-    match harness {
-        Harness::ClaudeCode => Some(Format::Claude),
-        Harness::Codex => Some(Format::Codex),
-        Harness::Pi => Some(Format::Pi),
-        // The watch reads goose's stdout file, which each call empties, so no
-        // file holds a whole session.
-        Harness::Goose => None,
-        #[cfg(any(test, feature = "test-support"))]
-        Harness::StandIn => Some(Format::Claude),
-    }
+    harness.facts().transcript
 }
 
 /// What a rendering keeps of a session

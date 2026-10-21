@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use super::*;
 use crate::ports::{CodeGraph, Role, Session, Tools, Usage};
-use crate::settings::{ContextSize, EndpointUrl, ModelHost, ModelServer};
+use crate::settings::{AgentHarness, ContextSize, EndpointUrl, ModelHost, ModelServer};
 use crate::test::ticket;
 use crate::test::{RecordedSink, short_tempdir};
 

@@ -61,7 +61,7 @@ pub use goose::{GOOSE_MINIMUM, GooseCli};
 pub use gpu::GpuCurl;
 pub use harness::fence_policy;
 pub use harness::{Base, LambLabels};
-pub use harness_mcp::HarnessFacts;
+pub use harness_mcp::McpRules;
 pub use host::SystemHost;
 pub use leases::{Notes, ShepLeases};
 pub use local::LocalReviewer;

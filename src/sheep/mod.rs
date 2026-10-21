@@ -23,7 +23,7 @@ use shep_handover::Arrival;
 
 use crate::adapters::{
     Base, ClaudeCli, CodexCli, Curl, CurlGithub, DogE2e, DoorPace, Etags, GatewayClassifier, Gh,
-    GhApps, GooseCli, GpuCurl, HarnessFacts, LocalReviewer, LoginToken, Openssl, PiCli,
+    GhApps, GooseCli, GpuCurl, LocalReviewer, LoginToken, McpRules, Openssl, PiCli,
     PlaywrightBridges, PlaywrightPages, ShepLeases, ShepherdSink, StatDisk, SystemGit, stop_calls,
 };
 use crate::coderabbit::CodeRabbit;
@@ -252,7 +252,7 @@ fn serve(project: &str, arrival: Option<Arrival<Carry>>) -> Result<(), Exit> {
         e2e_runner: Arc::new(DogE2e),
         pages: Arc::new(PlaywrightPages),
         bridges: Arc::new(PlaywrightBridges),
-        harness_mcp: Arc::new(HarnessFacts),
+        harness_mcp: Arc::new(McpRules),
         leases: Arc::clone(&leases) as Arc<dyn Leases>,
         metrics: Arc::new(ShepherdSink::new(shepherd.clone())),
         classifier: Arc::new(GatewayClassifier),
