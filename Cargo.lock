@@ -1030,6 +1030,7 @@ dependencies = [
  "shep-kelpie-process",
  "shep-kelpie-runner",
  "shep-kelpie-test-support",
+ "shep-kelpie-tree",
  "shep-kelpie-trim",
  "shep-kelpie-worker-folder",
  "tempfile",
@@ -1052,6 +1053,7 @@ dependencies = [
  "shep-kelpie-facts",
  "shep-kelpie-process",
  "shep-kelpie-test-support",
+ "shep-kelpie-tree",
  "shep-kelpie-trim",
  "tempfile",
  "tokio",
@@ -1077,6 +1079,7 @@ dependencies = [
  "shep-kelpie-panel",
  "shep-kelpie-process",
  "shep-kelpie-test-support",
+ "shep-kelpie-tree",
  "shep-kelpie-trim",
  "shep-kelpie-worker-folder",
  "tempfile",
@@ -1151,6 +1154,16 @@ name = "shep-kelpie-test-support"
 version = "0.0.0"
 dependencies = [
  "tempfile",
+]
+
+[[package]]
+name = "shep-kelpie-tree"
+version = "0.0.0"
+dependencies = [
+ "rustix",
+ "shep-kelpie-test-support",
+ "tokio",
+ "windows-sys",
 ]
 
 [[package]]
