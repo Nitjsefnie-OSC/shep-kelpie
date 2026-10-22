@@ -122,7 +122,8 @@ impl Fake {
 
     fn shell(&self) -> String {
         let mut script = String::from("#!/bin/sh\n");
-        for step in self.steps() {
+        let steps: Vec<_> = self.steps().collect();
+        for (at, step) in steps.iter().enumerate() {
             let line = match step {
                 Step::Print(text) => format!("printf '%s\\n' {}", sh_word(text)),
                 Step::PrintErr(text) => format!("printf '%s\\n' {} >&2", sh_word(text)),
@@ -132,6 +133,12 @@ impl Fake {
                     sh_word(&path.display().to_string())
                 ),
                 Step::PrintFile(path) => format!("cat {}", sh_word(&path.display().to_string())),
+                // The shell becomes the sleep, so killing the fake by pid leaves nothing behind.
+                Step::Sleep(seconds)
+                    if steps[at + 1..].iter().all(|s| matches!(s, Step::Exit(0))) =>
+                {
+                    format!("exec sleep {seconds}")
+                }
                 Step::Sleep(seconds) => format!("sleep {seconds}"),
                 Step::Exit(code) => format!("exit {code}"),
             };
@@ -236,6 +243,26 @@ mod tests {
 
         assert_eq!(status.code(), Some(4));
         assert!(started.elapsed() >= std::time::Duration::from_millis(900));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_fake_that_ends_asleep_leaves_nothing_behind_when_killed() {
+        use std::io::Read;
+        let dir = short_tempdir();
+        let program = write_fake(dir.path(), "fake", &Fake::new().sleeps(30));
+        let mut child = Command::new(program)
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut out = child.stdout.take().unwrap();
+        let started = std::time::Instant::now();
+
+        child.kill().unwrap();
+        child.wait().unwrap();
+        out.read_to_end(&mut Vec::new()).unwrap();
+
+        assert!(started.elapsed() < std::time::Duration::from_secs(10));
     }
 
     #[test]
