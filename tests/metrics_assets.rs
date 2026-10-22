@@ -310,3 +310,46 @@ fn every_panel_has_its_own_id() {
     }
     assert_no_problems(&problems);
 }
+
+// The value a field override sets for `id` on the panel's target `ref_id`.
+fn override_property(panel: &Value, ref_id: &str, id: &str) -> Option<Value> {
+    panel["fieldConfig"]["overrides"]
+        .as_array()?
+        .iter()
+        .filter(|over| {
+            over["matcher"]["id"] == "byFrameRefID" && over["matcher"]["options"] == ref_id
+        })
+        .flat_map(|over| over["properties"].as_array().into_iter().flatten())
+        .find(|property| property["id"] == id)
+        .map(|property| property["value"].clone())
+}
+
+#[test]
+fn the_spend_panel_draws_open_work_items_on_a_right_axis_apart_from_the_stack() {
+    let panel = panels()
+        .into_iter()
+        .find(|panel| panel["title"] == "Spend by role")
+        .expect("the dashboard has no Spend by role panel");
+    let target = panel["targets"]
+        .as_array()
+        .expect("Spend by role has no targets")
+        .iter()
+        .find(|target| {
+            target["expr"]
+                .as_str()
+                .is_some_and(|expr| expr.contains("kelpie_work_items"))
+        })
+        .expect("Spend by role has no target reading kelpie_work_items");
+    let ref_id = target["refId"].as_str().expect("the target has no refId");
+
+    assert_eq!(
+        override_property(&panel, ref_id, "custom.axisPlacement"),
+        Some(Value::from("right")),
+        "target {ref_id} is not on the right axis"
+    );
+    assert_eq!(
+        override_property(&panel, ref_id, "custom.stacking"),
+        Some(serde_json::json!({ "mode": "none" })),
+        "target {ref_id} is stacked with the roles"
+    );
+}
