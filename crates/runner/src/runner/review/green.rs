@@ -479,3 +479,136 @@ fn a_still_red_yes_under_ask_adopts_the_fix_pushed_by_hand_before_the_review() {
     );
     assert_eq!(reads(&rig), 1, "the first reviewer reads the fix");
 }
+
+// A conflict with `main` runs no `pull_request` workflow, so the head's checks
+// are none for good. The review's wait catches the branch up once they settle.
+fn settled_with_no_checks(rig: &Rig, runner: &Mutex<Runner>) -> Option<StepReport> {
+    let head = rig.forge.head_of("kelpie/7").unwrap();
+    rig.forge.set_checks(&head, Checks::None);
+    assert_eq!(step(runner).unwrap(), None, "no run is reported yet");
+    rig.clock.advance(CHECKS_SETTLE);
+    step(runner).unwrap()
+}
+
+#[test]
+fn a_review_head_behind_main_with_no_checks_is_caught_up_and_read_after_green() {
+    let (rig, runner, head) = pushed();
+    rig.land_on_origin("landed.txt");
+
+    let reported = settled_with_no_checks(&rig, &runner);
+    let Some(StepReport::Rebased { head: rebased, .. }) = reported else {
+        panic!("the branch was not caught up: {reported:?}");
+    };
+    assert_ne!(rebased, head);
+    assert_eq!(rig.forge.head_of("kelpie/7"), Some(rebased.clone()));
+    assert_eq!(state(&rig, &runner), "review");
+    let status = rig.ask(&runner, "status", None);
+    assert_eq!(status["work_item"]["phase"]["reading"], rebased);
+    assert_eq!(status["work_item"]["phase"]["ci"], serde_json::Value::Null);
+    assert_eq!(reads(&rig), 0, "nobody read the old head");
+
+    rig.forge.set_checks(&rebased, Checks::Passed);
+    assert!(rig.verdict(&runner).is_some());
+    assert_eq!(reads(&rig), 1, "the first reviewer reads the rebased head");
+}
+
+#[test]
+fn a_review_head_that_conflicts_with_main_gets_the_conflict_turn_and_comes_back_to_review() {
+    let (rig, runner, head) = pushed();
+    rig.land_on_origin("work.txt");
+
+    let reported = settled_with_no_checks(&rig, &runner);
+    assert_eq!(
+        reported,
+        Some(StepReport::Conflicted {
+            issue: crate::test::ticket(7),
+            pull_request: 71,
+            head,
+            files: vec!["work.txt".into()],
+        })
+    );
+    rig.claude.script([Scripted::FinishMerge]);
+    step(&runner).unwrap(); // the worker resolves and pushes the merge
+    let [_, conflict] = rig.claude.calls().try_into().unwrap();
+    assert!(
+        conflict
+            .prompt
+            .starts_with("Your pull request #71 conflicts with main in work.txt. "),
+        "{}",
+        conflict.prompt
+    );
+    let merged = rig.forge.head_of("kelpie/7").unwrap();
+    assert_eq!(state(&rig, &runner), "review", "back to the waiting review");
+    assert_eq!(reads(&rig), 0);
+
+    assert_eq!(
+        step(&runner).unwrap(),
+        None,
+        "the merge's run is not reported"
+    );
+    rig.forge.set_checks(&merged, Checks::Passed);
+    assert!(rig.verdict(&runner).is_some());
+    assert_eq!(reads(&rig), 1, "the first reviewer reads the merge");
+}
+
+#[test]
+fn a_conflict_left_unresolved_from_review_raises_a_ruling_naming_the_files() {
+    let (rig, runner, _) = pushed();
+    rig.land_on_origin("work.txt");
+    assert!(matches!(
+        settled_with_no_checks(&rig, &runner),
+        Some(StepReport::Conflicted { .. })
+    ));
+    // The worker gives the merge up and pushes something else.
+    rig.claude
+        .script([Scripted::AbortAndPush("extra.txt", "extra\n")]);
+    step(&runner).unwrap();
+    assert_eq!(state(&rig, &runner), "review");
+
+    let report = settled_with_no_checks(&rig, &runner);
+    let Some(StepReport::Ruling { question, .. }) = report else {
+        panic!("no ruling was raised: {report:?}");
+    };
+    assert!(
+        question.contains("it conflicts with main in work.txt"),
+        "{question}"
+    );
+    let status = rig.ask(&runner, "status", None);
+    assert_eq!(status["rulings"][0]["kind"]["reason"], "rebase");
+    assert_eq!(rig.claude.calls().len(), 2, "no third turn, no loop");
+    assert_eq!(reads(&rig), 0);
+}
+
+#[test]
+fn a_review_head_behind_main_whose_checks_report_is_not_rebased() {
+    let (rig, runner, head) = pushed();
+    rig.land_on_origin("landed.txt");
+    rig.forge.set_checks(&head, Checks::Pending);
+
+    assert_eq!(step(&runner).unwrap(), None);
+    rig.clock.advance(CHECKS_SETTLE);
+    assert_eq!(step(&runner).unwrap(), None, "a pending run waits");
+    assert_eq!(rig.forge.head_of("kelpie/7"), Some(head));
+    assert_eq!(state(&rig, &runner), "review");
+    assert_eq!(reads(&rig), 0);
+}
+
+#[test]
+fn status_shows_a_ci_wait_with_no_checks_reported() {
+    let (rig, runner, head) = pushed();
+    rig.forge.set_checks(&head, Checks::None);
+    let checks = |rig: &Rig| {
+        let status = rig.ask(&runner, "status", None);
+        status["work_item"]["checks"].clone()
+    };
+    assert_eq!(checks(&rig), serde_json::Value::Null, "not yet looked at");
+    assert_eq!(step(&runner).unwrap(), None);
+    assert_eq!(checks(&rig), "none");
+    let status = rig.ask(&runner, "status", None);
+    assert!(status["work_item"]["phase"]["ci"]["since"].is_number());
+
+    rig.forge.set_checks(&head, Checks::Pending);
+    rig.clock.advance(CHECKS_SETTLE);
+    assert_eq!(step(&runner).unwrap(), None);
+    assert_eq!(checks(&rig), serde_json::Value::Null, "a check reports");
+}

@@ -5,6 +5,7 @@ Review passes, bots, rulings. CI and the merge are in merge.md.
 ## Review
 
 - One pass when CI green on draft head: `agents.reviewers` in order, each once; no loop or judge (the gains come early). ADR 0006, ADR 0008, `runner/review/`
+- The CI wait before a read catches up a branch behind `main` once its checks settle with none reported (GitHub runs nothing on a branch that conflicts with `main`, so the wait would never end): the gate's rebase or conflict turn, returning to this review with the new head to wait on and read. A behind head that gets CI is not rebased mid-review. #1163, `runner/review/awaited.rs`
 - Any finding, nits included, goes to one fix turn; next reviewer reads the fix (skipped nits left open threads). Nit-only fix starts nothing new; bot nits on a head it read stay open. ADR 0007, #354
 - A round waits for CI on its head (red costs no read or window); `doctor` names CI that skips drafts. #423
 - A contribution's head gets its held runs approved only after the security review, CI in `contributions[].ci`, and no reviewer reads it before `green` (ADR 0008); one pass of `contributions.reviewers` records findings, posting none. A released one's work item runs the full `agents.reviewers` pass (`contribution-release.md`). #622, #623, #634

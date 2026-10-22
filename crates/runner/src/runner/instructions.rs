@@ -16,6 +16,15 @@ use crate::settings::NonBlank;
 use crate::settings::{E2e, Settings, SettingsError};
 use crate::skills::{Skills, Step};
 
+/// Whether `worker.instructions_file`, when set, can be read, which the runner needs to open
+///
+/// # Errors
+///
+/// [`SettingsError::Invalid`] naming `worker.instructions_file`.
+pub fn check_instructions(settings: &Settings) -> Result<(), SettingsError> {
+    read_extra(settings).map(drop)
+}
+
 /// Reads the project's extra worker instructions, if its settings name a file
 ///
 /// # Errors

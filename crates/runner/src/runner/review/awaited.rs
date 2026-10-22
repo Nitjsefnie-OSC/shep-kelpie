@@ -7,7 +7,10 @@
 //! register, then pending waits, green goes on, and red is the worker's CI fix
 //! turn, counted toward `ci.fix_attempts`, which comes back to this round.
 //! A head already green stays so for the rest of the pass, and with
-//! `ci.block` off the round starts at once.
+//! `ci.block` off the round starts at once. GitHub runs nothing on a branch
+//! that conflicts with `main`, so checks still none once they settle on a head
+//! behind `main` are the gate's catch-up, run from here, which comes back to
+//! this round.
 
 use super::super::Runner;
 use super::super::gate::settled;
@@ -15,6 +18,7 @@ use super::super::report::Begin;
 use crate::ports::{Checks, PullRequestState};
 use crate::state::{StateError, Stuck};
 use crate::work_item::{Awaited, Phase, Review};
+use crate::worktree::Base;
 
 impl Runner {
     /// What the step does instead of `review`'s reviewer reading the pushed
@@ -67,6 +71,7 @@ impl Runner {
         let since = (review.ci.as_ref())
             .filter(|ci| ci.head == head)
             .map_or(now, |ci| ci.since);
+        self.note_checks(&pr.checks);
         let mut ci = Awaited {
             head: head.clone(),
             since,
@@ -81,6 +86,7 @@ impl Runner {
             Checks::Failed(checks) => checks.clone(),
             _ => Vec::new(),
         };
+        let unreported = pr.checks == Checks::None;
         let verdict = match pr.checks {
             _ if !settled(since, now) => None,
             Checks::None | Checks::Pending => None,
@@ -102,19 +108,26 @@ impl Runner {
                 }
             })?;
         }
+        let back = Review {
+            reading: None,
+            ..review.clone()
+        };
+        if unreported && settled(since, now) {
+            // Only a head with no run at all is caught up here: one that does
+            // get CI is not rebased mid-review.
+            match self.base_of(&head) {
+                Ok(Base::Behind) => return self.rebase(number, &head, Some(back)).map(Some),
+                Ok(Base::Lagging | Base::Current) => {}
+                Err(reason) => return Ok(Some(self.gate_failed(reason))),
+            }
+        }
         if verdict.is_some() {
             self.ci_settled(issue, number, &head, conclusion, &failed);
         }
         match verdict {
             None => Ok(Some(Begin::Idle)),
             Some(Ok(())) => Ok(None),
-            Some(Err(checks)) => {
-                let back = Review {
-                    reading: None,
-                    ..review.clone()
-                };
-                self.ci_failed(number, head, checks, Some(back)).map(Some)
-            }
+            Some(Err(checks)) => self.ci_failed(number, head, checks, Some(back)).map(Some),
         }
     }
 }
