@@ -31,6 +31,7 @@ pub(crate) const CHECKS_SETTLE: u64 = 120;
 mod catch_up;
 #[cfg(test)]
 mod fix_attempts;
+pub(super) mod queued;
 mod rerun;
 
 impl Runner {
@@ -122,7 +123,11 @@ impl Runner {
             return Ok(Begin::Idle);
         };
         match pr.checks {
-            Checks::None | Checks::Pending => Ok(Begin::Idle),
+            Checks::None => Ok(Begin::Idle),
+            Checks::Pending(queued) => {
+                let rerun = self.check_queued(number, &pr.head, since, &queued, None)?;
+                Ok(rerun.unwrap_or(Begin::Idle))
+            }
             Checks::Passed | Checks::Skipped => {
                 let conclusion = if pr.checks == Checks::Skipped {
                     "skipped"

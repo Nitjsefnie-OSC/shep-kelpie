@@ -26,6 +26,7 @@ use crate::worktree::{self};
 mod act;
 mod prompts;
 mod question;
+mod queued;
 mod stuck;
 mod test_fails;
 use prompts::{
@@ -777,6 +778,9 @@ fn decide(
         // parked on it, so here the answer only clears the ruling.
         (Answer::Rework(_), RulingKind::Contribution(Held::Merge { .. })) => Phase::Implement,
         (Answer::Rework(_), _) => return Err(RuleError::NotAMerge(id)),
+        (Answer::Yes | Answer::No(_), RulingKind::Stuck(Stuck::CheckQueued { review, .. })) => {
+            queued::waiting_again(review, now)
+        }
         // The jobs are rerun, so CI is looked at again, in the round it
         // interrupted when it did.
         (

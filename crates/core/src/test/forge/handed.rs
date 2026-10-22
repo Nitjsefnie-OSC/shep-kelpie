@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 
 use super::FakeForge;
-use crate::ports::{BranchRun, FailedLogs, PullRequestState, Workflow, WorkflowState};
+use crate::ports::{BranchRun, FailedLogs, PullRequestState, Rerun, Workflow, WorkflowState};
 
 /// A pull request on the fake forge. Its head is its branch on the rig's
 /// origin, so a push the runner makes moves it.
@@ -31,7 +31,7 @@ pub struct CiRuns {
     log_error: Option<String>,
     reruns: Vec<String>,
     rerun_error: Option<String>,
-    run_reruns: Vec<u64>,
+    run_reruns: Vec<(u64, Rerun)>,
     // The latest run of each workflow, by branch
     branch_runs: HashMap<String, Vec<BranchRun>>,
     // The workflow names any scripted runs carried, in the order they came
@@ -77,11 +77,11 @@ impl CiRuns {
 
 impl CiRuns {
     /// Records a rerun of run `run`, or says why it fails
-    pub fn rerun_of_run(&mut self, run: u64) -> Result<(), String> {
+    pub fn rerun_of_run(&mut self, run: u64, rerun: Rerun) -> Result<(), String> {
         match &self.rerun_error {
             Some(error) => Err(error.clone()),
             None => {
-                self.run_reruns.push(run);
+                self.run_reruns.push((run, rerun));
                 Ok(())
             }
         }
@@ -91,7 +91,20 @@ impl CiRuns {
 impl FakeForge {
     /// The runs whose failed CI jobs kelpie reran by id, in order
     pub fn run_reruns(&self) -> Vec<u64> {
-        self.ci.lock().unwrap().run_reruns.clone()
+        let reruns = self.ci.lock().unwrap().run_reruns.clone();
+        (reruns.into_iter())
+            .filter(|(_, rerun)| *rerun == Rerun::Failed)
+            .map(|(run, _)| run)
+            .collect()
+    }
+
+    /// The runs kelpie reran whole by id, in order
+    pub fn whole_run_reruns(&self) -> Vec<u64> {
+        let reruns = self.ci.lock().unwrap().run_reruns.clone();
+        (reruns.into_iter())
+            .filter(|(_, rerun)| *rerun == Rerun::All)
+            .map(|(run, _)| run)
+            .collect()
     }
 
     /// Makes the failed CI runs' logs say `log`

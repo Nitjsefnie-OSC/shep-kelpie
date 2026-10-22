@@ -88,7 +88,7 @@ fn a_green_bump_is_merged_with_no_review_ruling_or_call() {
 fn a_bump_waits_while_its_checks_are_pending_and_for_them_to_settle() {
     let (rig, runner) = bumping("");
     let head = bump(&rig, 40, "Cargo.lock");
-    rig.forge.set_checks(&head, Checks::Pending);
+    rig.forge.set_checks(&head, Checks::Pending(Vec::new()));
 
     settle(&rig, &runner);
 
@@ -572,7 +572,7 @@ fn overdue(checks: Checks, words_of: &str) {
 
 #[test]
 fn checks_still_pending_after_wait_hours_are_red() {
-    overdue(Checks::Pending, "still pending");
+    overdue(Checks::Pending(Vec::new()), "still pending");
 }
 
 #[test]
@@ -707,7 +707,7 @@ fn a_merge_the_forge_refused_is_tried_again() {
 fn a_bump_that_left_the_board_is_forgotten() {
     let (rig, runner) = bumping("");
     let head = bump(&rig, 40, "Cargo.lock");
-    rig.forge.set_checks(&head, Checks::Pending);
+    rig.forge.set_checks(&head, Checks::Pending(Vec::new()));
     assert_eq!(step(&runner).unwrap(), None);
     assert_eq!(bumps(&rig, &runner).len(), 1);
 
