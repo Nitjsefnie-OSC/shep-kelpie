@@ -442,13 +442,26 @@ fn tail(text: &str) -> String {
 /// (`docs/facts/ticket-scope.md`)
 pub const TOUCHES_SPLIT: usize = 13;
 
-// The paths on the `Touches:` line of `body`, each in backticks, 0 without one.
+// The paths on the `Touches:` line of `body`, 0 without one. The line may sit in
+// a list or in bold. Paths are the backticked spans, as the issue writer is
+// told to write them, else the comma-separated entries.
 fn touches(body: &str) -> usize {
-    let Some(line) = body.lines().find_map(|l| l.trim().strip_prefix("Touches:")) else {
+    let Some(line) = body.lines().find_map(|l| {
+        let l = l.trim_start_matches(|c: char| c.is_whitespace() || c == '-' || c == '*');
+        l.strip_prefix("Touches:")
+    }) else {
         return 0;
     };
     // Backticks pair up, so every second part between them is inside a pair.
-    line.split('`').skip(1).step_by(2).count()
+    match line.split('`').skip(1).step_by(2).count() {
+        0 => (line.split(','))
+            .filter(|e| {
+                !e.trim_matches(|c: char| c.is_whitespace() || c == '*')
+                    .is_empty()
+            })
+            .count(),
+        n => n,
+    }
 }
 
 // Each filed issue as its ticket source holds it, with what it lacks.

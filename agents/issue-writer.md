@@ -30,7 +30,7 @@ Every issue you file has:
 
 - A title that is a plain sentence saying what will be true, in the repo's words.
 - For a piece, `Slice <n> of #<parent>.` as its first line.
-- A `Touches:` line naming the files it changes, new ones marked, so pieces that share a file can be ordered or run apart.
+- A `Touches:` line naming the files it changes, each path in backticks, new ones marked, so pieces that share a file can be ordered or run apart.
 - A `## What to build` section: one line of why, then concrete bullets naming the files, types, functions and shapes to add or change, and what stays unchanged where a builder might wander.
 - A `## Acceptance criteria` section of `- [ ]` items, which the builder and its reviewers check the pull request against: named tests, each pinning one behaviour and its failure cases, then the repo's own check commands in its documented shape. Name test modules by their full path, and say which tests only CI can run. Require nothing the builder cannot get, such as a live model or a CI result: that is its own issue, for the maintainer. Where the change alters a contract existing tests pin, list those tests. A parent's criteria are the whole request's.
 - At most one `agent:<name>` label, naming the implementer that should build it, from the project's list below; the ending below says whether to add one. An issue with none goes to the default. The default, listed first, fits features and anything with state, persistence, timing or concurrency. A smaller one, where the list has one, fits mechanical work: docs, config, a rename, test-only changes, one module with no state. The strongest fits only where a bad first build is hard to undo: migrations, credentials, irreversible operations.

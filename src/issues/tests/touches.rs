@@ -4,8 +4,15 @@ use crate::settings::AgentName;
 
 // A body whose `Touches:` line names `n` files.
 fn touching(n: usize) -> String {
-    let files: Vec<String> = (1..=n).map(|i| format!("`src/m{i}.rs`")).collect();
-    format!("Touches: {}\n\n{BODY}", files.join(", "))
+    listing(n, "`", "Touches: ")
+}
+
+// The same, with each path in `quote` and the line starting `lead`.
+fn listing(n: usize, quote: &str, lead: &str) -> String {
+    let files: Vec<String> = (1..=n)
+        .map(|i| format!("{quote}src/m{i}.rs{quote}"))
+        .collect();
+    format!("{lead}{}\n\n{BODY}", files.join(", "))
 }
 
 // The line kelpie prints for issue 41, filed with `body`.
@@ -35,6 +42,25 @@ fn an_issue_touching_the_split_or_fewer_files_is_not_noted() {
 #[test]
 fn an_issue_with_no_touches_line_is_not_noted() {
     assert_eq!(printed(BODY), "#41 Pause a project (agent:sonnet-high)");
+}
+
+#[test]
+fn paths_without_backticks_and_a_line_in_bold_or_a_list_are_counted() {
+    for body in [
+        listing(14, "", "Touches: "),
+        listing(14, "`", "**Touches:** "),
+        listing(14, "", "- Touches: "),
+    ] {
+        assert_eq!(
+            printed(&body),
+            "#41 Pause a project (agent:sonnet-high, touches 14 files)",
+            "{body}"
+        );
+    }
+    assert_eq!(
+        printed(&listing(13, "", "**Touches:** ")),
+        "#41 Pause a project (agent:sonnet-high)"
+    );
 }
 
 #[test]
