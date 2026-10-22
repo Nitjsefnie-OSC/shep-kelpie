@@ -2,12 +2,13 @@
 //!
 //! A branch behind `main` is rebased and pushed, or merged if it is someone
 //! else's. A conflict is the worker's next turn, in a merge kelpie started, a
-//! few times at most, and then the maintainer's ruling.
+//! few times at most, and then the maintainer's ruling. The gate's catch-up
+//! goes on to CI; one from a review's wait for green goes back to that review.
 
 use crate::runner::Runner;
 use crate::runner::report::{Begin, StepReport};
 use crate::state::{StateError, Stuck};
-use crate::work_item::{Conflict, Phase, Turn};
+use crate::work_item::{Conflict, Phase, Review, Turn};
 use crate::worktree::{self, Rebase};
 
 // The most conflict turns one work item gets before the maintainer decides,
@@ -16,8 +17,15 @@ const CONFLICT_TURNS: u32 = 3;
 
 impl Runner {
     // `main` moved since the branch was cut or last rebased: rebase and push,
-    // and CI runs again on the new head before anyone is asked.
-    pub(super) fn rebase(&mut self, number: u64, head: &str) -> Result<Begin, StateError> {
+    // and CI runs again on the new head before anyone is asked. From a
+    // `review` waiting on its head's run, the new head is that review's to
+    // wait on and read.
+    pub(in crate::runner) fn rebase(
+        &mut self,
+        number: u64,
+        head: &str,
+        review: Option<Review>,
+    ) -> Result<Begin, StateError> {
         let item = self.current().expect("a rebase is of a work item");
         let issue = item.issue;
         // An adopted branch's commits are someone else's, so it is merged, never rewritten.
@@ -41,7 +49,14 @@ impl Runner {
                         item.send_unread(rebased.clone());
                     }
                     item.caught_up(seen.clone());
-                    item.phase = Phase::Ci { head: seen, since };
+                    item.phase = match review.clone() {
+                        Some(review) => Phase::Review(Review {
+                            reading: seen,
+                            ci: None,
+                            ..review
+                        }),
+                        None => Phase::Ci { head: seen, since },
+                    };
                 })?;
                 Ok(Begin::Report(StepReport::Rebased {
                     issue,
@@ -50,9 +65,9 @@ impl Runner {
                 }))
             }
             Ok(Rebase::Conflicts { main, files }) => {
-                self.conflicted(number, head.to_owned(), main, files)
+                self.conflicted(number, head.to_owned(), main, files, review)
             }
-            Ok(Rebase::Refused(reason)) => self.raise(number, Stuck::Rebase { why: reason }.into()),
+            Ok(Rebase::Refused(why)) => self.raise(number, Stuck::Rebase { why, review }.into()),
             Err(e) => Ok(self.gate_failed(format!("cannot rebase #{number}: {e}"))),
         }
     }
@@ -61,13 +76,16 @@ impl Runner {
     // and nothing is force-pushed. A conflict the worker was already sent
     // for this head, or for this `main`, is one it did not resolve, and the
     // maintainer decides. So does a work item that has had `CONFLICT_TURNS`
-    // of them, whatever `main` does.
+    // of them, whatever `main` does. The turn's end goes on to CI, or back to
+    // the `review` that was waiting on this head's run, and so does the
+    // maintainer's yes to that ruling.
     fn conflicted(
         &mut self,
         number: u64,
         head: String,
         main: String,
         files: Vec<String>,
+        review: Option<Review>,
     ) -> Result<Begin, StateError> {
         let item = self.current().expect("a conflict is of a work item");
         if item.conflict.as_ref().is_some_and(|sent| {
@@ -79,8 +97,8 @@ impl Runner {
             if let Err(e) = worktree::abort_merge(repo, tree) {
                 eprintln!("cannot abort the merge in #{number}'s worktree: {e}");
             }
-            let reason = format!("it conflicts with main in {}", files.join(", "));
-            return self.raise(number, Stuck::Rebase { why: reason }.into());
+            let why = format!("it conflicts with main in {}", files.join(", "));
+            return self.raise(number, Stuck::Rebase { why, review }.into());
         }
         let issue = item.issue;
         let prompt = conflict_prompt(number, &files);
@@ -92,6 +110,9 @@ impl Runner {
         };
         self.update(|item| {
             item.conflict = Some(sent);
+            if let Some(review) = review {
+                item.resume = Some(Phase::Review(review));
+            }
             item.turn = Turn::Next { prompt };
             item.phase = Phase::Implement;
         })?;

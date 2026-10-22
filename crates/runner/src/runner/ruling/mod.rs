@@ -273,10 +273,15 @@ impl Runner {
             (&answer, &ruling.kind),
             (
                 Answer::Yes,
-                RulingKind::Stuck(Stuck::StillRed {
-                    review: Some(_),
-                    ..
-                })
+                RulingKind::Stuck(
+                    Stuck::StillRed {
+                        review: Some(_),
+                        ..
+                    } | Stuck::Rebase {
+                        review: Some(_),
+                        ..
+                    }
+                )
             )
         );
         // Any answer to a refused merge gives the next one its catch-up again.
@@ -885,14 +890,20 @@ fn decide(
             readied: None,
             auto: false,
         },
-        // A red run that interrupted a review round goes back to that round,
-        // which no reviewer has finished reading.
+        // A red run, or a catch-up, that interrupted a review round goes back
+        // to that round, which no reviewer has finished reading.
         (
             Answer::Yes,
-            RulingKind::Stuck(Stuck::StillRed {
-                review: Some(review),
-                ..
-            }),
+            RulingKind::Stuck(
+                Stuck::StillRed {
+                    review: Some(review),
+                    ..
+                }
+                | Stuck::Rebase {
+                    review: Some(review),
+                    ..
+                },
+            ),
         ) => Phase::Review(review),
         (
             Answer::Yes,

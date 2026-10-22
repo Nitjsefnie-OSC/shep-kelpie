@@ -16,7 +16,7 @@ pub(super) fn fix_turns_had(turns: u32) -> String {
 
 pub(in crate::runner) fn stuck_comment(reason: &Stuck) -> String {
     match reason {
-        Stuck::Rebase { why } => {
+        Stuck::Rebase { why, .. } => {
             format!("This branch could not be rebased onto main: {why}.")
         }
         Stuck::StillRed {

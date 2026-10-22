@@ -20,3 +20,4 @@ The agent kelpie wakes to pick, answer and unstick, and the board file it reads.
 - Answers or escalates worker questions, holding the ruling from maintainer one wake (10 min max). #437
 - Decides `follow-up` rulings, filing `ready-for-agent` or `needs-triage`. #510, #511
 - `shep kelpie pm` hands its session to maintainer's terminal like `attach`; no wake runs under them. #327
+- Retro moved from worker to PM: batch after every 10 finished items and at a drain, one call with the PM's agent over a digest (`journal.jsonl`, rulings, ledger). Worker keeps a PR-body `Friction` section. Off unless `skills.retro`; no slot, never retried, saved unread (agents acting on retros loop). Digest counts conflicts per file, rounds, late findings, known flakes (also in CI fix prompts). #361, #566, #657, `runner/retro/`
