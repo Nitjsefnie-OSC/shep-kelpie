@@ -15,12 +15,15 @@
 use std::collections::BTreeMap;
 use std::time::Duration;
 
+use serde::Serialize;
+
 use super::Runner;
 use super::alert::backoff;
 use super::report::{Begin, StepReport};
 use super::turn::Slot;
 use crate::ports::Timestamp;
 use crate::state::ProjectState;
+use crate::ticket::TicketId;
 
 /// How often the board is read, however often the loop wakes
 ///
@@ -47,6 +50,18 @@ const RETRY_MAX: u64 = 10 * 60;
 /// not reach can never make the loop spin
 const DUE_FLOOR: Duration = Duration::from_secs(1);
 
+/// A work item's step that failed again and again, as `status` shows it
+// wire format: changing this is a breaking change to `status`
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Failing {
+    /// When the step first failed, unbroken since
+    pub since: Timestamp,
+    /// How many times it failed in a row
+    pub failures: u32,
+    /// Why it failed last
+    pub reason: String,
+}
+
 /// When the board was last read and each failing step runs again, in memory only
 #[derive(Debug, Default)]
 pub(super) struct Looks {
@@ -63,6 +78,8 @@ pub(super) struct Looks {
     triage_read: Option<Timestamp>,
     // Each failing step by its slot: its failures in a row, and when it runs again
     retries: BTreeMap<Slot, (u32, Timestamp)>,
+    // Each failing work item's step by its slot: when it first failed, and why it last did
+    first_failures: BTreeMap<Slot, (Timestamp, String)>,
     // How many writes of kelpie's the forge had taken when the last pass began
     writes_seen: u64,
     // When the workflows on `main` are read next, and the reads that failed in a row
@@ -194,12 +211,29 @@ impl Looks {
         );
         if !failed {
             self.retries.remove(&slot);
+            self.first_failures.remove(&slot);
             return;
+        }
+        if let (Slot::Item(_), Some(reason)) = (slot, failure_reason(begin)) {
+            let since = self.first_failures.get(&slot).map_or(now, |(at, _)| *at);
+            self.first_failures.insert(slot, (since, reason.to_owned()));
         }
         let failures = self.retries.get(&slot).map_or(0, |&(n, _)| n) + 1;
         let wait = backoff(RETRY_FIRST, failures, RETRY_MAX);
         let at = Timestamp(now.0.saturating_add(wait)).max(held.unwrap_or(now));
         self.retries.insert(slot, (failures, at));
+    }
+
+    /// What keeps `ticket`'s step failing, from its second failure in a row
+    pub(super) fn failing(&self, ticket: TicketId) -> Option<Failing> {
+        let slot = Slot::Item(ticket);
+        let &(failures, _) = self.retries.get(&slot)?;
+        let (since, reason) = self.first_failures.get(&slot)?;
+        (failures >= 2).then(|| Failing {
+            since: *since,
+            failures,
+            reason: reason.clone(),
+        })
     }
 
     /// Records that a pass begins with `writes` of kelpie's made so far
@@ -226,6 +260,7 @@ impl Looks {
     pub(super) fn keep_only(&mut self, open: &[Slot]) {
         self.retries
             .retain(|slot, _| *slot == Slot::Board || open.contains(slot));
+        self.first_failures.retain(|slot, _| open.contains(slot));
     }
 
     /// How long until the soonest of the `open` steps is due: the board's
@@ -255,6 +290,18 @@ impl Looks {
     fn board_due_at(&self) -> Option<Timestamp> {
         let poll = BOARD_POLL.as_secs();
         (self.board_read).map(|at| Timestamp(at.0.saturating_add(poll)))
+    }
+}
+
+// Why a step failed, in the report's words
+fn failure_reason(begin: &Begin) -> Option<&str> {
+    match begin {
+        Begin::Report(
+            StepReport::GateFailed { reason, .. }
+            | StepReport::BoardFailed { reason }
+            | StepReport::ParentCloseFailed { reason, .. },
+        ) => Some(reason),
+        _ => None,
     }
 }
 
