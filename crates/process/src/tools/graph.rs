@@ -193,11 +193,18 @@ fn find(dir: &Path) -> Option<PathBuf> {
     None
 }
 
+#[cfg(unix)]
 fn make_executable(file: &Path) -> Result<(), String> {
     use std::os::unix::fs::PermissionsExt;
 
     std::fs::set_permissions(file, std::fs::Permissions::from_mode(0o755))
         .map_err(|e| format!("cannot make {} executable: {e}", file.display()))
+}
+
+// Windows has no mode bits: a file runs by its extension.
+#[cfg(not(unix))]
+fn make_executable(_: &Path) -> Result<(), String> {
+    Ok(())
 }
 
 #[cfg(test)]
@@ -240,6 +247,7 @@ mod tests {
         assert_eq!(asset("linux", "riscv64"), None);
     }
 
+    #[cfg(unix)]
     #[test]
     fn the_server_is_unpacked_from_a_checked_archive_and_made_executable() {
         use std::os::unix::fs::PermissionsExt;

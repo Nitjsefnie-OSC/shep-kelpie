@@ -196,6 +196,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_link_in_the_cache_is_left_and_not_followed() {
         let dir = tempfile::tempdir().unwrap();
@@ -211,6 +212,7 @@ mod tests {
         assert!(outside.join("precious").exists());
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_cache_folder_that_is_a_link_is_not_followed() {
         let dir = tempfile::tempdir().unwrap();
