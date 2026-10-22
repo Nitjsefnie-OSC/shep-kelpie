@@ -24,7 +24,7 @@ Kelpie: dog of the maintainer's shepherd; one runner per project takes ready iss
 |---|---|---|
 | work.md | projects, board, adoption, slots, issue writer | `core/board/`, `src/issues/mod.rs`, `runner/adopt/`, `runner/slots.rs`, `src/flock/verbs.rs`, `core/guard/issues/` |
 | pm.md | the project manager, its board file | `runner/pm/`, `runner/briefing/` |
-| workers.md | runner loop, turns | `runner/turn/`, `runner/flight/` |
+| workers.md | runner loop, turns | `runner/turn/`, `runner/flight/`, `crates/tree/` |
 | fence.md | sandbox, guard, hooks, reads | `core/{profile,guard,hooks}/`, `core/dep_sources.rs`, `runner/turn/dep_reads.rs` |
 | browser.md | a worker's browser beyond its sandbox: bridge, filter, tools | `core/{bridge,browse}.rs`, `adapters/bridge/`, `runner/browser.rs`, `core/settings/browser.rs`, `crates/process/src/tools/` |
 | browser-dev-server.md | a worker's browser dev server: launch, port, readiness | `runner/dev_server/`, `core/ports/dev_server.rs`, `adapters/dev_server/` |

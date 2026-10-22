@@ -5,7 +5,7 @@
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::{Mutex, OnceLock, PoisonError};
+use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use std::time::{Duration, Instant};
 
 use crate::interrupt::{Caught, Interrupts};
@@ -39,7 +39,7 @@ impl Default for Limits {
 const NETWORK: Duration = Duration::from_secs(5 * 60);
 
 // The tree of the command `run` is waiting on, or none between commands
-static RUNNING: Mutex<Option<Tree>> = Mutex::new(None);
+static RUNNING: Mutex<Option<Arc<Tree>>> = Mutex::new(None);
 
 // Kills the running command's tree, if one is running.
 fn end_running() {
@@ -82,8 +82,8 @@ fn end_with_kelpie() {
 struct Running;
 
 impl Running {
-    fn tree(tree: Tree) -> Self {
-        *RUNNING.lock().unwrap_or_else(PoisonError::into_inner) = Some(tree);
+    fn tree(tree: &Arc<Tree>) -> Self {
+        *RUNNING.lock().unwrap_or_else(PoisonError::into_inner) = Some(Arc::clone(tree));
         Self
     }
 }
@@ -106,20 +106,20 @@ fn run(command: &mut Command, limit: Duration) -> Result<(), String> {
         .spawn()
         .map_err(|e| format!("cannot run {what}: {e}"))?;
     let tree = match Tree::of(&child) {
-        Ok(tree) => tree,
+        Ok(tree) => Arc::new(tree),
         Err(e) => {
             let _ = child.kill();
             let _ = child.wait();
             return Err(format!("cannot hold {what}: {e}"));
         }
     };
-    let _running = Running::tree(tree);
+    let _running = Running::tree(&tree);
     let started = Instant::now();
     let status = loop {
         match child.try_wait() {
             Ok(Some(status)) => break status,
             Ok(None) if started.elapsed() >= limit => {
-                end_running();
+                tree.send(Signal::Kill);
                 let _ = child.kill();
                 let _ = child.wait();
                 return Err(format!("{what} did not end in {limit:?}"));
@@ -292,6 +292,7 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_command_that_ends_in_time_returns_its_exit_status() {
         run(&mut Command::new("true"), Duration::from_secs(60)).unwrap();
@@ -299,6 +300,7 @@ mod tests {
         assert!(err.contains("false") && err.contains("exited"), "{err}");
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_command_that_outlasts_its_limit_is_ended_with_its_children() {
         let dir = tempfile::tempdir().unwrap();
