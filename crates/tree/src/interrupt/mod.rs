@@ -39,17 +39,23 @@ impl Caught {
         }
     }
 
-    /// What to tell a tree kelpie runs, if anything
+    /// The signal that says the same to a tree
+    #[must_use]
+    pub fn signal(self) -> Signal {
+        match self {
+            Self::Interrupt => Signal::Interrupt,
+            Self::Terminate => Signal::Terminate,
+            Self::Hangup => Signal::Hangup,
+        }
+    }
+
+    /// What to tell a command kelpie shares a group with, if anything
     ///
-    /// A terminal or a console hands an interrupt to every process it runs,
-    /// so the tree has had it already.
+    /// A terminal or a console hands an interrupt to every process in its
+    /// group, so the command has had it already.
     #[must_use]
     pub fn forward(self) -> Option<Signal> {
-        match self {
-            Self::Interrupt => None,
-            Self::Terminate => Some(Signal::Terminate),
-            Self::Hangup => Some(Signal::Hangup),
-        }
+        (self != Self::Interrupt).then(|| self.signal())
     }
 
     /// What the maintainer calls it
