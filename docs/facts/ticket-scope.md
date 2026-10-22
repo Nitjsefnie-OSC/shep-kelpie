@@ -52,3 +52,19 @@ Three findings on a 7,466-line diff is little review for its size. Whether that 
 - Splitting by module, as #1028, #1029 and #1031 did for callers, kept those at 36 to 118 files. The stored fields could have gone the same way: the migration and new version first, with a shim the readers keep using, then the readers by module.
 - What the worker adds past the issue is where review finds the bugs. All three of #1038's findings were in the ticket-id handling of `rule`, which the issue never asked for.
 - A ceiling hit with nothing committed is the tell. Four of them on one item, each answered yes, cost four hours without a commit, and with the three failures, seven rulings and fourteen advisor and researcher calls.
+
+## Across every item
+
+Measured 2026-10-21 on 779 merged work items, from each item's changed lines, its worker compactions and its turn timeouts. #1010 is not an outlier in kind: the bigger a pull request, the more often its worker compacts.
+
+| changed lines | measure | value |
+|---|---|---|
+| 300 to 500 | worker compactions per item | 0.06 |
+| 500 to 700 | worker compactions per item | 0.24 |
+| 500 to 700 | median files changed | 13 |
+| under 500 | Claude Code items that compacted or hit a turn timeout | 6 of 320 |
+| 700 to 1000 | Claude Code items that compacted or hit a turn timeout | 18 of 55 |
+
+- compactions per item rise 4x from the 300 to 500 bucket to the 500 to 700 one
+- the 13 files at 500 to 700 lines is the number `TOUCHES_SPLIT` (`src/issues/mod.rs`) is set to: `shep kelpie issue` notes an issue whose `Touches:` passes it and has no sub-issues, and the issue writer splits such a piece by module (`agents/issue-writer.md`)
+- the other measures were not read out for every bucket, so the table holds only these

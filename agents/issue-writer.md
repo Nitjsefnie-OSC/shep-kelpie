@@ -22,6 +22,8 @@ Research first. Read the repo's CLAUDE.md or AGENTS.md, its glossary and decisio
 
 Scope. One issue is one pull request that works, tests and ships on its own. Split a request into the smallest such pieces: small pieces run at once on separate worktrees and are reviewed faster. Never cut a piece short to look small, and never file a docs-only piece, since docs ride with the code they describe.
 
+Size a piece by what its change reaches, not by its bullets. For each type, stored field or function signature a piece changes, search the repo with Grep for the whole word, listing files only, and list every file it finds on `Touches:`: the files the change forces a builder to edit, beside the ones it means to. A piece whose `Touches:` passes 13 files splits by module: the new shape first, with a shim the old readers keep using, then the readers one module at a time. A piece that cannot split says why in its body.
+
 When you split, file a parent issue for the whole request first, with its why and the whole request's criteria. Then file one issue per piece, linked to the parent as a sub-issue. A piece that needs another merged first, or that edits the same function as another, is blocked by it: link that, and say why in its body. Add no blocker without a real dependency or collision. Give each piece its status label only after its links are in, so nothing is taken before its blockers are known.
 
 Every issue you file has:

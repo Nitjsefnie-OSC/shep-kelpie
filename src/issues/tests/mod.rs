@@ -7,6 +7,8 @@ use crate::agents::Agents;
 use crate::local_tickets::{LocalTickets, Routed};
 use crate::test::{Rig, Scripted, git, write_in, write_script};
 
+mod touches;
+
 const BODY: &str = "Build the thing.\n\n## Acceptance criteria\n\n- [ ] It works\n";
 
 const REQUEST: &str = "Let the maintainer pause one project from lookout";
