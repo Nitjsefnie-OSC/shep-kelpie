@@ -205,6 +205,9 @@ pub struct WorkItemStatus<'a> {
     /// unstarted
     #[serde(skip_serializing_if = "Option::is_none")]
     pub held_up: Option<super::turn::held_up::HeldUp>,
+    /// Its step that failed again and again, from the second failure in a row
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub failing: Option<super::looks::Failing>,
     /// `"none"` while its wait on CI has had no check reported, beside the
     /// wait's `since` in `phase`
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -283,6 +286,7 @@ impl<'a> WorkItemStatus<'a> {
             pinned: item.pinned,
             waiting: None,
             held_up: None,
+            failing: None,
             checks: None,
             build_bytes: None,
             session: &item.session,

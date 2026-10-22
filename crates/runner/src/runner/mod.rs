@@ -356,8 +356,7 @@ pub struct Runner {
     // The ticket of the work item a step or trigger is working on, set before
     // anything reads it: every change to a work item goes to this one
     focus: Option<TicketId>,
-    // What last did something in a step, kept in memory only, so the next
-    // step starts with the one after it
+    // What last did something in a step, in memory only: the next step starts after it
     last_acted: Option<turn::Slot>,
     // What the runner carried on without, kept in memory only until
     // `take_notes` hands it out
@@ -809,6 +808,7 @@ impl Runner {
         WorkItemStatus {
             waiting: self.model_wait(ticket),
             held_up: self.held_up.of(ticket),
+            failing: self.looks.failing(ticket),
             checks: self.no_checks_of(item),
             build_bytes: self.builds.folder_bytes(ticket),
             ..WorkItemStatus::new(item, self.settings.budget.per_item_usd, split)
