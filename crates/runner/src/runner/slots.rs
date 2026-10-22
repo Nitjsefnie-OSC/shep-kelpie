@@ -3,11 +3,13 @@
 //! A slot bounds model calls: a worker's turn or a review. A work item
 //! takes one when it opens, and keeps it through CI and the merge. Parked
 //! on a ruling it gives the slot up: a parked worker runs no process, so an
-//! unanswered ruling never stalls the project. `concurrency.pending_rulings` caps the items
-//! parked, and while that many wait the board opens nothing new. Answered,
-//! an item goes on without a slot through anything that calls no model (CI,
-//! a merge, its end), and waits for one, ahead of any new work item, once
-//! it needs a turn or a review.
+//! unanswered ruling never stalls the project. A `Done` item gives it up
+//! too, since its cleanup calls no model and may keep failing.
+//! `concurrency.pending_rulings` caps the items parked, and while that many
+//! wait the board opens nothing new. Answered, an item goes on without a
+//! slot through anything that calls no model (CI, a merge, its end), and
+//! waits for one, ahead of any new work item, once it needs a turn or a
+//! review.
 //!
 //! A contribution holds no slot while it waits on its contributor. A model
 //! call on it takes one for as long as it runs and gives it back after, and
@@ -25,7 +27,7 @@ use crate::work_item::{Phase, Seat, WorkItem};
 /// Seats the work items in `next`, then gives the slots free under `max`
 /// to the items waiting, oldest first
 ///
-/// A parked item holds no slot. One that left a ruling, or goes on
+/// A parked or `Done` item holds no slot. One that left a ruling, or goes on
 /// without a slot, waits for one once its phase calls a model, so no model
 /// call runs past `max`. Returns whether any seat changed.
 pub(super) fn seat(before: &ProjectState, next: &mut ProjectState, max: usize) -> bool {
@@ -33,7 +35,7 @@ pub(super) fn seat(before: &ProjectState, next: &mut ProjectState, max: usize) -
     for item in &mut next.work_items {
         let left = !item.parked() && before.item(item.issue).is_some_and(WorkItem::parked);
         item.seat = match item.seat {
-            _ if item.parked() => Seat::Without,
+            _ if item.parked() || matches!(item.phase, Phase::Done { .. }) => Seat::Without,
             Seat::Held if !left => Seat::Held,
             _ if item.calls_a_model() => Seat::Waiting,
             _ => Seat::Without,
