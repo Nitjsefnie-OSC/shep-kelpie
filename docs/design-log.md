@@ -983,6 +983,17 @@ Kelpie's `[kelpie]` section of `dogs.toml`, `webhook.rs`:
 - `gateways`: `sheep/mod.rs` (into the pi adapter, the local reviewer, the sandbox wrapper and `spawn.rs`), `flock/verbs.rs` (the issue writer), `runner/mod.rs` and `runner/reread/mod.rs` (each listed agent's gateway), `doctor/mod.rs` and `doctor/gateways.rs`.
 - `leases.cargo-test`: `dog/mod.rs`.
 
+## Windows
+
+Parent #241. The shell-outs and the tests' command fakes (#1149).
+
+- Windows has no `sh`. Git for Windows ships `sh.exe` and `env.exe` under `usr/bin`, off `PATH` unless the installer put them there. `spawn::sh()` and `spawn::env()` return the Unix path on Unix. On Windows they find the Git for Windows that a `git.exe` on `PATH` belongs to, then its default install folders, and fall back to the bare name. The lookup is a pure function over injected `var` and `exists`, so it is tested on every platform.
+- Per call site: a hook (`core/hooks`), the test-runner (`adapters/test_runner`), the dev server's install (`runner/dev_server/bump/install`) and the Claude sandbox's `env` (`adapters/claude/sandbox.rs`) run a command line the maintainer wrote in POSIX shell, so they require Git for Windows and use `spawn::sh()`. Porting them to Rust would give a different language to the same setting.
+- `tar` and `shasum` in `upgrade` are reached only for a release asset, and no Windows asset exists, so they stay Unix. `cp -R` in `test_support` became Rust (`copy_dir`). `kill` and `ps` belong to #1148, sockets to #1147, and the srt wrapper to #1150.
+- `test_support::write_fake(dir, name, &Fake)` writes a stand-in command from a small description (print, write to stderr, exit, sleep, record its arguments) as an `sh` script on Unix and a `.cmd` file on Windows, and returns the path to start. `write_script` stays for a script that needs real shell, which Windows runs only through `spawn::sh()`. A plain `true`, `false` or `sleep` stand-in, and the `upgrade` and `home` build fixtures, moved to `Fake`.
+- A FIFO is a Unix file, so the tests that make one are `#[cfg_attr(windows, ignore = "a FIFO is a Unix file")]`.
+- The tests Windows cannot run are in `docs/agents/sandbox-red-tests.md`, read from the source because the Windows job runs `cargo check` only. `core` and every crate above it do not compile for Windows yet (`std::os::unix`, `tokio::signal::unix`, `rustix::process`, `UnixStream`, mode bits), so the shell-outs there are checked on the host only.
+
 ## Old files
 
 How a table, a state file or a home an older kelpie wrote is read now. The maintainer's own files depend on these.
@@ -1201,6 +1212,7 @@ What was built and later changed or removed, one line each. Where a section abov
 - 2026-10-17: each tool error kind is read at the head of a line, where a line's own message is what follows the run of `<token>:` markers a program or a shell writes before it, each followed by a space (`mkdir: cbm-docs: Operation not permitted`, `(eval):1: no such file or directory: /x`), after Claude Code's `<tool_use_error>` wrapper is taken off. A grep or rg match line writes no space after its colons, and one that names a file and a line number keeps its own words whatever its matched text holds, so a command that prints this repo's docs and then fails is `other`. A hook command is read as shell words and cut at the `]: ` before its reason, so kelpie's own is still kelpie's under a folder with a space or a `]` in its name (#968, `docs/facts/tool-errors.md`)
 - 2026-10-17: a worker's turn carried through a handover names a hook that is not kelpie's in the note the image that began it would have written, since the series hold no label that could carry the command (#968, `docs/design/log-lines.md`)
 - 2026-10-19: the dashboard counts tool errors by kind and role over its own time range, and `KelpieToolErrorTakesOver` alerts when one kind other than `other` passes 0.5 of a role's calls in 6h, over at least 4 of them so one call cannot fire it. The share and the floor are the two sibling alerts' (`KelpieMcpServerFailing` and `KelpieCallsFailing`). `tests/metrics_assets.rs` reads the two asset files, which nothing tested before: the alert and the panel are there, every alert is named in the guide, every series either file reads is one the guide lists, every panel type is in `__requires`, and no two panels hold the same grid squares (#969, `docs/facts/tool-errors.md`)
+- 2026-10-22: the shell-outs find Git for Windows' `sh` and `env`, and stand-in commands run on Windows (#1149, see Windows)
 
 ## Lift list
 
