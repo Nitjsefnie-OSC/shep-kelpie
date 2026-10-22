@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::process::{ExitStatus, Output};
+use std::process::Output;
 use std::sync::Arc;
 
 use super::gateway_tests::{KEY, gateways, goose_on, on_gateway};

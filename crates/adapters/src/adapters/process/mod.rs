@@ -223,8 +223,8 @@ impl Processes {
         };
         // Its own tree, so a program it spawns and leaves behind (a build, a
         // test run) is reachable through it, not just the one pid this struct tracks.
-        let mut kept = Kept::spawn(command.stdin(stdin).stdout(out).stderr(err))
-            .map_err(RunError::Io)?;
+        let mut kept =
+            Kept::spawn(command.stdin(stdin).stdout(out).stderr(err)).map_err(RunError::Io)?;
         let pid = kept.child.id();
         // Written off this thread: a child that never reads leaves the write
         // waiting, and the wait below is what ends the child at its deadline.
@@ -425,7 +425,12 @@ impl Processes {
                 // Checked before the deadline below, so a child that has
                 // already exited by the time a poll lands is never reported
                 // as timed out, however close the two were.
-                if let Some(status) = running.children[at].1.child.try_wait().map_err(RunError::Io)? {
+                if let Some(status) = running.children[at]
+                    .1
+                    .child
+                    .try_wait()
+                    .map_err(RunError::Io)?
+                {
                     running.children.remove(at);
                     running.finishing += 1;
                     finishing.counted = true;

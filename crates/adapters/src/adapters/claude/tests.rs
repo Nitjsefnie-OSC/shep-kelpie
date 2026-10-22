@@ -1,5 +1,4 @@
 use std::path::PathBuf;
-use std::process::ExitStatus;
 use std::sync::Arc;
 
 use super::*;

@@ -1,7 +1,5 @@
 //! Conditional reads, against a stand-in for GitHub that answers 304 to a tag it gave
 
-use std::process::ExitStatus;
-
 use super::*;
 
 // GitHub's side of the reads: each path's answer, with a tag that changes

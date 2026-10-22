@@ -102,8 +102,8 @@ impl DevServers for SandboxedServers {
             .map_err(|e| e.to_string())?;
         let (out, err) = log_of(&run.log)?;
         wrapped.stdin(Stdio::null()).stdout(out).stderr(err);
-        let kept = Kept::spawn(&mut wrapped)
-            .map_err(|e| format!("cannot start {}: {e}", run.program))?;
+        let kept =
+            Kept::spawn(&mut wrapped).map_err(|e| format!("cannot start {}: {e}", run.program))?;
         let mut group = Group(kept);
         let deadline = Instant::now() + run.ready_within;
         loop {

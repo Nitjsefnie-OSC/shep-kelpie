@@ -1015,7 +1015,6 @@ name = "shep-kelpie"
 version = "0.0.0"
 dependencies = [
  "jiff",
- "rustix",
  "serde",
  "serde-saphyr",
  "serde_json",

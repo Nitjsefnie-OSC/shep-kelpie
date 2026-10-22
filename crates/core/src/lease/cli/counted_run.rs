@@ -17,8 +17,8 @@ use std::time::Duration;
 use tokio::time::Instant;
 
 use super::{exit_number, listen};
-use crate::lease::counted::CARGO_TEST;
 use crate::interrupt::{Caught, Interrupts};
+use crate::lease::counted::CARGO_TEST;
 use crate::lease::door::{Answer, Ask, SOCKET_VAR, Visit};
 use crate::tree::{Lead, Reach, Signal, Tree};
 

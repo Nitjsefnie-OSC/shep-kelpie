@@ -108,7 +108,6 @@ shep-kelpie-tree.workspace = true
 shep-kelpie-trim.workspace = true
 shep-kelpie-worker-folder.workspace = true
 jiff.workspace = true
-rustix.workspace = true
 serde.workspace = true
 serde-saphyr.workspace = true
 serde_json.workspace = true
