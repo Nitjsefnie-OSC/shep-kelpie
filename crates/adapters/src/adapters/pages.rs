@@ -5,11 +5,11 @@
 //! bridge and the server end when the call returns.
 
 use std::io::BufReader;
-use std::os::unix::net::UnixStream;
 use std::time::Duration;
 
 use super::bridge::{Bridge, Client, Navigation, Server};
 use crate::bridge::Filter;
+use crate::ipc::blocking::Stream;
 use crate::ports::{PageSession, Pages, Visit};
 
 /// How long a page gets after it loads for its requests to settle, in seconds
@@ -41,7 +41,7 @@ impl Pages for PlaywrightPages {
             server,
             filter,
         )?;
-        let stream = UnixStream::connect(bridge.socket())
+        let stream = Stream::connect(bridge.socket())
             .map_err(|e| format!("cannot reach the browser's socket: {e}"))?;
         let _ = stream.set_read_timeout(Some(CALL_WITHIN));
         let reads = stream

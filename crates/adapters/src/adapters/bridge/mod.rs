@@ -17,7 +17,6 @@
 use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader, Write};
 use std::net::Shutdown;
-use std::os::unix::net::{UnixListener, UnixStream};
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -31,6 +30,7 @@ use serde_json::json;
 use super::forwarder::unguessable;
 use super::process::stop_child;
 use crate::bridge::{Filter, Passage};
+use crate::ipc::blocking::{Listener, Stream};
 use crate::ports::{Bridges, OpenBridge, Playwright};
 pub(crate) use client::{Client, Navigation};
 use proxy::{Origins, Proxy};
@@ -134,7 +134,7 @@ pub(crate) struct Bridge {
     socket: PathBuf,
     stopping: Arc<AtomicBool>,
     // The connection being served, which a drop closes to end it
-    serving: Arc<Mutex<Option<UnixStream>>>,
+    serving: Arc<Mutex<Option<Stream>>>,
     thread: Option<thread::JoinHandle<()>>,
     // Ended after the server it holds, by being dropped last
     _proxy: Proxy,
@@ -165,7 +165,7 @@ impl Bridge {
             .map_err(|e| format!("cannot write {}: {e}", config.display()))?;
         server.args.push("--config".to_owned());
         server.args.push(config.display().to_string());
-        let listener = UnixListener::bind(&socket)
+        let listener = Listener::bind(&socket)
             .map_err(|e| format!("cannot open {}: {e}", socket.display()))?;
         let stopping = Arc::new(AtomicBool::new(false));
         let serving = Arc::new(Mutex::new(None));
@@ -212,7 +212,7 @@ impl Drop for Bridge {
     fn drop(&mut self) {
         self.stopping.store(true, Ordering::SeqCst);
         // Wakes the accept, which then sees it is stopping.
-        let _ = UnixStream::connect(&self.socket);
+        let _ = Stream::connect(&self.socket);
         let _ = std::fs::remove_file(&self.socket);
         let held = self.serving.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(stream) = held.as_ref() {
@@ -243,10 +243,10 @@ fn launch(domains: &[String], proxy: &Proxy) -> serde_json::Value {
 // Serves one connection with a fresh server, filtering both ways, until either
 // end closes. The server runs in its own process group, stopped whole.
 fn serve(
-    stream: UnixStream,
+    stream: Stream,
     server: &Server,
     filter: &Filter,
-    serving: &Mutex<Option<UnixStream>>,
+    serving: &Mutex<Option<Stream>>,
     stopping: &AtomicBool,
 ) {
     let log = server.cwd.join(LOG);

@@ -2,12 +2,12 @@
 // env and hook, with the maintainer at the prompt.
 
 use std::io::{Read, Write};
-use std::os::unix::net::UnixStream;
 use std::path::Path;
 use std::sync::Arc;
 
 use super::tests::{FRESH_ID, OTHER_ID, RESUMED, URL, World, id, output};
 use super::*;
+use crate::ipc::blocking::Stream;
 use crate::ports::Usage;
 use crate::test::{Answer, OpenSandbox, StandInEndpoint};
 
@@ -127,7 +127,7 @@ fn the_terminal_session_has_a_forwarder_until_foreground_ended() {
          content-length: {}\r\n\r\n{body}",
         body.len()
     );
-    let mut stream = UnixStream::connect(&socket).unwrap();
+    let mut stream = Stream::connect(&socket).unwrap();
     stream.write_all(chat.as_bytes()).unwrap();
     let mut reply = String::new();
     stream.read_to_string(&mut reply).unwrap();

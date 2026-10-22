@@ -7,7 +7,6 @@
 
 use std::collections::BTreeMap;
 use std::io::{Read, Write};
-use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -18,6 +17,7 @@ use super::exec::{FOLDER, read, worker_of, write};
 use super::*;
 use crate::adapters::{Base, PiCli};
 use crate::forwarder::Upstream;
+use crate::ipc::blocking::Stream;
 use crate::ports::{Agents, Routed};
 use crate::settings::Harness;
 use crate::settings::Timing;
@@ -242,7 +242,7 @@ fn incoming(folder: &Path, host: &str, carry: Carry) {
     let worker = Worker::spawn(Arc::clone(&runner), hooks, wake, woken, died);
     let socket = PathBuf::from(read(folder, "socket").trim());
     eventually("the forwarder answering again", || {
-        UnixStream::connect(&socket).is_ok()
+        Stream::connect(&socket).is_ok()
     });
     write(folder, "go", "");
     eventually("the turn's end", || turn_of_7(&rig, &runner) == "ended");
@@ -294,7 +294,7 @@ pub(super) fn waits_out_a_relayed_reply() {
     let forwarder =
         crate::adapters::forwarder::Forwarder::open(&folder, Upstream::new(&base).unwrap())
             .unwrap();
-    let mut stream = UnixStream::connect(&forwarder.socket).unwrap();
+    let mut stream = Stream::connect(&forwarder.socket).unwrap();
     stream
         .set_read_timeout(Some(Duration::from_secs(10)))
         .unwrap();

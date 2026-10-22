@@ -1,12 +1,12 @@
 use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader, Read, Write};
-use std::os::unix::net::UnixListener;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
 
 use super::*;
+use crate::ipc::blocking::Listener;
 use crate::ports::Reach;
 use crate::profile::{CREDENTIALS, WorkerProfile};
 use crate::test::OpenSandbox;
@@ -21,7 +21,7 @@ struct Dog {
 // A dog that grants the one ask it hears at once and holds the lease until the
 // connection closes.
 fn dog(socket: &Path) -> Dog {
-    let listener = UnixListener::bind(socket).unwrap();
+    let listener = Listener::bind(socket).unwrap();
     let (asked, ask) = mpsc::channel();
     let (back, given_back) = mpsc::channel();
     thread::spawn(move || {

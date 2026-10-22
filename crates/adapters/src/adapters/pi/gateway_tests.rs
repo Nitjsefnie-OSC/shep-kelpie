@@ -3,12 +3,12 @@
 
 use std::collections::BTreeMap;
 use std::io::{Read, Write};
-use std::os::unix::net::UnixStream;
 use std::path::Path;
 use std::sync::Arc;
 
 use super::tests::{FRESH, FRESH_ID, World, id};
 use super::*;
+use crate::ipc::blocking::Stream;
 use crate::ports::Role;
 use crate::settings::{ContextSize, EndpointUrl, Gateway, GatewayKind, GatewayName, KeyVar};
 use crate::test::{Answer, OpenSandbox, StandInEndpoint};
@@ -152,7 +152,7 @@ fn the_key_reaches_the_gateway_only_from_the_forwarder_and_no_file_holds_it() {
          authorization: Bearer kelpie\r\ncontent-length: {}\r\n\r\n{body}",
         body.len()
     );
-    let mut stream = UnixStream::connect(&forwarder.socket).unwrap();
+    let mut stream = Stream::connect(&forwarder.socket).unwrap();
     stream.write_all(chat.as_bytes()).unwrap();
     let mut reply = String::new();
     stream.read_to_string(&mut reply).unwrap();
@@ -190,7 +190,7 @@ fn a_reviewers_chat_call_on_a_gateway_asks_for_batch() {
              content-length: {}\r\n\r\n{body}",
             body.len()
         );
-        let mut stream = UnixStream::connect(&forwarder.socket).unwrap();
+        let mut stream = Stream::connect(&forwarder.socket).unwrap();
         stream.write_all(chat.as_bytes()).unwrap();
         let mut reply = String::new();
         stream.read_to_string(&mut reply).unwrap();
@@ -208,7 +208,7 @@ fn chat_through(forwarder: &Forwarder) -> String {
          content-length: {}\r\n\r\n{body}",
         body.len()
     );
-    let mut stream = UnixStream::connect(&forwarder.socket).unwrap();
+    let mut stream = Stream::connect(&forwarder.socket).unwrap();
     stream.write_all(chat.as_bytes()).unwrap();
     let mut reply = String::new();
     stream.read_to_string(&mut reply).unwrap();
