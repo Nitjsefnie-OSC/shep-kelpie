@@ -721,6 +721,28 @@ fn a_pull_request_that_fails_to_open_leaves_no_branch_on_the_remote_but_keeps_th
 }
 
 #[test]
+fn a_pull_request_that_fails_to_open_removes_its_branch_past_a_failing_pre_push_hook() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let s = Setup::new();
+    s.filed(41, "Pause a project", BODY, &[READY, "agent:sonnet-high"]);
+    s.rig.forge.set_down(true);
+    let common = git(
+        &s.settings.git.checkout,
+        &["rev-parse", "--path-format=absolute", "--git-common-dir"],
+    );
+    let hook = Path::new(&common).join("hooks/pre-push");
+    std::fs::write(&hook, "#!/bin/sh\nexit 1\n").unwrap();
+    std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+    let (claude, said) = ran_to_the_end(&s, &["GLOSSARY.md"], &[41]);
+
+    let err = said.unwrap_err();
+    assert!(err.contains("removed it from the remote again"), "{err}");
+    assert_eq!(s.rig.forge.head_of(claude.docs.branch()), None);
+}
+
+#[test]
 fn a_link_that_fails_is_named_beside_the_pull_request_that_opened() {
     let s = Setup::new();
     s.filed(41, "Pause a project", BODY, &[READY, "agent:sonnet-high"]);

@@ -156,7 +156,14 @@ impl Docs {
             .map_err(|e| {
                 // Nothing links the pushed branch, so take it off the remote
                 // again; the commit stays in the local branch.
-                let removed = git(&["push", "--quiet", "origin", "--delete", &full_ref]);
+                let removed = git(&[
+                    "push",
+                    "--quiet",
+                    "--no-verify",
+                    "origin",
+                    "--delete",
+                    &full_ref,
+                ]);
                 let remote_branch = match removed {
                     Ok(_) => "removed it from the remote again".to_owned(),
                     Err(e) => format!("could not remove it from the remote: {e}"),
