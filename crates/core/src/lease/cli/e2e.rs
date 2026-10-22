@@ -136,9 +136,9 @@ fn told(message: &str) -> String {
 #[cfg(test)]
 mod tests {
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-    use tokio::net::UnixStream;
 
     use super::*;
+    use crate::ipc::{connected_pair, split};
 
     // A visit to a dog on the other end of a connected pair of streams, which
     // reads one ask and answers it with `answer`, handing back the ask it read.
@@ -146,13 +146,13 @@ mod tests {
         worktree: &Path,
         answer: &str,
     ) -> (Visit, tokio::task::JoinHandle<Option<Ask>>) {
-        let (visitor, dog) = UnixStream::pair().unwrap();
+        let (dog, visitor) = connected_pair().await.unwrap();
         let visit = Visit::over(visitor, &ask(worktree.to_owned()))
             .await
             .unwrap();
         let answer = answer.to_owned();
         let dog = tokio::spawn(async move {
-            let (read, mut write) = dog.into_split();
+            let (read, mut write) = split(dog);
             let line = BufReader::new(read).lines().next_line().await.ok()??;
             write
                 .write_all(format!("{answer}\n").as_bytes())

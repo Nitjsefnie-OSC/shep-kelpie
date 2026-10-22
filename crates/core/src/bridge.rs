@@ -1,4 +1,4 @@
-//! The browser's MCP server, reached over a Unix socket kelpie filters
+//! The browser's MCP server, reached over a local socket kelpie filters
 //!
 //! Chromium cannot start inside the sandbox, so the Playwright server runs
 //! beside it (the adapters crate holds the socket). The agent starts
@@ -9,12 +9,12 @@
 //! listed, and each call's arguments are judged by [`crate::browse::judge`].
 
 use std::io::{BufRead, BufReader, Write};
-use std::os::unix::net::UnixStream;
 use std::path::Path;
 
 use serde_json::{Value, json};
 
 use crate::confine::Verdict;
+use crate::ipc::blocking::Stream;
 
 /// The server the agent loads the bridge as, which its tools are named after
 pub const SERVER: &str = "playwright";
@@ -142,8 +142,8 @@ fn error(id: &Value, message: &str) -> Value {
 ///
 /// The reason, when the socket cannot be reached.
 pub fn connect(socket: &Path) -> Result<(), String> {
-    let stream = UnixStream::connect(socket)
-        .map_err(|e| format!("cannot reach {}: {e}", socket.display()))?;
+    let stream =
+        Stream::connect(socket).map_err(|e| format!("cannot reach {}: {e}", socket.display()))?;
     let mut to_server = stream
         .try_clone()
         .map_err(|e| format!("cannot use {}: {e}", socket.display()))?;

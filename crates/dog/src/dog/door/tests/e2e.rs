@@ -121,7 +121,7 @@ async fn an_ask_cannot_name_a_host_or_a_command() {
         "command": "scripts/evil.sh",
         "results": "/",
     });
-    let mut stream = UnixStream::connect(&socket).await.unwrap();
+    let mut stream = crate::ipc::connect(&socket).await.unwrap();
     stream
         .write_all(format!("{named}\n").as_bytes())
         .await

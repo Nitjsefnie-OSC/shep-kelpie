@@ -6,10 +6,9 @@
 
 use std::sync::Arc;
 
-use tokio::net::unix::OwnedWriteHalf;
-
 use super::door::{Place, say};
 use super::lock_desk;
+use crate::ipc::ServerWriteHalf;
 use crate::lease::door::{Answer, Ask, ForgeAsk};
 use crate::metrics::Recorder;
 use crate::ports::{LocalPace, Pace, Pass, Timestamp};
@@ -52,7 +51,7 @@ pub(super) fn publish(pace: &LocalPace, metrics: &Recorder, now: Timestamp) {
 }
 
 // Answers a runner's `forge` ask and ends the visit.
-pub(super) async fn visit(place: &Place, ask: Ask, write: &mut OwnedWriteHalf) {
+pub(super) async fn visit(place: &Place, ask: Ask, write: &mut ServerWriteHalf) {
     let Some(forge) = ask.forge else {
         let why = "a forge ask says what it wants of the forge".to_owned();
         return say(write, &Answer::Error(why)).await;

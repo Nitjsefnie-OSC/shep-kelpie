@@ -21,6 +21,7 @@ pub mod forwarder;
 pub mod guard;
 pub mod home;
 pub mod hooks;
+pub mod ipc;
 pub mod lease;
 pub mod local_paths;
 pub mod local_tickets;

@@ -1,20 +1,19 @@
 //! The dog's door: the socket a command asks for a counted lease at
 //!
 //! A command connects to `$SHEP_HOME/kelpie/dog/lease.sock`, or the socket
-//! `KELPIE_LEASE_SOCKET` names, and sends one [`Ask`] line. The dog answers with [`Answer`] lines: queued, then
+//! `KELPIE_LEASE_SOCKET` names (a named pipe on Windows, see [`ipc`]), and sends
+//! one [`Ask`] line. The dog answers with [`Answer`] lines: queued, then
 //! granted. The command holds the lease for as long as it keeps the
 //! connection open, so one that ends or dies gives its place back. A
 //! worker's sandbox may connect to this socket and to no shep socket.
 
 use std::path::{Component, Path, PathBuf};
 
-use rustix::io::{FdFlags, fcntl_setfd};
 use serde::{Deserialize, Serialize};
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, Lines};
-use tokio::net::UnixStream;
-use tokio::net::unix::{OwnedReadHalf, OwnedWriteHalf};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
 use crate::home;
+use crate::ipc::{self, ClientStream};
 
 /// The variable naming the door, which a runner sets for its workers
 pub const SOCKET_VAR: &str = "KELPIE_LEASE_SOCKET";
@@ -206,9 +205,8 @@ pub enum Answer {
 /// One command's connection to the door, holding its place while open
 #[derive(Debug)]
 pub struct Visit {
-    answers: Lines<BufReader<OwnedReadHalf>>,
     // Kept open: closing it is how the dog hears the lease given back.
-    ask: OwnedWriteHalf,
+    stream: BufReader<ClientStream>,
 }
 
 impl Visit {
@@ -218,7 +216,7 @@ impl Visit {
     ///
     /// A message naming the socket when the dog cannot be reached.
     pub async fn knock(socket: &Path, ask: &Ask) -> Result<Self, String> {
-        let stream = UnixStream::connect(socket)
+        let stream = ipc::connect(socket)
             .await
             .map_err(|e| format!("cannot reach the dog at {}: {e}", socket.display()))?;
         Self::over(stream, ask).await
@@ -229,17 +227,15 @@ impl Visit {
     /// # Errors
     ///
     /// A message when the ask cannot be sent.
-    pub async fn over(stream: UnixStream, ask: &Ask) -> Result<Self, String> {
-        let (read, mut write) = stream.into_split();
+    pub async fn over(mut stream: ClientStream, ask: &Ask) -> Result<Self, String> {
         let mut line = serde_json::to_vec(ask).expect("an ask serializes to JSON");
         line.push(b'\n');
-        write
+        stream
             .write_all(&line)
             .await
             .map_err(|e| format!("cannot ask the dog: {e}"))?;
         Ok(Self {
-            answers: BufReader::new(read).lines(),
-            ask: write,
+            stream: BufReader::new(stream),
         })
     }
 
@@ -249,15 +245,19 @@ impl Visit {
     ///
     /// A message when the answer cannot be read or is not one.
     pub async fn answer(&mut self) -> Result<Option<Answer>, String> {
-        let line = self
-            .answers
-            .next_line()
+        let mut line = String::new();
+        let read = self
+            .stream
+            .read_line(&mut line)
             .await
             .map_err(|e| format!("cannot hear the dog: {e}"))?;
-        line.map(|line| {
-            serde_json::from_str(&line).map_err(|e| format!("the dog answered {line:?} ({e})"))
-        })
-        .transpose()
+        if read == 0 {
+            return Ok(None);
+        }
+        let line = line.trim_end();
+        serde_json::from_str(line)
+            .map(Some)
+            .map_err(|e| format!("the dog answered {line:?} ({e})"))
     }
 
     /// Lets processes started from now on inherit the connection, or not
@@ -267,15 +267,25 @@ impl Visit {
     ///
     /// # Errors
     ///
-    /// A message when the connection's flags cannot be changed.
+    /// A message when the connection's flags cannot be changed, and always on
+    /// Windows, where a pipe's handle is not passed to a command yet.
     pub fn inheritable(&self, inherit: bool) -> Result<(), String> {
-        let flags = if inherit {
-            FdFlags::empty()
-        } else {
-            FdFlags::CLOEXEC
-        };
-        fcntl_setfd(self.ask.as_ref(), flags)
-            .map_err(|e| format!("cannot pass the lease to the command: {e}"))
+        #[cfg(unix)]
+        {
+            use rustix::io::{FdFlags, fcntl_setfd};
+            let flags = if inherit {
+                FdFlags::empty()
+            } else {
+                FdFlags::CLOEXEC
+            };
+            fcntl_setfd(self.stream.get_ref(), flags)
+                .map_err(|e| format!("cannot pass the lease to the command: {e}"))
+        }
+        #[cfg(windows)]
+        {
+            let _ = inherit;
+            Err("cannot pass the lease to the command: Windows does not inherit a pipe yet".into())
+        }
     }
 
     /// Gives the lease back, whatever else still holds the connection
@@ -283,7 +293,7 @@ impl Visit {
     /// Shutting the socket ends it for every process holding a copy, such
     /// as one the command left running, so the dog hears the end at once.
     pub async fn give_back(mut self) {
-        let _ = self.ask.shutdown().await;
+        let _ = self.stream.get_mut().shutdown().await;
     }
 }
 
@@ -296,22 +306,23 @@ mod tests {
 
     #[test]
     fn a_worker_never_gets_shep_s_socket_or_a_relative_one() {
-        let shep = Path::new("/home/me/.shep");
-        let default = PathBuf::from("/home/me/.shep/kelpie/dog/lease.sock");
-        assert_eq!(checked(None, shep), (default.clone(), None));
-        for fine in ["/k/door.sock", "/home/me/.shep/kelpie/dog/other.sock"] {
-            let fine = PathBuf::from(fine);
-            assert_eq!(checked(Some(fine.clone()), shep), (fine, None));
+        let base = std::env::temp_dir();
+        let shep = base.join("me/.shep");
+        let default = shep.join("kelpie").join("dog").join("lease.sock");
+        assert_eq!(checked(None, &shep), (default.clone(), None));
+        for fine in [base.join("k/door.sock"), shep.join("kelpie/dog/other.sock")] {
+            assert_eq!(checked(Some(fine.clone()), &shep), (fine, None));
         }
-        let shep_socket = format!("/home/me/.shep/{SHEP_SOCKET}");
+        let shep_socket = shep.join(SHEP_SOCKET).display().to_string();
         for bad in [shep_socket.as_str(), "door.sock"] {
-            let (door, why) = checked(Some(PathBuf::from(bad)), shep);
+            let (door, why) = checked(Some(PathBuf::from(bad)), &shep);
             assert_eq!(door, default, "{bad}");
             assert!(why.unwrap().contains(bad));
         }
     }
 
     // The dog binds what the runner hands its workers, so both ask `checked`.
+    #[cfg(unix)]
     #[test]
     fn the_dog_and_the_runner_resolve_one_door() {
         let dir = tempfile::tempdir().unwrap();

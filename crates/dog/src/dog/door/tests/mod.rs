@@ -160,7 +160,7 @@ async fn door_child() {
             .await;
         }
         _ if job == "bind" => {
-            let _left = std::os::unix::net::UnixListener::bind(&socket).unwrap();
+            let _left = crate::ipc::blocking::Listener::bind(&socket).unwrap();
             std::process::exit(0);
         }
         _ => {
@@ -211,7 +211,7 @@ async fn a_holder_that_dies_gives_its_place_back() {
 #[tokio::test]
 async fn a_stray_line_from_a_descendant_does_not_give_the_lease_back() {
     let (_dir, socket, desk) = door(1);
-    let mut stream = UnixStream::connect(&socket).await.unwrap();
+    let mut stream = crate::ipc::connect(&socket).await.unwrap();
     let mut line = serde_json::to_vec(&ask("holder")).unwrap();
     line.push(b'\n');
     stream.write_all(&line).await.unwrap();
@@ -419,8 +419,8 @@ async fn a_queued_run_whose_dog_restarts_waits_for_the_next() {
 // holds the lease until the run ends. Each life takes the one ask it hears.
 async fn fake_dog(socket: PathBuf, restarts: u32) {
     for life in 0..=restarts {
-        let listener = open(&socket).unwrap();
-        let (stream, _) = listener.accept().await.unwrap();
+        let mut listener = open(&socket).unwrap();
+        let stream = listener.accept().await.unwrap();
         let mut stream = BufReader::new(stream);
         stream.read_line(&mut String::new()).await.unwrap();
         let mut said = vec![Answer::Queued(0)];
@@ -436,7 +436,8 @@ async fn fake_dog(socket: PathBuf, restarts: u32) {
             stream.read_line(&mut String::new()).await.unwrap();
         }
         drop(listener);
-        std::fs::remove_file(&socket).unwrap();
+        // No file stands for the door on Windows.
+        let _ = std::fs::remove_file(&socket);
     }
 }
 
@@ -502,7 +503,7 @@ fn the_production_grace_outlasts_a_runs_knock() {
 #[tokio::test]
 async fn a_line_that_is_not_an_ask_is_refused() {
     let (_dir, socket, desk) = door(1);
-    let mut stream = UnixStream::connect(&socket).await.unwrap();
+    let mut stream = crate::ipc::connect(&socket).await.unwrap();
     stream.write_all(b"take cargo-test\n").await.unwrap();
     let mut reply = String::new();
     let mut reader = BufReader::new(stream);
@@ -580,14 +581,21 @@ async fn an_e2e_ask_from_a_path_that_names_no_project_is_told_it_is_not_configur
     }
 }
 
-// The dead socket is bound in a child that has exited, so no process
-// this one forks can have inherited it.
 #[tokio::test]
-async fn a_live_door_is_never_taken_over_and_a_dead_one_is() {
-    let (dir, socket, _desk) = door(3);
+async fn a_live_door_is_never_taken_over() {
+    let (_dir, socket, _desk) = door(3);
     let err = open(&socket).unwrap_err();
     assert!(err.contains("another dog answers"), "{err}");
+}
 
+// The dead socket is bound in a child that has exited, so no process
+// this one forks can have inherited it. A pipe leaves nothing behind to take over.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_dead_door_is_taken_over_and_closed_to_others() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempfile::tempdir().unwrap();
     let stale = dir.path().join("stale.sock");
     let mut binder = child(&stale, "bind");
     assert_eq!(exited(&mut binder).await, Some(0));

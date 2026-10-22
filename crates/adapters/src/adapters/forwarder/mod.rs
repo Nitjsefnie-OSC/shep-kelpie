@@ -43,9 +43,6 @@ const WATCH_EVERY: Duration = Duration::from_millis(100);
 /// How many connections are served at once. pi's calls come one at a time.
 const MAX_CONNECTIONS: usize = 8;
 
-// macOS refuses a socket path of 104 bytes or more.
-const LONGEST_SOCKET: usize = 103;
-
 /// The headers of a chat call that go on to the model server
 const PASSED: [&str; 4] = ["content-type", "accept", "authorization", "user-agent"];
 
@@ -134,7 +131,7 @@ impl Forwarder {
         limits: Limits,
     ) -> Result<Self, String> {
         let socket = folder.join(format!("{}.sock", unguessable()?));
-        if socket.as_os_str().len() > LONGEST_SOCKET {
+        if crate::ipc::too_long(&socket) {
             return Err(format!(
                 "{} is too long a path for a socket",
                 socket.display()
