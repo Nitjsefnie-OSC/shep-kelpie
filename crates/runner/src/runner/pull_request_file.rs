@@ -625,6 +625,7 @@ body
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "a FIFO is a Unix file")]
     fn a_file_that_is_a_fifo_or_over_the_cap_is_refused_without_hanging() {
         let (rig, runner) = with_issue_7(true);
         let (build, mut runner) = (rig.build_7(), runner.lock().unwrap());

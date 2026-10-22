@@ -678,6 +678,7 @@ fn openssl_signs_what_its_public_key_verifies() {
 
 // openssl would wait forever on a FIFO's open, and doctor with it.
 #[test]
+#[cfg_attr(windows, ignore = "a FIFO is a Unix file")]
 fn a_key_that_is_no_regular_file_is_refused_before_it_is_signed_with() {
     let home = tempfile::tempdir().unwrap();
     let github = FakeGithub::new(FakeClock::at(0), "shep-pm");

@@ -97,7 +97,7 @@ fn a_plugin_hook_runs_and_kelpies_guard_still_blocks_what_it_blocks() {
     })
     .to_string();
     let note = rig.home.path().join("note");
-    let ran = Command::new("sh")
+    let ran = Command::new(crate::spawn::sh())
         .args(["-c", &plugins[0]])
         .env("CLAUDE_PLUGIN_ROOT", &plugin)
         .env("NOTE", &note)

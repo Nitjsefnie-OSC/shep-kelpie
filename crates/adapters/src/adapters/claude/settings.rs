@@ -609,7 +609,7 @@ mod tests {
         assert_eq!(hook["matcher"], "compact");
         let command = hook["hooks"][0]["command"].as_str().unwrap();
         for _ in 0..2 {
-            let out = std::process::Command::new("sh")
+            let out = std::process::Command::new(crate::spawn::sh())
                 .args(["-c", command])
                 .output()
                 .unwrap();

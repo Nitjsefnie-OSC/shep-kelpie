@@ -179,6 +179,7 @@ fn drain(pipe: Option<impl Read + Send + 'static>) -> Receiver<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test::Fake;
 
     #[test]
     fn this_build_names_its_kelpie_and_the_shep_it_is_made_with() {
@@ -190,8 +191,7 @@ mod tests {
     #[test]
     fn a_build_that_hangs_is_given_up_on() {
         let dir = tempfile::tempdir().unwrap();
-        let hang = dir.path().join("hang");
-        crate::test::write_script(&hang, "#!/bin/sh\nexec sleep 30\n");
+        let hang = crate::test::write_fake(dir.path(), "hang", &Fake::new().sleeps(30));
         let started = Instant::now();
         let err = Build::within(&hang, Duration::from_millis(200))
             .unwrap_err()
@@ -203,9 +203,8 @@ mod tests {
     #[test]
     fn a_build_that_exits_non_zero_is_refused_whatever_it_printed() {
         let dir = tempfile::tempdir().unwrap();
-        let sick = dir.path().join("sick");
         let said = r#"{"kelpie":"0.3.0","shep":"0.11.0"}"#;
-        crate::test::write_script(&sick, &format!("#!/bin/sh\necho '{said}'\nexit 3\n"));
+        let sick = crate::test::write_fake(dir.path(), "sick", &Fake::new().prints(said).exits(3));
         let err = Build::of(&sick).unwrap_err().to_string();
         assert!(err.contains("exited"), "{err}");
     }

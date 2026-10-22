@@ -558,15 +558,13 @@ mod tests {
     // A hook on the bare origin that refuses the worker branch's delete,
     // after the forge's own delete has taken the branch first when `forge_won`
     fn refuse_delete(rig: &Rig, forge_won: bool) {
-        use std::os::unix::fs::PermissionsExt;
         let hook = rig.home.path().join("origin.git/hooks/pre-receive");
         let script = if forge_won {
             "#!/bin/sh\ngit update-ref -d refs/heads/kelpie/7\nexit 1\n"
         } else {
             "#!/bin/sh\nexit 1\n"
         };
-        std::fs::write(&hook, script).unwrap();
-        std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+        crate::test::write_script(&hook, script);
     }
 
     #[test]

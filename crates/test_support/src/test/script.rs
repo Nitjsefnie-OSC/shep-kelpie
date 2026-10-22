@@ -13,6 +13,10 @@ use std::time::Duration;
 /// so this waits until the script has been executed once, with the probe
 /// variable set, before handing it over. The script's first line after the
 /// shebang exits on the probe, so the probe run does nothing.
+///
+/// Windows runs no shebang. There the script is written as it is, and runs only
+/// where Git for Windows' `sh` is the one starting it, as a hook does. A stand-in
+/// that a test starts itself is a [`write_fake`](super::write_fake).
 pub fn write_script(path: &Path, contents: &str) {
     use std::io::Write;
 
@@ -28,6 +32,9 @@ pub fn write_script(path: &Path, contents: &str) {
     )
     .unwrap();
     drop(file);
+    if cfg!(windows) {
+        return;
+    }
 
     let deadline = std::time::Instant::now() + Duration::from_secs(10);
     loop {
@@ -48,8 +55,6 @@ fn executable(options: &mut std::fs::OpenOptions) {
     options.mode(0o755);
 }
 
-// Windows has no mode bits, and no shebang either, so the probe run below fails
-// there. Placeholder: #241 tracks stand-in scripts for the Windows port.
 #[cfg(not(unix))]
 fn executable(_: &mut std::fs::OpenOptions) {}
 
@@ -57,13 +62,27 @@ fn executable(_: &mut std::fs::OpenOptions) {}
 ///
 /// Runs `mkfifo(1)`: `rustix` has no `mkfifoat` on macOS, and `nix` would put
 /// a second copy of itself in the tree beside the one `shep-core` builds.
+///
+/// # Panics
+///
+/// On Windows, which has no FIFO file. A test that needs one is
+/// `#[cfg_attr(windows, ignore = "...")]`.
+#[track_caller]
 pub fn make_fifo(path: &Path) {
-    let made = Command::new("mkfifo")
-        .args(["-m", "600"])
-        .arg(path)
-        .status()
-        .unwrap();
-    assert!(made.success(), "mkfifo {}: {made}", path.display());
+    #[cfg(windows)]
+    {
+        let _ = path;
+        panic!("Windows has no FIFO file");
+    }
+    #[cfg(not(windows))]
+    {
+        let made = Command::new("mkfifo")
+            .args(["-m", "600"])
+            .arg(path)
+            .status()
+            .unwrap();
+        assert!(made.success(), "mkfifo {}: {made}", path.display());
+    }
 }
 
 /// Shell text that waits for `marker` to exist
@@ -114,6 +133,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "the stub is a shell script")]
     fn a_waiting_stub_ends_once_its_marker_exists() {
         let dir = short_tempdir();
         let marker = dir.path().join("go");
@@ -129,6 +149,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "the stub is a shell script")]
     fn a_waiting_stub_ends_when_its_parent_is_gone() {
         let dir = short_tempdir();
         let marker = dir.path().join("go");
@@ -149,6 +170,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "the stub is a shell script")]
     fn a_waiting_stub_ends_when_its_bound_passes_with_no_marker() {
         let dir = short_tempdir();
         let marker = dir.path().join("go");

@@ -186,6 +186,8 @@ jobs:
             choco install llvm -y --no-progress
           }
           'C:\Program Files\LLVM\bin' | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
+      # The crates below `core` already compile for Windows, tests included: keep them so.
+      - run: cargo check --all-targets --locked -p shep-kelpie-process -p shep-kelpie-test-support -p shep-kelpie-facts -p shep-kelpie-panel -p shep-kelpie-worker-folder -p shep-kelpie-trim
       - id: check
         continue-on-error: true
         run: cargo check --workspace --all-targets --locked --keep-going
