@@ -61,6 +61,7 @@ fn a_rebase_ruling_is_stuck_on_a_rebase() {
         json!({ "kind": "rebase", "reason": "conflict in a.txt" }),
         Stuck::Rebase {
             why: "conflict in a.txt".into(),
+            review: None,
         },
     );
 }
@@ -181,6 +182,7 @@ fn a_ruling_saved_by_this_kelpie_loads_as_it_was_saved() {
     let state = loaded_with(saved);
     let reason = Stuck::Rebase {
         why: "conflict".into(),
+        review: None,
     };
     assert_eq!(ruling(&state).kind, RulingKind::from(reason));
 }

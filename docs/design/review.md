@@ -6,7 +6,7 @@ Review passes, bots, rulings. CI and the merge are in merge.md.
 
 - One pass when CI green on draft head: `agents.reviewers` in order, each once; no loop or judge (the gains come early). ADR 0006, ADR 0008, `runner/review/`
 - Any finding, nits included, goes to one fix turn; next reviewer reads the fix (skipped nits left open threads). Nit-only fix starts nothing new; bot nits on a head it read stay open. ADR 0007, #354
-- A round waits for CI on its head (red costs no read or window); `doctor` names CI that skips drafts. #423
+- A round waits for CI on its head (red costs no read or window); `doctor` names CI that skips drafts. A head behind `main` whose checks settle with none reported (a conflict runs no CI) is caught up from the wait and returns to it; one with CI is not rebased. #423, #1163
 - A contribution's head gets its held runs approved only after the security review, CI in `contributions[].ci`, and no reviewer reads it before `green` (ADR 0008); one pass of `contributions.reviewers` records findings, posting none. A released one's work item runs the full `agents.reviewers` pass (`contribution-release.md`). #622, #623, #634
 - Pass restarts only on a new head that needs it (merge `rework`, accepted foreign change, rework). ADR 0006
 - Merge ruling `no <note>` = fix turn back to the ruling, no new pass; restarts pass only after unread/open-thread warning. #354
@@ -17,7 +17,6 @@ Review passes, bots, rulings. CI and the merge are in merge.md.
 - Reviewer failing 3 times passed over; pass nobody read marks item unreviewed (API outage can't auto-merge). #314
 - Round reads only pushed head; dirty worktree gets one turn to push, then parks `unpushed` (CI and merge take `origin`'s head). #290
 - Merge trusts only heads a round read or kelpie sent to CI unread on purpose; others raise `unread_head`. #290
-- A maintainer's yes to a merge ruling vouches for its head, so kelpie's catch-up with `main` before the merge carries the vouching and raises no second ruling; a no or a rework vouches for nothing. #668
 - Fix turn counts only if it moves `origin` head, unless every finding is deferred or disputed with a reason (`disputed-findings.md`), or it got only nits; else parks `fix-not-pushed`, naming what was disputed and deferred. A dispute goes to the next reviewer, or one pull request comment when none follows; a second dispute of the same finding parks. #40, #354, #802
 - Clean reply is exactly `CLEAN`. #314
 - Local reviewers (`command`, `endpoint`), their lock and the rounds kept for replay: `local-review.md`. Kept 30 days by default; `local_rounds.keep = false` turns it off. #107, #145, #502, #849

@@ -586,6 +586,10 @@ pub enum Stuck {
     Rebase {
         /// Why
         why: String,
+        /// The review round that was waiting on the head's run when the
+        /// catch-up began, when one was; a yes goes back to it
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        review: Option<Review>,
     },
     /// CI failed again on a head whose red run the worker already had, or
     /// failed once the worker had the fix turns `ci.fix_attempts` allows. A

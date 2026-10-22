@@ -205,6 +205,10 @@ pub struct WorkItemStatus<'a> {
     /// unstarted
     #[serde(skip_serializing_if = "Option::is_none")]
     pub held_up: Option<super::turn::held_up::HeldUp>,
+    /// `"none"` while its wait on CI has had no check reported, beside the
+    /// wait's `since` in `phase`
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub checks: Option<&'static str>,
     /// What its build folder held when last measured, in bytes
     #[serde(skip_serializing_if = "Option::is_none")]
     pub build_bytes: Option<u64>,
@@ -279,6 +283,7 @@ impl<'a> WorkItemStatus<'a> {
             pinned: item.pinned,
             waiting: None,
             held_up: None,
+            checks: None,
             build_bytes: None,
             session: &item.session,
             turn: &item.turn,
