@@ -90,7 +90,8 @@ fn the_dev_server_runs_in_the_bumps_checkout_in_a_sandbox_and_stops_after_the_pr
     assert_eq!(run.cwd, worktree.join("web"));
     assert_eq!(run.port, 4421);
     assert_eq!(
-        run.program, "sh",
+        run.program,
+        crate::spawn::sh().to_string_lossy(),
         "the install comes first, then the server"
     );
     assert!(

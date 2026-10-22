@@ -69,13 +69,20 @@ fn executable(_: &mut std::fs::OpenOptions) {}
 /// `#[cfg_attr(windows, ignore = "...")]`.
 #[track_caller]
 pub fn make_fifo(path: &Path) {
-    assert!(!cfg!(windows), "Windows has no FIFO file");
-    let made = Command::new("mkfifo")
-        .args(["-m", "600"])
-        .arg(path)
-        .status()
-        .unwrap();
-    assert!(made.success(), "mkfifo {}: {made}", path.display());
+    #[cfg(windows)]
+    {
+        let _ = path;
+        panic!("Windows has no FIFO file");
+    }
+    #[cfg(not(windows))]
+    {
+        let made = Command::new("mkfifo")
+            .args(["-m", "600"])
+            .arg(path)
+            .status()
+            .unwrap();
+        assert!(made.success(), "mkfifo {}: {made}", path.display());
+    }
 }
 
 /// Shell text that waits for `marker` to exist
