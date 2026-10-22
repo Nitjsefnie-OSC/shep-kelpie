@@ -82,7 +82,10 @@ pub(super) fn before(run: &mut DevRun, worktree: &Path, build: &Path) {
     let Some((folder, manager)) = lockfile_folder(worktree, &run.cwd) else {
         return;
     };
-    let server = std::mem::replace(&mut run.program, "sh".to_owned());
+    let server = std::mem::replace(
+        &mut run.program,
+        crate::spawn::sh().to_string_lossy().into_owned(),
+    );
     let mut args = vec![
         "-c".to_owned(),
         SCRIPT.replace("INSTALL", manager.install),

@@ -40,7 +40,7 @@ fn the_packages_are_installed_from_the_lockfile_before_the_server_starts() {
 
     before(&mut run, dir.path(), Path::new("/build"));
 
-    assert_eq!(run.program, "sh");
+    assert_eq!(run.program, crate::spawn::sh().to_string_lossy());
     assert_eq!(run.args[0], "-c");
     assert!(
         run.args[1].contains("npm ci --ignore-scripts"),
