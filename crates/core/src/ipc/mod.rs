@@ -46,23 +46,30 @@ pub fn address(socket: &Path) -> PathBuf {
     }
     #[cfg(windows)]
     {
-        use sha1::{Digest, Sha1};
-        // Bounds the readable half: a pipe's name may be 256 characters.
-        const MAX_STEM: usize = 48;
-
-        let whole = socket.to_string_lossy();
-        let digest = Sha1::digest(whole.as_bytes());
-        let digest: String = digest[..8].iter().map(|b| format!("{b:02x}")).collect();
-        let stem: String = socket
-            .file_stem()
-            .map(|s| s.to_string_lossy())
-            .unwrap_or_default()
-            .chars()
-            .filter(char::is_ascii_alphanumeric)
-            .take(MAX_STEM)
-            .collect();
-        PathBuf::from(format!(r"\\.\pipe\kelpie-{stem}-{digest}"))
+        PathBuf::from(pipe_name(socket))
     }
+}
+
+// Windows reads a path without regard to case or to which slash divides it, so
+// every spelling of one path must name one pipe, or two dogs could both open it.
+#[cfg(any(windows, test))]
+fn pipe_name(socket: &Path) -> String {
+    use sha1::{Digest, Sha1};
+    // Bounds the readable half: a pipe's name may be 256 characters.
+    const MAX_STEM: usize = 48;
+
+    let whole = socket.to_string_lossy().to_lowercase().replace('/', r"\");
+    let digest = Sha1::digest(whole.as_bytes());
+    let digest: String = digest[..8].iter().map(|b| format!("{b:02x}")).collect();
+    let file = whole.rsplit('\\').next().unwrap_or_default();
+    let stem: String = file
+        .rsplit_once('.')
+        .map_or(file, |(stem, _)| stem)
+        .chars()
+        .filter(char::is_ascii_alphanumeric)
+        .take(MAX_STEM)
+        .collect();
+    format!(r"\\.\pipe\kelpie-{stem}-{digest}")
 }
 
 /// Connects to the endpoint `socket` names

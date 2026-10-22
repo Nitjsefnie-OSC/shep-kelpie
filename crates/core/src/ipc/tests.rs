@@ -17,20 +17,35 @@ fn a_socket_is_its_own_address_on_unix() {
     assert_eq!(address(socket), socket);
 }
 
-#[cfg(windows)]
 #[test]
 fn a_pipe_is_named_for_its_socket_path_and_no_other() {
-    let door = address(Path::new(r"C:\shep\kelpie\dog\lease.sock"));
-    let name = door.to_string_lossy().into_owned();
-    assert!(name.starts_with(r"\\.\pipe\kelpie-lease-"), "{name}");
-    assert_eq!(door, address(Path::new(r"C:\shep\kelpie\dog\lease.sock")));
-    assert_ne!(door, address(Path::new(r"C:\other\kelpie\dog\lease.sock")));
-    let long = address(Path::new(&format!(
+    let door = pipe_name(Path::new(r"C:\shep\kelpie\dog\lease.sock"));
+    assert!(door.starts_with(r"\\.\pipe\kelpie-lease-"), "{door}");
+    assert_eq!(door, pipe_name(Path::new(r"C:\shep\kelpie\dog\lease.sock")));
+    assert_ne!(
+        door,
+        pipe_name(Path::new(r"C:\other\kelpie\dog\lease.sock"))
+    );
+    let long = pipe_name(Path::new(&format!(
         r"C:\{}\{}.sock",
         "d".repeat(300),
         "f".repeat(300)
     )));
-    assert!(long.as_os_str().len() < 256, "{long:?}");
+    assert!(long.len() < 256, "{long}");
+}
+
+#[test]
+fn one_windows_path_spelled_another_way_is_the_same_pipe() {
+    let door = pipe_name(Path::new(
+        r"C:\Users\me\.kelpie\shep\kelpie\dog\lease.sock",
+    ));
+    for spelling in [
+        r"c:\users\me\.kelpie\shep\kelpie\dog\lease.sock",
+        "C:/Users/me/.kelpie/shep/kelpie/dog/lease.sock",
+        r"C:\USERS\me/.kelpie\SHEP\kelpie\dog/Lease.sock",
+    ] {
+        assert_eq!(door, pipe_name(Path::new(spelling)), "{spelling}");
+    }
 }
 
 #[tokio::test]
