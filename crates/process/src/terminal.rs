@@ -12,7 +12,6 @@ use std::path::PathBuf;
 use std::process::{Command, ExitStatus};
 
 use serde::{Deserialize, Serialize};
-use tokio::signal::unix::{SignalKind, signal};
 
 /// A command the runner hands the maintainer's terminal to run
 ///
@@ -85,18 +84,17 @@ impl Foreground {
 ///
 /// `started` is told the session's pid once it runs. An interrupt from the
 /// terminal reaches the session, which answers it as it chooses, and does
-/// not end kelpie. A SIGTERM or SIGHUP to kelpie is passed on to the
-/// session, and kelpie still waits for it to end.
+/// not end kelpie. On Unix a SIGTERM or SIGHUP to kelpie is passed on to the
+/// session, and kelpie still waits for it to end. On Windows Ctrl+C and
+/// Ctrl+Break reach the session through the console, and kelpie holds both
+/// off and waits.
 ///
 /// # Errors
 ///
 /// A message when the command cannot start, or kelpie cannot take the
 /// signals it holds off or passes on.
 pub async fn run(command: Command, started: impl AsyncFnOnce(u32)) -> Result<ExitStatus, String> {
-    let listen = |kind| signal(kind).map_err(|e| format!("cannot take signals: {e}"));
-    let mut interrupts = listen(SignalKind::interrupt())?;
-    let mut ends = listen(SignalKind::terminate())?;
-    let mut hangups = listen(SignalKind::hangup())?;
+    let mut signals = Signals::take()?;
     let program = command.get_program().display().to_string();
     let mut child = tokio::process::Command::from(command)
         .spawn()
@@ -105,31 +103,100 @@ pub async fn run(command: Command, started: impl AsyncFnOnce(u32)) -> Result<Exi
     if let Some(pid) = pid {
         started(pid).await;
     }
-    loop {
-        tokio::select! {
-            status = child.wait() => {
-                return status.map_err(|e| format!("cannot wait for {program}: {e}"));
+    tokio::select! {
+        status = child.wait() => {
+            status.map_err(|e| format!("cannot wait for {program}: {e}"))
+        }
+        never = signals.answer(pid) => never,
+    }
+}
+
+#[cfg(unix)]
+use unix::Signals;
+#[cfg(windows)]
+use windows::Signals;
+
+#[cfg(unix)]
+mod unix {
+    use tokio::signal::unix::{Signal, SignalKind, signal};
+
+    pub(super) struct Signals {
+        interrupts: Signal,
+        ends: Signal,
+        hangups: Signal,
+    }
+
+    impl Signals {
+        pub(super) fn take() -> Result<Self, String> {
+            let listen = |kind| signal(kind).map_err(|e| format!("cannot take signals: {e}"));
+            Ok(Self {
+                interrupts: listen(SignalKind::interrupt())?,
+                ends: listen(SignalKind::terminate())?,
+                hangups: listen(SignalKind::hangup())?,
+            })
+        }
+
+        // Holds off interrupts and passes the others to the session, for as long as
+        // it is polled.
+        pub(super) async fn answer(&mut self, pid: Option<u32>) -> ! {
+            loop {
+                tokio::select! {
+                    _ = self.interrupts.recv() => {}
+                    _ = self.ends.recv() => pass_on(pid, "TERM"),
+                    _ = self.hangups.recv() => pass_on(pid, "HUP"),
+                }
             }
-            _ = interrupts.recv() => {}
-            _ = ends.recv() => pass_on(pid, "TERM"),
-            _ = hangups.recv() => pass_on(pid, "HUP"),
+        }
+    }
+
+    // Sends the session `signal`, which it answers before kelpie goes on.
+    fn pass_on(pid: Option<u32>, signal: &str) {
+        if let Some(pid) = pid {
+            let _ = crate::spawn::command("kill")
+                .arg(format!("-{signal}"))
+                .arg(pid.to_string())
+                .status();
         }
     }
 }
 
-// Sends the session `signal`, which it answers before kelpie goes on.
-fn pass_on(pid: Option<u32>, signal: &str) {
-    if let Some(pid) = pid {
-        let _ = crate::spawn::command("kill")
-            .arg(format!("-{signal}"))
-            .arg(pid.to_string())
-            .status();
+#[cfg(windows)]
+mod windows {
+    use tokio::signal::windows::{CtrlBreak, CtrlC, ctrl_break, ctrl_c};
+
+    pub(super) struct Signals {
+        ctrl_c: CtrlC,
+        ctrl_break: CtrlBreak,
+    }
+
+    impl Signals {
+        pub(super) fn take() -> Result<Self, String> {
+            let fail = |e| format!("cannot take signals: {e}");
+            Ok(Self {
+                ctrl_c: ctrl_c().map_err(fail)?,
+                ctrl_break: ctrl_break().map_err(fail)?,
+            })
+        }
+
+        // Holds both off for as long as it is polled. The session shares the console,
+        // so it gets each too, and there is nothing to pass on.
+        // Placeholder: nothing yet passes a close, logoff or shutdown event on to
+        // the session; #241 tracks the rest of the Windows port.
+        pub(super) async fn answer(&mut self, _pid: Option<u32>) -> ! {
+            loop {
+                tokio::select! {
+                    _ = self.ctrl_c.recv() => {}
+                    _ = self.ctrl_break.recv() => {}
+                }
+            }
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
     use shep_kelpie_test_support::CALL_PATIENCE;
 
     #[test]
@@ -179,6 +246,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn a_session_s_exit_is_its_status_and_its_pid_is_told() {
         let mut command = Command::new("sh");
@@ -193,8 +261,10 @@ mod tests {
         assert!(err.starts_with("cannot run /no/such/claude: "), "{err}");
     }
 
+    #[cfg(unix)]
     const SESSION: &str = "KELPIE_TEST_SESSION";
 
+    #[cfg(unix)]
     #[test]
     #[ignore = "a child process of a_sigterm_to_kelpie_reaches_the_session_it_then_waits_for"]
     fn session_child() {
@@ -209,6 +279,7 @@ mod tests {
         println!("ended {:?}", status.unwrap().code());
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_sigterm_to_kelpie_reaches_the_session_it_then_waits_for() {
         use std::io::{BufRead, BufReader};
