@@ -313,7 +313,7 @@ pub(super) fn eight_reaches_ci(rig: &Rig, runner: &Mutex<Runner>) -> String {
     for _ in 0..2 {
         assert_eq!(issue_of(step(runner).unwrap()), ticket(8), "its review");
     }
-    rig.forge.set_checks(&eight, Checks::Pending);
+    rig.forge.set_checks(&eight, Checks::Pending(Vec::new()));
     eight
 }
 

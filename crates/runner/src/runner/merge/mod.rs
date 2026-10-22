@@ -180,8 +180,8 @@ impl Runner {
         let green = match pr.checks {
             _ if !ci => true,
             Checks::Passed | Checks::Skipped => true,
-            Checks::None | Checks::Pending if readied.is_some() => false,
-            Checks::None | Checks::Pending | Checks::Failed(_) => {
+            Checks::None | Checks::Pending(_) if readied.is_some() => false,
+            Checks::None | Checks::Pending(_) | Checks::Failed(_) => {
                 let reason = format!("CI on #{number} is no longer green");
                 return self.withdraw(issue, number, auto, reason);
             }
@@ -626,7 +626,7 @@ mod tests {
     #[test]
     fn a_yes_after_ci_stopped_being_green_is_withdrawn() {
         let (rig, runner, head) = Rig::parked("chelone");
-        rig.forge.set_checks(&head, Checks::Pending);
+        rig.forge.set_checks(&head, Checks::Pending(Vec::new()));
         rig.ask(&runner, "rule", Some("71 yes"));
         assert!(matches!(
             step(&runner).unwrap(),
@@ -687,7 +687,7 @@ mod tests {
         let (rig, runner, head) = Rig::parked("xilriws");
         rig.ask(&runner, "rule", Some("71 yes"));
         assert_eq!(step(&runner).unwrap(), marked_ready());
-        rig.forge.set_checks(&head, Checks::Pending);
+        rig.forge.set_checks(&head, Checks::Pending(Vec::new()));
         rig.clock.advance(3 * CHECKS_SETTLE);
         assert_eq!(step(&runner).unwrap(), None);
         assert_eq!(rig.forge.merges(), []);

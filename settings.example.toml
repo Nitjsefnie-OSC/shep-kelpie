@@ -62,6 +62,12 @@ block = true
 # kelpie raises a ruling. 0 raises it on the first red run, and -1 sets no
 # cap. A head red twice with nothing pushed raises it whatever this is.
 fix_attempts = -1
+# How many minutes a check may sit queued before kelpie reruns its workflow
+# run, counted from when it began waiting on the head. GitHub sometimes leaves
+# one job of a finished run queued for good. A rerun gets one more of these,
+# and a check still queued after that raises a `check-queued` ruling. A check
+# that started is never rerun for being slow.
+queued_minutes = 60
 # A command that runs one failing test a reviewer wrote, which a reviewer on
 # Claude Code is then asked to leave for each finding it can. It must hold
 # `{test}`, the file's path in the repo, or `{name}`, the file's name without

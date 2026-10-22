@@ -294,7 +294,7 @@ fn a_withdrawn_merge_ruling_waits_for_a_slot() {
     for _ in 0..3 {
         assert_eq!(issue_of(step(&runner).unwrap()), ticket(8));
     }
-    rig.forge.set_checks(&eight, Checks::Pending);
+    rig.forge.set_checks(&eight, Checks::Pending(Vec::new()));
     assert!(matches!(
        step(&runner).unwrap(),
        Some(StepReport::Summoned { issue, .. }) if issue == ticket(8)

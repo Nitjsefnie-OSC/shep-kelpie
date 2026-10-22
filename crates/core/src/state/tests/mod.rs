@@ -16,7 +16,7 @@ fn store_in(dir: &Path) -> StateStore {
 // deliberate edit here and shows in review. Every other test reads `VERSION`.
 #[test]
 fn the_state_file_version_is_pinned() {
-    assert_eq!(VERSION, 79);
+    assert_eq!(VERSION, 80);
 }
 
 // A version 73 file has no `ceiling_resumes` on a work item: none resumed. A
@@ -289,6 +289,16 @@ fn the_file_format_is_pinned() {
             why: "its call failed".into(),
         }),
     ));
+    state.rulings.push(ruling(
+        11,
+        RulingKind::from(Stuck::CheckQueued {
+            head: "c0ffee".into(),
+            checks: vec!["windows-gnu".into()],
+            run: 39_697_676_985,
+            url: "https://github.com/shep-pm/shep/actions/runs/39697676985".into(),
+            review: None,
+        }),
+    ));
     state.notices = vec![Notice::Merged(MergeNotice {
         issue: ticket(22),
         pull_request: 30,
@@ -387,6 +397,14 @@ fn the_file_format_is_pinned() {
                     "kind": "stuck",
                     "reason": "unlabelled",
                     "why": "its call failed",
+                })),
+                pinned(11, serde_json::json!({
+                    "kind": "stuck",
+                    "reason": "check-queued",
+                    "head": "c0ffee",
+                    "checks": ["windows-gnu"],
+                    "run": 39_697_676_985_u64,
+                    "url": "https://github.com/shep-pm/shep/actions/runs/39697676985",
                 })),
             ],
             "finished": ["22", "30"],

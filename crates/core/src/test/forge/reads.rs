@@ -125,7 +125,7 @@ impl FakeForge {
         Ok(PullRequest {
             state: pr.state,
             draft: pr.draft || self.lagging_drafts.lock().unwrap().contains(&number),
-            checks: checks.unwrap_or(Checks::Pending),
+            checks: checks.unwrap_or(Checks::Pending(Vec::new())),
             head,
             labels: self.coderabbit.labels(number),
         })

@@ -86,10 +86,14 @@ impl Runner {
             Checks::Failed(checks) => checks.clone(),
             _ => Vec::new(),
         };
+        let queued = match &pr.checks {
+            Checks::Pending(queued) => queued.clone(),
+            _ => Vec::new(),
+        };
         let unreported = pr.checks == Checks::None;
         let verdict = match pr.checks {
             _ if !settled(since, now) => None,
-            Checks::None | Checks::Pending => None,
+            Checks::None | Checks::Pending(_) => None,
             // Nothing ran on a draft whose jobs all skip it, and the real
             // run starts only once it is marked ready, which a bot's round
             // does after this wait: so a draft waits, and doctor says why.
@@ -112,6 +116,9 @@ impl Runner {
             reading: None,
             ..review.clone()
         };
+        if let Some(begin) = self.check_queued(number, &head, since, &queued, Some(&back))? {
+            return Ok(Some(begin));
+        }
         if unreported && settled(since, now) {
             // Only a head with no run at all is caught up here: one that does
             // get CI is not rebased mid-review.

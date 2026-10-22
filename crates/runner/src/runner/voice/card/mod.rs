@@ -509,6 +509,11 @@ fn stuck(reason: &Stuck) -> (&'static str, &'static str, Option<&'static str>) {
             "Kelpie looks at CI again",
             Some(SENDS_BACK),
         ),
+        Stuck::CheckQueued { .. } => (
+            "A check is stuck queued. Rerun its run?",
+            "Reruns the run once more and kelpie waits again",
+            Some("Leaves the item waiting for you to act on the forge"),
+        ),
         Stuck::MergeRefused { .. } => (
             "Merging was refused twice. Try again?",
             "Kelpie looks again and merges once every gate passes",
