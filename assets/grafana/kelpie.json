@@ -53,7 +53,7 @@
       "id": 1,
       "type": "timeseries",
       "title": "Spend by role",
-      "description": "US dollars an hour, from calls whose harness reported a cost.",
+      "description": "US dollars an hour, from calls whose harness reported a cost. A call's cost lands when the call ends, so the curve trails a long turn by up to an hour. The line, on the right axis, shows open work items, averaged over the same hour.",
       "gridPos": {
         "h": 8,
         "w": 12,
@@ -73,6 +73,15 @@
           },
           "expr": "sum by (role) (rate(kelpie_cost_usd_total{sheep=~\"$sheep\"}[1h])) * 3600",
           "legendFormat": "{{role}}"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "avg_over_time(sum(kelpie_work_items{sheep=~\"$sheep\", phase!=\"done\"})[1h:])",
+          "legendFormat": "open work items"
         }
       ],
       "fieldConfig": {
@@ -85,7 +94,34 @@
             "fillOpacity": 30
           }
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "B"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "custom.stacking",
+                "value": {
+                  "mode": "none"
+                }
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              }
+            ]
+          }
+        ]
       },
       "options": {}
     },
