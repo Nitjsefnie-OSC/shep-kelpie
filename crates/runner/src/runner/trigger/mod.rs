@@ -208,6 +208,10 @@ pub struct WorkItemStatus<'a> {
     /// Its step that failed again and again, from the second failure in a row
     #[serde(skip_serializing_if = "Option::is_none")]
     pub failing: Option<super::looks::Failing>,
+    /// `"none"` while its wait on CI has had no check reported, beside the
+    /// wait's `since` in `phase`
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub checks: Option<&'static str>,
     /// What its build folder held when last measured, in bytes
     #[serde(skip_serializing_if = "Option::is_none")]
     pub build_bytes: Option<u64>,
@@ -283,6 +287,7 @@ impl<'a> WorkItemStatus<'a> {
             waiting: None,
             held_up: None,
             failing: None,
+            checks: None,
             build_bytes: None,
             session: &item.session,
             turn: &item.turn,

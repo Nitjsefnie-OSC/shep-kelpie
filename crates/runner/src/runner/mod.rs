@@ -76,6 +76,7 @@ mod handover_tests;
 mod hooks_tests;
 mod in_flight;
 mod instructions;
+pub use instructions::check_instructions;
 mod kept;
 #[cfg(test)]
 mod kept_tests;
@@ -435,6 +436,8 @@ pub struct Runner {
     unreachable: turn::unreachable::Unreachable,
     // Why each work item's due turn did not start on its last step, in memory only
     held_up: turn::held_up::HeldUps,
+    // The work items whose head's checks, as last listed, were none, in memory only
+    no_checks: std::collections::BTreeSet<TicketId>,
     // The build folders and the disk as last read while a turn ran, in memory only
     builds: builds::BuildWatch,
     // The ids of comments kelpie posted as the login `gh` acts as since the
@@ -685,6 +688,7 @@ impl Runner {
             lease_waits: review_bot::lease_wait::LeaseWaits::default(),
             unreachable: turn::unreachable::Unreachable::default(),
             held_up: turn::held_up::HeldUps::default(),
+            no_checks: std::collections::BTreeSet::new(),
             builds: builds::BuildWatch::default(),
             posted: std::cell::RefCell::default(),
         };
@@ -805,6 +809,7 @@ impl Runner {
             waiting: self.model_wait(ticket),
             held_up: self.held_up.of(ticket),
             failing: self.looks.failing(ticket),
+            checks: self.no_checks_of(item),
             build_bytes: self.builds.folder_bytes(ticket),
             ..WorkItemStatus::new(item, self.settings.budget.per_item_usd, split)
         }
@@ -979,15 +984,6 @@ pub fn check_checkout(settings: &Settings) -> Result<ForgeSlug, SettingsError> {
                  or SSH: set it to the repo as `owner/name`"
             .to_owned(),
     })
-}
-
-/// Whether `worker.instructions_file`, when set, can be read, which the runner needs to open
-///
-/// # Errors
-///
-/// [`SettingsError::Invalid`] naming `worker.instructions_file`.
-pub fn check_instructions(settings: &Settings) -> Result<(), SettingsError> {
-    instructions::read_extra(settings).map(drop)
 }
 
 // What a ruling's question names: when it is raised.

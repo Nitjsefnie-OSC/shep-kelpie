@@ -233,6 +233,7 @@ fn the_file_format_is_pinned() {
             2,
             RulingKind::from(Stuck::Rebase {
                 why: "conflicts".into(),
+                review: None,
             }),
         ),
         ruling(

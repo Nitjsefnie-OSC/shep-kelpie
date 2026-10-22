@@ -15,16 +15,13 @@ use std::time::Duration;
 /// shebang exits on the probe, so the probe run does nothing.
 pub fn write_script(path: &Path, contents: &str) {
     use std::io::Write;
-    use std::os::unix::fs::OpenOptionsExt;
 
     let (shebang, rest) = contents.split_once('\n').expect("a script has a shebang");
     assert!(shebang.starts_with("#!"), "{shebang:?}");
-    let mut file = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o755)
-        .open(path)
-        .unwrap();
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    executable(&mut options);
+    let mut file = options.open(path).unwrap();
     write!(
         file,
         "{shebang}\n[ -n \"$KELPIE_TEST_PROBE\" ] && exit 0\n{rest}"
@@ -43,6 +40,18 @@ pub fn write_script(path: &Path, contents: &str) {
         }
     }
 }
+
+#[cfg(unix)]
+fn executable(options: &mut std::fs::OpenOptions) {
+    use std::os::unix::fs::OpenOptionsExt;
+
+    options.mode(0o755);
+}
+
+// Windows has no mode bits, and no shebang either, so the probe run below fails
+// there. Placeholder: #241 tracks stand-in scripts for the Windows port.
+#[cfg(not(unix))]
+fn executable(_: &mut std::fs::OpenOptions) {}
 
 /// Makes an owner-only FIFO at `path`
 ///

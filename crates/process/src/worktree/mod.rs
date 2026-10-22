@@ -357,23 +357,36 @@ fn delete_on_remote(repo: &Path, remote: &Remote, branch: &str) -> Result<(), Wo
 /// touched. What cannot be read or changed is skipped: the removal that
 /// follows reports it.
 fn make_writable(root: &Path) {
-    use std::os::unix::fs::PermissionsExt;
-
     let Ok(meta) = std::fs::symlink_metadata(root) else {
         return;
     };
     if !meta.is_dir() {
         return;
     }
-    let mut mode = meta.permissions();
-    mode.set_mode(mode.mode() | 0o700);
-    let _ = std::fs::set_permissions(root, mode);
+    let _ = std::fs::set_permissions(root, owner_writes(meta.permissions()));
     let Ok(entries) = std::fs::read_dir(root) else {
         return;
     };
     for entry in entries.flatten() {
         make_writable(&entry.path());
     }
+}
+
+#[cfg(unix)]
+fn owner_writes(mut permissions: std::fs::Permissions) -> std::fs::Permissions {
+    use std::os::unix::fs::PermissionsExt;
+
+    permissions.set_mode(permissions.mode() | 0o700);
+    permissions
+}
+
+// Windows has no mode bits, only a read-only flag.
+#[cfg(not(unix))]
+fn owner_writes(mut permissions: std::fs::Permissions) -> std::fs::Permissions {
+    // The lint warns that this makes a Unix file world-writable.
+    #[allow(clippy::permissions_set_readonly_false)]
+    permissions.set_readonly(false);
+    permissions
 }
 
 /// Makes `view` a detached worktree of `repo` at `origin/main`, just
@@ -859,15 +872,18 @@ where
 
 #[cfg(test)]
 mod tests {
+    #[cfg(unix)]
     use std::os::unix::fs::{PermissionsExt, symlink};
     use std::path::Path;
 
     use super::{git, has_ref, remove, status_names};
 
+    #[cfg(unix)]
     fn mode_of(path: &Path) -> u32 {
         std::fs::metadata(path).unwrap().permissions().mode() & 0o777
     }
 
+    #[cfg(unix)]
     fn set_mode(path: &Path, mode: u32) {
         std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).unwrap();
     }
@@ -878,6 +894,7 @@ mod tests {
         remove(repo, &repo.join("none"), "kelpie/7", build, None)
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_build_folder_holding_read_only_folders_is_removed() {
         let dir = tempfile::tempdir().unwrap();
@@ -899,6 +916,7 @@ mod tests {
         remove_build(dir.path(), &dir.path().join("build")).unwrap();
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_link_in_the_build_folder_leaves_what_it_points_at_alone() {
         let dir = tempfile::tempdir().unwrap();

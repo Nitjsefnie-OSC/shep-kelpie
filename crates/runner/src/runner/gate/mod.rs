@@ -21,7 +21,7 @@ use crate::ports::{Checks, PullRequestState, Timestamp};
 use crate::settings::Merging;
 use crate::skills::Step;
 use crate::state::{RulingKind, StateError, Stuck};
-use crate::work_item::{Phase, Review, Turn, foreign_change};
+use crate::work_item::{Phase, Review, Turn, WorkItem, foreign_change};
 use crate::worktree::{self, Base};
 
 // GitHub registers the checks a push or a ready pull request starts within
@@ -71,6 +71,7 @@ impl Runner {
             self.update(|item| item.phase = Phase::Ci { head, since: now })?;
             now
         };
+        self.note_checks(&pr.checks);
         let base = match self.base_of(&pr.head) {
             Ok(Base::Lagging) => return Ok(Begin::Idle),
             Ok(base) => base,
@@ -107,7 +108,7 @@ impl Runner {
             self.update(|item| item.known.head = head)?;
         }
         if base == Base::Behind {
-            return self.rebase(number, &pr.head);
+            return self.rebase(number, &pr.head, None);
         }
         if !self.settings.ci.block {
             return self.passed(number, pr.head);
@@ -321,6 +322,25 @@ impl Runner {
             head,
             checks,
         }))
+    }
+
+    /// Keeps whether the listing of the current work item's head reported any
+    /// check, for `status`, in memory only
+    pub(super) fn note_checks(&mut self, checks: &Checks) {
+        let Some(ticket) = self.current().map(|item| item.issue) else {
+            return;
+        };
+        if *checks == Checks::None {
+            self.no_checks.insert(ticket);
+        } else {
+            self.no_checks.remove(&ticket);
+        }
+    }
+
+    /// `"none"` while `item` waits on CI and its last listing reported no check
+    pub(super) fn no_checks_of(&self, item: &WorkItem) -> Option<&'static str> {
+        let waiting = matches!(item.phase, Phase::Ci { .. } | Phase::Review(_));
+        (waiting && self.no_checks.contains(&item.issue)).then_some("none")
     }
 
     /// Where `head` stands against `origin`, or why git could not say

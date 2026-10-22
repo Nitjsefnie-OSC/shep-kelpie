@@ -35,6 +35,7 @@ pub(super) fn clear(git_dir: &Path, now: SystemTime) {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(unix)]
     use std::os::unix::fs::symlink;
 
     use super::*;
@@ -64,6 +65,7 @@ mod tests {
     }
 
     // The worker writes the git dir's lock name, and kelpie writes as the maintainer.
+    #[cfg(unix)]
     #[test]
     fn a_link_in_place_of_the_lock_leaves_what_it_points_to_alone() {
         let (git_dir, theirs) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());

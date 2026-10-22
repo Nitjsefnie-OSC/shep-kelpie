@@ -85,7 +85,7 @@ pub(in crate::runner) fn question(
             );
         }
         RulingKind::Stuck(reason) => match reason {
-            Stuck::Rebase { why } => format!(
+            Stuck::Rebase { why, .. } => format!(
                 "Kelpie cannot rebase {about} onto main: {why}. \
                  Once the branch is fixed, {yes} has kelpie look again"
             ),
