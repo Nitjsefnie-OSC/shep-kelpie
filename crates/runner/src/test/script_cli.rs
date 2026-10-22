@@ -33,7 +33,7 @@ impl Cli for ScriptCli {
     }
 
     fn command(&self, call: &AgentCall, _: &(), _: &Launch<'_>) -> Result<Command, AgentError> {
-        let mut command = Command::new("sh");
+        let mut command = Command::new(crate::spawn::sh());
         command
             .args(["-c", self.0, "sh", &call.prompt])
             .current_dir(&call.cwd);

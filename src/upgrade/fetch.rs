@@ -278,6 +278,7 @@ pub fn download_release(work: &Path, version: &str) -> Result<PathBuf, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test::{Fake, write_fake};
 
     #[test]
     fn a_ref_that_looks_like_an_option_is_refused() {
@@ -299,8 +300,18 @@ mod tests {
 
     #[test]
     fn a_command_that_ends_in_time_returns_its_exit_status() {
-        run(&mut Command::new("true"), Duration::from_secs(60)).unwrap();
-        let err = run(&mut Command::new("false"), Duration::from_secs(60)).unwrap_err();
+        let dir = tempfile::tempdir().unwrap();
+        let program = |name, code| write_fake(dir.path(), name, &Fake::new().exits(code));
+        run(
+            &mut Command::new(program("true", 0)),
+            Duration::from_secs(60),
+        )
+        .unwrap();
+        let err = run(
+            &mut Command::new(program("false", 1)),
+            Duration::from_secs(60),
+        )
+        .unwrap_err();
         assert!(err.contains("false") && err.contains("exited"), "{err}");
     }
 
@@ -314,7 +325,7 @@ mod tests {
                 let _ = std::fs::remove_file(&pid_file);
                 let started = Instant::now();
                 let err = run(
-                    Command::new("sh")
+                    Command::new(crate::spawn::sh())
                         .args(["-c", "sleep 300 & echo $! > \"$0\"; wait"])
                         .arg(&pid_file),
                     Duration::from_millis(300),

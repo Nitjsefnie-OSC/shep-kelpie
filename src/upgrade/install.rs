@@ -296,6 +296,8 @@ fn is_mach_o(path: &Path) -> bool {
 mod tests {
     use std::process::Command;
 
+    use crate::test::Fake;
+
     use std::os::unix::fs::MetadataExt;
 
     use super::*;
@@ -317,9 +319,12 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let layout = layout(dir.path());
         let bin = dir.path().join("bin");
-        let mut dead = Command::new("true").spawn().unwrap();
+        let program = |name, fake: Fake| crate::test::write_fake(dir.path(), name, &fake);
+        let mut dead = Command::new(program("ends", Fake::new())).spawn().unwrap();
         dead.wait().unwrap();
-        let mut running = Command::new("sleep").arg("30").spawn().unwrap();
+        let mut running = Command::new(program("waits", Fake::new().sleeps(30)))
+            .spawn()
+            .unwrap();
         let stale = file(&bin, &format!(".shep-kelpie.staged.{}", dead.id()), b"half");
         let odd = file(&bin, ".shep-kelpie.staged.junk", b"half");
         let live = file(

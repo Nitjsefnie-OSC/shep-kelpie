@@ -26,7 +26,7 @@ fn shell_is_off(argv: &[String]) -> bool {
 // The hook refuses as Codex reads a refusal: exit 2, the reason on stderr.
 #[track_caller]
 fn refuses_every_patch(command: &str) {
-    let ran = std::process::Command::new("sh")
+    let ran = std::process::Command::new(crate::spawn::sh())
         .args(["-c", command])
         .output()
         .unwrap();
