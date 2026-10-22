@@ -94,8 +94,8 @@ impl Tree {
 
     /// The tree a process group holds, led by the process `pgid`
     ///
-    /// A group another image of the runner started is reached this way.
-    #[cfg(unix)]
+    /// A group another image of the runner started is reached this way. On
+    /// Windows, where a handover is not made, it holds nothing.
     #[must_use]
     pub fn from_group(pgid: u32) -> Self {
         Self(imp::Tree::from_group(pgid))
@@ -124,7 +124,9 @@ impl Tree {
     }
 }
 
-/// Whether a process with this pid exists
+/// Whether a process with this pid exists and is the caller's to signal
+///
+/// One owned by another user counts as gone, as `kill -0` always judged it.
 #[must_use]
 pub fn alive(pid: u32) -> bool {
     imp::alive(pid)

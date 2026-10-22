@@ -96,7 +96,7 @@ impl Tree {
 }
 
 pub(super) fn alive(pid: u32) -> bool {
-    pid_of(pid).is_some_and(|pid| matches!(test_kill_process(pid), Ok(()) | Err(Errno::PERM)))
+    pid_of(pid).is_some_and(|pid| test_kill_process(pid).is_ok())
 }
 
 fn pid_of(pid: u32) -> Option<Pid> {

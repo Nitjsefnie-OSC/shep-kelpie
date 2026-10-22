@@ -23,10 +23,6 @@ use super::{Reach, Signal};
 // What a process ended with the job gets, as `Child::kill` gives its own
 const ENDED: u32 = 1;
 
-// Windows error 5, which `OpenProcess` gives for a process that exists and
-// is not the caller's to open
-const ACCESS_DENIED: i32 = 5;
-
 // `GetExitCodeProcess` answers this for a process that has not ended
 const STILL_ACTIVE: u32 = 259;
 
@@ -38,9 +34,10 @@ pub(super) fn lead_tokio(command: &mut tokio::process::Command) -> &mut tokio::p
     command
 }
 
-// A job whose last handle closing ends every process in it
+// A job whose last handle closing ends every process in it. None for a group
+// another image started, which Windows never hands over.
 #[derive(Debug)]
-pub(super) struct Tree(OwnedHandle);
+pub(super) struct Tree(Option<OwnedHandle>);
 
 impl Tree {
     pub(super) fn of(child: &std::process::Child) -> io::Result<Self> {
@@ -74,7 +71,11 @@ impl Tree {
         // SAFETY: both handles are live. The process handle is borrowed from a
         // child the caller holds, and the call does not keep it.
         check(unsafe { AssignProcessToJobObject(job.as_raw_handle(), process) })?;
-        Ok(Self(job))
+        Ok(Self(Some(job)))
+    }
+
+    pub(super) fn from_group(_pgid: u32) -> Self {
+        Self(None)
     }
 
     pub(super) fn alone(self) -> Self {
@@ -85,23 +86,29 @@ impl Tree {
     // an interrupt ends the job at once. A console hands Ctrl-C to its
     // processes itself, and a job has no way to.
     pub(super) fn send(&self, signal: Signal) -> Reach {
+        let Some(job) = &self.0 else {
+            return Reach::Whole;
+        };
         if signal == Signal::Interrupt {
             return Reach::Whole;
         }
         // SAFETY: the handle is a live job handle.
-        match check(unsafe { TerminateJobObject(self.0.as_raw_handle(), ENDED) }) {
+        match check(unsafe { TerminateJobObject(job.as_raw_handle(), ENDED) }) {
             Ok(()) => Reach::Whole,
             Err(_) => Reach::Partial,
         }
     }
 
     pub(super) fn running(&self) -> bool {
+        let Some(job) = &self.0 else {
+            return false;
+        };
         let mut counts = JOBOBJECT_BASIC_ACCOUNTING_INFORMATION::default();
         // SAFETY: the handle is a live job handle, and `counts` is the structure
         // the basic-accounting class writes, of the size passed.
         let queried = unsafe {
             QueryInformationJobObject(
-                self.0.as_raw_handle(),
+                job.as_raw_handle(),
                 JobObjectBasicAccountingInformation,
                 ptr::from_mut(&mut counts).cast(),
                 size_of_u32::<JOBOBJECT_BASIC_ACCOUNTING_INFORMATION>(),
@@ -116,7 +123,7 @@ pub(super) fn alive(pid: u32) -> bool {
     // SAFETY: a plain call with no pointers.
     let process: HANDLE = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid) };
     if process.is_null() {
-        return io::Error::last_os_error().raw_os_error() == Some(ACCESS_DENIED);
+        return false;
     }
     // SAFETY: `process` is a handle this call opened and nothing else owns.
     let process = unsafe { OwnedHandle::from_raw_handle(process) };
