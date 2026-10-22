@@ -165,14 +165,13 @@ impl Runner {
     }
 
     // Gives a slot freed outside a save, as by a larger `concurrency.active_items`, to an
-    // item waiting for one.
+    // item waiting for one, and takes the slot of a Done item a state file saved holding one.
     pub(super) fn seat_waiting(&mut self) -> Result<(), StateError> {
-        if !self
-            .state
-            .work_items
-            .iter()
-            .any(|i| i.seat == Seat::Waiting)
-        {
+        let to_seat = |i: &WorkItem| {
+            i.seat == Seat::Waiting
+                || (i.seat != Seat::Without && matches!(i.phase, Phase::Done { .. }))
+        };
+        if !self.state.work_items.iter().any(to_seat) {
             return Ok(());
         }
         let mut next = self.state.clone();

@@ -637,6 +637,30 @@ fn a_merged_item_whose_cleanup_fails_frees_its_slot_for_the_next_ready_issue() {
     assert!((0..3).any(|_| finished_seven(step(&runner).unwrap())));
 }
 
+// A state file an older kelpie wrote keeps a Done item in its slot, which
+// the restart after the upgrade frees.
+#[test]
+fn a_done_item_saved_holding_a_slot_frees_it_when_the_runner_restarts() {
+    let (rig, runner, head) = Rig::with_pull_request_set("acme", Rig::merge_auto);
+    refuse_delete(&rig);
+    rig.forge.set_checks(&head, Checks::Passed);
+    cleanup_fails(&rig, &runner);
+    drop(runner);
+    let state = rig.paths().state;
+    let mut saved: Value = serde_json::from_str(&std::fs::read_to_string(&state).unwrap()).unwrap();
+    saved["work_items"][0]["seat"] = json!("held");
+    std::fs::write(&state, saved.to_string()).unwrap();
+
+    let runner = rig.open().unwrap();
+    rig.forge.list_ready(8, false);
+    let opened = (0..3).find_map(|_| match step(&runner).unwrap() {
+        Some(StepReport::Dispatched { issue, .. }) => Some(issue),
+        _ => None,
+    });
+
+    assert_eq!(opened, Some(ticket(8)));
+}
+
 fn finished_seven(report: Option<StepReport>) -> bool {
     matches!(
         report,
