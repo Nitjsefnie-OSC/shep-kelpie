@@ -10,6 +10,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use serde_json::{Map, Value};
+use shep_client::PROTOCOL_VERSION;
 use shep_client::shep_core::protocol::request::{Request, SelectorSpec};
 
 use super::*;
@@ -173,7 +174,12 @@ impl Rig {
 
 // A stand-in build that answers `version --json`.
 fn answering(kelpie: &str, shep: &str) -> String {
-    let json = format!(r#"{{"kelpie":"{kelpie}","shep":"{shep}"}}"#);
+    speaking(kelpie, shep, PROTOCOL_VERSION)
+}
+
+// A stand-in build on shep's `protocol`.
+fn speaking(kelpie: &str, shep: &str, protocol: u32) -> String {
+    let json = format!(r#"{{"kelpie":"{kelpie}","shep":"{shep}","protocol":{protocol}}}"#);
     format!("#!/bin/sh\necho '{json}'\n")
 }
 

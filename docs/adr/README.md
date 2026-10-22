@@ -19,6 +19,7 @@ Each ADR below is one decision that is hard to reverse. A later ADR can reopen p
 - 0013 [Runners tell the dog in notes, not metric samples](0013-runners-tell-the-dog-in-notes-not-metric-samples.md): a runner's lease and window totals go up as shep notes, which the metrics dog never reads, and the dog reads an older runner's samples for one release.
 - 0014 [Tickets come from a source, and the board stays in kelpie](0014-tickets-come-from-a-source-the-board-stays-in-kelpie.md): each project names one ticket source, GitHub issues by default or a local store, read and written through a `Tickets` port by opaque id, while the order, holds, picks and overlap check stay kelpie's.
 - 0015 [Crates use only what is below them](0015-crates-use-only-what-is-below-them.md): the code is a Cargo workspace where a crate uses only what is below or beside it, so a module that reaches the wrong way fails to build, with five leaf crates and a dev-only `test_support` first.
+- 0016 [Kelpie takes any shepherd from its pinned shep on](0016-kelpie-takes-any-shepherd-from-its-pinned-shep-on.md): kelpie refuses only a shepherd on an earlier shep than it is built with, and leaves wire compatibility to shep's protocol handshake.
 
 ## Decided against
 
@@ -66,6 +67,9 @@ Check this list before proposing an option. Where a later ADR reopened the decis
 - kelpie owns the tickets and GitHub or ClickUp sync into them (0014)
 - a `shep-kanban` dog holding the local ticket store, for now (0014)
 - more than one ticket source per project (0014)
+- keep kelpie on its pinned shep minor line (0016, reopening 0003)
+- refuse another shep major only (0016)
+- refuse a shepherd on a newer protocol than kelpie's (0016)
 
 ### Decided against without an ADR
 

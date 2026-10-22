@@ -57,3 +57,7 @@
 - A runner refused by the old-home guard crash-looped under shep's default restart policy (live smoke, shep-pm/shep-kelpie#344): 14 restarts in 30 seconds, each logging the same refusal, with `max_restarts` 16 and a backoff that starts at 100 ms and grows by 1.5 to a cap of 15 s (shep-core 0.12.4's `AppConfig` docs).
   - `stop_exit_codes`, a list of exit codes that shep treats as a clean stop with no restart, is the lever shep gives, and the runner entry sets it to `[78]` for the refusal's exit code (shep-pm/shep-kelpie#345).
   - Read from shep-core 0.12.4's config and pinned by a test on the entry kelpie writes; not yet run against a live shepherd.
+- shep's protocol across releases, read 2026-10-22 from the published crates and shep's source (ADR 0016):
+  - `PROTOCOL_VERSION` is 11 in shep-core 0.15.0, 0.15.1, 0.15.2 and 0.16.0. `MIN_SUPPORTED`, the oldest protocol a shepherd accepts, is 8.
+  - A shepherd refuses a client only below `MIN_SUPPORTED` (`crates/shep-daemon/src/server/conn_protocol.rs` in shep), so it takes a newer client. Its `HelloAck` carries `protocol` and `min_supported`, and shep-client refuses no shepherd on its own.
+  - The same day `shep kelpie finish` refused a shep 0.16.0 shepherd: "kelpie is built for shep 0.15.0 and takes only a 0.15.x shepherd from 0.15.0 on".

@@ -20,7 +20,7 @@ type Answering = dyn FnMut(&Request) -> Response + Send;
 
 struct Inner {
     home: PathBuf,
-    ack: HelloAck,
+    ack: Mutex<HelloAck>,
     answering: Mutex<Box<Answering>>,
     sent: UnboundedSender<Request>,
 }
@@ -54,11 +54,17 @@ impl Memory {
         ack.daemon_version = version.into();
         let shepherd = Self(Arc::new(Inner {
             home: home.to_owned(),
-            ack,
+            ack: Mutex::new(ack),
             answering: Mutex::new(Box::new(answer)),
             sent,
         }));
         (shepherd, heard)
+    }
+
+    /// Says from now on that the shepherd accepts no protocol below `oldest`
+    pub fn accepts_from(&self, oldest: u32) {
+        let mut ack = (self.0.ack.lock()).unwrap_or_else(PoisonError::into_inner);
+        ack.min_supported = Some(oldest);
     }
 }
 
@@ -89,6 +95,8 @@ impl Connection for Memory {
     }
 
     fn daemon(&self) -> HelloAck {
-        self.0.ack.clone()
+        (self.0.ack.lock())
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
     }
 }
