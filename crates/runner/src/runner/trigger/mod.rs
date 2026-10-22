@@ -205,6 +205,9 @@ pub struct WorkItemStatus<'a> {
     /// unstarted
     #[serde(skip_serializing_if = "Option::is_none")]
     pub held_up: Option<super::turn::held_up::HeldUp>,
+    /// Its step that failed again and again, from the second failure in a row
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub failing: Option<super::looks::Failing>,
     /// What its build folder held when last measured, in bytes
     #[serde(skip_serializing_if = "Option::is_none")]
     pub build_bytes: Option<u64>,
@@ -279,6 +282,7 @@ impl<'a> WorkItemStatus<'a> {
             pinned: item.pinned,
             waiting: None,
             held_up: None,
+            failing: None,
             build_bytes: None,
             session: &item.session,
             turn: &item.turn,

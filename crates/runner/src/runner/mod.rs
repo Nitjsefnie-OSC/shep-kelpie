@@ -805,6 +805,7 @@ impl Runner {
         WorkItemStatus {
             waiting: self.model_wait(ticket),
             held_up: self.held_up.of(ticket),
+            failing: self.looks.failing(ticket),
             build_bytes: self.builds.folder_bytes(ticket),
             ..WorkItemStatus::new(item, self.settings.budget.per_item_usd, split)
         }

@@ -3,6 +3,8 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use serde_json::{Value, json};
+
 use crate::ports::{CallPacer, Clock, LocalPace, Timestamp};
 use crate::runner::{BOARD_POLL, Pass, StepReport, advance, step};
 use crate::test::Rig;
@@ -97,6 +99,61 @@ fn a_failing_gate_is_retried_on_a_growing_wait_that_a_success_ends() {
         failed(step(&runner).unwrap()),
         "the wait did not start over"
     );
+}
+
+// What `status` shows of the oldest work item's failing step, if it does
+fn failing(rig: &Rig, runner: &std::sync::Mutex<crate::runner::Runner>) -> Option<Value> {
+    rig.ask(runner, "status", None)["work_item"]
+        .get("failing")
+        .cloned()
+}
+
+fn gate_failed(report: Option<StepReport>) -> String {
+    match report {
+        Some(StepReport::GateFailed { issue, reason }) if issue == ticket(7) => reason,
+        other => panic!("#7's gate did not fail: {other:?}"),
+    }
+}
+
+#[test]
+fn status_shows_a_step_failing_in_a_row_from_its_second_failure_with_its_reason() {
+    let (rig, runner, _) = Rig::with_pull_request("acme");
+    rig.forge.set_down(true);
+    let first = rig.clock.now();
+
+    gate_failed(step(&runner).unwrap());
+    assert_eq!(failing(&rig, &runner), None, "one failure is no streak");
+
+    rig.clock.advance(RETRY_FIRST);
+    let reason = gate_failed(step(&runner).unwrap());
+    assert_eq!(
+        failing(&rig, &runner),
+        Some(json!({ "since": first.0, "failures": 2, "reason": reason }))
+    );
+
+    rig.clock.advance(2 * RETRY_FIRST);
+    gate_failed(step(&runner).unwrap());
+    let shown = failing(&rig, &runner).unwrap();
+    assert_eq!(
+        (&shown["since"], &shown["failures"]),
+        (&json!(first.0), &json!(3))
+    );
+}
+
+#[test]
+fn a_step_that_does_not_fail_clears_its_failing_in_status() {
+    let (rig, runner, _) = Rig::with_pull_request("acme");
+    rig.forge.set_down(true);
+    gate_failed(step(&runner).unwrap());
+    rig.clock.advance(RETRY_FIRST);
+    gate_failed(step(&runner).unwrap());
+    assert!(failing(&rig, &runner).is_some());
+
+    rig.forge.set_down(false);
+    rig.clock.advance(2 * RETRY_FIRST);
+    assert_eq!(step(&runner).unwrap(), None, "CI is read, and pending");
+
+    assert_eq!(failing(&rig, &runner), None);
 }
 
 #[test]
