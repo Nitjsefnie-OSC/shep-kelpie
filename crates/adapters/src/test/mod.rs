@@ -22,6 +22,6 @@ pub(crate) use shep_kelpie_core::test::{
 };
 #[cfg(test)]
 pub(crate) use shep_kelpie_test_support::{
-    CALL_PATIENCE, Elsewhere, cut_from_main, git, linked_worktree, main_commits, make_fifo,
-    short_tempdir, waits_for, write_script,
+    CALL_PATIENCE, Elsewhere, Fake, cut_from_main, git, linked_worktree, main_commits, make_fifo,
+    short_tempdir, waits_for, write_fake, write_script,
 };

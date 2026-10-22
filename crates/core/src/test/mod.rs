@@ -52,7 +52,7 @@ pub use samples::RecordedSink;
 pub use sandbox::OpenSandbox;
 #[cfg(test)]
 pub use shep_kelpie_test_support::{
-    CALL_PATIENCE, git, linked_worktree, short_tempdir, write_in, write_script,
+    CALL_PATIENCE, Fake, git, linked_worktree, short_tempdir, write_fake, write_in, write_script,
 };
 pub use shepherd::FakeShepherd;
 pub use test_runner::FakeTests;

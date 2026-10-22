@@ -178,6 +178,7 @@ fn on_path(program: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test::Fake;
 
     #[test]
     fn macos_needs_its_own_sandbox_and_linux_needs_two_programs() {
@@ -222,36 +223,32 @@ mod tests {
 
     #[test]
     fn a_program_every_machine_has_is_on_the_path_and_a_made_up_one_is_not() {
-        assert!(on_path("sh"));
+        assert!(on_path(if cfg!(windows) { "cmd" } else { "sh" }));
         assert!(!on_path("kelpie-no-such-program"));
     }
 
     #[test]
     fn a_program_that_prints_a_version_is_read_and_one_that_hangs_or_is_missing_is_an_error() {
         let dir = tempfile::tempdir().unwrap();
-        let script = |name: &str, body: &str| {
-            let path = dir.path().join(name);
-            crate::test::write_script(&path, &format!("#!/bin/sh\n{body}\n"));
-            path
-        };
+        let script = |name: &str, fake: Fake| crate::test::write_fake(dir.path(), name, &fake);
         let limit = Duration::from_secs(5);
 
-        let pi = script("pi", "echo 1.0.4\necho a second line");
+        let pi = script("pi", Fake::new().prints("1.0.4").prints("a second line"));
         assert_eq!(version_within(&pi, limit), Ok("1.0.4".into()));
 
-        let goose = script("goose", "echo ' 1.54.0'");
+        let goose = script("goose", Fake::new().prints(" 1.54.0"));
         assert_eq!(version_within(&goose, limit), Ok("1.54.0".into()));
 
-        let hang = script("hang", "exec sleep 30");
+        let hang = script("hang", Fake::new().sleeps(30));
         let started = Instant::now();
         let err = version_within(&hang, Duration::from_millis(200)).unwrap_err();
         assert!(err.contains("did not answer"), "{err}");
         assert!(started.elapsed() < Duration::from_secs(10));
 
-        let sick = script("sick", "echo 1.0.4\nexit 3");
+        let sick = script("sick", Fake::new().prints("1.0.4").exits(3));
         assert!(version_within(&sick, limit).unwrap_err().contains("exited"));
 
-        let silent = script("silent", "exit 0");
+        let silent = script("silent", Fake::new());
         let err = version_within(&silent, limit).unwrap_err();
         assert!(err.contains("printed nothing"), "{err}");
 

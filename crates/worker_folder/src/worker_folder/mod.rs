@@ -213,6 +213,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "a FIFO is a Unix file")]
     fn a_fifo_is_refused_and_not_waited_on() {
         let (_dir, build, _) = folders();
         let made = Command::new("mkfifo").arg(build.join("a.md")).status();

@@ -586,10 +586,8 @@ fn a_contribution_is_read_while_parked_rulings_close_the_board() {
 
 // A hook on the bare origin that refuses the delete of the worker's branch
 fn refuse_delete(rig: &Rig) {
-    use std::os::unix::fs::PermissionsExt;
     let hook = rig.home.path().join("origin.git/hooks/pre-receive");
-    std::fs::write(&hook, "#!/bin/sh\nexit 1\n").unwrap();
-    std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+    crate::test::write_script(&hook, "#!/bin/sh\nexit 1\n");
 }
 
 // Steps until #7, merged under `git.merging = "auto"`, fails its cleanup
