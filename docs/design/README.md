@@ -13,7 +13,7 @@ Kelpie: dog of the maintainer's shepherd; one runner per project takes ready iss
 - The shepherd is reached through the `Dial` port (`crates/core/src/shepherd/connection.rs`): `Socket` is shep's control socket; tests dial `FakeShepherd`, which answers in memory. #587
 - Socket path over 103 bytes: runner refuses to start (macOS caps 104). `crates/runner/src/runner/mod.rs`
 - Home never moved from `~/.kelpie`: refuses to start naming each old file, exit 78 (in `stop_exit_codes`, no restart into it). #311, #345
-- State file version 79 (`VERSION` in `crates/core/src/state/mod.rs`); each change one way: rollback means finishing or dropping open items first. `crates/core/src/state/removed/mod.rs`
+- State file version 80 (`VERSION` in `crates/core/src/state/mod.rs`); each change one way: rollback means finishing or dropping open items first. `crates/core/src/state/removed/mod.rs`
 - Business code is Rust; Tauri GUI after MVP, until then run and watched from a Claude session. #5
 - Crates under `crates/` use nothing above them; the root package holds the binary and the verbs (`src/{flock,upgrade,sheep,doctor,issues}/`, `src/schema.rs`) and reaches every crate. ADR 0015
 - No budget numbers in agent prompts; no worker merges or posts as the maintainer (fence.md, github-app.md).
@@ -24,7 +24,7 @@ Kelpie: dog of the maintainer's shepherd; one runner per project takes ready iss
 |---|---|---|
 | work.md | projects, board, adoption, slots, issue writer | `core/board/`, `src/issues/mod.rs`, `runner/adopt/`, `runner/slots.rs`, `src/flock/verbs.rs`, `core/guard/issues/` |
 | pm.md | the project manager, its board file | `runner/pm/`, `runner/briefing/` |
-| workers.md | runner loop, turns | `runner/turn/`, `runner/flight/`, `crates/tree/` |
+| workers.md | runner loop, turns | `runner/turn/`, `runner/flight/` |
 | fence.md | sandbox, guard, hooks, reads | `core/{profile,guard,hooks}/`, `core/dep_sources.rs`, `runner/turn/dep_reads.rs` |
 | browser.md | a worker's browser beyond its sandbox: bridge, filter, tools | `core/{bridge,browse}.rs`, `adapters/bridge/`, `runner/browser.rs`, `core/settings/browser.rs`, `crates/process/src/tools/` |
 | browser-dev-server.md | a worker's browser dev server: launch, port, readiness | `runner/dev_server/`, `core/ports/dev_server.rs`, `adapters/dev_server/` |

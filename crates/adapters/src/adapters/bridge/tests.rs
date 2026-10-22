@@ -214,8 +214,23 @@ fn dropping_the_bridge_stops_the_server_and_removes_the_socket() {
 
 // Serves one connection of `server` over a pair of sockets, which binds nothing.
 fn served_once(server: &Server) {
+    served_until(server, "");
+}
+
+// As `served_once`, with the client holding its end open until the server's
+// log says `wanted`, so a server is not asked to end before it has spoken.
+fn served_until(server: &Server, wanted: &str) {
     let (near, far) = UnixStream::pair().unwrap();
-    drop(far);
+    let (log, wanted) = (server.cwd.join(LOG), wanted.to_owned());
+    let client = thread::spawn(move || {
+        let started = Instant::now();
+        while started.elapsed() < crate::test::CALL_PATIENCE
+            && !std::fs::read_to_string(&log).is_ok_and(|text| text.contains(&wanted))
+        {
+            thread::sleep(Duration::from_millis(10));
+        }
+        drop(far);
+    });
     let held = Mutex::new(None);
     serve(
         near,
@@ -224,6 +239,7 @@ fn served_once(server: &Server) {
         &held,
         &AtomicBool::new(false),
     );
+    client.join().unwrap();
 }
 
 #[test]
@@ -242,7 +258,7 @@ fn what_a_server_prints_on_stderr_is_kept_in_its_log() {
     let script = dir.path().join("crashes");
     crate::test::write_script(&script, "#!/bin/sh\necho 'Error: no browser' >&2\nexit 1\n");
     server.command = script;
-    served_once(&server);
+    served_until(&server, "Error: no browser");
     let log = std::fs::read_to_string(server.cwd.join("server.log")).unwrap();
     assert!(log.contains("Error: no browser"), "{log}");
 }
