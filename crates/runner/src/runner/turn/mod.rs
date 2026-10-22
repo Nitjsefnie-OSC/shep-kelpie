@@ -161,6 +161,7 @@ impl Runner {
         let open: Vec<TicketId> = self.state.work_items.iter().map(|i| i.issue).collect();
         self.unreachable.keep_only(&open);
         self.held_up.keep_only(&open);
+        self.queued_reruns.keep_only(&open);
         self.no_checks.retain(|ticket| open.contains(ticket));
         self.seat_waiting()?;
         let mut waiting = None;

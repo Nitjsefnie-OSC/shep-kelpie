@@ -8,7 +8,7 @@
 use serde::Deserialize;
 
 use super::{gh, unreadable};
-use crate::ports::{BranchRun, FailedLogs, ForgeError, Timestamp, Workflow, WorkflowState};
+use crate::ports::{BranchRun, FailedLogs, ForgeError, Rerun, Timestamp, Workflow, WorkflowState};
 use crate::settings::ForgeSlug;
 
 /// How many failed runs are read
@@ -190,10 +190,18 @@ pub(super) fn rerun_failed(repo: &ForgeSlug, head: &str) -> Result<(), ForgeErro
     }
 }
 
-/// Reruns the failed jobs of run `run`
-pub(super) fn rerun_run(repo: &ForgeSlug, run: u64) -> Result<(), ForgeError> {
+/// Reruns the jobs of run `run` that `rerun` names
+pub(super) fn rerun_run(repo: &ForgeSlug, run: u64, rerun: Rerun) -> Result<(), ForgeError> {
     let id = run.to_string();
-    gh(&["run", "rerun", &id, "--repo", repo.as_str(), "--failed"]).map(drop)
+    gh(&rerun_args(repo, &id, rerun)).map(drop)
+}
+
+pub(super) fn rerun_args<'a>(repo: &'a ForgeSlug, id: &'a str, rerun: Rerun) -> Vec<&'a str> {
+    let mut args = vec!["run", "rerun", id, "--repo", repo.as_str()];
+    if rerun == Rerun::Failed {
+        args.push("--failed");
+    }
+    args
 }
 
 /// Approves every run of `head` that waits for a maintainer, as the login `gh` acts as

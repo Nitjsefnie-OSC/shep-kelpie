@@ -232,7 +232,9 @@ pub enum StepReport {
         checks: Vec<String>,
     },
     /// CI failed, its logs named no file the branch changed, and kelpie
-    /// reran the failed jobs instead of sending the worker a fix turn
+    /// reran the failed jobs instead of sending the worker a fix turn; or a
+    /// check stayed queued past `ci.queued_minutes` and kelpie reran its run,
+    /// when `checks` are the queued ones
     CiRerun {
         /// The work item's ticket
         issue: TicketId,

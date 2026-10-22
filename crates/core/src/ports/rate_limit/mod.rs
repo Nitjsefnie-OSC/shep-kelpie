@@ -13,8 +13,8 @@ use std::time::Instant;
 use super::Revalidated;
 use super::{
     BranchRun, Clock, CommentMarks, FailedLogs, FolderEntry, Forge, ForgeError, LocalPace,
-    NewLabel, OpenPull, Pace, PullRequest, QueueStanding, Reviewed, Talk, ThreadComment, Tickets,
-    Timestamp, Visibility, Workflow, pace,
+    NewLabel, OpenPull, Pace, PullRequest, QueueStanding, Rerun, Reviewed, Talk, ThreadComment,
+    Tickets, Timestamp, Visibility, Workflow, pace,
 };
 use crate::board::OpenPullRequest;
 use crate::forge_ledger::{Ended, Identity, Kind, Ledger};
@@ -470,8 +470,8 @@ impl Forge for RateHeld {
         self.call(Kind::RerunFailed, |f| f.rerun_failed(repo, head))
     }
 
-    fn rerun_run(&self, repo: &ForgeSlug, run: u64) -> Result<(), ForgeError> {
-        self.call(Kind::RerunRun, |f| f.rerun_run(repo, run))
+    fn rerun_run(&self, repo: &ForgeSlug, run: u64, rerun: Rerun) -> Result<(), ForgeError> {
+        self.call(Kind::RerunRun, |f| f.rerun_run(repo, run, rerun))
     }
 
     fn approve_workflow_runs(&self, repo: &ForgeSlug, head: &str) -> Result<(), ForgeError> {

@@ -30,7 +30,7 @@ fn turning_pick_on_records_a_listed_bots_bump_without_a_restart() {
 fn turning_pick_off_records_and_merges_no_bump() {
     let (rig, runner) = bumping("");
     let head = bump(&rig, 40, "Cargo.lock");
-    rig.forge.set_checks(&head, Checks::Pending);
+    rig.forge.set_checks(&head, Checks::Pending(Vec::new()));
     settle(&rig, &runner);
     assert_eq!(bumps(&rig, &runner).len(), 1);
 
@@ -51,7 +51,7 @@ fn turning_pick_off_records_and_merges_no_bump() {
 fn a_changed_wait_hours_applies_to_a_bump_already_recorded() {
     let (rig, runner) = bumping("wait_hours = 24");
     let head = bump(&rig, 40, "Cargo.lock");
-    rig.forge.set_checks(&head, Checks::Pending);
+    rig.forge.set_checks(&head, Checks::Pending(Vec::new()));
     settle(&rig, &runner);
     rig.clock.advance(2 * 3600);
     assert_eq!(step(&runner).unwrap(), None);
@@ -72,7 +72,7 @@ fn a_changed_wait_hours_applies_to_a_bump_already_recorded() {
 fn a_changed_on_red_applies_to_a_bump_already_recorded() {
     let (rig, runner) = bumping("wait_hours = 2\non_red = \"leave\"");
     let head = bump(&rig, 40, "Cargo.lock");
-    rig.forge.set_checks(&head, Checks::Pending);
+    rig.forge.set_checks(&head, Checks::Pending(Vec::new()));
     settle(&rig, &runner);
 
     rig.edit_settings(|s| s.replace("on_red = \"leave\"", "on_red = \"close\""));

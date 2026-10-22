@@ -11,7 +11,7 @@
 use serde::Serialize;
 
 use super::Runner;
-use crate::ports::{BranchRun, ForgeError, Timestamp, WorkflowState};
+use crate::ports::{BranchRun, ForgeError, Rerun, Timestamp, WorkflowState};
 use crate::state::{MainNotice, Notice, RedWorkflow};
 
 /// A workflow red on `main`, as `status` shows it
@@ -103,7 +103,11 @@ impl Runner {
             .filter(|r| !r.noticed && failing.contains(&r.workflow))
         {
             if workflow.reran.is_none() {
-                match self.ports.forge.rerun_run(&self.remote, workflow.run) {
+                match self
+                    .ports
+                    .forge
+                    .rerun_run(&self.remote, workflow.run, Rerun::Failed)
+                {
                     Ok(()) => {
                         workflow.reran = Some(workflow.run);
                         continue;
