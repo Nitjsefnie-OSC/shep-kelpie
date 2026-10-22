@@ -18,23 +18,39 @@ use crate::state::{StateError, Stuck};
 use crate::ticket::TicketId;
 use crate::work_item::{Phase, Review};
 
-/// The head of each work item whose queued check has had its run rerun
+/// The runs rerun for each work item's queued checks, and the head they were
+/// rerun at
 #[derive(Debug, Default)]
-pub(in crate::runner) struct Reruns(HashMap<TicketId, String>);
+pub(in crate::runner) struct Reruns(HashMap<TicketId, (String, Vec<u64>)>);
 
 impl Reruns {
     /// Forgets the work items no longer open
     pub(in crate::runner) fn keep_only(&mut self, open: &[TicketId]) {
         self.0.retain(|ticket, _| open.contains(ticket));
     }
+
+    fn done(&self, issue: TicketId, head: &str, run: u64) -> bool {
+        (self.0.get(&issue)).is_some_and(|(at, runs)| at == head && runs.contains(&run))
+    }
+
+    fn record(&mut self, issue: TicketId, head: &str, run: u64) {
+        let entry = self.0.entry(issue).or_default();
+        if entry.0 != head {
+            *entry = (head.to_owned(), Vec::new());
+        }
+        entry.1.push(run);
+    }
 }
 
 impl Runner {
     /// What the step does about `queued`, the checks still queued on `head`
-    /// since `since`: nothing while they are within the cap, a rerun of their
-    /// run once past it, and a ruling when they are still queued after that
+    /// since `since`: nothing while they are within the cap, a rerun of a
+    /// run not yet rerun once past it, and a ruling when every run they
+    /// belong to has been rerun and one is still queued
     ///
-    /// `review` is the round whose CI wait it is, when one.
+    /// A rerun the forge refuses, as it does for a run still in progress,
+    /// waits another cap, so a backed-up runner is waited on and told once
+    /// per cap. `review` is the round whose CI wait it is, when one.
     pub(in crate::runner) fn check_queued(
         &mut self,
         number: u64,
@@ -49,35 +65,26 @@ impl Runner {
             return Ok(None);
         }
         // A check with no run to name cannot be rerun, so it is waited on.
-        let Some(run) = queued.iter().find_map(|check| check.run) else {
+        let Some(first) = queued.iter().find_map(|check| check.run) else {
             return Ok(None);
         };
-        let checks: Vec<String> = (queued.iter())
-            .filter(|check| check.run == Some(run))
-            .map(|check| check.name.clone())
-            .collect();
-        let item = self.current().expect("CI runs on a work item");
-        let issue = item.issue;
-        if self.queued_reruns.0.get(&issue).map(String::as_str) == Some(head) {
+        let issue = self.current().expect("CI runs on a work item").issue;
+        let runs = queued.iter().filter_map(|check| check.run);
+        let Some(run) = { runs }.find(|run| !self.queued_reruns.done(issue, head, *run)) else {
             let url = format!(
-                "https://github.com/{}/actions/runs/{run}",
+                "https://github.com/{}/actions/runs/{first}",
                 self.remote.as_str()
             );
             let stuck = Stuck::CheckQueued {
                 head: head.to_owned(),
-                checks,
-                run,
+                checks: named(queued, first),
+                run: first,
                 url,
                 review: review.cloned(),
             };
             return self.raise(number, stuck.into()).map(Some);
-        }
-        if let Err(e) = self.ports.forge.rerun_run(&self.remote, run, Rerun::All) {
-            return Ok(Some(
-                self.gate_failed(format!("cannot rerun run {run}: {e}")),
-            ));
-        }
-        self.queued_reruns.0.insert(issue, head.to_owned());
+        };
+        let rerun = self.ports.forge.rerun_run(&self.remote, run, Rerun::All);
         self.update(|item| match &mut item.phase {
             Phase::Ci { since, .. } => *since = now,
             Phase::Review(review) => {
@@ -87,13 +94,27 @@ impl Runner {
             }
             _ => {}
         })?;
+        if let Err(e) = rerun {
+            return Ok(Some(
+                self.gate_failed(format!("cannot rerun run {run}: {e}")),
+            ));
+        }
+        self.queued_reruns.record(issue, head, run);
         Ok(Some(Begin::Report(StepReport::CiRerun {
             issue,
             pull_request: number,
             head: head.to_owned(),
-            checks,
+            checks: named(queued, run),
         })))
     }
+}
+
+// The queued checks that belong to `run`
+fn named(queued: &[Queued], run: u64) -> Vec<String> {
+    (queued.iter())
+        .filter(|check| check.run == Some(run))
+        .map(|check| check.name.clone())
+        .collect()
 }
 
 #[cfg(test)]
