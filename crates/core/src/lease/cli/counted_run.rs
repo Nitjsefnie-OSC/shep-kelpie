@@ -391,7 +391,7 @@ mod tests {
     // A command in its own tree, as `run` starts it.
     #[cfg(unix)]
     fn start(script: &str) -> tokio::process::Child {
-        tokio::process::Command::new("sh")
+        tokio::process::Command::new(crate::spawn::sh())
             .args(["-c", script])
             .lead()
             .spawn()

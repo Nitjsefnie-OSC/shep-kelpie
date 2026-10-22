@@ -451,7 +451,7 @@ fn run(
     timeout: Duration,
 ) -> Result<(), (bool, String)> {
     let failed = |why: String| Err((true, why));
-    let mut process = Command::new("sh");
+    let mut process = Command::new(crate::spawn::sh());
     process
         .args(["-c", command])
         .stdin(Stdio::piped())

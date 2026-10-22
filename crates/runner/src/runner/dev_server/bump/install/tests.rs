@@ -40,7 +40,7 @@ fn the_packages_are_installed_from_the_lockfile_before_the_server_starts() {
 
     before(&mut run, dir.path(), Path::new("/build"));
 
-    assert_eq!(run.program, "sh");
+    assert_eq!(run.program, crate::spawn::sh().to_string_lossy());
     assert_eq!(run.args[0], "-c");
     assert!(
         run.args[1].contains("npm ci --ignore-scripts"),
@@ -89,7 +89,7 @@ fn the_script_stops_when_the_install_fails_and_runs_the_server_when_it_does_not(
         run.args = vec!["served".to_owned()];
         before(&mut run, dir.path(), &build);
         let script = run.args[1].replace("npm ci --ignore-scripts --no-audit --no-fund", install);
-        let out = std::process::Command::new("sh")
+        let out = std::process::Command::new(crate::spawn::sh())
             .arg("-c")
             .arg(script)
             .args(&run.args[2..])

@@ -3,6 +3,7 @@ use std::time::{Duration, Instant};
 use serde_json::{Value, json};
 
 use super::*;
+use crate::test::Fake;
 
 // A stand-in server: prints a banner that is not JSON, logs its pid at each start and every
 // line it gets, and echoes each line.
@@ -255,9 +256,8 @@ fn a_server_that_cannot_start_is_named_in_its_log() {
 #[test]
 fn what_a_server_prints_on_stderr_is_kept_in_its_log() {
     let (dir, mut server) = world();
-    let script = dir.path().join("crashes");
-    crate::test::write_script(&script, "#!/bin/sh\necho 'Error: no browser' >&2\nexit 1\n");
-    server.command = script;
+    let crashes = Fake::new().prints_to_stderr("Error: no browser").exits(1);
+    server.command = crate::test::write_fake(dir.path(), "crashes", &crashes);
     served_until(&server, "Error: no browser");
     let log = std::fs::read_to_string(server.cwd.join("server.log")).unwrap();
     assert!(log.contains("Error: no browser"), "{log}");
@@ -266,9 +266,7 @@ fn what_a_server_prints_on_stderr_is_kept_in_its_log() {
 #[test]
 fn a_server_that_exits_ends_the_connection_instead_of_leaving_it_open() {
     let (dir, mut server) = world();
-    let script = dir.path().join("exits");
-    crate::test::write_script(&script, "#!/bin/sh\nexit 0\n");
-    server.command = script;
+    server.command = crate::test::write_fake(dir.path(), "exits", &Fake::new());
     let (near, far) = UnixStream::pair().unwrap();
     let (done, ended) = std::sync::mpsc::channel();
     std::thread::spawn(move || {

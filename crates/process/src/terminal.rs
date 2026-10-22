@@ -249,7 +249,7 @@ mod tests {
     #[cfg(unix)]
     #[tokio::test]
     async fn a_session_s_exit_is_its_status_and_its_pid_is_told() {
-        let mut command = Command::new("sh");
+        let mut command = Command::new(crate::spawn::sh());
         command.args(["-c", "exit 3"]);
         let mut told = None;
         let status = run(command, async |pid| told = Some(pid)).await.unwrap();

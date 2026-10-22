@@ -89,7 +89,8 @@ mod tests {
     #[test]
     fn a_lock_left_by_a_dead_upgrade_is_taken_over() {
         let home = tempfile::tempdir().unwrap();
-        let mut gone = Command::new("true").spawn().unwrap();
+        let ends = crate::test::write_fake(home.path(), "ends", &crate::test::Fake::new());
+        let mut gone = Command::new(ends).spawn().unwrap();
         let pid = gone.id();
         gone.wait().unwrap();
         fs::write(home.path().join("upgrade.lock"), pid.to_string()).unwrap();

@@ -172,6 +172,12 @@ fn run(command: &mut Command) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use shep_kelpie_test_support::{Fake, write_fake};
+
+    // An npm that fails.
+    fn failing_npm(dir: &Path) -> PathBuf {
+        write_fake(dir, "failing-npm", &Fake::new().exits(1))
+    }
 
     // The shape of srt's profile builder around the two services.
     const PROFILE: &str = "\
@@ -272,8 +278,7 @@ const lines = [
         let tools = installed(dir.path(), PROFILE);
         tools.block_keychain().unwrap();
         assert!(tools.keychain_blocked());
-        let npm = dir.path().join("failing-npm");
-        shep_kelpie_test_support::write_script(&npm, "#!/bin/sh\nexit 1\n");
+        let npm = failing_npm(dir.path());
         tools
             .install_with(
                 &install::Setup::here(npm.to_str().unwrap()),
@@ -290,8 +295,7 @@ const lines = [
     fn the_install_writes_the_pinned_web_package_into_package_json() {
         let dir = tempfile::tempdir().unwrap();
         let tools = Tools::at(dir.path().join("tools"));
-        let npm = dir.path().join("failing-npm");
-        shep_kelpie_test_support::write_script(&npm, "#!/bin/sh\nexit 1\n");
+        let npm = failing_npm(dir.path());
         tools
             .install_with(
                 &install::Setup::here(npm.to_str().unwrap()),
@@ -312,8 +316,7 @@ const lines = [
     fn the_install_writes_the_pinned_goose_web_packages_into_package_json() {
         let dir = tempfile::tempdir().unwrap();
         let tools = Tools::at(dir.path().join("tools"));
-        let npm = dir.path().join("failing-npm");
-        shep_kelpie_test_support::write_script(&npm, "#!/bin/sh\nexit 1\n");
+        let npm = failing_npm(dir.path());
         tools
             .install_with(
                 &install::Setup::here(npm.to_str().unwrap()),

@@ -185,7 +185,7 @@ fn the_repos_hook_runs_and_kelpies_guard_still_blocks_what_it_blocks() {
     assert_eq!(repos.len(), 1, "{repos:?}");
 
     let note = rig.home.path().join("note");
-    let ran = Command::new("sh")
+    let ran = Command::new(crate::spawn::sh())
         .args(["-c", &repos[0]])
         .env("NOTE", &note)
         .status()

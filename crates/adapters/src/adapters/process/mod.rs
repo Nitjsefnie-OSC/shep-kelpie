@@ -610,7 +610,7 @@ mod tests {
         let processes = Processes::default();
         let script = "read first; echo \"noise\"; echo \"got $first\"; cat >/dev/null";
         let answer = processes.answer_within(
-            Command::new("sh").args(["-c", script]),
+            Command::new(crate::spawn::sh()).args(["-c", script]),
             "ask\n",
             Duration::from_secs(10),
             &|line| line.starts_with("got"),
@@ -618,7 +618,7 @@ mod tests {
         assert_eq!(answer.unwrap().as_deref(), Some("got ask"));
 
         let silent = processes.answer_within(
-            Command::new("sh").args(["-c", "echo nothing wanted"]),
+            Command::new(crate::spawn::sh()).args(["-c", "echo nothing wanted"]),
             "",
             Duration::from_secs(10),
             &|line| line.starts_with("got"),
@@ -630,7 +630,7 @@ mod tests {
     fn an_answer_that_never_comes_times_out() {
         let processes = Processes::default();
         let answer = processes.answer_within(
-            Command::new("sh").args(["-c", "cat >/dev/null"]),
+            Command::new(crate::spawn::sh()).args(["-c", "cat >/dev/null"]),
             "ask\n",
             Duration::from_millis(200),
             &|_| true,
@@ -648,7 +648,7 @@ mod tests {
         let script = "head -c 1048576 /dev/zero | tr '\\0' x; echo oops >&2";
         let output = processes
             .output_to_files(
-                Command::new("sh").args(["-c", script]),
+                Command::new(crate::spawn::sh()).args(["-c", script]),
                 None,
                 &|_| {},
                 [&out, &err],
@@ -665,7 +665,7 @@ mod tests {
     fn a_child_runs_to_its_end_with_its_output() {
         let processes = Processes::default();
         let output = processes
-            .output(Command::new("sh").args(["-c", "echo out; echo err >&2; exit 3"]))
+            .output(Command::new(crate::spawn::sh()).args(["-c", "echo out; echo err >&2; exit 3"]))
             .unwrap();
         assert_eq!(output.status.code(), Some(3));
         assert_eq!(output.stdout, b"out\n");
@@ -678,7 +678,7 @@ mod tests {
         let processes = Processes::default();
         let started = Instant::now();
         let result = processes.output_within(
-            Command::new("sh").args(["-c", "sleep 30"]),
+            Command::new(crate::spawn::sh()).args(["-c", "sleep 30"]),
             Duration::from_millis(200),
         );
         assert!(matches!(result, Err(RunError::TimedOut)), "{result:?}");
@@ -698,7 +698,7 @@ mod tests {
         thread::spawn(move || {
             let input = vec![b'x'; 4 * 1024 * 1024];
             let result = running.output_within_fed(
-                Command::new("sh").args(["-c", "sleep 30"]),
+                Command::new(crate::spawn::sh()).args(["-c", "sleep 30"]),
                 Duration::from_millis(200),
                 &input,
                 None,
@@ -734,7 +734,7 @@ mod tests {
     // process holds open does, so only the feeder's own drop can end the write.
     #[test]
     fn a_dropped_feeder_gives_up_a_write_the_child_never_reads() {
-        let mut child = Command::new("sh")
+        let mut child = Command::new(crate::spawn::sh())
             .args(["-c", "sleep 30"])
             .stdin(Stdio::piped())
             .spawn()
@@ -771,7 +771,7 @@ mod tests {
         );
         let started = Instant::now();
         let result = processes.output_within(
-            Command::new("sh").args(["-c", &script]),
+            Command::new(crate::spawn::sh()).args(["-c", &script]),
             Duration::from_millis(200),
         );
         assert!(matches!(result, Err(RunError::TimedOut)), "{result:?}");
@@ -820,7 +820,7 @@ mod tests {
         let processes = Processes::default();
         let running = processes.clone();
         thread::spawn(move || {
-            let mut command = Command::new("sh");
+            let mut command = Command::new(crate::spawn::sh());
             command.args(["-c", &script]);
             let _ = done.send(running.output_telling(&mut command, Some(&ending), &|_| {}));
         });
@@ -887,7 +887,7 @@ mod tests {
             );
             let (running, done, told) = (processes.clone(), done.clone(), told.clone());
             thread::spawn(move || {
-                let mut command = Command::new("sh");
+                let mut command = Command::new(crate::spawn::sh());
                 command.args(["-c", &script]);
                 let result = running.output_telling(&mut command, None, &|pid| {
                     let _ = told.send(pid);
@@ -915,7 +915,7 @@ mod tests {
             "the stop waited"
         );
 
-        let next = processes.output(Command::new("sh").args(["-c", "exit 0"]));
+        let next = processes.output(Command::new(crate::spawn::sh()).args(["-c", "exit 0"]));
         assert!(matches!(next, Err(RunError::Stopped)), "{next:?}");
         while !calls.iter().all(|(_, termed)| termed.exists()) {
             assert!(

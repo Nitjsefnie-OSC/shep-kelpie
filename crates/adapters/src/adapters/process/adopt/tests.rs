@@ -11,7 +11,7 @@ use super::Finishing;
 #[test]
 fn a_stdin_being_written_is_counted_until_the_writer_ends() {
     static OURS: AtomicUsize = AtomicUsize::new(0);
-    let mut child = Command::new("sh")
+    let mut child = Command::new(crate::spawn::sh())
         .args(["-c", "sleep 30"])
         .stdin(Stdio::piped())
         .spawn()
@@ -39,7 +39,7 @@ fn a_call_taken_off_the_list_at_its_deadline_is_a_call_being_ended() {
         thread::spawn(move || {
             // Ignores TERM, so ending it takes the whole grace.
             processes.output_within(
-                Command::new("sh").args(["-c", "trap '' TERM; sleep 30"]),
+                Command::new(crate::spawn::sh()).args(["-c", "trap '' TERM; sleep 30"]),
                 Duration::from_millis(100),
             )
         })
@@ -69,7 +69,7 @@ fn a_seal_is_refused_while_one_stands_or_a_call_is_being_read() {
 
 #[test]
 fn a_group_left_with_no_one_to_finish_it_is_ended() {
-    let mut child = Command::new("sh")
+    let mut child = Command::new(crate::spawn::sh())
         .args(["-c", "sleep 30"])
         .process_group(0)
         .stdin(Stdio::null())

@@ -29,7 +29,7 @@ impl Claude {
         temp.push(&scratch);
         let mut prefix = OsString::from("TMPPREFIX=");
         prefix.push(scratch.join("zsh"));
-        let mut command = crate::spawn::command("/usr/bin/env");
+        let mut command = crate::spawn::command(crate::spawn::env());
         command
             .arg(temp)
             .arg(prefix)
@@ -465,7 +465,7 @@ mod tests {
                 policy.write.contains(&claude_tmp),
                 "{role:?}: {claude_tmp:?}"
             );
-            assert_eq!(command.get_program(), "/usr/bin/env");
+            assert_eq!(command.get_program(), crate::spawn::env().as_os_str());
             let mut words = command.get_args();
             let temp = words.next().unwrap().to_str().unwrap();
             let folder = PathBuf::from(temp.strip_prefix("TMPDIR=").expect(temp));
@@ -599,7 +599,7 @@ mod tests {
         let temp = format!("TMPDIR={}", w.path("worker/settings.tmp").display());
         let prefix = format!("TMPPREFIX={}", w.path("worker/settings.tmp/zsh").display());
         let claude = w.path("claude");
-        assert_eq!(command.get_program(), "/usr/bin/env");
+        assert_eq!(command.get_program(), crate::spawn::env().as_os_str());
         assert_eq!(
             args,
             [

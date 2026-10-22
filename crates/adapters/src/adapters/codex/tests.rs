@@ -174,7 +174,7 @@ fn only_a_worker_runs_commands_and_a_call_with_no_fence_writes_no_file() {
         assert_eq!(hooks[0]["matcher"].as_str(), Some("^apply_patch$"));
         // The hook refuses as Codex reads a refusal: exit 2, the reason on stderr.
         let refuse = hooks[0]["hooks"][0]["command"].as_str().unwrap();
-        let ran = std::process::Command::new("sh")
+        let ran = std::process::Command::new(crate::spawn::sh())
             .args(["-c", refuse])
             .output()
             .unwrap();

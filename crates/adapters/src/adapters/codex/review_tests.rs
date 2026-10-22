@@ -39,7 +39,7 @@ fn a_codex_reviewer_with_no_tests_folder_may_patch_nothing() {
     assert_eq!(hooks[0]["matcher"].as_str(), Some("^apply_patch$"));
     // The hook refuses as Codex reads a refusal: exit 2, the reason on stderr.
     let refuse = hooks[0]["hooks"][0]["command"].as_str().unwrap();
-    let ran = std::process::Command::new("sh")
+    let ran = std::process::Command::new(crate::spawn::sh())
         .args(["-c", refuse])
         .output()
         .unwrap();
