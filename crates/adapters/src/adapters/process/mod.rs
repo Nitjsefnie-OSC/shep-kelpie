@@ -1,31 +1,35 @@
-//! Child processes the runner starts, each leading a process group
+//! Child processes the runner starts, each leading a tree
 //!
-//! The group lets one call be ended with whatever it spawned, at its
-//! ceiling or when its ending is asked. A stop is shep's: the runner sends
-//! each group SIGTERM and exits, and shep's stop ends every lamb it leaves. Only this module reaps the
+//! The tree, a process group on Unix and a job object on Windows, lets one
+//! call be ended with whatever it spawned, at its
+//! ceiling or when its ending is asked. A stop is shep's: the runner asks
+//! each tree to end and exits, and shep's stop ends every lamb it leaves. Only this module reaps the
 //! children, and only under the lock, so a signalled pid is never a reused one.
 
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, Read, Write};
-use std::os::unix::process::CommandExt;
 use std::path::Path;
-use std::process::{Child, ChildStdin, Command, ExitStatus, Output, Stdio};
+use std::process::{ChildStdin, Command, ExitStatus, Output, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::thread;
 use std::time::{Duration, Instant};
 
+#[cfg(unix)]
 use rustix::fs::{OFlags, fcntl_setfl};
 
 use self::record::{CallFiles, Recorded};
 use crate::ports::{AgentCall, Ending};
+use crate::tree::{Signal, Tree};
 
 mod adopt;
 pub(super) mod record;
+mod stop;
 
 use self::adopt::Finishing;
 pub use self::adopt::{Sealed, end_groups};
+pub(super) use self::stop::{Kept, stop_child};
 
 /// How often a running child is checked for its exit
 const POLL: Duration = Duration::from_millis(50);
@@ -68,9 +72,9 @@ pub(super) struct Processes(Arc<Mutex<Running>>);
 struct Running {
     stopping: bool,
     next: u64,
-    children: Vec<(u64, Child)>,
+    children: Vec<(u64, Kept)>,
     // The process groups of calls another image started, which are not
-    // `Child` values here
+    // `Child` values here. A handover is an exec, which Windows has none of.
     adopted: Vec<u32>,
     // Set while a handover is under way, when no child is reaped
     sealed: bool,
@@ -213,41 +217,34 @@ impl Processes {
             ),
             None => (Stdio::piped(), Stdio::piped()),
         };
-        // Its own process group, led by its own pid, so a program it spawns
-        // and leaves behind (a build, a test run) is reachable by signalling
-        // the group, not just the one pid this struct tracks.
         let stdin = match input.is_empty() {
             true => Stdio::null(),
             false => Stdio::piped(),
         };
-        let mut child = command
-            .stdin(stdin)
-            .stdout(out)
-            .stderr(err)
-            .process_group(0)
-            .spawn()
-            .map_err(RunError::Io)?;
-        let pid = child.id();
+        // Its own tree, so a program it spawns and leaves behind (a build, a
+        // test run) is reachable through it, not just the one pid this struct tracks.
+        let mut kept =
+            Kept::spawn(command.stdin(stdin).stdout(out).stderr(err)).map_err(RunError::Io)?;
+        let pid = kept.child.id();
         // Written off this thread: a child that never reads leaves the write
         // waiting, and the wait below is what ends the child at its deadline.
         // Dropped on every way out, which stops the write whoever holds the pipe.
-        let _feeder = child
+        let _feeder = kept
+            .child
             .stdin
             .take()
             .map(|stdin| Feeder::start(stdin, input.to_vec()));
-        let stdout = drain(child.stdout.take());
-        let stderr = drain(child.stderr.take());
+        let stdout = drain(kept.child.stdout.take());
+        let stderr = drain(kept.child.stderr.take());
         let id = {
             let mut running = self.lock();
             if running.stopping {
-                signal_group(pid, "KILL");
-                let _ = child.kill();
-                let _ = child.wait();
+                kept.kill();
                 return Err(RunError::Stopped);
             }
             running.next += 1;
             let id = running.next;
-            running.children.push((id, child));
+            running.children.push((id, kept));
             id
         };
         let mut recorded = files.as_ref().and_then(|files| {
@@ -296,16 +293,16 @@ impl Processes {
         limit: Duration,
         wanted: &dyn Fn(&str) -> bool,
     ) -> Result<Option<String>, RunError> {
-        let mut child = command
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .process_group(0)
-            .spawn()
-            .map_err(RunError::Io)?;
-        let stdin = child.stdin.take();
-        let lines = read_lines(child.stdout.take());
-        let id = self.keep(child)?;
+        let mut kept = Kept::spawn(
+            command
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null()),
+        )
+        .map_err(RunError::Io)?;
+        let stdin = kept.child.stdin.take();
+        let lines = read_lines(kept.child.stdout.take());
+        let id = self.keep(kept)?;
         // Dropped only once the answer is in: the program may exit on EOF.
         let written = stdin.map(|mut stdin| stdin.write_all(input.as_bytes()).map(|()| stdin));
         let deadline = Instant::now() + limit;
@@ -330,55 +327,53 @@ impl Processes {
         answer
     }
 
-    // Keeps `child` where `stop` reaches it, or ends it if the runner is stopping.
-    fn keep(&self, mut child: Child) -> Result<u64, RunError> {
+    // Keeps `kept` where `stop` reaches it, or ends it if the runner is stopping.
+    fn keep(&self, mut kept: Kept) -> Result<u64, RunError> {
         let mut running = self.lock();
         if running.stopping {
-            stop_child(&mut child, Duration::ZERO);
+            stop_child(&mut kept, Duration::ZERO);
             return Err(RunError::Stopped);
         }
         running.next += 1;
         let id = running.next;
-        running.children.push((id, child));
+        running.children.push((id, kept));
         Ok(id)
     }
 
     /// Stops child `id`, and whatever it spawned
     ///
-    /// Its group gets SIGTERM, then SIGKILL if any of it is still running
+    /// Its tree is asked to end, then killed if any of it is still running
     /// after a grace period.
     pub(super) fn end(&self, id: u64) {
-        let Some(pid) = self.with_child(id, |child| child.id()) else {
+        if self
+            .with_child(id, |kept| kept.send(Signal::Terminate))
+            .is_none()
+        {
             return;
-        };
-        signal_group(pid, "TERM");
+        }
         let deadline = Instant::now() + END_GRACE;
         while Instant::now() < deadline {
-            let exited = self.with_child(id, |child| matches!(child.try_wait(), Ok(Some(_))));
-            // A zombie leader still counts as a member, so the group is
-            // asked about once the leader is reaped.
-            if exited.unwrap_or(true) && !group_running(pid) {
+            // A child gone from the list was reaped by another thread.
+            if self.with_child(id, Kept::ended).unwrap_or(true) {
                 self.forget(id);
                 return;
             }
             thread::sleep(POLL);
         }
-        signal_group(pid, "KILL");
-        if let Some(mut child) = self.forget(id) {
-            let _ = child.kill();
-            let _ = child.wait();
+        if let Some(mut kept) = self.forget(id) {
+            kept.kill();
         }
     }
 
     // Runs `f` on child `id` under the lock, while it is listed.
-    fn with_child<T>(&self, id: u64, f: impl FnOnce(&mut Child) -> T) -> Option<T> {
+    fn with_child<T>(&self, id: u64, f: impl FnOnce(&mut Kept) -> T) -> Option<T> {
         let mut running = self.lock();
-        let child = running.children.iter_mut().find(|(i, _)| *i == id);
-        child.map(|(_, child)| f(child))
+        let kept = running.children.iter_mut().find(|(i, _)| *i == id);
+        kept.map(|(_, kept)| f(kept))
     }
 
     // Takes child `id` off the list.
-    fn forget(&self, id: u64) -> Option<Child> {
+    fn forget(&self, id: u64) -> Option<Kept> {
         let mut running = self.lock();
         let at = running.children.iter().position(|(i, _)| *i == id)?;
         Some(running.children.remove(at).1)
@@ -389,7 +384,7 @@ impl Processes {
         self.lock().stopping
     }
 
-    /// Refuses new children, sends each running one's group SIGTERM, and
+    /// Refuses new children, asks each running one's tree to end, and
     /// leaves the rest to shep
     ///
     /// shep's stop ends every lamb once the runner exits, but finds them by
@@ -399,11 +394,11 @@ impl Processes {
     pub(super) fn stop(&self) {
         let mut running = self.lock();
         running.stopping = true;
-        for (_, child) in &running.children {
-            signal_group(child.id(), "TERM");
+        for (_, kept) in &mut running.children {
+            kept.send(Signal::Terminate);
         }
         for pgid in &running.adopted {
-            signal_group(*pgid, "TERM");
+            Tree::from_group(*pgid).send(Signal::Terminate);
         }
     }
 
@@ -430,7 +425,12 @@ impl Processes {
                 // Checked before the deadline below, so a child that has
                 // already exited by the time a poll lands is never reported
                 // as timed out, however close the two were.
-                if let Some(status) = running.children[at].1.try_wait().map_err(RunError::Io)? {
+                if let Some(status) = running.children[at]
+                    .1
+                    .child
+                    .try_wait()
+                    .map_err(RunError::Io)?
+                {
                     running.children.remove(at);
                     running.finishing += 1;
                     finishing.counted = true;
@@ -495,53 +495,6 @@ impl Until<'_> {
     }
 }
 
-// Sends `signal` ("TERM" or "KILL") to the process group `pid` leads, which
-// `process_group(0)` at spawn made it the leader of.
-//
-// Not `kill -<signal> -<pid>`: measured on procps-ng 4.0.2 (Debian
-// bookworm), that parses without error and signals nothing, because a
-// second `-N`-shaped argument after a signal spec is read as another signal
-// spec, leaving no pid to send to at all. `pkill -<signal> -g <pgid>` names
-// the process group through its own flag instead of through a negative pid,
-// and was measured to reach the group leader and a process it had spawned,
-// on both procps-ng 4.0.2 and macOS's BSD pkill.
-fn signal_group(pgid: u32, signal: &str) {
-    let _ = crate::spawn::command("pkill")
-        .args([format!("-{signal}"), "-g".to_owned(), pgid.to_string()])
-        .stdin(Stdio::null())
-        .status();
-}
-
-fn group_running(pgid: u32) -> bool {
-    crate::spawn::command("pgrep")
-        .args(["-g", &pgid.to_string()])
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .status()
-        .is_ok_and(|s| s.success())
-}
-
-// SIGTERM to `child`'s whole process group, then SIGKILL once `grace` has
-// passed with any of it still running. A leader that exits on SIGTERM can
-// leave a member that ignores it, so the wait is for the group, and the
-// leader is reaped on the way since a zombie still counts as a member.
-// `child.kill()` also runs as a fallback for a system with no `pkill` on
-// `PATH`, though that alone would miss anything the child had spawned.
-pub(super) fn stop_child(child: &mut Child, grace: Duration) {
-    let pid = child.id();
-    signal_group(pid, "TERM");
-    let deadline = Instant::now() + grace;
-    while Instant::now() < deadline {
-        if matches!(child.try_wait(), Ok(Some(_))) && !group_running(pid) {
-            return;
-        }
-        thread::sleep(POLL);
-    }
-    signal_group(pid, "KILL");
-    let _ = child.kill();
-    let _ = child.wait();
-}
-
 // A child's stdin being written, off the calling thread, until all of it is
 // in or the feeder is dropped. The pipe is non-blocking, so the thread
 // notices a drop between tries, and a drop returns once the thread is gone.
@@ -558,6 +511,7 @@ impl Feeder {
     // Counts the write in `count`, which a test owns to read alone
     fn start_counted(mut stdin: ChildStdin, input: Vec<u8>, count: &'static AtomicUsize) -> Self {
         // If it cannot be set the write blocks, as a plain one does.
+        #[cfg(unix)]
         let _ = fcntl_setfl(&stdin, OFlags::NONBLOCK);
         let cancel = Arc::new(AtomicBool::new(false));
         let stop = Arc::clone(&cancel);
@@ -646,7 +600,7 @@ fn read_lines(pipe: Option<impl Read + Send + 'static>) -> Receiver<String> {
     lines
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
 
@@ -975,7 +929,7 @@ mod tests {
             "the stop ended a call"
         );
         for pid in pids {
-            signal_group(pid, "KILL");
+            Tree::from_group(pid).send(Signal::Kill);
         }
         for _ in 0..2 {
             let result = finished

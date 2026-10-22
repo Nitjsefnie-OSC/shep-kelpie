@@ -50,11 +50,7 @@ fn pids(dir: &tempfile::TempDir) -> Vec<String> {
 }
 
 fn running(pid: &str) -> bool {
-    crate::spawn::command("kill")
-        .args(["-0", pid])
-        .stderr(Stdio::null())
-        .status()
-        .is_ok_and(|s| s.success())
+    pid.parse().is_ok_and(crate::tree::alive)
 }
 
 #[test]
@@ -219,8 +215,23 @@ fn dropping_the_bridge_stops_the_server_and_removes_the_socket() {
 
 // Serves one connection of `server` over a pair of sockets, which binds nothing.
 fn served_once(server: &Server) {
+    served_until(server, "");
+}
+
+// As `served_once`, with the client holding its end open until the server's
+// log says `wanted`, so a server is not asked to end before it has spoken.
+fn served_until(server: &Server, wanted: &str) {
     let (near, far) = UnixStream::pair().unwrap();
-    drop(far);
+    let (log, wanted) = (server.cwd.join(LOG), wanted.to_owned());
+    let client = thread::spawn(move || {
+        let started = Instant::now();
+        while started.elapsed() < crate::test::CALL_PATIENCE
+            && !std::fs::read_to_string(&log).is_ok_and(|text| text.contains(&wanted))
+        {
+            thread::sleep(Duration::from_millis(10));
+        }
+        drop(far);
+    });
     let held = Mutex::new(None);
     serve(
         near,
@@ -229,6 +240,7 @@ fn served_once(server: &Server) {
         &held,
         &AtomicBool::new(false),
     );
+    client.join().unwrap();
 }
 
 #[test]
@@ -246,7 +258,7 @@ fn what_a_server_prints_on_stderr_is_kept_in_its_log() {
     let (dir, mut server) = world();
     let crashes = Fake::new().prints_to_stderr("Error: no browser").exits(1);
     server.command = crate::test::write_fake(dir.path(), "crashes", &crashes);
-    served_once(&server);
+    served_until(&server, "Error: no browser");
     let log = std::fs::read_to_string(server.cwd.join("server.log")).unwrap();
     assert!(log.contains("Error: no browser"), "{log}");
 }

@@ -7,7 +7,6 @@
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
 
 /// The upgrade lock, held until it is dropped
 #[derive(Debug)]
@@ -69,16 +68,7 @@ fn held(path: &Path, by: &str) -> String {
     )
 }
 
-// Whether a process with this pid exists.
-pub(super) fn alive(pid: u32) -> bool {
-    crate::spawn::command("kill")
-        .args(["-0", &pid.to_string()])
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .is_ok_and(|status| status.success())
-}
+pub(super) use crate::tree::alive;
 
 #[cfg(test)]
 mod tests {

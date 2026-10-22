@@ -22,6 +22,7 @@ use shep_kelpie_core::{coderabbit, codex, cubic, local_paths, work_item};
 // The leaf crates, each module kept under the name it had here
 use shep_kelpie_facts::tool_error;
 use shep_kelpie_process::{spawn, tools, worktree};
+use shep_kelpie_tree::tree;
 use shep_kelpie_trim::trim;
 
 #[cfg(any(test, feature = "test-support"))]

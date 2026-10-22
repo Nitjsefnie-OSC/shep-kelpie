@@ -127,14 +127,7 @@ fn dropping_a_server_ends_what_it_started() {
     let run = run_of(dir.path(), &script, unused(), Duration::from_millis(1500));
     let started = servers(&OpenSandbox::default()).start(&run).unwrap();
     let pid = std::fs::read_to_string(&marker).unwrap().trim().to_owned();
-    let alive = |pid: &str| {
-        Command::new("kill")
-            .args(["-0", pid])
-            .output()
-            .unwrap()
-            .status
-            .success()
-    };
+    let alive = |pid: &str| pid.parse().is_ok_and(crate::tree::alive);
     assert!(alive(&pid), "the server's child was not running");
     drop(started);
     thread::sleep(Duration::from_millis(200));

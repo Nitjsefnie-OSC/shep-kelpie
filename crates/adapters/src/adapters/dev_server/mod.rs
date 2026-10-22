@@ -1,20 +1,19 @@
 //! A project's dev server, started inside a sandbox of its own
 //!
-//! The server is a child of the runner in a process group of its own, so shep's
+//! The server is a child of the runner in a process tree of its own, so shep's
 //! stop reaches it (ADR 0005). Its output goes to a file in the build folder.
-//! The [`Started`] it returns ends the group, TERM and then KILL, when it is
+//! The [`Started`] it returns ends the tree, asking and then killing, when it is
 //! dropped. Ready is an answer on the port, on either loopback address.
 
 use std::fs::{File, OpenOptions};
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, TcpListener, TcpStream};
-use std::os::unix::process::CommandExt;
 use std::path::Path;
-use std::process::{Child, Stdio};
+use std::process::Stdio;
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use super::process::stop_child;
+use super::process::{Kept, stop_child};
 use crate::ports::{DevRun, DevServers, Sandbox, Started};
 
 /// How long a server gets to end on SIGTERM before its group is killed
@@ -55,8 +54,8 @@ fn answers(port: u16) -> bool {
         .any(|address| TcpStream::connect_timeout(address, ASK_FOR).is_ok())
 }
 
-// A server's process group, ended when it is dropped.
-struct Group(Child);
+// A server's process tree, ended when it is dropped.
+struct Group(Kept);
 
 impl Drop for Group {
     fn drop(&mut self) {
@@ -102,19 +101,14 @@ impl DevServers for SandboxedServers {
             .wrap(&run.policy, &run.settings, &command)
             .map_err(|e| e.to_string())?;
         let (out, err) = log_of(&run.log)?;
-        wrapped
-            .stdin(Stdio::null())
-            .stdout(out)
-            .stderr(err)
-            .process_group(0);
-        let child = wrapped
-            .spawn()
-            .map_err(|e| format!("cannot start {}: {e}", run.program))?;
-        let mut group = Group(child);
+        wrapped.stdin(Stdio::null()).stdout(out).stderr(err);
+        let kept =
+            Kept::spawn(&mut wrapped).map_err(|e| format!("cannot start {}: {e}", run.program))?;
+        let mut group = Group(kept);
         let deadline = Instant::now() + run.ready_within;
         loop {
             // An answer counts only while the server started here is running.
-            let running = matches!(group.0.try_wait(), Ok(None));
+            let running = matches!(group.0.child.try_wait(), Ok(None));
             if running && answers(run.port) {
                 return Ok(Started::new(true, group));
             }

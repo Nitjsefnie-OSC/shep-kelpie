@@ -20,7 +20,6 @@ use std::time::Duration;
 use serde_json::Value;
 use shep_client::shep_core::protocol::request::DogSource;
 use shep_client::shep_core::status::ProcStatus;
-use tokio::signal::unix::{SignalKind, signal};
 use tokio::time::Instant;
 
 use super::drain::{self, Purpose};
@@ -29,6 +28,7 @@ use crate::dog;
 use crate::flock::control::{Answered, trigger};
 use crate::flock::{flock, kelpie_sheep, resume, script, tables};
 use crate::home::stamp_of;
+use crate::interrupt::{Caught, Interrupts};
 use crate::shepherd::Connection;
 use crate::ticket::TicketId;
 
@@ -67,7 +67,7 @@ impl Default for Patience {
 /// What stops an upgrade part way, other than a failure
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Interrupt {
-    /// Ctrl-C or SIGTERM, from the runners' restarts on
+    /// Ctrl-C or SIGTERM (Ctrl-Break on Windows), from the runners' restarts on
     Signals,
     /// Nothing
     Never,
@@ -79,19 +79,10 @@ pub enum Interrupt {
 /// Waits for `interrupt`, and names it
 pub(crate) async fn interrupted(interrupt: Interrupt) -> &'static str {
     match interrupt {
-        Interrupt::Signals => {
-            let listen = |kind| signal(kind).ok();
-            match (
-                listen(SignalKind::interrupt()),
-                listen(SignalKind::terminate()),
-            ) {
-                (Some(mut ctrl_c), Some(mut term)) => tokio::select! {
-                    _ = ctrl_c.recv() => "Ctrl-C",
-                    _ = term.recv() => "SIGTERM",
-                },
-                _ => std::future::pending().await,
-            }
-        }
+        Interrupt::Signals => match Interrupts::listen(&[Caught::Interrupt, Caught::Terminate]) {
+            Ok(mut interrupts) => interrupts.recv().await.name(),
+            Err(_) => std::future::pending().await,
+        },
         Interrupt::Never => std::future::pending().await,
         #[cfg(test)]
         Interrupt::After(after) => {
