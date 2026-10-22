@@ -8,6 +8,8 @@ use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
+use shep_client::PROTOCOL_VERSION;
+
 use crate::shepherd::SHEP_VERSION;
 
 /// How long a build has to answer `version --json`
@@ -65,8 +67,11 @@ impl From<BuildError> for String {
 pub struct Build {
     /// Kelpie's own version
     pub kelpie: String,
-    /// The shep version kelpie was made with, which the shepherd's minor must match
+    /// The shep version kelpie was made with, the earliest shepherd it takes
     pub shep: String,
+    /// The shep protocol kelpie speaks, absent from a build from before it said
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub protocol: Option<u32>,
 }
 
 impl Build {
@@ -75,6 +80,7 @@ impl Build {
         Self {
             kelpie: env!("CARGO_PKG_VERSION").to_owned(),
             shep: SHEP_VERSION.to_owned(),
+            protocol: Some(PROTOCOL_VERSION),
         }
     }
 
@@ -186,6 +192,7 @@ mod tests {
         let json = serde_json::to_value(Build::this()).unwrap();
         assert_eq!(json["kelpie"], env!("CARGO_PKG_VERSION"));
         assert_eq!(json["shep"], SHEP_VERSION);
+        assert_eq!(json["protocol"], PROTOCOL_VERSION);
     }
 
     #[test]

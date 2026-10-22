@@ -5,7 +5,7 @@ use std::os::unix::fs::PermissionsExt;
 use super::*;
 
 #[tokio::test]
-async fn a_build_for_another_shep_minor_stops_before_anything_changes() {
+async fn a_build_for_a_later_shep_than_the_shepherd_stops_before_anything_changes() {
     let mut rig = Rig::new().await;
     let new = rig.build("new", "0.4.0", "0.16.0");
 
@@ -38,20 +38,27 @@ async fn a_build_for_another_shep_minor_stops_before_anything_changes() {
 }
 
 #[tokio::test]
-async fn a_build_for_an_older_minor_than_the_shepherd_says_to_install_another_kelpie() {
-    let rig = Rig::on("0.16.1", false).await;
-    let new = rig.build("new", "0.3.0", "0.15.0");
-    let err = rig.install(&new).await.0.unwrap_err();
-    assert!(err.contains("install a kelpie built for"), "{err}");
-    assert_eq!(rig.installed_says(), "0.1.0 for shep 0.15.0");
+async fn a_shepherd_on_a_later_patch_or_minor_than_the_build_is_taken() {
+    for running in ["0.15.3", "0.16.1"] {
+        let rig = Rig::on(running, false).await;
+        let new = rig.build("new", "0.3.0", "0.15.0");
+        rig.install(&new).await.0.unwrap();
+        assert_eq!(rig.installed_says(), "0.3.0 for shep 0.15.0", "{running}");
+    }
 }
 
 #[tokio::test]
-async fn a_newer_patch_of_the_same_minor_is_taken() {
-    let rig = Rig::on("0.15.3", false).await;
+async fn a_build_below_the_shepherd_s_oldest_protocol_says_to_install_another_kelpie() {
+    let rig = Rig::on("0.16.1", false).await;
+    rig.shepherd.accepts_from(PROTOCOL_VERSION + 1);
     let new = rig.build("new", "0.3.0", "0.15.0");
-    rig.install(&new).await.0.unwrap();
-    assert_eq!(rig.installed_says(), "0.3.0 for shep 0.15.0");
+    let err = rig.install(&new).await.0.unwrap_err();
+    assert!(
+        err.contains("runs shep 0.16.1, which it would refuse"),
+        "{err}"
+    );
+    assert!(err.contains("install a kelpie built for"), "{err}");
+    assert_eq!(rig.installed_says(), "0.1.0 for shep 0.15.0");
 }
 
 #[tokio::test]
@@ -74,16 +81,23 @@ async fn a_build_for_a_later_patch_than_the_shepherd_says_to_move_the_shepherd_f
 
 #[tokio::test]
 async fn a_rollback_to_a_build_the_shepherd_would_refuse_stops_there() {
-    // The shepherd moved to 0.16 before the upgrade to a 0.16 build, so the
-    // build kept as the previous is made for the shep line it left.
+    // After the upgrade the shepherd stopped accepting the protocol the build
+    // kept as the previous speaks.
     let mut rig = Rig::on("0.16.0", false).await;
+    std::fs::remove_file(&rig.installed).unwrap();
+    write_script(
+        &rig.installed,
+        &speaking("0.1.0", "0.15.0", PROTOCOL_VERSION - 1),
+    );
     let new = rig.build("new", "0.4.0", "0.16.0");
     rig.install(&new).await.0.unwrap();
     rig.restarts();
+    rig.shepherd.accepts_from(PROTOCOL_VERSION);
 
     let err = rig.upgrade(Action::Rollback).await.0.unwrap_err();
     assert!(err.contains("shep 0.15.0"), "{err}");
     assert!(err.contains("runs shep 0.16.0"), "{err}");
+    assert!(err.contains("install a kelpie built for"), "{err}");
     assert_eq!(rig.restarts(), Vec::<String>::new());
     assert_eq!(rig.installed_says(), "0.4.0 for shep 0.16.0");
 }
@@ -245,7 +259,7 @@ async fn a_rollback_to_a_build_from_before_the_verb_goes_ahead_and_says_so() {
 
     let (ran, said) = rig.upgrade(Action::Rollback).await;
     ran.unwrap();
-    assert!(said[0].contains("minor is unchecked"), "{said:?}");
+    assert!(said[0].contains("version is unchecked"), "{said:?}");
     assert_eq!(rig.restarts(), ["kelpie", "koji"]);
 }
 
@@ -317,6 +331,7 @@ fn a_release_must_hold_the_kelpie_it_names() {
     let build = Build {
         kelpie: "0.3.0".into(),
         shep: "0.15.0".into(),
+        protocol: None,
     };
     check_release("0.3.0", &build).unwrap();
     check_release("v0.3.0", &build).unwrap();

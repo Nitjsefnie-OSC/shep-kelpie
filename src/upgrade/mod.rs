@@ -10,9 +10,9 @@
 //!
 //! The new build is asked for its shep line (`version --json`) and the
 //! shepherd for its version before any file or sheep changes. A shepherd on
-//! another minor, or an earlier patch than the build's, stops the upgrade
-//! there, with the steps to take, because the build refuses that shepherd
-//! and would come up into that refusal. One upgrade runs at a time.
+//! an earlier shep than the build's, or one that no longer accepts the
+//! build's protocol, stops the upgrade there, with the steps to take, because
+//! the build would come up into that refusal. One upgrade runs at a time.
 //!
 //! Each runner is handed over to the new build in place, keeping its calls
 //! running. One that cannot be is drained before its restart, so the restart
@@ -34,10 +34,11 @@ use std::process::ExitCode;
 use install::{Change, Layout};
 use lock::Lock;
 use restart::{Interrupt, Patience, Plan};
+use shep_client::shep_core::protocol::HelloAck;
 
 use crate::home::Build;
 use crate::shep_home;
-use crate::shepherd::{self, Dial, release_line};
+use crate::shepherd::{self, Dial};
 
 /// What the maintainer asked `upgrade` to do
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -165,7 +166,7 @@ pub async fn run(
     let _lock = Lock::take(scene.kelpie_home)?;
     // Before a build is fetched: no shepherd, no upgrade.
     let client = connect(scene).await?;
-    let running = client.daemon().daemon_version.clone();
+    let daemon = client.daemon();
     // Before a build is fetched: every sheep to restart runs the installed path.
     let early = Plan::read(&client, say).await?;
     let layout = Layout::new(scene.kelpie_home, &early.program);
@@ -183,7 +184,7 @@ pub async fn run(
             // not recorded as the one restarted onto.
             let taken = seen::stamp(&layout)?;
             let build = Build::of(layout.installed())?;
-            fits(&build, &running, scene, layout.installed())?;
+            fits(&build, &daemon, scene, layout.installed())?;
             (None, Some(build), Some(taken))
         }
         Action::Install(source) => {
@@ -193,17 +194,17 @@ pub async fn run(
             if let Source::Release(version) = source {
                 check_release(version, &build)?;
             }
-            fits(&build, &running, scene, &binary)?;
+            fits(&build, &daemon, scene, &binary)?;
             (Some(staged), Some(build), None)
         }
         Action::Rollback => {
             let staged = install::stage_previous(&layout)?;
             match Build::of(staged.path()) {
-                Ok(build) => fits(&build, &running, scene, &layout.previous())?,
+                Ok(build) => fits(&build, &daemon, scene, &layout.previous())?,
                 // Only a build from before `version --json` cannot say, and the
                 // maintainer asked for it by name. One that does not run is refused.
                 Err(e) if e.predates_version() => say(format!(
-                    "{} does not say which shep it is made for, so the shepherd's minor is unchecked",
+                    "{} does not say which shep it is made for, so the shepherd's version is unchecked",
                     layout.previous().display()
                 )),
                 Err(e) => return Err(e.into()),
@@ -374,18 +375,19 @@ fn fetch_source(scene: &Scene<'_>, source: &Source) -> Result<PathBuf, String> {
     }
 }
 
-// Whether `build` takes the shepherd at `running`, else what to do about it.
-// `binary` is the build, which runs its own upgrade once the shepherd is moved.
-fn fits(build: &Build, running: &str, scene: &Scene<'_>, binary: &Path) -> Result<(), String> {
+// Whether `build` and the shepherd `daemon` take each other, else what to do
+// about it. `binary` is the build, which runs its own upgrade once the
+// shepherd is moved.
+fn fits(build: &Build, daemon: &HelloAck, scene: &Scene<'_>, binary: &Path) -> Result<(), String> {
     let shep_home = scene.shep_home;
-    if shepherd::takes(&build.shep, running) {
+    let running = &daemon.daemon_version;
+    let too_old = daemon
+        .min_supported
+        .zip(build.protocol)
+        .is_some_and(|(oldest, spoken)| spoken < oldest);
+    if shepherd::takes(&build.shep, running) && !too_old {
         return Ok(());
     }
-    let number = |version: &str| {
-        let line = release_line(version);
-        let part = |p: Option<&str>| p.and_then(|p| p.parse::<u64>().ok());
-        part(line.0).zip(part(line.1)).zip(shepherd::patch(version))
-    };
     let shepherd_first = format!(
         "\n  1. upgrade shep and reload its shepherd\n  2. run the new build's own upgrade: \
          `SHEP_HOME={1} {0} upgrade --binary {0}`",
@@ -393,9 +395,9 @@ fn fits(build: &Build, running: &str, scene: &Scene<'_>, binary: &Path) -> Resul
         shep_home.display()
     );
     let build_first = "install a kelpie built for the shepherd's shep line instead".to_owned();
-    let what_to_do = match (number(running), number(&build.shep)) {
-        (Some(running), Some(built)) if built >= running => shepherd_first,
-        (Some(_), Some(_)) => build_first,
+    let what_to_do = match (shepherd::number(running), shepherd::number(&build.shep)) {
+        _ if too_old => build_first,
+        (Some(_), Some(_)) => shepherd_first,
         _ => format!("either:{shepherd_first}\n  or {build_first}"),
     };
     Err(format!(
