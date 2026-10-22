@@ -155,6 +155,18 @@ fn the_issues_setting_asks_files_or_skips_and_asks_when_absent() {
 }
 
 #[test]
+fn queued_minutes_is_a_positive_count_and_60_when_absent() {
+    assert_eq!(parse(EXAMPLE).unwrap().ci.queued_minutes.get(), 60);
+    let with =
+        |value: &str| EXAMPLE.replace("queued_minutes = 60", &format!("queued_minutes = {value}"));
+    assert_eq!(parse(&with("15")).unwrap().ci.queued_minutes.get(), 15);
+    let err = parse_err(&with("0"));
+    assert!(err.contains("`ci.queued_minutes = 0`"), "{err}");
+    let absent = EXAMPLE.replace("queued_minutes = 60\n", "");
+    assert_eq!(parse(&absent).unwrap().ci.queued_minutes.get(), 60);
+}
+
+#[test]
 fn fix_attempts_is_a_cap_from_0_or_minus_1_for_none_and_none_when_absent() {
     let with =
         |value: &str| EXAMPLE.replace("fix_attempts = -1", &format!("fix_attempts = {value}"));

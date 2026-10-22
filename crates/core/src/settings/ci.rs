@@ -30,6 +30,17 @@ pub struct Ci {
     /// when absent.
     #[serde(default)]
     pub fix_attempts: FixAttempts,
+    /// How many minutes a check may sit queued before kelpie reruns its
+    /// workflow run
+    ///
+    /// GitHub sometimes leaves one job of a finished run queued, and it never
+    /// starts. A work item's check still queued after this long, counted from
+    /// when kelpie began waiting on the head, gets its whole run rerun once,
+    /// and the count starts again from the rerun. Still queued after that,
+    /// kelpie raises a `check-queued` ruling. A check that started is never
+    /// rerun for being slow. 60 when absent.
+    #[serde(default = "default_queued_minutes")]
+    pub queued_minutes: NonZeroU32,
     /// A command that runs one failing test a reviewer wrote, with the test's
     /// path at `{test}` or its file stem at `{name}`, such as
     /// `cargo test --test {name}`
@@ -39,6 +50,11 @@ pub struct Ci {
     /// for one.
     #[serde(default)]
     pub test_command: Option<TestCommand>,
+}
+
+/// An hour, which no job of a healthy run waits for a runner past
+fn default_queued_minutes() -> NonZeroU32 {
+    NonZeroU32::new(60).expect("60 is not 0")
 }
 
 /// A command that runs one test file: it holds `{test}`, the file's path in

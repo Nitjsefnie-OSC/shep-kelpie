@@ -10,6 +10,7 @@ use std::path::Path;
 
 use super::{Action, Answer, RuleError};
 use crate::fence;
+use crate::ports::Rerun;
 use crate::runner::Runner;
 use crate::runner::gate::short;
 use crate::runner::panel::Answerer;
@@ -39,6 +40,7 @@ impl Action {
 pub(super) enum Act {
     Rerun { head: String },
     Restore { files: Vec<String> },
+    RerunAll { run: u64 },
 }
 
 /// The action `answer` names for a ruling of `kind`, if it names one
@@ -51,6 +53,9 @@ pub(super) fn plan(
     answer: &Answer,
     kind: &RulingKind,
 ) -> Result<Option<Act>, RuleError> {
+    if let (Answer::Yes, RulingKind::Stuck(Stuck::CheckQueued { run, .. })) = (answer, kind) {
+        return Ok(Some(Act::RerunAll { run: *run }));
+    }
     let Answer::Do(action) = answer else {
         return Ok(None);
     };
@@ -102,6 +107,11 @@ impl Runner {
                 let rerun = self.ports.forge.rerun_failed(&self.remote, head);
                 rerun.map_err(|e| RuleError::Act(id, format!("cannot rerun the jobs: {e}")))?;
                 Ok(format!("reran the failed jobs of {}", short(head)))
+            }
+            Act::RerunAll { run } => {
+                let rerun = self.ports.forge.rerun_run(&self.remote, *run, Rerun::All);
+                rerun.map_err(|e| RuleError::Act(id, format!("cannot rerun the run: {e}")))?;
+                Ok(format!("reran run {run}"))
             }
             Act::Restore { files } => {
                 let worktree = worktree.ok_or_else(|| {

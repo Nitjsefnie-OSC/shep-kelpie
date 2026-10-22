@@ -66,6 +66,8 @@ pub enum RulingName {
     Rebase,
     /// CI is still red
     StillRed,
+    /// A check stayed queued after its run was rerun
+    CheckQueued,
     /// The forge refused a merge twice
     MergeRefused,
     /// The pull request was closed
@@ -122,6 +124,7 @@ impl RulingName {
             RulingKind::Stuck(stuck) => match stuck {
                 Stuck::Rebase { .. } => Self::Rebase,
                 Stuck::StillRed { .. } => Self::StillRed,
+                Stuck::CheckQueued { .. } => Self::CheckQueued,
                 Stuck::MergeRefused { .. } => Self::MergeRefused,
                 Stuck::Closed => Self::Closed,
                 Stuck::FixNotPushed { .. } => Self::FixNotPushed,
@@ -147,6 +150,7 @@ impl RulingName {
             Self::FollowUp => "follow-up",
             Self::Rebase => "rebase",
             Self::StillRed => "still-red",
+            Self::CheckQueued => "check-queued",
             Self::MergeRefused => "merge-refused",
             Self::Closed => "closed",
             Self::FixNotPushed => "fix-not-pushed",

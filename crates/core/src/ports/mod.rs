@@ -402,12 +402,13 @@ pub trait Forge: Send + Sync {
     /// failed on `head`.
     fn rerun_failed(&self, repo: &ForgeSlug, head: &str) -> Result<(), ForgeError>;
 
-    /// Reruns the failed jobs of CI run `run`, as the login the forge acts as
+    /// Reruns the jobs of CI run `run` that `rerun` names, as the login the
+    /// forge acts as
     ///
     /// # Errors
     ///
     /// [`ForgeError`] when the forge refuses or cannot be asked.
-    fn rerun_run(&self, repo: &ForgeSlug, run: u64) -> Result<(), ForgeError>;
+    fn rerun_run(&self, repo: &ForgeSlug, run: u64, rerun: Rerun) -> Result<(), ForgeError>;
 
     /// Approves the CI runs on `head` that wait for a maintainer to approve
     /// them, as the login the forge acts as: the first runs of a fork's
@@ -561,8 +562,9 @@ pub enum PullRequestState {
 pub enum Checks {
     /// No check has reported on the head
     None,
-    /// At least one check is still running or queued
-    Pending,
+    /// At least one check is still running or queued, and these check runs
+    /// are still queued: none when every pending check has started
+    Pending(Vec<Queued>),
     /// Every check finished, and none failed
     Passed,
     /// Every check finished and was skipped, as a workflow whose jobs all
@@ -571,6 +573,24 @@ pub enum Checks {
     Skipped,
     /// Every check finished, and these failed
     Failed(Vec<String>),
+}
+
+/// A check run that has not started, as the pull request's rollup lists it
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Queued {
+    /// The check's name
+    pub name: String,
+    /// The workflow run it belongs to, when its link names one
+    pub run: Option<u64>,
+}
+
+/// What `rerun_run` starts again of a workflow run
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Rerun {
+    /// The jobs that failed
+    Failed,
+    /// Every job, as a run does whose job never started
+    All,
 }
 
 /// A label kelpie makes on a project's repo

@@ -639,7 +639,7 @@ fn a_rebase_yes_raised_mid_review_under_auto_is_read_before_any_merge() {
 fn a_review_head_behind_main_whose_checks_report_is_not_rebased() {
     let (rig, runner, head) = pushed();
     rig.land_on_origin("landed.txt");
-    rig.forge.set_checks(&head, Checks::Pending);
+    rig.forge.set_checks(&head, Checks::Pending(Vec::new()));
 
     assert_eq!(step(&runner).unwrap(), None);
     rig.clock.advance(CHECKS_SETTLE);
@@ -663,7 +663,7 @@ fn status_shows_a_ci_wait_with_no_checks_reported() {
     let status = rig.ask(&runner, "status", None);
     assert!(status["work_item"]["phase"]["ci"]["since"].is_number());
 
-    rig.forge.set_checks(&head, Checks::Pending);
+    rig.forge.set_checks(&head, Checks::Pending(Vec::new()));
     rig.clock.advance(CHECKS_SETTLE);
     assert_eq!(step(&runner).unwrap(), None);
     assert_eq!(checks(&rig), serde_json::Value::Null, "a check reports");

@@ -116,6 +116,18 @@ pub(in crate::runner) fn question(
                 fix_turns_had(*turns),
                 reruns(*rerun, &trigger("rerun"))
             ),
+            Stuck::CheckQueued {
+                head, checks, url, ..
+            } => {
+                // A no has no worker to send a note to.
+                return format!(
+                    "{} stayed queued on {about} at {} after its run was rerun: {url}. \
+                     {yes} reruns the run once more and kelpie waits again, and {no} \
+                     leaves it waiting for you to act on the forge.",
+                    checks.join(", "),
+                    short(head)
+                );
+            }
             Stuck::MergeRefused { head, why } => format!(
                 "Kelpie could not merge {about} at {} after catching it up: {why}. \
                  {yes} has kelpie look again and merge once every gate passes",
