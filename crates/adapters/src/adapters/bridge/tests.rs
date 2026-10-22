@@ -49,11 +49,7 @@ fn pids(dir: &tempfile::TempDir) -> Vec<String> {
 }
 
 fn running(pid: &str) -> bool {
-    crate::spawn::command("kill")
-        .args(["-0", pid])
-        .stderr(Stdio::null())
-        .status()
-        .is_ok_and(|s| s.success())
+    pid.parse().is_ok_and(crate::tree::alive)
 }
 
 #[test]

@@ -1,4 +1,3 @@
-use std::os::unix::process::ExitStatusExt;
 use std::path::PathBuf;
 use std::process::ExitStatus;
 use std::sync::Arc;
@@ -100,7 +99,7 @@ const NO_SESSION_STDERR: &str = include_str!("../../../../../fixtures/claude-p-n
 
 fn output(code: i32, stdout: &str, stderr: &str) -> Output {
     Output {
-        status: ExitStatus::from_raw(code << 8),
+        status: crate::test::exited(code),
         stdout: stdout.into(),
         stderr: stderr.into(),
     }

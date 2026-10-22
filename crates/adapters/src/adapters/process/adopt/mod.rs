@@ -14,8 +14,9 @@ use std::time::Instant;
 use shep_handover::ChildExit;
 
 use super::record::{Record, Recorded};
-use super::{END_GRACE, POLL, Processes, RunError, Scrap, group_running, signal_group};
+use super::{END_GRACE, POLL, Processes, RunError, Scrap};
 use crate::ports::{Adopted, Ending};
+use crate::tree::{Signal, Tree};
 
 // Counts a call as being finished while it lives, from its child's reaping
 // to its output read and its record removed
@@ -100,7 +101,7 @@ impl Processes {
         {
             let mut running = self.lock();
             if running.stopping {
-                signal_group(adopted.pid, "KILL");
+                Tree::from_group(adopted.pid).send(Signal::Kill);
                 return Err(RunError::Stopped);
             }
             running.adopted.push(adopted.pid);
@@ -164,14 +165,15 @@ fn reap(pid: u32) -> Receiver<io::Result<ChildExit>> {
 // SIGTERM to the group, then SIGKILL once the grace has passed with the
 // leader still unreaped
 fn end_group(pgid: u32, exited: &Receiver<io::Result<ChildExit>>) {
-    signal_group(pgid, "TERM");
+    let tree = Tree::from_group(pgid);
+    tree.send(Signal::Terminate);
     let deadline = Instant::now() + END_GRACE;
     while Instant::now() < deadline {
         if !matches!(exited.recv_timeout(POLL), Err(RecvTimeoutError::Timeout)) {
             return;
         }
     }
-    signal_group(pgid, "KILL");
+    tree.send(Signal::Kill);
     let _ = exited.recv_timeout(END_GRACE);
 }
 
@@ -181,12 +183,17 @@ fn end_group(pgid: u32, exited: &Receiver<io::Result<ChildExit>>) {
 /// For a runner that took over turns from a previous image and cannot
 /// serve them, so none is left running with no one to finish it.
 pub fn end_groups(pgids: &[u32]) {
-    pgids.iter().for_each(|&pgid| signal_group(pgid, "TERM"));
+    let trees: Vec<Tree> = pgids.iter().map(|&pgid| Tree::from_group(pgid)).collect();
+    trees.iter().for_each(|tree| {
+        tree.send(Signal::Terminate);
+    });
     let deadline = Instant::now() + END_GRACE;
-    while Instant::now() < deadline && pgids.iter().any(|&pgid| group_running(pgid)) {
+    while Instant::now() < deadline && trees.iter().any(Tree::running) {
         thread::sleep(POLL);
     }
-    pgids.iter().for_each(|&pgid| signal_group(pgid, "KILL"));
+    trees.iter().for_each(|tree| {
+        tree.send(Signal::Kill);
+    });
 }
 
 fn status_of(exit: ChildExit) -> ExitStatus {

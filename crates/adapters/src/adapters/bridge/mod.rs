@@ -18,7 +18,6 @@ use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader, Write};
 use std::net::Shutdown;
 use std::os::unix::net::{UnixListener, UnixStream};
-use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -29,7 +28,7 @@ use std::time::Duration;
 use serde_json::json;
 
 use super::forwarder::unguessable;
-use super::process::stop_child;
+use super::process::{Kept, stop_child};
 use crate::bridge::{Filter, Passage};
 use crate::ports::{Bridges, OpenBridge, Playwright};
 pub(crate) use client::{Client, Navigation};
@@ -41,7 +40,7 @@ mod proxy;
 /// The file in a server's folder that its stderr and failures to start are appended to
 const LOG: &str = "server.log";
 
-/// How long a server gets to end on SIGTERM before its group is killed
+/// How long a server gets to end when asked before its tree is killed
 const GRACE: Duration = Duration::from_secs(5);
 
 /// The command that serves one connection, which runs outside the sandbox
@@ -241,7 +240,7 @@ fn launch(domains: &[String], proxy: &Proxy) -> serde_json::Value {
 }
 
 // Serves one connection with a fresh server, filtering both ways, until either
-// end closes. The server runs in its own process group, stopped whole.
+// end closes. The server runs in its own process tree, stopped whole.
 fn serve(
     stream: UnixStream,
     server: &Server,
@@ -254,17 +253,17 @@ fn serve(
         .create(true)
         .append(true)
         .open(&log);
-    let spawned = crate::spawn::command(&server.command)
-        .args(&server.args)
-        .envs(&server.env)
-        .current_dir(&server.cwd)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(appending.map_or_else(|_| Stdio::null(), Stdio::from))
-        .process_group(0)
-        .spawn();
-    let mut child = match spawned {
-        Ok(child) => child,
+    let spawned = Kept::spawn(
+        crate::spawn::command(&server.command)
+            .args(&server.args)
+            .envs(&server.env)
+            .current_dir(&server.cwd)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(appending.map_or_else(|_| Stdio::null(), Stdio::from)),
+    );
+    let mut server_process = match spawned {
+        Ok(kept) => kept,
         Err(e) => {
             let said = format!("cannot start {}: {e}\n", server.command.display());
             let _ = std::fs::OpenOptions::new()
@@ -276,7 +275,7 @@ fn serve(
         }
     };
     let (Ok(back), Ok(held)) = (stream.try_clone(), stream.try_clone()) else {
-        stop_child(&mut child, GRACE);
+        stop_child(&mut server_process, GRACE);
         return;
     };
     *serving.lock().unwrap_or_else(PoisonError::into_inner) = Some(held);
@@ -286,7 +285,7 @@ fn serve(
     }
     let back = Arc::new(Mutex::new(back));
     let replies = Arc::clone(&back);
-    let from_server = child.stdout.take();
+    let from_server = server_process.child.stdout.take();
     let reply_filter = filter.clone();
     let out = thread::spawn(move || {
         let Some(from_server) = from_server else {
@@ -307,7 +306,7 @@ fn serve(
         // the `mcp-connect` behind it, see the end rather than wait on a dead server.
         let _ = (replies.lock().unwrap_or_else(PoisonError::into_inner)).shutdown(Shutdown::Both);
     });
-    if let Some(mut to_server) = child.stdin.take() {
+    if let Some(mut to_server) = server_process.child.stdin.take() {
         let mut lines = BufReader::new(stream);
         let mut line = String::new();
         while lines.read_line(&mut line).is_ok_and(|n| n > 0) {
@@ -327,7 +326,7 @@ fn serve(
             line.clear();
         }
     }
-    stop_child(&mut child, GRACE);
+    stop_child(&mut server_process, GRACE);
     let _ = back
         .lock()
         .unwrap_or_else(PoisonError::into_inner)

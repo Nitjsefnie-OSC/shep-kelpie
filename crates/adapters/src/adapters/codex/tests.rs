@@ -1,5 +1,4 @@
 use std::collections::BTreeMap;
-use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
 use std::process::ExitStatus;
 use std::sync::Arc;
@@ -32,7 +31,7 @@ pub(super) const THREAD: &str = "01a0f7fd-4ed5-7773-80ea-165edc292d8d";
 
 fn output(code: i32, stdout: &str, stderr: &str) -> Output {
     Output {
-        status: ExitStatus::from_raw(code << 8),
+        status: crate::test::exited(code),
         stdout: stdout.into(),
         stderr: stderr.into(),
     }

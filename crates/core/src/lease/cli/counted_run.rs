@@ -385,6 +385,7 @@ fn say(message: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
     use crate::tree::alive;
 
     // A command in its own tree, as `run` starts it.
