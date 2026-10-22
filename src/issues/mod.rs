@@ -436,6 +436,34 @@ fn tail(text: &str) -> String {
     }
 }
 
+/// How many files on an issue's `Touches:` line a piece may reach before the
+/// issue writer is told to split it: the median file count of the merged work
+/// items of 500 to 700 changed lines, where worker compactions jump 4x
+/// (`docs/facts/ticket-scope.md`)
+pub const TOUCHES_SPLIT: usize = 13;
+
+// The paths on the `Touches:` line of `body`, 0 without one. The line may sit in
+// a list or in bold. Paths are the backticked spans, as the issue writer is
+// told to write them, else the comma-separated entries.
+fn touches(body: &str) -> usize {
+    let Some(line) = body.lines().find_map(|l| {
+        let l = l.trim_start_matches(|c: char| c.is_whitespace() || c == '-' || c == '*');
+        l.strip_prefix("Touches:")
+    }) else {
+        return 0;
+    };
+    // Backticks pair up, so every second part between them is inside a pair.
+    match line.split('`').skip(1).step_by(2).count() {
+        0 => (line.split(','))
+            .filter(|e| {
+                !e.trim_matches(|c: char| c.is_whitespace() || c == '*')
+                    .is_empty()
+            })
+            .count(),
+        n => n,
+    }
+}
+
 // Each filed issue as its ticket source holds it, with what it lacks.
 fn report(
     project: &Project<'_>,
@@ -479,6 +507,11 @@ fn report(
             lacks.push("no acceptance criteria".to_owned());
         }
         about.extend(issue.parent.map(|p| format!("sub-issue of {}", p.shown())));
+        // A note, not a lack: a parent's `Touches:` is the sum of its pieces'.
+        let reach = touches(&issue.body);
+        if reach > TOUCHES_SPLIT && tickets.sub_issues(repo, ticket).is_ok_and(|s| s.is_empty()) {
+            about.push(format!("touches {reach} files"));
+        }
         let line = match about.is_empty() {
             true => format!("{shown} {}", issue.title),
             false => format!("{shown} {} ({})", issue.title, about.join(", ")),
