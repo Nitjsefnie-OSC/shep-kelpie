@@ -331,10 +331,19 @@ fn delete_on_remote(repo: &Path, remote: &Remote, branch: &str) -> Result<(), Wo
     // may do it between the check above and this push. Git's error for
     // that varies by version and host, so a failed delete is judged by
     // whether the ref is still there.
+    // The repo's own pre-push hook has no say over a branch kelpie deletes.
     let target = remote.target();
     match git(
         repo,
-        ["push", "--quiet", "--delete", "--", target, &full_ref],
+        [
+            "push",
+            "--quiet",
+            "--no-verify",
+            "--delete",
+            "--",
+            target,
+            &full_ref,
+        ],
     ) {
         Err(e) if on_remote(repo, remote, &full_ref)? => Err(e),
         _ => Ok(()),

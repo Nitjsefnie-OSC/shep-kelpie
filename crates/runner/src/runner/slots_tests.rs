@@ -10,7 +10,7 @@ use crate::runner::contributions::security_tests::{contribute, contribution, rev
 use crate::runner::contributions::tests::{picking, poll};
 use crate::runner::{Runner, StepReport, step};
 use crate::test::ticket;
-use crate::test::{Rig, Scripted};
+use crate::test::{CALL_PATIENCE, Hold, Rig, Scripted};
 use crate::ticket::TicketId;
 
 // A worker's reply that ends on a question, which parks its work item
@@ -582,4 +582,115 @@ fn a_contribution_is_read_while_parked_rulings_close_the_board() {
         slots(&rig, &runner),
         [json!([]), json!([]), json!(["7", "8"])]
     );
+}
+
+// A hook on the bare origin that refuses the delete of the worker's branch
+fn refuse_delete(rig: &Rig) {
+    use std::os::unix::fs::PermissionsExt;
+    let hook = rig.home.path().join("origin.git/hooks/pre-receive");
+    std::fs::write(&hook, "#!/bin/sh\nexit 1\n").unwrap();
+    std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+}
+
+// Steps until #7, merged under `git.merging = "auto"`, fails its cleanup
+fn cleanup_fails(rig: &Rig, runner: &Mutex<Runner>) {
+    for _ in 0..6 {
+        match step(runner).unwrap() {
+            Some(StepReport::GateFailed { issue, reason }) if issue == ticket(7) => {
+                assert!(reason.starts_with("cannot clean up"), "{reason}");
+                return;
+            }
+            _ => rig.clock.advance(crate::runner::CHECKS_SETTLE),
+        }
+    }
+    panic!("#7's cleanup never failed");
+}
+
+#[test]
+fn a_merged_item_whose_cleanup_fails_frees_its_slot_for_the_next_ready_issue() {
+    let (rig, runner, head) = Rig::with_pull_request_set("acme", Rig::merge_auto);
+    refuse_delete(&rig);
+    rig.forge.set_checks(&head, Checks::Passed);
+    cleanup_fails(&rig, &runner);
+    assert_eq!(rig.forge.merges(), [(71, head)]);
+
+    // The one slot is free, though #7 is still there to clean up.
+    rig.forge.list_ready(8, false);
+    let opened = (0..3).find_map(|_| match step(&runner).unwrap() {
+        Some(StepReport::Dispatched { issue, .. }) => Some(issue),
+        _ => None,
+    });
+    assert_eq!(opened, Some(ticket(8)));
+    assert_eq!(
+        rig.ask(&runner, "status", None)["work_items"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+
+    // Its cleanup goes on, on the backoff: it ends once the delete works.
+    std::fs::remove_file(rig.home.path().join("origin.git/hooks/pre-receive")).unwrap();
+    rig.clock.advance(14);
+    assert!(!(0..3).any(|_| finished_seven(step(&runner).unwrap())));
+    rig.clock.advance(1);
+    assert!((0..3).any(|_| finished_seven(step(&runner).unwrap())));
+}
+
+// A state file an older kelpie wrote keeps a Done item in its slot, which
+// the restart after the upgrade frees.
+#[test]
+fn a_done_item_saved_holding_a_slot_frees_it_when_the_runner_restarts() {
+    let (rig, runner, head) = Rig::with_pull_request_set("acme", Rig::merge_auto);
+    refuse_delete(&rig);
+    rig.forge.set_checks(&head, Checks::Passed);
+    cleanup_fails(&rig, &runner);
+    drop(runner);
+    let state = rig.paths().state;
+    let mut saved: Value = serde_json::from_str(&std::fs::read_to_string(&state).unwrap()).unwrap();
+    saved["work_items"][0]["seat"] = json!("held");
+    std::fs::write(&state, saved.to_string()).unwrap();
+
+    let runner = rig.open().unwrap();
+    rig.forge.list_ready(8, false);
+    let opened = (0..3).find_map(|_| match step(&runner).unwrap() {
+        Some(StepReport::Dispatched { issue, .. }) => Some(issue),
+        _ => None,
+    });
+
+    assert_eq!(opened, Some(ticket(8)));
+}
+
+fn finished_seven(report: Option<StepReport>) -> bool {
+    matches!(
+        report,
+        Some(StepReport::Finished { issue, merged: true, .. }) if issue == ticket(7)
+    )
+}
+
+#[test]
+fn a_done_item_closed_with_no_commits_holds_no_slot() {
+    use std::os::unix::fs::PermissionsExt;
+    let (rig, runner) = running("acme");
+    rig.ask(&runner, "add", Some("7"));
+    // A build folder that cannot be unlinked fails the cleanup.
+    let builds = rig.home.path().join("shep/kelpie/acme/builds");
+    let hold = Hold::default();
+    rig.claude.script([Scripted::Hold(hold.clone())]);
+    std::thread::scope(|scope| {
+        let turn = scope.spawn(|| step(&runner));
+        assert!(hold.entered(CALL_PATIENCE), "the turn never began");
+        rig.forge.close_issue(7);
+        hold.release();
+        turn.join().unwrap().unwrap();
+    });
+    std::fs::set_permissions(&builds, std::fs::Permissions::from_mode(0o555)).unwrap();
+
+    assert!(matches!(
+        step(&runner).unwrap(),
+        Some(StepReport::GateFailed { issue, .. }) if issue == ticket(7)
+    ));
+    rig.forge.list_ready(8, false);
+    assert_eq!(dispatched(step(&runner).unwrap()), (ticket(8), vec![]));
+    std::fs::set_permissions(&builds, std::fs::Permissions::from_mode(0o755)).unwrap();
 }

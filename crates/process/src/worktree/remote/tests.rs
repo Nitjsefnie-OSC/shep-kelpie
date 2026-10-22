@@ -551,3 +551,34 @@ fn adopt_abandons_a_merge_that_conflicts_and_refuses_the_worktree() {
     assert_eq!(rig.at_worktree(&["rev-parse", "HEAD"]), mine);
     assert_eq!(rig.at_worktree(&["status", "--porcelain"]), "");
 }
+
+// A repo's own pre-push hook can fail on a branch kelpie only deletes, and
+// the work item's cleanup would retry for hours.
+#[test]
+fn remove_deletes_the_branch_on_origin_when_its_pre_push_hook_fails() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let rig = Rig::new();
+    rig.prepare("kelpie/7", Start::Main, &Remote::Origin);
+    rig.at_worktree(&["push", "--quiet", "origin", "kelpie/7"]);
+    let hook = rig.repo().join(".git/hooks/pre-push");
+    std::fs::write(&hook, "#!/bin/sh\nexit 1\n").unwrap();
+    std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+    remove(
+        &rig.repo(),
+        &rig.worktree(),
+        "kelpie/7",
+        &rig.build(),
+        Some(&Remote::Origin),
+    )
+    .unwrap();
+
+    assert_eq!(
+        git(
+            &rig.root.join("origin.git"),
+            &["branch", "--list", "kelpie/7"]
+        ),
+        ""
+    );
+}
