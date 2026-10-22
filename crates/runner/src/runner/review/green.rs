@@ -579,6 +579,62 @@ fn a_conflict_left_unresolved_from_review_raises_a_ruling_naming_the_files() {
     assert_eq!(reads(&rig), 0);
 }
 
+// A conflict turn that gives the merge up and pushes something else, and the
+// rebase ruling the review's wait raises for it.
+fn parked_on_a_rebase_from_review(rig: &Rig, runner: &Mutex<Runner>) {
+    rig.land_on_origin("work.txt");
+    assert!(matches!(
+        settled_with_no_checks(rig, runner),
+        Some(StepReport::Conflicted { .. })
+    ));
+    rig.claude
+        .script([Scripted::AbortAndPush("extra.txt", "extra\n")]);
+    step(runner).unwrap();
+    let report = settled_with_no_checks(rig, runner);
+    assert!(
+        matches!(report, Some(StepReport::Ruling { .. })),
+        "{report:?}"
+    );
+}
+
+#[test]
+fn a_rebase_yes_raised_mid_review_goes_back_to_that_review() {
+    let (rig, runner, _) = pushed();
+    parked_on_a_rebase_from_review(&rig, &runner);
+
+    rig.ask(&runner, "rule", Some("71 yes"));
+    assert_eq!(state(&rig, &runner), "review", "the review it left");
+    let fixed = rig.forge.head_of("kelpie/7").unwrap();
+    rig.forge.set_checks(&fixed, Checks::Passed);
+    assert!(rig.verdict(&runner).is_some());
+    assert_eq!(reads(&rig), 1, "the first reviewer reads the fixed head");
+}
+
+#[test]
+fn a_rebase_yes_raised_mid_review_under_auto_is_read_before_any_merge() {
+    let (rig, runner, _) = pushed();
+    drop(runner);
+    rig.merge_auto();
+    let runner = rig.open().unwrap();
+    parked_on_a_rebase_from_review(&rig, &runner);
+
+    rig.ask(&runner, "rule", Some("71 yes"));
+    assert_eq!(state(&rig, &runner), "review", "the review it left");
+    let fixed = rig.forge.head_of("kelpie/7").unwrap();
+    rig.forge.set_checks(&fixed, Checks::Passed);
+    rig.claude.script([Scripted::Text(CLEAN)]);
+    let mut reports = Vec::new();
+    for _ in 0..6 {
+        let report = rig.verdict(&runner);
+        assert!(
+            !matches!(report, Some(StepReport::Finished { .. })) || reads(&rig) == 2,
+            "the merge waited for both reviewers: {report:?}"
+        );
+        reports.push(report);
+    }
+    assert_eq!(reads(&rig), 2, "{reports:?}");
+}
+
 #[test]
 fn a_review_head_behind_main_whose_checks_report_is_not_rebased() {
     let (rig, runner, head) = pushed();

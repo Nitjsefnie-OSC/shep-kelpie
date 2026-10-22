@@ -24,6 +24,7 @@ fn a_ruling_on_the_pull_request_names_no_command_and_a_merge_says_nothing() {
     let kinds = [
         RulingKind::from(Stuck::Rebase {
             why: "conflict in a.txt".into(),
+            review: None,
         }),
         RulingKind::from(Stuck::StillRed {
             head: "abcdef123".into(),
@@ -592,6 +593,7 @@ fn a_no_on_a_first_turn_that_has_no_session_to_resume_starts_it_and_says_the_not
 fn the_question_names_the_pull_request_number_or_the_issue_number_before_one_opens() {
     let kind = RulingKind::from(Stuck::Rebase {
         why: "conflict in a.txt".into(),
+        review: None,
     });
     let with_pull_request = question(ticket(7), Some(71), &kind);
     assert!(

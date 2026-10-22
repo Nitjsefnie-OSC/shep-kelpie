@@ -67,7 +67,7 @@ impl Runner {
             Ok(Rebase::Conflicts { main, files }) => {
                 self.conflicted(number, head.to_owned(), main, files, review)
             }
-            Ok(Rebase::Refused(reason)) => self.raise(number, Stuck::Rebase { why: reason }.into()),
+            Ok(Rebase::Refused(why)) => self.raise(number, Stuck::Rebase { why, review }.into()),
             Err(e) => Ok(self.gate_failed(format!("cannot rebase #{number}: {e}"))),
         }
     }
@@ -77,7 +77,8 @@ impl Runner {
     // for this head, or for this `main`, is one it did not resolve, and the
     // maintainer decides. So does a work item that has had `CONFLICT_TURNS`
     // of them, whatever `main` does. The turn's end goes on to CI, or back to
-    // the `review` that was waiting on this head's run.
+    // the `review` that was waiting on this head's run, and so does the
+    // maintainer's yes to that ruling.
     fn conflicted(
         &mut self,
         number: u64,
@@ -96,8 +97,8 @@ impl Runner {
             if let Err(e) = worktree::abort_merge(repo, tree) {
                 eprintln!("cannot abort the merge in #{number}'s worktree: {e}");
             }
-            let reason = format!("it conflicts with main in {}", files.join(", "));
-            return self.raise(number, Stuck::Rebase { why: reason }.into());
+            let why = format!("it conflicts with main in {}", files.join(", "));
+            return self.raise(number, Stuck::Rebase { why, review }.into());
         }
         let issue = item.issue;
         let prompt = conflict_prompt(number, &files);
