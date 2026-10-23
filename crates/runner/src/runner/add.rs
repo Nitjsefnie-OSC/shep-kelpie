@@ -5,7 +5,7 @@ use std::fmt;
 use super::Runner;
 use super::trigger::issue_list;
 use crate::board::{LabelError, agent_label, old_worker_label, pinned};
-use crate::ports::ForgeError;
+use crate::ports::{ForgeError, Issue};
 use crate::settings::AgentName;
 use crate::state::StateError;
 use crate::ticket::TicketId;
@@ -20,6 +20,8 @@ pub enum AddError {
     InFlight(Vec<TicketId>),
     /// The forge could not show the issue
     Forge(ForgeError),
+    /// The issue is closed
+    Closed(TicketId),
     /// The issue's `agent:` label cannot be used
     Label(LabelError),
     /// The issue writer is labelling the issue
@@ -42,6 +44,7 @@ impl fmt::Display for AddError {
                 write!(f, "the work items for {} are in flight", issue_list(issues))
             }
             Self::Forge(e) => write!(f, "cannot read the issue: {e}"),
+            Self::Closed(ticket) => write!(f, "{} is closed", ticket.shown()),
             Self::Label(e) => e.fmt(f),
             Self::Labelling(ticket) => write!(
                 f,
@@ -68,9 +71,16 @@ impl Runner {
     ///
     /// [`AddError`] when the runner is finishing, the project has
     /// `concurrency.active_items` working or one for this issue open
-    /// already, the issue cannot be read or its `agent:` label names no
+    /// already, the issue cannot be read or is closed, or its `agent:` label names no
     /// listed implementer, or the change cannot be saved. Nothing changes then.
     pub fn add(&mut self, ticket: TicketId) -> Result<AgentName, AddError> {
+        self.add_allowed(ticket)?;
+        let found = (self.ports.tickets.issue(&self.remote, ticket)).map_err(AddError::Forge)?;
+        self.add_found(ticket, found)
+    }
+
+    // Whether a work item for `ticket` may open now, before the issue is read.
+    pub(super) fn add_allowed(&self, ticket: TicketId) -> Result<(), AddError> {
         if !self.picks() {
             return Err(AddError::Finishing);
         }
@@ -83,11 +93,20 @@ impl Runner {
         if !self.slot_free() {
             return Err(AddError::InFlight(self.slot_issues()));
         }
-        let found = self
-            .ports
-            .tickets
-            .issue(&self.remote, ticket)
-            .map_err(AddError::Forge)?;
+        Ok(())
+    }
+
+    // Opens the work item for `ticket` from the issue as read. The guards are
+    // checked again, since the runner may have moved since they were.
+    pub(super) fn add_found(
+        &mut self,
+        ticket: TicketId,
+        found: Issue,
+    ) -> Result<AgentName, AddError> {
+        self.add_allowed(ticket)?;
+        if !found.open {
+            return Err(AddError::Closed(ticket));
+        }
         let (agent, note) = self
             .labelled_agent(ticket, &found.labels)
             .map_err(AddError::Label)?;

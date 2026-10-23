@@ -15,6 +15,7 @@
 //! take up at its next lock.
 
 use std::collections::BTreeMap;
+use std::fmt;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -54,6 +55,18 @@ pub(crate) enum Queued {
     Triage(u64),
     /// `rule <id> <answer>`, for a ruling the posted status lists
     Rule(TicketId, Answer),
+}
+
+impl fmt::Display for Queued {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Add(ticket) => write!(f, "add {ticket}"),
+            Self::Rework(number) => write!(f, "rework {number}"),
+            Self::Adopt(number) => write!(f, "adopt {number}"),
+            Self::Triage(issue) => write!(f, "triage {issue}"),
+            Self::Rule(id, _) => write!(f, "rule {id}"),
+        }
+    }
 }
 
 /// What `status` and `drain` answer while a pass holds the runner's lock
