@@ -1,11 +1,13 @@
 use super::*;
 use crate::agents::Agents;
-use crate::settings::{Effort, Settings};
+use std::collections::BTreeMap;
+
+use crate::settings::{Effort, EndpointUrl, Gateway, GatewayKind, GatewayName, KeyVar, Settings};
 
 const EXAMPLE: &str = include_str!("../../../../../settings.example.toml");
 
 /// The reviewers the example lists, commented out
-const LISTED: &str = "# reviewers = [\"qwen\", \"defect-hunter\"]\n";
+const LISTED: &str = "# reviewers = [\"iq3-xxs-review\", \"defect-hunter-lite\"]\n";
 
 const OPUS: &str = "---\nrole: reviewer\nharness: claude-code\nmodel: claude-opus-5-5\n\
                     effort: high\npaths: [\"src/runner/merge/**\"]\n---\nRead it for defects.\n";
@@ -38,7 +40,9 @@ fn names(lineup: &[ListedReviewer]) -> Vec<&str> {
 #[test]
 fn a_project_lists_its_reviewers_in_the_order_the_review_runs_them_each_once() {
     let (settings, home) = project(Some(r#"["opus", "qwen", "gpu-box", "opus"]"#));
-    let lineup = settings.lineup(&book(), home.path()).unwrap();
+    let lineup = settings
+        .lineup(&book(), &Gateways::default(), home.path())
+        .unwrap();
     assert_eq!(names(&lineup), ["opus", "qwen", "gpu-box"]);
 
     let opus = &lineup[0];
@@ -62,28 +66,68 @@ fn a_project_lists_its_reviewers_in_the_order_the_review_runs_them_each_once() {
     assert!(lineup[1].is_local() && lineup[2].is_local());
 }
 
-#[test]
-fn a_project_that_lists_none_runs_qwen_where_its_script_is_installed_then_defect_hunter() {
-    let (settings, home) = project(None);
-    let lineup = settings.lineup(&book(), home.path()).unwrap();
-    assert_eq!(names(&lineup), ["defect-hunter"]);
-    assert!(lineup[0].second_look);
+// Kelpie's settings holding one gateway, `name`, of `kind`.
+fn gateways_with(name: &str, kind: GatewayKind) -> Gateways {
+    let gateway = Gateway {
+        kind,
+        url: EndpointUrl::try_from("http://gpu-box:8700".to_owned()).unwrap(),
+        key_env: KeyVar::try_from("PADDOCK_KEY".to_owned()).unwrap(),
+    };
+    let name = GatewayName::try_from(name.to_owned()).unwrap();
+    Gateways::new(BTreeMap::from([(name, gateway)]))
+}
 
+#[test]
+fn a_project_that_lists_none_runs_defect_hunter_lite_alone_without_paddock() {
+    let (settings, home) = project(None);
+    let lineup = settings
+        .lineup(&book(), &Gateways::default(), home.path())
+        .unwrap();
+    assert_eq!(names(&lineup), ["defect-hunter-lite"]);
+    assert!(!lineup[0].second_look);
+    assert!(lineup[0].prompt.is_some());
+
+    let (empty, home) = project(Some("[]"));
+    let none = empty.lineup(&book(), &Gateways::default(), home.path());
+    assert!(none.unwrap().is_empty());
+}
+
+#[test]
+fn a_project_that_lists_none_runs_iq3_xxs_review_then_defect_hunter_lite_with_paddock() {
+    let (settings, home) = project(None);
+    let paddock = gateways_with("paddock", GatewayKind::Paddock);
+    let lineup = settings.lineup(&book(), &paddock, home.path()).unwrap();
+    assert_eq!(names(&lineup), ["iq3-xxs-review", "defect-hunter-lite"]);
+    assert!(lineup[0].is_local() && !lineup[1].is_local());
+    let (gateway, model) = lineup[0].runs.gateway().unwrap();
+    assert_eq!((gateway.as_str(), model), ("paddock", "iq3_xxs"));
+}
+
+#[test]
+fn the_qwen_script_no_longer_changes_the_default_lineup() {
+    let (settings, home) = project(None);
     let script = home.path().join(".claude/scripts/qwen-review.sh");
     std::fs::create_dir_all(script.parent().unwrap()).unwrap();
     std::fs::write(&script, "#!/bin/sh\n").unwrap();
-    let lineup = settings.lineup(&book(), home.path()).unwrap();
-    assert_eq!(names(&lineup), ["qwen", "defect-hunter"]);
+    let lineup = settings
+        .lineup(&book(), &Gateways::default(), home.path())
+        .unwrap();
+    assert_eq!(names(&lineup), ["defect-hunter-lite"]);
+}
 
-    let (empty, home) = project(Some("[]"));
-    assert!(empty.lineup(&book(), home.path()).unwrap().is_empty());
+#[test]
+fn only_a_gateway_named_paddock_adds_iq3_xxs_review() {
+    let (settings, home) = project(None);
+    let gateways = gateways_with("gpu", GatewayKind::Paddock);
+    let lineup = settings.lineup(&book(), &gateways, home.path()).unwrap();
+    assert_eq!(names(&lineup), ["defect-hunter-lite"]);
 }
 
 #[test]
 fn a_reviewer_with_no_file_or_an_implementers_is_refused_naming_it() {
     let (settings, home) = project(Some(r#"["fable"]"#));
     let err = settings
-        .lineup(&book(), home.path())
+        .lineup(&book(), &Gateways::default(), home.path())
         .unwrap_err()
         .to_string();
     assert_eq!(
@@ -93,7 +137,7 @@ fn a_reviewer_with_no_file_or_an_implementers_is_refused_naming_it() {
     );
     let (settings, home) = project(Some(r#"["sonnet-high"]"#));
     let err = settings
-        .lineup(&book(), home.path())
+        .lineup(&book(), &Gateways::default(), home.path())
         .unwrap_err()
         .to_string();
     assert!(
@@ -112,7 +156,9 @@ fn a_commands_leading_tilde_is_the_home_folder_and_an_absolute_path_stays() {
         .with("mine", &command("~/bin/review"))
         .with("opt", &command("/opt/review"));
     let (settings, home) = project(Some(r#"["mine", "opt"]"#));
-    let lineup = settings.lineup(&book, home.path()).unwrap();
+    let lineup = settings
+        .lineup(&book, &Gateways::default(), home.path())
+        .unwrap();
     let paths: Vec<_> = (lineup.iter())
         .map(|r| match &r.runs {
             Runs::Command(c) => c.command.clone(),
@@ -132,7 +178,10 @@ const CODEX_ON_READY: &str = "---\nrole: reviewer\nharness: bot\nbot: codex\nrev
 fn a_bot_that_reviews_on_ready_is_refused_after_another_bot_and_kept_before_it() {
     let book = book().with("codex", CODEX_ON_READY);
     let (settings, home) = project(Some(r#"["defect-hunter", "coderabbit", "codex"]"#));
-    let err = settings.lineup(&book, home.path()).unwrap_err().to_string();
+    let err = settings
+        .lineup(&book, &Gateways::default(), home.path())
+        .unwrap_err()
+        .to_string();
     assert_eq!(
         err,
         "setting `agents.reviewers`: codex reviews a pull request when it leaves draft, \
@@ -140,11 +189,15 @@ fn a_bot_that_reviews_on_ready_is_refused_after_another_bot_and_kept_before_it()
          which draws Codex's own review outside its lease"
     );
     let (settings, home) = project(Some(r#"["codex", "defect-hunter", "coderabbit"]"#));
-    let lineup = settings.lineup(&book, home.path()).unwrap();
+    let lineup = settings
+        .lineup(&book, &Gateways::default(), home.path())
+        .unwrap();
     assert_eq!(names(&lineup), ["codex", "defect-hunter", "coderabbit"]);
     let (settings, home) = project(Some(r#"["coderabbit", "codex"]"#));
     assert!(
-        settings.lineup(&Agents::embedded(), home.path()).is_ok(),
+        settings
+            .lineup(&Agents::embedded(), &Gateways::default(), home.path())
+            .is_ok(),
         "kelpie's own Codex file does not review on ready"
     );
 }

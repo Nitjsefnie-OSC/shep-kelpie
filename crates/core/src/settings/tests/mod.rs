@@ -523,7 +523,7 @@ fn the_review_bot_settings_bot_files_replace_are_refused_saying_what_replaces_ea
         format!(
             "`coderabbit.enabled` is no longer a setting, because {BOT_FILES}: for `true`, \
              list `coderabbit` where its read should come, as in \
-             `agents.reviewers = [\"defect-hunter\", \"coderabbit\"]`, and for `false` leave \
+             `agents.reviewers = [\"defect-hunter-lite\", \"coderabbit\"]`, and for `false` leave \
              it out; then delete the key"
         )
     );
@@ -574,8 +574,8 @@ fn a_table_carrying_several_removed_keys_names_them_all_at_once() {
             "[app.dogs.kelpie]\ngenerated = [\"Cargo.lock\"]\n[app.dogs.kelpie.git]\n",
         )
         .replace(
-            "# reviewers = [\"qwen\", \"defect-hunter\"]",
-            "reviewers = [\"qwen\", \"defect-hunter\"]",
+            "# reviewers = [\"iq3-xxs-review\", \"defect-hunter-lite\"]",
+            "reviewers = [\"iq3-xxs-review\", \"defect-hunter-lite\"]",
         );
     let text = format!(
         "{text}\n[app.dogs.kelpie.coderabbit]\nenabled = true\ndivisor = 1000\nrounds = 1\n"
@@ -601,7 +601,9 @@ fn a_table_carrying_several_removed_keys_names_them_all_at_once() {
         "`[coderabbit]` is named by its keys"
     );
     assert!(
-        err.contains("`agents.reviewers = [\"qwen\", \"defect-hunter\", \"coderabbit\"]`"),
+        err.contains(
+            "`agents.reviewers = [\"iq3-xxs-review\", \"defect-hunter-lite\", \"coderabbit\"]`"
+        ),
         "{err}"
     );
 }

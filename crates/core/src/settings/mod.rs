@@ -817,12 +817,13 @@ impl Settings {
 /// Refuses `text` when it sets a key a removed feature left behind
 ///
 /// The fix for `coderabbit.enabled` shows the project's reviewers, as its
-/// table lists them or as `add` would, with `coderabbit` after them.
+/// table lists them or as the default gives them with no paddock gateway, with
+/// `coderabbit` after them.
 ///
 /// # Errors
 ///
 /// A message naming every removed key `text` sets, each with what replaces it.
-pub(crate) fn refuse_removed_settings(text: &str, home: &Path) -> Result<(), String> {
+pub(crate) fn refuse_removed_settings(text: &str) -> Result<(), String> {
     removed::refuse(text, REMOVED, NOW_TABLES).map_err(|message| {
         let table = text.parse::<toml::Table>().unwrap_or_default();
         let listed = table
@@ -836,7 +837,7 @@ pub(crate) fn refuse_removed_settings(text: &str, home: &Path) -> Result<(), Str
                     .collect()
             })
             .unwrap_or_else(|| {
-                let names = default_reviewers(home).into_iter();
+                let names = default_reviewers(&Gateways::default()).into_iter();
                 names.map(|n| n.as_str().to_owned()).collect::<Vec<_>>()
             });
         let all: Vec<String> = listed

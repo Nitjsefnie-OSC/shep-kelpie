@@ -13,7 +13,8 @@ use crate::local_tickets::LocalTickets;
 use crate::ports::{Forge, NewLabel, Visibility};
 use crate::runner::{NO_ORIGIN, check_checkout, check_instructions, source_of};
 use crate::settings::{
-    Account, AgentHarness, ForgeSlug, Limit, Pick, RoleModel, Settings, SettingsError, TicketSource,
+    Account, AgentHarness, ForgeSlug, Gateways, Limit, Pick, RoleModel, Settings, SettingsError,
+    TicketSource,
 };
 use crate::webhook::KelpieSettings;
 
@@ -133,11 +134,12 @@ pub(super) fn checks(
     }
     lines.extend(repo_plugins(at("repo plugins"), &settings, here));
     lines.extend(super::mcp::hosts(at("repo mcp servers"), &settings, here));
+    let gateways = kelpie.map(KelpieSettings::gateways).unwrap_or_default();
     let (book, line) = implementers(at("implementers"), &settings, &paths);
     lines.push(line);
     // The forge lines need the repo, and the checkout line says why when it is unknown.
     if let Some(repo) = &remote {
-        let coderabbit = coderabbit_listed(&settings, &book, here.home);
+        let coderabbit = coderabbit_listed(&settings, (&book, &gateways), here.home);
         lines.extend(forge_lines(&at, repo, &settings, coderabbit, probes));
         let (line, covered) = super::github::app(at("github app"), repo, probes.github);
         lines.push(line);
@@ -156,8 +158,13 @@ pub(super) fn checks(
             probes.host,
         ));
     }
-    lines.push(reviewers(at("reviewers"), &settings, (&book, here), probes));
-    if let Some(kelpie) = kelpie.filter(|_| spends_codex(&settings, &book, here)) {
+    lines.push(reviewers(
+        at("reviewers"),
+        &settings,
+        (&book, &gateways, here),
+        probes,
+    ));
+    if let Some(kelpie) = kelpie.filter(|_| spends_codex(&settings, (&book, &gateways), here)) {
         lines.push(match kelpie.codex_home(here.home, here.kelpie_home) {
             Ok(codex_home) => super::machine::codex(
                 at("codex usage"),
@@ -169,13 +176,13 @@ pub(super) fn checks(
     }
     // parity: harness.doctor
     let on_pi = |h: &AgentHarness| matches!(h, AgentHarness::Pi(_));
-    if spends_on(&settings, &book, here, on_pi) {
+    if spends_on(&settings, (&book, &gateways), here, on_pi) {
         lines.push(super::machine::pi(at("pi"), probes.host));
         lines.push(super::machine::pi_tools(at("pi tools"), probes.host));
     }
     // parity: harness.doctor
     let on_goose = |h: &AgentHarness| matches!(h, AgentHarness::Goose(_));
-    if spends_on(&settings, &book, here, on_goose) {
+    if spends_on(&settings, (&book, &gateways), here, on_goose) {
         lines.push(super::machine::goose(at("goose"), probes.host));
     }
     if let Some(kelpie) = kelpie {
@@ -392,10 +399,16 @@ fn implementers(subject: String, settings: &Settings, paths: &ProjectPaths) -> (
 
 // Whether an implementer or a listed reviewer runs on an agent that spends
 // Codex. Settings that do not resolve are another line's to report.
-fn spends_codex(settings: &Settings, book: &Agents, here: Here<'_>) -> bool {
+fn spends_codex(
+    settings: &Settings,
+    (book, gateways): (&Agents, &Gateways),
+    here: Here<'_>,
+) -> bool {
     let codex = |limit: &Limit| *limit == Limit::Account(Account::Codex);
     let roles = settings.role_agents(book).ok();
-    let lineup = settings.lineup(book, here.home).unwrap_or_default();
+    let lineup = settings
+        .lineup(book, gateways, here.home)
+        .unwrap_or_default();
     let sessions = lineup
         .iter()
         .filter_map(|r| r.runs.session())
@@ -409,18 +422,20 @@ fn spends_codex(settings: &Settings, book: &Agents, here: Here<'_>) -> bool {
 // contribution. Settings that do not resolve are another line's to report.
 fn spends_on(
     settings: &Settings,
-    book: &Agents,
+    (book, gateways): (&Agents, &Gateways),
     here: Here<'_>,
     on: impl Fn(&AgentHarness) -> bool,
 ) -> bool {
     let pi = |model: &RoleModel| on(&model.harness);
     let roles = settings.role_agents(book).ok();
-    let mut reviewers = settings.lineup(book, here.home).unwrap_or_default();
+    let mut reviewers = settings
+        .lineup(book, gateways, here.home)
+        .unwrap_or_default();
     let mut security = None;
     if settings.contributions.pick != Pick::Off {
         reviewers.extend(
             settings
-                .contribution_lineup(book, here.home)
+                .contribution_lineup(book, gateways, here.home)
                 .unwrap_or_default(),
         );
         security = settings.security_reviewer(book).ok();
@@ -530,8 +545,12 @@ fn names(labels: &[NewLabel]) -> String {
 
 // Whether the project lists CodeRabbit's file among its reviewers. A list
 // that cannot be read is the `reviewers` line's to report.
-fn coderabbit_listed(settings: &Settings, book: &Agents, home: &std::path::Path) -> bool {
-    let lineup = settings.lineup(book, home).unwrap_or_default();
+fn coderabbit_listed(
+    settings: &Settings,
+    (book, gateways): (&Agents, &Gateways),
+    home: &std::path::Path,
+) -> bool {
+    let lineup = settings.lineup(book, gateways, home).unwrap_or_default();
     let listed = |r: &crate::settings::ListedReviewer| r.bot().map(|b| b.bot);
     lineup
         .iter()
@@ -591,10 +610,10 @@ fn review_bot(subject: &str, repo: &ForgeSlug, probes: Probes<'_>) -> Line {
 fn reviewers(
     subject: String,
     settings: &Settings,
-    (book, here): (&Agents, Here<'_>),
+    (book, gateways, here): (&Agents, &Gateways, Here<'_>),
     probes: Probes<'_>,
 ) -> Line {
-    let lineup = match settings.lineup(book, here.home) {
+    let lineup = match settings.lineup(book, gateways, here.home) {
         Ok(lineup) => lineup,
         Err(e) => {
             return Line::missing(

@@ -280,15 +280,16 @@ fn runnable(tables: &Tables, name: &ProjectName, place: Place<'_>) -> Result<Set
     let settings = loaded.settings;
     let book = Agents::load(&paths.agents).map_err(|e| e.to_string())?;
     let agents = settings.role_agents(&book).map_err(invalid)?;
-    let lineup = settings.lineup(&book, place.home).map_err(invalid)?;
+    let gateways = loaded.kelpie.gateways();
+    let lineup = settings
+        .lineup(&book, &gateways, place.home)
+        .map_err(invalid)?;
     if let Some(reason) = settings.rulings.refusal() {
         let setting = "rulings.pm_alone";
         return Err(invalid(SettingsError::Invalid { setting, reason }));
     }
-    check_gateway_shapes(&loaded.kelpie.gateways(), &book, &agents, &lineup).map_err(invalid)?;
-    loaded
-        .kelpie
-        .gateways()
+    check_gateway_shapes(&gateways, &book, &agents, &lineup).map_err(invalid)?;
+    gateways
         .check_triage_spam(&settings.triage.spam)
         .map_err(invalid)?;
     crate::skills::check(&settings.skills, &paths.skills).map_err(invalid)?;

@@ -2,15 +2,15 @@
 //!
 //! A project lists them in `agents.reviewers`, in the order the review runs
 //! them, each once, by agent files whose role is `reviewer`. A project that
-//! lists none runs `qwen` where the maintainer's qwen-review script is
-//! installed, then `defect-hunter`. A review bot is listed the same way, by
+//! lists none runs `iq3-xxs-review` where kelpie's settings hold a gateway
+//! named `paddock`, then `defect-hunter-lite`. A review bot is listed the same way, by
 //! its file, and none is listed unless the project says so.
 
 use std::path::Path;
 
 use super::agents::find;
-use super::{AgentName, NonBlank, Settings, SettingsError};
-use crate::agents::{self, Agent, Agents, DEFECT_HUNTER, QWEN, QWEN_REVIEW, Role, Runs};
+use super::{AgentName, Gateways, NonBlank, Settings, SettingsError};
+use crate::agents::{Agent, Agents, DEFECT_HUNTER_LITE, IQ3_XXS_REVIEW, Role, Runs};
 use crate::review_bot::BotReviewer;
 
 /// Where a project lists its reviewers, as a refusal names it
@@ -60,6 +60,7 @@ impl Settings {
     /// The reviewers the project lists, in order, each once
     ///
     /// Agents come from `agents`, and `~/` in a command expands against `home`.
+    /// A project that lists none gets the default lineup for `gateways`.
     ///
     /// # Errors
     ///
@@ -69,11 +70,12 @@ impl Settings {
     pub fn lineup(
         &self,
         agents: &Agents,
+        gateways: &Gateways,
         home: &Path,
     ) -> Result<Vec<ListedReviewer>, SettingsError> {
         let names = match &self.agents.reviewers {
             Some(names) => names.clone(),
-            None => default_reviewers(home),
+            None => default_reviewers(gateways),
         };
         listed(names, agents, home, SETTING)
     }
@@ -90,11 +92,12 @@ impl Settings {
     pub fn contribution_lineup(
         &self,
         agents: &Agents,
+        gateways: &Gateways,
         home: &Path,
     ) -> Result<Vec<ListedReviewer>, SettingsError> {
         match &self.contributions.reviewers {
             Some(names) => listed(names.clone(), agents, home, CONTRIBUTION_SETTING),
-            None => self.lineup(agents, home),
+            None => self.lineup(agents, gateways, home),
         }
     }
 
@@ -184,11 +187,11 @@ fn on_ready_first(lineup: &[ListedReviewer], setting: &'static str) -> Result<()
     Ok(())
 }
 
-/// `qwen` where the maintainer's qwen-review script is installed under
-/// `home`, then `defect-hunter`
-pub fn default_reviewers(home: &Path) -> Vec<AgentName> {
-    let qwen = agents::installed(QWEN_REVIEW, home).then_some(QWEN);
-    let names = qwen.into_iter().chain([DEFECT_HUNTER]);
+/// `iq3-xxs-review` where `gateways` hold a gateway named `paddock`,
+/// then `defect-hunter-lite`
+pub fn default_reviewers(gateways: &Gateways) -> Vec<AgentName> {
+    let local = gateways.has_paddock().then_some(IQ3_XXS_REVIEW);
+    let names = local.into_iter().chain([DEFECT_HUNTER_LITE]);
     names.map(AgentName::kelpies).collect()
 }
 

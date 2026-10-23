@@ -20,6 +20,9 @@ use super::{AgentName, SettingsError, TriageSpam};
 use crate::agents::Agents;
 use crate::forwarder::Upstream;
 
+/// The name of the paddock gateway the shipped `iq3-xxs-review` routes through
+const PADDOCK: &str = "paddock";
+
 /// A gateway's name, as `[gateways.<name>]` and an agent's `gateway` give it
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, JsonSchema)]
 #[serde(try_from = "String")]
@@ -242,6 +245,12 @@ impl Gateways {
     /// The schedule a paddock's leases keep
     pub fn paddock_timing(&self) -> Timing {
         self.paddock
+    }
+
+    /// Whether kelpie's settings hold a gateway named `paddock`, the one the
+    /// shipped `iq3-xxs-review` names
+    pub fn has_paddock(&self) -> bool {
+        self.table.contains_key(&GatewayName(PADDOCK.to_owned()))
     }
 
     /// The gateway `name`

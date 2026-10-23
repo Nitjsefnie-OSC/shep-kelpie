@@ -1,5 +1,5 @@
 ---
-# Kelpie's default reviewer: Opus 5.5 at high effort, reading the whole pull
+# A reviewer kelpie ships: Opus 5.5 at high effort, reading the whole pull
 # request for defects. With `second_look`, a second fresh session reads it
 # again, shown what the first found and asked only for what it missed, and
 # the worker gets one fix turn for both. Its sessions read the worktree with

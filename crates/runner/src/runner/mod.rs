@@ -489,8 +489,8 @@ impl Runner {
         notes.extend(e2e::dog_cannot_find(settings.e2e.as_ref(), paths));
         told.extend(notes);
         let agents = settings.role_agents(&book)?;
-        let lineup = settings.lineup(&book, home)?;
         let gateways = kelpie_settings.gateways();
+        let lineup = settings.lineup(&book, &gateways, home)?;
         check_gateways(&gateways, &book, &agents, &lineup)?;
         gateways.check_triage_spam(&settings.triage.spam)?;
         let webhook = kelpie_settings.webhook;
@@ -509,8 +509,13 @@ impl Runner {
             }
             .into());
         }
-        let contribution_lineup =
-            open_checks::contributions(&settings, ports.voice.as_ref(), &remote, &book, home)?;
+        let contribution_lineup = open_checks::contributions(
+            &settings,
+            ports.voice.as_ref(),
+            &remote,
+            (&book, &gateways),
+            home,
+        )?;
         open_checks::triage(&settings, ports.voice.as_ref(), &remote, &book)?;
         // What the project's `publish` hooks judge is every text bound for the forge.
         let metrics = Arc::new(crate::metrics::Recorder::new(Arc::clone(&ports.metrics)));

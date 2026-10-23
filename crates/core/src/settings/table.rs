@@ -31,7 +31,7 @@ impl Settings {
             message,
         };
         let text = toml_text(table).map_err(refused)?;
-        super::refuse_removed_settings(&text, home).map_err(refused)?;
+        super::refuse_removed_settings(&text).map_err(refused)?;
         let mut settings: Self = toml::from_str(&text).map_err(|e| refused(located(&text, &e)))?;
         settings
             .contributions

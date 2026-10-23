@@ -123,7 +123,7 @@ label `ready-for-agent`: already on shep-pm/shep
 label `ready-for-human`: already on shep-pm/shep
 label `in-progress`: already on shep-pm/shep
 label `review please`: already on shep-pm/shep
-agent files: wrote sonnet-high, opus-high, defect-hunter, standards, spec, coderabbit, cubic, codex, issue-writer, pm, advisor, researcher in /path/to/.shep/kelpie/agents
+agent files: wrote sonnet-high, opus-high, defect-hunter, defect-hunter-lite, iq3-xxs-review, standards, spec, coderabbit, cubic, codex, issue-writer, pm, advisor, researcher in /path/to/.shep/kelpie/agents
 runner `scratch`: added with its settings, stopped
 `shep kelpie start scratch` runs it
 ```
@@ -162,7 +162,7 @@ ok       scratch: push access: may push to shep-pm/shep
 ok       scratch: labels: shep-pm/shep has `ready-for-agent`, `ready-for-human`, `in-progress`
 ok       scratch: github app: kelpie's App is installed on shep-pm/shep and mints a token
 ok       scratch: workers: a worker pushes with a token for shep-pm/shep alone, which cannot comment, review, approve or merge; it can push any branch, so protect `main` on GitHub
-ok       scratch: reviewers: each pull request is read by defect-hunter
+ok       scratch: reviewers: each pull request is read by defect-hunter-lite
 ok       scratch: rulings: no webhook, so rulings reach you only in the log, `status` and `shep kelpie rule`
 nothing a project needs is missing
 ```

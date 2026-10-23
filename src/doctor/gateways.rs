@@ -67,9 +67,13 @@ pub(super) fn checks(gateways: &Gateways, agents: &Agents) -> Vec<Line> {
             });
         }
     }
+    // A shipped agent as kelpie ships it is not in use until a project lists it, and a
+    // project that lists one its gateways lack is refused for it.
+    let shipped = Agents::embedded();
     for (agent, agent_def) in agents.iter() {
         if let Some((gateway, _)) = agent_def.runs.gateway()
             && gateways.get(gateway).is_none()
+            && shipped.get(agent) != Some(agent_def)
         {
             lines.push(Line::missing(
                 format!("agent {agent}"),
@@ -235,6 +239,22 @@ mod tests {
             lines[1]
                 .to_string()
                 .contains("`[kelpie.gateways.elsewhere]`")
+        );
+    }
+
+    #[test]
+    fn a_shipped_agent_as_shipped_is_not_missing_a_gateway_kelpie_has_none_of() {
+        let stub = "---\nextends: kelpie:iq3-xxs-review\n---\n";
+        let book = agents(&[("iq3-xxs-review.md", stub)]);
+        assert!(checks(&Gateways::default(), &agents(&[])).is_empty());
+        assert!(checks(&Gateways::default(), &book).is_empty());
+
+        let edited = "---\nextends: kelpie:iq3-xxs-review\nmodel: other\n---\n";
+        let book = agents(&[("iq3-xxs-review.md", edited)]);
+        let lines = checks(&Gateways::default(), &book);
+        assert_eq!(
+            verdicts(&lines),
+            [("agent iq3-xxs-review".to_owned(), "missing")]
         );
     }
 

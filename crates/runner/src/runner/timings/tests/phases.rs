@@ -203,7 +203,7 @@ fn a_claude_round_in_flight_is_review() {
 #[test]
 fn a_second_look_in_flight_is_a_reviewers_session() {
     let rig = Rig::new("koji");
-    rig.default_review();
+    rig.reviewers(&["qwen", "defect-hunter"]);
     let runner = rig.open().unwrap();
     rig.ask(&runner, "add", Some("7"));
     rig.forge.open_pull_request(71, "kelpie/7", &[7]);
