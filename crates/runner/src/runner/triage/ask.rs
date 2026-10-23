@@ -26,6 +26,8 @@
 //! [`answers_wait`] takes the comment it was saved with as the questions. What
 //! the body hash of `local` is measured against is in [`super::local`].
 
+use std::collections::BTreeMap;
+
 use super::super::Runner;
 use super::super::contributions::post::{forge_is_busy, refused_text};
 use super::TRIAGE_LABELS;
@@ -378,9 +380,15 @@ impl Runner {
                 return None;
             }
         };
+        let answers = confirmed(&answers, &recommended_in(&asked));
         Some((asked, answers))
     }
 }
+
+/// What the ask comment says under its questions, so an author knows one word
+/// confirms them
+pub(super) const REPLY_HINT: &str = "Reply `ok` to take every recommended answer, and `Qn: ...` \
+    to change one, such as `ok` then `Q2: ...` on the next line.";
 
 // The comment whose questions the author answers and when the wait on them
 // began. A record saved by a kelpie that asked for a word holds an `asked`
@@ -395,7 +403,8 @@ pub(super) fn answers_wait(record: &Triaged) -> Option<(u64, Timestamp)> {
 // numbered, each with the answer the research recommends, each apart from the
 // next. Code writes them; the representative words only the lead-in. A fence
 // in a question, backtick or tilde, is dropped, as it would swallow the
-// collapsed prompt after it.
+// collapsed prompt after it. So are the marks [`recommended_in`] reads the
+// block back by, so a question's own text cannot pass for another's heading.
 pub(super) fn questions_block(questions: &[Question]) -> String {
     let round: Vec<String> = questions
         .iter()
@@ -411,6 +420,96 @@ pub(super) fn questions_block(questions: &[Question]) -> String {
     round.join("\n\n---\n\n")
 }
 
+// The recommended answer of each question in `asked`, by its number, read back
+// from the shape [`questions_block`] wrote: the comment itself, or the block
+// alone. A question without one has no entry. The last answer ends where the
+// reply hint, or else the collapsed section, begins.
+fn recommended_in(asked: &str) -> BTreeMap<usize, String> {
+    let mut found = BTreeMap::new();
+    let mut at = 0;
+    for n in 1.. {
+        let marker = format!("❓ Q{n} - ");
+        let Some(start) = asked[at..].find(&marker).map(|i| at + i) else {
+            break;
+        };
+        let after = start + marker.len();
+        let end =
+            (asked[after..].find(&format!("❓ Q{} - ", n + 1))).map_or(asked.len(), |i| after + i);
+        let section = &asked[start..end];
+        let section = (section.split(&format!("\n\n{REPLY_HINT}")).next()).unwrap_or(section);
+        let section = section.split("\n\n<details>").next().unwrap_or(section);
+        let section = section.trim_end();
+        let section = section.strip_suffix("---").unwrap_or(section).trim_end();
+        if let Some((_, recommended)) = section.split_once("\n\n➡️ ") {
+            found.insert(n, recommended.trim().to_owned());
+        }
+        at = end;
+    }
+    found
+}
+
+// The author's answers with a reply of `ok` expanded: a line that is only `ok`
+// takes the recommended answer of every question, and a `Qn: ...` line, with the
+// lines under it, changes question `n` alone. Without an `ok` line the answers
+// are as written, so a question they leave out stays unanswered for the second
+// pass to ask again, and so are they when no question has a recommended answer
+// to expand `ok` into. Any other line is kept after the expanded answers.
+fn confirmed(answers: &str, recommended: &BTreeMap<usize, String>) -> String {
+    let mut ok = false;
+    let mut changed: BTreeMap<usize, String> = BTreeMap::new();
+    let mut rest: Vec<&str> = Vec::new();
+    let mut under: Option<usize> = None;
+    for line in answers.lines() {
+        if line
+            .trim()
+            .trim_end_matches(['.', '!'])
+            .eq_ignore_ascii_case("ok")
+        {
+            ok = true;
+            under = None;
+        } else if let Some((n, text)) = numbered(line) {
+            changed.insert(n, text.to_owned());
+            under = Some(n);
+        } else if let Some(n) = under {
+            let text = changed.entry(n).or_default();
+            text.push('\n');
+            text.push_str(line);
+        } else {
+            rest.push(line);
+        }
+    }
+    if !ok {
+        return answers.to_owned();
+    }
+    let mut all = recommended.clone();
+    all.extend(changed);
+    // With no recommended answer to put in its place, `ok` stays as written
+    // for the second pass to read, rather than leave the reply empty.
+    if all.is_empty() {
+        return answers.to_owned();
+    }
+    let mut lines: Vec<String> = all
+        .into_iter()
+        .map(|(n, text)| format!("Q{n}: {}", text.trim()))
+        .collect();
+    let rest = rest.join("\n");
+    if !rest.trim().is_empty() {
+        lines.push(rest.trim().to_owned());
+    }
+    lines.join("\n")
+}
+
+// `Qn: text` as a line of an answer: the question's number and what follows
+fn numbered(line: &str) -> Option<(usize, &str)> {
+    let (head, text) = line.trim_start().split_once(':')?;
+    let n = head.strip_prefix(['Q', 'q'])?;
+    Some((n.parse().ok()?, text.trim()))
+}
+
 fn unfenced(text: &str) -> String {
-    text.replace("```", "").replace("~~~", "").trim().to_owned()
+    ["```", "~~~", "❓", "➡️", "<details>"]
+        .iter()
+        .fold(text.to_owned(), |text, mark| text.replace(mark, ""))
+        .trim()
+        .to_owned()
 }
