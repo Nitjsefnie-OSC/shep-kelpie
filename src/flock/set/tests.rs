@@ -1,8 +1,11 @@
 use std::path::PathBuf;
 
+use shep_client::RequestError;
 use shep_client::shep_core::config::{AppConfig, DogTable};
+use shep_client::shep_core::protocol::HelloAck;
 
 use super::*;
+use crate::flock::glob::{Glob, Named};
 use crate::home::ProjectPaths;
 use crate::settings::table_of;
 use crate::test::{CALL_PATIENCE, FakeShepherd};
@@ -80,6 +83,56 @@ fn checkout(shepherd: &FakeShepherd, folder: &str, remote: &str) -> PathBuf {
     root
 }
 
+// Puts a runner named `name` with `table` as its settings, on a checkout of its own, in the flock
+fn add_project(shepherd: &FakeShepherd, name: &str, table: &str) -> PathBuf {
+    let root = checkout(
+        shepherd,
+        &format!("{name}-checkout"),
+        &format!("shep-pm/{name}"),
+    );
+    let text = table
+        .replace("CHECKOUT", &root.display().to_string())
+        .replace("REMOTE", &format!("shep-pm/{name}"));
+    let mut runner = AppConfig::minimal(name, "/opt/kelpie");
+    let table = DogTable::from(table_of(&text).unwrap());
+    runner.dogs.insert(DOG.to_owned(), table);
+    shepherd.holds(runner, false);
+    root
+}
+
+fn glob_of(text: &str) -> Glob {
+    match Named::parse(text).unwrap() {
+        Named::Glob(glob) => glob,
+        Named::Project(name) => panic!("{name} read as a project"),
+    }
+}
+
+// A connection whose write to `refused` fails, as a shepherd that closed would
+#[derive(Debug)]
+struct Refusing {
+    inner: Box<dyn Connection>,
+    refused: &'static str,
+}
+
+impl Connection for Refusing {
+    fn send(
+        &self,
+        body: Request,
+        deadline: Option<std::time::Duration>,
+    ) -> crate::shepherd::Answer<'_> {
+        match &body {
+            Request::SetSheepDogSettings { name, .. } if name == self.refused => {
+                Box::pin(async { Err(RequestError::Closed) })
+            }
+            _ => self.inner.send(body, deadline),
+        }
+    }
+
+    fn daemon(&self) -> HelloAck {
+        self.inner.daemon()
+    }
+}
+
 impl Scene {
     async fn new() -> Self {
         Self::holding(TABLE).await
@@ -87,20 +140,16 @@ impl Scene {
 
     /// A flock whose `koji` and `eevee` hold `table` as their settings
     async fn holding(table: &str) -> Self {
+        Self::holding_each(table, table).await
+    }
+
+    /// A flock whose `koji` holds `koji` and `eevee` holds `eevee` as their settings
+    async fn holding_each(koji: &str, eevee: &str) -> Self {
         let shepherd = FakeShepherd::new();
         let checkouts = [
-            checkout(&shepherd, "koji-checkout", "shep-pm/koji"),
-            checkout(&shepherd, "eevee-checkout", "shep-pm/eevee"),
+            add_project(&shepherd, "koji", koji),
+            add_project(&shepherd, "eevee", eevee),
         ];
-        for (name, root) in ["koji", "eevee"].into_iter().zip(&checkouts) {
-            let text = table
-                .replace("CHECKOUT", &root.display().to_string())
-                .replace("REMOTE", &format!("shep-pm/{name}"));
-            let mut runner = AppConfig::minimal(name, "/opt/kelpie");
-            let table = DogTable::from(table_of(&text).unwrap());
-            runner.dogs.insert(DOG.to_owned(), table);
-            shepherd.holds(runner, false);
-        }
         shepherd.holds(AppConfig::minimal("rotom", "/opt/kelpie"), false);
         Self {
             shepherd,
@@ -144,6 +193,41 @@ impl Scene {
             .expect("set neither ended nor failed in time")
     }
 
+    async fn set_all(&self, pattern: &str, key: &str, value: &str) -> Result<Vec<String>, String> {
+        let client = self.shepherd.connect().await;
+        self.set_all_via(&client, pattern, key, value).await
+    }
+
+    async fn set_all_via(
+        &self,
+        client: &dyn Connection,
+        pattern: &str,
+        key: &str,
+        value: &str,
+    ) -> Result<Vec<String>, String> {
+        let home = self.shepherd.scratch("home");
+        let kelpie_home = home.join("kelpie");
+        let homes = Homes {
+            home: &home,
+            kelpie_home: &kelpie_home,
+            shep_home: self.shepherd.home(),
+        };
+        let glob = glob_of(pattern);
+        let done = set_all(client, &glob, homes, key, value);
+        tokio::time::timeout(CALL_PATIENCE, done)
+            .await
+            .expect("set_all neither ended nor failed in time")
+    }
+
+    async fn get_all(&self, pattern: &str, key: &str) -> Result<Vec<String>, String> {
+        let client = self.shepherd.connect().await;
+        let glob = glob_of(pattern);
+        let done = get_all(&client, &glob, key);
+        tokio::time::timeout(CALL_PATIENCE, done)
+            .await
+            .expect("get_all neither ended nor failed in time")
+    }
+
     async fn get(&self, name: &str, key: Option<&str>) -> Result<Vec<String>, String> {
         let client = self.shepherd.connect().await;
         let name = ProjectName::try_from(name).unwrap();
@@ -155,8 +239,12 @@ impl Scene {
 
     /// The table the shepherd holds for `koji`
     fn table(&self) -> Map<String, Value> {
-        let (koji, _) = self.shepherd.sheep("koji").unwrap();
-        koji.dogs.get(DOG).unwrap().as_map().clone()
+        self.table_of("koji")
+    }
+
+    fn table_of(&self, name: &str) -> Map<String, Value> {
+        let (sheep, _) = self.shepherd.sheep(name).unwrap();
+        sheep.dogs.get(DOG).unwrap().as_map().clone()
     }
 }
 
@@ -372,4 +460,155 @@ async fn an_agent_on_a_gateway_kelpie_has_none_of_is_refused_naming_it_and_nothi
     assert!(!refused.contains("KELPIE_TEST_KEY_NEVER_SET"), "{refused}");
     assert_eq!(scene.shepherd.writes(), []);
     assert_eq!(scene.table(), before);
+}
+
+const WAKE: &str = "a running runner takes it at its next wake";
+
+#[tokio::test]
+async fn a_glob_writes_every_project_whose_name_matches_and_no_other() {
+    let mut scene = Scene::new().await;
+    for name in ["shep", "shep-kelpie", "shepherd"] {
+        add_project(&scene.shepherd, name, TABLE);
+    }
+    add_project(&scene.shepherd, "my-shep", TABLE);
+    let (koji, eevee, other) = (
+        scene.table(),
+        scene.table_of("eevee"),
+        scene.table_of("my-shep"),
+    );
+    let _ = scene.shepherd.writes();
+
+    let said = scene
+        .set_all("shep*", "git.merging", r#""auto""#)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        said,
+        ["shep", "shep-kelpie", "shepherd"]
+            .map(|name| format!(r#"project {name}: git.merging = "auto"; {WAKE}"#))
+    );
+    assert_eq!(scene.shepherd.writes().len(), 3);
+    for name in ["shep", "shep-kelpie", "shepherd"] {
+        assert_eq!(scene.table_of(name)["git"]["merging"], "auto", "{name}");
+    }
+    assert_eq!(scene.table(), koji);
+    assert_eq!(scene.table_of("eevee"), eevee);
+    assert_eq!(scene.table_of("my-shep"), other);
+}
+
+#[tokio::test]
+async fn a_glob_with_one_project_prints_the_line_a_plain_set_prints() {
+    let scene = Scene::new().await;
+    let one = scene.set_all("k*", "ci.fix_attempts", "3").await.unwrap();
+    let plain = scene.set_on("eevee", "ci.fix_attempts", "3").await.unwrap();
+    assert_eq!(one, [format!("project koji: ci.fix_attempts = 3; {WAKE}")]);
+    assert_eq!(
+        plain,
+        [format!("project eevee: ci.fix_attempts = 3; {WAKE}")]
+    );
+}
+
+#[tokio::test]
+async fn one_project_refusing_the_value_means_no_project_is_written_and_the_error_names_it() {
+    let mut scene = Scene::holding_each(
+        TABLE,
+        &TABLE.replace(r#"merging = "ask""#, r#"merging = "sometimes""#),
+    )
+    .await;
+    let (koji, eevee) = (scene.table(), scene.table_of("eevee"));
+
+    let refused = scene
+        .set_all("*", "ci.fix_attempts", "3")
+        .await
+        .unwrap_err();
+
+    assert!(refused.contains("project eevee"), "{refused}");
+    assert!(refused.contains("merging"), "{refused}");
+    assert!(!refused.contains("project koji"), "{refused}");
+    assert_eq!(scene.shepherd.writes(), []);
+    assert_eq!(scene.table(), koji);
+    assert_eq!(scene.table_of("eevee"), eevee);
+}
+
+#[tokio::test]
+async fn every_project_that_refuses_the_value_is_named() {
+    let mut scene = Scene::new().await;
+    let refused = scene
+        .set_all("*", "git.merging", "sometimes")
+        .await
+        .unwrap_err();
+    assert!(refused.contains("project eevee"), "{refused}");
+    assert!(refused.contains("project koji"), "{refused}");
+    assert_eq!(scene.shepherd.writes(), []);
+}
+
+#[tokio::test]
+async fn a_glob_that_matches_no_project_is_an_error_and_nothing_is_written() {
+    let mut scene = Scene::new().await;
+    let refused = scene
+        .set_all("nothing*", "git.merging", "auto")
+        .await
+        .unwrap_err();
+    assert!(refused.contains("nothing*"), "{refused}");
+    let refused = scene.get_all("nothing*", "git.merging").await.unwrap_err();
+    assert!(refused.contains("nothing*"), "{refused}");
+    assert_eq!(scene.shepherd.writes(), []);
+}
+
+#[tokio::test]
+async fn a_write_that_fails_partway_says_which_projects_were_written_and_which_were_not() {
+    let scene = Scene::holding(TABLE).await;
+    add_project(&scene.shepherd, "zed", TABLE);
+    let client = Refusing {
+        inner: scene.shepherd.connect().await,
+        refused: "koji",
+    };
+
+    let failed = scene
+        .set_all_via(&client, "*", "ci.fix_attempts", "3")
+        .await
+        .unwrap_err();
+
+    assert!(failed.contains("written: eevee"), "{failed}");
+    assert!(failed.contains("not written: koji, zed"), "{failed}");
+    assert_eq!(scene.table_of("eevee")["ci"]["fix_attempts"], 3);
+    assert_eq!(scene.table()["ci"]["fix_attempts"], -1);
+    assert_eq!(scene.table_of("zed")["ci"]["fix_attempts"], -1);
+}
+
+#[tokio::test]
+async fn two_projects_moved_onto_one_checkout_are_refused_and_nothing_is_written() {
+    let mut scene = Scene::new().await;
+    let spare = checkout(&scene.shepherd, "spare", "shep-pm/spare");
+    let refused = scene
+        .set_all("*", "git.checkout", &spare.display().to_string())
+        .await
+        .unwrap_err();
+    assert!(refused.contains("koji"), "{refused}");
+    assert!(refused.contains("eevee"), "{refused}");
+    assert_eq!(scene.shepherd.writes(), []);
+}
+
+#[tokio::test]
+async fn get_prints_one_line_per_project_and_says_not_set_where_the_key_is_missing() {
+    let scene = Scene::new().await;
+    scene
+        .set("researcher.allowed_domains", r#"["crates.io"]"#)
+        .await
+        .unwrap();
+    assert_eq!(
+        scene
+            .get_all("*", "researcher.allowed_domains")
+            .await
+            .unwrap(),
+        ["project eevee: not set", r#"project koji: ["crates.io"]"#,]
+    );
+    assert_eq!(
+        scene.get_all("[ek]*", "agents.reviewers").await.unwrap(),
+        [
+            r#"project eevee: ["standards"]"#,
+            r#"project koji: ["standards"]"#,
+        ]
+    );
 }

@@ -195,6 +195,15 @@ allowed_domains = ["crates.io", "index.crates.io", "static.crates.io"]
 
 For npm, that is `registry.npmjs.org`. What an entry may be is in [`settings.example.toml`](https://github.com/shep-pm/shep-kelpie/blob/main/settings.example.toml), and `researcher.allowed_domains` takes the same entries. A change reaches a running runner at its next wake.
 
+`-p` takes a glob of project names for `set` and `get`, to change or read a setting in many projects at once. Quote it, or the shell expands `*` against files:
+
+```sh
+shep kelpie set -p 'shep*' agents.implementers '["iq3-xxs", "sonnet-high"]'
+shep kelpie get -p '*' agents.reviewers
+```
+
+`set` checks every matched project first: if one refuses the value, none is written and the error names each that refused. `get` prints `project <name>: <value>` for each, or `not set`.
+
 ### 8. Start it, and label a first issue
 
 ```sh

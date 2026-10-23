@@ -23,6 +23,7 @@ shep kelpie totp       # once, to answer rulings from ntfy
 shep kelpie lease status
 shep kelpie get git.merging        # one setting of the project's table, or all of it with no key
 shep kelpie set git.merging auto   # changes one setting
+shep kelpie set -p 'shep*' git.merging auto   # the same in every project whose name matches; `get` takes a glob too
 shep kelpie version    # this build and the shep it is made with, or --json for one line
 ```
 
