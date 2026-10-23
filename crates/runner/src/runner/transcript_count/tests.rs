@@ -301,7 +301,7 @@ fn each_pi_call_counts_its_own_requests_from_its_session_file() {
     std::fs::create_dir_all(&sessions).unwrap();
     let (counted, sink) = counted_over(sessions, vec![PI]);
     let call = pi_call(folder.path());
-    let small = [("harness", "pi"), ("le", "50000"), ("role", "worker")];
+    let small = [("harness", "pi"), ("le", "150000"), ("role", "worker")];
 
     counted.run(&call, &Ending::default()).unwrap();
     let requests = sink.value("kelpie_request_context_tokens", &small);

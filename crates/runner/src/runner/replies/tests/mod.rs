@@ -175,7 +175,13 @@ fn a_code_answers_once_across_every_ruling() {
 fn a_reply_to_a_settled_ruling_runs_nothing_and_the_topic_is_told() {
     let (rig, runner, _) = alerted("koji");
     rig.ask(&runner, "rule", Some("71 no rename the flag"));
-    let status = rig.ask(&runner, "status", None);
+    // The longest holds of the lock differ from one answer to the next, so they are left out.
+    let status = |rig: &Rig, runner: &Mutex<Runner>| {
+        let mut status = rig.ask(runner, "status", None);
+        status.as_object_mut().unwrap().remove("lock");
+        status
+    };
+    let before = status(&rig, &runner);
     rig.reply("koji 71 yes");
     assert_eq!(
         step(&runner).unwrap(),
@@ -184,7 +190,7 @@ fn a_reply_to_a_settled_ruling_runs_nothing_and_the_topic_is_told() {
             line_failed: None
         })
     );
-    assert_eq!(rig.ask(&runner, "status", None), status, "nothing ran");
+    assert_eq!(status(&rig, &runner), before, "nothing ran");
     assert_eq!(rig.forge.merges(), []);
     assert_eq!(
         lines(&rig),

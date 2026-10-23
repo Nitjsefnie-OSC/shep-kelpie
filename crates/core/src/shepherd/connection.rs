@@ -11,9 +11,8 @@ use std::path::Path;
 use std::pin::Pin;
 use std::time::Duration;
 
-use shep_client::shep_core::protocol::HelloAck;
-use shep_client::shep_core::protocol::Request;
 use shep_client::shep_core::protocol::request::Response;
+use shep_client::shep_core::protocol::{DogSectionToml, HelloAck, Request};
 use shep_client::{Client, ConnectError, ReconnectingClient, RequestError};
 
 use super::ConnectRefused;
@@ -21,6 +20,10 @@ use crate::home::SHEP_SOCKET;
 
 /// What a [`Connection`] answers a request with
 pub type Answer<'a> = Pin<Box<dyn Future<Output = Result<Response, RequestError>> + Send + 'a>>;
+
+/// What a [`Connection`] answers a read of a dog's section with
+pub type Section<'a> =
+    Pin<Box<dyn Future<Output = Result<DogSectionToml, RequestError>> + Send + 'a>>;
 
 /// What a [`Dial`] opens
 pub type Opened<'a> =
@@ -37,6 +40,23 @@ pub trait Connection: Send + Sync + fmt::Debug {
 
     /// What the shepherd said of itself in the handshake
     fn daemon(&self) -> HelloAck;
+
+    /// The dog `name`'s section of `dogs.toml`, with every `{{secret:...}}` in it resolved
+    ///
+    /// The shep client answers it, which falls back on a shepherd too old to resolve.
+    /// A connection that is not the shep client asks `DogConfigResolved` itself.
+    fn dog_config<'a>(&'a self, name: &'a str) -> Section<'a> {
+        Box::pin(async move {
+            let body = Request::DogConfigResolved { name: name.into() };
+            match self.send(body, None).await? {
+                Response::DogSection { toml } => Ok(toml),
+                other => Err(RequestError::UnexpectedReply {
+                    asked: "DogConfigResolved",
+                    answered: other.name(),
+                }),
+            }
+        })
+    }
 }
 
 impl dyn Connection + '_ {
@@ -71,6 +91,10 @@ impl<T: Connection + ?Sized> Connection for Box<T> {
     fn daemon(&self) -> HelloAck {
         (**self).daemon()
     }
+
+    fn dog_config<'a>(&'a self, name: &'a str) -> Section<'a> {
+        (**self).dog_config(name)
+    }
 }
 
 impl Connection for Client {
@@ -81,6 +105,10 @@ impl Connection for Client {
     fn daemon(&self) -> HelloAck {
         Self::daemon(self).clone()
     }
+
+    fn dog_config<'a>(&'a self, name: &'a str) -> Section<'a> {
+        Box::pin(Self::dog_config(self, name))
+    }
 }
 
 impl Connection for ReconnectingClient {
@@ -90,6 +118,10 @@ impl Connection for ReconnectingClient {
 
     fn daemon(&self) -> HelloAck {
         Self::daemon(self)
+    }
+
+    fn dog_config<'a>(&'a self, name: &'a str) -> Section<'a> {
+        Box::pin(Self::dog_config(self, name))
     }
 }
 
@@ -159,6 +191,30 @@ mod tests {
             matches!(&reply, Response::Flock(rows) if rows.is_empty()),
             "{reply:?}"
         );
+    }
+
+    #[tokio::test]
+    async fn a_secret_in_a_dog_s_section_reaches_the_socket_connection_resolved() {
+        let home = shep_home();
+        let _heard = fake_daemon_answering_with_ack(
+            &home.path().join(SHEP_SOCKET),
+            sample_ack(),
+            |request| match request {
+                Request::DogConfigResolved { .. } => Response::DogSection {
+                    toml: "token = \"tk_resolved\"\n".to_owned().into(),
+                },
+                Request::DogConfig { .. } => Response::DogSection {
+                    toml: "token = \"{{secret:ntfy}}\"\n".to_owned().into(),
+                },
+                other => panic!("kelpie asked {other:?}"),
+            },
+        )
+        .await;
+
+        let connection = Socket.open(home.path()).await.unwrap();
+        let section = connection.dog_config("kelpie").await.unwrap();
+
+        assert_eq!(section.as_str(), "token = \"tk_resolved\"\n");
     }
 
     #[tokio::test]

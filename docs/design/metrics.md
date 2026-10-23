@@ -7,7 +7,7 @@ Kelpie's numbers, live, on shep's metrics endpoint. ADR 0012, #920.
 - Runner and dog send channel samples (`shep_channel::Shepherd::metric_with`); shep's metrics dog serves them on `/metrics` (default `127.0.0.1:9615`) with the sender's labels first: `sheep` (the project), `id`, `fold` for a runner; `dog`, `source` for the dog. `crates/core/src/metrics/mod.rs`
 - Through the `Sink` port (`crates/core/src/ports/metrics.rs`): the real one is the runner's `Shepherd`, a test holds `RecordedSink` and asserts the samples sent. Sending never blocks or fails; a full outbox drops a sample, and the next carries the total.
 - Counters are kept whole in kelpie's memory (`Recorder`) and each change sends the new total. A runner start begins them at zero, as Prometheus expects of a restart.
-- A runner sends at most `SERIES_CAP` (255) series, one under the dog's 256 a sender, which leaves the one `kelpie_series_dropped_total` is; a new series past it is not sent and counts there, with one log line per name. The budget test drives every role on every harness it may use with every kind of call, which is 254 series once the failed tool calls' 39 and the forge's 18 are counted (the cap went from 240 to 255 for those 18).
+- A runner sends at most `SERIES_CAP` (255) series, one under the dog's 256 a sender, which leaves the one `kelpie_series_dropped_total` is; a new series past it is not sent and counts there, with one log line per name. The budget test drives every role on every harness it may use with every kind of call, which is 252 series once the failed tool calls' 39, the forge's 18 and the lock's 3 are counted (the cap went from 240 to 255 for the forge's 18, and the 50000 request bucket went for the lock's 3).
 - Names `kelpie_*`, snake case; counters end `_total`. Labels only from bounded sets: `role`, `kind`, `agent` and `effort` (named in settings), `harness`, `model`, `ended`, `account`, `window`, `phase`, `feature`, `outcome`, `type`, `tests`, `severity`, `le`, `after`, `server` (kelpie's own servers by name, any other `repo`). Never an issue, pull request, session or path.
 
 ## Series
@@ -26,6 +26,8 @@ Plan limits: gauges the pacer sets whenever it reads an account's usage (`Runner
 - `kelpie_plan_used_ratio{account,window}`: `window` is `session` (5 hours) or `week`, 0 to 1
 - `kelpie_plan_resets_at_seconds{account,window}`: Unix seconds
 - `kelpie_plan_allowance_ratio{account}`, `kelpie_plan_spent_today_ratio{account}`: the share of the week today may spend, and the share spent since the day began, 0 to 1. They read the same with `pacing.enabled` off
+
+- The runner's lock: `kelpie_runner_lock_held_seconds_total` and `kelpie_runner_lock_holds_total{le}` (`1`, `+Inf`), three series. `runner-lock.md`, `crates/core/src/metrics/lock.rs`
 
 Work items (phases, how they ended, review rounds, findings, red CI heads) are in `metrics-work-items.md`.
 

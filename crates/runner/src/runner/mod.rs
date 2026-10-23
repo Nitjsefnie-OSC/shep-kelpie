@@ -12,7 +12,7 @@ use std::process::Stdio;
 use std::sync::Arc;
 
 use crate::agents::{Agents, AgentsError};
-use crate::board::{LabelError, Skip, agent_label, old_worker_label, pinned};
+use crate::board::Skip;
 use crate::forge_ledger::Ledger as ForgeLedger;
 use crate::home::{ProjectName, ProjectPaths};
 use crate::hooks::SharedHooks;
@@ -25,14 +25,15 @@ use crate::ports::{
 };
 use crate::review_bot::{Bot, Profile};
 use crate::settings::{
-    Account, AgentName, ForgeSlug, Gateways, ListedReviewer, RoleAgents, Settings, SettingsError,
+    Account, ForgeSlug, Gateways, ListedReviewer, RoleAgents, Settings, SettingsError,
 };
 use crate::skills::{RepoPlugins, Skills};
 use crate::state::{ProjectState, Ruling, StateError, StateStore};
 use crate::ticket::TicketId;
 use crate::webhook::{KelpieSettings, Webhook};
-use crate::work_item::{ReviewCallState, Seat, WorkItem, new_session_id};
+use crate::work_item::{ReviewCallState, Seat, WorkItem};
 
+mod add;
 mod adopt;
 #[cfg(test)]
 mod agents_tests;
@@ -89,10 +90,12 @@ mod limits_tests;
 mod lineup;
 #[cfg(test)]
 mod local_ticket_tests;
+mod lock_hold;
 mod login_refresh;
 mod looks;
 mod main_ci;
 mod merge;
+mod off_lock;
 mod older_bots;
 mod open_checks;
 #[cfg(test)]
@@ -144,6 +147,7 @@ mod voice;
 mod words;
 mod worker_files;
 
+pub use add::AddError;
 pub use adopt::AdoptError;
 pub use attach::{AttachError, Attaching};
 pub use drain::{CallRole, CallRunning, Draining};
@@ -174,7 +178,6 @@ pub use rework::ReworkError;
 pub use ruling::{Action, Answer, RuleError};
 pub use timings::{Totals, settle};
 pub use trigger::answer;
-use trigger::issue_list;
 pub use trigger::{ACTIONS, BudgetStatus, Status, WorkItemStatus, wakes};
 pub use trigger::{GateError, WhichItem};
 pub use words::{Wants, read_answer};
@@ -233,55 +236,6 @@ impl From<StateError> for OpenError {
         Self::State(e)
     }
 }
-
-/// Why `add` was refused
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum AddError {
-    /// No slot is free under `concurrency.active_items`, counting the items waiting for
-    /// one, or one for this ticket is open already: the tickets of those in
-    /// the way
-    InFlight(Vec<TicketId>),
-    /// The forge could not show the issue
-    Forge(ForgeError),
-    /// The issue's `agent:` label cannot be used
-    Label(LabelError),
-    /// The issue writer is labelling the issue
-    Labelling(TicketId),
-    /// `finish` holds the board back, so no new work item opens
-    Finishing,
-    /// No random session id could be drawn, with the OS's reason
-    Session(String),
-    /// The work item could not be saved
-    State(StateError),
-}
-
-impl fmt::Display for AddError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::InFlight(issues) if issues.len() == 1 => {
-                write!(f, "the work item for {} is in flight", issue_list(issues))
-            }
-            Self::InFlight(issues) => {
-                write!(f, "the work items for {} are in flight", issue_list(issues))
-            }
-            Self::Forge(e) => write!(f, "cannot read the issue: {e}"),
-            Self::Label(e) => e.fmt(f),
-            Self::Labelling(ticket) => write!(
-                f,
-                "the issue writer is labelling {}: add it once that call ends",
-                ticket.shown()
-            ),
-            Self::Finishing => f.write_str(
-                "the runner is finishing, so it opens no new work item: `shep kelpie start` \
-                 lets it pick again",
-            ),
-            Self::Session(e) => write!(f, "cannot draw a session id: {e}"),
-            Self::State(e) => e.fmt(f),
-        }
-    }
-}
-
-impl core::error::Error for AddError {}
 
 /// One project's runner
 #[derive(Debug)]
@@ -444,6 +398,8 @@ pub struct Runner {
     // The ids of comments kelpie posted as the login `gh` acts as since the
     // last save, which the state file keeps: none of them is ever an answer
     posted: std::cell::RefCell<Vec<u64>>,
+    // How long each hold of the runner's lock lasted, in memory only
+    holds: lock_hold::Holds,
 }
 
 impl Runner {
@@ -699,6 +655,7 @@ impl Runner {
             no_checks: std::collections::BTreeSet::new(),
             builds: builds::BuildWatch::default(),
             posted: std::cell::RefCell::default(),
+            holds: lock_hold::Holds::default(),
         };
         runner.settle_older_bots()?;
         runner.settle_labels();
@@ -807,6 +764,7 @@ impl Runner {
             run: self.run_status(),
             forge_held_until: self.forge_hold.until(now),
             settings_refused: self.refusal.as_ref(),
+            lock: self.holds.longest(),
         }
     }
 
@@ -821,73 +779,6 @@ impl Runner {
             build_bytes: self.builds.folder_bytes(ticket),
             ..WorkItemStatus::new(item, self.settings.budget.per_item_usd, split)
         }
-    }
-
-    /// Opens a work item for `ticket`, and returns the implementer its
-    /// worker runs on. Its first turn runs on a later pass.
-    ///
-    /// # Errors
-    ///
-    /// [`AddError`] when the runner is finishing, the project has
-    /// `concurrency.active_items` working or one for this issue open
-    /// already, the issue cannot be read or its `agent:` label names no
-    /// listed implementer, or the change cannot be saved. Nothing changes then.
-    pub fn add(&mut self, ticket: TicketId) -> Result<AgentName, AddError> {
-        if !self.picks() {
-            return Err(AddError::Finishing);
-        }
-        if self.state.item(ticket).is_some() {
-            return Err(AddError::InFlight(vec![ticket]));
-        }
-        if self.flights.labelling() == Some(ticket) {
-            return Err(AddError::Labelling(ticket));
-        }
-        if !self.slot_free() {
-            return Err(AddError::InFlight(self.slot_issues()));
-        }
-        let found = self
-            .ports
-            .tickets
-            .issue(&self.remote, ticket)
-            .map_err(AddError::Forge)?;
-        let (agent, note) = self
-            .labelled_agent(ticket, &found.labels)
-            .map_err(AddError::Label)?;
-        let session = new_session_id().map_err(|e| AddError::Session(e.to_string()))?;
-        let mut next = self.state.clone();
-        let pinned = pinned(&found.labels);
-        let mut item = self.fresh(ticket, found.title, agent.clone(), session);
-        item.pinned = pinned;
-        next.work_items.push(item);
-        Self::label_ruled(&mut next, ticket);
-        self.save(next).map_err(AddError::State)?;
-        self.notes.extend(note);
-        self.mark_held(ticket, true);
-        Ok(agent)
-    }
-
-    // The implementer a ticket with `labels` runs on: the one its `agent:`
-    // label names, or the default. Beside it, the log line an old `worker:`
-    // label gets once the work item opens, since it no longer picks anything.
-    fn labelled_agent(
-        &self,
-        ticket: TicketId,
-        labels: &[String],
-    ) -> Result<(AgentName, Option<String>), LabelError> {
-        let listed = self.agents.implementer_names();
-        if let Some(agent) = agent_label(labels, &listed)? {
-            return Ok((agent, None));
-        }
-        let agent = self.agents.default_implementer.name.clone();
-        let note = old_worker_label(labels).map(|old| {
-            format!(
-                "{} is labelled `{old}`, which kelpie no longer reads, so it runs on the \
-                 default implementer, {agent}: an `agent:<name>` label picks another that \
-                 `agents.implementers` lists",
-                ticket.named().to_lowercase()
-            )
-        });
-        Ok((agent, note))
     }
 
     // The work item the runner is working on, while it is open

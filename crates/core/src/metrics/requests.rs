@@ -25,9 +25,9 @@ const CACHE_WRITES: Family = Family {
 const ROLES: [Role; 3] = [Role::Worker, Role::Reviewer, Role::Pm];
 
 // The buckets' upper bounds, in tokens, and then +Inf. They sit where a context matters: the worker's
-// compaction threshold (`WORKER_COMPACT_PAST`, 150,000) and a Claude Code context's 200,000, with
-// 50,000 below. Five or six did not fit the runner's 200 series.
-const BOUNDS: [u64; 3] = [50_000, 150_000, 200_000];
+// compaction threshold (`WORKER_COMPACT_PAST`, 150,000) and a Claude Code context's 200,000. More
+// did not fit the runner's 255 series beside the lock's three.
+const BOUNDS: [u64; 2] = [150_000, 200_000];
 
 impl Recorder {
     /// Counts `request`, made by a call of `role` on `harness`, if the role's requests are counted
