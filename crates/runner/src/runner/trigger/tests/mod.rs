@@ -1,7 +1,12 @@
-use serde_json::json;
+use std::sync::Arc;
+use std::sync::mpsc;
+use std::time::Duration;
+
+use serde_json::{Value, json};
 
 use super::*;
 use crate::ports::{Checks, Cost, Usage};
+use crate::runner::posted::Queued;
 use crate::runner::{StepReport, step};
 use crate::skills::Step;
 use crate::test::{Rig, Scripted, ticket};
@@ -237,5 +242,87 @@ fn gate_refuses_anything_but_an_ended_turn_with_a_known_pull_request() {
     assert_eq!(
         rig.ask(&runner, "gate", None),
         json!({ "error": "the work item for #7 is already in the gate" })
+    );
+}
+
+// Sends `action` the way shep's reader thread does while a pass holds the
+// runner's lock, and returns its reply. A reply that waits for the lock fails
+// the test instead of hanging it.
+fn asked_during_a_pass(runner: &Arc<Mutex<Runner>>, action: &str, params: Option<&str>) -> Value {
+    let postings = runner.lock().unwrap().postings();
+    let _pass = runner.lock().unwrap();
+    let (sent, reply) = mpsc::channel();
+    let (runner, action, params) = (
+        Arc::clone(runner),
+        action.to_owned(),
+        params.map(str::to_owned),
+    );
+    std::thread::spawn(move || {
+        let _ = sent.send(answer(&runner, &postings, &action, params.as_deref()));
+    });
+    let reply = reply
+        .recv_timeout(Duration::from_secs(5))
+        .expect("the trigger waited for the pass's lock");
+    serde_json::from_str(&reply).expect("a JSON reply")
+}
+
+// A runner whose loop has posted its status, as it has by its first pass
+fn posted(rig: &Rig, runner: Mutex<Runner>) -> (Arc<Mutex<Runner>>, Arc<Posted>) {
+    let runner = Arc::new(runner);
+    rig.ask(&runner, "status", None);
+    let postings = runner.lock().unwrap().postings();
+    (runner, postings)
+}
+
+#[test]
+fn add_is_answered_while_the_pass_holds_the_lock() {
+    let rig = Rig::new("koji");
+    let (runner, postings) = posted(&rig, rig.open().unwrap());
+
+    let reply = asked_during_a_pass(&runner, "add", Some("7"));
+
+    assert_eq!(reply["project"], "koji", "{reply}");
+    assert_eq!(
+        reply["work_items"],
+        json!([]),
+        "the pass has not taken it up"
+    );
+    assert!(postings.needs_wake(), "the loop is asked for a pass");
+    assert_eq!(postings.take_queued(), [Queued::Add(ticket(7))]);
+}
+
+#[test]
+fn rework_adopt_and_triage_are_answered_while_the_pass_holds_the_lock() {
+    let rig = Rig::new("koji");
+    let (runner, postings) = posted(&rig, rig.open().unwrap());
+
+    for (action, params) in [("rework", "71"), ("adopt", "72"), ("triage", "9")] {
+        let reply = asked_during_a_pass(&runner, action, Some(params));
+        assert_eq!(reply["project"], "koji", "{action}: {reply}");
+    }
+
+    assert_eq!(
+        postings.take_queued(),
+        [Queued::Rework(71), Queued::Adopt(72), Queued::Triage(9)]
+    );
+}
+
+#[test]
+fn rule_is_answered_while_the_pass_holds_the_lock_and_an_unknown_id_is_refused_at_once() {
+    let (rig, runner, _) = Rig::parked("rotom");
+    let (runner, postings) = posted(&rig, runner);
+
+    let reply = asked_during_a_pass(&runner, "rule", Some("71 no not yet"));
+    assert_eq!(reply["rulings"][0]["id"], "71", "{reply}");
+    let refused = asked_during_a_pass(&runner, "rule", Some("9 yes"));
+    assert_eq!(
+        refused,
+        json!({ "error": "ruling 9 is already answered, or was never raised" })
+    );
+
+    assert_eq!(
+        postings.take_queued(),
+        [Queued::Rule(ticket(71), Answer::No("not yet".into()))],
+        "the refused id queued nothing"
     );
 }

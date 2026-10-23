@@ -10,8 +10,8 @@ use serde::Serialize;
 use super::gpu::GpuStatus;
 use super::lock_hold::Held;
 use super::pace::PacerStatus;
-use super::posted::{Body, Posted};
-use super::{Action, Answer, Runner};
+use super::posted::{Body, Posted, Queued};
+use super::{Action, Answer, RuleError, Runner};
 use crate::board::Skip;
 use crate::ports::PaddockHolder;
 use crate::ports::{SessionId, Timestamp};
@@ -483,8 +483,23 @@ pub fn wakes(action: &str) -> bool {
 //
 // Only the triggers that ask have a posted answer. A `drain` or `undrain`
 // answered that way sets its flag here, where every step reads it, and leaves
-// what it asks the runner itself for the pass to take up at its next lock.
+// what it asks the runner itself for the pass to take up at its next lock. The
+// verbs that read the forge (`add`, `rework`, `adopt`, `triage` and `rule`)
+// are queued for the pass, and answer the status as it stands.
 fn from_posted(posted: &Posted, request: &Request) -> Option<String> {
+    if let Some(verb) = queued_verb(request) {
+        let body = posted.body()?;
+        // A ruling the posted status does not list is refused here, since the
+        // reply is the only place its refusal would reach the maintainer.
+        if let Request::Rule(id, _) = request
+            && !ruling_waits(&body.status, *id)
+        {
+            let refused = RuleError::NoSuchRuling(*id).to_string();
+            return Some(serde_json::json!({ "error": refused }).to_string());
+        }
+        posted.ask_queued(verb);
+        return status_of(posted, body);
+    }
     let asked = match request {
         Request::Status => true,
         Request::Drain { at_tool } => {
@@ -500,7 +515,31 @@ fn from_posted(posted: &Posted, request: &Request) -> Option<String> {
     if !asked {
         return None;
     }
-    let Body { mut status, drain } = posted.body()?;
+    status_of(posted, posted.body()?)
+}
+
+// The verb `request` queues for the pass, when it is one that reads the forge.
+fn queued_verb(request: &Request) -> Option<Queued> {
+    Some(match request {
+        Request::Add(ticket) => Queued::Add(*ticket),
+        Request::Rework(number) => Queued::Rework(*number),
+        Request::Adopt(number) => Queued::Adopt(*number),
+        Request::Triage(issue) => Queued::Triage(*issue),
+        Request::Rule(id, answer) => Queued::Rule(*id, answer.clone()),
+        _ => return None,
+    })
+}
+
+// Whether the posted `status` lists a ruling the maintainer answers by `id`.
+fn ruling_waits(status: &serde_json::Value, id: TicketId) -> bool {
+    let named = id.to_string();
+    (status["rulings"].as_array())
+        .is_some_and(|rulings| rulings.iter().any(|r| r["id"].as_str() == Some(&named)))
+}
+
+// The posted status as a reply, with `draining` as the flag stands now.
+fn status_of(posted: &Posted, body: Body) -> Option<String> {
+    let Body { mut status, drain } = body;
     if posted.draining() {
         status["draining"] = drain;
     } else {

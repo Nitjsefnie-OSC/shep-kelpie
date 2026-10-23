@@ -21,8 +21,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use serde_json::Value;
 
-use super::Runner;
+use super::{Answer, Runner};
 use crate::ports::PaddockHolder;
+use crate::ticket::TicketId;
 
 /// What the loop last posted, and what a trigger asked while a pass held the lock
 #[derive(Debug, Default)]
@@ -36,6 +37,23 @@ pub struct Posted {
     draining: AtomicBool,
     // Whether a `drain` or `undrain` landed while a pass held the lock and still wants a pass
     wake: AtomicBool,
+    // The verbs that read the forge and landed while a pass held the lock, oldest first
+    queued: Mutex<Vec<Queued>>,
+}
+
+/// A verb that reads the forge, asked while a pass held the runner's lock, for the pass to take up
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Queued {
+    /// `add <ticket>`
+    Add(TicketId),
+    /// `rework <pull request>`
+    Rework(u64),
+    /// `adopt <pull request>`
+    Adopt(u64),
+    /// `triage <issue>`
+    Triage(u64),
+    /// `rule <id> <answer>`, for a ruling the posted status lists
+    Rule(TicketId, Answer),
 }
 
 /// What `status` and `drain` answer while a pass holds the runner's lock
@@ -165,9 +183,41 @@ impl Posted {
             .take()
     }
 
-    /// Whether a posted `drain` or `undrain` still wants a pass, clearing the ask
+    /// Records `verb` for the runner to take up at the top of its next pass
+    ///
+    /// The verb reads the forge, which a trigger must not wait on, so it
+    /// answers now and the pass applies it.
+    pub(crate) fn ask_queued(&self, verb: Queued) {
+        self.queued
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .push(verb);
+        self.wake.store(true, Ordering::SeqCst);
+    }
+
+    /// The verbs asked while a pass held the lock, oldest first, each handed out once
+    ///
+    /// Taking them also ends their ask for a pass.
+    pub(crate) fn take_queued(&self) -> Vec<Queued> {
+        self.wake.store(false, Ordering::SeqCst);
+        std::mem::take(
+            &mut *self
+                .queued
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner),
+        )
+    }
+
+    /// Whether a posted `drain`, `undrain` or queued verb still wants a pass, clearing the ask
+    ///
+    /// A queued verb keeps asking until a pass takes it, whatever cleared the
+    /// flag meanwhile.
     pub fn needs_wake(&self) -> bool {
-        self.wake.swap(false, Ordering::SeqCst)
+        let waiting = !(self.queued)
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .is_empty();
+        self.wake.swap(false, Ordering::SeqCst) || waiting
     }
 }
 
@@ -211,7 +261,7 @@ mod tests {
 
     use super::*;
     use crate::runner::advance;
-    use crate::test::Rig;
+    use crate::test::{Rig, ticket};
 
     // A pi implementer behind a gateway, which is what makes `status` ask that
     // gateway who holds its lease.
@@ -320,6 +370,31 @@ mod tests {
             "the second ask cleared the first's ask"
         );
         assert!(!posted.needs_wake(), "the ask was already taken");
+    }
+
+    #[test]
+    fn a_queued_verb_is_taken_once_and_wakes_the_loop() {
+        let posted = Posted::default();
+        assert!(!posted.needs_wake(), "nothing is waiting");
+
+        posted.ask_queued(Queued::Add(ticket(7)));
+        posted.ask_queued(Queued::Adopt(71));
+        assert!(posted.needs_wake(), "a queued verb asks for a pass");
+        assert_eq!(
+            posted.take_queued(),
+            [Queued::Add(ticket(7)), Queued::Adopt(71)],
+            "in the order they were asked"
+        );
+        assert!(posted.take_queued().is_empty(), "taken once");
+        assert!(!posted.needs_wake(), "taking them ends their ask");
+    }
+
+    #[test]
+    fn a_drain_taken_up_does_not_forget_a_queued_verbs_wake() {
+        let posted = Posted::default();
+        posted.ask_queued(Queued::Triage(9));
+        posted.take_pending();
+        assert!(posted.needs_wake(), "the verb still waits for its pass");
     }
 
     #[test]
