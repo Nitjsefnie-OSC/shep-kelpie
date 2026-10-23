@@ -61,3 +61,7 @@
   - `PROTOCOL_VERSION` is 11 in shep-core 0.15.0, 0.15.1, 0.15.2 and 0.16.0. `MIN_SUPPORTED`, the oldest protocol a shepherd accepts, is 8.
   - A shepherd refuses a client only below `MIN_SUPPORTED` (`crates/shep-daemon/src/server/conn_protocol.rs` in shep), so it takes a newer client. Its `HelloAck` carries `protocol` and `min_supported`, and shep-client refuses no shepherd on its own.
   - The same day `shep kelpie finish` refused a shep 0.16.0 shepherd: "kelpie is built for shep 0.15.0 and takes only a 0.15.x shepherd from 0.15.0 on".
+- A dog's section and secrets, read 2026-10-23 from shep-client 0.16.1's source (shep-pm/shep#1075):
+  - `Client::dog_config` asks `DogConfigResolved`, so a `{{secret:...}}` in the section arrives resolved. Plain `DogConfig` returns the text as written.
+  - Against a shepherd that does not know `DogConfigResolved` it falls back on `DogConfig`, and refuses a section that still holds a reference with `RpcErrorCode::Unsupported`.
+  - Kelpie reads its `[kelpie]` section through it, in the runner (`shepherd::read_section`) and in the dog (`settings`). Run against a stand-in daemon that answers the two requests differently, not yet a live shepherd.

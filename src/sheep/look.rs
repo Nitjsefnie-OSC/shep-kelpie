@@ -234,7 +234,7 @@ mod tests {
                         DogTable::from(table.lock().unwrap().clone()),
                     )]),
                 },
-                Request::DogConfig { .. } => Response::DogSection {
+                Request::DogConfigResolved { .. } => Response::DogSection {
                     toml: SECTION.to_owned().into(),
                 },
                 other => panic!("the runner asked {other:?}"),
@@ -550,7 +550,7 @@ mod tests {
                             DogTable::from(held.lock().unwrap().clone()),
                         )]),
                     },
-                    Request::DogConfig { .. } => Response::DogSection {
+                    Request::DogConfigResolved { .. } => Response::DogSection {
                         toml: SECTION.to_owned().into(),
                     },
                     Request::ListFlock if up.load(Ordering::SeqCst) => Response::Flock(Vec::new()),
