@@ -33,7 +33,7 @@ impl TryFrom<&str> for ProjectName {
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         let allowed = |c: char| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.');
-        if value.is_empty() || value.starts_with('.') || !value.chars().all(allowed) {
+        if value.is_empty() || value.starts_with(['-', '.']) || !value.chars().all(allowed) {
             return Err(ProjectNameError(value.to_owned()));
         }
         // A project's folder sits beside kelpie's own in kelpie's home.
@@ -60,8 +60,8 @@ impl fmt::Display for ProjectNameError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "{:?} cannot name a project: use letters, digits, - _ . and not one of kelpie's \
-             own folders ({}), as in `shep kelpie add <another name>`",
+            "{:?} cannot name a project: use letters, digits, - _ . and do not start with - or ., \
+             nor use one of kelpie's own folders ({}), as in `shep kelpie add <another name>`",
             self.0,
             crate::home::OWN.join(" ")
         )
@@ -290,7 +290,9 @@ mod tests {
 
     #[test]
     fn a_project_name_is_one_path_component() {
-        for bad in ["", "a/b", "..", ".hidden", "sp ace", "dog", "tools"] {
+        for bad in [
+            "", "a/b", "..", ".hidden", "-x", "-h", "--help", "sp ace", "dog", "tools",
+        ] {
             assert!(ProjectName::try_from(bad).is_err(), "{bad:?}");
         }
         assert!(ProjectName::try_from("shep-kelpie_2.0").is_ok());
