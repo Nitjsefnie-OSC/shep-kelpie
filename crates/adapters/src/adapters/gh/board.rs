@@ -58,7 +58,7 @@ const OPEN_QUERY: &str = concat!(
     labels(first: 100) { nodes { name } } \
     reviews(first: 1) { totalCount } reviewThreads(first: 1) { totalCount } \
     commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) { nodes { \
-    __typename ... on CheckRun { name status conclusion } \
+    __typename ... on CheckRun { name status conclusion checkSuite { id } } \
     ... on StatusContext { context state } } } } ",
     suites_fields!(),
     " } } } } } } }"
@@ -276,7 +276,9 @@ fn parse_pull_requests(stdout: &[u8], repo: &ForgeSlug) -> Result<Page, ForgeErr
                 labels: pr.labels.nodes.into_iter().map(|l| l.name).collect(),
                 draft: pr.is_draft,
                 commit: pr.head_ref_oid,
-                checks: suites.fold(checks(&rollup)),
+                checks: suites
+                    .counted(rollup.iter().filter_map(Check::suite))
+                    .fold(checks(&rollup)),
                 from_fork: pr.is_cross_repository,
                 author_is_bot: pr.author.as_ref().is_some_and(|a| a.kind == "Bot"),
                 author: pr.author.map(|a| a.login).unwrap_or_default(),
@@ -552,6 +554,48 @@ mod tests {
         assert!(OPEN_QUERY.contains("reviews(first: 1) { totalCount }"));
         assert!(OPEN_QUERY.contains("reviewThreads(first: 1) { totalCount }"));
         assert!(!OPEN_QUERY.contains("comments("));
+    }
+
+    // A count under each of 50 suites of 100 pull requests made the query
+    // cost 57 points against 6, which spent a login's hourly 5000 in two runners.
+    #[test]
+    fn the_listing_counts_no_check_runs_per_suite() {
+        assert!(!OPEN_QUERY.contains("checkRuns("));
+        assert!(OPEN_QUERY.contains("checkSuite { id }"));
+    }
+
+    // A pull request whose rollup holds one green check run of suite `S1`,
+    // beside `suites`
+    fn listed_with(suites: &str) -> Checks {
+        let page = r#"{"data":{"repository":{"pullRequests":{
+            "pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[{
+            "number":1,"headRefName":"a","headRefOid":"b","isDraft":false,
+            "isCrossRepository":false,"author":null,"closingIssuesReferences":{"nodes":[]},
+            "labels":{"nodes":[]},"reviews":{"totalCount":0},"reviewThreads":{"totalCount":0},
+            "commits":{"nodes":[{"commit":{"statusCheckRollup":{"contexts":{"nodes":[
+                {"__typename":"CheckRun","name":"test","status":"COMPLETED",
+                 "conclusion":"SUCCESS","checkSuite":{"id":"S1"}}]}},
+            "checkSuites":{"nodes":[SUITES]}}}]}}]}}}}"#
+            .replace("SUITES", suites);
+        let mut page = parse_pull_requests(page.as_bytes(), &kelpie()).unwrap();
+        page.pull_requests.remove(0).checks
+    }
+
+    #[test]
+    fn a_failed_workflow_no_listed_check_run_names_started_no_job() {
+        let suites = r#"{"id":"S1","conclusion":"SUCCESS","workflowRun":{"file":{"path":"test.yml"}}},
+            {"id":"S2","conclusion":"FAILURE","workflowRun":{"file":{"path":"lint.yml"}}}"#;
+        assert_eq!(
+            listed_with(suites),
+            Checks::Failed(vec!["lint.yml: started no job".into()])
+        );
+    }
+
+    #[test]
+    fn a_failed_workflow_a_listed_check_run_names_is_the_rollups_to_judge() {
+        let suites =
+            r#"{"id":"S1","conclusion":"FAILURE","workflowRun":{"file":{"path":"test.yml"}}}"#;
+        assert_eq!(listed_with(suites), Checks::Passed);
     }
 
     #[test]
