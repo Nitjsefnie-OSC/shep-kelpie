@@ -3,6 +3,7 @@
 
 use std::fmt::Write as _;
 
+use super::red::short;
 use super::{Wake, diffs};
 use crate::board::briefing::ticket_ref;
 use crate::ports::Wait;
@@ -444,6 +445,11 @@ pub(super) fn reason(wake: &Wake) -> String {
             )
         }
         Wake::Told => "the maintainer told you something".to_owned(),
+        Wake::Red { workflow, head } => format!(
+            "{workflow} is still red on main at {} after kelpie reran its failed jobs: read \
+             its log, then fix it or ask the maintainer with the `red` key",
+            short(head)
+        ),
         Wake::Vote { id, asked } => {
             let mut out = format!("ruling {id} is before the panel, and your vote is due:\n");
             for line in asked.lines() {

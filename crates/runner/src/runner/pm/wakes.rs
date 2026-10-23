@@ -83,6 +83,7 @@ impl Runner {
         for (&(a, b), files) in &self.pm.conflicts {
             wakes.push(Wake::Conflict(a, b, files.clone()));
         }
+        wakes.extend(self.unsettled_reds());
         for wake in wakes {
             self.pm_due(wake);
         }

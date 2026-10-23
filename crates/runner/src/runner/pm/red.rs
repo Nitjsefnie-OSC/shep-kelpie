@@ -6,6 +6,7 @@
 //! that came back red, or whose rerun the forge refused, is the project
 //! manager's to settle, once.
 
+use super::Wake;
 use super::act::{WORDS, plain};
 use super::answer::{RedCall, RedHow};
 use crate::board::READY;
@@ -117,6 +118,32 @@ impl Runner {
         ))
     }
 
+    // The wake for each head that stayed red after its rerun and has no call yet
+    pub(super) fn unsettled_reds(&self) -> Vec<Wake> {
+        (self.state.red.iter())
+            .filter(|r| r.again && r.handled.is_none())
+            .map(|r| Wake::Red {
+                workflow: r.workflow.clone(),
+                head: r.head.clone(),
+            })
+            .collect()
+    }
+
+    /// Wakes the project manager once for each head that stayed red after its
+    /// rerun, since a pick wake comes only where two issues could start
+    pub(super) fn pm_reds(&mut self) {
+        if self.agents.pm.is_none() {
+            return;
+        }
+        for wake in self.unsettled_reds() {
+            if let Wake::Red { workflow, head } = &wake
+                && self.pm.red_woken.insert((workflow.clone(), head.clone()))
+            {
+                self.pm_due(wake);
+            }
+        }
+    }
+
     // What on this machine `texts` name, which nothing kelpie posts may.
     fn names_machine<'a>(&self, texts: impl IntoIterator<Item = &'a String>) -> Option<String> {
         texts
@@ -126,6 +153,6 @@ impl Runner {
     }
 }
 
-fn short(head: &str) -> &str {
+pub(super) fn short(head: &str) -> &str {
     head.get(..7).unwrap_or(head)
 }

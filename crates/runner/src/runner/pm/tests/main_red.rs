@@ -39,11 +39,13 @@ fn rerun() -> (Rig, Mutex<Runner>) {
     (rig, runner)
 }
 
-/// ... and read run 91 red again after its rerun
+/// ... and read run 91 red again after its rerun, which wakes the project
+/// manager once, and it makes no call
 fn red_again() -> (Rig, Mutex<Runner>) {
     let (rig, runner) = rerun();
+    rig.claude.script([Scripted::Say("{\"pick\": null}")]);
     rig.clock.advance(MAIN_CI_POLL.as_secs());
-    step(&runner).unwrap();
+    step_until(&runner, |r| matches!(r, StepReport::PmAnswered { .. }));
     (rig, runner)
 }
 
@@ -172,8 +174,9 @@ fn status_shows_what_is_being_done_about_each_red_workflow() {
         json!("kelpie reran its failed jobs and waits for the result")
     );
 
+    rig.claude.script([Scripted::Say("{\"pick\": null}")]);
     rig.clock.advance(MAIN_CI_POLL.as_secs());
-    step(&runner).unwrap();
+    step_until(&runner, |r| matches!(r, StepReport::PmAnswered { .. }));
     assert_eq!(
         doing(),
         json!("red again after its rerun; the project manager opens a fix or asks")
@@ -261,5 +264,33 @@ fn a_head_is_settled_once_and_a_new_red_head_is_the_project_managers_again() {
     assert_eq!(
         ask(&rig, &runner, "red_workflows")[0]["doing"],
         json!("kelpie reran its failed jobs and waits for the result")
+    );
+}
+
+#[test]
+fn a_head_red_again_wakes_it_in_a_quiet_project_with_no_issue_to_pick() {
+    let (rig, runner) = rerun();
+    assert!(pm_seen(&rig).is_empty());
+
+    rig.claude.script([Scripted::Say(FIX)]);
+    rig.clock.advance(MAIN_CI_POLL.as_secs());
+    let report = step_until(&runner, |r| matches!(r, StepReport::PmAnswered { .. }));
+
+    let StepReport::PmAnswered {
+        woke_for, acted, ..
+    } = report
+    else {
+        panic!("not an answer: {report:?}");
+    };
+    assert_eq!(
+        woke_for,
+        [
+            "test is still red on main at head91 after kelpie reran its failed jobs: read its log, \
+          then fix it or ask the maintainer with the `red` key"
+        ]
+    );
+    assert_eq!(
+        acted,
+        ["opened fix work item #900 at the front of the board for test"]
     );
 }
