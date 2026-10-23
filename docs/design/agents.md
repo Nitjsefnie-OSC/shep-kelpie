@@ -1,10 +1,7 @@
 # Agents
 
-Agent files, harnesses and gateways. The runner loop is in workers.md, the fence in fence.md, skills in skills.md, waits and spend by role in waits-and-spend.md.
+Harnesses and gateways, and the agent settings. The agent file itself is in agent-files.md. The runner loop is in workers.md, the fence in fence.md, skills in skills.md, waits and spend by role in waits-and-spend.md.
 
-- Agent = `<name>.md`, YAML frontmatter tagged `role` + Markdown body; bad file stops runner naming file + line. serde-saphyr (serde_yaml archived). ADR 0006, #313
-- Embedded from `agents/`; home file overrides, `add` writes missing, reread each wake (edits land live). Item keeps its agent, runs the file as it is now. #313
-- `extends` merges frontmatter keys as text before parsing (every check applies); parameters on a reference refused (each a new label + ledger key). #386, `crates/core/src/agents/extends.rs`
 - `agents.implementers` (default `["sonnet-high"]`, first is default), `reviewers`, `pm`, `issue_writer`, `representative` (default `representative`, checked only when `contributions.pick` is not `off`, representative.md); missing or wrong-role file stops runner. `crates/core/src/settings/agents/mod.rs`
 - A new CLI is a folder `adapters/<cli>/` with an `impl Cli` (required: `write_config`, `command`, `policy`, `parse`, `parse_adopted`; the rest default), a `HarnessFacts` row in `core/settings/agents/facts.rs`, and one entry in `Routed::new` (`src/sheep/mod.rs`). `CliAdapter` does the rest. cli-adapter.md
 - One agent interface for every role, harness details in adapters; harness that can't fence can't be worker. ADR 0006

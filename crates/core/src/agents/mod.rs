@@ -5,9 +5,13 @@
 //! An implementer's body is added to kelpie's own instructions, and a
 //! reviewer's, the issue writer's, the project manager's, the advisor's, the
 //! researcher's, the representative's or the triager's is its prompt.
-//! Kelpie embeds its defaults, which a file of the same name replaces, and `shep kelpie add` writes out any that are
-//! missing. A file with `extends: <name>` builds on another agent, setting
-//! only the keys it changes. A file that cannot be read or used stops the runner, naming the
+//! Kelpie embeds its own agents as baselines, and a file of the same name
+//! replaces one. `shep kelpie add` writes a stub for each that is missing,
+//! `extends: kelpie:<name>` and nothing else, and kelpie writes each baseline
+//! whole and read-only to `.defaults/` to be read and diffed, which nothing
+//! loads. A file with `extends: <name>` builds on the file of that name, and
+//! one with `extends: kelpie:<name>` on a baseline, setting only the keys it
+//! changes. A file that cannot be read or used stops the runner, naming the
 //! file and what is wrong with it. A `.md` file whose name is no agent's,
 //! such as a `README.md`, is skipped and named in the log. A review bot's
 //! file is named for its bot, since the bot's window is its account's.
@@ -17,6 +21,7 @@ use std::fmt;
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use serde::Deserialize;
 
@@ -32,6 +37,9 @@ mod front;
 
 /// The folder in kelpie's home that holds the agent files
 pub const FOLDER: &str = "agents";
+
+/// The folder of `agents` that holds each baseline whole, for reading and diffing
+pub const BASELINES: &str = ".defaults";
 
 /// The implementer a project lists when it names none
 pub const DEFAULT_IMPLEMENTER: &str = "sonnet-high";
@@ -76,8 +84,9 @@ enum Written {
     Beside(&'static str),
 }
 
-// Kelpie's own agents, by name: what `add` writes out, and what a missing
-// file falls back to. A project lists none of the review bots unless told to.
+// Kelpie's own agents, by name: what `add` writes a stub for, what a file
+// reaches with `extends: kelpie:<name>`, and what a missing file falls back
+// to. A project lists none of the review bots unless told to.
 const DEFAULTS: [(&str, &str, Written); 16] = [
     (
         DEFAULT_IMPLEMENTER,
@@ -385,17 +394,29 @@ impl Agents {
             let text = fs::read_to_string(&path).map_err(|e| failed(&path, e))?;
             texts.insert(name, (path, text));
         }
-        let parent = |name: &str| {
-            if let Some((_, text)) = AgentName::try_from(name.to_owned())
+        let parent = |name: &str| match name.strip_prefix(extends::SHIPPED) {
+            Some(shipped) => DEFAULTS
+                .iter()
+                .find(|(default, ..)| *default == shipped)
+                .map(|(_, text, _)| extends::ParentText::Default(text))
+                .ok_or_else(|| {
+                    let own: Vec<&str> = DEFAULTS.iter().map(|(name, ..)| *name).collect();
+                    format!(
+                        "`extends: {name}` names no shipped agent: kelpie's own are {}",
+                        own.join(", ")
+                    )
+                }),
+            None => AgentName::try_from(name.to_owned())
                 .ok()
                 .and_then(|name| texts.get(&name))
-            {
-                return Some(extends::ParentText::File(text));
-            }
-            DEFAULTS
-                .iter()
-                .find(|(default, ..)| *default == name)
-                .map(|(_, text, _)| extends::ParentText::Default(text))
+                .map(|(_, text)| extends::ParentText::File(text))
+                .ok_or_else(|| {
+                    format!(
+                        "`extends: {name}` names no file: write `{name}.md`, or extend one of \
+                         kelpie's own agents as `{}<name>`",
+                        extends::SHIPPED
+                    )
+                }),
         };
         for (name, (path, text)) in &texts {
             let file_error = |message| AgentsError::File {
@@ -446,10 +467,12 @@ impl Agents {
     }
 }
 
-/// Writes each of kelpie's own agents that `folder` lacks, never over a file
+/// Writes a stub for each of kelpie's own agents that `folder` lacks, never over
+/// a file, and refreshes the baselines in `folder`'s `.defaults`
 ///
-/// The `qwen` reviewer is written only where the maintainer's qwen-review
-/// script is installed under `home`. Returns the names written, in order.
+/// A stub is `extends: kelpie:<name>` and nothing else. The `qwen` reviewer
+/// is written only where the maintainer's qwen-review script is installed
+/// under `home`. Returns the names written, in order.
 ///
 /// # Errors
 ///
@@ -457,16 +480,128 @@ impl Agents {
 pub fn write_defaults(folder: &Path, home: &Path) -> Result<Vec<&'static str>, AgentsError> {
     fs::create_dir_all(folder).map_err(|e| failed(folder, e))?;
     let mut written = Vec::new();
-    for (name, text, when) in DEFAULTS {
+    for (name, _, when) in DEFAULTS {
         let wanted = match when {
             Written::Always => true,
             Written::Beside(file) => installed(file, home),
         };
-        if wanted && write_new(&folder.join(format!("{name}.md")), text)? {
+        let stub = format!("---\nextends: {}{name}\n---\n", extends::SHIPPED);
+        if wanted && write_new(&folder.join(format!("{name}.md")), &stub)? {
             written.push(name);
         }
     }
+    write_baselines(folder)?;
     Ok(written)
+}
+
+/// Writes each of kelpie's own agents, whole and read-only, to `folder`'s
+/// `.defaults`, over any file there
+///
+/// Each file leads with a comment saying kelpie writes it, so an edit is
+/// lost, and where to override it instead. A file is replaced by a rename, so
+/// a read never sees half of one.
+///
+/// # Errors
+///
+/// [`AgentsError::Read`] naming the folder or file that could not be written.
+pub fn write_baselines(folder: &Path) -> Result<(), AgentsError> {
+    let kept = folder.join(BASELINES);
+    fs::create_dir_all(&kept).map_err(|e| failed(&kept, e))?;
+    for (name, text, _) in DEFAULTS {
+        let body = text.strip_prefix("---\n").unwrap_or(text);
+        let whole = format!(
+            "---\n# Kelpie writes this file and replaces it on every upgrade, so an edit here is \
+             lost.\n# To change this agent, override it in agents/{name}.md instead.\n{body}"
+        );
+        let file = format!("{name}.md");
+        replace(&kept, &file, &whole).map_err(|e| failed(&kept.join(&file), e))?;
+    }
+    sweep(&kept);
+    Ok(())
+}
+
+/// How old a temporary file in `.defaults` is before it is a crash's leftover
+/// and no live writer's, which holds one for milliseconds
+const STALE: Duration = Duration::from_secs(60);
+
+// Writes `text` read-only to a new file beside `name` in `dir`, then renames it
+// over `name`. A failure leaves no temporary file.
+fn replace(dir: &Path, name: &str, text: &str) -> io::Result<()> {
+    let (beside, file) = create_temp(dir, name)?;
+    let path = dir.join(name);
+    let written = write_read_only(file, text)
+        .and_then(|()| writable(&path))
+        .and_then(|()| fs::rename(&beside, &path));
+    if written.is_err() {
+        // Best effort: the failure to report is the write's.
+        let _ = writable(&beside).and_then(|()| fs::remove_file(&beside));
+    }
+    written
+}
+
+// A file no other writer holds, so two refreshes of one folder never share a
+// temporary file and a leftover of a crash, whatever pid it had, is skipped.
+fn create_temp(dir: &Path, name: &str) -> io::Result<(PathBuf, fs::File)> {
+    let mut n = 0_u32;
+    loop {
+        let beside = dir.join(format!("{name}.{}-{n}.tmp", std::process::id()));
+        match fs::File::create_new(&beside) {
+            Ok(file) => return Ok((beside, file)),
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => n += 1,
+            Err(e) => return Err(e),
+        }
+    }
+}
+
+fn write_read_only(mut file: fs::File, text: &str) -> io::Result<()> {
+    file.write_all(text.as_bytes())?;
+    let mut permissions = file.metadata()?.permissions();
+    permissions.set_readonly(true);
+    file.set_permissions(permissions)
+}
+
+// Makes `path` writable if it is a file, so it can be replaced or removed. A
+// read-only file stops a rename over it on Windows, and a remove there.
+#[cfg(windows)]
+fn writable(path: &Path) -> io::Result<()> {
+    match fs::metadata(path) {
+        Ok(meta) => {
+            let mut permissions = meta.permissions();
+            // The lint warns that this makes a Unix file world-writable.
+            #[allow(clippy::permissions_set_readonly_false)]
+            permissions.set_readonly(false);
+            fs::set_permissions(path, permissions)
+        }
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(e),
+    }
+}
+
+// Unix replaces and removes a read-only file by its folder's mode.
+#[cfg(not(windows))]
+#[allow(clippy::unnecessary_wraps)]
+fn writable(_: &Path) -> io::Result<()> {
+    Ok(())
+}
+
+// Removes the temporary files in `kept` that no live writer can hold, which a
+// crash left behind. Best effort: a refresh does not fail for them.
+fn sweep(kept: &Path) {
+    let Ok(entries) = fs::read_dir(kept) else {
+        return;
+    };
+    for entry in entries.filter_map(Result::ok) {
+        let path = entry.path();
+        let old = entry
+            .metadata()
+            .and_then(|meta| meta.modified())
+            .ok()
+            .and_then(|at| at.elapsed().ok())
+            .is_some_and(|age| age > STALE);
+        if old && path.extension().is_some_and(|ext| ext == "tmp") {
+            let _ = writable(&path).and_then(|()| fs::remove_file(&path));
+        }
+    }
 }
 
 /// Whether `file`, written with a leading `~/`, is a file under `home`

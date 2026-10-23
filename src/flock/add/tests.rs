@@ -53,6 +53,10 @@ impl Scene {
         self.home.join(".shep/kelpie/agents")
     }
 
+    fn written(&self, agent: &str) -> String {
+        std::fs::read_to_string(self.agents().join(format!("{agent}.md"))).unwrap()
+    }
+
     fn old_home(&self) -> PathBuf {
         self.home.join(".kelpie")
     }
@@ -88,6 +92,10 @@ impl Scene {
         let table = runner.dogs.get(DOG).expect("a kelpie table").as_map();
         Settings::from_table(table, "koji", &self.home, &self.home).unwrap()
     }
+}
+
+fn stub(agent: &str) -> String {
+    format!("---\nextends: kelpie:{agent}\n---\n")
 }
 
 #[tokio::test]
@@ -127,28 +135,36 @@ async fn add_in_a_scratch_repo_writes_the_table_makes_the_labels_and_adds_the_ru
         .map(|n| n.as_str())
         .collect();
     assert_eq!(listed, ["sonnet-high"]);
-    let sonnet = std::fs::read_to_string(scene.agents().join("sonnet-high.md")).unwrap();
-    assert_eq!(sonnet, include_str!("../../../agents/sonnet-high.md"));
-    let opus = std::fs::read_to_string(scene.agents().join("opus-high.md")).unwrap();
-    assert_eq!(opus, include_str!("../../../agents/opus-high.md"));
-    let hunter = std::fs::read_to_string(scene.agents().join("defect-hunter.md")).unwrap();
-    assert_eq!(hunter, include_str!("../../../agents/defect-hunter.md"));
+    for name in ["sonnet-high", "opus-high", "defect-hunter"] {
+        assert_eq!(scene.written(name), stub(name));
+    }
     assert!(
         !scene.agents().join("qwen.md").exists(),
         "no qwen-review script, so no qwen reviewer"
     );
-    for (bot, text) in [
-        ("coderabbit", include_str!("../../../agents/coderabbit.md")),
-        ("cubic", include_str!("../../../agents/cubic.md")),
-        ("codex", include_str!("../../../agents/codex.md")),
-        ("pm", include_str!("../../../agents/pm.md")),
-    ] {
-        let written = std::fs::read_to_string(scene.agents().join(format!("{bot}.md")));
+    for bot in ["coderabbit", "cubic", "codex", "pm"] {
         assert_eq!(
-            written.unwrap(),
-            text,
+            scene.written(bot),
+            stub(bot),
             "written, though no project lists it"
         );
+    }
+    let shipped = scene.agents().join(".defaults");
+    for (name, text) in [
+        (
+            "sonnet-high",
+            include_str!("../../../agents/sonnet-high.md"),
+        ),
+        ("triager", include_str!("../../../agents/triager.md")),
+        ("pm", include_str!("../../../agents/pm.md")),
+    ] {
+        let kept = std::fs::read_to_string(shipped.join(format!("{name}.md"))).unwrap();
+        assert!(
+            kept.ends_with(text.strip_prefix("---\n").unwrap()),
+            "{name}"
+        );
+        let file = std::fs::metadata(shipped.join(format!("{name}.md"))).unwrap();
+        assert!(file.permissions().readonly(), "{name}");
     }
     assert_eq!(
         scene.forge.repo_labels_now(),
@@ -176,8 +192,7 @@ async fn where_the_qwen_review_script_is_installed_add_writes_qwen_and_lists_it_
         .map(|n| n.as_str().to_owned())
         .collect();
     assert_eq!(listed, ["qwen", "defect-hunter"]);
-    let qwen = std::fs::read_to_string(scene.agents().join("qwen.md")).unwrap();
-    assert_eq!(qwen, include_str!("../../../agents/qwen.md"));
+    assert_eq!(scene.written("qwen"), stub("qwen"));
 }
 
 // The runner works its home out from the `SHEP_HOME` its entry carries.
@@ -254,14 +269,10 @@ async fn a_public_repo_with_no_ci_gets_no_ci_and_still_lists_no_review_bot() {
 async fn add_writes_both_files_and_lists_neither() {
     let scene = Scene::new().await;
     scene.add().await.unwrap();
-    for (axis, text) in [
-        ("standards", include_str!("../../../agents/standards.md")),
-        ("spec", include_str!("../../../agents/spec.md")),
-    ] {
-        let written = std::fs::read_to_string(scene.agents().join(format!("{axis}.md")));
+    for axis in ["standards", "spec"] {
         assert_eq!(
-            written.unwrap(),
-            text,
+            scene.written(axis),
+            stub(axis),
             "written, though no project lists it"
         );
     }

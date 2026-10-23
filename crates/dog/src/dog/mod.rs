@@ -167,6 +167,21 @@ fn windows() -> Reviewers {
     }
 }
 
+// Kelpie's own agents, whole and read-only in `agents/.defaults`, to read and
+// diff. Nothing loads them, so a failure is said and the dog runs on.
+fn refresh_baselines() {
+    match home::kelpie_home() {
+        Ok(home) => refresh_baselines_in(&home.join(agents::FOLDER)),
+        Err(e) => println!("{e}: not writing kelpie's own agents under `.defaults`"),
+    }
+}
+
+fn refresh_baselines_in(folder: &std::path::Path) {
+    if let Err(e) = agents::write_baselines(folder) {
+        println!("{e}: kelpie's own agents under `.defaults` are not refreshed");
+    }
+}
+
 fn windows_in(folder: &std::path::Path) -> Reviewers {
     let agents = Agents::load(folder).unwrap_or_else(|e| {
         println!("{e}: booking each review bot's window as kelpie's own file has it");
@@ -255,6 +270,7 @@ async fn serve() -> Result<(), String> {
     println!("the book is {}", file.path().display());
     let settings = settings(&client).await?;
     let metrics = Arc::new(Recorder::new(Arc::new(ShepherdSink::new(shepherd.clone()))));
+    refresh_baselines();
     let mut kept = open(file, Box::new(SystemClock), windows(), metrics);
     let capacity = settings.leases.cargo_test_capacity();
     kept.desk.set_test_capacity(capacity);
@@ -806,6 +822,24 @@ mod tests {
         let windows = windows_in(dir.path());
         assert_eq!(windows, Reviewers::from_agents(&Agents::embedded()));
         assert_eq!(windows.window(Bot::Cubic), Some(month(20)));
+    }
+
+    #[test]
+    fn the_dogs_start_puts_back_a_baseline_that_was_edited_or_removed() {
+        let dir = tempfile::tempdir().unwrap();
+        let kept = dir.path().join(agents::BASELINES);
+        refresh_baselines_in(dir.path());
+        let shipped = std::fs::read_to_string(kept.join("triager.md")).unwrap();
+        assert!(shipped.contains("Kelpie writes this file"), "{shipped}");
+
+        let edited = kept.join("triager.md");
+        std::fs::remove_file(&edited).unwrap();
+        std::fs::write(&edited, "mine").unwrap();
+        std::fs::remove_file(kept.join("pm.md")).unwrap();
+        refresh_baselines_in(dir.path());
+        assert_eq!(std::fs::read_to_string(&edited).unwrap(), shipped);
+        assert!(kept.join("pm.md").is_file());
+        assert!(std::fs::metadata(&edited).unwrap().permissions().readonly());
     }
 
     #[test]

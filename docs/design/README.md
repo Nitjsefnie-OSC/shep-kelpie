@@ -7,15 +7,15 @@ Kelpie: dog of the maintainer's shepherd; one runner per project takes ready iss
 - Gates, locks, rate windows live in code; Claude only for work and judgement. ADR 0001
 - Kelpie controls each agent's context growth. `runner/turn/`
 - Naming: dog = adopted `kelpie` (lease dog); project = sheep; agent calls = lambs. One kelpie for all projects (bot windows, pacer are machine/account-wide). ADR 0001 to 0004
-- Binary is the dog with no args + `SHEP_DOG_NAME` and `SHEP_NAME` set; needs the `shep adopt` channel; names itself in the handshake, so shep never lists it `silent`. `src/sheep/mod.rs`, shep-pm/shep#656
+- Binary is the dog with no args + `SHEP_DOG_NAME` and `SHEP_NAME` set; needs the `shep adopt` channel; names itself in the handshake, so never `silent`. `src/sheep/mod.rs`, shep-pm/shep#656
 - Needs shep 0.15.0+ (ADR 0016); `upgrade` refuses builds it would. shep-pm/shep#688, #319, #656, #914
 - Home: `$SHEP_HOME/kelpie` (`KELPIE_HOME`), shep plugin, folder per project; dog files stay in `$SHEP_HOME`. #253
-- The shepherd is reached through the `Dial` port (`core/shepherd/connection.rs`): `Socket` is shep's control socket; tests dial `FakeShepherd`, which answers in memory. #587
+- The shepherd is reached through the `Dial` port (`core/shepherd/connection.rs`): `Socket` is the real one; tests dial `FakeShepherd`. #587
 - Socket path over 103 bytes: runner refuses to start (Windows: pipes, `core/ipc`). #1147
-- Home never moved from `~/.kelpie`: refuses to start, naming each old file, exit 78 (`stop_exit_codes`). #311, #345
-- State file version 82 (`VERSION` in `core/state/mod.rs`); each change one way: rollback means finishing or dropping open items. `core/state/removed/mod.rs`
-- Business code is Rust; Tauri GUI after MVP, a Claude session watches until then. #5
-- Crates under `crates/` use nothing above them; the root package holds the binary and verbs (`src/{flock,upgrade,sheep,doctor,issues}/`, `src/schema.rs`) and reaches every crate. ADR 0015
+- Home never moved from `~/.kelpie`: refuses to start naming each old file, exit 78 (`stop_exit_codes`). #311, #345
+- State file version 82 (`VERSION` in `core/state/mod.rs`); each change one way: rollback = finish or drop open items. `core/state/removed/mod.rs`
+- Business code is Rust; Tauri GUI after MVP, a Claude session watches till then. #5
+- Crates under `crates/` use nothing above them; the root holds the binary and verbs (`src/{flock,upgrade,sheep,doctor,issues}/`, `src/schema.rs`) and reaches every crate. ADR 0015
 - No budget numbers in agent prompts; no worker merges/posts as the maintainer (fence.md, github-app.md).
 
 ## Files
@@ -30,7 +30,8 @@ Kelpie: dog of the maintainer's shepherd; one runner per project takes ready iss
 | browser-dev-server.md | a worker's dev server: launch, port, readiness | `runner/dev_server/`, `core/ports/dev_server.rs`, `adapters/dev_server/` |
 | compaction.md | when a session compacts, `worker.compact_window` per harness, `COMPACT` | `runner/compact/`, `adapters/pi/compact.rs`, `adapters/codex/context.rs`, `adapters/goose/compact.rs` |
 | skills.md | step skills, repo plugins, how harnesses load them | `core/skills/`, `adapters/skills.rs`, `runner/turn/` (`prepared`) |
-| agents.md | agent files, harnesses, gateways | `core/agents/`, `adapters/`, `core/settings/agents/`, `process/spawn.rs` |
+| agent-files.md | agent file, `extends`, baselines | `core/agents/`, `src/flock/add/mod.rs` |
+| agents.md | harnesses, gateways | `adapters/`, `core/settings/agents/`, `process/spawn.rs` |
 | cli-adapter.md | a new CLI | `adapters/cli/` |
 | handover.md | in-flight turns handed to a new image, `upgrade` | `src/sheep/handover/mod.rs`, `runner/flight/carry/`, `adapters/process/adopt/`, `src/upgrade/handover.rs` |
 | windows.md | `sh`, `env` and test fakes on Windows | `process/spawn.rs`, `test_support/` |
