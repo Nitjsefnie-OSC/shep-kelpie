@@ -333,11 +333,11 @@ fn cache_writes(rig: &Rig, role: &str, after: &str) -> Option<f64> {
 #[test]
 fn a_call_s_requests_are_counted_by_context_size_and_what_came_before() {
     let (rig, _runner) = worker_and_reviewer(failed_call(), FAILED.to_owned());
-    let buckets = |role| ["50000", "150000", "200000", "+Inf"].map(|le| bucket(&rig, role, le));
-    assert_eq!(buckets("worker"), [Some(1.0); 4], "one request of 18,576");
+    let buckets = |role| ["150000", "200000", "+Inf"].map(|le| bucket(&rig, role, le));
+    assert_eq!(buckets("worker"), [Some(1.0); 3], "one request of 18,576");
     assert_eq!(
         buckets("reviewer"),
-        [1.0, 3.0, 3.0, 3.0].map(Some),
+        [3.0, 3.0, 3.0].map(Some),
         "18,576, then 69,169 and 76,220: cumulative"
     );
     let writes = |role| ["start", "gap", "growth"].map(|after| cache_writes(&rig, role, after));
@@ -506,8 +506,8 @@ fn a_runner_with_every_role_and_harness_in_use_stays_under_the_cap() {
     );
     assert_eq!(
         requests,
-        5 * 7,
-        "four buckets and three writes for each of the five pairs, and none for the one-shot roles"
+        5 * 6,
+        "three buckets and three writes for each of the five pairs, and none for the one-shot roles"
     );
     assert_eq!(
         errors,
