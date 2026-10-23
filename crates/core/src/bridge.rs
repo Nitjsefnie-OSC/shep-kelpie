@@ -12,6 +12,7 @@ use std::collections::HashSet;
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
 use std::sync::{Arc, Mutex, PoisonError};
+use std::time::Duration;
 
 use serde_json::{Value, json};
 
@@ -134,6 +135,46 @@ impl Filter {
     }
 }
 
+/// The key a JSON-RPC `id` is kept under, which reads a number by its value
+///
+/// A server may spell a number another way than the client did.
+pub fn id_key(id: &Value) -> String {
+    match id {
+        Value::Number(number) => number
+            .as_f64()
+            .map_or_else(|| id.to_string(), |value| format!("n{value}")),
+        other => other.to_string(),
+    }
+}
+
+/// The tool result that answers the call `id` with `why`, as an error
+pub fn ended_call(id: &Value, why: &str) -> Value {
+    json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "result": { "content": [{ "type": "text", "text": why }], "isError": true },
+    })
+}
+
+/// The JSON-RPC error that answers the request `id`, which is not a tool call, with `why`
+pub fn ended_request(id: &Value, why: &str) -> Value {
+    json!({ "jsonrpc": "2.0", "id": id, "error": { "code": -32603, "message": why } })
+}
+
+/// How long past the bridge's limit a `tools/call` with these `params` may run
+///
+/// `browser_wait_for` is asked to wait `arguments.time` seconds, which is its own work and
+/// not a hang. Zero for any other call, or a time that is not a number of seconds.
+pub fn wait_allowance(params: &Value) -> Duration {
+    if params["name"] != "browser_wait_for" {
+        return Duration::ZERO;
+    }
+    params["arguments"]["time"]
+        .as_f64()
+        .and_then(|seconds| Duration::try_from_secs_f64(seconds).ok())
+        .unwrap_or_default()
+}
+
 fn error(id: &Value, message: &str) -> Value {
     json!({ "jsonrpc": "2.0", "id": id, "error": { "code": -32601, "message": message } })
 }
@@ -155,14 +196,7 @@ impl Outstanding {
     fn id(line: &[u8]) -> Option<(String, bool)> {
         let line: Value = serde_json::from_slice(line).ok()?;
         let id = line.get("id").filter(|id| !id.is_null())?;
-        // A number is keyed by its value, as a server may spell it another way.
-        let key = match id {
-            Value::Number(number) => number
-                .as_f64()
-                .map_or_else(|| id.to_string(), |value| format!("n{value}")),
-            other => other.to_string(),
-        };
-        Some((key, line.get("method").is_some()))
+        Some((id_key(id), line.get("method").is_some()))
     }
 
     fn sent(&mut self, line: &[u8]) {

@@ -14,21 +14,23 @@
 //! through, which also holds it to ports. The bridge writes the config that
 //! says so, `config.json` in the server's folder.
 
-use std::collections::BTreeMap;
-use std::io::{BufRead, BufReader, Write};
+use std::collections::{BTreeMap, HashMap};
+use std::fmt::Display;
+use std::io::{self, BufRead, BufReader, Write};
 use std::net::Shutdown;
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
+use std::process::{ChildStdin, ChildStdout, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::mpsc;
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
-use serde_json::json;
+use serde_json::{Value, json};
 
 use super::forwarder::unguessable;
 use super::process::{Kept, stop_child};
-use crate::bridge::{Filter, Passage};
+use crate::bridge::{Filter, Passage, ended_call, ended_request, id_key, wait_allowance};
 use crate::ipc::blocking::{Listener, Stream};
 use crate::ports::{Bridges, OpenBridge, Playwright};
 pub(crate) use client::{Client, Navigation};
@@ -43,6 +45,11 @@ const LOG: &str = "server.log";
 /// How long a server gets to end when asked before its tree is killed
 const GRACE: Duration = Duration::from_secs(5);
 
+/// How long a `tools/call` may go unanswered before the bridge ends it and restarts the server
+///
+/// It is longer than Playwright's own 60 s navigation timeout, so Playwright's errors arrive first.
+const CALL_LIMIT: Duration = Duration::from_secs(90);
+
 /// The command that serves one connection, which runs outside the sandbox
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Server {
@@ -54,6 +61,8 @@ pub(crate) struct Server {
     pub(crate) env: BTreeMap<String, String>,
     /// The folder it starts in, where the bridge writes its config
     pub(crate) cwd: PathBuf,
+    /// How long a call may go unanswered, before a `browser_wait_for` is given its own time on top
+    pub(crate) call_limit: Duration,
 }
 
 impl Server {
@@ -98,6 +107,7 @@ impl Server {
                 browsers.display().to_string(),
             )]),
             cwd: folder.to_owned(),
+            call_limit: CALL_LIMIT,
         })
     }
 }
@@ -241,15 +251,193 @@ fn launch(domains: &[String], proxy: &Proxy) -> serde_json::Value {
     json!({ "browser": { "browserName": "chromium", "launchOptions": { "args": args } } })
 }
 
-// Serves one connection with a fresh server, filtering both ways, until either
-// end closes. The server runs in its own process tree, stopped whole.
-fn serve(
-    stream: Stream,
-    server: &Server,
-    filter: &Filter,
-    serving: &Mutex<Option<Stream>>,
-    stopping: &AtomicBool,
-) {
+// A request sent to the server that has no reply yet
+struct Waiting {
+    id: Value,
+    call: Option<Call>,
+}
+
+// A `tools/call` waiting on the server
+struct Call {
+    tool: String,
+    // How long it gets, which a `browser_wait_for` has its own time added to
+    limit: Duration,
+    // When it runs over, if that is a time that can be told
+    due: Option<Instant>,
+}
+
+impl Call {
+    fn new(params: &Value, limit: Duration) -> Self {
+        let limit = limit.saturating_add(wait_allowance(params));
+        Self {
+            tool: params["name"].as_str().unwrap_or_default().to_owned(),
+            limit,
+            due: Instant::now().checked_add(limit),
+        }
+    }
+}
+
+// What the threads that carry one connection share and change
+struct Session {
+    // How many servers the connection has had, so a line from a stopped one is known
+    generation: u32,
+    // Lines for the server, written by a thread of their own so that a server that reads
+    // nothing cannot hold this session
+    to_server: mpsc::Sender<String>,
+    waiting: HashMap<String, Waiting>,
+    // The worker's opening lines, which a restarted server is sent again
+    initialize: Option<String>,
+    initialized: Option<String>,
+    // The id of the replayed `initialize`, whose reply the worker has already had
+    swallow: Option<String>,
+    over: bool,
+}
+
+impl Session {
+    // Sends `text`, a line the filter passed, noting what it takes to answer it.
+    fn pass(&mut self, text: &str, limit: Duration) -> io::Result<()> {
+        let message = serde_json::from_str::<Value>(text).unwrap_or_default();
+        match message["method"].as_str() {
+            Some("initialize") => self.initialize = Some(text.to_owned()),
+            Some("notifications/initialized") => self.initialized = Some(text.to_owned()),
+            // The server never answers a request it was told to drop.
+            Some("notifications/cancelled") => {
+                if let Some(id) = message["params"].get("requestId") {
+                    self.waiting.remove(&id_key(id));
+                }
+            }
+            _ => {}
+        }
+        if let (Some(id), Some(method)) = (message.get("id"), message.get("method"))
+            && !id.is_null()
+        {
+            let call = (method == "tools/call").then(|| Call::new(&message["params"], limit));
+            let waiting = Waiting {
+                id: id.clone(),
+                call,
+            };
+            self.waiting.insert(id_key(id), waiting);
+        }
+        self.to_server
+            .send(text.to_owned())
+            .map_err(io::Error::other)
+    }
+
+    // Whether `reply`, a line from the server, goes on to the worker. A reply to nothing
+    // waiting is a late one, or the replayed `initialize`'s.
+    fn admit(&mut self, reply: &str) -> bool {
+        let message = serde_json::from_str::<Value>(reply).unwrap_or_default();
+        let Some(id) = message.get("id").filter(|id| !id.is_null()) else {
+            return true;
+        };
+        if message.get("method").is_some() {
+            return true;
+        }
+        let key = id_key(id);
+        if self.swallow.as_ref() == Some(&key) {
+            self.swallow = None;
+            return false;
+        }
+        self.waiting.remove(&key).is_some()
+    }
+
+    fn next_due(&self) -> Option<Instant> {
+        let calls = self.waiting.values().filter_map(|w| w.call.as_ref());
+        calls.filter_map(|call| call.due).min()
+    }
+
+    // The tool and limit of the call that ran over first, if one has by `now`.
+    fn ran_over(&self, now: Instant) -> Option<(String, Duration)> {
+        let calls = self.waiting.values().filter_map(|w| w.call.as_ref());
+        let over = calls.filter(|call| call.due.is_some_and(|due| due <= now));
+        let first = over.min_by_key(|call| call.due)?;
+        Some((first.tool.clone(), first.limit))
+    }
+}
+
+struct Shared {
+    session: Mutex<Session>,
+    // Told when a call is waiting or the connection is over, to the thread that watches the limits
+    changed: Condvar,
+    // The worker's end, which what the server says and what is refused are written to
+    back: Mutex<Stream>,
+}
+
+impl Shared {
+    fn session(&self) -> MutexGuard<'_, Session> {
+        self.session.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn tell(&self, message: &impl Display) -> io::Result<()> {
+        let mut back = self.back.lock().unwrap_or_else(PoisonError::into_inner);
+        writeln!(back, "{message}")
+    }
+
+    // Closes the worker's end, which lets the worker, and the loop reading it, see the end.
+    fn hang_up(&self) {
+        let back = self.back.lock().unwrap_or_else(PoisonError::into_inner);
+        let _ = back.shutdown(Shutdown::Both);
+    }
+}
+
+// The server and what replaces it
+struct Running<'a> {
+    shared: Arc<Shared>,
+    server: &'a Server,
+    filter: &'a Filter,
+    process: Kept,
+    relay: thread::JoinHandle<()>,
+    // Relays of servers stopped, to be joined once the connection ends
+    retired: Vec<thread::JoinHandle<()>>,
+}
+
+impl Running<'_> {
+    // Ends the calls that ran over, and starts a fresh server for the worker's connection,
+    // told what the worker told the last one when it opened.
+    fn restart(&mut self, session: &mut Session) {
+        let Some((tool, limit)) = session.ran_over(Instant::now()) else {
+            return;
+        };
+        eprintln!("browser {tool} ran over {limit:?}: kelpie ended it and restarted the browser");
+        let why = format!(
+            "kelpie ended a browser call that ran over its {limit:?} limit and restarted the browser, so the page's state is gone"
+        );
+        for (_, waiting) in session.waiting.drain() {
+            let ended = match waiting.call {
+                Some(_) => ended_call(&waiting.id, &why),
+                None => ended_request(&waiting.id, &why),
+            };
+            if self.shared.tell(&ended).is_err() {
+                session.over = true;
+                return;
+            }
+        }
+        session.generation += 1;
+        stop_child(&mut self.process, GRACE);
+        let Some((process, to_server, from_server)) = start(self.server) else {
+            session.over = true;
+            return;
+        };
+        self.process = process;
+        session.to_server = writer(to_server);
+        let opening = [&session.initialize, &session.initialized];
+        for text in opening.into_iter().flatten() {
+            if session.to_server.send(text.clone()).is_err() {
+                session.over = true;
+            }
+        }
+        session.swallow = session
+            .initialize
+            .as_deref()
+            .and_then(|text| serde_json::from_str::<Value>(text).ok())
+            .and_then(|message| message.get("id").map(id_key));
+        let relay = relay(&self.shared, session.generation, from_server, self.filter);
+        self.retired.push(std::mem::replace(&mut self.relay, relay));
+    }
+}
+
+// Starts the server, with its stderr in the log. A server that cannot start is said so in the log.
+fn start(server: &Server) -> Option<(Kept, ChildStdin, ChildStdout)> {
     let log = server.cwd.join(LOG);
     let appending = std::fs::OpenOptions::new()
         .create(true)
@@ -264,7 +452,7 @@ fn serve(
             .stdout(Stdio::piped())
             .stderr(appending.map_or_else(|_| Stdio::null(), Stdio::from)),
     );
-    let mut server_process = match spawned {
+    let mut kept = match spawned {
         Ok(kept) => kept,
         Err(e) => {
             let said = format!("cannot start {}: {e}\n", server.command.display());
@@ -273,11 +461,105 @@ fn serve(
                 .append(true)
                 .open(&log)
                 .and_then(|mut file| file.write_all(said.as_bytes()));
-            return;
+            return None;
         }
     };
+    let (Some(stdin), Some(stdout)) = (kept.child.stdin.take(), kept.child.stdout.take()) else {
+        stop_child(&mut kept, GRACE);
+        return None;
+    };
+    Some((kept, stdin, stdout))
+}
+
+// Writes the lines sent on the channel to the server, until the channel closes or the
+// server stops taking them.
+fn writer(mut to_server: ChildStdin) -> mpsc::Sender<String> {
+    let (send, lines) = mpsc::channel::<String>();
+    thread::spawn(move || {
+        for text in lines {
+            if writeln!(to_server, "{text}")
+                .and_then(|()| to_server.flush())
+                .is_err()
+            {
+                break;
+            }
+        }
+    });
+    send
+}
+
+// Carries what server number `generation` says to the worker, through the filter.
+fn relay(
+    shared: &Arc<Shared>,
+    generation: u32,
+    from_server: ChildStdout,
+    filter: &Filter,
+) -> thread::JoinHandle<()> {
+    let (shared, filter) = (Arc::clone(shared), filter.clone());
+    thread::spawn(move || {
+        let mut lines = BufReader::new(from_server);
+        let mut line = String::new();
+        while lines.read_line(&mut line).is_ok_and(|n| n > 0) {
+            if let Some(reply) = filter.reply(line.trim_end()) {
+                let mut session = shared.session();
+                // A server stopped on purpose: what it says now is late.
+                if session.generation != generation {
+                    return;
+                }
+                if session.admit(&reply) && shared.tell(&reply).is_err() {
+                    break;
+                }
+            }
+            line.clear();
+        }
+        // The server is gone: closing the client's end lets the loop reading it, and
+        // the `mcp-connect` behind it, see the end rather than wait on a dead server.
+        if shared.session().generation == generation {
+            shared.hang_up();
+        }
+    })
+}
+
+// Carries what the worker says to the server, through the filter, until the worker ends it.
+fn carry(shared: &Shared, stream: Stream, filter: &Filter, limit: Duration) {
+    let mut lines = BufReader::new(stream);
+    let mut line = String::new();
+    while lines.read_line(&mut line).is_ok_and(|n| n > 0) {
+        let text = line.trim_end();
+        let sent = match filter.judge(text) {
+            Passage::Pass => {
+                let sent = shared.session().pass(text, limit);
+                shared.changed.notify_all();
+                sent
+            }
+            Passage::Stop(Some(reply)) => shared.tell(&reply),
+            Passage::Stop(None) => Ok(()),
+        };
+        if sent.is_err() {
+            break;
+        }
+        line.clear();
+    }
+    shared.session().over = true;
+    shared.changed.notify_all();
+}
+
+// Serves one connection with a fresh server, filtering both ways, until either
+// end closes. The server runs in its own process tree, stopped whole. A call that
+// runs past its limit is answered with an error, and the server is replaced by a
+// fresh one on the same connection.
+fn serve(
+    stream: Stream,
+    server: &Server,
+    filter: &Filter,
+    serving: &Mutex<Option<Stream>>,
+    stopping: &AtomicBool,
+) {
+    let Some((mut process, to_server, from_server)) = start(server) else {
+        return;
+    };
     let (Ok(back), Ok(held)) = (stream.try_clone(), stream.try_clone()) else {
-        stop_child(&mut server_process, GRACE);
+        stop_child(&mut process, GRACE);
         return;
     };
     *serving.lock().unwrap_or_else(PoisonError::into_inner) = Some(held);
@@ -285,55 +567,60 @@ fn serve(
     if stopping.load(Ordering::SeqCst) {
         let _ = stream.shutdown(Shutdown::Both);
     }
-    let back = Arc::new(Mutex::new(back));
-    let replies = Arc::clone(&back);
-    let from_server = server_process.child.stdout.take();
-    let reply_filter = filter.clone();
-    let out = thread::spawn(move || {
-        let Some(from_server) = from_server else {
-            return;
-        };
-        let mut lines = BufReader::new(from_server);
-        let mut line = String::new();
-        while lines.read_line(&mut line).is_ok_and(|n| n > 0) {
-            if let Some(reply) = reply_filter.reply(line.trim_end()) {
-                let mut back = replies.lock().unwrap_or_else(PoisonError::into_inner);
-                if writeln!(back, "{reply}").is_err() {
-                    break;
-                }
-            }
-            line.clear();
-        }
-        // The server is gone: closing the client's end lets the loop below, and
-        // the `mcp-connect` behind it, see the end rather than wait on a dead server.
-        let _ = (replies.lock().unwrap_or_else(PoisonError::into_inner)).shutdown(Shutdown::Both);
+    let shared = Arc::new(Shared {
+        session: Mutex::new(Session {
+            generation: 0,
+            to_server: writer(to_server),
+            waiting: HashMap::new(),
+            initialize: None,
+            initialized: None,
+            swallow: None,
+            over: false,
+        }),
+        changed: Condvar::new(),
+        back: Mutex::new(back),
     });
-    if let Some(mut to_server) = server_process.child.stdin.take() {
-        let mut lines = BufReader::new(stream);
-        let mut line = String::new();
-        while lines.read_line(&mut line).is_ok_and(|n| n > 0) {
-            let sent = match filter.judge(line.trim_end()) {
-                Passage::Pass => to_server
-                    .write_all(line.as_bytes())
-                    .and_then(|()| to_server.flush()),
-                Passage::Stop(Some(reply)) => {
-                    let mut back = back.lock().unwrap_or_else(PoisonError::into_inner);
-                    writeln!(back, "{reply}")
-                }
-                Passage::Stop(None) => Ok(()),
-            };
-            if sent.is_err() {
-                break;
+    let mut running = Running {
+        shared: Arc::clone(&shared),
+        server,
+        filter,
+        process,
+        relay: relay(&shared, 0, from_server, filter),
+        retired: Vec::new(),
+    };
+    let carrier = {
+        let (shared, filter, limit) = (Arc::clone(&shared), filter.clone(), server.call_limit);
+        thread::spawn(move || carry(&shared, stream, &filter, limit))
+    };
+    let mut session = shared.session();
+    while !session.over {
+        session = match session.next_due() {
+            Some(due) if due <= Instant::now() => {
+                running.restart(&mut session);
+                session
             }
-            line.clear();
-        }
+            Some(due) => {
+                let wait = due.saturating_duration_since(Instant::now());
+                let (session, _) = shared
+                    .changed
+                    .wait_timeout(session, wait)
+                    .unwrap_or_else(PoisonError::into_inner);
+                session
+            }
+            None => shared
+                .changed
+                .wait(session)
+                .unwrap_or_else(PoisonError::into_inner),
+        };
     }
-    stop_child(&mut server_process, GRACE);
-    let _ = back
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .shutdown(Shutdown::Both);
-    let _ = out.join();
+    drop(session);
+    stop_child(&mut running.process, GRACE);
+    shared.hang_up();
+    for relay in running.retired.drain(..) {
+        let _ = relay.join();
+    }
+    let _ = running.relay.join();
+    let _ = carrier.join();
     *serving.lock().unwrap_or_else(PoisonError::into_inner) = None;
 }
 
