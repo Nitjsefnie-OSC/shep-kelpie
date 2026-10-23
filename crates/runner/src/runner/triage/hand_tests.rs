@@ -177,3 +177,26 @@ fn a_swap_the_forge_refuses_leaves_a_taken_record_and_is_finished_at_the_next_po
     assert_eq!(calls(&rig, Role::Triager).len(), 1);
     assert_eq!(record(&rig, &runner)["step"], "done");
 }
+
+#[test]
+fn a_taken_issue_whose_ready_label_is_gone_still_gets_needs_triage_before_its_pass() {
+    let (rig, runner) = filed_before(HAND, MAINTAINER, nothing(), |rig| {
+        hand_labelled(rig, MAINTAINER)
+    });
+    rig.github.refuse_label_removals(ApiError::Refused(500));
+    step(&runner).unwrap();
+    assert_eq!(record(&rig, &runner)["step"], "taken");
+
+    // The forge as a stop between the two writes leaves it
+    relist(&rig, &[]);
+    rig.github.accept_label_removals();
+    rig.next_look();
+    step(&runner).unwrap();
+
+    assert_eq!(moves(&rig)[..2], ["label needs-triage", "comment"]);
+    assert_eq!(
+        rig.github.label_takes(),
+        [(30, "ready-for-agent".to_owned())],
+        "ready-for-agent is not taken off twice"
+    );
+}

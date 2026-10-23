@@ -19,9 +19,9 @@ use crate::board::{READY, TRIAGE};
 use crate::ports::{OpenIssue, Timestamp};
 use crate::state::{StateError, TriageStep, Triaged};
 
-// Whether `issue` is the maintainer's `ready-for-agent`, put on by hand since
-// `since`, and carries no other decision
-fn hand_labelled(
+// Whether `issue` is the maintainer's, opened since `since`, and carries no
+// triage decision other than `ready-for-agent` and `needs-triage`
+fn maintainers_undecided(
     issue: &OpenIssue,
     since: Timestamp,
     pruned_through: u64,
@@ -29,12 +29,15 @@ fn hand_labelled(
 ) -> bool {
     let decided = (issue.labels.iter())
         .any(|l| l != READY && l != TRIAGE && TRIAGE_LABELS.contains(&l.as_str()));
-    (issue.labels.iter()).any(|l| l == READY)
-        && !decided
+    !decided
         && !issue.author_is_bot
         && issue.number > pruned_through
         && issue.created > since
         && issue.author.eq_ignore_ascii_case(maintainer)
+}
+
+fn carries(labels: &[String], label: &str) -> bool {
+    labels.iter().any(|l| l == label)
 }
 
 // The labels `issue` carries once the swap is done
@@ -43,7 +46,7 @@ fn swapped(labels: &[String]) -> Vec<String> {
         .filter(|l| l.as_str() != READY)
         .cloned()
         .collect();
-    if !left.iter().any(|l| l == TRIAGE) {
+    if !carries(&left, TRIAGE) {
         left.push(TRIAGE.to_owned());
     }
     left
@@ -57,6 +60,14 @@ impl Runner {
             .is_none_or(|t| t.step == TriageStep::Taken)
     }
 
+    // Whether `issue` is hand-labelled `ready-for-agent` with no record, or has
+    // the record that says it was taken back and a swap not yet seen done
+    fn swap_owed(&self, issue: &OpenIssue) -> bool {
+        let taken = self.taken_seen(issue.number).is_some();
+        (carries(&issue.labels, READY) || (taken && !carries(&issue.labels, TRIAGE)))
+            && self.first_pass_owed(issue.number)
+    }
+
     // The labels a taken-back issue's pass begins with, which are the ones the
     // swap leaves, whatever a listing read before it has settled says
     pub(super) fn taken_seen(&self, issue: u64) -> Option<Vec<String>> {
@@ -66,7 +77,8 @@ impl Runner {
 
     // Takes back each hand-labelled issue in `open` and changes `open` to the
     // labels the swap left. An issue whose swap fails keeps its record and is
-    // tried at the next poll.
+    // tried at the next poll, doing only the half the listing shows undone: a
+    // stop between the two writes leaves it with neither label.
     pub(super) fn take_back_ready(
         &mut self,
         open: &mut [OpenIssue],
@@ -81,8 +93,8 @@ impl Runner {
         };
         let candidates: Vec<usize> = (open.iter().enumerate())
             .filter(|(_, i)| {
-                hand_labelled(i, since, pruned_through, &maintainer)
-                    && self.first_pass_owed(i.number)
+                maintainers_undecided(i, since, pruned_through, &maintainer)
+                    && self.swap_owed(i)
                     && !self.triage_given_up(i.number)
                     && !self.has_work_item(i.number)
             })
@@ -105,7 +117,7 @@ impl Runner {
             if self.triage_record(number).is_none() {
                 self.save_taken(&open[at], &labels)?;
             }
-            if self.swap_ready(number, &labels) {
+            if self.swap_ready(number, &open[at].labels) {
                 open[at].labels = labels;
             }
         }
@@ -154,22 +166,23 @@ impl Runner {
         Ok(())
     }
 
-    // Swaps `ready-for-agent` for `needs-triage` on `issue`, the first coming
-    // off before the second goes on so a stop between them leaves the issue
-    // unready and still untouched. Whether it is done.
-    fn swap_ready(&mut self, issue: u64, labels: &[String]) -> bool {
-        if let Err(why) = self.make_missing_labels([NEEDS_TRIAGE]) {
+    // Swaps `ready-for-agent` for `needs-triage` on `issue`, as `listed` says it
+    // stands, the first coming off before the second goes on so a stop between
+    // them leaves the issue unready and still untouched. Each half is done only
+    // where the listing shows it undone. Whether it is done.
+    fn swap_ready(&mut self, issue: u64, listed: &[String]) -> bool {
+        let off = carries(listed, READY);
+        let on = !carries(listed, TRIAGE);
+        if on && let Err(why) = self.make_missing_labels([NEEDS_TRIAGE]) {
             self.triage_failed(issue, &format!("cannot make `{TRIAGE}`: {why}"), true);
             return false;
         }
-        if let Err(e) = self.label_issue(issue, READY, false) {
+        if off && let Err(e) = self.label_issue(issue, READY, false) {
             let why = format!("cannot take `{READY}` off: {e}");
             self.triage_failed(issue, &why, !forge_is_busy(&e));
             return false;
         }
-        if labels.iter().any(|l| l == TRIAGE)
-            && let Err(e) = self.label_issue(issue, TRIAGE, true)
-        {
+        if on && let Err(e) = self.label_issue(issue, TRIAGE, true) {
             let why = format!("cannot label it `{TRIAGE}`: {e}");
             self.triage_failed(issue, &why, !forge_is_busy(&e));
             return false;
