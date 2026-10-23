@@ -16,7 +16,7 @@ fn store_in(dir: &Path) -> StateStore {
 // deliberate edit here and shows in review. Every other test reads `VERSION`.
 #[test]
 fn the_state_file_version_is_pinned() {
-    assert_eq!(VERSION, 81);
+    assert_eq!(VERSION, 82);
 }
 
 // A version 73 file has no `ceiling_resumes` on a work item: none resumed. A

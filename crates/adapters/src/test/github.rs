@@ -200,6 +200,11 @@ impl FakeGithub {
         self.hub.lock().unwrap().label_removals_refused = Some(error);
     }
 
+    /// Takes labels off issues again after [`Self::refuse_label_removals`]
+    pub fn accept_label_removals(&self) {
+        self.hub.lock().unwrap().label_removals_refused = None;
+    }
+
     /// Takes new issues again after [`Self::refuse_issue_creates`]
     pub fn accept_issue_creates(&self) {
         self.hub.lock().unwrap().issue_creates_refused = None;

@@ -349,7 +349,13 @@ compact_window = 200000
 # author before kelpie treats the triage as unanswered. `max_questions` is 1 to
 # 10, the most one comment asks. `agent` is an agent file whose role is
 # `triager`. The agent file is checked only when `pick` is not `off`. A change
-# waits for the runner's next start.
+# waits for the runner's next start. `hand_ready` (off when absent) takes back
+# an open issue the maintainer opened after `pick` was turned on and labelled
+# `ready-for-agent` by hand, when it has no triage record, no work item and no
+# open pull request: kelpie saves a record, then swaps the label for
+# `needs-triage`, before the board's pick, and the pass asks its questions and
+# puts `ready-for-agent` back once it is sure. It needs `pick` to be
+# `maintainer` or `all`, and any worker gets the issue after.
 #
 # Four limits are checked before any issue's research call, so a burst of issues
 # or one noisy author cannot spend the triager's budget. Each is 0 for off, and
@@ -364,6 +370,7 @@ compact_window = 200000
 # in the fence saying it was cut and how long it was; the title is never cut.
 # [app.dogs.kelpie.triage]
 # pick = "off"
+# hand_ready = false
 # wait_days = 7
 # max_questions = 10
 # agent = "triager"

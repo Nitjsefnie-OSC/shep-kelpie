@@ -593,3 +593,55 @@ fn a_file_saved_before_pruned_through_gets_a_floor_only_when_a_prune_may_have_ru
     assert_eq!(load(TRIAGED_KEPT as u64), 100 + TRIAGED_KEPT as u64 - 1);
     assert_eq!(load(3), 0);
 }
+
+// A record kelpie made when it took a hand-labelled `ready-for-agent` issue
+// back saves as the `taken` step, holds no comment, and is not a finished
+// record, so a prune keeps it until its first pass replaces it.
+#[test]
+fn a_taken_back_record_saves_as_taken_and_is_not_pruned() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = store_in(dir.path());
+    let record = |issue: u64, step: TriageStep| Triaged {
+        issue,
+        comment: 0,
+        step,
+        at: Timestamp(0),
+        author: "Boss".to_owned(),
+        held: None,
+        calls: Vec::new(),
+        labels: Vec::new(),
+        duplicate_of: None,
+        ready_body: None,
+        seen: vec!["needs-triage".to_owned()],
+        asked: None,
+        questions: None,
+        local: None,
+        spam: None,
+    };
+    let mut state = ProjectState::new();
+    let cap = TRIAGED_KEPT as u64;
+    let mut triage = TriageState {
+        since: Timestamp(1),
+        issues: vec![record(1, TriageStep::Taken)],
+        unrecorded: Vec::new(),
+        pruned_through: 0,
+    };
+    triage
+        .issues
+        .extend((2..cap + 5).map(|n| record(n, TriageStep::Done)));
+    triage.prune();
+    assert_eq!(triage.issues[0].issue, 1, "a taken record stays");
+    state.triage = Some(triage);
+    store.save(&state).unwrap();
+
+    let text = fs::read_to_string(dir.path().join(STATE_FILE)).unwrap();
+    let saved: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(
+        saved["triage"]["issues"][0],
+        serde_json::json!({
+            "issue": 1, "comment": 0, "at": 0, "author": "Boss", "step": "taken",
+            "seen": ["needs-triage"]
+        })
+    );
+    assert_eq!(store.load().unwrap(), Some(state));
+}

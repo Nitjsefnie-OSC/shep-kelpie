@@ -348,6 +348,11 @@ pub struct TriageLocal {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum TriageStep {
+    /// The issue is the maintainer's, was labelled `ready-for-agent` by hand,
+    /// and kelpie took it back for triage: its `ready-for-agent` is swapped for
+    /// `needs-triage` or about to be, and its first pass is owed. The comment
+    /// that pass posts replaces this record.
+    Taken,
     /// The comment is posted and the labels are not all on. On the ready path
     /// the `ready_body` edit is owed too
     Commented,
