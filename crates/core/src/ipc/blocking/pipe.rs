@@ -68,8 +68,9 @@ struct Shared {
     pipe: Pipe,
     read_for: Mutex<Option<Duration>>,
     write_for: Mutex<Option<Duration>>,
-    // Turns true once, on a shutdown, which every blocked call watches.
-    closed: watch::Sender<bool>,
+    // Each turns true once, on a shutdown of that side, which every blocked call watches.
+    read_closed: watch::Sender<bool>,
+    write_closed: watch::Sender<bool>,
 }
 
 impl Shared {
@@ -80,7 +81,11 @@ impl Shared {
 
     // Waits for the pipe to be ready, until `by`, or until a shutdown, which is `Ok(false)`.
     async fn ready(&self, reading: bool, by: Option<Instant>) -> io::Result<bool> {
-        let mut closed = self.closed.subscribe();
+        let mut closed = if reading {
+            self.read_closed.subscribe()
+        } else {
+            self.write_closed.subscribe()
+        };
         let ready = async {
             if reading {
                 either!(&self.pipe, p => p.readable().await)
@@ -95,8 +100,9 @@ impl Shared {
             }
         };
         tokio::select! {
-            ready = ready => ready.map(|()| true),
+            biased;
             _ = closed.wait_for(|closed| *closed) => Ok(false),
+            ready = ready => ready.map(|()| true),
             () = timed => Err(io::ErrorKind::TimedOut.into()),
         }
     }
@@ -145,7 +151,8 @@ impl Stream {
             pipe,
             read_for: Mutex::new(None),
             write_for: Mutex::new(None),
-            closed: watch::channel(false).0,
+            read_closed: watch::channel(false).0,
+            write_closed: watch::channel(false).0,
         }))
     }
 
@@ -212,18 +219,24 @@ impl Stream {
         Ok(())
     }
 
-    /// Ends the connection for every handle on it, and wakes any that block
+    /// Ends reads, writes or both for every handle on the connection, and wakes any that block
     ///
-    /// A pipe has no half to close, so `how` makes no difference. Reads then
-    /// find the end, and writes fail. What was written already stays for the
-    /// peer to read: the pipe itself closes with its last handle.
+    /// A pipe has no half to close, so this is kept here and the peer is not
+    /// told: it finds the end when the last handle drops. Closing one side
+    /// leaves the other working. Reads then find the end, and writes fail. What
+    /// was written already stays for the peer to read.
     ///
     /// # Errors
     ///
     /// Never, here: it is `Result` because std's is.
     #[allow(clippy::unnecessary_wraps)]
-    pub fn shutdown(&self, _how: Shutdown) -> io::Result<()> {
-        self.0.closed.send_replace(true);
+    pub fn shutdown(&self, how: Shutdown) -> io::Result<()> {
+        if matches!(how, Shutdown::Read | Shutdown::Both) {
+            self.0.read_closed.send_replace(true);
+        }
+        if matches!(how, Shutdown::Write | Shutdown::Both) {
+            self.0.write_closed.send_replace(true);
+        }
         Ok(())
     }
 }

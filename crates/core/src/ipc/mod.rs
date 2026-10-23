@@ -46,22 +46,48 @@ pub fn address(socket: &Path) -> PathBuf {
     }
     #[cfg(windows)]
     {
-        PathBuf::from(pipe_name(socket))
+        // A folder that exists is named by what it resolves to, so a link or
+        // short name for it makes no second pipe.
+        let resolved = socket
+            .parent()
+            .and_then(|folder| folder.canonicalize().ok())
+            .zip(socket.file_name())
+            .map(|(folder, name)| folder.join(name));
+        PathBuf::from(pipe_name(resolved.as_deref().unwrap_or(socket)))
     }
 }
 
-// Windows reads a path without regard to case or to which slash divides it, so
-// every spelling of one path must name one pipe, or two dogs could both open it.
+// Windows reads a path without regard to case, to which slash divides it, to
+// `.` and `..` or to a verbatim prefix, so every spelling of one path must
+// name one pipe, or two dogs could both open it.
 #[cfg(any(windows, test))]
 fn pipe_name(socket: &Path) -> String {
     use sha1::{Digest, Sha1};
     // Bounds the readable half: a pipe's name may be 256 characters.
     const MAX_STEM: usize = 48;
 
-    let whole = socket.to_string_lossy().to_lowercase().replace('/', r"\");
+    let lower = socket.to_string_lossy().to_lowercase().replace('/', r"\");
+    let plain = match lower.strip_prefix(r"\\?\") {
+        Some(verbatim) => verbatim.strip_prefix(r"unc\").unwrap_or(verbatim),
+        None => &lower,
+    };
+    let mut parts: Vec<&str> = Vec::new();
+    for part in plain.split('\\') {
+        match part {
+            "" | "." => {}
+            ".." => {
+                // The drive is a root: nothing is above it.
+                if parts.len() > 1 {
+                    parts.pop();
+                }
+            }
+            part => parts.push(part),
+        }
+    }
+    let whole = parts.join(r"\");
     let digest = Sha1::digest(whole.as_bytes());
     let digest: String = digest[..8].iter().map(|b| format!("{b:02x}")).collect();
-    let file = whole.rsplit('\\').next().unwrap_or_default();
+    let file = parts.last().copied().unwrap_or_default();
     let stem: String = file
         .rsplit_once('.')
         .map_or(file, |(stem, _)| stem)

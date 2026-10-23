@@ -36,9 +36,7 @@ fn a_pipe_is_named_for_its_socket_path_and_no_other() {
 
 #[test]
 fn one_windows_path_spelled_another_way_is_the_same_pipe() {
-    let door = pipe_name(Path::new(
-        r"C:\Users\me\.kelpie\shep\kelpie\dog\lease.sock",
-    ));
+    let door = pipe_name(Path::new(r"C:\Users\me\.kelpie\shep\kelpie\dog\lease.sock"));
     for spelling in [
         r"c:\users\me\.kelpie\shep\kelpie\dog\lease.sock",
         "C:/Users/me/.kelpie/shep/kelpie/dog/lease.sock",
@@ -46,6 +44,29 @@ fn one_windows_path_spelled_another_way_is_the_same_pipe() {
     ] {
         assert_eq!(door, pipe_name(Path::new(spelling)), "{spelling}");
     }
+}
+
+#[test]
+fn one_windows_path_spelled_with_dots_or_a_verbatim_prefix_is_the_same_pipe() {
+    let door = pipe_name(Path::new(r"C:\base\shep\kelpie\dog\lease.sock"));
+    for spelling in [
+        r"C:\base\x\..\shep\kelpie\dog\lease.sock",
+        r"C:\base\.\shep\kelpie\dog\lease.sock",
+        r"C:\base\\shep\kelpie\dog\lease.sock",
+        r"C:\base\shep\kelpie\dog\..\dog\lease.sock",
+        r"\\?\C:\base\shep\kelpie\dog\lease.sock",
+        r"\\?\c:/base/shep/kelpie/dog/lease.sock",
+    ] {
+        assert_eq!(door, pipe_name(Path::new(spelling)), "{spelling}");
+    }
+    assert_ne!(
+        door,
+        pipe_name(Path::new(r"C:\base\x\shep\kelpie\dog\lease.sock"))
+    );
+    assert_eq!(
+        pipe_name(Path::new(r"\\host\share\dog\lease.sock")),
+        pipe_name(Path::new(r"\\?\UNC\host\share\dog\lease.sock"))
+    );
 }
 
 #[tokio::test]
@@ -138,6 +159,24 @@ fn a_blocking_read_times_out_and_a_shutdown_ends_it() {
     near.shutdown(Shutdown::Both).unwrap();
     assert_eq!(reader.join().unwrap(), 0);
     drop(far);
+}
+
+#[test]
+fn closing_the_write_side_leaves_the_replies_still_to_read() {
+    let (near, far) = blocking::Stream::pair().unwrap();
+    near.shutdown(Shutdown::Write).unwrap();
+    let late = std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        (&far).write_all(b"late\n").unwrap();
+        far
+    });
+
+    let mut reply = String::new();
+    BufReader::new(&near).read_line(&mut reply).unwrap();
+
+    assert_eq!(reply, "late\n");
+    assert!((&near).write(b"x").is_err(), "writes are closed");
+    drop(late.join().unwrap());
 }
 
 #[test]
