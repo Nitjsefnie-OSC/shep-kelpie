@@ -2,7 +2,9 @@
 
 Measured 2026-10-10 on `@anthropic-ai/sandbox-runtime` 0.0.77, macOS, with a live worker's settings and its writable paths moved to a test folder (shep-pm/shep-kelpie#429).
 
-- `srt` writes two keychain services into every macOS profile: `com.apple.securityd.xpc` (`dist/sandbox/macos-sandbox-utils.js:706`) and `com.apple.SecurityServer` (`:828`). Its settings can add Mach services but not remove them. So any command a worker runs can ask for a login that the `security` command stored, without a prompt. A file rule cannot stop that, and a scoped token does not help while the maintainer's own login is one call away.
+Re-read 2026-10-23 on 0.0.81 (shep-pm/shep-kelpie#1180): the compiled profile names each service once, `com.apple.securityd.xpc` at `dist/sandbox/macos-sandbox-utils.js:785` and `com.apple.SecurityServer` at `:907`, so the cut holds unchanged. The probe table below is from 0.0.77 and was not re-run by hand. `adapters::srt::live` re-runs the keychain probes on macOS in CI.
+
+- `srt` writes two keychain services into every macOS profile: `com.apple.securityd.xpc` (`dist/sandbox/macos-sandbox-utils.js:706` on 0.0.77) and `com.apple.SecurityServer` (`:828`). Its settings can add Mach services but not remove them. So any command a worker runs can ask for a login that the `security` command stored, without a prompt. A file rule cannot stop that, and a scoped token does not help while the maintainer's own login is one call away.
 - "Blocked" is a copy of `srt` with those two lines removed:
 
   | Probe | srt as shipped | Blocked |
