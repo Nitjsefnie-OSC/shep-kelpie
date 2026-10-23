@@ -23,10 +23,11 @@ pub use mcp::OWN_SERVERS;
 pub use series::{CiTests, FEATURE_RUNS, Feature};
 pub use shepherd_sink::ShepherdSink;
 
-/// The most series a runner sends, under the metrics dog's 256 a sender
-/// (shep-pm/shep#733). The worst case the budget test drives is 197 series, and
-/// the failed tool call series of #968 need 39 more, so the room is 240
-pub const SERIES_CAP: usize = 240;
+/// The most series a runner sends, one under the metrics dog's 256 a sender
+/// (shep-pm/shep#733), which leaves room for the series counting the ones past it. The worst
+/// case the budget test drives is 254 series: 197 of the roles' calls and requests, the 39 of
+/// the failed tool calls of #968, and the 18 of the forge's calls and rate limits
+pub const SERIES_CAP: usize = 255;
 
 // Seconds between sending every series again. A minute is a scrape or four
 // at Prometheus's usual interval, and a few hundred samples a minute is
