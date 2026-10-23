@@ -6,7 +6,7 @@ use serde::Deserialize;
 use super::{gh, unreadable};
 use crate::ports::{ForgeError, RateBucket, RateLimits, Timestamp};
 
-/// The login's `core` and `graphql` limits as GitHub counts them now
+/// The login's `core`, `graphql` and `search` limits as GitHub counts them now
 pub(super) fn rate_limit() -> Result<RateLimits, ForgeError> {
     parse_rate_limit(&gh(&["api", "rate_limit"])?)
 }
@@ -20,6 +20,7 @@ fn parse_rate_limit(stdout: &[u8]) -> Result<RateLimits, ForgeError> {
     struct Resources {
         core: Limit,
         graphql: Limit,
+        search: Limit,
     }
     #[derive(Deserialize)]
     struct Limit {
@@ -36,6 +37,7 @@ fn parse_rate_limit(stdout: &[u8]) -> Result<RateLimits, ForgeError> {
     Ok(RateLimits {
         core: bucket(limits.resources.core),
         graphql: bucket(limits.resources.graphql),
+        search: bucket(limits.resources.search),
     })
 }
 
@@ -47,7 +49,7 @@ mod tests {
     const RECORDED: &str = include_str!("../../../../../fixtures/gh-api-rate-limit.json");
 
     #[test]
-    fn the_core_and_graphql_limits_are_read_with_their_used_remaining_and_reset() {
+    fn the_core_graphql_and_search_limits_are_read_with_their_used_remaining_and_reset() {
         let limits = parse_rate_limit(RECORDED.as_bytes()).unwrap();
 
         let bucket = |used, remaining, reset| RateBucket {
@@ -57,6 +59,7 @@ mod tests {
         };
         assert_eq!(limits.core, bucket(0, 5000, 1_791_644_854));
         assert_eq!(limits.graphql, bucket(7, 4993, 1_791_644_766));
+        assert_eq!(limits.search, bucket(0, 30, 1_791_641_314));
     }
 
     #[test]

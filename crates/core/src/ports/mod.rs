@@ -500,7 +500,7 @@ pub trait Forge: Send + Sync {
     /// [`ForgeError`] when the forge refuses or cannot be asked.
     fn disable_auto_merge(&self, repo: &ForgeSlug, number: u64) -> Result<(), ForgeError>;
 
-    /// The login's `core` and `graphql` rate limits as the forge counts them
+    /// The login's `core`, `graphql` and `search` rate limits as the forge counts them
     ///
     /// Asking spends none of them.
     ///
@@ -510,8 +510,8 @@ pub trait Forge: Send + Sync {
     fn rate_limit(&self) -> Result<RateLimits, ForgeError>;
 
     /// When the forge's used-up rate limits reset: the latest reset of the
-    /// `core` or `graphql` limit with nothing left, or `None` when neither
-    /// is used up
+    /// `core`, `graphql` or `search` limit with nothing left, or `None` when
+    /// none is used up
     ///
     /// # Errors
     ///
@@ -532,19 +532,21 @@ pub struct RateBucket {
     pub reset: Timestamp,
 }
 
-/// The two limits the maintainer's login spends from
+/// The limits the maintainer's login spends from
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RateLimits {
     /// The REST API's
     pub core: RateBucket,
     /// The GraphQL API's
     pub graphql: RateBucket,
+    /// The search API's, which `gh search` spends from
+    pub search: RateBucket,
 }
 
 impl RateLimits {
-    /// The latest reset of a limit with nothing left, or `None` when neither is used up
+    /// The latest reset of a limit with nothing left, or `None` when none is used up
     pub fn used_up_until(&self) -> Option<Timestamp> {
-        [self.core, self.graphql]
+        [self.core, self.graphql, self.search]
             .iter()
             .filter(|bucket| bucket.remaining == 0)
             .map(|bucket| bucket.reset)

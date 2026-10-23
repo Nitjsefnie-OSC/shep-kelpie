@@ -424,6 +424,7 @@ fn limits(core_used: u64, core_reset: u64, graphql_used: u64, graphql_reset: u64
     RateLimits {
         core: bucket(core_used, core_reset),
         graphql: bucket(graphql_used, graphql_reset),
+        search: bucket(0, 0),
     }
 }
 

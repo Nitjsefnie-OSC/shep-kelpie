@@ -31,6 +31,7 @@ impl Default for Rate {
             limits: RateLimits {
                 core: spare,
                 graphql: spare,
+                search: spare,
             },
             down: false,
             reads: 0,

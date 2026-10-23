@@ -625,6 +625,7 @@ mod tests {
         let limits = RateLimits {
             core: bucket(120, 4_880, 1_800),
             graphql: bucket(7, 4_993, 1_700),
+            search: bucket(3, 27, 1_600),
         };
         forge.set_rate_limits(limits);
 
@@ -639,6 +640,7 @@ mod tests {
         let spare = RateLimits {
             core: bucket(120, 4_880, 1_800),
             graphql: bucket(7, 4_993, 1_700),
+            search: bucket(3, 27, 1_600),
         };
         forge.set_rate_limits(spare);
         assert_eq!(held.rate_limit_reset(), Ok(None), "none is used up");
@@ -654,6 +656,16 @@ mod tests {
             ..spare
         });
         assert_eq!(held.rate_limit_reset(), Ok(Some(Timestamp(1_900))));
+
+        forge.set_rate_limits(RateLimits {
+            search: bucket(30, 0, 1_650),
+            ..spare
+        });
+        assert_eq!(
+            held.rate_limit_reset(),
+            Ok(Some(Timestamp(1_650))),
+            "`gh search` spends from the search limit, so its reset holds too"
+        );
     }
 
     mod cooldown {
