@@ -797,7 +797,7 @@ impl Runner {
                 return Ok(());
             }
             match record.step {
-                TriageStep::Done | TriageStep::Ready => return Ok(()),
+                TriageStep::Done | TriageStep::Ready | TriageStep::Taken => return Ok(()),
                 TriageStep::Closed => {
                     let Some(of) = self.triage_record(issue).and_then(|t| t.duplicate_of) else {
                         return Ok(());

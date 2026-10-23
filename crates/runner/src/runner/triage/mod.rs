@@ -5,7 +5,9 @@
 //! under `triage.due`, oldest first. An issue is untouched when it carries
 //! none of [`TRIAGE_LABELS`] but a `needs-triage` above `pruned_through`, no bot
 //! opened it, it was opened after `triage.since`, and, under `maintainer`, the
-//! maintainer opened it.
+//! maintainer opened it. With `triage.hand_ready` on, the maintainer's own
+//! hand-labelled `ready-for-agent` issue is taken back first ([`hand`]), so it is
+//! one of them.
 //!
 //! [`Runner::triage_due`], asked by the board's dispatch after a contribution's
 //! call and before the board's pick, starts the research on the oldest of
@@ -35,6 +37,7 @@ use ask::Purpose;
 pub(super) mod addressed;
 pub(super) mod ask;
 pub(super) mod comment;
+pub(super) mod hand;
 pub(super) mod heard;
 pub(super) mod images;
 pub(super) mod limits;
@@ -169,7 +172,7 @@ impl Runner {
             return Ok(());
         }
         self.flights.triage_retry();
-        let Ok(open) = self.ports.tickets.open_issues(&self.remote) else {
+        let Ok(mut open) = self.ports.tickets.open_issues(&self.remote) else {
             return Ok(());
         };
         // A record that names no author, which is what a file saved before the
@@ -192,10 +195,14 @@ impl Runner {
             },
             TriagePick::All | TriagePick::Off => None,
         };
+        // A hand-labelled `ready-for-agent` the maintainer's own is swapped for
+        // `needs-triage` here, before the board reads its pick, and listed as
+        // the swap left it.
+        self.take_back_ready(&mut open, since, pruned_through)?;
         let mut due: Vec<&OpenIssue> = (open.iter())
             .filter(|i| {
                 untouched(i, since, pruned_through, only.as_deref())
-                    && self.triage_record(i.number).is_none()
+                    && self.first_pass_owed(i.number)
             })
             .collect();
         due.sort_by_key(|issue| (issue.created, issue.number));
@@ -251,10 +258,12 @@ impl Runner {
             .triage
             .as_ref()
             .map_or_else(Vec::new, |t| t.issues.clone());
-        for record in held
-            .iter()
-            .filter(|t| !matches!(t.step, TriageStep::Done | TriageStep::Ready))
-        {
+        for record in held.iter().filter(|t| {
+            !matches!(
+                t.step,
+                TriageStep::Done | TriageStep::Ready | TriageStep::Taken
+            )
+        }) {
             if self.triage_given_up(record.issue) || self.flights.triaging() == Some(record.issue) {
                 continue;
             }
@@ -283,7 +292,7 @@ impl Runner {
                 continue;
             }
             // A record is the issue's, to finish or to leave, unless the verb asked again.
-            if !asked && self.triage_record(issue).is_some() {
+            if !asked && !self.first_pass_owed(issue) {
                 continue;
             }
             self.flights.triage_try(issue);
@@ -378,10 +387,11 @@ impl Runner {
         let role = self.author_role(&this.author, this.author_association);
         // The labels the issue carries when its pass begins, kept once so a
         // triage label that comes by later is the maintainer's own.
+        let taken = self.taken_seen(issue);
         let tries = self.triage_tries.entry(issue).or_default();
         tries.role = Some(role);
         if tries.seen.is_none() {
-            tries.seen = Some(this.labels.clone());
+            tries.seen = Some(taken.unwrap_or_else(|| this.labels.clone()));
         }
         // The author's login comes from the same listing that made the call, so
         // a call that never posted is still counted against their cap.
@@ -616,6 +626,8 @@ mod addressed_tests;
 mod answers_tests;
 #[cfg(test)]
 mod ask_tests;
+#[cfg(test)]
+mod hand_tests;
 #[cfg(test)]
 mod images_tests;
 #[cfg(test)]
