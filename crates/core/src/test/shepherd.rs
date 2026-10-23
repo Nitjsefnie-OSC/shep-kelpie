@@ -265,7 +265,7 @@ impl FakeShepherd {
                     r,
                     Request::ListFlock
                         | Request::DogSheepSettings { .. }
-                        | Request::DogConfig { .. }
+                        | Request::DogConfigResolved { .. }
                         | Request::SheepConfig { .. }
                 )
             })
@@ -311,7 +311,7 @@ fn answer(flock: &mut Vec<Sheep>, section: &str, request: &Request) -> Response 
                 .filter_map(|s| Some((s.config.name.clone(), s.config.dogs.get(dog)?.clone())))
                 .collect(),
         },
-        Request::DogConfig { .. } => Response::DogSection {
+        Request::DogConfigResolved { .. } => Response::DogSection {
             toml: section.to_owned().into(),
         },
         Request::SheepConfig { name } => {
