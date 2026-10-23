@@ -454,6 +454,8 @@ fn a_runner_with_every_role_and_harness_in_use_stays_under_the_cap() {
         graphql: bucket,
         search: bucket,
     });
+    // The runner's lock: the seconds it was held, and the holds of at most a second and of all.
+    recorder.lock_holds(1.5, 1, 2);
     // Every kind for each of the three roles whose tool calls are counted, and one for a role
     // whose are not, which adds none.
     const KINDS: [&str; 13] = [
