@@ -1,9 +1,12 @@
-//! The sandbox runtime, `srt`, from kelpie's own tools
+//! The sandbox runtime a call runs under
 //!
-//! It is the engine under Claude Code's own sandbox: Seatbelt on macOS,
-//! bubblewrap on Linux, and a proxy that holds the network to a host list.
-//! Kelpie pins its version in [`crate::tools::PACKAGE`]. On macOS a sandbox
-//! cannot start inside another, so nothing it runs may start one of its own.
+//! On macOS it is crabpot, linked into kelpie's own binary: a wrapped command
+//! is `shep-kelpie --crabpot --settings <file> -- prog args`, which
+//! `crabpot::run_from_args` takes over first thing in `main`. On Linux it is
+//! `srt` from kelpie's own tools, the engine under Claude Code's own sandbox:
+//! bubblewrap, and a proxy that holds the network to a host list. Kelpie pins
+//! its version in [`crate::tools::PACKAGE`]. A sandbox cannot start inside
+//! another, so nothing it runs may start one of its own.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -13,11 +16,16 @@ use serde_json::{Value, json};
 use crate::ports::{Policy, Sandbox, SandboxError};
 use crate::tools::Tools;
 
+// The Mach services a command asks the keychain through, which a covered call may not look up
+const KEYCHAIN_SERVICES: [&str; 2] = ["com.apple.securityd.xpc", "com.apple.SecurityServer"];
+
 /// The sandbox runtime installed under kelpie's tools
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SandboxRuntime {
     tools: Tools,
     macos: bool,
+    // The program that is crabpot on macOS: kelpie itself, unless a test names the built one.
+    kelpie: Option<PathBuf>,
 }
 
 impl SandboxRuntime {
@@ -26,6 +34,7 @@ impl SandboxRuntime {
         Self {
             tools,
             macos: cfg!(target_os = "macos"),
+            kelpie: None,
         }
     }
 
@@ -33,6 +42,40 @@ impl SandboxRuntime {
     #[cfg(test)]
     pub(crate) fn on_macos(self, macos: bool) -> Self {
         Self { macos, ..self }
+    }
+
+    /// The same, with `kelpie` as crabpot on macOS, since a test binary has no
+    /// `run_from_args`
+    #[cfg(test)]
+    pub(crate) fn run_by(self, kelpie: PathBuf) -> Self {
+        Self {
+            kelpie: Some(kelpie),
+            ..self
+        }
+    }
+
+    // The program that runs a command in crabpot's sandbox
+    fn crabpot(&self) -> Result<PathBuf, SandboxError> {
+        match &self.kelpie {
+            Some(kelpie) => Ok(kelpie.clone()),
+            None => std::env::current_exe().map_err(|e| SandboxError::Executable(e.to_string())),
+        }
+    }
+
+    // The command that runs a program under `--settings`: crabpot on macOS, node `srt` elsewhere
+    fn runtime(&self) -> Result<Command, SandboxError> {
+        if self.macos {
+            let mut crabpot = crate::spawn::command(self.crabpot()?);
+            crabpot.arg("--crabpot");
+            return Ok(crabpot);
+        }
+        let cli = self.tools.sandbox();
+        if !cli.is_file() {
+            return Err(SandboxError::Missing(cli));
+        }
+        let mut node = crate::spawn::command("node");
+        node.arg(cli);
+        Ok(node)
     }
 }
 
@@ -43,29 +86,14 @@ impl Sandbox for SandboxRuntime {
         settings: &Path,
         command: &Command,
     ) -> Result<Command, SandboxError> {
-        let cli = self.tools.sandbox();
-        if !cli.is_file() {
-            return Err(SandboxError::Missing(cli));
-        }
-        // Only macOS has a keychain to ask. A runtime not patched runs nothing.
-        let cli = match policy.no_keychain && self.macos {
-            true if self.tools.keychain_blocked() => self.tools.sandbox_without_keychain(),
-            true => {
-                return Err(SandboxError::Unpatched(
-                    self.tools.sandbox_without_keychain(),
-                ));
-            }
-            false => cli,
-        };
+        let mut wrapped = self.runtime()?;
         let text = serde_json::to_string_pretty(&settings_on(policy, self.macos))
             .expect("settings are JSON");
         let folder = settings.parent().unwrap_or(Path::new("/"));
         std::fs::create_dir_all(folder)
             .and_then(|()| std::fs::write(settings, text))
             .map_err(|e| SandboxError::Settings(settings.to_owned(), e.kind().to_string()))?;
-        let mut wrapped = crate::spawn::command("node");
         wrapped
-            .arg(cli)
             .arg("--settings")
             .arg(settings)
             .arg("--")
@@ -119,6 +147,10 @@ fn settings_on(policy: &Policy, macos: bool) -> Value {
     if !policy.services.is_empty() {
         network["allowMachLookup"] = json!(policy.services);
     }
+    // Only macOS has a keychain to ask. crabpot denies these last, over any allow.
+    if policy.no_keychain && macos {
+        network["denyMachLookup"] = json!(KEYCHAIN_SERVICES);
+    }
     let mut read = json!(policy.read);
     let mut write = json!(policy.write);
     if macos {
@@ -166,6 +198,23 @@ fn alone(folder: &Path) -> String {
     glob
 }
 
+/// The `shep-kelpie` binary built beside this test binary, which has the
+/// `crabpot::run_from_args` a test binary lacks, or why there is none
+#[cfg(test)]
+pub(crate) fn built_kelpie() -> Result<PathBuf, String> {
+    let test = std::env::current_exe().map_err(|e| e.to_string())?;
+    // `<target>/debug/deps/<test>` beside `<target>/debug/shep-kelpie`
+    let kelpie = test
+        .parent()
+        .and_then(Path::parent)
+        .map(|debug| debug.join(format!("shep-kelpie{}", std::env::consts::EXE_SUFFIX)))
+        .ok_or_else(|| format!("{} has no folder above it", test.display()))?;
+    match kelpie.is_file() {
+        true => Ok(kelpie),
+        false => Err(format!("run `cargo build` for {}", kelpie.display())),
+    }
+}
+
 #[cfg(test)]
 mod live;
 
@@ -176,7 +225,7 @@ mod tests {
     #[test]
     fn a_missing_runtime_refuses_to_run_anything() {
         let dir = tempfile::tempdir().unwrap();
-        let srt = SandboxRuntime::new(Tools::at(dir.path().to_owned()));
+        let srt = SandboxRuntime::new(Tools::at(dir.path().to_owned())).on_macos(false);
         let settings = dir.path().join("call.srt.json");
         let err = srt
             .wrap(&Policy::default(), &settings, &Command::new("claude"))
@@ -317,111 +366,85 @@ mod tests {
         assert_eq!(listed(&neither, false), None);
     }
 
-    // A tools folder with the runtime, and with its keychain-free copy when `blocked`.
-    fn installed(dir: &Path, blocked: bool) -> Tools {
+    // A tools folder with the node runtime installed
+    fn installed(dir: &Path) -> Tools {
         let tools = Tools::at(dir.to_owned());
-        let services = "'com.apple.securityd.xpc',\n'com.apple.SecurityServer',\n";
-        for cli in [tools.sandbox(), tools.sandbox_without_keychain()] {
-            let sandbox = cli.parent().unwrap().join("sandbox");
-            std::fs::create_dir_all(&sandbox).unwrap();
-            std::fs::write(&cli, "").unwrap();
-            std::fs::write(sandbox.join("macos-sandbox-utils.js"), services).unwrap();
-        }
-        if blocked {
-            tools.block_keychain().unwrap();
-        }
+        std::fs::create_dir_all(tools.sandbox().parent().unwrap()).unwrap();
+        std::fs::write(tools.sandbox(), "").unwrap();
         tools
     }
 
-    fn cli_of(wrapped: &Command) -> PathBuf {
-        PathBuf::from(wrapped.get_args().next().unwrap())
-    }
-
-    #[test]
-    fn a_call_that_blocks_the_keychain_runs_under_the_copy_of_srt_without_its_services() {
-        let dir = tempfile::tempdir().unwrap();
-        let tools = installed(dir.path(), true);
-        let srt = SandboxRuntime::new(tools.clone()).on_macos(true);
-        let settings = dir.path().join("call.srt.json");
-        let blocking = Policy {
-            no_keychain: true,
-            ..Policy::default()
-        };
-        let wrapped = srt
-            .wrap(&blocking, &settings, &Command::new("claude"))
-            .unwrap();
-        assert_eq!(cli_of(&wrapped), tools.sandbox_without_keychain());
-        // A call that leaves the keychain reachable keeps the runtime as shipped.
-        let wrapped = srt
-            .wrap(&Policy::default(), &settings, &Command::new("claude"))
-            .unwrap();
-        assert_eq!(cli_of(&wrapped), tools.sandbox());
-    }
-
-    #[test]
-    fn a_call_that_blocks_the_keychain_does_not_run_when_srt_is_not_patched() {
-        let dir = tempfile::tempdir().unwrap();
-        // The copy is there, but it still names a service.
-        let tools = installed(dir.path(), false);
-        let srt = SandboxRuntime::new(tools.clone()).on_macos(true);
-        let settings = dir.path().join("call.srt.json");
-        let blocking = Policy {
-            no_keychain: true,
-            ..Policy::default()
-        };
-        let err = srt
-            .wrap(&blocking, &settings, &Command::new("claude"))
-            .unwrap_err();
-        assert!(matches!(err, SandboxError::Unpatched(_)), "{err:?}");
-        assert!(
-            err.to_string().contains("shep kelpie tools install"),
-            "{err}"
-        );
-        assert!(
-            !settings.exists(),
-            "nothing was set up for a call that cannot run"
-        );
-    }
-
-    #[test]
-    fn there_is_no_keychain_to_block_off_macos() {
-        let dir = tempfile::tempdir().unwrap();
-        let tools = installed(dir.path(), false);
-        let blocking = Policy {
-            no_keychain: true,
-            ..Policy::default()
-        };
-        let wrapped = SandboxRuntime::new(tools.clone())
-            .on_macos(false)
-            .wrap(
-                &blocking,
-                &dir.path().join("s.json"),
-                &Command::new("claude"),
-            )
-            .unwrap();
-        assert_eq!(cli_of(&wrapped), tools.sandbox());
-    }
-
-    #[test]
-    fn the_command_runs_under_srt_with_its_folder_variables_and_settings() {
-        let dir = tempfile::tempdir().unwrap();
-        let tools = Tools::at(dir.path().to_owned());
-        std::fs::create_dir_all(tools.sandbox().parent().unwrap()).unwrap();
-        std::fs::write(tools.sandbox(), "").unwrap();
+    // The call every wrap test makes, and the settings file it writes
+    fn inner() -> Command {
         let mut inner = Command::new("claude");
         inner
             .args(["-p", "it's"])
             .current_dir("/k/wt/7")
             .env("CARGO_TARGET_DIR", "/k/targets/7")
             .env_remove("CLAUDECODE");
-        let settings = dir.path().join("worker").join("call.srt.json");
-        let policy = Policy {
+        inner
+    }
+
+    fn policy() -> Policy {
+        Policy {
             write: vec![PathBuf::from("/k/wt/7")],
             hosts: vec!["api.anthropic.com".into()],
             ..Policy::default()
-        };
+        }
+    }
+
+    fn written(settings: &Path) -> Value {
+        serde_json::from_str(&std::fs::read_to_string(settings).unwrap()).unwrap()
+    }
+
+    fn assert_carries_the_call(wrapped: &Command) {
+        assert_eq!(wrapped.get_current_dir(), Some(Path::new("/k/wt/7")));
+        let envs: Vec<_> = wrapped.get_envs().collect();
+        assert!(envs.contains(&("CARGO_TARGET_DIR".as_ref(), Some("/k/targets/7".as_ref()))));
+        assert!(envs.contains(&("CLAUDECODE".as_ref(), None)));
+    }
+
+    #[test]
+    fn on_macos_the_wrapped_command_is_current_exe_crabpot_settings() {
+        // Nothing is installed: crabpot is in kelpie, so no node `srt` is needed.
+        let dir = tempfile::tempdir().unwrap();
+        let settings = dir.path().join("worker").join("call.srt.json");
+        let wrapped = SandboxRuntime::new(Tools::at(dir.path().to_owned()))
+            .on_macos(true)
+            .wrap(&policy(), &settings, &inner())
+            .unwrap();
+        assert_eq!(
+            wrapped.get_program(),
+            std::env::current_exe().unwrap().as_os_str()
+        );
+        let args: Vec<_> = wrapped.get_args().collect();
+        assert_eq!(
+            args,
+            [
+                "--crabpot".as_ref(),
+                "--settings".as_ref(),
+                settings.as_os_str(),
+                "--".as_ref(),
+                "claude".as_ref(),
+                "-p".as_ref(),
+                "it's".as_ref(),
+            ]
+        );
+        assert_carries_the_call(&wrapped);
+        let written = written(&settings);
+        assert_eq!(written, settings_on(&policy(), true));
+        assert_eq!(written["network"]["strictAllowlist"], true);
+        assert_eq!(written["filesystem"]["allowWrite"], json!(["/k/wt/7"]));
+    }
+
+    #[test]
+    fn on_linux_the_wrapped_command_is_still_node() {
+        let dir = tempfile::tempdir().unwrap();
+        let tools = installed(dir.path());
+        let settings = dir.path().join("worker").join("call.srt.json");
         let wrapped = SandboxRuntime::new(tools.clone())
-            .wrap(&policy, &settings, &inner)
+            .on_macos(false)
+            .wrap(&policy(), &settings, &inner())
             .unwrap();
         assert_eq!(wrapped.get_program(), "node");
         let args: Vec<_> = wrapped.get_args().collect();
@@ -438,14 +461,68 @@ mod tests {
                 "it's".as_ref(),
             ]
         );
-        assert_eq!(wrapped.get_current_dir(), Some(Path::new("/k/wt/7")));
-        let envs: Vec<_> = wrapped.get_envs().collect();
-        assert!(envs.contains(&("CARGO_TARGET_DIR".as_ref(), Some("/k/targets/7".as_ref()))));
-        assert!(envs.contains(&("CLAUDECODE".as_ref(), None)));
-        let written: Value =
-            serde_json::from_str(&std::fs::read_to_string(&settings).unwrap()).unwrap();
-        assert_eq!(written, srt_settings(&policy));
+        assert_carries_the_call(&wrapped);
+        let written = written(&settings);
+        assert_eq!(written, settings_on(&policy(), false));
         assert_eq!(written["network"]["strictAllowlist"], true);
         assert_eq!(written["filesystem"]["allowWrite"], json!(["/k/wt/7"]));
+    }
+
+    #[test]
+    fn no_keychain_adds_deny_mach_lookup_for_both_services() {
+        let covered = Policy {
+            no_keychain: true,
+            services: vec!["com.apple.FSEvents".into()],
+            ..Policy::default()
+        };
+        let network = &settings_on(&covered, true)["network"];
+        assert_eq!(
+            network["denyMachLookup"],
+            json!(["com.apple.securityd.xpc", "com.apple.SecurityServer"])
+        );
+        // The allow is kept: crabpot denies last, over every allow.
+        assert_eq!(network["allowMachLookup"], json!(["com.apple.FSEvents"]));
+        // A call that leaves the keychain reachable denies nothing.
+        let open = &settings_on(&Policy::default(), true)["network"];
+        assert!(open.get("denyMachLookup").is_none(), "{open}");
+        // There is no keychain to ask off macOS.
+        let linux = &settings_on(&covered, false)["network"];
+        assert!(linux.get("denyMachLookup").is_none(), "{linux}");
+    }
+
+    // The settings are read by crabpot's own parser, which refuses a key it
+    // cannot apply yet rather than drop it.
+    #[test]
+    fn crabpot_reads_every_setting_a_policy_can_write_on_macos() {
+        let policy = Policy {
+            read: vec![PathBuf::from("/k/wt/7")],
+            write: vec![PathBuf::from("/k/wt/7")],
+            no_read: vec!["/Users/k/**".into()],
+            no_write: vec![PathBuf::from("/k/wt/7/.git/hooks")],
+            open: vec![PathBuf::from("/k/graphs")],
+            scratch: vec!["/private/tmp/cbm-search-*".into()],
+            hosts: vec!["github.com".into()],
+            denied_hosts: vec!["localhost".into()],
+            denied_addresses: vec!["192.0.2.9".into()],
+            forward: Some(crate::ports::Forward {
+                host: "model.kelpie.test".into(),
+                socket: PathBuf::from("/k/worker/model.sock"),
+            }),
+            sockets: vec![PathBuf::from("/k/dog/lease.sock")],
+            socket_folders: vec![PathBuf::from("/private/k/call.tmp")],
+            listen: true,
+            services: vec!["com.apple.FSEvents".into()],
+            verify_tls: true,
+            no_keychain: true,
+        };
+        let text = settings_on(&policy, true).to_string();
+        let config = crabpot::Config::from_json(&text).unwrap_or_else(|e| panic!("{e}: {text}"));
+        assert_eq!(
+            config.network.deny_mach_lookup,
+            Some(vec![
+                "com.apple.securityd.xpc".to_owned(),
+                "com.apple.SecurityServer".to_owned()
+            ])
+        );
     }
 }

@@ -139,6 +139,8 @@ pub enum SandboxError {
     /// The sandbox program that leaves the keychain out is not at this path, or
     /// still names a keychain service
     Unpatched(PathBuf),
+    /// Kelpie cannot find its own executable, which runs the sandbox on macOS, for this reason
+    Executable(String),
 }
 
 impl fmt::Display for SandboxError {
@@ -159,6 +161,10 @@ impl fmt::Display for SandboxError {
                 "the sandbox runtime at {} still lets a call ask the keychain for the \
                  maintainer's logins, and this repo's calls may not: run `shep kelpie tools install`",
                 path.display()
+            ),
+            Self::Executable(reason) => write!(
+                f,
+                "cannot find kelpie's own executable to run the sandbox: {reason}"
             ),
         }
     }

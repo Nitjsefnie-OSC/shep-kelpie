@@ -35,5 +35,7 @@ toml.workspace = true
 shep-kelpie-core = { workspace = true, features = ["test-support"] }
 shep-kelpie-test-support.workspace = true
 shep-kelpie-trim = { workspace = true, features = ["test-support"] }
+# Only to check that the settings kelpie writes are ones crabpot reads
+crabpot.workspace = true
 # Only for throwaway homes and repos in tests
 tempfile.workspace = true
