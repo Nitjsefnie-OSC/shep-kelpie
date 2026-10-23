@@ -196,15 +196,8 @@ fn windows_in(folder: &std::path::Path) -> Reviewers {
 // ruling's post would fail on it, and so does `trusted` with no `token`,
 // since replies would then be taken on a topic anyone can post to.
 async fn settings(client: &ReconnectingClient) -> Result<KelpieSettings, String> {
-    let section = client.request(Request::DogConfig {
-        name: crate::shepherd::DOG.into(),
-    });
-    let text = match section.await {
-        Ok(Response::DogSection { toml }) => toml.as_str().to_owned(),
-        Ok(other) => {
-            println!("no [kelpie] section in the shepherd's answer: {other:?}");
-            return Ok(KelpieSettings::default());
-        }
+    let text = match client.dog_config(crate::shepherd::DOG).await {
+        Ok(toml) => toml.as_str().to_owned(),
         Err(e) => {
             println!("cannot read the [kelpie] section: {e}");
             return Ok(KelpieSettings::default());
