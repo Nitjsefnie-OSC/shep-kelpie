@@ -1,6 +1,7 @@
 name: macos nightly
 # The whole suite on macOS, where the APFS case folding in `crates/core/src/fence/mod.rs`
-# and the Seatbelt policy `crates/adapters/src/adapters/srt/mod.rs` writes run for real. Apart
+# and the Seatbelt policy `crates/adapters/src/adapters/srt/mod.rs` writes run for real,
+# under crabpot in the built `shep-kelpie` that `cargo test` builds for the root's tests. Apart
 # from the runner, the trigger and the timeout it is test.yml's `test` job.
 #
 # Nightly, and on demand, rather than after every merge. The hosted macOS

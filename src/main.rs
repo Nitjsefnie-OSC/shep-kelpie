@@ -89,7 +89,12 @@ use shep_kelpie::tools::Tools;
 const REFUSE: u8 = 2;
 
 fn main() -> ExitCode {
-    // First, before anything opens a descriptor or starts a thread: a build a
+    // First of all, before anything opens a descriptor or starts a thread: a
+    // call on macOS runs `kelpie --crabpot ...`, and this becomes the sandbox
+    // that runs its command and exits with the command's status. Any other
+    // launch carries on.
+    crabpot::run_from_args();
+    // Then, before anything opens a descriptor or starts a thread: a build a
     // handover execs is asked here whether it reads the state, and takes it.
     shep_handover::record_launch_path();
     let arrival = match shep_handover::boot::<shep_kelpie::sheep::Carry>() {

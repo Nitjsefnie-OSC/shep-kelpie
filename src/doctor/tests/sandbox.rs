@@ -24,3 +24,26 @@ async fn doctor_names_the_linux_sandbox_limits() {
         assert!(!subjects(&report).contains(&"sandbox: limits"), "{os}");
     }
 }
+
+// macOS runs crabpot, linked into kelpie, so it has no node srt to miss.
+#[tokio::test]
+async fn a_macos_machine_needs_no_node_srt_and_another_is_told_to_install_it() {
+    let mut scene = Scene::new().await;
+    std::fs::remove_file(Tools::under(&scene.kelpie_home).sandbox()).unwrap();
+
+    scene.host.os = "macos";
+    scene.host.keychain = true;
+    let report = scene.report().await;
+    assert_eq!(
+        ok(&report, "sandbox"),
+        "the sandbox runtime can run",
+        "{:#?}",
+        report.render()
+    );
+
+    scene.host.os = "linux";
+    scene.host.keychain = false;
+    let report = scene.report().await;
+    let (what, _) = missing(&report, "sandbox");
+    assert!(what.contains("no runner starts"), "{what}");
+}

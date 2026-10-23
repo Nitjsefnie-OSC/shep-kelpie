@@ -10,6 +10,7 @@
 pub mod add;
 mod attach;
 pub mod control;
+mod glob;
 mod help;
 mod pm;
 pub mod rule;

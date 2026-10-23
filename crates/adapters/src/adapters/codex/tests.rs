@@ -819,7 +819,7 @@ fn live() -> CodexCli {
     let home = PathBuf::from(std::env::var_os("HOME").unwrap());
     let login = home.join(".kelpie/codex");
     let sandbox = Unreadable::new(
-        Arc::new(SandboxRuntime::new(tools)),
+        Arc::new(SandboxRuntime::under_test(tools)),
         vec![format!("{}/**", login.display())],
     );
     CodexCli::on(&Base::default().sandboxed(Arc::new(sandbox), home), login)
@@ -972,8 +972,9 @@ fn measure_a_claude_code_worker_on_the_same_issue() {
     );
     let tools = KelpieTools::at(env("KELPIE_TOOLS").into());
     let home = PathBuf::from(std::env::var_os("HOME").unwrap());
-    let claude =
-        ClaudeCli::on(&Base::default().sandboxed(Arc::new(SandboxRuntime::new(tools)), home));
+    let claude = ClaudeCli::on(
+        &Base::default().sandboxed(Arc::new(SandboxRuntime::under_test(tools)), home),
+    );
     let world = World::new();
     let mut call = worker_in(
         &repo,

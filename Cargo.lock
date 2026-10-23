@@ -165,6 +165,41 @@ dependencies = [
 ]
 
 [[package]]
+name = "crabpot"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a65a328849f801cac54b3511f12a2f8b653fc7e3827bd8678441b2184690262f"
+dependencies = [
+ "crabpot-core",
+ "crabpot-macos",
+ "tokio",
+]
+
+[[package]]
+name = "crabpot-core"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c42f213dd24353a79f03bce40835cea157dca423861240e62830298cf14926e5"
+dependencies = [
+ "httparse",
+ "libc",
+ "nix 0.31.3",
+ "serde",
+ "serde_json",
+ "serde_path_to_error",
+ "tokio",
+]
+
+[[package]]
+name = "crabpot-macos"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0c340171319703b7402e4e566f100946c8105e5fd3eed0dbfcfcbef547d79438"
+dependencies = [
+ "crabpot-core",
+]
+
+[[package]]
 name = "croner"
 version = "3.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -439,6 +474,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "httparse"
+version = "1.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6dbf3de79e51f3d586ab4cb9d5c3e2c14aa28ed23d180cf89b4df0454a69cc87"
+
+[[package]]
 name = "hybrid-array"
 version = "0.4.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -577,6 +618,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
 
 [[package]]
+name = "memoffset"
+version = "0.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "488016bfae457b036d996092f6cb448677611ce4449e970ceaf42695203f218a"
+dependencies = [
+ "autocfg",
+]
+
+[[package]]
 name = "mio"
 version = "1.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -603,6 +653,19 @@ dependencies = [
  "cfg-if",
  "cfg_aliases",
  "libc",
+]
+
+[[package]]
+name = "nix"
+version = "0.31.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cf20d2fde8ff38632c426f1165ed7436270b44f199fc55284c38276f9db47c3d"
+dependencies = [
+ "bitflags 2.13.2",
+ "cfg-if",
+ "cfg_aliases",
+ "libc",
+ "memoffset",
 ]
 
 [[package]]
@@ -909,6 +972,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde_path_to_error"
+version = "0.1.20"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "10a9ff822e371bb5403e391ecd83e182e0e77ba7f6fe0160b795797109d1b457"
+dependencies = [
+ "itoa",
+ "serde",
+ "serde_core",
+]
+
+[[package]]
 name = "serde_spanned"
 version = "0.6.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -981,7 +1055,7 @@ dependencies = [
  "encoding_rs_io",
  "globset",
  "json5",
- "nix",
+ "nix 0.29.0",
  "pest",
  "quote 0.3.15",
  "regex",
@@ -1004,7 +1078,7 @@ version = "0.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d2a0538994df327f2b3aa81f06b68d16efe56e4ec63a3300c78968e8a80874c8"
 dependencies = [
- "nix",
+ "nix 0.29.0",
  "serde",
  "serde_json",
  "tokio",
@@ -1014,6 +1088,7 @@ dependencies = [
 name = "shep-kelpie"
 version = "0.0.0"
 dependencies = [
+ "crabpot",
  "jiff",
  "serde",
  "serde-saphyr",
@@ -1041,6 +1116,7 @@ dependencies = [
 name = "shep-kelpie-adapters"
 version = "0.0.0"
 dependencies = [
+ "crabpot",
  "jiff",
  "rustix",
  "serde",

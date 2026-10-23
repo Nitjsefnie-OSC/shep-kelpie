@@ -1,9 +1,9 @@
 //! The keychain probes, run under the real runtime where the machine allows it
 //!
-//! A test needs macOS, `shep kelpie tools install` run for the keychain-free
-//! copy, and a keychain that takes a new login without asking. Without them it
-//! says why on stderr and passes: a sandbox cannot start inside another, so
-//! the runner's own calls skip it too. The logins it probes are its own, put
+//! A test needs macOS, the built `shep-kelpie` (a test binary has no
+//! `crabpot::run_from_args`), and a keychain that takes a new login without
+//! asking. Without them it says why on stderr and passes: a sandbox cannot
+//! start inside another, so the runner's own calls skip it too. The logins it probes are its own, put
 //! in the keychain with the `security` command as `gh` and git put theirs, and
 //! taken out again.
 
@@ -58,7 +58,7 @@ impl Drop for Logins {
 }
 
 // `script` under the runtime, as a covered call (`blocked`) or an uncovered one runs it.
-fn probe(tools: &Tools, blocked: bool, script: &str) -> Output {
+fn probe(srt: &SandboxRuntime, blocked: bool, script: &str) -> Output {
     let work = crate::test::short_tempdir();
     let policy = Policy {
         write: vec![work.path().canonicalize().unwrap()],
@@ -67,15 +67,15 @@ fn probe(tools: &Tools, blocked: bool, script: &str) -> Output {
         no_keychain: blocked,
         ..Policy::default()
     };
-    run(tools, &policy, work.path(), script)
+    run(srt, &policy, work.path(), script)
 }
 
 // `script` under the runtime in `work`, held to `policy`.
-fn run(tools: &Tools, policy: &Policy, work: &Path, script: &str) -> Output {
+fn run(srt: &SandboxRuntime, policy: &Policy, work: &Path, script: &str) -> Output {
     let settings = crate::test::short_tempdir();
     let mut inner = Command::new("/bin/sh");
     inner.args(["-c", script]).current_dir(work);
-    let mut wrapped = SandboxRuntime::new(tools.clone())
+    let mut wrapped = srt
         .wrap(policy, &settings.path().join("srt.json"), &inner)
         .expect("the runtime wraps the probe");
     wrapped.stdin(Stdio::null());
@@ -86,20 +86,13 @@ fn stdout(output: &Output) -> String {
     String::from_utf8_lossy(&output.stdout).into_owned()
 }
 
-// The installed runtime with its keychain-free copy, or why there is none.
-fn runtime() -> Result<Tools, String> {
+// The runtime that runs a call through the built `shep-kelpie`, or why there is none.
+fn runtime() -> Result<SandboxRuntime, String> {
     if !cfg!(target_os = "macos") {
         return Err("there is no keychain off macOS".into());
     }
-    let home = crate::home::kelpie_home().map_err(|e| e.to_string())?;
-    let tools = Tools::under(&home);
-    match tools.sandbox().is_file() && tools.keychain_blocked() {
-        true => Ok(tools),
-        false => Err(format!(
-            "run `shep kelpie tools install` for {}",
-            home.display()
-        )),
-    }
+    // Nothing is read from the tools folder on macOS.
+    Ok(SandboxRuntime::new(Tools::at(PathBuf::new())).run_by(built_kelpie()?))
 }
 
 fn online() -> bool {
@@ -114,8 +107,8 @@ fn skipped(why: &str) {
 
 #[test]
 fn a_covered_call_cannot_ask_the_keychain_for_a_login_and_an_uncovered_one_can() {
-    let tools = match runtime() {
-        Ok(tools) => tools,
+    let srt = match runtime() {
+        Ok(srt) => srt,
         Err(why) => return skipped(&why),
     };
     let Some(logins) = Logins::store() else {
@@ -126,23 +119,23 @@ fn a_covered_call_cannot_ask_the_keychain_for_a_login_and_an_uncovered_one_can()
         format!("printf 'protocol=https\\nhost={GIT_HOST}\\n\\n' | git credential-osxkeychain get");
 
     // As shipped, the premise: the command's logins are one call away.
-    let open = probe(&tools, false, &find);
+    let open = probe(&srt, false, &find);
     assert!(stdout(&open).contains(SECRET), "{open:?}");
-    let open = probe(&tools, false, &git);
+    let open = probe(&srt, false, &git);
     assert!(stdout(&open).contains(SECRET), "{open:?}");
 
     // Blocked: refused, and no secret in what it prints.
     for script in [&find, &git] {
-        let shut = probe(&tools, true, script);
+        let shut = probe(&srt, true, script);
         assert!(!stdout(&shut).contains(SECRET), "{script}: {shut:?}");
     }
-    assert!(!probe(&tools, true, &find).status.success());
+    assert!(!probe(&srt, true, &find).status.success());
 }
 
 #[test]
 fn a_covered_call_still_reaches_github_signs_and_runs_a_program() {
-    let tools = match runtime() {
-        Ok(tools) => tools,
+    let srt = match runtime() {
+        Ok(srt) => srt,
         Err(why) => return skipped(&why),
     };
     if !online() {
@@ -165,15 +158,15 @@ fn a_covered_call_still_reaches_github_signs_and_runs_a_program() {
         ),
     ];
     for (name, script) in work {
-        let done = probe(&tools, true, script);
+        let done = probe(&srt, true, script);
         assert!(done.status.success(), "{name}: {done:?}");
     }
 }
 
 #[test]
 fn a_listed_folder_binds_a_socket_and_one_beside_it_is_refused() {
-    let tools = match runtime() {
-        Ok(tools) => tools,
+    let srt = match runtime() {
+        Ok(srt) => srt,
         Err(why) => return skipped(&why),
     };
     // srt matches the real path, and the socket's path must fit 104 bytes.
@@ -192,7 +185,7 @@ fn a_listed_folder_binds_a_socket_and_one_beside_it_is_refused() {
         let script = format!(
             "python3 -c \"import socket; socket.socket(socket.AF_UNIX).bind('{folder}/s')\""
         );
-        run(&tools, &policy, &work, &script)
+        run(&srt, &policy, &work, &script)
     };
 
     let bound = bind("listed");

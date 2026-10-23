@@ -31,7 +31,7 @@ fn a_base_named_twice_or_with_no_branch_is_refused() {
 
 #[test]
 fn the_project_goes_anywhere_in_the_line_before_a_double_dash() {
-    let koji = ProjectName::try_from("koji").ok();
+    let koji = Named::parse("koji").ok();
     for line in [
         "-p koji 3 7",
         "3 7 -p koji",
@@ -51,8 +51,32 @@ fn the_project_goes_anywhere_in_the_line_before_a_double_dash() {
 }
 
 #[test]
+fn a_project_with_a_glob_character_is_a_glob_wherever_the_project_goes() {
+    for line in ["-p shep* 3", "3 --project=shep*", "3 -p [ks]*"] {
+        let (named, rest) = split_project(&words(line), None).unwrap();
+        assert!(matches!(named, Some(Named::Glob(_))), "{line}");
+        assert_eq!(rest, words("3"), "{line}");
+    }
+}
+
+#[test]
+fn a_glob_is_refused_by_every_verb_but_set_and_get_naming_those_two() {
+    let koji = Named::parse("k*").unwrap();
+    for command in VERBS {
+        let split = Named::split(Some(koji.clone()), command);
+        match command {
+            "set" | "get" => assert!(matches!(split, Ok((None, Some(_)))), "{command}"),
+            _ => {
+                let refused = split.unwrap_err();
+                assert!(refused.contains("`set` and `get`"), "{command}: {refused}");
+            }
+        }
+    }
+}
+
+#[test]
 fn a_ruling_s_answer_keeps_a_p_as_its_own_words() {
-    let koji = ProjectName::try_from("koji").ok();
+    let koji = Named::parse("koji").ok();
     for line in ["-p koji 14 yes", "14 -p koji yes", "14 --project=koji yes"] {
         let (named, rest) = split_project(&words(line), Some(2)).unwrap();
         assert_eq!(named, koji, "{line}");
@@ -405,4 +429,62 @@ async fn attach_refuses_what_is_no_ticket_id() {
         let refused = verb("attach", bad, None).await.unwrap_err();
         assert_eq!(refused, format!("{bad:?} is not a ticket id"));
     }
+}
+
+#[tokio::test]
+async fn a_glob_in_p_on_start_is_refused_and_starts_nothing() {
+    let shepherd = koji_shepherd(None);
+    for line in ["-p k*", "-p ?oji", "--project=[k]*"] {
+        let refused = verb_line_on(&shepherd, "start", line).await.unwrap_err();
+        assert!(refused.contains("`set` and `get`"), "{line}: {refused}");
+    }
+}
+
+#[tokio::test]
+async fn get_with_a_glob_prints_a_line_per_matching_project() {
+    let shepherd = koji_shepherd(None);
+    let said = verb_line_on(&shepherd, "get", "-p * ci.block")
+        .await
+        .unwrap();
+    assert_eq!(said, ["project koji: true"]);
+    let said = verb_line_on(&shepherd, "get", "-p k?ji git.nothing")
+        .await
+        .unwrap();
+    assert_eq!(said, ["project koji: not set"]);
+}
+
+#[tokio::test]
+async fn get_with_a_glob_that_matches_nothing_or_names_no_key_is_refused() {
+    let shepherd = koji_shepherd(None);
+    let none = verb_line_on(&shepherd, "get", "-p z* ci.block")
+        .await
+        .unwrap_err();
+    assert!(none.contains("z*"), "{none}");
+    let keyless = verb_line_on(&shepherd, "get", "-p *").await.unwrap_err();
+    assert!(keyless.contains("needs a key"), "{keyless}");
+}
+
+#[tokio::test]
+async fn set_with_a_glob_writes_the_matching_projects_and_a_plain_name_still_writes_one() {
+    let mut shepherd = koji_shepherd(None);
+    let said = verb_line_on(&shepherd, "set", "-p k* ci.fix_attempts 4")
+        .await
+        .unwrap();
+    assert_eq!(said.len(), 1, "{said:?}");
+    assert!(
+        said[0].starts_with("project koji: ci.fix_attempts = 4;"),
+        "{said:?}"
+    );
+    assert_eq!(shepherd.writes().len(), 1);
+    let said = verb_line_on(&shepherd, "set", "-p koji ci.fix_attempts 5")
+        .await
+        .unwrap();
+    assert!(
+        said[0].starts_with("project koji: ci.fix_attempts = 5;"),
+        "{said:?}"
+    );
+    let refused = verb_line_on(&shepherd, "set", "-p z* ci.fix_attempts 5")
+        .await
+        .unwrap_err();
+    assert!(refused.contains("z*"), "{refused}");
 }
