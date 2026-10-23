@@ -199,7 +199,7 @@ jobs:
       # modes in the fence, totp and home stamp), and stay non-gating as it is.
       - id: door
         continue-on-error: true
-        run: cargo test --locked -p shep-kelpie-core -p shep-kelpie-dog --lib -- ipc:: bridge lease:: door
+        run: 'cargo test --locked -p shep-kelpie-core -p shep-kelpie-dog --lib -- ipc:: bridge lease:: door'
       - if: steps.door.outcome == 'failure'
         run: |
           echo "::warning title=windows::the lease door's tests do not pass on Windows yet. Until core compiles there, the step's log shows its compile errors, not a test."

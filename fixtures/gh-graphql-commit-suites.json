@@ -1,0 +1,66 @@
+{
+    "data": {
+        "repository": {
+            "object": {
+                "checkSuites": {
+                    "nodes": [
+                        {
+                            "conclusion": null,
+                            "checkRuns": {
+                                "totalCount": 0
+                            },
+                            "workflowRun": null
+                        },
+                        {
+                            "conclusion": null,
+                            "checkRuns": {
+                                "totalCount": 0
+                            },
+                            "workflowRun": null
+                        },
+                        {
+                            "conclusion": null,
+                            "checkRuns": {
+                                "totalCount": 0
+                            },
+                            "workflowRun": null
+                        },
+                        {
+                            "conclusion": "FAILURE",
+                            "checkRuns": {
+                                "totalCount": 0
+                            },
+                            "workflowRun": {
+                                "file": {
+                                    "path": ".github/workflows/test.yml"
+                                }
+                            }
+                        },
+                        {
+                            "conclusion": "SUCCESS",
+                            "checkRuns": {
+                                "totalCount": 1
+                            },
+                            "workflowRun": {
+                                "file": {
+                                    "path": ".github/workflows/commits.yml"
+                                }
+                            }
+                        },
+                        {
+                            "conclusion": "SUCCESS",
+                            "checkRuns": {
+                                "totalCount": 1
+                            },
+                            "workflowRun": {
+                                "file": {
+                                    "path": ".github/workflows/file-size.yml"
+                                }
+                            }
+                        }
+                    ]
+                }
+            }
+        }
+    }
+}

@@ -5,6 +5,7 @@ use std::path::Path;
 
 use serde::Deserialize;
 
+use super::suites::{Suites, suites_fields};
 use super::{Check, Label, checks, gh_as, unreadable};
 use crate::board::{Blocker, OpenPullRequest, READY, ReadyIssue, ReviewMarks, SubIssues};
 use crate::ports::ForgeError;
@@ -46,7 +47,8 @@ fn ready_args(repo: &ForgeSlug) -> [&str; 12] {
 // telling whether any arrived: `reviewed` reads their words, for one pull
 // request, when they did. A page holds 100, so a repo with more open pull
 // requests costs one more query for each 100.
-const OPEN_QUERY: &str = "query($owner: String!, $name: String!, $after: String) { \
+const OPEN_QUERY: &str = concat!(
+    "query($owner: String!, $name: String!, $after: String) { \
     repository(owner: $owner, name: $name) { \
     pullRequests(states: OPEN, first: 100, after: $after, \
     orderBy: {field: CREATED_AT, direction: DESC}) { \
@@ -57,7 +59,10 @@ const OPEN_QUERY: &str = "query($owner: String!, $name: String!, $after: String)
     reviews(first: 1) { totalCount } reviewThreads(first: 1) { totalCount } \
     commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) { nodes { \
     __typename ... on CheckRun { name status conclusion } \
-    ... on StatusContext { context state } } } } } } } } } } }";
+    ... on StatusContext { context state } } } } ",
+    suites_fields!(),
+    " } } } } } } }"
+);
 
 // As many pages as hold `LIST_LIMIT` pull requests
 const OPEN_PAGES: usize = 10;
@@ -239,6 +244,8 @@ fn parse_pull_requests(stdout: &[u8], repo: &ForgeSlug) -> Result<Page, ForgeErr
     #[serde(rename_all = "camelCase")]
     struct Commit {
         status_check_rollup: Option<Rollup>,
+        #[serde(default)]
+        check_suites: Suites,
     }
     #[derive(Deserialize)]
     struct Rollup {
@@ -255,9 +262,12 @@ fn parse_pull_requests(stdout: &[u8], repo: &ForgeSlug) -> Result<Page, ForgeErr
         .nodes
         .into_iter()
         .map(|pr| {
-            let rollup = (pr.commits.nodes.into_iter().next())
-                .and_then(|tip| tip.commit.status_check_rollup)
-                .map(|rollup| rollup.contexts.nodes)
+            let tip = pr.commits.nodes.into_iter().next().map(|tip| tip.commit);
+            let (rollup, suites) = tip
+                .map(|c| {
+                    let rollup = c.status_check_rollup.map(|r| r.contexts.nodes);
+                    (rollup.unwrap_or_default(), c.check_suites)
+                })
                 .unwrap_or_default();
             OpenPullRequest {
                 number: pr.number,
@@ -266,7 +276,7 @@ fn parse_pull_requests(stdout: &[u8], repo: &ForgeSlug) -> Result<Page, ForgeErr
                 labels: pr.labels.nodes.into_iter().map(|l| l.name).collect(),
                 draft: pr.is_draft,
                 commit: pr.head_ref_oid,
-                checks: checks(&rollup),
+                checks: suites.fold(checks(&rollup)),
                 from_fork: pr.is_cross_repository,
                 author_is_bot: pr.author.as_ref().is_some_and(|a| a.kind == "Bot"),
                 author: pr.author.map(|a| a.login).unwrap_or_default(),
