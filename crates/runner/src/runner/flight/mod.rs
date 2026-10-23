@@ -740,6 +740,7 @@ fn one_pass(runner: &Mutex<Runner>) -> Result<Pass, StateError> {
     // Before any step is chosen, so no forge read falls between a step's drain check and the
     // call it starts.
     super::main_ci::read_main_ci_off_lock(runner);
+    super::dispatch::recheck_dropped(runner)?;
     lock(runner).begin(None)
 }
 

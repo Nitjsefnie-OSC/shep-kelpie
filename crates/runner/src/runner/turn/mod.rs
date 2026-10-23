@@ -151,7 +151,6 @@ impl Runner {
             self.note_held_up(ticket, &begin);
             return Ok(begin);
         }
-        self.recheck_dropped()?;
         self.follow_contributions()?;
         self.follow_dependencies()?;
         self.follow_triage()?;
