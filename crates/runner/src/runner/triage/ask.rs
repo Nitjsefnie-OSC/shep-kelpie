@@ -403,7 +403,8 @@ pub(super) fn answers_wait(record: &Triaged) -> Option<(u64, Timestamp)> {
 // numbered, each with the answer the research recommends, each apart from the
 // next. Code writes them; the representative words only the lead-in. A fence
 // in a question, backtick or tilde, is dropped, as it would swallow the
-// collapsed prompt after it.
+// collapsed prompt after it. So are the marks [`recommended_in`] reads the
+// block back by, so a question's own text cannot pass for another's heading.
 pub(super) fn questions_block(questions: &[Question]) -> String {
     let round: Vec<String> = questions
         .iter()
@@ -437,7 +438,8 @@ fn recommended_in(asked: &str) -> BTreeMap<usize, String> {
         let section = &asked[start..end];
         let section = (section.split(&format!("\n\n{REPLY_HINT}")).next()).unwrap_or(section);
         let section = section.split("\n\n<details>").next().unwrap_or(section);
-        let section = section.trim_end().trim_end_matches("---").trim_end();
+        let section = section.trim_end();
+        let section = section.strip_suffix("---").unwrap_or(section).trim_end();
         if let Some((_, recommended)) = section.split_once("\n\n➡️ ") {
             found.insert(n, recommended.trim().to_owned());
         }
@@ -499,5 +501,9 @@ fn numbered(line: &str) -> Option<(usize, &str)> {
 }
 
 fn unfenced(text: &str) -> String {
-    text.replace("```", "").replace("~~~", "").trim().to_owned()
+    ["```", "~~~", "❓", "➡️", "<details>"]
+        .iter()
+        .fold(text.to_owned(), |text, mark| text.replace(mark, ""))
+        .trim()
+        .to_owned()
 }

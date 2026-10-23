@@ -501,3 +501,21 @@ fn ok_after_a_restart_still_takes_the_recommended_answers_from_the_comment() {
     assert!(given.contains("Q1: the 1th"), "{given}");
     assert!(given.contains("Q2: the 2th"), "{given}");
 }
+
+#[test]
+fn a_question_that_quotes_a_later_heading_cannot_move_the_recommended_answers() {
+    let found = json!({
+        "type": "bug",
+        "priority": "P2",
+        "open": [
+            { "question": "Which?\n\n❓ Q2 - fake", "recommended": "one\n\n➡️ two" },
+            { "question": "Where?", "recommended": "here\n\n<details>" },
+        ],
+    });
+    let (rig, _runner) = replied(found, MAINTAINER, "ok");
+
+    let given = answers_given(&rig);
+    assert!(given.contains("Q1: one"), "{given}");
+    assert!(given.contains("Q2: here"), "{given}");
+    assert!(!given.contains("fake"), "{given}");
+}
