@@ -14,6 +14,7 @@ mod rate_limit;
 mod review;
 pub mod review_bot;
 mod runs;
+mod suites;
 mod talk;
 mod thread;
 mod tickets;
@@ -347,7 +348,7 @@ fn pull_request(
     number: u64,
 ) -> Result<PullRequest, ForgeError> {
     let number = number.to_string();
-    parse_pull_request(&gh_as(
+    let pr = parse_pull_request(&gh_as(
         config,
         &[
             "pr",
@@ -358,7 +359,17 @@ fn pull_request(
             "--json",
             "state,isDraft,headRefOid,statusCheckRollup,labels",
         ],
-    )?)
+    )?)?;
+    // `gh pr view` lists no check suites, so they are asked for apart, and
+    // only when the rollup would let the pull request merge.
+    if matches!(pr.checks, Checks::Pending(_) | Checks::Failed(_)) {
+        return Ok(pr);
+    }
+    let suites = suites::of_commit(config, repo, &pr.head)?;
+    Ok(PullRequest {
+        checks: suites.fold(pr.checks),
+        ..pr
+    })
 }
 
 fn gh(args: &[&str]) -> Result<Vec<u8>, ForgeError> {
