@@ -12,16 +12,18 @@ use super::{gh_as, unreadable};
 use crate::ports::{Checks, ForgeError};
 use crate::settings::ForgeSlug;
 
-// What a query asks of a commit's check suites, as a literal `concat!` takes
+// What the board's listing asks of a commit's check suites, as a literal
+// `concat!` takes. GitHub prices a check run count as a request per suite, so
+// the listing counts its rollup's check runs by the suite each names instead.
 macro_rules! suites_fields {
     () => {
-        "checkSuites(first: 50) { nodes { conclusion \
-         checkRuns(first: 1) { totalCount } workflowRun { file { path } } } }"
+        "checkSuites(first: 50) { nodes { id conclusion workflowRun { file { path } } } }"
     };
 }
 pub(super) use suites_fields;
 
-const SUITES: &str = suites_fields!();
+const SUITES: &str = "checkSuites(first: 50) { nodes { conclusion \
+     checkRuns(first: 1) { totalCount } workflowRun { file { path } } } }";
 
 /// A commit's check suites, as `SUITES` asks for them
 #[derive(Deserialize, Default)]
@@ -32,8 +34,13 @@ pub(super) struct Suites {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Suite {
+    // Only in the board's listing
+    #[serde(default)]
+    id: Option<String>,
     conclusion: Option<String>,
-    check_runs: Count,
+    // None in the board's listing until `counted`
+    #[serde(default)]
+    check_runs: Option<Count>,
     // None for a suite another App posts, such as a review bot's
     workflow_run: Option<Run>,
 }
@@ -59,11 +66,23 @@ impl Suites {
     fn unstarted(&self) -> Vec<String> {
         self.nodes
             .iter()
-            .filter(|s| s.check_runs.total_count == 0)
+            .filter(|s| s.check_runs.as_ref().is_some_and(|c| c.total_count == 0))
             .filter(|s| matches!(s.conclusion.as_deref(), Some("FAILURE" | "STARTUP_FAILURE")))
             .filter_map(|s| s.workflow_run.as_ref()?.file.as_ref())
             .map(|f| format!("{}: started no job", f.path))
             .collect()
+    }
+
+    /// These suites, each counting the check runs of `runs`, by the suite each names
+    pub(super) fn counted<'a>(mut self, runs: impl Iterator<Item = &'a str>) -> Self {
+        let runs: Vec<&str> = runs.collect();
+        for suite in &mut self.nodes {
+            if let Some(id) = &suite.id {
+                let total_count = runs.iter().filter(|run| *run == id).count() as u64;
+                suite.check_runs = Some(Count { total_count });
+            }
+        }
+        self
     }
 
     /// `checks` once the workflows that started no job count as failed checks

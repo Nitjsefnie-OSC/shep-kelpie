@@ -528,11 +528,19 @@ enum Check {
         conclusion: Option<String>,
         #[serde(rename = "detailsUrl")]
         details_url: Option<String>,
+        // Only in the board's listing, which counts each suite's check runs by it
+        #[serde(rename = "checkSuite", default)]
+        suite: Option<SuiteId>,
     },
     StatusContext {
         context: String,
         state: Option<String>,
     },
+}
+
+#[derive(Deserialize)]
+struct SuiteId {
+    id: String,
 }
 
 enum Outcome {
@@ -585,6 +593,18 @@ impl Check {
                 name: name.clone(),
                 run: details_url.as_deref().and_then(run_of),
             }),
+            _ => None,
+        }
+    }
+}
+
+impl Check {
+    // The check suite a check run names, where the query asked for it
+    fn suite(&self) -> Option<&str> {
+        match self {
+            Self::CheckRun {
+                suite: Some(suite), ..
+            } => Some(&suite.id),
             _ => None,
         }
     }
