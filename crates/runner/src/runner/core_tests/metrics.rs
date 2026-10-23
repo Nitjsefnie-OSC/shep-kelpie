@@ -1,5 +1,6 @@
+use crate::forge_ledger::{Ended, Identity, Kind, Line as ForgeLine};
 use crate::metrics::*;
-use crate::ports::{CLEAN, Cost, Usage};
+use crate::ports::{CLEAN, Cost, RateBucket, RateLimits, Usage};
 use crate::ports::{SeriesKind, Timestamp};
 use crate::request_use::{After, Request};
 use crate::runner::{CHECKS_SETTLE, Runner, StepReport, step};
@@ -416,6 +417,43 @@ fn a_runner_with_every_role_and_harness_in_use_stays_under_the_cap() {
         recorder.mcp_server(server, true);
         recorder.mcp_server(server, false);
     }
+    // The forge's calls: the login's on each API ended each of four ways, and the App's ended each
+    // of three, since an App call is never held. And the rate limits' two gauges in two buckets.
+    for (by, endings) in [
+        (
+            Identity::Login,
+            &[Ended::Ok, Ended::Failed, Ended::Held, Ended::UsedUp][..],
+        ),
+        (
+            Identity::App,
+            &[Ended::Ok, Ended::Failed, Ended::UsedUp][..],
+        ),
+    ] {
+        for kind in [Kind::Viewer, Kind::Visibility] {
+            for ended in endings {
+                recorder.forge_call(&ForgeLine {
+                    at: Timestamp(0),
+                    project: "koji".to_owned(),
+                    kind,
+                    api: kind.api(),
+                    by,
+                    millis: 1,
+                    ended: *ended,
+                    not_modified: 0,
+                });
+            }
+        }
+    }
+    let bucket = RateBucket {
+        used: 1,
+        remaining: 4_999,
+        reset: Timestamp(1),
+    };
+    recorder.rate_limits(&RateLimits {
+        core: bucket,
+        graphql: bucket,
+        search: bucket,
+    });
     // Every kind for each of the three roles whose tool calls are counted, and one for a role
     // whose are not, which adds none.
     const KINDS: [&str; 13] = [

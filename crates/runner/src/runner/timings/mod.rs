@@ -9,7 +9,7 @@ use serde::Serialize;
 
 use super::Runner;
 use super::trigger::{issue_list, lock};
-use crate::ports::{RoundStage, Timestamp};
+use crate::ports::{ForgeError, RoundStage, Timestamp};
 use crate::state::{ProjectState, StateError};
 use crate::ticket::TicketId;
 use crate::work_item::{CallKind, Seconds, TimingPhase, Timings, WorkItem};
@@ -22,6 +22,9 @@ mod tests;
 /// The runner's loop beats on each pass, and passes while calls run in
 /// flight, so a crash usually loses about this much plus a minute to `other`.
 const HEARTBEAT: u64 = 30;
+
+// The standing warning's key for a rate limit read that failed
+const RATE_LIMIT_READ: &str = "rate-limit-read";
 
 /// What `timings` answers
 // wire format: changing this is a breaking change to the `timings` reply
@@ -106,6 +109,31 @@ impl Runner {
     /// started or restarted since
     pub(super) fn send_metrics(&self) {
         self.metrics.refresh(self.ports.clock.now());
+    }
+
+    /// Sets the gauges of the login's rate limits, read from the forge at most
+    /// once a minute
+    ///
+    /// A read the forge cannot answer leaves the gauges as they were and is told
+    /// once while it keeps failing. A read held by a used-up limit is no failure.
+    pub(super) fn read_rate_limit(&mut self) {
+        if !self.looks.rate_limit_due(self.ports.clock.now()) {
+            return;
+        }
+        match self.ports.forge.rate_limit() {
+            Ok(limits) => {
+                self.metrics.rate_limits(&limits);
+                self.notes.ends(RATE_LIMIT_READ);
+            }
+            Err(ForgeError::Held(_)) => {}
+            Err(e) => self.notes.standing(
+                RATE_LIMIT_READ,
+                format!(
+                    "cannot read the forge's rate limits, so the kelpie_forge_rate gauges stay \
+                     as they were: {e}"
+                ),
+            ),
+        }
     }
 
     /// Saves the charge when a work item has gone [`HEARTBEAT`] seconds without one

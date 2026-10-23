@@ -5,11 +5,39 @@ use std::sync::atomic::Ordering;
 
 use super::FakeForge;
 use super::held;
-use crate::ports::{Cooldown, ForgeError, Timestamp};
+use crate::ports::{Cooldown, ForgeError, RateBucket, RateLimits, Timestamp};
 
 /// What every call fails with while the forge is down, and when its rate
 /// limit resets where it can say
 pub type Down = (String, Option<Timestamp>);
+
+/// What reading the rate limits answers: limits to spare until a test sets
+/// others, and none while it is down
+#[derive(Debug)]
+pub struct Rate {
+    limits: RateLimits,
+    down: bool,
+    reads: usize,
+}
+
+impl Default for Rate {
+    fn default() -> Self {
+        let spare = RateBucket {
+            used: 0,
+            remaining: 5_000,
+            reset: Timestamp(0),
+        };
+        Self {
+            limits: RateLimits {
+                core: spare,
+                graphql: spare,
+                search: spare,
+            },
+            down: false,
+            reads: 0,
+        }
+    }
+}
 
 impl FakeForge {
     /// How many calls the runner made, each counted as it was asked
@@ -75,5 +103,45 @@ impl FakeForge {
     pub fn reset(&self) -> Option<Timestamp> {
         let down = self.down.lock().unwrap();
         down.as_ref().and_then(|(_, reset)| *reset)
+    }
+}
+
+impl FakeForge {
+    /// Makes reading the rate limits answer `limits`
+    pub fn set_rate_limits(&self, limits: RateLimits) {
+        self.rate.lock().unwrap().limits = limits;
+    }
+
+    /// Makes reading the rate limits fail, or lets it work again. It fails
+    /// by itself, apart from the calls [`Self::set_down`] fails.
+    pub fn set_rate_limit_down(&self, down: bool) {
+        self.rate.lock().unwrap().down = down;
+    }
+
+    /// How many times the rate limits were read
+    pub fn rate_limit_reads(&self) -> usize {
+        self.rate.lock().unwrap().reads
+    }
+
+    // Free of the limits, so it answers while the forge is used up, with the
+    // core limit at nothing left and resetting when the forge said.
+    pub(super) fn read_rate_limit(&self) -> Result<RateLimits, ForgeError> {
+        let used_up = self.reset();
+        let mut rate = self.rate.lock().unwrap();
+        rate.reads += 1;
+        if rate.down {
+            return Err(ForgeError::Failed(
+                "error connecting to api.github.com".to_owned(),
+            ));
+        }
+        let mut limits = rate.limits;
+        if let Some(reset) = used_up {
+            limits.core = RateBucket {
+                used: 5_000,
+                remaining: 0,
+                reset,
+            };
+        }
+        Ok(limits)
     }
 }

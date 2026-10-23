@@ -1,31 +1,44 @@
 //! The account's rate limits, from `gh api rate_limit`, which counts
 //! against none of them
 
-use std::collections::BTreeMap;
-
 use serde::Deserialize;
 
 use super::{gh, unreadable};
-use crate::ports::{ForgeError, Timestamp};
+use crate::ports::{ForgeError, RateBucket, RateLimits, Timestamp};
 
-/// The latest reset of any limit with nothing left, or `None` when none is used up
-pub(super) fn rate_limit_reset() -> Result<Option<Timestamp>, ForgeError> {
+/// The login's `core`, `graphql` and `search` limits as GitHub counts them now
+pub(super) fn rate_limit() -> Result<RateLimits, ForgeError> {
     parse_rate_limit(&gh(&["api", "rate_limit"])?)
 }
 
-fn parse_rate_limit(stdout: &[u8]) -> Result<Option<Timestamp>, ForgeError> {
+fn parse_rate_limit(stdout: &[u8]) -> Result<RateLimits, ForgeError> {
     #[derive(Deserialize)]
     struct Limits {
-        resources: BTreeMap<String, Limit>,
+        resources: Resources,
+    }
+    #[derive(Deserialize)]
+    struct Resources {
+        core: Limit,
+        graphql: Limit,
+        search: Limit,
     }
     #[derive(Deserialize)]
     struct Limit {
+        used: u64,
         remaining: u64,
         reset: u64,
     }
+    let bucket = |limit: Limit| RateBucket {
+        used: limit.used,
+        remaining: limit.remaining,
+        reset: Timestamp(limit.reset),
+    };
     let limits: Limits = serde_json::from_slice(stdout).map_err(|_| unreadable(stdout))?;
-    let used_up = limits.resources.values().filter(|l| l.remaining == 0);
-    Ok(used_up.map(|l| Timestamp(l.reset)).max())
+    Ok(RateLimits {
+        core: bucket(limits.resources.core),
+        graphql: bucket(limits.resources.graphql),
+        search: bucket(limits.resources.search),
+    })
 }
 
 #[cfg(test)]
@@ -36,23 +49,17 @@ mod tests {
     const RECORDED: &str = include_str!("../../../../../fixtures/gh-api-rate-limit.json");
 
     #[test]
-    fn a_limit_with_some_left_holds_nothing() {
-        assert_eq!(parse_rate_limit(RECORDED.as_bytes()), Ok(None));
-    }
+    fn the_core_graphql_and_search_limits_are_read_with_their_used_remaining_and_reset() {
+        let limits = parse_rate_limit(RECORDED.as_bytes()).unwrap();
 
-    #[test]
-    fn the_latest_reset_of_a_used_up_limit_is_when_calls_go_again() {
-        let mut limits: serde_json::Value = serde_json::from_str(RECORDED).unwrap();
-        let resources = &mut limits["resources"];
-        resources["graphql"]["remaining"] = 0.into();
-        resources["search"]["remaining"] = 0.into();
-        let graphql = resources["graphql"]["reset"].as_u64().unwrap();
-        let search = resources["search"]["reset"].as_u64().unwrap();
-        let text = serde_json::to_vec(&limits).unwrap();
-
-        let reset = parse_rate_limit(&text).unwrap();
-
-        assert_eq!(reset, Some(Timestamp(graphql.max(search))));
+        let bucket = |used, remaining, reset| RateBucket {
+            used,
+            remaining,
+            reset: Timestamp(reset),
+        };
+        assert_eq!(limits.core, bucket(0, 5000, 1_791_644_854));
+        assert_eq!(limits.graphql, bucket(7, 4993, 1_791_644_766));
+        assert_eq!(limits.search, bucket(0, 30, 1_791_641_314));
     }
 
     #[test]

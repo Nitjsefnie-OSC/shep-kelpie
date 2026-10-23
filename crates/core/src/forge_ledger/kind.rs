@@ -108,6 +108,8 @@ pub enum Kind {
     DisableAutoMerge,
     /// When the used-up rate limit resets, asked once a call finds it used up
     RateLimitReset,
+    /// The login's rate limits as GitHub counts them, read once a minute
+    RateLimit,
     /// The App's token for a worker
     AppWorkerToken,
     /// The App's comment, or its post of one
@@ -175,8 +177,15 @@ impl Kind {
                 | Self::ReviewBot
                 | Self::MergeQueue
                 | Self::RateLimitReset
+                | Self::RateLimit
                 | Self::AppWorkerToken
         )
+    }
+
+    /// Whether GitHub counts the call against a rate limit, which a read of
+    /// the rate limits themselves is not
+    pub fn counts(self) -> bool {
+        !matches!(self, Self::RateLimit | Self::RateLimitReset)
     }
 
     /// Which of GitHub's APIs the call spends from; a call that asks both
@@ -221,6 +230,7 @@ impl Kind {
             | Self::CloseIssueAs
             | Self::CreateLabel
             | Self::RateLimitReset
+            | Self::RateLimit
             | Self::ReviewBotSeen
             | Self::Viewer
             | Self::AccountCreated

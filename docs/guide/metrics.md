@@ -56,17 +56,31 @@ Every runner series carries `sheep`, the project's name, as well as `id` and `fo
 | `kelpie_request_context_tokens` | `role`, `harness`, `le` | Requests to the model by the tokens they sent (input, cache read and cache write), read from each call's transcript once it ends. Buckets `le` 50000, 150000, 200000 and `+Inf`, each counting the requests no larger, so `histogram_quantile(0.9, sum by (le) (rate(kelpie_request_context_tokens[1h])))` is the context size nine requests in ten stay under. Claude Code and pi calls of the worker, reviewer and project manager only |
 | `kelpie_cache_write_tokens_total` | `role`, `harness`, `after` | Tokens requests wrote to the cache, by what came before: `start` (a session's first request), `gap` (longer since the request before than the cache keeps a write, which is 1 hour when Claude Code wrote the 1-hour cache and 5 minutes otherwise, so the cache had dropped what it held) or `growth`. Claude Code and pi calls of the worker, reviewer and project manager only |
 | `kelpie_tool_errors_total` | `role`, `kind` | Tool calls whose result the harness wrote as a failure, read from each call's transcript once it ends, by what made them fail: `guard-block` (kelpie's own `guard` or `confine`), `hook-block` (a hook that is not kelpie's), `tool-not-given`, `unknown-skill`, `permission-refused`, `git-ref-lock`, `tmp-refused`, `path-refused`, `command-not-found`, `edit-miss`, `timeout`, `mcp`, `other` (a command that ran and failed). A failed result counts once, however many lines of output it holds. Claude Code and pi calls of the worker, reviewer and project manager only. A hook that is not kelpie's is named in the runner's log |
+| `kelpie_forge_calls_total` | `api`, `by`, `ended` | Forge calls through the ports, counted as the forge ledger (`<kelpie home>/forge.jsonl`) records them: `api` is `rest` or `graphql`, `by` is `login` (the maintainer's `gh`) or `app` (kelpie's GitHub App), `ended` is `ok`, `failed`, `held` (never made, because an earlier answer had the limit used up) or `used-up`. A call can ask GitHub more than once, so this is a lower bound on requests. The reads of `rate_limit` are left out, since GitHub counts them against no limit. There is no `kind` label: `shep kelpie usage --forge` has the breakdown by kind |
+| `kelpie_forge_rate_used` | `bucket` | Calls GitHub has counted against the login's limit since it last reset, as `gh api rate_limit` says. `bucket` is `core` (REST) or `graphql`; GraphQL counts points, not calls. A runner reads it at most once a minute, and keeps the last reading while the forge cannot be asked, saying so once in `shep kelpie status` |
+| `kelpie_forge_rate_reset_timestamp_seconds` | `bucket` | When that limit next resets, in Unix seconds |
 | `kelpie_leases_held` | `kind` | The dog's leases in use: 0 or 1 for a book lease (the review bot windows), up to the capacity for `cargo-test`, and the busy hosts for `e2e` |
 | `kelpie_lease_waiting` | `kind` | Runners and commands waiting for the lease |
 | `kelpie_lease_grants_total`, `kelpie_lease_wait_seconds_total` | `kind` | Times the lease was granted, and the seconds those grants waited in the queue. Divide the rates for a mean wait. A grant to a command already running under the last dog is not counted |
 | `kelpie_summons_total` | `bot`, `outcome` | Review bot summons runners reported: `accepted`, or `refused` for each new quote of when the window opens. The maintainer's own summons through `shep kelpie lease take` are not counted |
 | `kelpie_forge_holds_total` | `login_kind` | Times the forge's rate limit began holding every runner's calls. `login_kind` is `login`, the maintainer's `gh` login, which the dog's hold is for |
 | `kelpie_forge_held` | | 1 while that hold stands, 0 when not |
-| `kelpie_series_dropped_total` | | Samples of a series the runner held back, past the 240 it sends |
+| `kelpie_series_dropped_total` | | Samples of a series the runner held back, past the 255 it sends |
 
 The dog's series are sent from the dog's own tick, so a hold that has ended reads 0 within ten seconds. Its counters start at zero when the dog starts, and every `e2e` host counts as the one `e2e` kind.
 
 A runner's counters start at zero when it starts, as Prometheus expects of a restart: read them with `rate` or `increase`. When a runner stops, its series go from the endpoint until it starts again.
+
+## Where the 5,000 an hour goes
+
+GitHub counts one limit per login, and every runner on the login reports the same `kelpie_forge_rate_*` numbers, so a query takes `max without (sheep, id, fold)` across them. `used` drops to near zero at each reset, and `increase` over it treats a drop as a counter reset, so it adds the calls since the reset and not a negative number. The core calls GitHub counted in the last hour that kelpie did not send, from the login's REST calls in `forge.jsonl` (held calls were never made, and the App has a budget of its own):
+
+```promql
+increase((max without (sheep, id, fold) (kelpie_forge_rate_used{bucket="core"}))[1h:1m])
+  - on() sum(increase(kelpie_forge_calls_total{by="login", api="rest", ended!="held"}[1h]))
+```
+
+What is left is spent outside kelpie: your own `gh`, scripts and tools on the same login, or requests inside a port call that the ledger's one line does not count. Kelpie's REST calls matched GitHub's count one to one over a 2 minute test. GraphQL does not: it counts points by the query's cost, so 39 queries came to 12 points, and only `core` says what is outside.
 
 ## The dashboard
 

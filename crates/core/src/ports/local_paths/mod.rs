@@ -16,8 +16,8 @@ use std::sync::Arc;
 
 use super::{
     BranchRun, CommentMarks, FailedLogs, FolderEntry, Forge, ForgeError, InstallationToken,
-    LineComment, NewLabel, OpenPull, PostedComment, PullRequest, QueueStanding, Rerun, Reviewed,
-    Talk, ThreadComment, Tickets, Timestamp, Visibility, Voice, Workflow,
+    LineComment, NewLabel, OpenPull, PostedComment, PullRequest, QueueStanding, RateLimits, Rerun,
+    Reviewed, Talk, ThreadComment, Tickets, Timestamp, Visibility, Voice, Workflow,
 };
 use crate::board::OpenPullRequest;
 use crate::hooks::{Hooks, Role, SharedHooks};
@@ -364,6 +364,10 @@ impl Forge for Guarded {
 
     fn disable_auto_merge(&self, repo: &ForgeSlug, number: u64) -> Result<(), ForgeError> {
         self.forge.disable_auto_merge(repo, number)
+    }
+
+    fn rate_limit(&self) -> Result<RateLimits, ForgeError> {
+        self.forge.rate_limit()
     }
 
     fn rate_limit_reset(&self) -> Result<Option<Timestamp>, ForgeError> {

@@ -84,6 +84,8 @@ pub(super) struct Looks {
     writes_seen: u64,
     // When the workflows on `main` are read next, and the reads that failed in a row
     main_ci: Option<(u32, Timestamp)>,
+    // When the login's rate limits were last read
+    rate_limit_read: Option<Timestamp>,
 }
 
 impl Looks {
@@ -97,6 +99,20 @@ impl Looks {
             return false;
         }
         self.dropped_read = Some(now);
+        true
+    }
+
+    /// Whether the login's rate limits are due a read at `now`, which records
+    /// the read: at most one in each [`BOARD_POLL`], a failed one included
+    pub(super) fn rate_limit_due(&mut self, now: Timestamp) -> bool {
+        let poll = BOARD_POLL.as_secs();
+        if self
+            .rate_limit_read
+            .is_some_and(|at| now.0 < at.0.saturating_add(poll))
+        {
+            return false;
+        }
+        self.rate_limit_read = Some(now);
         true
     }
 
