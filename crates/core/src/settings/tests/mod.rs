@@ -573,10 +573,7 @@ fn a_table_carrying_several_removed_keys_names_them_all_at_once() {
             "[app.dogs.kelpie.git]\n",
             "[app.dogs.kelpie]\ngenerated = [\"Cargo.lock\"]\n[app.dogs.kelpie.git]\n",
         )
-        .replace(
-            "# reviewers = [\"iq3-xxs-review\", \"defect-hunter-lite\"]",
-            "reviewers = [\"iq3-xxs-review\", \"defect-hunter-lite\"]",
-        );
+        .replace("# reviewers = [\"iq3", "reviewers = [\"iq3");
     let text = format!(
         "{text}\n[app.dogs.kelpie.coderabbit]\nenabled = true\ndivisor = 1000\nrounds = 1\n"
     );
