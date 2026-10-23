@@ -78,7 +78,7 @@ fn a_merged_file_that_is_invalid_is_refused_naming_the_child() {
 
     let err = refused(&[(
         "cubic.md",
-        "---\nextends: coderabbit\nbot: cubic\n---\nA prompt.\n",
+        "---\nextends: kelpie:coderabbit\nbot: cubic\n---\nA prompt.\n",
     )]);
     assert!(err.contains("cubic.md"), "{err}");
     assert!(err.contains("body"), "{err}");
@@ -89,6 +89,43 @@ fn a_missing_parent_is_refused_naming_the_file() {
     let err = refused(&[("light.md", "---\nextends: nobody\neffort: low\n---\n")]);
     assert!(err.contains("light.md"), "{err}");
     assert!(err.contains("nobody"), "{err}");
+}
+
+#[test]
+fn a_bare_name_with_no_file_is_refused_as_naming_no_file_though_kelpie_ships_it() {
+    let err = refused(&[("light.md", "---\nextends: triager\n---\n")]);
+    assert!(err.contains("light.md"), "{err}");
+    assert!(err.contains("`extends: triager` names no file"), "{err}");
+}
+
+#[test]
+fn an_unknown_shipped_name_is_refused_naming_the_shipped_agents() {
+    let err = refused(&[("light.md", "---\nextends: kelpie:nope\n---\n")]);
+    assert!(err.contains("light.md"), "{err}");
+    assert!(
+        err.contains("`extends: kelpie:nope` names no shipped agent"),
+        "{err}"
+    );
+    assert!(
+        err.contains("sonnet-high, opus-high, defect-hunter"),
+        "{err}"
+    );
+    assert!(err.ends_with("representative, triager"), "{err}");
+}
+
+#[test]
+fn a_stub_that_sets_a_key_keeps_the_shipped_body_and_takes_its_own_value() {
+    let agents = load(&[(
+        "triager.md",
+        "---\nextends: kelpie:triager\nmodel: mine\n---\n",
+    )]);
+    let shipped = Agents::embedded();
+    let shipped = shipped.get(&name("triager")).unwrap();
+    let stub = agents.get(&name("triager")).unwrap();
+    assert_eq!(pair(stub).0, "mine");
+    assert_ne!(pair(shipped).0, "mine");
+    assert_eq!(stub.prompt, shipped.prompt);
+    assert_eq!(stub.role, Role::Triager);
 }
 
 #[test]
@@ -129,10 +166,10 @@ fn a_child_that_sorts_before_its_parent_resolves() {
 }
 
 #[test]
-fn a_parent_that_is_only_a_default_can_be_extended() {
+fn a_shipped_agent_can_be_extended_by_a_file_of_another_name() {
     let agents = load(&[(
         "hunter-light.md",
-        "---\nextends: defect-hunter\neffort: medium\nsecond_look: false\n---\n",
+        "---\nextends: kelpie:defect-hunter\neffort: medium\nsecond_look: false\n---\n",
     )]);
     let default = Agents::embedded();
     let hunter = default.get(&name("defect-hunter")).unwrap();
@@ -145,7 +182,7 @@ fn a_parent_that_is_only_a_default_can_be_extended() {
 }
 
 #[test]
-fn a_file_with_the_parents_name_wins_over_the_default() {
+fn a_bare_name_extends_the_file_of_that_name_and_never_the_shipped_agent() {
     let agents = load(&[
         (
             "defect-hunter.md",
@@ -232,8 +269,100 @@ fn a_quoted_parent_name_keeps_a_hash_inside_it() {
 #[test]
 fn an_embedded_default_that_extends_is_refused() {
     let default = "---\nextends: other\n---\n";
-    let parent = |_: &str| Some(crate::agents::extends::ParentText::Default(default));
+    let parent = |_: &str| Ok(crate::agents::extends::ParentText::Default(default));
     let err =
         crate::agents::extends::merged("light", "---\nextends: odd\n---\n", &parent).unwrap_err();
     assert!(err.contains("not supported"), "{err}");
+}
+
+#[test]
+fn a_stub_extending_a_shipped_agent_loads_its_frontmatter_and_body() {
+    let agents = load(&[("triager.md", "---\nextends: kelpie:triager\n---\n")]);
+    assert_eq!(
+        agents.get(&name("triager")),
+        Agents::embedded().get(&name("triager"))
+    );
+}
+
+#[test]
+fn body_append_puts_the_files_body_after_the_parents_with_a_blank_line() {
+    let agents = load(&[
+        ("base.md", PARENT),
+        (
+            "light.md",
+            "---\nextends: base\nbody: append\n---\nMy addition.\n",
+        ),
+    ]);
+    let light = agents.get(&name("light")).unwrap();
+    assert_eq!(
+        light.prompt.as_deref(),
+        Some("Parent body.\n\nMy addition.")
+    );
+}
+
+#[test]
+fn body_append_with_no_body_of_its_own_takes_the_parents() {
+    let agents = load(&[
+        ("base.md", PARENT),
+        ("light.md", "---\nextends: base\nbody: append\n---\n"),
+    ]);
+    let light = agents.get(&name("light")).unwrap();
+    assert_eq!(light.prompt.as_deref(), Some("Parent body."));
+}
+
+#[test]
+fn body_append_applies_at_each_step_of_a_chain_down_to_a_shipped_agent() {
+    let agents = load(&[
+        (
+            "mid.md",
+            "---\nextends: kelpie:triager\nbody: append\n---\nMiddle.\n",
+        ),
+        (
+            "leaf.md",
+            "---\nextends: mid\nbody: append\nmodel: m3\n---\nLeaf.\n",
+        ),
+    ]);
+    let shipped = Agents::embedded();
+    let shipped = shipped
+        .get(&name("triager"))
+        .unwrap()
+        .prompt
+        .clone()
+        .unwrap();
+    let mid = agents.get(&name("mid")).unwrap();
+    assert_eq!(mid.prompt, Some(format!("{shipped}\n\nMiddle.")));
+    let leaf = agents.get(&name("leaf")).unwrap();
+    assert_eq!(leaf.prompt, Some(format!("{shipped}\n\nMiddle.\n\nLeaf.")));
+    assert_eq!(pair(leaf).0, "m3");
+}
+
+#[test]
+fn a_body_key_with_any_value_but_append_is_refused_with_its_line() {
+    for value in ["replace", "\"\"", "true"] {
+        let text = format!("---\nextends: base\neffort: low\nbody: {value}\n---\nA body.\n");
+        let err = refused(&[("base.md", PARENT), ("light.md", &text)]);
+        assert!(err.contains("light.md"), "{err}");
+        assert!(err.contains("`body`"), "{err}");
+        assert!(err.contains("`append`"), "{err}");
+        assert!(err.ends_with("at line 4"), "{err}");
+    }
+}
+
+#[test]
+fn a_body_key_on_a_file_that_extends_nothing_is_refused() {
+    let err = refused(&[("light.md", &PARENT.replace("effort: high", "body: append"))]);
+    assert!(err.contains("light.md"), "{err}");
+    assert!(err.contains("body"), "{err}");
+}
+
+#[test]
+fn the_line_of_a_later_refusal_holds_with_body_in_the_frontmatter() {
+    let err = refused(&[
+        ("base.md", PARENT),
+        (
+            "light.md",
+            "---\nextends: base\nbody: append\neffort: bogus\n---\nA body.\n",
+        ),
+    ]);
+    assert!(err.ends_with("at line 4, column 9"), "{err}");
 }

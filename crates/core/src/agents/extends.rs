@@ -2,7 +2,8 @@
 //!
 //! A file with `extends: <name>` starts from that agent's frontmatter and
 //! body. The keys it sets replace the parent's, and a file with no body takes
-//! the parent's. The merge is on the text, before the typed parse, so every
+//! the parent's. A file with `body: append` puts its body after the parent's
+//! in place of replacing it. The merge is on the text, before the typed parse, so every
 //! check on a plain file applies to the merged one.
 
 use super::front;
@@ -46,19 +47,23 @@ impl Merged {
 
 /// `text` with its parent merged in, if it has an `extends` key
 ///
-/// `parent` gives the text of the agent a name stands for, or None if kelpie
-/// has none. `own` is the name of the file `text` is from, which a chain
+/// `parent` gives the text of the agent a name stands for, or the refusal
+/// for a name that stands for none. `own` is the name of the file `text` is from, which a chain
 /// back to it is refused as a cycle. Text with no `extends` comes back as it
 /// is.
 pub(super) fn merged<'a>(
     own: &str,
     text: &str,
-    parent: &dyn Fn(&str) -> Option<ParentText<'a>>,
+    parent: &dyn Fn(&str) -> Result<ParentText<'a>, String>,
 ) -> Result<Merged, String> {
     let mut chain = vec![own.to_owned()];
     let (text, inherits) = resolve(text, parent, &mut chain)?;
     Ok(Merged { text, inherits })
 }
+
+/// What an `extends` name starts with to name one of kelpie's own agents, built
+/// into the binary, in place of a file
+pub(super) const SHIPPED: &str = "kelpie:";
 
 /// The text of a parent: a file, which may extend another, or a default
 #[derive(Debug, Clone, Copy)]
@@ -73,7 +78,7 @@ type Resolved = (String, Option<(usize, String)>);
 
 fn resolve<'a>(
     text: &str,
-    parent: &dyn Fn(&str) -> Option<ParentText<'a>>,
+    parent: &dyn Fn(&str) -> Result<ParentText<'a>, String>,
     chain: &mut Vec<String>,
 ) -> Result<Resolved, String> {
     let Some((front, body)) = front::split(text) else {
@@ -83,6 +88,7 @@ fn resolve<'a>(
     let Some(extended) = child.iter().find(|e| e.key == "extends") else {
         return Ok((text.to_owned(), None));
     };
+    let append = appends(&child)?;
     let name = extended.value();
     if chain.contains(&name) {
         let path: Vec<&str> = chain.iter().map(String::as_str).chain([&*name]).collect();
@@ -91,14 +97,8 @@ fn resolve<'a>(
             path.join(" extends ")
         ));
     }
-    let parent_text = match parent(&name) {
-        None => {
-            return Err(format!(
-                "`extends: {name}` names no agent: write a file `{name}.md` or extend one of \
-                 kelpie's own agents"
-            ));
-        }
-        Some(ParentText::Default(text)) => {
+    let parent_text = match parent(&name)? {
+        ParentText::Default(text) => {
             let extends = front::split(text)
                 .is_some_and(|(front, _)| entries(front).iter().any(|e| e.key == "extends"));
             if extends {
@@ -109,7 +109,7 @@ fn resolve<'a>(
             }
             text.to_owned()
         }
-        Some(ParentText::File(text)) => {
+        ParentText::File(text) => {
             chain.push(name.clone());
             let resolved = resolve(text, parent, chain);
             chain.pop();
@@ -130,16 +130,35 @@ fn resolve<'a>(
             keys.push_str(&entry.text);
         }
     }
-    let body = if body.trim().is_empty() {
-        parent_body
-    } else {
-        body
+    let body = match (body.trim().is_empty(), append) {
+        (true, _) => parent_body.to_owned(),
+        (false, false) => body.to_owned(),
+        (false, true) if parent_body.trim().is_empty() => body.to_owned(),
+        (false, true) => format!(
+            "{}\n\n{}",
+            parent_body.trim_end(),
+            body.trim_start_matches(['\n', '\r'])
+        ),
     };
     Ok((format!("---\n{keys}---\n{body}"), Some((own_last, name))))
 }
 
-// The file's frontmatter as written, with the `extends` key's lines left
-// blank so every other line keeps its number.
+// Whether the file's `body` key says `append`. The key takes no other value.
+fn appends(child: &[Entry]) -> Result<bool, String> {
+    let Some(body) = child.iter().find(|e| e.key == "body") else {
+        return Ok(false);
+    };
+    match body.value().as_str() {
+        "append" => Ok(true),
+        other => Err(format!(
+            "`body: {other}` is not a value `body` takes: only `append` is, at line {}",
+            body.line
+        )),
+    }
+}
+
+// The file's frontmatter as written, with the lines of its `extends` and
+// `body` keys left blank so every other line keeps its number.
 fn own_lines(front: &str) -> String {
     let mut in_extends = false;
     let mut kept = String::new();
@@ -147,7 +166,7 @@ fn own_lines(front: &str) -> String {
         if !line.starts_with([' ', '\t', '#', '-', '\r', '\n']) {
             in_extends = line
                 .split_once(':')
-                .is_some_and(|(k, _)| k.trim() == "extends");
+                .is_some_and(|(k, _)| matches!(k.trim(), "extends" | "body"));
         }
         kept.push_str(if in_extends { "\n" } else { line });
     }
@@ -162,6 +181,8 @@ fn own_lines(front: &str) -> String {
 struct Entry {
     key: String,
     text: String,
+    // The line of the file the key is on, which counts the opening `---`.
+    line: usize,
 }
 
 impl Entry {
@@ -183,7 +204,7 @@ impl Entry {
 // The frontmatter's keys in order. Lines before the first key are dropped.
 fn entries(front: &str) -> Vec<Entry> {
     let mut entries: Vec<Entry> = Vec::new();
-    for line in front.split_inclusive('\n') {
+    for (at, line) in front.split_inclusive('\n').enumerate() {
         let key = (!line.starts_with([' ', '\t', '#', '-', '\r', '\n']))
             .then(|| line.split_once(':'))
             .flatten()
@@ -192,6 +213,7 @@ fn entries(front: &str) -> Vec<Entry> {
             (Some(key), _) => entries.push(Entry {
                 key,
                 text: line.to_owned(),
+                line: at + 2,
             }),
             (None, Some(last)) => last.text.push_str(line),
             (None, None) => {}

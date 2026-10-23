@@ -385,17 +385,29 @@ impl Agents {
             let text = fs::read_to_string(&path).map_err(|e| failed(&path, e))?;
             texts.insert(name, (path, text));
         }
-        let parent = |name: &str| {
-            if let Some((_, text)) = AgentName::try_from(name.to_owned())
+        let parent = |name: &str| match name.strip_prefix(extends::SHIPPED) {
+            Some(shipped) => DEFAULTS
+                .iter()
+                .find(|(default, ..)| *default == shipped)
+                .map(|(_, text, _)| extends::ParentText::Default(text))
+                .ok_or_else(|| {
+                    let own: Vec<&str> = DEFAULTS.iter().map(|(name, ..)| *name).collect();
+                    format!(
+                        "`extends: {name}` names no shipped agent: kelpie's own are {}",
+                        own.join(", ")
+                    )
+                }),
+            None => AgentName::try_from(name.to_owned())
                 .ok()
                 .and_then(|name| texts.get(&name))
-            {
-                return Some(extends::ParentText::File(text));
-            }
-            DEFAULTS
-                .iter()
-                .find(|(default, ..)| *default == name)
-                .map(|(_, text, _)| extends::ParentText::Default(text))
+                .map(|(_, text)| extends::ParentText::File(text))
+                .ok_or_else(|| {
+                    format!(
+                        "`extends: {name}` names no file: write `{name}.md`, or extend one of \
+                         kelpie's own agents as `{}<name>`",
+                        extends::SHIPPED
+                    )
+                }),
         };
         for (name, (path, text)) in &texts {
             let file_error = |message| AgentsError::File {
