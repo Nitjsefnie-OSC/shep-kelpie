@@ -366,3 +366,14 @@ fn the_line_of_a_later_refusal_holds_with_body_in_the_frontmatter() {
     ]);
     assert!(err.ends_with("at line 4, column 9"), "{err}");
 }
+
+#[test]
+fn a_body_key_set_twice_is_refused_with_the_line_of_the_second() {
+    for second in ["append", "replace"] {
+        let text = format!("---\nextends: base\nbody: append\nbody: {second}\n---\nA body.\n");
+        let err = refused(&[("base.md", PARENT), ("light.md", &text)]);
+        assert!(err.contains("light.md"), "{err}");
+        assert!(err.contains("`body`"), "{err}");
+        assert!(err.ends_with("at line 4"), "{err}");
+    }
+}

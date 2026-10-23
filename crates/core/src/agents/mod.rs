@@ -21,6 +21,7 @@ use std::fmt;
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde::Deserialize;
 
@@ -513,19 +514,38 @@ pub fn write_baselines(folder: &Path) -> Result<(), AgentsError> {
              lost.\n# To change this agent, override it in agents/{name}.md instead.\n{body}"
         );
         let path = kept.join(format!("{name}.md"));
-        let beside = kept.join(format!("{name}.md.tmp"));
+        let beside = kept.join(format!("{name}.md.{}.tmp", unique()));
         replace(&path, &beside, &whole).map_err(|e| failed(&path, e))?;
     }
     Ok(())
 }
 
-// Writes `text` read-only to `beside`, then renames it over `path`.
+// A name no other writer's, in this process or another, so two refreshes of
+// one folder never share a temporary file.
+fn unique() -> String {
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    format!(
+        "{}-{}",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    )
+}
+
+// Writes `text` read-only to `beside`, then renames it over `path`. A failure
+// leaves no `beside`.
 fn replace(path: &Path, beside: &Path, text: &str) -> io::Result<()> {
-    fs::write(beside, text)?;
-    let mut permissions = fs::metadata(beside)?.permissions();
-    permissions.set_readonly(true);
-    fs::set_permissions(beside, permissions)?;
-    fs::rename(beside, path)
+    let written = fs::write(beside, text)
+        .and_then(|()| {
+            let mut permissions = fs::metadata(beside)?.permissions();
+            permissions.set_readonly(true);
+            fs::set_permissions(beside, permissions)
+        })
+        .and_then(|()| fs::rename(beside, path));
+    if written.is_err() {
+        // Best effort: the failure to report is the write's.
+        let _ = fs::remove_file(beside);
+    }
+    written
 }
 
 /// Whether `file`, written with a leading `~/`, is a file under `home`

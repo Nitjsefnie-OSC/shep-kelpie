@@ -32,6 +32,8 @@ pub struct RedStatus {
     pub red_for: u64,
     /// The latest red run's page on the forge
     pub url: String,
+    /// What is being done about the latest red head
+    pub doing: String,
 }
 
 impl Runner {
@@ -86,10 +88,11 @@ impl Runner {
     }
 
     // What to do about the workflows this read found red, and the notices it
-    // leaves to post. A workflow in `failing` is rerun the first time, and
-    // told once it is red again: after its rerun, or at once where the forge
-    // refuses one. A limit that is used up waits for the next read. Each of
-    // `cleared` that was told is told green.
+    // leaves to post. A workflow in `failing` has the failed jobs of each new
+    // red head rerun once, and is told once for the stretch when red again
+    // after a rerun, or at once where the forge refuses one. A red-again head
+    // is the project manager's to fix or ask about. A limit that is used up
+    // waits for the next read. Each of `cleared` that was told is told green.
     fn act_on_reds(
         &self,
         failing: &[String],
@@ -98,11 +101,10 @@ impl Runner {
         now: Timestamp,
     ) -> Vec<Notice> {
         let mut notices = Vec::new();
-        for workflow in red
-            .iter_mut()
-            .filter(|r| !r.noticed && failing.contains(&r.workflow))
-        {
-            if workflow.reran.is_none() {
+        for workflow in red.iter_mut().filter(|r| failing.contains(&r.workflow)) {
+            if workflow.rerun_done() {
+                workflow.again = true;
+            } else {
                 match self
                     .ports
                     .forge
@@ -110,11 +112,19 @@ impl Runner {
                 {
                     Ok(()) => {
                         workflow.reran = Some(workflow.run);
+                        workflow.reran_head = Some(workflow.head.clone());
                         continue;
                     }
                     Err(ForgeError::Held(_) | ForgeError::Limited { .. }) => continue,
-                    Err(e) => eprintln!("cannot rerun {} on main: {e}", workflow.workflow),
+                    Err(e) => {
+                        eprintln!("cannot rerun {} on main: {e}", workflow.workflow);
+                        workflow.reran_head = Some(workflow.head.clone());
+                        workflow.again = true;
+                    }
                 }
+            }
+            if workflow.noticed {
+                continue;
             }
             workflow.noticed = true;
             notices.push(Notice::Main(MainNotice {
@@ -163,6 +173,7 @@ impl Runner {
                 head: red.head.clone(),
                 since: red.since,
                 red_for: now.0.saturating_sub(red.since.0),
+                doing: red.doing(),
                 url: format!(
                     "https://github.com/{}/actions/runs/{}",
                     self.remote.as_str(),
@@ -247,8 +258,13 @@ fn still_red(red: &[RedWorkflow], runs: &[BranchRun]) -> Read {
         }
         failing.push(run.workflow.clone());
         if let Some(at) = at {
-            next[at].run = run.id;
-            next[at].head.clone_from(&run.head);
+            let red = &mut next[at];
+            if red.head != run.head {
+                red.again = false;
+                red.handled = None;
+            }
+            red.run = run.id;
+            red.head.clone_from(&run.head);
         } else {
             next.push(RedWorkflow {
                 workflow: run.workflow.clone(),
@@ -257,6 +273,9 @@ fn still_red(red: &[RedWorkflow], runs: &[BranchRun]) -> Read {
                 head: run.head.clone(),
                 since: run.created,
                 reran: None,
+                reran_head: None,
+                again: false,
+                handled: None,
                 noticed: false,
             });
         }

@@ -403,6 +403,40 @@ fn baselines_put_back_a_file_that_was_edited_or_removed() {
     );
 }
 
+#[test]
+fn a_read_only_temp_file_left_by_a_crash_does_not_stop_a_refresh() {
+    let dir = tempfile::tempdir().unwrap();
+    let agents = dir.path().join("agents");
+    let kept = agents.join(".defaults");
+    fs::create_dir_all(&kept).unwrap();
+    let stale = kept.join("pm.md.tmp");
+    fs::write(&stale, "half").unwrap();
+    let mut permissions = fs::metadata(&stale).unwrap().permissions();
+    permissions.set_readonly(true);
+    fs::set_permissions(&stale, permissions).unwrap();
+    write_baselines(&agents).unwrap();
+    assert!(kept.join("pm.md").is_file());
+}
+
+#[test]
+fn refreshes_at_the_same_time_each_leave_every_baseline_whole() {
+    let dir = tempfile::tempdir().unwrap();
+    let agents = dir.path().join("agents");
+    std::thread::scope(|scope| {
+        let refreshes: Vec<_> = (0..4)
+            .map(|_| scope.spawn(|| write_baselines(&agents)))
+            .collect();
+        for refresh in refreshes {
+            refresh.join().unwrap().unwrap();
+        }
+    });
+    let shipped = Agents::embedded();
+    for (agent, _) in shipped.iter() {
+        let text = fs::read_to_string(agents.join(".defaults").join(format!("{agent}.md")));
+        assert!(text.unwrap().starts_with("---\n# Kelpie writes this file"));
+    }
+}
+
 const REVIEWER: &str = "---\nrole: reviewer\nharness: claude-code\nmodel: claude-opus-5-5\n\
                         effort: high\npaths: [\"src/**\"]\n---\nRead {{DIFF}} for defects.\n";
 

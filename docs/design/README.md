@@ -12,10 +12,17 @@ Kelpie: dog of the maintainer's shepherd; one runner per project takes ready iss
 - Home: `$SHEP_HOME/kelpie` (`KELPIE_HOME`), shep plugin, folder per project; dog files stay in `$SHEP_HOME`. #253
 - The shepherd is reached by the `Dial` port (`crates/core/src/shepherd/connection.rs`): `Socket` is the real one, tests dial `FakeShepherd` (in memory). #587
 - Socket path over 103 bytes: runner refuses to start (Windows: pipes, `core/src/ipc`). #1147
+<<<<<<< HEAD
 - Home never moved from `~/.kelpie`: refuses to start naming each old file, exit 78 (`stop_exit_codes`). #311, #345
 - State file version 80 (`VERSION` in `crates/core/src/state/mod.rs`); each change one way: rollback = finish or drop open items. `crates/core/src/state/removed/mod.rs`
 - Business code is Rust; Tauri GUI after MVP, a Claude session watches till then #5
 - Crates under `crates/` use nothing above them; the root holds the binary and verbs (`src/{flock,upgrade,sheep,doctor,issues}/`, `src/schema.rs`) and reaches every crate. ADR 0015
+=======
+- Home never moved from `~/.kelpie`: refuses to start, naming each old file, exit 78 (`stop_exit_codes`). #311, #345
+- State file version 81 (`VERSION` in `crates/core/src/state/mod.rs`); each change one way: rollback means finishing or dropping open items. `crates/core/src/state/removed/mod.rs`
+- Business code is Rust; Tauri GUI after MVP, a Claude session watches until then. #5
+- Crates under `crates/` use nothing above them; the root package holds the binary and verbs (`src/{flock,upgrade,sheep,doctor,issues}/`, `src/schema.rs`) and reaches every crate. ADR 0015
+>>>>>>> origin/main
 - No budget numbers in agent prompts; no worker merges/posts as the maintainer (fence.md, github-app.md).
 
 ## Files

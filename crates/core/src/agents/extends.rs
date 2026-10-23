@@ -143,11 +143,19 @@ fn resolve<'a>(
     Ok((format!("---\n{keys}---\n{body}"), Some((own_last, name))))
 }
 
-// Whether the file's `body` key says `append`. The key takes no other value.
+// Whether the file's `body` key says `append`. The key takes no other value,
+// and the file sets it once.
 fn appends(child: &[Entry]) -> Result<bool, String> {
-    let Some(body) = child.iter().find(|e| e.key == "body") else {
+    let mut bodies = child.iter().filter(|e| e.key == "body");
+    let Some(body) = bodies.next() else {
         return Ok(false);
     };
+    if let Some(again) = bodies.next() {
+        return Err(format!(
+            "`body` is set twice, which is not allowed, at line {}",
+            again.line
+        ));
+    }
     match body.value().as_str() {
         "append" => Ok(true),
         other => Err(format!(

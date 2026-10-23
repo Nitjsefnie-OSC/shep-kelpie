@@ -439,6 +439,7 @@ impl Runner {
                     since: red.since,
                     head: red.head,
                     url: red.url,
+                    doing: red.doing,
                 })
                 .collect(),
             ready: self.ready_lines(),

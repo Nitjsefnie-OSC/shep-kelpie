@@ -4,6 +4,9 @@
 //!
 //! They are read as a worker's red prompt reads them, with `failed_run_logs`.
 //! The folder is emptied first, so a log never outlives its ruling.
+//!
+//! Each workflow red on `main` has the end of its latest red run's failed log
+//! beside them, as `ci/main-<run>.log`.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -78,6 +81,46 @@ impl Runner {
                 }
             };
             said.insert(ticket, line);
+        }
+        said
+    }
+}
+
+impl Runner {
+    /// Writes `ci/main-<run>.log` in `folder` for each workflow red on `main`,
+    /// and returns what the board says of each, for the section that names them
+    ///
+    /// Run after [`Runner::pm_ci_logs`], which empties the folder. A log that
+    /// could not be read or written is noted there and in the log.
+    pub(super) fn pm_main_logs(&mut self, folder: &Path) -> Vec<String> {
+        let reds: Vec<(String, u64)> = (self.state.red.iter())
+            .map(|r| (r.workflow.clone(), r.run))
+            .collect();
+        let mut said = Vec::new();
+        for (workflow, run) in reds {
+            let file = format!("{CI}/main-{run}.log");
+            let read = (self.ports.forge)
+                .run_log_tail(&self.remote, run)
+                .map_err(|e| format!("kelpie could not read it ({e})"))
+                .and_then(|log| match log.trim().is_empty() {
+                    true => Err(format!("kelpie found no failed log of run {run}")),
+                    false => Ok(log),
+                });
+            let written = read.and_then(|log| {
+                std::fs::create_dir_all(folder.join(CI))
+                    .and_then(|()| std::fs::write(folder.join(&file), log))
+                    .map_err(|e| format!("cannot write it: {}", e.kind()))
+            });
+            let line = match written {
+                Ok(()) => format!("CI log `{file}`"),
+                Err(why) => {
+                    self.notes.push(format!(
+                        "no CI log of {workflow} on main for the project manager: {why}"
+                    ));
+                    format!("no CI log: {why}")
+                }
+            };
+            said.push(format!("main, {workflow}: {line}"));
         }
         said
     }
