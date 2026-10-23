@@ -452,6 +452,7 @@ impl Forge for FakeForge {
             .listed
             .fetch_add(1, Ordering::SeqCst);
         self.ask()?;
+        self.wait_if_held(held::At::OpenPullRequests);
         self.board()?;
         self.list_open()
     }

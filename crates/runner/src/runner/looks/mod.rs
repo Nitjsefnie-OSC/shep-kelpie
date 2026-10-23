@@ -156,14 +156,9 @@ impl Looks {
         (now.0 < at).then(|| Duration::from_secs(at - now.0))
     }
 
-    /// Whether the bumps are due to be followed at `now`, which records the
-    /// read: at most one in each [`BOARD_POLL`]
-    pub(super) fn dependencies_due(&mut self, now: Timestamp) -> bool {
-        if self.dependencies_wait(now).is_some() {
-            return false;
-        }
+    /// Records that the bumps were followed at `now`, the most that happens in each [`BOARD_POLL`]
+    pub(super) fn dependencies_read(&mut self, now: Timestamp) {
         self.dependencies_read = Some(now);
-        true
     }
 
     /// How long until the bumps are next followed, or `None` when they are

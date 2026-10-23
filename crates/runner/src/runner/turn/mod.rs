@@ -152,7 +152,6 @@ impl Runner {
             return Ok(begin);
         }
         self.follow_contributions()?;
-        self.follow_dependencies()?;
         self.follow_triage()?;
         let open: Vec<TicketId> = self.state.work_items.iter().map(|i| i.issue).collect();
         self.unreachable.keep_only(&open);

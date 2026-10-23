@@ -201,10 +201,11 @@ fn triggers_are_answered_while_calls_run() {
     assert_eq!(rig.claude.calls().len(), 2);
 }
 
-// A pass reads `main`'s workflow runs with the lock let go, so the read's wait shows in no hold.
+// A pass reads `main`'s workflow runs with the lock let go, so no hold `status` shows is half as
+// long as the read's wait. A pass's own work holds the lock for a moment, so the bound is loose.
 #[test]
 fn a_pass_that_waits_on_a_held_read_of_main_shows_no_hold_as_long_as_the_wait() {
-    const HELD_FOR: Duration = Duration::from_millis(200);
+    const HELD_FOR: Duration = Duration::from_secs(3);
     let (rig, runner) = seven_open("koji");
     let runner = Arc::new(runner);
     let read = rig.forge.hold_next_main_runs_read();
@@ -227,7 +228,7 @@ fn a_pass_that_waits_on_a_held_read_of_main_shows_no_hold_as_long_as_the_wait() 
         .values()
         .filter_map(serde_json::Value::as_f64)
         .fold(0.0, f64::max);
-    assert!(longest < HELD_FOR.as_secs_f64(), "{longest}");
+    assert!(longest < HELD_FOR.as_secs_f64() / 2.0, "{longest}");
 }
 
 #[test]

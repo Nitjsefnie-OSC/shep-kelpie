@@ -741,6 +741,7 @@ fn one_pass(runner: &Mutex<Runner>) -> Result<Pass, StateError> {
     // call it starts.
     super::main_ci::read_main_ci_off_lock(runner);
     super::dispatch::recheck_dropped(runner)?;
+    super::dependencies::follow_dependencies(runner)?;
     lock(runner).begin(None)
 }
 
