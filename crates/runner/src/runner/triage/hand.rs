@@ -85,7 +85,9 @@ impl Runner {
         since: Timestamp,
         pruned_through: u64,
     ) -> Result<(), StateError> {
-        if !self.settings.triage.hand_ready {
+        // Where no App covers the repo no pass is started, so the label taken
+        // off would not come back
+        if !self.settings.triage.hand_ready || !self.app_covers() {
             return Ok(());
         }
         let Ok(maintainer) = self.maintainer() else {

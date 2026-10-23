@@ -5,7 +5,7 @@ use std::sync::Mutex;
 
 use super::ask_tests::{A_WORDS, asked, filed_before, record, settled_ready, wrote};
 use super::pick_tests::{MAINTAINER, issue, list, rig_with};
-use super::research_tests::{calls, moves, nothing, reply};
+use super::research_tests::{calls, moves, nothing, reply, triage};
 use crate::github::ApiError;
 use crate::ports::Role;
 use crate::runner::slots_tests::{ASKS, dispatched, issue_of};
@@ -199,4 +199,22 @@ fn a_taken_issue_whose_ready_label_is_gone_still_gets_needs_triage_before_its_pa
         [(30, "ready-for-agent".to_owned())],
         "ready-for-agent is not taken off twice"
     );
+}
+
+#[test]
+fn an_issue_is_not_taken_back_where_no_app_covers_the_repo() {
+    let (rig, runner) = on_the_board(HAND, MAINTAINER);
+    rig.without_app();
+
+    let (started, _) = dispatched(step(&runner).unwrap());
+
+    assert_eq!(started.github(), Some(30), "the board keeps its pick");
+    let writes = rig.forge.issue_writes();
+    assert!(
+        !writes
+            .iter()
+            .any(|w| w.contains("ready-for-agent") || w.contains("needs-triage")),
+        "{writes:?}"
+    );
+    assert_eq!(triage(&rig, &runner)["issues"], serde_json::Value::Null);
 }
