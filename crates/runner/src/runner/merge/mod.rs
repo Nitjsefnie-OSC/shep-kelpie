@@ -180,8 +180,8 @@ impl Runner {
         let green = match pr.checks {
             _ if !ci => true,
             Checks::Passed | Checks::Skipped => true,
-            Checks::None | Checks::Pending if readied.is_some() => false,
-            Checks::None | Checks::Pending | Checks::Failed(_) => {
+            Checks::None | Checks::Pending(_) if readied.is_some() => false,
+            Checks::None | Checks::Pending(_) | Checks::Failed(_) => {
                 let reason = format!("CI on #{number} is no longer green");
                 return self.withdraw(issue, number, auto, reason);
             }
@@ -558,15 +558,13 @@ mod tests {
     // A hook on the bare origin that refuses the worker branch's delete,
     // after the forge's own delete has taken the branch first when `forge_won`
     fn refuse_delete(rig: &Rig, forge_won: bool) {
-        use std::os::unix::fs::PermissionsExt;
         let hook = rig.home.path().join("origin.git/hooks/pre-receive");
         let script = if forge_won {
             "#!/bin/sh\ngit update-ref -d refs/heads/kelpie/7\nexit 1\n"
         } else {
             "#!/bin/sh\nexit 1\n"
         };
-        std::fs::write(&hook, script).unwrap();
-        std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+        crate::test::write_script(&hook, script);
     }
 
     #[test]
@@ -628,7 +626,7 @@ mod tests {
     #[test]
     fn a_yes_after_ci_stopped_being_green_is_withdrawn() {
         let (rig, runner, head) = Rig::parked("chelone");
-        rig.forge.set_checks(&head, Checks::Pending);
+        rig.forge.set_checks(&head, Checks::Pending(Vec::new()));
         rig.ask(&runner, "rule", Some("71 yes"));
         assert!(matches!(
             step(&runner).unwrap(),
@@ -689,7 +687,7 @@ mod tests {
         let (rig, runner, head) = Rig::parked("xilriws");
         rig.ask(&runner, "rule", Some("71 yes"));
         assert_eq!(step(&runner).unwrap(), marked_ready());
-        rig.forge.set_checks(&head, Checks::Pending);
+        rig.forge.set_checks(&head, Checks::Pending(Vec::new()));
         rig.clock.advance(3 * CHECKS_SETTLE);
         assert_eq!(step(&runner).unwrap(), None);
         assert_eq!(rig.forge.merges(), []);

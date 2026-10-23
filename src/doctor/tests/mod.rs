@@ -447,8 +447,8 @@ async fn a_machine_without_the_sandbox_runtime_is_told_to_install_it() {
 }
 
 #[tokio::test]
-async fn a_shepherd_on_another_minor_names_both_versions_and_no_project_is_checked() {
-    let shepherd = FakeShepherd::on("0.16.0");
+async fn a_shepherd_on_an_earlier_shep_names_both_versions_and_no_project_is_checked() {
+    let shepherd = FakeShepherd::on("0.14.7");
     let mut scene = Scene::new().await;
     scene.shepherd = shepherd;
 
@@ -456,7 +456,7 @@ async fn a_shepherd_on_another_minor_names_both_versions_and_no_project_is_check
 
     let (what, _) = missing(&report, "shepherd");
     assert!(
-        what.contains("shep 0.16.0") && what.contains(SHEP_VERSION),
+        what.contains("shep 0.14.7") && what.contains(SHEP_VERSION),
         "{what}"
     );
     assert!(matches!(

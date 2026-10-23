@@ -18,13 +18,7 @@ impl Elsewhere {
     /// Copies `repo`'s git dir into `home`
     pub fn copy_of(repo: &Path, home: &Path) -> Self {
         let git_dir = home.join("elsewhere.git");
-        let copied = Command::new("cp")
-            .arg("-R")
-            .arg(repo.join(".git"))
-            .arg(&git_dir)
-            .status()
-            .unwrap();
-        assert!(copied.success());
+        copy_dir(&repo.join(".git"), &git_dir);
         let ran = home.join("ran");
         let program = home.join("fsmonitor.sh");
         write_script(&program, &format!("#!/bin/sh\ntouch {}\n", quoted(&ran)));
@@ -67,6 +61,20 @@ impl Elsewhere {
             .unwrap();
         assert!(plain.status.success(), "{plain:?}");
         assert!(self.ran.exists(), "plain git on the worktree starts it");
+    }
+}
+
+// `from` and everything in it, copied to `to`. A git dir holds only files and folders.
+fn copy_dir(from: &Path, to: &Path) {
+    std::fs::create_dir_all(to).unwrap();
+    for entry in std::fs::read_dir(from).unwrap() {
+        let entry = entry.unwrap();
+        let target = to.join(entry.file_name());
+        if entry.file_type().unwrap().is_dir() {
+            copy_dir(&entry.path(), &target);
+        } else {
+            std::fs::copy(entry.path(), target).unwrap();
+        }
     }
 }
 

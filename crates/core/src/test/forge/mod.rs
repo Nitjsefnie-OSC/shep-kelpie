@@ -11,7 +11,7 @@ use crate::board::{OpenPullRequest, ReadyIssue, ReviewMarks};
 use crate::ports::{
     BranchRun, Checks, CommentMarks, FailedLogs, FolderEntry, Forge, ForgeError, IssueCloseReason,
     MaintainerReview, NewLabel, OpenIssue, OpenPull, PullRequest, PullRequestState, QueueStanding,
-    Reviewed, Talk, ThreadComment, Timestamp, Visibility, Workflow,
+    Rerun, Reviewed, Talk, ThreadComment, Timestamp, Visibility, Workflow,
 };
 use crate::review_bot::{Activity, Login};
 use crate::settings::ForgeSlug;
@@ -688,10 +688,10 @@ impl Forge for FakeForge {
             .map_err(ForgeError::Failed)
     }
 
-    fn rerun_run(&self, _repo: &ForgeSlug, run: u64) -> Result<(), ForgeError> {
+    fn rerun_run(&self, _repo: &ForgeSlug, run: u64, rerun: Rerun) -> Result<(), ForgeError> {
         self.ask()?;
         let mut ci = self.ci.lock().unwrap();
-        ci.rerun_of_run(run).map_err(ForgeError::Failed)
+        ci.rerun_of_run(run, rerun).map_err(ForgeError::Failed)
     }
 
     fn approve_workflow_runs(&self, _repo: &ForgeSlug, head: &str) -> Result<(), ForgeError> {

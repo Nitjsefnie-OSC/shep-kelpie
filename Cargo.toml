@@ -12,6 +12,7 @@ default-members = [
     "crates/process",
     "crates/runner",
     "crates/test_support",
+    "crates/tree",
     "crates/trim",
     "crates/worker_folder",
 ]
@@ -43,6 +44,7 @@ shep-kelpie-panel = { path = "crates/panel" }
 shep-kelpie-process = { path = "crates/process" }
 shep-kelpie-runner = { path = "crates/runner" }
 shep-kelpie-test-support = { path = "crates/test_support" }
+shep-kelpie-tree = { path = "crates/tree" }
 shep-kelpie-trim = { path = "crates/trim" }
 shep-kelpie-worker-folder = { path = "crates/worker_folder" }
 # The authenticator codes that answer a ruling from ntfy (RFC 6238 TOTP)
@@ -72,6 +74,9 @@ shep-handover = "=0.15.0"
 tempfile = { version = "3", default-features = false }
 tokio = { version = "1", default-features = false }
 toml = { version = "1.1", default-features = false, features = ["std", "parse", "display", "serde"] }
+# A Windows job object holds a turn's process tree, which closes with it. The
+# 0.61 line the lockfile already holds.
+windows-sys = { version = "0.61", default-features = false, features = ["Win32_Foundation", "Win32_Security", "Win32_System_JobObjects", "Win32_System_Threading"] }
 
 [package]
 name = "shep-kelpie"
@@ -99,10 +104,10 @@ shep-kelpie-facts.workspace = true
 shep-kelpie-panel.workspace = true
 shep-kelpie-process.workspace = true
 shep-kelpie-runner.workspace = true
+shep-kelpie-tree.workspace = true
 shep-kelpie-trim.workspace = true
 shep-kelpie-worker-folder.workspace = true
 jiff.workspace = true
-rustix.workspace = true
 serde.workspace = true
 serde-saphyr.workspace = true
 serde_json.workspace = true

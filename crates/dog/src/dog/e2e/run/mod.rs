@@ -9,7 +9,6 @@
 
 use std::ffi::OsString;
 
-use std::os::unix::process::ExitStatusExt;
 use std::path::Path;
 use std::process::Stdio;
 
@@ -20,6 +19,7 @@ use tokio::sync::mpsc::Sender;
 use super::{Plan, Remote};
 use crate::lease::door::LONGEST_LINE;
 use crate::spawn::shell_quote;
+use crate::status::shell_number;
 
 /// The longest message kept of what rsync said when it failed
 const LONGEST_COMPLAINT: usize = 1000;
@@ -104,10 +104,7 @@ async fn command(remote: &Remote, plan: &Plan, lines: &Sender<String>) -> Result
     let (_, _, status) = tokio::join!(pump(out, lines), pump(err, lines), child.wait());
     let status = status.map_err(|e| format!("cannot wait for {}: {e}", remote.ssh.display()))?;
     // A signal is what a shell reports it as; ssh's own failure is 255.
-    Ok(status
-        .code()
-        .or_else(|| status.signal().map(|signal| 128 + signal))
-        .unwrap_or(255))
+    Ok(shell_number(status).unwrap_or(255))
 }
 
 // The results folder alone, into a folder of the dog's own, and from there

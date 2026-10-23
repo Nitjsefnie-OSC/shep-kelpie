@@ -32,6 +32,17 @@ Of the sites that used `tempdir_in("/tmp")`:
 - Fail in a worker for a reason above: the 23 `adapters::forwarder::tests` with a stand-in model server on loopback.
 - `#[ignore]`d, and run by the `sandbox` CI job: `adapters::claude::escapes`.
 
+## Tests Windows cannot run yet
+
+Not a sandbox list: `kelpie_ci_failures_total` and `SANDBOX_RED` do not read it. The Windows CI job runs `cargo check` only, so this is read from the source, not measured (#1149). Windows runs a file only if its name ends in `.cmd`, `.bat` or `.exe`, so a `#!/bin/sh` script a test starts itself cannot run there. A test that makes its stand-in with `write_fake` runs on both. `write_script` writes a script Windows runs only through Git for Windows' `sh.exe`, which `spawn::sh` finds (a hook, `sh -c`). A test that needs a FIFO is `#[cfg_attr(windows, ignore = "a FIFO is a Unix file")]`.
+
+| Needs | Modules |
+|---|---|
+| A shebang script the test starts itself | `adapters::claude` (`tests`, `sandbox`, `calls`), `adapters::codex`, `adapters::goose`, `adapters::pi`, `adapters::local`, `adapters::dev_server`, `adapters::bridge` (some: the stand-in browser server), `adapters::process` (some), `dog::e2e` (`ssh` and `rsync` stand-ins), `process::tools::install`, `process::terminal` (some), `process::spawn` (some: the environment probe), `core::guard::tests::manager`, `runner::code_graph`, `runner::core_tests::metrics`, `runner::review::local`, `runner::triage::research_tests`, `sheep::handover::tests`, `upgrade::tests`, `issues::tests`, `flock::attach`, `flock::pm` |
+| `cat` or `sleep` as a live process, and `ps` or `kill` to look at it (#1148) | `runner::attach`, `runner::flight::carry`, `runner::pm::tests::attach`, `runner::turn::tests::held`, `adapters::process::adopt`, `adapters::dev_server` (some), `tests/dog_smoke.rs` |
+| A Unix socket, a signal, a process group or a mode bit (#1147, #1148, and mode bits no issue holds yet), which keep `core` and every crate above it from compiling | `core`, `dog`, `adapters`, `runner` and the root package |
+| `env` as a command (the live sandbox probes) | `adapters::pi::escapes`, `adapters::goose::escapes` |
+
 ## Keeping the list true
 
 A change that moves a test into or out of this list updates the table in the same pull request. A new test that binds a socket or a port belongs in the table when it lands.

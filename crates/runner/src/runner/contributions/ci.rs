@@ -96,7 +96,7 @@ impl Runner {
             return None;
         }
         match pr.checks {
-            Checks::None | Checks::Pending => None,
+            Checks::None | Checks::Pending(_) => None,
             // A contribution is never a draft, so skipped runs are green.
             Checks::Passed | Checks::Skipped => Some(CiState::Green),
             Checks::Failed(failed) => Some(CiState::Red(failed)),

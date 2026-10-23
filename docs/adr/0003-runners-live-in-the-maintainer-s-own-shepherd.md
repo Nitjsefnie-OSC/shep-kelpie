@@ -16,4 +16,4 @@ The dog that holds the leases is a sheep named `kelpie-dog`, not the adopted dog
 - `kelpie lease` asks `kelpie-dog`, then `kelpie`, so an install from before this keeps its lease commands.
 - Kelpie takes any shepherd on its pinned minor line and refuses another, as before.
 
-ADR 0004 reopens the dog's half: the adopted `kelpie` is the lease dog and `kelpie-dog` is gone. ADR 0005 reopens the stop: shep, not kelpie's own ladder, is to stop every lamb.
+ADR 0004 reopens the dog's half: the adopted `kelpie` is the lease dog and `kelpie-dog` is gone. ADR 0005 reopens the stop: shep, not kelpie's own ladder, is to stop every lamb. ADR 0016 reopens the minor line: kelpie takes any shepherd from its pinned shep on.

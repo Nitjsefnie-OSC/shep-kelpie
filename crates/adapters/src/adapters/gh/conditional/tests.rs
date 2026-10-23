@@ -1,8 +1,5 @@
 //! Conditional reads, against a stand-in for GitHub that answers 304 to a tag it gave
 
-use std::os::unix::process::ExitStatusExt;
-use std::process::ExitStatus;
-
 use super::*;
 
 // GitHub's side of the reads: each path's answer, with a tag that changes
@@ -269,7 +266,7 @@ fn the_kept_answers_are_few() {
 
 fn printed(status: i32, stdout: &str, stderr: &str) -> Output {
     Output {
-        status: ExitStatus::from_raw(status << 8),
+        status: crate::test::exited(status),
         stdout: stdout.as_bytes().to_vec(),
         stderr: stderr.as_bytes().to_vec(),
     }

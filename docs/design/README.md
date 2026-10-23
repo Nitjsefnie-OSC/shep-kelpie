@@ -7,16 +7,16 @@ Kelpie: dog of the maintainer's shepherd; one runner per project takes ready iss
 - Gates, locks, rate windows live in code; Claude only for work and judgement. ADR 0001
 - Kelpie controls each agent's context growth. `runner/turn/`
 - Naming: dog = adopted `kelpie` (lease dog); project = sheep; agent calls = lambs. One kelpie for all projects (bot windows, pacer are machine/account-wide). ADR 0001 to 0004
-- Binary is the dog with no args + `SHEP_DOG_NAME` and `SHEP_NAME` set; needs the `shep adopt` channel; names itself in handshake so shep never lists it `silent`. `src/sheep/mod.rs`, shep-pm/shep#656
-- Needs shep 0.15.0+ in 0.15; `upgrade` refuses a build its shepherd would. shep-pm/shep#688, #319, #656, #914
-- Home: `$SHEP_HOME/kelpie` (`KELPIE_HOME`), shep plugin, folder per project; dog files stay under `$SHEP_HOME`. #253
+- Binary is the dog with no args + `SHEP_DOG_NAME` and `SHEP_NAME` set; needs the `shep adopt` channel; names itself in the handshake, so shep never lists it `silent`. `src/sheep/mod.rs`, shep-pm/shep#656
+- Needs shep 0.15.0+ (ADR 0016); `upgrade` refuses builds it would. shep-pm/shep#688, #319, #656, #914
+- Home: `$SHEP_HOME/kelpie` (`KELPIE_HOME`), shep plugin, folder per project; dog files stay in `$SHEP_HOME`. #253
 - The shepherd is reached through the `Dial` port (`crates/core/src/shepherd/connection.rs`): `Socket` is shep's control socket; tests dial `FakeShepherd`, which answers in memory. #587
-- Socket path over 103 bytes: runner refuses to start (macOS caps 104; Windows: pipes, `core/src/ipc`). #1147
-- Home never moved from `~/.kelpie`: refuses to start naming each old file, exit 78 (in `stop_exit_codes`, no restart into it). #311, #345
-- State file version 79 (`VERSION` in `crates/core/src/state/mod.rs`); each change one way: rollback means finishing or dropping open items first. `crates/core/src/state/removed/mod.rs`
-- Business code is Rust; Tauri GUI after MVP, until then run and watched from a Claude session. #5
-- Crates under `crates/` use nothing above them; the root package holds the binary and the verbs (`src/{flock,upgrade,sheep,doctor,issues}/`, `src/schema.rs`) and reaches every crate. ADR 0015
-- No budget numbers in agent prompts; no worker merges or posts as the maintainer (fence.md, github-app.md).
+- Socket path over 103 bytes: runner refuses to start (Windows: pipes, `core/src/ipc`). #1147
+- Home never moved from `~/.kelpie`: refuses to start, naming each old file, exit 78 (`stop_exit_codes`). #311, #345
+- State file version 80 (`VERSION` in `crates/core/src/state/mod.rs`); each change one way: rollback means finishing or dropping open items. `crates/core/src/state/removed/mod.rs`
+- Business code is Rust; Tauri GUI after MVP, a Claude session watches until then. #5
+- Crates under `crates/` use nothing above them; the root package holds the binary and verbs (`src/{flock,upgrade,sheep,doctor,issues}/`, `src/schema.rs`) and reaches every crate. ADR 0015
+- No budget numbers in agent prompts; no worker merges/posts as the maintainer (fence.md, github-app.md).
 
 ## Files
 
@@ -33,6 +33,7 @@ Kelpie: dog of the maintainer's shepherd; one runner per project takes ready iss
 | agents.md | agent files, harnesses, gateways | `core/agents/`, `adapters/`, `core/settings/agents/`, `crates/process/src/spawn.rs` |
 | cli-adapter.md | a new CLI | `adapters/cli/` |
 | handover.md | in-flight turns handed to a new image, `upgrade` | `src/sheep/handover/mod.rs`, `runner/flight/carry/`, `adapters/process/adopt/`, `src/upgrade/handover.rs` |
+| windows.md | `sh`, `env` and test fakes on Windows | `process/spawn.rs`, `test_support/` |
 | waits-and-spend.md | waits, held-up turns, failing steps; spend by role | `runner/{turn/unreachable,looks}/`, `adapters/unreachable/`, `adapters/codex/`, `core/usage/`, `core/settings/agents/` |
 | review.md | review, bots, rulings | `runner/review/`, `runner/ruling/`, `core/webhook.rs` |
 | review-outcomes.md | fix turn findings' outcomes | `runner/review/outcomes/` |
@@ -48,14 +49,14 @@ Kelpie: dog of the maintainer's shepherd; one runner per project takes ready iss
 | contribution-release.md | asking for a release: yes, thumbs up, silence, ruling | `runner/contributions/{release,ruling}.rs` |
 | contribution-merge.md | every contribution's merge ruling: yes, thanks and no | `runner/contributions/{merge,ruling}.rs`, `core/settings/rulings.rs` |
 | representative.md | its agent file, `agents.representative`, the call that words a post | `runner/representative/`, `core/agents/front/`, `core/settings/agents/`, `agents/representative.md` |
-| dependencies.md | bot bumps: settings, rebase asks, proof, merge, red | `core/settings/dependencies.rs`, `runner/dependencies/`, `runner/flight/proving.rs`, `runner/dev_server/bump/`, `core/state/bumps.rs`, `adapters/e2e_runner.rs`, `adapters/pages.rs`, `adapters/bridge/client/` |
+| dependencies.md | bot bumps: settings, rebase, proof, merge, red | `core/settings/dependencies.rs`, `runner/dependencies/`, `runner/flight/proving.rs`, `runner/dev_server/bump/`, `core/state/bumps.rs`, `adapters/e2e_runner.rs`, `adapters/pages.rs`, `adapters/bridge/client/` |
 | triage.md | settings, triager, pick rule, `since`, the verb, `status` | `core/settings/triage.rs`, `runner/triage/`, `runner/open_checks.rs`, `core/ports/issue.rs` |
 | triage-limits.md | the four limits | `runner/triage/limits.rs` |
 | triage-pass.md | one issue's pass: post, labels, duplicate close, agent-ready | `runner/triage/`, `runner/flight/`, `core/ports/voice.rs` |
 | triage-images.md | an issue's images | `runner/triage/images.rs`, `adapters/gh/attachment.rs` |
 | triage-author.md | author's round: the ask, the answers, silence | `runner/triage/{ask,heard,local}.rs` |
 | triage-spam.md | the spam check: `triage.spam`, `possible-spam` | `runner/triage/spam.rs` |
-| log-lines.md | what the runner and dog log: pause, handover, lease waits, skips, warnings | `runner/drain/`, `runner/skip_log.rs`, `runner/review_bot/lease_wait.rs`, `runner/claim.rs`, `dog/desk.rs`, `dog/door/` |
+| log-lines.md | what the runner and dog log: pause, waits, skips, warnings | `runner/drain/`, `runner/skip_log.rs`, `runner/review_bot/lease_wait.rs`, `runner/claim.rs`, `dog/desk.rs`, `dog/door/` |
 | metrics.md | kelpie's series on shep's metrics endpoint, alerts, dashboard | `core/metrics/`, `core/ports/metrics.rs`, `core/metrics/shepherd_sink.rs`, `assets/prometheus/`, `assets/grafana/` |
 | metrics-work-items.md | work items' series, the `finished` line | `core/usage/finished.rs`, `runner/ci_failure.rs` |
 | metrics-dog.md | the dog's series: leases, summons, the forge hold | `core/metrics/dog.rs`, `dog/watch/` |

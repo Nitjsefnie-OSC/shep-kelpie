@@ -157,7 +157,7 @@ fn ci_stays_waiting_while_a_check_is_pending_or_none_has_reported() {
     poll(&rig, &runner);
     rig.clock.advance(CHECKS_SETTLE);
 
-    for checks in [Checks::None, Checks::Pending] {
+    for checks in [Checks::None, Checks::Pending(Vec::new())] {
         rig.forge.set_checks(&head, checks);
         poll(&rig, &runner);
         assert_eq!(followed(&rig, &runner, 30)["ci"]["state"], "waiting");

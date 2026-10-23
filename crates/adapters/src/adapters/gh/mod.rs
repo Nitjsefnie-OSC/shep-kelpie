@@ -29,8 +29,8 @@ use serde::Deserialize;
 use crate::board::OpenPullRequest;
 use crate::ports::{
     BranchRun, Checks, CommentMarks, FailedLogs, FolderEntry, Forge, ForgeError, Issue, NewLabel,
-    OpenPull, PullRequest, PullRequestState, QueueStanding, Reviewed, Talk, ThreadComment,
-    Timestamp, Visibility, Workflow,
+    OpenPull, PullRequest, PullRequestState, QueueStanding, Queued, Rerun, Reviewed, Talk,
+    ThreadComment, Timestamp, Visibility, Workflow,
 };
 use crate::review_bot::{Activity, Login};
 use crate::settings::ForgeSlug;
@@ -242,8 +242,8 @@ impl Forge for Gh {
         runs::approve_workflow_runs(repo, head)
     }
 
-    fn rerun_run(&self, repo: &ForgeSlug, run: u64) -> Result<(), ForgeError> {
-        runs::rerun_run(repo, run)
+    fn rerun_run(&self, repo: &ForgeSlug, run: u64, rerun: Rerun) -> Result<(), ForgeError> {
+        runs::rerun_run(repo, run, rerun)
     }
 
     fn mark_ready(&self, repo: &ForgeSlug, number: u64) -> Result<(), ForgeError> {
@@ -515,6 +515,8 @@ enum Check {
         name: String,
         status: Option<String>,
         conclusion: Option<String>,
+        #[serde(rename = "detailsUrl")]
+        details_url: Option<String>,
     },
     StatusContext {
         context: String,
@@ -536,6 +538,7 @@ impl Check {
                 name,
                 status,
                 conclusion,
+                ..
             } => {
                 let outcome = match (status.as_deref(), conclusion.as_deref()) {
                     (Some("COMPLETED"), Some("SKIPPED")) => Outcome::Skipped,
@@ -557,6 +560,31 @@ impl Check {
     }
 }
 
+impl Check {
+    // The check run that is still queued: one that started ends at its own
+    // timeout, and a commit status has no run.
+    fn queued(&self) -> Option<Queued> {
+        match self {
+            Self::CheckRun {
+                name,
+                status: Some(status),
+                details_url,
+                ..
+            } if status == "QUEUED" => Some(Queued {
+                name: name.clone(),
+                run: details_url.as_deref().and_then(run_of),
+            }),
+            _ => None,
+        }
+    }
+}
+
+// The workflow run a check run's link, `.../actions/runs/<id>/job/<id>`, names
+fn run_of(details_url: &str) -> Option<u64> {
+    let (_, tail) = details_url.split_once("/actions/runs/")?;
+    tail.split('/').next()?.parse().ok()
+}
+
 // The whole run is read before a verdict, so a red run names every failure.
 fn checks(rollup: &[Check]) -> Checks {
     if rollup.is_empty() {
@@ -564,13 +592,17 @@ fn checks(rollup: &[Check]) -> Checks {
     }
     let mut failed = Vec::new();
     let mut ran = false;
+    let mut pending = false;
     for check in rollup {
         match check.outcome() {
-            (_, Outcome::Pending) => return Checks::Pending,
+            (_, Outcome::Pending) => pending = true,
             (name, Outcome::Failed) => failed.push(name.to_owned()),
             (_, Outcome::Passed) => ran = true,
             (_, Outcome::Skipped) => {}
         }
+    }
+    if pending {
+        return Checks::Pending(rollup.iter().filter_map(Check::queued).collect());
     }
     if failed.is_empty() {
         if ran { Checks::Passed } else { Checks::Skipped }
@@ -739,6 +771,43 @@ mod tests {
         assert_eq!(pr.checks, Checks::Passed);
     }
 
+    // The shape `gh pr view --json state,isDraft,headRefOid,statusCheckRollup,labels`
+    // gives shep-pm/shep#982, where the `windows-gnu` job of a finished run
+    // stayed queued.
+    const PR_QUEUED: &str = include_str!("../../../../../fixtures/gh-pr-view-queued.json");
+
+    #[test]
+    fn a_queued_check_run_is_read_with_its_workflow_run() {
+        let pr = parse_pull_request(PR_QUEUED.as_bytes()).unwrap();
+        assert_eq!(
+            pr.checks,
+            Checks::Pending(vec![Queued {
+                name: "windows-gnu".into(),
+                run: Some(39_697_676_985),
+            }])
+        );
+    }
+
+    #[test]
+    fn a_queued_check_run_whose_link_names_no_run_has_none() {
+        let queued = r#"{"__typename":"CheckRun","name":"deploy","status":"QUEUED","conclusion":"","detailsUrl":"https://ci.example.com/jobs/4"}"#;
+        let unlinked =
+            r#"{"__typename":"CheckRun","name":"build","status":"QUEUED","conclusion":""}"#;
+        assert_eq!(
+            rollup(&format!("[{queued},{unlinked}]")),
+            Checks::Pending(vec![
+                Queued {
+                    name: "deploy".into(),
+                    run: None
+                },
+                Queued {
+                    name: "build".into(),
+                    run: None
+                },
+            ])
+        );
+    }
+
     #[test]
     fn a_red_run_names_its_failed_checks() {
         let pr = parse_pull_request(PR_RED.as_bytes()).unwrap();
@@ -773,7 +842,10 @@ mod tests {
             r#"{"__typename":"CheckRun","name":"test","status":"QUEUED","conclusion":null}"#,
             r#"{"__typename":"StatusContext","context":"CodeRabbit","state":"PENDING"}"#,
         ] {
-            assert_eq!(rollup(&format!("[{failed},{running}]")), Checks::Pending);
+            assert!(matches!(
+                rollup(&format!("[{failed},{running}]")),
+                Checks::Pending(_)
+            ));
         }
     }
 
@@ -796,6 +868,19 @@ mod tests {
             parse_pull_request(view),
             Err(ForgeError::Unreadable(_))
         ));
+    }
+
+    #[test]
+    fn a_rerun_of_failed_jobs_passes_failed_and_a_rerun_of_all_does_not() {
+        let slug = ForgeSlug::try_from("shep-pm/shep".to_owned()).unwrap();
+        assert_eq!(
+            runs::rerun_args(&slug, "7", Rerun::Failed),
+            ["run", "rerun", "7", "--repo", "shep-pm/shep", "--failed"]
+        );
+        assert_eq!(
+            runs::rerun_args(&slug, "7", Rerun::All),
+            ["run", "rerun", "7", "--repo", "shep-pm/shep"]
+        );
     }
 
     #[test]

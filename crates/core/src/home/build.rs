@@ -8,6 +8,8 @@ use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
+use shep_client::PROTOCOL_VERSION;
+
 use crate::shepherd::SHEP_VERSION;
 
 /// How long a build has to answer `version --json`
@@ -65,8 +67,11 @@ impl From<BuildError> for String {
 pub struct Build {
     /// Kelpie's own version
     pub kelpie: String,
-    /// The shep version kelpie was made with, which the shepherd's minor must match
+    /// The shep version kelpie was made with, the earliest shepherd it takes
     pub shep: String,
+    /// The shep protocol kelpie speaks, absent from a build from before it said
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub protocol: Option<u32>,
 }
 
 impl Build {
@@ -75,6 +80,7 @@ impl Build {
         Self {
             kelpie: env!("CARGO_PKG_VERSION").to_owned(),
             shep: SHEP_VERSION.to_owned(),
+            protocol: Some(PROTOCOL_VERSION),
         }
     }
 
@@ -179,19 +185,20 @@ fn drain(pipe: Option<impl Read + Send + 'static>) -> Receiver<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test::Fake;
 
     #[test]
     fn this_build_names_its_kelpie_and_the_shep_it_is_made_with() {
         let json = serde_json::to_value(Build::this()).unwrap();
         assert_eq!(json["kelpie"], env!("CARGO_PKG_VERSION"));
         assert_eq!(json["shep"], SHEP_VERSION);
+        assert_eq!(json["protocol"], PROTOCOL_VERSION);
     }
 
     #[test]
     fn a_build_that_hangs_is_given_up_on() {
         let dir = tempfile::tempdir().unwrap();
-        let hang = dir.path().join("hang");
-        crate::test::write_script(&hang, "#!/bin/sh\nexec sleep 30\n");
+        let hang = crate::test::write_fake(dir.path(), "hang", &Fake::new().sleeps(30));
         let started = Instant::now();
         let err = Build::within(&hang, Duration::from_millis(200))
             .unwrap_err()
@@ -203,9 +210,8 @@ mod tests {
     #[test]
     fn a_build_that_exits_non_zero_is_refused_whatever_it_printed() {
         let dir = tempfile::tempdir().unwrap();
-        let sick = dir.path().join("sick");
         let said = r#"{"kelpie":"0.3.0","shep":"0.11.0"}"#;
-        crate::test::write_script(&sick, &format!("#!/bin/sh\necho '{said}'\nexit 3\n"));
+        let sick = crate::test::write_fake(dir.path(), "sick", &Fake::new().prints(said).exits(3));
         let err = Build::of(&sick).unwrap_err().to_string();
         assert!(err.contains("exited"), "{err}");
     }

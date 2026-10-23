@@ -605,7 +605,7 @@ fn after_compaction(cwd: &Path, settings: &serde_json::Value) -> String {
         }
         for hook in entry["hooks"].as_array().into_iter().flatten() {
             let command = hook["command"].as_str().expect("a hook has a command");
-            let out = std::process::Command::new("sh")
+            let out = std::process::Command::new(crate::spawn::sh())
                 .args(["-c", command])
                 .current_dir(cwd)
                 .output()

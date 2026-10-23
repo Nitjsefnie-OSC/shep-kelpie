@@ -56,7 +56,7 @@ impl SandboxedTests {
         let mut policy = fence_policy(fence);
         policy.no_keychain = run.reach.block_keychain;
         // Its stderr joins its stdout where it was written, so the tail reads in order.
-        let mut command = crate::spawn::command("/bin/sh");
+        let mut command = crate::spawn::command(crate::spawn::sh());
         command
             .arg("-c")
             .arg(format!("exec 2>&1; {}", run.command))

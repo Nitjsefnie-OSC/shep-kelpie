@@ -1,7 +1,5 @@
 use std::collections::BTreeMap;
-use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
-use std::process::ExitStatus;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -32,7 +30,7 @@ pub(super) const THREAD: &str = "01a0f7fd-4ed5-7773-80ea-165edc292d8d";
 
 fn output(code: i32, stdout: &str, stderr: &str) -> Output {
     Output {
-        status: ExitStatus::from_raw(code << 8),
+        status: crate::test::exited(code),
         stdout: stdout.into(),
         stderr: stderr.into(),
     }
@@ -176,7 +174,7 @@ fn only_a_worker_runs_commands_and_a_call_with_no_fence_writes_no_file() {
         assert_eq!(hooks[0]["matcher"].as_str(), Some("^apply_patch$"));
         // The hook refuses as Codex reads a refusal: exit 2, the reason on stderr.
         let refuse = hooks[0]["hooks"][0]["command"].as_str().unwrap();
-        let ran = std::process::Command::new("sh")
+        let ran = std::process::Command::new(crate::spawn::sh())
             .args(["-c", refuse])
             .output()
             .unwrap();

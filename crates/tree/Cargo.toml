@@ -1,0 +1,34 @@
+[package]
+name = "shep-kelpie-tree"
+description = "A process and everything it started, stopped as one. Uses no other member"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+# The workspace forbids unsafe code. This crate alone denies it instead, and
+# allows it in the one module that calls the Windows job object API.
+[lints.rust]
+missing_docs = "deny"
+missing_debug_implementations = "deny"
+unsafe_code = "deny"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+self_named_module_files = "deny"
+
+[dependencies]
+tokio = { workspace = true, features = ["macros", "process", "rt", "signal"] }
+
+[target.'cfg(unix)'.dependencies]
+rustix.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-sys.workspace = true
+
+[dev-dependencies]
+shep-kelpie-test-support.workspace = true
+# Only for the tests that read a tokio child's output
+tokio = { workspace = true, features = ["io-util", "time"] }

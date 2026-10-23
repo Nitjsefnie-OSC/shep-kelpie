@@ -556,14 +556,11 @@ fn adopt_abandons_a_merge_that_conflicts_and_refuses_the_worktree() {
 // the work item's cleanup would retry for hours.
 #[test]
 fn remove_deletes_the_branch_on_origin_when_its_pre_push_hook_fails() {
-    use std::os::unix::fs::PermissionsExt;
-
     let rig = Rig::new();
     rig.prepare("kelpie/7", Start::Main, &Remote::Origin);
     rig.at_worktree(&["push", "--quiet", "origin", "kelpie/7"]);
     let hook = rig.repo().join(".git/hooks/pre-push");
-    std::fs::write(&hook, "#!/bin/sh\nexit 1\n").unwrap();
-    std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+    shep_kelpie_test_support::write_script(&hook, "#!/bin/sh\nexit 1\n");
 
     remove(
         &rig.repo(),

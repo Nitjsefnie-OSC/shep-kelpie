@@ -153,8 +153,7 @@ fn a_yes_on_a_refused_push_pushes_the_kept_commits_again() {
     let (rig, runner, url, head) = noted();
     let hook = Path::new(&url).join("hooks/pre-receive");
     std::fs::create_dir_all(hook.parent().unwrap()).unwrap();
-    std::fs::write(&hook, "#!/bin/sh\nexit 1\n").unwrap();
-    std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+    crate::test::write_script(&hook, "#!/bin/sh\nexit 1\n");
     rig.claude.script([Scripted::Commit("fix.txt", "fixed\n")]);
     step(&runner).unwrap();
     rig.verdict(&runner);
@@ -240,8 +239,7 @@ fn a_fix_the_fork_refuses_raises_push_refused_and_not_a_fix_not_pushed() {
         )])]);
     let hook = Path::new(&url).join("hooks/pre-receive");
     std::fs::create_dir_all(hook.parent().unwrap()).unwrap();
-    std::fs::write(&hook, "#!/bin/sh\necho 'edits are off' >&2\nexit 1\n").unwrap();
-    std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+    crate::test::write_script(&hook, "#!/bin/sh\necho 'edits are off' >&2\nexit 1\n");
     rig.forge.set_checks(&head, Checks::Passed);
     rig.claude.script([Scripted::Commit("fix.txt", "fixed\n")]);
 
@@ -269,8 +267,7 @@ fn a_pull_request_closed_by_hand_is_pushed_nothing_and_raises_closed_not_push_re
     // The fork would refuse a push, as it does once its branch is gone.
     let hook = Path::new(&url).join("hooks/pre-receive");
     std::fs::create_dir_all(hook.parent().unwrap()).unwrap();
-    std::fs::write(&hook, "#!/bin/sh\necho 'gone' >&2\nexit 1\n").unwrap();
-    std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+    crate::test::write_script(&hook, "#!/bin/sh\necho 'gone' >&2\nexit 1\n");
     // The worker commits, and the maintainer closes the pull request, while
     // it is at work.
     let hold = Hold::default();
@@ -313,8 +310,7 @@ fn a_commit_the_fork_refused_at_first_is_still_a_fix_sent_unread_on_purpose() {
     let (rig, runner, url, _) = noted();
     let hook = Path::new(&url).join("hooks/pre-receive");
     std::fs::create_dir_all(hook.parent().unwrap()).unwrap();
-    std::fs::write(&hook, "#!/bin/sh\necho 'edits are off' >&2\nexit 1\n").unwrap();
-    std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+    crate::test::write_script(&hook, "#!/bin/sh\necho 'edits are off' >&2\nexit 1\n");
     rig.claude.script([Scripted::Commit("fix.txt", "fixed\n")]);
 
     step(&runner).unwrap();

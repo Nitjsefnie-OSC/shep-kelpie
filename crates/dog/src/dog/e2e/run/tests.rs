@@ -232,6 +232,7 @@ async fn a_hard_link_in_the_results_folder_is_replaced_not_written_through() {
 // The run is on a thread and runtime of its own, so a copy that blocks on the
 // FIFO fails this test by timeout instead of hanging it.
 #[tokio::test]
+#[cfg_attr(windows, ignore = "a FIFO is a Unix file")]
 async fn a_fifo_in_the_results_folder_does_not_hold_the_run() {
     let stand = StandIn::new();
     let script = format!(

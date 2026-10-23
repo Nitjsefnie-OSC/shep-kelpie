@@ -14,13 +14,13 @@
 use std::path::Path;
 use std::time::Duration;
 
-use rustix::io::Errno;
-use rustix::process::{Pid, Signal, kill_process, kill_process_group};
 use tokio::time::Instant;
 
-use super::{Caught, Signals, exit_number};
+use super::{exit_number, listen};
+use crate::interrupt::{Caught, Interrupts};
 use crate::lease::counted::CARGO_TEST;
 use crate::lease::door::{Answer, Ask, SOCKET_VAR, Visit};
+use crate::tree::{Lead, Reach, Signal, Tree};
 
 /// What a run exits with when it could not have the lease, as `EX_TEMPFAIL`
 pub const NO_LEASE: u8 = 75;
@@ -80,7 +80,7 @@ pub async fn run_with_patience(
     let Some((program, args)) = command.split_first() else {
         return NOT_RUN;
     };
-    let mut signals = match Signals::new() {
+    let mut signals = match listen() {
         Ok(signals) => signals,
         Err(e) => return failed(&e, NO_LEASE),
     };
@@ -101,7 +101,7 @@ pub async fn run_with_patience(
     }
     let spawned = tokio::process::Command::from(crate::spawn::command(program))
         .args(args)
-        .process_group(0)
+        .lead()
         .spawn();
     let _ = visit.inheritable(false);
     let child = match spawned {
@@ -129,18 +129,19 @@ struct Rejoin<'a> {
     patience: Patience,
 }
 
-// Waits for `child`, which leads its own process group, until it ends or
-// `limit` has passed since `granted`, and returns the number to exit with. The
-// group is the command and everything it started: a signal to the run is passed
-// on to the whole group, and so is an interrupt, which the terminal sends to the
-// run's group and not to the command's.
+// Waits for `child`, which leads its own tree, until it ends or `limit` has
+// passed since `granted`, and returns the number to exit with. The tree is the
+// command and everything it started: a signal to the run is passed on to the
+// whole tree, and so is an interrupt, which the terminal sends to the run's
+// group and not to the command's.
 async fn tend(
     mut child: tokio::process::Child,
     visit: Option<Visit>,
     rejoin: &Rejoin<'_>,
-    signals: &mut Signals,
+    signals: &mut Interrupts,
     (granted, limit): (Instant, Duration),
 ) -> u8 {
+    let tree = Tree::of_tokio(&child).ok();
     let deadline = granted + limit;
     let patience = rejoin.patience;
     let mut held = visit;
@@ -162,17 +163,12 @@ async fn tend(
                 return status.map_or_else(|e| failed(&e.to_string(), 1), exit_number);
             }
             Event::Caught(caught) => {
-                if let Some(group) = child.id().and_then(group_of) {
-                    let signal = match caught {
-                        Caught::Interrupt => Signal::INT,
-                        Caught::Terminate => Signal::TERM,
-                        Caught::Hangup => Signal::HUP,
-                    };
-                    if send(group, signal) {
-                        say(
-                            "cannot signal the command's process group: passed the signal to the command alone",
-                        );
-                    }
+                if let Some(tree) = &tree
+                    && tree.send(caught.signal()) == Reach::Partial
+                {
+                    say(
+                        "cannot signal the command's process tree: passed the signal to the command alone",
+                    );
                 }
             }
             Event::DogGone => {
@@ -194,7 +190,7 @@ async fn tend(
                 }
             }
             Event::Overran => {
-                end(&mut child).await;
+                end(&mut child, tree.as_ref()).await;
                 if let Some(visit) = held {
                     visit.give_back().await;
                 }
@@ -216,37 +212,20 @@ enum Event {
     Overran,
 }
 
-// The process group a child leads, which is its pid.
-fn group_of(pid: u32) -> Option<Pid> {
-    Pid::from_raw(i32::try_from(pid).ok()?)
-}
-
-// Signals the group, or the leader alone when the group signal is refused, as a
-// worker's sandbox may; returns whether it had to fall back. A group that is
-// already gone is what was wanted.
-fn send(group: Pid, signal: Signal) -> bool {
-    match kill_process_group(group, signal) {
-        Ok(()) | Err(Errno::SRCH) => false,
-        Err(_) => {
-            let _ = kill_process(group, signal);
-            true
-        }
-    }
-}
-
-// Ends the child's group: SIGTERM, then SIGKILL after `KILL_AFTER` whether or
-// not the child has gone, since what it started may hold on.
-async fn end(child: &mut tokio::process::Child) {
-    let Some(group) = child.id().and_then(group_of) else {
+// Ends the child's tree: a request to end, then the kill after `KILL_AFTER`
+// whether or not the child has gone, since what it started may hold on.
+async fn end(child: &mut tokio::process::Child, tree: Option<&Tree>) {
+    let Some(tree) = tree else {
+        let _ = child.kill().await;
         return;
     };
     let mut alone = false;
-    for signal in [Signal::TERM, Signal::KILL] {
-        if send(group, signal) && !alone {
-            say("cannot signal the command's process group: ending the command alone");
+    for signal in [Signal::Terminate, Signal::Kill] {
+        if tree.send(signal) == Reach::Partial && !alone {
+            say("cannot signal the command's process tree: ending the command alone");
             alone = true;
         }
-        if signal == Signal::TERM {
+        if signal == Signal::Terminate {
             // The leader going does not spare what it started: the kill follows.
             let _ = tokio::time::timeout(KILL_AFTER, child.wait()).await;
         }
@@ -260,7 +239,7 @@ async fn end(child: &mut tokio::process::Child) {
 async fn wait_for_turn(
     socket: &Path,
     ask: &Ask,
-    signals: &mut Signals,
+    signals: &mut Interrupts,
     patience: Patience,
 ) -> Result<Result<Visit, Caught>, String> {
     let mut tries = 0;
@@ -311,7 +290,7 @@ enum Turn {
     Lost { why: String, answered: bool },
 }
 
-async fn one_turn(socket: &Path, ask: &Ask, signals: &mut Signals) -> Turn {
+async fn one_turn(socket: &Path, ask: &Ask, signals: &mut Interrupts) -> Turn {
     let mut visit = match Visit::knock(socket, ask).await {
         Ok(visit) => visit,
         Err(why) => {
@@ -405,24 +384,26 @@ fn say(message: &str) {
 
 #[cfg(test)]
 mod tests {
-    use rustix::process::{Pid, test_kill_process};
-
     use super::*;
+    #[cfg(unix)]
+    use crate::tree::alive;
 
-    // A command in its own group, as `run` starts it.
+    // A command in its own tree, as `run` starts it.
+    #[cfg(unix)]
     fn start(script: &str) -> tokio::process::Child {
-        tokio::process::Command::new("sh")
+        tokio::process::Command::new(crate::spawn::sh())
             .args(["-c", script])
-            .process_group(0)
+            .lead()
             .spawn()
             .unwrap()
     }
 
     // Tends `child` with no dog and a bound `limit` from now.
+    #[cfg(unix)]
     async fn tended(child: tokio::process::Child, limit: Duration) -> u8 {
         // A signal another test sends this process reaches every run alive.
         let _turn = super::super::tests::LISTENING.lock().await;
-        let mut signals = Signals::new().unwrap();
+        let mut signals = listen().unwrap();
         let rejoin = Rejoin {
             socket: Path::new("no.sock"),
             ask: Ask::new(CARGO_TEST, std::process::id(), "test"),
@@ -434,10 +415,6 @@ mod tests {
         tend(child, None, &rejoin, &mut signals, (Instant::now(), limit)).await
     }
 
-    fn alive(pid: i32) -> bool {
-        Pid::from_raw(pid).is_some_and(|pid| test_kill_process(pid).is_ok())
-    }
-
     #[test]
     fn the_first_failed_knock_says_how_long_it_will_ask() {
         assert_eq!(
@@ -446,6 +423,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn a_command_past_its_bound_is_ended_with_its_children_and_exits_124() {
         let dir = tempfile::tempdir().unwrap();
@@ -458,7 +436,7 @@ mod tests {
             started.elapsed() < Duration::from_secs(5),
             "it waited for the sleep"
         );
-        let sleeper: i32 = std::fs::read_to_string(&pidfile)
+        let sleeper: u32 = std::fs::read_to_string(&pidfile)
             .unwrap()
             .trim()
             .parse()
@@ -473,6 +451,7 @@ mod tests {
     }
 
     // The run's own signal arrives as a group's, not the child's alone.
+    #[cfg(unix)]
     #[tokio::test]
     async fn a_signal_the_run_passes_on_reaches_what_the_command_started() {
         let dir = tempfile::tempdir().unwrap();
@@ -480,13 +459,13 @@ mod tests {
         let script = format!("sleep 300 & echo $! > {}; wait", pidfile.display());
         let mut child = start(&script);
         let sleeper = loop {
-            match std::fs::read_to_string(&pidfile).map(|text| text.trim().parse::<i32>()) {
+            match std::fs::read_to_string(&pidfile).map(|text| text.trim().parse::<u32>()) {
                 Ok(Ok(pid)) => break pid,
                 _ => tokio::time::sleep(Duration::from_millis(20)).await,
             }
         };
         assert!(alive(sleeper));
-        send(group_of(child.id().unwrap()).unwrap(), Signal::TERM);
+        Tree::of_tokio(&child).unwrap().send(Signal::Terminate);
         child.wait().await.unwrap();
         for _ in 0..100 {
             if !alive(sleeper) {
@@ -497,6 +476,7 @@ mod tests {
         panic!("the command's child outlived the signal");
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn a_command_that_ends_in_time_keeps_its_exit_code() {
         assert_eq!(tended(start("exit 3"), Duration::from_secs(30)).await, 3);

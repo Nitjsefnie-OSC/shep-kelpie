@@ -11,7 +11,9 @@
 // as it did before they moved here
 mod test;
 
+#[cfg(unix)]
+pub use test::signalled;
 pub use test::{
-    CALL_PATIENCE, Elsewhere, cut_from_main, git, linked_worktree, main_commits, make_fifo,
-    short_tempdir, waits_for, write_in, write_script,
+    CALL_PATIENCE, Elsewhere, Fake, cut_from_main, exited, git, linked_worktree, main_commits,
+    make_fifo, short_tempdir, waits_for, write_fake, write_in, write_script,
 };

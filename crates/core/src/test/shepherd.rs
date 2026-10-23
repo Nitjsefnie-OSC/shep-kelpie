@@ -89,6 +89,11 @@ impl FakeShepherd {
         }
     }
 
+    /// Says from now on that this shepherd accepts no protocol below `oldest`
+    pub fn accepts_from(&self, oldest: u32) {
+        self.memory.accepts_from(oldest);
+    }
+
     /// How to reach this shepherd, from the code under test
     pub fn dial(&self) -> Arc<dyn Dial> {
         Arc::new(self.memory.clone())

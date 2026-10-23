@@ -1,5 +1,5 @@
 //! The processes kelpie starts: [`spawn`], the [`terminal`], [`tools`] and git
-//! [`worktree`]s
+//! [`worktree`]s, and how one ended: [`status`]
 //!
 //! Uses no other member of the workspace.
 
@@ -7,6 +7,7 @@
 #![doc(test(attr(deny(warnings))))]
 
 pub mod spawn;
+pub mod status;
 pub mod terminal;
 pub mod tools;
 pub mod worktree;

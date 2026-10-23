@@ -258,7 +258,7 @@ impl Runner {
                         .collect(),
                 );
             }
-            Checks::Pending if overdue => {
+            Checks::Pending(_) if overdue => {
                 return Next::Red(vec![format!(
                     "its checks were still pending after {hours} hours"
                 )]);
@@ -266,7 +266,7 @@ impl Runner {
             Checks::None if overdue => {
                 return Next::Red(vec![format!("no check reported on it after {hours} hours")]);
             }
-            Checks::None | Checks::Pending => {
+            Checks::None | Checks::Pending(_) => {
                 return Next::Waiting("waiting for its checks to finish".into());
             }
             Checks::Passed | Checks::Skipped => {}
