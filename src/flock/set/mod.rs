@@ -5,6 +5,7 @@
 //! read it, and only then writes the whole table back. A runner that is
 //! running takes the change at its next wake.
 
+use std::collections::BTreeMap;
 use std::path::Path;
 
 use serde_json::{Map, Value};
@@ -12,6 +13,7 @@ use shep_client::shep_core::config::DogTable;
 use shep_client::shep_core::protocol::Request;
 use shep_client::shep_core::protocol::request::Response;
 
+use super::glob::Glob;
 use super::send;
 use super::share::share_none;
 use crate::agents::Agents;
@@ -27,6 +29,17 @@ pub struct Place<'a> {
     pub home: &'a Path,
     /// The project's own folders under kelpie's home
     pub paths: &'a ProjectPaths,
+}
+
+/// The folders `set_all` reads each matched project's settings against
+#[derive(Debug, Clone, Copy)]
+pub struct Homes<'a> {
+    /// The maintainer's home, for `~/` in settings
+    pub home: &'a Path,
+    /// Kelpie's home, which holds each project's own folders
+    pub kelpie_home: &'a Path,
+    /// The shep home
+    pub shep_home: &'a Path,
 }
 
 /// The project's table, or one dotted key's value, as TOML lines
@@ -47,6 +60,28 @@ pub async fn get(
     let value = lookup(&table, key)
         .ok_or_else(|| format!("`{key}` is not set in project {name}'s settings"))?;
     Ok(lines(&render_value(value)?))
+}
+
+/// One dotted `key` of every project whose name matches `glob`, a line each
+///
+/// A line is `project <name>: <value>` as TOML, or `project <name>: not set`.
+///
+/// # Errors
+///
+/// A message when the shepherd cannot be read or no project's name matches.
+pub async fn get_all(
+    client: &dyn Connection,
+    glob: &Glob,
+    key: &str,
+) -> Result<Vec<String>, String> {
+    let tables = super::tables(client).await?;
+    matching(&tables, glob)?
+        .into_iter()
+        .map(|name| match lookup(&tables[name.as_str()], key) {
+            Some(value) => Ok(format!("project {name}: {}", render_value(value)?)),
+            None => Ok(format!("project {name}: not set")),
+        })
+        .collect()
 }
 
 /// Sets one dotted `key` of the project's table to `value`, and says what it wrote
@@ -70,6 +105,89 @@ pub async fn set(
     key: &str,
     value: &str,
 ) -> Result<Vec<String>, String> {
+    let change = prepare(client, name, place, key, value).await?;
+    write(client, &change).await?;
+    Ok(vec![change.line])
+}
+
+/// [`set`] on every project whose name matches `glob`, a line each
+///
+/// Every matched project's change is checked before any is written.
+///
+/// # Errors
+///
+/// A message when the shepherd cannot be read, no project's name matches, or
+/// a project refuses the change: the message names each that refuses and
+/// why, and nothing is written. Two projects moved onto one `git.checkout` or
+/// `git.remote` are refused too. A write that fails partway ends in a message
+/// naming the projects written and those not.
+pub async fn set_all(
+    client: &dyn Connection,
+    glob: &Glob,
+    homes: Homes<'_>,
+    key: &str,
+    value: &str,
+) -> Result<Vec<String>, String> {
+    let tables = super::tables(client).await?;
+    let mut changes = Vec::new();
+    let mut refused = Vec::new();
+    for name in matching(&tables, glob)? {
+        let paths = ProjectPaths::under(homes.kelpie_home, homes.shep_home, &name);
+        let place = Place {
+            home: homes.home,
+            paths: &paths,
+        };
+        match prepare(client, &name, place, key, value).await {
+            Ok(change) => changes.push(change),
+            Err(reason) => refused.push(format!("project {name}: {reason}")),
+        }
+    }
+    if !refused.is_empty() {
+        return Err(format!(
+            "nothing is written, since these refuse `{key}`:\n{}",
+            refused.join("\n")
+        ));
+    }
+    let moved: Vec<&str> = (changes.iter())
+        .filter(|change| change.git_moved)
+        .map(|change| change.name.as_str())
+        .collect();
+    if let [_, _, ..] = moved[..] {
+        return Err(format!(
+            "nothing is written, since `{key}` would put {} on one checkout or repo",
+            moved.join(", ")
+        ));
+    }
+    for (done, change) in changes.iter().enumerate() {
+        if let Err(failed) = write(client, change).await {
+            let (written, left) = changes.split_at(done);
+            return Err(format!(
+                "{failed}\nwritten: {}\nnot written: {}",
+                names_of(written),
+                names_of(left)
+            ));
+        }
+    }
+    Ok(changes.into_iter().map(|change| change.line).collect())
+}
+
+// A change to a project's table that passed its checks, and so is ready to write.
+struct Change {
+    name: ProjectName,
+    request: Request,
+    line: String,
+    git_moved: bool,
+}
+
+// Reads the project's table, changes `key` in it, and checks the result as the
+// runner will read it, writing nothing.
+async fn prepare(
+    client: &dyn Connection,
+    name: &ProjectName,
+    place: Place<'_>,
+    key: &str,
+    value: &str,
+) -> Result<Change, String> {
     let read = shepherd::read_tables_with(client, name.as_str()).await?;
     let before = read.project.clone().ok_or_else(|| no_table(name))?;
     let mut table = before.clone();
@@ -103,15 +221,48 @@ pub async fn set(
         dog: DOG.to_owned(),
         table: changed.project.map(DogTable::from),
     };
-    send(client, request, |r| {
-        matches!(r, Response::SheepDogSettingsSet { .. })
-    })
-    .await?;
     let reaches = match waits_for_start(key) {
         true => "a running runner takes it when it next starts",
         false => "a running runner takes it at its next wake",
     };
-    Ok(vec![format!("project {name}: {key} = {shown}; {reaches}")])
+    Ok(Change {
+        name: name.clone(),
+        request,
+        line: format!("project {name}: {key} = {shown}; {reaches}"),
+        git_moved,
+    })
+}
+
+async fn write(client: &dyn Connection, change: &Change) -> Result<(), String> {
+    send(client, change.request.clone(), |r| {
+        matches!(r, Response::SheepDogSettingsSet { .. })
+    })
+    .await
+}
+
+// The projects whose names match `glob`, in order.
+fn matching(
+    tables: &BTreeMap<String, Map<String, Value>>,
+    glob: &Glob,
+) -> Result<Vec<ProjectName>, String> {
+    let names: Vec<ProjectName> = (tables.keys())
+        .filter(|sheep| glob.matches(sheep))
+        .filter_map(|sheep| ProjectName::try_from(sheep.as_str()).ok())
+        .collect();
+    if names.is_empty() {
+        return Err(format!("no project's name matches `{glob}`"));
+    }
+    Ok(names)
+}
+
+fn names_of(changes: &[Change]) -> String {
+    match changes {
+        [] => "none".to_owned(),
+        changes => (changes.iter())
+            .map(|change| change.name.as_str())
+            .collect::<Vec<_>>()
+            .join(", "),
+    }
 }
 
 // Whether a runner keeps the value it started with: its reread leaves these until a start.

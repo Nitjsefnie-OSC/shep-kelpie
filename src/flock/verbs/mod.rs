@@ -7,6 +7,7 @@ use std::process::ExitCode;
 use std::sync::Arc;
 
 use super::control::Format;
+use super::glob::Named;
 use super::{Checkout, Launch, add, attach, control, help, pm, rule, set, ticket, usage, watch};
 use crate::adapters::{Base, ClaudeCli, Gh, LoginToken, SandboxRuntime, SystemGit};
 use crate::agents::{Agents, Writer};
@@ -26,7 +27,7 @@ use crate::upgrade::restart::{Interrupt, Patience};
 /// here, `usage`, which reads the usage ledger here, `watch`, which
 /// follows the runner's log and the sessions' transcripts here, `ticket`, which
 /// files and reads a local project's tickets here, and `set` and `get`, which
-/// change and read one setting of the project's table here
+/// change and read one setting of the project's table here, or of every project a glob matches
 pub const VERBS: [&str; 24] = [
     "add", "start", "pause", "finish", "status", "rule", "rework", "adopt", "gate", "drop",
     "timings", "issue", "attach", "tell", "pm", "drain", "undrain", "usage", "watch", "board",
@@ -67,6 +68,9 @@ usage: shep kelpie add [<project>] [--base <branch>]
        shep kelpie get [<key>]           the project's settings, or one by its dotted key
        shep kelpie set <key> <value>     changes one setting, such as git.merging auto or
                                          worker.allowed_domains '[\"crates.io\"]'
+       shep kelpie get -p '<glob>' <key> | set -p '<glob>' <key> <value>
+                                         the same across the projects whose names match,
+                                         such as -p 'shep*'; `set` writes all or none
        shep kelpie ticket                the forms of the local tickets' verbs, below
        shep kelpie ticket new \"<title>\" [--body <text>] [--label <label>]... [--parent <id>] [--blocked-by <id>]...
                                          files a local ticket and prints its id
@@ -99,7 +103,9 @@ JSON object in place of plain text.
 
 `-p <project>` or `--project <project>` goes anywhere in the line, before a
 ruling's answer. Without it, the project is the one whose repo holds this
-folder, or whose GitHub repo is this clone's `origin`.";
+folder, or whose GitHub repo is this clone's `origin`. Only `set` and `get` take a
+glob of project names (`*`, `?`, `[...]`) in `-p`: quote it, or the shell expands
+it against files.";
 
 /// Runs `kelpie <command> <args>` for one of [`VERBS`]
 pub fn main(command: &str, args: &[String]) -> ExitCode {
@@ -137,6 +143,8 @@ async fn run(
     let kelpie_home = crate::home::kelpie_home_of(shep_home);
     // A ruling's answer starts after its id and first word.
     let (named, args) = split_project(args, (command == "rule").then_some(2))?;
+    // Only `set` and `get` take a glob of projects.
+    let (named, glob) = Named::split(named, command)?;
     // Only `add` takes a base: to every other verb `--base` is a word.
     let (base, args) = match command {
         "add" => split_base(&args)?,
@@ -202,6 +210,19 @@ async fn run(
         Some(name) => Ok(name.clone()),
         None => control::project_here(&client, &here, &home).await,
     };
+    if let Some(glob) = &glob {
+        let homes = set::Homes {
+            home: &home,
+            kelpie_home: &kelpie_home,
+            shep_home,
+        };
+        return match (command, args.as_slice()) {
+            ("get", [key]) => set::get_all(&client, glob, key).await,
+            ("set", [key, value]) => set::set_all(&client, glob, homes, key, value).await,
+            ("get", []) => Err(format!("`-p {glob}` needs a key to get\n\n{USAGE}")),
+            _ => Err(USAGE.to_owned()),
+        };
+    }
     let send = async |action: &str, params: Option<&str>| {
         control::send(&client, &project().await?, action, params).await
     };
@@ -489,17 +510,19 @@ async fn answer(
 /// `-p <project>`, `--project <project>` or `--project=<project>` from
 /// anywhere in `args` before a `--`, and the rest in order
 ///
+/// A value with `*`, `?` or `[` is a glob over the projects' names.
+///
 /// With `words_from`, everything after that many other arguments is words,
 /// so a ruling's answer can carry `-p`.
 ///
 /// # Errors
 ///
 /// A message when the project is given twice, has no name after it, or is
-/// not a project name.
+/// neither a project name nor a glob.
 pub fn split_project(
     args: &[String],
     words_from: Option<usize>,
-) -> Result<(Option<ProjectName>, Vec<String>), String> {
+) -> Result<(Option<Named>, Vec<String>), String> {
     let mut named = None;
     let mut rest = Vec::new();
     let mut args = args.iter();
@@ -528,7 +551,7 @@ pub fn split_project(
         if named.is_some() {
             return Err("name the project once".into());
         }
-        named = Some(ProjectName::try_from(name).map_err(|e| e.to_string())?);
+        named = Some(Named::parse(name)?);
     }
     Ok((named, rest))
 }
