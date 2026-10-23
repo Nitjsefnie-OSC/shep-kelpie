@@ -1,4 +1,4 @@
-//! `shep kelpie tools install`: five steps, each announced as it starts and
+//! `shep kelpie tools install`: four steps, each announced as it starts and
 //! as it ends, closing with a table of every tool and how it fared
 
 use std::io::{IsTerminal, Write};
@@ -6,10 +6,9 @@ use std::time::Instant;
 
 use super::graph::{self, Asset};
 use super::report::{Outcome, Report};
-use super::{PACKAGE, PACKAGE_NAME, Tools, run};
+use super::{PACKAGE, Tools, run};
 
-const STEPS: usize = 5;
-const KEYCHAIN: &str = "sandbox without the keychain";
+const STEPS: usize = 4;
 const CHROMIUM: &str = "Chromium";
 const CODE_GRAPH: &str = "codebase-memory-mcp";
 
@@ -63,18 +62,13 @@ impl Tools {
     // `install` with `setup`'s programs, saying what it does to `out`.
     pub(super) fn install_with(&self, setup: &Setup, out: &mut dyn Write) -> Result<(), String> {
         let pinned = pinned()?;
-        let runtime = pinned
-            .iter()
-            .find(|(name, _)| name == PACKAGE_NAME)
-            .map_or("-", |(_, version)| version.as_str());
         let mut report = Report::new(out, STEPS);
         report.header(&self.0);
         for (name, version) in &pinned {
             report.expect(1, name, version);
         }
-        report.expect(2, KEYCHAIN, runtime);
-        report.expect(3, CHROMIUM, "-");
-        report.expect(4, CODE_GRAPH, graph::RELEASE);
+        report.expect(2, CHROMIUM, "-");
+        report.expect(3, CODE_GRAPH, graph::RELEASE);
         let result = self.steps(setup, &pinned, &mut report);
         report.summary();
         result
@@ -94,31 +88,8 @@ impl Tools {
             .map(|()| Done::ok(format!("done in {} s", began.elapsed().as_secs())));
         conclude(report, 1, "npm packages", packages)?;
 
-        // Only macOS has a keychain, and only its profile names the services.
-        if cfg!(target_os = "macos") {
-            report.start(
-                2,
-                &format!("{KEYCHAIN}: cutting it from the runtime's profile"),
-            );
-            let copy = self.block_keychain().map(|()| {
-                Done::ok(format!(
-                    "written ({})",
-                    self.sandbox_without_keychain().display()
-                ))
-            });
-            conclude(report, 2, KEYCHAIN, copy)?;
-        } else {
-            let why = "only macOS has a keychain";
-            report.start(2, KEYCHAIN);
-            let skipped = Done {
-                outcome: Outcome::Skipped(why.to_owned()),
-                note: format!("skipped, {why}"),
-            };
-            conclude(report, 2, KEYCHAIN, Ok(skipped))?;
-        }
-
         report.start(
-            3,
+            2,
             &format!(
                 "{CHROMIUM} for the worker's browser, into {}",
                 self.browsers().display()
@@ -126,10 +97,10 @@ impl Tools {
         );
         let browser = self.install_browser().and_then(|()| {
             let build = self.chromium_build()?;
-            report.learned(3, CHROMIUM, &build);
+            report.learned(2, CHROMIUM, &build);
             Ok(Done::ok(format!("done: {build}")))
         });
-        conclude(report, 3, CHROMIUM, browser)?;
+        conclude(report, 2, CHROMIUM, browser)?;
 
         let release = graph::RELEASE;
         let what = match &setup.asset {
@@ -141,7 +112,7 @@ impl Tools {
             ),
         };
         report.start(
-            4,
+            3,
             &format!("code graph server {CODE_GRAPH} {release} ({what})"),
         );
         let graph = self
@@ -161,17 +132,14 @@ impl Tools {
                     }
                 }
             });
-        conclude(report, 4, "code graph server", graph)
+        conclude(report, 3, "code graph server", graph)
     }
 
-    // The package.json written, the last install's keychain copy gone, and npm run.
+    // The package.json written, and npm run.
     fn install_packages(&self, npm: &str) -> Result<(), String> {
         std::fs::create_dir_all(&self.0)
             .and_then(|()| std::fs::write(self.0.join("package.json"), PACKAGE))
             .map_err(|e| format!("cannot write {}: {e}", self.0.display()))?;
-        // The copy of the last install is of the last version. It goes before npm
-        // can fail, so a failed install leaves none for a call to find blocked.
-        self.remove_keychain_copy()?;
         let args = ["install", "--no-audit", "--no-fund"];
         run(crate::spawn::command(npm).args(args).current_dir(&self.0))
     }
@@ -224,21 +192,13 @@ mod tests {
     use shep_kelpie_test_support::write_script;
 
     // An npm that lays down what a real install of the four packages would: the
-    // runtime with a profile naming the two keychain services, and playwright-core
-    // with a cli that fetches a Chromium build.
+    // runtime's cli, and playwright-core with a cli that fetches a Chromium build.
     const NPM: &str = r#"#!/bin/sh
 set -e
 echo "added 4 packages"
 runtime=node_modules/@anthropic-ai/sandbox-runtime
-mkdir -p $runtime/dist/sandbox node_modules/playwright-core node_modules/@playwright/mcp
+mkdir -p $runtime/dist node_modules/playwright-core node_modules/@playwright/mcp
 echo '// srt' > $runtime/dist/cli.js
-cat > $runtime/dist/sandbox/macos-sandbox-utils.js <<'JS'
-const lines = [
-    'com.apple.securityd.xpc',
-    'com.apple.SecurityServer',
-    'kept',
-];
-JS
 cat > node_modules/playwright-core/cli.js <<'JS'
 const fs = require('fs');
 const path = require('path');
@@ -376,17 +336,10 @@ cp "$0.body" "$out"
             "{packages:?}"
         );
 
-        let keychain = step(&lines, 2);
-        assert!(keychain.len() >= 2, "no end line: {keychain:?}");
-        assert!(
-            keychain[0].contains("sandbox without the keychain"),
-            "{keychain:?}"
-        );
-
-        let browser = step(&lines, 3);
+        let browser = step(&lines, 2);
         assert_eq!(browser.last().unwrap().trim(), "done: chromium-1200");
 
-        let graph = step(&lines, 4);
+        let graph = step(&lines, 3);
         assert!(graph[0].contains(CODE_GRAPH), "{graph:?}");
         assert!(graph[0].contains(graph::RELEASE), "{graph:?}");
         assert!(
@@ -398,7 +351,7 @@ cp "$0.body" "$out"
             "{graph:?}"
         );
 
-        let table = step(&lines, 5);
+        let table = step(&lines, 4);
         assert!(table[0].contains("summary"), "{table:?}");
         for (name, version) in &pinned {
             let row = table.iter().find(|l| l.contains(name.as_str())).unwrap();
@@ -424,9 +377,9 @@ cp "$0.body" "$out"
         let (result, lines) = rig.install(&rig.setup(None, false));
         result.unwrap();
 
-        let graph = step(&lines, 4);
+        let graph = step(&lines, 3);
         assert!(graph.last().unwrap().contains("skipped"), "{graph:?}");
-        let table = step(&lines, 5);
+        let table = step(&lines, 4);
         let row = table.iter().find(|l| l.contains(CODE_GRAPH)).unwrap();
         assert!(row.ends_with("skipped, no build for this machine"), "{row}");
         assert!(!rig.tools.has_code_graph());
@@ -439,14 +392,14 @@ cp "$0.body" "$out"
 
         let why = result.unwrap_err();
         assert!(
-            why.contains("step 1 of 5") && why.contains("npm packages"),
+            why.contains("step 1 of 4") && why.contains("npm packages"),
             "{why}"
         );
         assert!(
             step(&lines, 1).last().unwrap().contains("failed"),
             "{lines:?}"
         );
-        let table = step(&lines, 5);
+        let table = step(&lines, 4);
         for (name, _) in pinned_in(rig.tools.dir()) {
             let row = table.iter().find(|l| l.contains(name.as_str())).unwrap();
             assert!(row.ends_with("failed"), "{row}");
@@ -468,10 +421,10 @@ cp "$0.body" "$out"
 
         let why = result.unwrap_err();
         assert!(
-            why.contains("step 4 of 5") && why.contains("code graph server"),
+            why.contains("step 3 of 4") && why.contains("code graph server"),
             "{why}"
         );
-        let table = step(&lines, 5);
+        let table = step(&lines, 4);
         let row = table.iter().find(|l| l.contains("Chromium")).unwrap();
         assert!(row.ends_with("ok"), "{row}");
         let row = table.iter().find(|l| l.contains(CODE_GRAPH)).unwrap();

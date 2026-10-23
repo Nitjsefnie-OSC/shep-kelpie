@@ -108,7 +108,7 @@ shep kelpie tools install
 installed kelpie's tools in /path/to/.shep/kelpie/tools
 ```
 
-What the install puts where, the macOS keychain copy and the login token a repo the App covers needs are in [Tools and the login token](docs/guide/github-app.md#tools-and-the-login-token).
+What the install puts where, the macOS keychain block and the login token a repo the App covers needs are in [Tools and the login token](docs/guide/github-app.md#tools-and-the-login-token).
 
 ### 4. Add your project
 
