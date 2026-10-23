@@ -1,7 +1,6 @@
 //! Calls in flight, driven a pass at a time through the runner's stand-ins
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
-use std::path::Path;
 use std::sync::Mutex;
 use std::sync::mpsc::{self, Receiver};
 
@@ -202,10 +201,9 @@ fn triggers_are_answered_while_calls_run() {
     assert_eq!(rig.claude.calls().len(), 2);
 }
 
-// A pass that reads `main`'s workflow runs holds the lock through the read, which waits its turn
-// behind the login's pace. The longest hold `status` shows is that pass's `begin`.
+// A pass reads `main`'s workflow runs with the lock let go, so the read's wait shows in no hold.
 #[test]
-fn a_pass_that_waits_on_a_held_read_shows_a_long_begin_hold_in_status() {
+fn a_pass_that_waits_on_a_held_read_of_main_shows_no_hold_as_long_as_the_wait() {
     const HELD_FOR: Duration = Duration::from_millis(200);
     let (rig, runner) = seven_open("koji");
     let runner = Arc::new(runner);
@@ -223,28 +221,13 @@ fn a_pass_that_waits_on_a_held_read_shows_a_long_begin_hold_in_status() {
     });
 
     let status = rig.ask(&runner, "status", None);
-    let (site, seconds) = status["lock"]
+    let longest = status["lock"]
         .as_object()
         .expect("the holds by site")
-        .iter()
-        .max_by(|a, b| a.1.as_f64().partial_cmp(&b.1.as_f64()).unwrap())
-        .expect("a hold");
-    let (file, line) = site.rsplit_once(':').expect("file:line");
-    let source = std::fs::read_to_string(
-        Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../..")
-            .join(file),
-    )
-    .expect("the source file");
-    let line = source.lines().nth(line.parse::<usize>().unwrap() - 1);
-    assert!(
-        line.is_some_and(|line| line.contains(".begin(")),
-        "the longest hold is not the pass's begin: {site}"
-    );
-    assert!(
-        seconds.as_f64().unwrap() >= HELD_FOR.as_secs_f64(),
-        "{seconds}"
-    );
+        .values()
+        .filter_map(serde_json::Value::as_f64)
+        .fold(0.0, f64::max);
+    assert!(longest < HELD_FOR.as_secs_f64(), "{longest}");
 }
 
 #[test]

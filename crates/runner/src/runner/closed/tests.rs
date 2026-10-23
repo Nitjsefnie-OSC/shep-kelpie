@@ -524,7 +524,7 @@ fn an_item_parked_on_its_follow_up_ruling_after_kelpies_own_merge_is_left_alone(
 }
 
 #[test]
-fn a_parked_item_stays_while_its_pull_request_cannot_be_read_and_is_read_again_later() {
+fn a_parked_item_stays_while_its_pull_request_cannot_be_read() {
     let (rig, runner, _) = Rig::parked("acme");
     merged_by_hand(&rig);
     rig.forge.set_down(true);
@@ -542,12 +542,97 @@ fn a_parked_item_stays_while_its_pull_request_cannot_be_read_and_is_read_again_l
         notes.iter().any(|n| n.starts_with("cannot read #71")),
         "{notes:?}"
     );
+}
 
-    // The forge is back, but the item is read again only after the interval.
+#[test]
+fn a_parked_read_that_fails_is_read_again_on_the_next_pass() {
+    let (rig, runner, _) = Rig::parked("acme");
+    merged_by_hand(&rig);
+    rig.forge.set_down(true);
+    step(&runner).unwrap();
+
+    // The forge is back, and the item is read at once, with no interval waited.
     rig.forge.set_down(false);
-    assert_eq!(step(&runner).unwrap(), None);
-    rig.clock.advance(PARKED_READ);
     assert!(steps(&runner).iter().any(finished_merged));
+}
+
+// Whether the status shows no ruling about issue 7
+fn seven_has_no_ruling(status: &serde_json::Value) -> bool {
+    let rulings = status["rulings"].as_array().unwrap();
+    rulings.iter().all(|r| r["issue"] != "7")
+}
+
+#[test]
+fn a_trigger_is_answered_while_a_parked_items_pull_request_is_read() {
+    let (rig, runner, _) = Rig::parked("shep");
+    merged_by_hand(&rig);
+    let read = rig.forge.hold_next_pull_request_read();
+
+    let (answered, pass) = rig.asked_while_held(&runner, read, "add", Some("8"));
+
+    assert!(answered.is_some(), "the trigger waited for the read");
+    pass.unwrap();
+    assert!(seven_has_no_ruling(&rig.ask(&runner, "status", None)));
+}
+
+#[test]
+fn a_parked_item_dropped_during_the_read_ends_the_step_without_a_panic() {
+    let (rig, runner, _) = Rig::parked("rotom");
+    merged_by_hand(&rig);
+    let read = rig.forge.hold_next_pull_request_read();
+
+    let (dropped, pass) = rig.asked_while_held(&runner, read, "drop", Some("7"));
+
+    assert!(dropped.is_some(), "the drop waited for the read");
+    pass.unwrap();
+    let status = rig.ask(&runner, "status", None);
+    assert_eq!(status["work_item"], json!(null));
+    assert!(seven_has_no_ruling(&status));
+    assert_eq!(status["history"].as_array().map(Vec::len), Some(1));
+}
+
+#[test]
+fn a_state_change_during_the_read_is_kept_by_the_apply() {
+    let (rig, runner, _) = Rig::parked("koji");
+    merged_by_hand(&rig);
+    let read = rig.forge.hold_next_pull_request_read();
+
+    let (added, pass) = rig.asked_while_held(&runner, read, "add", Some("8"));
+
+    assert!(added.is_some(), "the trigger waited for the read");
+    pass.unwrap();
+    // An ended item is cleaned up on a pass of its own, and the board opens the next after it.
+    steps(&runner);
+    let status = rig.ask(&runner, "status", None);
+    assert!(seven_has_no_ruling(&status));
+    assert_eq!(
+        status["work_item"]["issue"], "8",
+        "the apply lost the work item added during the read: {status}"
+    );
+}
+
+#[test]
+fn a_trigger_that_moves_focus_during_the_read_does_not_aim_the_apply_at_another_item() {
+    let (rig, runner) = asked("acme");
+    rig.ask(&runner, "add", Some("8"));
+    rig.forge.close_issue(7);
+    rig.clock.advance(PARKED_READ);
+    let read = rig.forge.hold_next_issue_read();
+
+    // `drop` puts the focus on #8 and ends that work item.
+    let (dropped, pass) = rig.asked_while_held(&runner, read, "drop", Some("8"));
+
+    assert!(dropped.is_some(), "the drop waited for the read");
+    pass.unwrap();
+    let status = rig.ask(&runner, "status", None);
+    assert!(seven_has_no_ruling(&status), "{status}");
+    let history = status["history"].as_array().unwrap();
+    let ended = |issue: &str| history.iter().find(|h| h["issue"] == issue);
+    assert_eq!(
+        ended("7").map(|h| &h["closed"]),
+        Some(&json!(true)),
+        "{history:?}"
+    );
 }
 
 #[test]
