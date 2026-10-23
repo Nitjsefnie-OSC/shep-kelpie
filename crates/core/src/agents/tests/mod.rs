@@ -640,3 +640,72 @@ fn a_model_behind_a_gateway_is_queued_by_it_and_a_url_model_is_not() {
         assert!(err.contains(why), "{err}");
     }
 }
+
+#[test]
+fn a_refresh_replaces_baselines_the_last_one_left_read_only() {
+    let dir = tempfile::tempdir().unwrap();
+    let agents = dir.path().join("agents");
+    write_baselines(&agents).unwrap();
+    write_baselines(&agents).unwrap();
+    let file = agents.join(".defaults").join("pm.md");
+    assert!(fs::metadata(&file).unwrap().permissions().readonly());
+}
+
+// The names a refresh in this process would take first, a crash's leftovers.
+fn leftovers(kept: &Path, count: u32) -> Vec<PathBuf> {
+    let mut left = Vec::new();
+    for (agent, _, _) in DEFAULTS {
+        for n in 0..count {
+            let path = kept.join(format!("{agent}.md.{}-{n}.tmp", std::process::id()));
+            fs::write(&path, "half").unwrap();
+            let mut permissions = fs::metadata(&path).unwrap().permissions();
+            permissions.set_readonly(true);
+            fs::set_permissions(&path, permissions).unwrap();
+            left.push(path);
+        }
+    }
+    left
+}
+
+#[test]
+fn a_leftover_temp_file_of_a_crashed_process_with_the_same_pid_does_not_stop_a_refresh() {
+    let dir = tempfile::tempdir().unwrap();
+    let agents = dir.path().join("agents");
+    let kept = agents.join(".defaults");
+    fs::create_dir_all(&kept).unwrap();
+    let left = leftovers(&kept, 8);
+    write_baselines(&agents).unwrap();
+    assert!(kept.join("pm.md").is_file());
+    assert!(
+        left.iter().any(|path| path.exists()),
+        "a fresh temp file may be a live writer's, so it is left"
+    );
+}
+
+#[test]
+fn old_leftover_temp_files_are_removed_and_a_fresh_one_is_not() {
+    let dir = tempfile::tempdir().unwrap();
+    let agents = dir.path().join("agents");
+    let kept = agents.join(".defaults");
+    fs::create_dir_all(&kept).unwrap();
+    let old = kept.join("pm.md.1-1.tmp");
+    let fresh = kept.join("pm.md.2-1.tmp");
+    for path in [&old, &fresh] {
+        fs::write(path, "half").unwrap();
+    }
+    let long_ago = std::time::SystemTime::now() - std::time::Duration::from_secs(3600);
+    fs::File::options()
+        .write(true)
+        .open(&old)
+        .unwrap()
+        .set_modified(long_ago)
+        .unwrap();
+    for path in [&old, &fresh] {
+        let mut permissions = fs::metadata(path).unwrap().permissions();
+        permissions.set_readonly(true);
+        fs::set_permissions(path, permissions).unwrap();
+    }
+    write_baselines(&agents).unwrap();
+    assert!(!old.exists());
+    assert!(fresh.exists());
+}

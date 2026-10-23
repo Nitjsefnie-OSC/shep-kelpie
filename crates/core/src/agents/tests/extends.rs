@@ -377,3 +377,26 @@ fn a_body_key_set_twice_is_refused_with_the_line_of_the_second() {
         assert!(err.ends_with("at line 4"), "{err}");
     }
 }
+
+#[test]
+fn a_refusal_from_inside_a_parent_file_names_that_file_and_not_the_child() {
+    let parent = "---\nextends: kelpie:triager\nbody: bogus\n---\n";
+    let err = refused(&[("a.md", "---\nextends: z\n---\n"), ("z.md", parent)]);
+    assert!(err.contains("a.md: in `z.md`: "), "{err}");
+    assert!(err.contains("`body: bogus`"), "{err}");
+    let twice = "---\nextends: kelpie:triager\nbody: append\nbody: append\n---\n";
+    let err = refused(&[("a.md", "---\nextends: z\n---\n"), ("z.md", twice)]);
+    assert!(err.contains("z.md"), "{err}");
+    assert!(err.contains("set twice"), "{err}");
+}
+
+#[test]
+fn a_refusal_deep_in_a_chain_names_the_file_it_came_from_once() {
+    let err = refused(&[
+        ("a.md", "---\nextends: y\n---\n"),
+        ("y.md", "---\nextends: z\n---\n"),
+        ("z.md", "---\nextends: kelpie:triager\nbody: bogus\n---\n"),
+    ]);
+    assert!(err.contains("z.md"), "{err}");
+    assert!(!err.contains("y.md"), "{err}");
+}

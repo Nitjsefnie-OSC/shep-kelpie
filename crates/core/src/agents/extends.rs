@@ -57,7 +57,7 @@ pub(super) fn merged<'a>(
     parent: &dyn Fn(&str) -> Result<ParentText<'a>, String>,
 ) -> Result<Merged, String> {
     let mut chain = vec![own.to_owned()];
-    let (text, inherits) = resolve(text, parent, &mut chain)?;
+    let (text, inherits) = resolve(text, None, parent, &mut chain)?;
     Ok(Merged { text, inherits })
 }
 
@@ -76,8 +76,12 @@ pub(super) enum ParentText<'a> {
 // frontmatter and the parent it inherits through.
 type Resolved = (String, Option<(usize, String)>);
 
+// `from` is the name of the parent file `text` is from, None for the file
+// being loaded. A refusal of a parent's own text names it, since its line is
+// no line of the file being loaded.
 fn resolve<'a>(
     text: &str,
+    from: Option<&str>,
     parent: &dyn Fn(&str) -> Result<ParentText<'a>, String>,
     chain: &mut Vec<String>,
 ) -> Result<Resolved, String> {
@@ -88,39 +92,42 @@ fn resolve<'a>(
     let Some(extended) = child.iter().find(|e| e.key == "extends") else {
         return Ok((text.to_owned(), None));
     };
-    let append = appends(&child)?;
+    let refuse = |message: String| match from {
+        Some(file) => format!("in `{file}.md`: {message}"),
+        None => message,
+    };
+    let append = appends(&child).map_err(refuse)?;
     let name = extended.value();
     if chain.contains(&name) {
         let path: Vec<&str> = chain.iter().map(String::as_str).chain([&*name]).collect();
-        return Err(format!(
+        return Err(refuse(format!(
             "`extends` runs in a circle: {}",
             path.join(" extends ")
-        ));
+        )));
     }
-    let parent_text = match parent(&name)? {
+    let parent_text = match parent(&name).map_err(refuse)? {
         ParentText::Default(text) => {
             let extends = front::split(text)
                 .is_some_and(|(front, _)| entries(front).iter().any(|e| e.key == "extends"));
             if extends {
-                return Err(format!(
+                return Err(refuse(format!(
                     "`extends: {name}` names one of kelpie's own agents that itself extends \
                      another, which is not supported: write a file `{name}.md` to extend"
-                ));
+                )));
             }
             text.to_owned()
         }
         ParentText::File(text) => {
             chain.push(name.clone());
-            let resolved = resolve(text, parent, chain);
+            let resolved = resolve(text, Some(&name), parent, chain);
             chain.pop();
             resolved?.0
         }
     };
     let (parent_front, parent_body) = front::split(&parent_text).ok_or_else(|| {
-        format!(
-            "`extends: {}` names a file with no frontmatter",
-            extended.value()
-        )
+        refuse(format!(
+            "`extends: {name}` names a file with no frontmatter"
+        ))
     })?;
     let mut keys = own_lines(front);
     // The file's frontmatter plus the opening `---`, as the lines it spans.

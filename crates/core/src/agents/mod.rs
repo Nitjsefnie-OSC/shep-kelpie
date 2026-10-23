@@ -21,7 +21,7 @@ use std::fmt;
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Duration;
 
 use serde::Deserialize;
 
@@ -513,39 +513,95 @@ pub fn write_baselines(folder: &Path) -> Result<(), AgentsError> {
             "---\n# Kelpie writes this file and replaces it on every upgrade, so an edit here is \
              lost.\n# To change this agent, override it in agents/{name}.md instead.\n{body}"
         );
-        let path = kept.join(format!("{name}.md"));
-        let beside = kept.join(format!("{name}.md.{}.tmp", unique()));
-        replace(&path, &beside, &whole).map_err(|e| failed(&path, e))?;
+        let file = format!("{name}.md");
+        replace(&kept, &file, &whole).map_err(|e| failed(&kept.join(&file), e))?;
     }
+    sweep(&kept);
     Ok(())
 }
 
-// A name no other writer's, in this process or another, so two refreshes of
-// one folder never share a temporary file.
-fn unique() -> String {
-    static NEXT: AtomicU64 = AtomicU64::new(0);
-    format!(
-        "{}-{}",
-        std::process::id(),
-        NEXT.fetch_add(1, Ordering::Relaxed)
-    )
-}
+/// How old a temporary file in `.defaults` is before it is a crash's leftover
+/// and no live writer's, which holds one for milliseconds
+const STALE: Duration = Duration::from_secs(60);
 
-// Writes `text` read-only to `beside`, then renames it over `path`. A failure
-// leaves no `beside`.
-fn replace(path: &Path, beside: &Path, text: &str) -> io::Result<()> {
-    let written = fs::write(beside, text)
-        .and_then(|()| {
-            let mut permissions = fs::metadata(beside)?.permissions();
-            permissions.set_readonly(true);
-            fs::set_permissions(beside, permissions)
-        })
-        .and_then(|()| fs::rename(beside, path));
+// Writes `text` read-only to a new file beside `name` in `dir`, then renames it
+// over `name`. A failure leaves no temporary file.
+fn replace(dir: &Path, name: &str, text: &str) -> io::Result<()> {
+    let (beside, file) = create_temp(dir, name)?;
+    let path = dir.join(name);
+    let written = write_read_only(file, text)
+        .and_then(|()| writable(&path))
+        .and_then(|()| fs::rename(&beside, &path));
     if written.is_err() {
         // Best effort: the failure to report is the write's.
-        let _ = fs::remove_file(beside);
+        let _ = writable(&beside).and_then(|()| fs::remove_file(&beside));
     }
     written
+}
+
+// A file no other writer holds, so two refreshes of one folder never share a
+// temporary file and a leftover of a crash, whatever pid it had, is skipped.
+fn create_temp(dir: &Path, name: &str) -> io::Result<(PathBuf, fs::File)> {
+    let mut n = 0_u32;
+    loop {
+        let beside = dir.join(format!("{name}.{}-{n}.tmp", std::process::id()));
+        match fs::File::create_new(&beside) {
+            Ok(file) => return Ok((beside, file)),
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => n += 1,
+            Err(e) => return Err(e),
+        }
+    }
+}
+
+fn write_read_only(mut file: fs::File, text: &str) -> io::Result<()> {
+    file.write_all(text.as_bytes())?;
+    let mut permissions = file.metadata()?.permissions();
+    permissions.set_readonly(true);
+    file.set_permissions(permissions)
+}
+
+// Makes `path` writable if it is a file, so it can be replaced or removed. A
+// read-only file stops a rename over it on Windows, and a remove there.
+#[cfg(windows)]
+fn writable(path: &Path) -> io::Result<()> {
+    match fs::metadata(path) {
+        Ok(meta) => {
+            let mut permissions = meta.permissions();
+            // The lint warns that this makes a Unix file world-writable.
+            #[allow(clippy::permissions_set_readonly_false)]
+            permissions.set_readonly(false);
+            fs::set_permissions(path, permissions)
+        }
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(e),
+    }
+}
+
+// Unix replaces and removes a read-only file by its folder's mode.
+#[cfg(not(windows))]
+#[allow(clippy::unnecessary_wraps)]
+fn writable(_: &Path) -> io::Result<()> {
+    Ok(())
+}
+
+// Removes the temporary files in `kept` that no live writer can hold, which a
+// crash left behind. Best effort: a refresh does not fail for them.
+fn sweep(kept: &Path) {
+    let Ok(entries) = fs::read_dir(kept) else {
+        return;
+    };
+    for entry in entries.filter_map(Result::ok) {
+        let path = entry.path();
+        let old = entry
+            .metadata()
+            .and_then(|meta| meta.modified())
+            .ok()
+            .and_then(|at| at.elapsed().ok())
+            .is_some_and(|age| age > STALE);
+        if old && path.extension().is_some_and(|ext| ext == "tmp") {
+            let _ = writable(&path).and_then(|()| fs::remove_file(&path));
+        }
+    }
 }
 
 /// Whether `file`, written with a leading `~/`, is a file under `home`
