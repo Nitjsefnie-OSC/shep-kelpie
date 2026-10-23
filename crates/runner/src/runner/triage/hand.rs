@@ -16,7 +16,7 @@ use super::super::contributions::post::forge_is_busy;
 use super::comment::NEEDS_TRIAGE;
 use super::{TRIAGE_LABELS, ticket};
 use crate::board::{READY, TRIAGE};
-use crate::ports::{OpenIssue, Timestamp};
+use crate::ports::{ForgeError, OpenIssue, OpenPull, Timestamp};
 use crate::state::{StateError, TriageStep, Triaged};
 
 // Whether `issue` is the maintainer's, opened since `since`, and carries no
@@ -82,6 +82,7 @@ impl Runner {
     pub(super) fn take_back_ready(
         &mut self,
         open: &mut [OpenIssue],
+        pulls: Option<&Result<Vec<OpenPull>, ForgeError>>,
         since: Timestamp,
         pruned_through: u64,
     ) -> Result<(), StateError> {
@@ -106,8 +107,8 @@ impl Runner {
             return Ok(());
         }
         // A pull request that closes an issue is the issue's work, so it is not
-        // taken back. Where they cannot be listed, none is.
-        let Ok(pulls) = self.ports.forge.open_pulls(&self.remote) else {
+        // taken back. Where they cannot be listed, or the poll read none, none is.
+        let Some(Ok(pulls)) = pulls else {
             return Ok(());
         };
         for at in candidates {

@@ -14,6 +14,9 @@ use crate::ports::{Checks, ForgeError, PullRequest, PullRequestState};
 pub struct PullRequestReads {
     /// The listing of every open pull request
     pub listed: AtomicUsize,
+    /// The listing of every open pull request with the issues each closes, which
+    /// the triage poll reads
+    pub closing: AtomicUsize,
     /// One pull request's state, head and checks
     pub viewed: AtomicUsize,
     /// One pull request's review

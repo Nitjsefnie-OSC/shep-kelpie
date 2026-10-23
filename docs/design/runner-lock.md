@@ -18,3 +18,11 @@ One `Mutex<Runner>` per project. #1201.
 ## Off the lock
 
 `runner/off_lock.rs`: `ItemKey` is a work item's `issue`, `session`, `turn`, `phase` and `pull_request` as they stood when the work began. `with_item` takes the lock, returns `None` if the item is gone or any of them changed, and otherwise sets `focus` to it again and applies the answer. Nothing calls it yet.
+
+The triage poll (`runner/triage/poll_read.rs`, #1204) has the same shape without a work item. `read_triage` runs in `one_pass` before the pass takes the lock, in three parts like `thread_replies`:
+
+- The job is built under the lock: `Runner::poll_job` returns none unless `triage.pick` is not `off` and the look is due (`Looks::triage_due`, which stamps nothing), and copies the ports, the local waits' issue numbers and what the pulls need.
+- The run lists the open issues, reads each local wait's issue, and lists the open pulls only where one is used: a listed issue carries `ready-for-agent`, a recorded taken-back one is listed, or the triager may be started.
+- The apply re-takes the lock, stamps the look (`triage_listed`), and does every write from the state it finds then: `note_triage_authors`, `settle_triage_waits`, `resume_triage`, the take-back's label writes and `save_taken`. A failed listing stamps nothing, so the next pass reads again, at most once a second.
+- The listing and pulls stay as `triage_run.listing`, the snapshot `triage_job` starts the triager from. It is at most one poll old, and what a round has since changed in the records is checked against the state, not the snapshot.
+- Still under the lock: the reads in `triage_ask` (the `triage` trigger) and in `ask.rs`, `comment.rs`, `limits.rs` and `addressed.rs`.

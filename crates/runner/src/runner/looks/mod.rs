@@ -175,14 +175,25 @@ impl Looks {
         (now.0 < at).then(|| Duration::from_secs(at - now.0))
     }
 
-    /// Whether the open issues are due to be listed for triage at `now`,
-    /// which records the read: at most one in each [`BOARD_POLL`]
-    pub(super) fn triage_due(&mut self, now: Timestamp) -> bool {
-        if self.triage_wait(now).is_some() {
-            return false;
-        }
+    /// Whether the open issues are due to be listed for triage at `now`: none
+    /// was listed in the last [`BOARD_POLL`]
+    ///
+    /// Stamps nothing. The read is made with the runner's lock let go, and
+    /// [`Looks::triage_listed`] records it once it is applied, so a read that
+    /// fails leaves the look due.
+    pub(super) fn triage_due(&self, now: Timestamp) -> bool {
+        self.triage_wait(now).is_none()
+    }
+
+    /// Records that the open issues were listed for triage at `now`
+    pub(super) fn triage_listed(&mut self, now: Timestamp) {
         self.triage_read = Some(now);
-        true
+    }
+
+    /// Makes the open issues due to be listed for triage again at once, as an
+    /// issue the verb queued is
+    pub(super) fn triage_asked(&mut self) {
+        self.triage_read = None;
     }
 
     /// How long until the open issues are next listed for triage, or `None`

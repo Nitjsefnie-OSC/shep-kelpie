@@ -1,7 +1,8 @@
 //! Which issues other people opened are due for triage
 //!
 //! While `triage.pick` is not `off`, the runner lists the open issues once a
-//! [`BOARD_POLL`](super::BOARD_POLL), and `status` shows the untouched ones
+//! [`BOARD_POLL`](super::BOARD_POLL), before a pass takes the lock
+//! ([`poll_read`]), and `status` shows the untouched ones
 //! under `triage.due`, oldest first. An issue is untouched when it carries
 //! none of [`TRIAGE_LABELS`] but a `needs-triage` above `pruned_through`, no bot
 //! opened it, it was opened after `triage.since`, and, under `maintainer`, the
@@ -27,7 +28,7 @@ use super::report::Begin;
 use super::review::calls::build_call;
 use crate::board::TRIAGE;
 use crate::ports::{AgentCall, AuthorAssociation, ForgeError, OpenIssue, Role, Timestamp, Tools};
-use crate::settings::{ExpertAgent, Settings, TriagePick};
+use crate::settings::{ExpertAgent, Settings};
 use crate::state::{ProjectState, StateError, TriageState, TriageStep, Triaged};
 use crate::ticket::TicketId;
 use research::{Listed, ListedPull};
@@ -42,6 +43,7 @@ pub(super) mod heard;
 pub(super) mod images;
 pub(super) mod limits;
 pub(super) mod local;
+pub(super) mod poll_read;
 pub(super) mod ready;
 pub(super) mod research;
 pub(super) mod spam;
@@ -85,6 +87,9 @@ pub(super) struct Run {
     /// Whether an answer kelpie could not read has been told yet, so a broken
     /// route is named once and not on every issue. The check stays on.
     pub(super) spam_unreadable_told: bool,
+    /// What the last poll read, which the triager's call is made from. None until a
+    /// poll has read the listing, and again after one that could not.
+    pub(super) listing: Option<poll_read::Listing>,
 }
 
 /// An untouched issue, as `status` lists it
@@ -156,69 +161,6 @@ pub(super) fn settle_since(state: &mut ProjectState, settings: &Settings, now: T
 }
 
 impl Runner {
-    // Lists the untouched issues once a poll while `triage.pick` is not `off`.
-    // A listing that cannot be read leaves the last one as it was.
-    //
-    // The same poll lets an issue that failed be tried again, and finishes the
-    // triage a restart cut short.
-    pub(super) fn follow_triage(&mut self) -> Result<(), StateError> {
-        let Some((since, pruned_through)) =
-            (self.state.triage.as_ref()).map(|t| (t.since, t.pruned_through))
-        else {
-            return Ok(());
-        };
-        let now = self.ports.clock.now();
-        if !self.looks.triage_due(now) {
-            return Ok(());
-        }
-        self.flights.triage_retry();
-        let Ok(mut open) = self.ports.tickets.open_issues(&self.remote) else {
-            return Ok(());
-        };
-        // A record that names no author, which is what a file saved before the
-        // caps existed leaves, gets it from the listing: the author is what the
-        // author's cap counts by and what tells the maintainer's own issues from
-        // everyone else's.
-        self.note_triage_authors(&open)?;
-        // A wait on the author ends when the forge says the issue is closed or
-        // carries a triage label the maintainer put on by hand, before anything
-        // the record owes is written.
-        self.settle_triage_waits(&open)?;
-        // An author who took `local` answers by rewriting the issue body, which is
-        // what the next pass is made on.
-        self.watch_local_waits()?;
-        self.resume_triage()?;
-        let only = match self.settings.triage.pick {
-            TriagePick::Maintainer => match self.maintainer() {
-                Ok(login) => Some(login),
-                Err(_) => return Ok(()),
-            },
-            TriagePick::All | TriagePick::Off => None,
-        };
-        // A hand-labelled `ready-for-agent` the maintainer's own is swapped for
-        // `needs-triage` here, before the board reads its pick, and listed as
-        // the swap left it.
-        self.take_back_ready(&mut open, since, pruned_through)?;
-        let mut due: Vec<&OpenIssue> = (open.iter())
-            .filter(|i| {
-                untouched(i, since, pruned_through, only.as_deref())
-                    && self.first_pass_owed(i.number)
-            })
-            .collect();
-        due.sort_by_key(|issue| (issue.created, issue.number));
-        self.triage_due = due
-            .into_iter()
-            .map(|issue| DueStatus {
-                issue: issue.number,
-                title: issue.title.clone(),
-                author: issue.author.clone(),
-                author_association: issue.author_association,
-                created: issue.created,
-            })
-            .collect();
-        Ok(())
-    }
-
     // What the daily cap says, or none while triage is off or the cap is
     fn triage_daily(&self) -> Option<DailyStatus> {
         let cap = self.settings.triage.per_day;
@@ -372,14 +314,9 @@ impl Runner {
     // Everything the research on `issue` needs, or `None` when it cannot be
     // had: the issue is no longer open, or what it needs cannot be read or built.
     fn triage_job(&mut self, issue: u64, purpose: Purpose, limited: bool) -> Option<Job> {
-        let open = match self.ports.tickets.open_issues(&self.remote) {
-            Ok(open) => open,
-            Err(e) => {
-                let why = format!("cannot list the open issues: {e}");
-                self.triage_failed(issue, &why, !forge_is_busy(&e));
-                return None;
-            }
-        };
+        // The poll's listing, read with the runner's lock let go. An issue asked for
+        // before the poll has read one waits for the next, which the verb makes due.
+        let poll_read::Listing { open, pulls } = self.triage_run.listing.clone()?;
         let Some(this) = open.iter().find(|i| i.number == issue) else {
             self.triage_queue.retain(|&n| n != issue);
             return None;
@@ -415,7 +352,9 @@ impl Runner {
             .filter(|i| i.number != issue)
             .map(|i| (i.number, i.title.clone()))
             .collect();
-        let pulls = match self.ports.forge.open_pulls(&self.remote) {
+        // Read by the poll where it had a use for them. A poll that read none leaves
+        // the issue to the next.
+        let pulls = match pulls? {
             Ok(pulls) => pulls,
             Err(e) => {
                 let why = format!("cannot list the open pull requests: {e}");
@@ -600,6 +539,9 @@ impl Runner {
         self.triage_tries.insert(issue, comment::Tries::asked());
         self.flights.triage_forget(issue);
         self.looks.board_moved();
+        // The pass lists the issues again, since the triager's call is made from
+        // that listing and the one it holds may predate the issue.
+        self.looks.triage_asked();
         Ok(())
     }
 }

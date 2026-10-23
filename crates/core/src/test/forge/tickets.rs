@@ -101,6 +101,7 @@ impl Tickets for FakeForge {
 
     fn open_issues(&self, _repo: &ForgeSlug) -> Result<Vec<OpenIssue>, ForgeError> {
         self.ask()?;
+        self.wait_if_held(held::At::Listing);
         if let Some(why) = &*self.issues_down.lock().unwrap() {
             return Err(ForgeError::Failed(why.clone()));
         }

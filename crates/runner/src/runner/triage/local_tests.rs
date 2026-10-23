@@ -1,7 +1,7 @@
 //! The author's own session, through the runner's stand-ins: the prompt the
 //! first comment holds, the body the session writes back, and the pass it starts
 
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use serde_json::{Value, json};
 
@@ -443,6 +443,39 @@ fn a_triage_label_put_on_by_hand_or_a_closed_issue_ends_the_local_wait() {
 
     assert_eq!(posted(&rig).len(), 1, "no post");
     assert_eq!(moves(&rig), ["comment"], "kelpie labels it no further");
+    assert_eq!(
+        calls(&rig, Role::Triager).len(),
+        1,
+        "no call on its new body"
+    );
+    let held = record(&rig, &runner);
+    assert_eq!(held["step"], "done");
+    assert!(held.get("local").is_none(), "{held}");
+}
+
+// The listing still shows the issue open: it closes while its body is read, with the runner's lock
+// let go, and the read says so.
+#[test]
+fn a_local_wait_read_off_the_lock_ends_when_the_issue_closed_during_the_read() {
+    let (rig, runner) = filed("pick = \"maintainer\"", MAINTAINER, asked_with_files());
+    local_round(&rig, &runner);
+    list(&rig, rewritten(&rig, MAINTAINER, EDITED));
+    let runner = Arc::new(runner);
+    let read = rig.forge.hold_next_issue_read();
+    rig.next_look();
+
+    std::thread::scope(|scope| {
+        let pass = scope.spawn(|| advance(&runner));
+        assert!(
+            read.waiting(CALL_PATIENCE),
+            "the pass never reached the body"
+        );
+        rig.forge.close_issue(30);
+        drop(read);
+        pass.join().expect("the pass thread").unwrap();
+    });
+
+    assert_eq!(posted(&rig).len(), 1, "no post");
     assert_eq!(
         calls(&rig, Role::Triager).len(),
         1,

@@ -737,6 +737,9 @@ fn one_pass(runner: &Mutex<Runner>) -> Result<Pass, StateError> {
     if let Some(report) = finished {
         return Ok(Pass::Report(report));
     }
+    // The forge is asked with the lock let go, and the pass takes it for what it
+    // read.
+    super::triage::poll_read::read_triage(runner)?;
     lock(runner).begin(None)
 }
 

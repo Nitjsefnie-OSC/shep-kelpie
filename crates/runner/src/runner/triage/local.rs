@@ -27,12 +27,15 @@
 //! it recommends, is put on one line with its backticks gone, so none of it can
 //! close the fence the prompt is posted in.
 
+use std::collections::BTreeMap;
+
 use super::super::Runner;
 use super::super::contributions::post::forge_is_busy;
 use super::super::report::Begin;
-use super::ask::{Purpose, REPLY_HINT, questions_block};
+use super::ask::{Purpose, REPLY_HINT, closed_note, questions_block};
 use super::comment::MARKER;
 use super::research::{Found, Question};
+use crate::ports::{ForgeError, Issue};
 use crate::state::StateError;
 
 /// The skill the prompt starts with
@@ -94,7 +97,10 @@ impl Runner {
     // read saw. With no edit and no comment `triage.wait_days` after the
     // prompt, it ends as `none` does. Silence is ended here and not in
     // [`Runner::hear_triage`], so a rewrite is read before it counts.
-    pub(super) fn watch_local_waits(&mut self) -> Result<(), StateError> {
+    pub(super) fn watch_local_waits(
+        &mut self,
+        reads: &BTreeMap<u64, Result<Issue, ForgeError>>,
+    ) -> Result<(), StateError> {
         for record in self.triage_waiting() {
             let (Some(local), issue) = (record.local, record.issue) else {
                 continue;
@@ -105,13 +111,21 @@ impl Runner {
             if self.flights.triaging() == Some(issue) || self.triage_given_up(issue) {
                 continue;
             }
-            let read = super::ticket(issue)
-                .and_then(|ticket| self.ports.tickets.issue(&self.remote, ticket));
+            // An issue the poll did not read, as one that began to wait while it
+            // read, is read at the next.
+            let Some(read) = reads.get(&issue) else {
+                continue;
+            };
             let body = match read {
-                Ok(found) => found.body,
+                // Closed while the poll read: the listing it came with shows it open.
+                Ok(found) if !found.open => {
+                    self.triage_wait_stood(issue, closed_note(issue))?;
+                    continue;
+                }
+                Ok(found) => found.body.clone(),
                 Err(e) => {
                     let why = format!("cannot read its body: {e}");
-                    self.triage_failed(issue, &why, !forge_is_busy(&e));
+                    self.triage_failed(issue, &why, !forge_is_busy(e));
                     continue;
                 }
             };

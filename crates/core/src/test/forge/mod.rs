@@ -607,6 +607,9 @@ impl Forge for FakeForge {
     }
 
     fn open_pulls(&self, _repo: &ForgeSlug) -> Result<Vec<OpenPull>, ForgeError> {
+        self.pull_request_reads
+            .closing
+            .fetch_add(1, Ordering::SeqCst);
         self.ask()?;
         self.read_open_pulls()
     }

@@ -2,6 +2,7 @@
 //! triage, through the runner's stand-ins
 
 use std::sync::Mutex;
+use std::sync::atomic::Ordering;
 
 use super::ask_tests::{A_WORDS, asked, filed_before, record, settled_ready, wrote};
 use super::pick_tests::{MAINTAINER, issue, list, rig_with};
@@ -114,6 +115,51 @@ fn an_issue_an_open_pull_request_closes_is_never_taken_back() {
 
     assert_eq!(rig.github.label_takes(), []);
     assert_eq!(calls(&rig, Role::Triager).len(), 0);
+}
+
+// Listing the open pull requests is a call of its own, so a poll makes it only where the answer
+// is used: an issue that carries `ready-for-agent`, or one taken back whose swap is not done
+#[test]
+fn the_open_pulls_are_read_only_when_a_ready_issue_or_a_taken_back_one_is_listed() {
+    let pulls = |rig: &Rig| {
+        rig.forge
+            .pull_request_reads()
+            .closing
+            .load(Ordering::SeqCst)
+    };
+    // Nothing is queued and the issue is the maintainer's own and decided, so no
+    // research is started on it either
+    let (rig, runner) = filed_before(HAND, MAINTAINER, nothing(), |rig| {
+        let mut decided = issue(rig, 30, MAINTAINER, 5);
+        decided.labels = vec!["needs-info".to_owned()];
+        list(rig, decided);
+    });
+    step(&runner).unwrap();
+    assert_eq!(pulls(&rig), 0, "no issue is ready, taken back or untouched");
+
+    // A listed issue carries `ready-for-agent`
+    hand_labelled(&rig, MAINTAINER);
+    rig.github.refuse_label_removals(ApiError::Refused(500));
+    rig.next_look();
+    step(&runner).unwrap();
+    assert_eq!(pulls(&rig), 1, "a ready issue is listed");
+    assert_eq!(record(&rig, &runner)["step"], "taken");
+
+    // The swap stayed owed, and the recorded issue is listed without the label
+    relist(&rig, &["needs-info"]);
+    rig.next_look();
+    step(&runner).unwrap();
+    assert_eq!(pulls(&rig), 2, "a taken-back issue is listed");
+
+    // The recorded issue is no longer listed, and nothing carries the label
+    rig.forge.unlist_open_issue(30);
+    rig.next_look();
+    step(&runner).unwrap();
+    assert_eq!(
+        pulls(&rig),
+        2,
+        "a taken-back issue that is not listed is not a use"
+    );
 }
 
 #[test]
