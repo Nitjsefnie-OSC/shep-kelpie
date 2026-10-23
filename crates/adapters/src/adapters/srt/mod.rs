@@ -62,19 +62,30 @@ impl SandboxRuntime {
         }
     }
 
+    /// Whether a call can run: macOS needs nothing installed, since crabpot is
+    /// in kelpie, and elsewhere node `srt` must be in kelpie's tools
+    ///
+    /// # Errors
+    ///
+    /// [`SandboxError::Missing`] when node `srt` is needed and is not there.
+    pub fn check(&self) -> Result<(), SandboxError> {
+        let cli = self.tools.sandbox();
+        match self.macos || cli.is_file() {
+            true => Ok(()),
+            false => Err(SandboxError::Missing(cli)),
+        }
+    }
+
     // The command that runs a program under `--settings`: crabpot on macOS, node `srt` elsewhere
     fn runtime(&self) -> Result<Command, SandboxError> {
+        self.check()?;
         if self.macos {
             let mut crabpot = crate::spawn::command(self.crabpot()?);
             crabpot.arg("--crabpot");
             return Ok(crabpot);
         }
-        let cli = self.tools.sandbox();
-        if !cli.is_file() {
-            return Err(SandboxError::Missing(cli));
-        }
         let mut node = crate::spawn::command("node");
-        node.arg(cli);
+        node.arg(self.tools.sandbox());
         Ok(node)
     }
 }
@@ -435,6 +446,17 @@ mod tests {
         assert_eq!(written, settings_on(&policy(), true));
         assert_eq!(written["network"]["strictAllowlist"], true);
         assert_eq!(written["filesystem"]["allowWrite"], json!(["/k/wt/7"]));
+    }
+
+    #[test]
+    fn macos_needs_no_node_srt_to_start_and_linux_does() {
+        let dir = tempfile::tempdir().unwrap();
+        let srt = SandboxRuntime::new(Tools::at(dir.path().to_owned()));
+        srt.clone().on_macos(true).check().unwrap();
+        let err = srt.clone().on_macos(false).check().unwrap_err();
+        assert!(matches!(err, SandboxError::Missing(_)), "{err:?}");
+        let installed = SandboxRuntime::new(installed(dir.path())).on_macos(false);
+        installed.check().unwrap();
     }
 
     #[test]

@@ -24,7 +24,8 @@ use shep_handover::Arrival;
 use crate::adapters::{
     Base, ClaudeCli, CodexCli, Curl, CurlGithub, DogE2e, DoorPace, Etags, GatewayClassifier, Gh,
     GhApps, GooseCli, GpuCurl, LocalReviewer, LoginToken, McpRules, Openssl, PiCli,
-    PlaywrightBridges, PlaywrightPages, ShepLeases, ShepherdSink, StatDisk, SystemGit, stop_calls,
+    PlaywrightBridges, PlaywrightPages, SandboxRuntime, ShepLeases, ShepherdSink, StatDisk,
+    SystemGit, stop_calls,
 };
 use crate::coderabbit::CodeRabbit;
 use crate::codex::Codex;
@@ -35,7 +36,7 @@ use crate::home::{ProjectName, ProjectPaths};
 use crate::lease::Epoch;
 use crate::lease::saved::BookFile;
 use crate::lease::wire::GRANT;
-use crate::ports::{Forge, Leases, Ports, Revalidated, Routed, SandboxError, SystemClock, Tickets};
+use crate::ports::{Forge, Leases, Ports, Revalidated, Routed, SystemClock, Tickets};
 use crate::runner::{ACTIONS, Pass, Posted, Runner, advance, answer, wakes};
 use crate::settings::{Harness, Settings};
 use crate::shep_home;
@@ -159,11 +160,9 @@ fn serve(project: &str, arrival: Option<Arrival<Carry>>) -> Result<(), Exit> {
     }
     let kelpie = std::env::current_exe().map_err(|e| format!("cannot find kelpie itself: {e}"))?;
     // Every agent call runs inside the sandbox runtime, so a runner without one stops here.
-    if !paths.tools.sandbox().is_file() {
-        return Err(SandboxError::Missing(paths.tools.sandbox())
-            .to_string()
-            .into());
-    }
+    SandboxRuntime::new(paths.tools.clone())
+        .check()
+        .map_err(|e| e.to_string())?;
     let sheep = std::env::var("SHEP_NAME")
         .ok()
         .filter(|name| !name.is_empty())
