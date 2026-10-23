@@ -26,10 +26,10 @@ use std::time::Duration;
 
 use shep_client::shep_core::protocol::request::{ActionOutcome, Response};
 use shep_client::shep_core::protocol::{
-    BusEvent, ChildMessage, ProcessEventKind, Request, SelectorSpec,
+    BusEvent, ChildMessage, DogSectionToml, ProcessEventKind, Request, RpcErrorCode, SelectorSpec,
 };
 use shep_client::shep_core::status::ProcStatus;
-use shep_client::{EventStream, Lagged, ReconnectingClient};
+use shep_client::{EventStream, Lagged, ReconnectingClient, RequestError};
 use tokio::sync::mpsc;
 
 use crate::agents::{self, Agents};
@@ -192,18 +192,36 @@ fn windows_in(folder: &std::path::Path) -> Reviewers {
 
 // Kelpie's section, for its leases. One that cannot be read holds them at
 // the default capacities.
+// A section the shepherd refuses, as a `{{secret:...}}` it cannot resolve,
+// stops the dog, as it stops the runners that read the same section.
 // A webhook's `ca_cert` that cannot be read stops the dog, since every
 // ruling's post would fail on it, and so does `trusted` with no `token`,
 // since replies would then be taken on a topic anyone can post to.
 async fn settings(client: &ReconnectingClient) -> Result<KelpieSettings, String> {
-    let text = match client.dog_config(crate::shepherd::DOG).await {
-        Ok(toml) => toml.as_str().to_owned(),
+    section_settings(client.dog_config(crate::shepherd::DOG).await)
+}
+
+fn section_settings(
+    answer: Result<DogSectionToml, RequestError>,
+) -> Result<KelpieSettings, String> {
+    match answer {
+        Ok(toml) => read_section(toml.as_str()),
+        Err(RequestError::Rpc(refusal))
+            if matches!(
+                refusal.code,
+                RpcErrorCode::InvalidConfig | RpcErrorCode::Unsupported
+            ) =>
+        {
+            Err(format!(
+                "the shepherd refused the [kelpie] section: {}",
+                refusal.message
+            ))
+        }
         Err(e) => {
             println!("cannot read the [kelpie] section: {e}");
-            return Ok(KelpieSettings::default());
+            Ok(KelpieSettings::default())
         }
-    };
-    read_section(&text)
+    }
 }
 
 fn read_section(text: &str) -> Result<KelpieSettings, String> {
@@ -718,6 +736,30 @@ mod tests {
         std::fs::write(&ca, "-----BEGIN CERTIFICATE-----\n").unwrap();
         let settings = read_section(&section).unwrap();
         assert_eq!(settings.leases.cargo_test_capacity().get(), 5);
+    }
+
+    fn refusal(code: RpcErrorCode) -> RequestError {
+        RequestError::Rpc(shep_client::shep_core::protocol::RpcError {
+            code,
+            message: "[kelpie] webhook.token: no secret named ntfy".into(),
+            daemon_version: None,
+        })
+    }
+
+    #[test]
+    fn a_secret_the_shepherd_cannot_resolve_stops_the_dog_naming_the_reference() {
+        for code in [RpcErrorCode::InvalidConfig, RpcErrorCode::Unsupported] {
+            let err = section_settings(Err(refusal(code))).unwrap_err();
+            assert!(err.contains("no secret named ntfy"), "{err}");
+        }
+    }
+
+    #[test]
+    fn a_section_that_cannot_be_asked_for_holds_the_default_settings() {
+        for answer in [RequestError::Closed, refusal(RpcErrorCode::NotFound)] {
+            let settings = section_settings(Err(answer)).unwrap();
+            assert!(settings.webhook.is_none());
+        }
     }
 
     #[test]
