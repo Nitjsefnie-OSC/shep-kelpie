@@ -136,9 +136,6 @@ pub enum SandboxError {
     Missing(PathBuf),
     /// The sandbox's settings could not be written at this path, for this reason
     Settings(PathBuf, String),
-    /// The sandbox program that leaves the keychain out is not at this path, or
-    /// still names a keychain service
-    Unpatched(PathBuf),
     /// Kelpie cannot find its own executable, which runs the sandbox on macOS, for this reason
     Executable(String),
 }
@@ -154,12 +151,6 @@ impl fmt::Display for SandboxError {
             Self::Settings(path, reason) => write!(
                 f,
                 "cannot write the sandbox's settings at {}: {reason}",
-                path.display()
-            ),
-            Self::Unpatched(path) => write!(
-                f,
-                "the sandbox runtime at {} still lets a call ask the keychain for the \
-                 maintainer's logins, and this repo's calls may not: run `shep kelpie tools install`",
                 path.display()
             ),
             Self::Executable(reason) => write!(
