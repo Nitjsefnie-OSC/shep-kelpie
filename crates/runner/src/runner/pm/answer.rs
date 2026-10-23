@@ -11,12 +11,13 @@ use crate::ticket::TicketId;
 
 /// The keys an answer takes, an object with none of them being none: `why`
 /// is left out, since an unstick inside an answer has one of its own
-const KEYS: [&str; 8] = [
+const KEYS: [&str; 9] = [
     "pick",
     "hold",
     "unstick",
     "answer",
     "follow_up",
+    "red",
     "votes",
     "standing",
     "reply",
@@ -24,6 +25,10 @@ const KEYS: [&str; 8] = [
 
 /// The most of a reply or a why kept, in characters
 const LONGEST: usize = 2_000;
+
+/// What a `red` entry holds, as a dropped one names it
+const RED: &str = "`workflow`, a `call` of fix with a `title` and a `body`, or ask with the \
+                   `log` lines you read, and `why`";
 
 /// What an `unstick` entry holds, as a dropped one names it
 const UNSTICK: &str = "`item`, an `action` of retry, re-scope, ask or none, and `why`";
@@ -41,6 +46,8 @@ pub(super) struct Answer {
     pub(super) answer: Option<Settle>,
     /// What to do about one follow-up ruling's findings
     pub(super) follow_up: Option<Decide>,
+    /// What to do about each workflow still red on `main` after its rerun
+    pub(super) red: Vec<RedCall>,
     /// Its votes on rulings before the panel: each ruling, and the object it voted with
     pub(super) votes: Vec<(TicketId, Map<String, Value>)>,
     /// The whole of its standing notes, which replaces the file kelpie holds.
@@ -52,6 +59,28 @@ pub(super) struct Answer {
     pub(super) why: Option<String>,
     /// What could not be read, each named, to log
     pub(super) unread: Vec<String>,
+}
+
+/// The project manager's call on one workflow red on `main` after its rerun
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct RedCall {
+    /// The workflow's name
+    pub(super) workflow: String,
+    /// Whether it opens a fix or asks the maintainer
+    pub(super) how: RedHow,
+    /// Why, in its own words
+    pub(super) why: String,
+}
+
+/// What the project manager does about a workflow red after its rerun
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum RedHow {
+    /// Opens a fix work item at the front of the board: the issue's title and
+    /// body, which name the failing check, the log lines and the suspect merge
+    Fix { title: String, body: String },
+    /// Asks the maintainer, because it cannot tell a flake from a break, with
+    /// the log lines it read
+    Ask { log: String },
 }
 
 /// The project manager's call on one stuck work item
@@ -203,6 +232,22 @@ pub(super) fn read(text: &str) -> Option<Answer> {
                     )),
                 },
             },
+            "red" => match &value {
+                Value::Null => {}
+                // One workflow is one object; several are a list of them.
+                Value::Array(items) => {
+                    for item in items {
+                        match red(item) {
+                            Some(r) => answer.red.push(r),
+                            None => answer.unread.push(format!("`red`: {RED}, not {item}")),
+                        }
+                    }
+                }
+                value => match red(value) {
+                    Some(r) => answer.red.push(r),
+                    None => answer.unread.push(unread(RED)),
+                },
+            },
             "votes" => match &value {
                 Value::Null => {}
                 Value::Array(items) => {
@@ -313,6 +358,35 @@ fn unstick(value: &Value) -> Option<Unstick> {
     })
 }
 
+fn red(value: &Value) -> Option<RedCall> {
+    let words = |key: &str| {
+        let words = value.get(key)?.as_str()?.trim();
+        (!words.is_empty()).then(|| words.to_owned())
+    };
+    let workflow = words("workflow")?;
+    let how = match value.get("call")?.as_str()?.trim() {
+        "fix" => RedHow::Fix {
+            title: plain_line(&words("title")?),
+            body: printable(&words("body")?),
+        },
+        "ask" => RedHow::Ask {
+            log: printable(&words("log")?),
+        },
+        _ => return None,
+    };
+    let why = value.get("why").and_then(Value::as_str).unwrap_or("");
+    Some(RedCall {
+        workflow,
+        how,
+        why: why.trim().to_owned(),
+    })
+}
+
+// `text` on one line, since it is an issue's title
+fn plain_line(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
 fn settle(value: &Value) -> Option<Settle> {
     let item = ticket(value.get("item")?)?;
     let text = value.get("text").filter(|v| !v.is_null());
@@ -400,6 +474,7 @@ mod tests {
                 }],
                 answer: None,
                 follow_up: None,
+                red: Vec::new(),
                 votes: Vec::new(),
                 standing: None,
                 reply: None,
@@ -531,6 +606,41 @@ mod tests {
         assert_eq!(read("I would pick #12."), None);
         assert_eq!(read("{\"item\": 7}"), None);
         assert_eq!(read("{\"pick\": 12"), None);
+    }
+
+    #[test]
+    fn a_red_call_is_a_fix_or_an_ask_and_a_bad_one_is_named_while_the_rest_count() {
+        let text = "{\"pick\": null, \"red\": [{\"workflow\": \"test\", \"call\": \"fix\", \
+                    \"title\": \"Fix e2e\", \"body\": \"It fails.\", \"why\": \"a break\"}, \
+                    {\"workflow\": \"lint\", \"call\": \"ask\", \"log\": \"error: x\", \
+                    \"why\": \"unclear\"}, {\"workflow\": \"coverage\", \"call\": \"fix\"}]}";
+        let answer = read(text).unwrap();
+        assert_eq!(
+            answer.red,
+            [
+                RedCall {
+                    workflow: "test".into(),
+                    how: RedHow::Fix {
+                        title: "Fix e2e".into(),
+                        body: "It fails.".into(),
+                    },
+                    why: "a break".into(),
+                },
+                RedCall {
+                    workflow: "lint".into(),
+                    how: RedHow::Ask {
+                        log: "error: x".into(),
+                    },
+                    why: "unclear".into(),
+                },
+            ]
+        );
+        assert_eq!(answer.unread.len(), 1);
+        assert!(
+            answer.unread[0].starts_with("`red`:"),
+            "{:?}",
+            answer.unread
+        );
     }
 
     #[test]

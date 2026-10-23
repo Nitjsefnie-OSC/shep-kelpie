@@ -36,6 +36,7 @@ mod maintainer;
 mod notes;
 mod prompt;
 mod question;
+mod red;
 #[cfg(test)]
 mod tests;
 mod wakes;
@@ -152,6 +153,14 @@ pub(super) enum Wake {
         /// The findings
         findings: Vec<Finding>,
     },
+    /// A workflow is red on `main` at this head after kelpie's rerun, which the
+    /// project manager fixes or asks about
+    Red {
+        /// The workflow's name
+        workflow: String,
+        /// The head that stayed red
+        head: String,
+    },
     /// A ruling is before the panel, and the project manager votes on it
     Vote {
         /// The ruling
@@ -172,6 +181,7 @@ impl Wake {
             (Self::Question { id: a, .. }, Self::Question { id: b, .. }) => a == b,
             (Self::FollowUp { id: a, .. }, Self::FollowUp { id: b, .. }) => a == b,
             (Self::Vote { id: a, .. }, Self::Vote { id: b, .. }) => a == b,
+            (Self::Red { workflow: a, .. }, Self::Red { workflow: b, .. }) => a == b,
             _ => false,
         }
     }
@@ -240,6 +250,8 @@ pub(super) struct Desk {
     due: Vec<Wake>,
     // A pick wake is due or in flight
     asked_pick: bool,
+    // Each red head it was woken for, so a head wakes it once
+    red_woken: BTreeSet<(String, String)>,
     // Since when a window of held reasons has been open
     holding_since: Option<Timestamp>,
     pick: Option<Pick>,
@@ -429,6 +441,7 @@ impl Runner {
         if !self.state.pm_told.is_empty() {
             self.pm_due(Wake::Told);
         }
+        self.pm_reds();
         if self.pm.lapsed && self.pm_available() {
             self.pm.lapsed = false;
             self.still_due();
@@ -497,7 +510,7 @@ impl Runner {
                 }
                 Wake::Told => self.pm_due(Wake::Told),
                 Wake::Conflict(..) | Wake::Stuck { .. } => self.pm.lapsed = true,
-                Wake::LeaseWait { .. } => self.pm.lapsed = true,
+                Wake::LeaseWait { .. } | Wake::Red { .. } => self.pm.lapsed = true,
                 // The ruling goes to the maintainer, who need not wait on it again.
                 Wake::Question { id, .. } | Wake::FollowUp { id, .. } => {
                     self.pm.asking.remove(&id);
@@ -695,7 +708,7 @@ impl Runner {
             Err(AgentError::Stopped) => return Ok(None),
             Err(e) => return Ok(Some(self.pm_failed(flying, e.to_string()))),
         };
-        let Some(answer) = answer::read(&reply.text) else {
+        let Some(mut answer) = answer::read(&reply.text) else {
             let why = "its reply held no answer kelpie reads";
             return Ok(Some(self.pm_failed(flying, why.into())));
         };
@@ -719,7 +732,7 @@ impl Runner {
         if answer.standing.is_none() {
             self.pm_stand_tells(&flying.told);
         }
-        let (mut acted, dropped) = self.act(&answer, picking)?;
+        let (mut acted, dropped) = self.act(&mut answer, picking)?;
         // Its votes on the rulings it was asked about; one it gave none on
         // abstains. They are part of what kelpie did, so they are recorded
         // before the note below names the wake's actions.

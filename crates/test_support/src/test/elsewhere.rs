@@ -64,16 +64,27 @@ impl Elsewhere {
     }
 }
 
-// `from` and everything in it, copied to `to`. A git dir holds only files and folders.
+// `from` and everything in it, copied to `to`. A git dir holds only files and
+// folders. An entry that is gone by the time it is copied, as a file git
+// removes after the listing or a link to nothing, is left out: it is nothing
+// the copy needs, and any other failure names its path.
 fn copy_dir(from: &Path, to: &Path) {
     std::fs::create_dir_all(to).unwrap();
     for entry in std::fs::read_dir(from).unwrap() {
         let entry = entry.unwrap();
         let target = to.join(entry.file_name());
-        if entry.file_type().unwrap().is_dir() {
-            copy_dir(&entry.path(), &target);
-        } else {
-            std::fs::copy(entry.path(), target).unwrap();
+        let copied = match entry.file_type() {
+            Ok(kind) if kind.is_dir() => {
+                copy_dir(&entry.path(), &target);
+                continue;
+            }
+            Ok(_) => std::fs::copy(entry.path(), &target).map(drop),
+            Err(e) => Err(e),
+        };
+        match copied {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => panic!("cannot copy {}: {e}", entry.path().display()),
+            Ok(()) => {}
         }
     }
 }
