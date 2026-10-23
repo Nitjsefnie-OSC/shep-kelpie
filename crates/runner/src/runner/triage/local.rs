@@ -30,7 +30,7 @@
 use super::super::Runner;
 use super::super::contributions::post::forge_is_busy;
 use super::super::report::Begin;
-use super::ask::{Purpose, questions_block};
+use super::ask::{Purpose, REPLY_HINT, questions_block};
 use super::comment::MARKER;
 use super::research::{Found, Question};
 use crate::state::StateError;
@@ -82,7 +82,7 @@ impl Runner {
             &found.open,
         );
         let body = format!(
-            "{words}\n\n{questions}\n\n<details>\n<summary>Settle these in your own \
+            "{words}\n\n{questions}\n\n{REPLY_HINT}\n\n<details>\n<summary>Settle these in your own \
              terminal</summary>\n\n{SKILL_WHERE}\n\n```text\n{prompt}\n```\n\n</details>\n\n{MARKER}"
         );
         Some((body, body_hash(&read.body)))
