@@ -521,7 +521,8 @@ impl Runner {
             Box::new(move |line| told.push(line))
         };
         // The guard sits outside the hold, so its own questions to the forge are held too.
-        let forge_ledger = Arc::new(ForgeLedger::in_home(&paths.kelpie_home, project.as_str()));
+        let forge_ledger = ForgeLedger::in_home(&paths.kelpie_home, project.as_str());
+        let forge_ledger = Arc::new(forge_ledger.sending(Arc::clone(&metrics)));
         let mut rate_held = RateHeld::new(
             ports.forge,
             ports.tickets,

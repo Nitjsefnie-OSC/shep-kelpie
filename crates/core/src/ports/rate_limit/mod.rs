@@ -13,8 +13,8 @@ use std::time::Instant;
 use super::Revalidated;
 use super::{
     BranchRun, Clock, CommentMarks, FailedLogs, FolderEntry, Forge, ForgeError, LocalPace,
-    NewLabel, OpenPull, Pace, PullRequest, QueueStanding, Rerun, Reviewed, Talk, ThreadComment,
-    Tickets, Timestamp, Visibility, Workflow, pace,
+    NewLabel, OpenPull, Pace, PullRequest, QueueStanding, RateLimits, Rerun, Reviewed, Talk,
+    ThreadComment, Tickets, Timestamp, Visibility, Workflow, pace,
 };
 use crate::board::OpenPullRequest;
 use crate::forge_ledger::{Ended, Identity, Kind, Ledger};
@@ -257,15 +257,23 @@ impl RateHeld {
         {
             return Ok(None);
         }
+        self.free_read(Kind::RateLimitReset, |f| f.rate_limit_reset())
+    }
+
+    fn free_read<T>(
+        &self,
+        kind: Kind,
+        read: impl FnOnce(&dyn Forge) -> Result<T, ForgeError>,
+    ) -> Result<T, ForgeError> {
         let started = Instant::now();
-        let result = self.forge.rate_limit_reset();
+        let result = read(self.forge.as_ref());
         let millis = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
         let ended = if result.is_ok() {
             Ended::Ok
         } else {
             Ended::Failed
         };
-        self.record(self.clock.now(), Kind::RateLimitReset, millis, ended);
+        self.record(self.clock.now(), kind, millis, ended);
         result
     }
 
@@ -537,6 +545,19 @@ impl Forge for RateHeld {
         })
     }
 
+    // The read costs none of the limits, but it is still a call to the forge:
+    // it takes its turn in the pace, and fails unrecorded while the forge is held.
+    fn rate_limit(&self) -> Result<RateLimits, ForgeError> {
+        let held = match &self.project {
+            Some(project) => self.hold.admit(self.clock.as_ref(), project).err(),
+            None => self.hold.until(self.clock.now()),
+        };
+        if let Some(until) = held {
+            return Err(ForgeError::Held(until));
+        }
+        self.free_read(Kind::RateLimit, |f| f.rate_limit())
+    }
+
     // Free of the limits, and asked only once a call finds them used up.
     fn rate_limit_reset(&self) -> Result<Option<Timestamp>, ForgeError> {
         self.reset()
@@ -576,6 +597,63 @@ mod tests {
         for error in other {
             assert!(!used_up(&error), "{error}");
         }
+    }
+
+    fn bucket(used: u64, remaining: u64, reset: u64) -> crate::ports::RateBucket {
+        crate::ports::RateBucket {
+            used,
+            remaining,
+            reset: Timestamp(reset),
+        }
+    }
+
+    fn held_over(forge: &crate::test::FakeForge) -> RateHeld {
+        let source = Arc::new(forge.clone());
+        RateHeld::new(
+            Arc::clone(&source) as Arc<dyn Forge>,
+            Arc::clone(&source) as Arc<dyn Tickets>,
+            Arc::new(crate::test::FakeClock::at(1_000)),
+            ForgeHold::default(),
+            Box::new(|_| {}),
+        )
+    }
+
+    #[test]
+    fn rate_limit_reads_used_remaining_and_reset_for_core_and_graphql() {
+        let home = tempfile::tempdir().unwrap();
+        let forge = crate::test::FakeForge::new(home.path().join("origin"));
+        let limits = RateLimits {
+            core: bucket(120, 4_880, 1_800),
+            graphql: bucket(7, 4_993, 1_700),
+        };
+        forge.set_rate_limits(limits);
+
+        assert_eq!(held_over(&forge).rate_limit(), Ok(limits));
+    }
+
+    #[test]
+    fn rate_limit_reset_still_answers_from_core_reset() {
+        let home = tempfile::tempdir().unwrap();
+        let forge = crate::test::FakeForge::new(home.path().join("origin"));
+        let held = held_over(&forge);
+        let spare = RateLimits {
+            core: bucket(120, 4_880, 1_800),
+            graphql: bucket(7, 4_993, 1_700),
+        };
+        forge.set_rate_limits(spare);
+        assert_eq!(held.rate_limit_reset(), Ok(None), "none is used up");
+
+        forge.set_rate_limits(RateLimits {
+            core: bucket(5_000, 0, 1_800),
+            ..spare
+        });
+        assert_eq!(held.rate_limit_reset(), Ok(Some(Timestamp(1_800))));
+
+        forge.set_rate_limits(RateLimits {
+            graphql: bucket(5_000, 0, 1_900),
+            ..spare
+        });
+        assert_eq!(held.rate_limit_reset(), Ok(Some(Timestamp(1_900))));
     }
 
     mod cooldown {

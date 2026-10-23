@@ -12,6 +12,7 @@ use crate::ports::{Sample, SeriesKind, Sink, Timestamp};
 
 mod dog;
 mod errors;
+mod forge;
 mod mcp;
 mod plan;
 mod requests;

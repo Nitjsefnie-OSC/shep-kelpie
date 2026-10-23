@@ -500,13 +500,56 @@ pub trait Forge: Send + Sync {
     /// [`ForgeError`] when the forge refuses or cannot be asked.
     fn disable_auto_merge(&self, repo: &ForgeSlug, number: u64) -> Result<(), ForgeError>;
 
-    /// When the forge's used-up rate limits reset: the latest reset of any
-    /// limit with nothing left, or `None` when none is used up
+    /// The login's `core` and `graphql` rate limits as the forge counts them
+    ///
+    /// Asking spends none of them.
     ///
     /// # Errors
     ///
     /// [`ForgeError`] when the forge cannot be asked or its answer read.
-    fn rate_limit_reset(&self) -> Result<Option<Timestamp>, ForgeError>;
+    fn rate_limit(&self) -> Result<RateLimits, ForgeError>;
+
+    /// When the forge's used-up rate limits reset: the latest reset of the
+    /// `core` or `graphql` limit with nothing left, or `None` when neither
+    /// is used up
+    ///
+    /// # Errors
+    ///
+    /// [`ForgeError`] when the forge cannot be asked or its answer read.
+    fn rate_limit_reset(&self) -> Result<Option<Timestamp>, ForgeError> {
+        Ok(self.rate_limit()?.used_up_until())
+    }
+}
+
+/// One rate limit as the forge counts it
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RateBucket {
+    /// The calls it has counted since it last reset
+    pub used: u64,
+    /// The calls it has left before it is used up
+    pub remaining: u64,
+    /// When it resets and starts counting again
+    pub reset: Timestamp,
+}
+
+/// The two limits the maintainer's login spends from
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RateLimits {
+    /// The REST API's
+    pub core: RateBucket,
+    /// The GraphQL API's
+    pub graphql: RateBucket,
+}
+
+impl RateLimits {
+    /// The latest reset of a limit with nothing left, or `None` when neither is used up
+    pub fn used_up_until(&self) -> Option<Timestamp> {
+        [self.core, self.graphql]
+            .iter()
+            .filter(|bucket| bucket.remaining == 0)
+            .map(|bucket| bucket.reset)
+            .max()
+    }
 }
 
 /// One entry of a folder on the forge

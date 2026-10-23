@@ -1,4 +1,5 @@
 use super::*;
+use crate::test::RecordedSink;
 
 // 2026-10-03T04:00:00Z, the start of a minute
 const START: u64 = 1_791_000_000;
@@ -327,4 +328,66 @@ fn the_open_issue_listing_and_an_account_read_spend_rest() {
     for kind in [Kind::OpenIssues, Kind::AccountCreated] {
         assert_eq!(kind.api(), Api::Rest, "{kind:?}");
     }
+}
+
+fn counted(home: &Path) -> (Ledger, RecordedSink) {
+    let sink = RecordedSink::default();
+    let recorder = Arc::new(Recorder::new(Arc::new(sink.clone())));
+    (Ledger::in_home(home, "koji").sending(recorder), sink)
+}
+
+fn calls(sink: &RecordedSink, api: &str, by: &str, ended: &str) -> Option<f64> {
+    let labels = [("api", api), ("by", by), ("ended", ended)];
+    sink.value("kelpie_forge_calls_total", &labels)
+}
+
+#[test]
+fn a_recorded_line_counts_in_forge_calls_total_by_api_by_and_ended() {
+    let home = tempfile::tempdir().unwrap();
+    let (ledger, sink) = counted(home.path());
+    let at = Timestamp(START);
+
+    ledger.record(at, Kind::Reviewed, 120, Ended::Ok);
+    ledger.record(at, Kind::PullRequest, 80, Ended::Ok);
+    ledger.record(at, Kind::Viewer, 30, Ended::Ok);
+    ledger.record(at, Kind::Viewer, 30, Ended::UsedUp);
+    ledger.record_by(Identity::App, at, Kind::AppComment, 40, Ended::Failed);
+
+    assert_eq!(calls(&sink, "graphql", "login", "ok"), Some(2.0));
+    assert_eq!(calls(&sink, "rest", "login", "ok"), Some(1.0));
+    assert_eq!(calls(&sink, "rest", "login", "used-up"), Some(1.0));
+    assert_eq!(calls(&sink, "rest", "app", "failed"), Some(1.0));
+    assert_eq!(calls(&sink, "rest", "app", "ok"), None);
+}
+
+#[test]
+fn a_held_line_counts_as_held_and_a_rate_limit_read_does_not_count() {
+    let home = tempfile::tempdir().unwrap();
+    let (ledger, sink) = counted(home.path());
+    let at = Timestamp(START);
+
+    ledger.record(at, Kind::Viewer, 0, Ended::Held);
+    ledger.record(at, Kind::RateLimit, 12, Ended::Ok);
+    ledger.record(at, Kind::RateLimitReset, 12, Ended::Failed);
+
+    assert_eq!(calls(&sink, "rest", "login", "held"), Some(1.0));
+    assert_eq!(calls(&sink, "rest", "login", "ok"), None);
+    assert_eq!(calls(&sink, "rest", "login", "failed"), None);
+    assert_eq!(read(&home.path().join(FILE)).unwrap().len(), 3);
+}
+
+#[test]
+fn a_ledger_without_a_recorder_writes_lines_as_before() {
+    let home = tempfile::tempdir().unwrap();
+    let ledger = Ledger::in_home(home.path(), "koji");
+
+    ledger.record(Timestamp(START), Kind::RateLimit, 12, Ended::Ok);
+    ledger.record(Timestamp(START), Kind::Viewer, 30, Ended::Ok);
+
+    let text = std::fs::read_to_string(home.path().join(FILE)).unwrap();
+    assert_eq!(
+        text,
+        "{\"at\":1791000000,\"project\":\"koji\",\"kind\":\"rate_limit\",\"api\":\"rest\",\"by\":\"login\",\"millis\":12,\"ended\":\"ok\"}\n\
+         {\"at\":1791000000,\"project\":\"koji\",\"kind\":\"viewer\",\"api\":\"rest\",\"by\":\"login\",\"millis\":30,\"ended\":\"ok\"}\n"
+    );
 }

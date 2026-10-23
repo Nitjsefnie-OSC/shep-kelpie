@@ -11,7 +11,7 @@ use crate::board::{OpenPullRequest, ReadyIssue, ReviewMarks};
 use crate::ports::{
     BranchRun, Checks, CommentMarks, FailedLogs, FolderEntry, Forge, ForgeError, IssueCloseReason,
     MaintainerReview, NewLabel, OpenIssue, OpenPull, PullRequest, PullRequestState, QueueStanding,
-    Rerun, Reviewed, Talk, ThreadComment, Timestamp, Visibility, Workflow,
+    RateLimits, Rerun, Reviewed, Talk, ThreadComment, Timestamp, Visibility, Workflow,
 };
 use crate::review_bot::{Activity, Login};
 use crate::settings::ForgeSlug;
@@ -118,6 +118,8 @@ pub struct FakeForge {
     // Set while the test holds the next call open
     hold: Arc<Mutex<Option<held::Gate>>>,
     limited: Arc<Mutex<Option<crate::ports::Cooldown>>>,
+    // What reading the rate limits answers, and how often it was read
+    rate: Arc<Mutex<down::Rate>>,
     /// Pull requests' labels, and what CodeRabbit posts
     pub coderabbit: FakeCodeRabbit,
     /// What people wrote on the threads, and who may write to the repo
@@ -206,6 +208,7 @@ impl FakeForge {
             down: Arc::default(),
             hold: Arc::default(),
             limited: Arc::default(),
+            rate: Arc::default(),
             coderabbit: FakeCodeRabbit::default(),
             threads: thread::FakeThreads::default(),
             images: images::FakeImages::default(),
@@ -808,8 +811,8 @@ impl Forge for FakeForge {
         Ok(())
     }
 
-    fn rate_limit_reset(&self) -> Result<Option<Timestamp>, ForgeError> {
-        Ok(self.reset())
+    fn rate_limit(&self) -> Result<RateLimits, ForgeError> {
+        self.read_rate_limit()
     }
 }
 

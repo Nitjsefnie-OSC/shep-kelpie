@@ -11,10 +11,12 @@
 use std::fs::{self, OpenOptions};
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use serde::{Deserialize, Serialize};
 
+use crate::metrics::Recorder;
 use crate::ports::Timestamp;
 
 mod kind;
@@ -42,6 +44,13 @@ pub enum Ended {
     Held,
     /// GitHub answered that a rate limit is used up
     UsedUp,
+}
+
+impl Ended {
+    /// The name the ledger gives it, such as `used-up`
+    pub fn name(self) -> String {
+        wire_name(&self)
+    }
 }
 
 /// One line of the ledger: a forge call, as it ended
@@ -83,6 +92,8 @@ pub struct Ledger {
     failing: AtomicBool,
     // The writes that went through since this runner began, in memory only
     writes: AtomicU64,
+    // Where each line is counted as it is written, if anywhere
+    recorder: Option<Arc<Recorder>>,
 }
 
 impl Ledger {
@@ -93,7 +104,15 @@ impl Ledger {
             project: project.to_owned(),
             failing: AtomicBool::new(false),
             writes: AtomicU64::new(0),
+            recorder: None,
         }
+    }
+
+    /// The same ledger, counting each call it records in `recorder`
+    #[must_use]
+    pub fn sending(self, recorder: Arc<Recorder>) -> Self {
+        let recorder = Some(recorder);
+        Self { recorder, ..self }
     }
 
     /// How many writes to the forge have gone through since this ledger was
@@ -138,6 +157,10 @@ impl Ledger {
             ended,
             not_modified,
         };
+        // Counted whether or not the file takes it, as the usage ledger does.
+        if let Some(recorder) = &self.recorder {
+            recorder.forge_call(&line);
+        }
         match append_to(&self.path, &line) {
             Ok(()) => self.failing.store(false, Ordering::Relaxed),
             Err(e) if !self.failing.swap(true, Ordering::Relaxed) => eprintln!(

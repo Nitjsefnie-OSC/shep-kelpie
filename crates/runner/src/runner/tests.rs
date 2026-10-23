@@ -3,7 +3,7 @@ use serde_json::json;
 use std::num::NonZeroU64;
 
 use super::*;
-use crate::ports::Visibility;
+use crate::ports::{RateBucket, RateLimits, Visibility};
 use crate::runner::step;
 use crate::state::VERSION;
 use crate::test::ticket;
@@ -413,4 +413,89 @@ fn the_tickets_port_and_the_forge_port_are_one_wrapped_source() {
         .unwrap_err();
     assert!(matches!(refused, ForgeError::LocalPath { .. }), "{refused}");
     assert_eq!(rig.forge.asked(), asked, "the forge was never asked");
+}
+
+fn limits(core_used: u64, core_reset: u64, graphql_used: u64, graphql_reset: u64) -> RateLimits {
+    let bucket = |used, reset| RateBucket {
+        used,
+        remaining: 5_000 - used,
+        reset: Timestamp(reset),
+    };
+    RateLimits {
+        core: bucket(core_used, core_reset),
+        graphql: bucket(graphql_used, graphql_reset),
+    }
+}
+
+fn gauges(rig: &Rig) -> [Option<f64>; 4] {
+    let at = |name, bucket| rig.samples.value(name, &[("bucket", bucket)]);
+    let used = "kelpie_forge_rate_used";
+    let reset = "kelpie_forge_rate_reset_timestamp_seconds";
+    [
+        at(used, "core"),
+        at(reset, "core"),
+        at(used, "graphql"),
+        at(reset, "graphql"),
+    ]
+}
+
+#[test]
+fn the_runner_reads_rate_limit_at_most_once_a_minute_and_sets_both_gauges() {
+    let rig = Rig::new("reactmap");
+    let runner = rig.open().unwrap();
+    rig.forge.set_rate_limits(limits(120, 7_000, 7, 6_500));
+
+    step(&runner).unwrap();
+    assert_eq!(
+        gauges(&rig),
+        [Some(120.0), Some(7_000.0), Some(7.0), Some(6_500.0)]
+    );
+    assert_eq!(rig.forge.rate_limit_reads(), 1);
+
+    rig.forge.set_rate_limits(limits(130, 7_000, 9, 6_500));
+    rig.clock.advance(59);
+    step(&runner).unwrap();
+    assert_eq!(
+        rig.forge.rate_limit_reads(),
+        1,
+        "not again within the minute"
+    );
+    assert_eq!(gauges(&rig)[0], Some(120.0));
+
+    rig.clock.advance(1);
+    step(&runner).unwrap();
+    assert_eq!(rig.forge.rate_limit_reads(), 2);
+    assert_eq!(
+        gauges(&rig),
+        [Some(130.0), Some(7_000.0), Some(9.0), Some(6_500.0)]
+    );
+}
+
+#[test]
+fn a_failed_rate_limit_read_keeps_the_gauges_and_stands_once() {
+    let rig = Rig::new("reactmap");
+    let runner = rig.open().unwrap();
+    rig.forge.set_rate_limits(limits(120, 7_000, 7, 6_500));
+    step(&runner).unwrap();
+    let before = gauges(&rig);
+    runner.lock().unwrap().take_notes();
+    rig.forge.set_rate_limit_down(true);
+    rig.forge.set_rate_limits(limits(500, 9_000, 50, 9_000));
+
+    let mut told = Vec::new();
+    for _ in 0..3 {
+        rig.clock.advance(60);
+        step(&runner).unwrap();
+        told.extend(runner.lock().unwrap().take_notes());
+    }
+
+    assert_eq!(rig.forge.rate_limit_reads(), 4, "each minute asked again");
+    assert_eq!(gauges(&rig), before);
+    let told: Vec<_> = told.iter().filter(|n| n.contains("rate limits")).collect();
+    assert_eq!(told.len(), 1, "{told:?}");
+
+    rig.forge.set_rate_limit_down(false);
+    rig.clock.advance(60);
+    step(&runner).unwrap();
+    assert_eq!(gauges(&rig)[0], Some(500.0), "a read that works moves them");
 }

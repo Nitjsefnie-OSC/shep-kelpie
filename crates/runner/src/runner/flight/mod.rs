@@ -711,6 +711,7 @@ fn one_pass(runner: &Mutex<Runner>) -> Result<Pass, StateError> {
     lock(runner).take_posted();
     lock(runner).beat();
     lock(runner).send_metrics();
+    lock(runner).read_rate_limit();
     lock(runner).let_go_of_the_gone();
     // Before any answer is taken, so none resumes a worker on a closed issue.
     lock(runner).read_parked()?;
