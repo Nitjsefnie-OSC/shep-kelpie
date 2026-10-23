@@ -13,6 +13,7 @@ use crate::ports::{Sample, SeriesKind, Sink, Timestamp};
 mod dog;
 mod errors;
 mod forge;
+mod lock;
 mod mcp;
 mod plan;
 mod requests;
@@ -25,8 +26,8 @@ pub use shepherd_sink::ShepherdSink;
 
 /// The most series a runner sends, one under the metrics dog's 256 a sender
 /// (shep-pm/shep#733), which leaves room for the series counting the ones past it. The worst
-/// case the budget test drives is 254 series: 197 of the roles' calls and requests, the 39 of
-/// the failed tool calls of #968, and the 18 of the forge's calls and rate limits
+/// case the budget test drives is 252 series: 192 of the roles' calls and requests, the 39 of
+/// the failed tool calls of #968, the 18 of the forge's calls and rate limits, and the lock's 3
 pub const SERIES_CAP: usize = 255;
 
 // Seconds between sending every series again. A minute is a scrape or four

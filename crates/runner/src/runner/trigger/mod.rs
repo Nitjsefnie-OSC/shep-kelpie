@@ -3,11 +3,12 @@
 use std::collections::BTreeMap;
 use std::fmt;
 use std::path::Path;
-use std::sync::{Mutex, MutexGuard, PoisonError, TryLockError};
+use std::sync::{Mutex, PoisonError, TryLockError};
 
 use serde::Serialize;
 
 use super::gpu::GpuStatus;
+use super::lock_hold::Held;
 use super::pace::PacerStatus;
 use super::posted::{Body, Posted};
 use super::{Action, Answer, Runner};
@@ -165,6 +166,10 @@ pub struct Status<'a> {
     /// are: the runner keeps the settings it has; left out otherwise
     #[serde(skip_serializing_if = "Option::is_none")]
     pub settings_refused: Option<&'a super::Refusal>,
+    /// The longest hold of the runner's lock in seconds since it started, by
+    /// the source line that took it; left out until a hold is recorded
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub lock: BTreeMap<String, f64>,
 }
 
 /// A waiting ruling, as `status` shows it: the ruling as saved, with its
@@ -387,11 +392,7 @@ pub fn answer(
         Ok(request) => request,
         Err(e) => return error(e),
     };
-    let held = match runner.try_lock() {
-        Ok(runner) => Some(runner),
-        Err(TryLockError::Poisoned(e)) => Some(e.into_inner()),
-        Err(TryLockError::WouldBlock) => None,
-    };
+    let held = try_lock(runner);
     if held.is_none()
         && let Some(reply) = from_posted(posted, &request)
     {
@@ -795,8 +796,20 @@ impl Runner {
     }
 }
 
-pub(super) fn lock(runner: &Mutex<Runner>) -> MutexGuard<'_, Runner> {
-    runner.lock().unwrap_or_else(PoisonError::into_inner)
+/// The runner's lock, taken and waited for, and timed from the line that calls this
+#[track_caller]
+pub(super) fn lock(runner: &Mutex<Runner>) -> Held<'_> {
+    Held::new(runner.lock().unwrap_or_else(PoisonError::into_inner))
+}
+
+// The runner's lock if no pass holds it, timed from the line that calls this.
+#[track_caller]
+fn try_lock(runner: &Mutex<Runner>) -> Option<Held<'_>> {
+    match runner.try_lock() {
+        Ok(guard) => Some(Held::new(guard)),
+        Err(TryLockError::Poisoned(e)) => Some(Held::new(e.into_inner())),
+        Err(TryLockError::WouldBlock) => None,
+    }
 }
 
 #[cfg(test)]

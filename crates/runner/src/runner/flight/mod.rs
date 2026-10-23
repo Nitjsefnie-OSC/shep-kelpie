@@ -656,16 +656,12 @@ fn unstarted(harness: Option<Harness>, e: &std::io::Error) -> End {
 /// be read, is returned only when no other work item did anything. A
 /// ruling answered while the runner was stopped is acted on first. A ruling
 /// is posted, and a reply handled, while the runner drains too. A runner
-/// finishing with no work item left open reports that it finished.
+/// finishing with no work item left open reports that it finished. The panic
+/// of a call's thread is resumed here, as one in the runner's own would be.
 ///
 /// # Errors
 ///
 /// [`StateError`] when a call's start or end, or a post, cannot be saved.
-///
-/// # Panics
-///
-/// Resumes the panic of a call's thread, as one in the runner's own would be.
-#[track_caller]
 pub fn advance(runner: &Mutex<Runner>) -> Result<Pass, StateError> {
     // A pass holds the runner's lock through its forge calls, and each of those
     // waits its turn behind the login's pace. Post what `status` and `drain`
@@ -704,7 +700,6 @@ pub fn advance(runner: &Mutex<Runner>) -> Result<Pass, StateError> {
     pass
 }
 
-#[track_caller]
 fn one_pass(runner: &Mutex<Runner>) -> Result<Pass, StateError> {
     // A `drain` or `undrain` that landed while a pass held the lock set its
     // flag at once; what it asked the runner itself is taken up here.

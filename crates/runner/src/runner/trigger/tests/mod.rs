@@ -31,6 +31,24 @@ fn issue_lists_read_as_prose() {
 }
 
 #[test]
+fn status_leaves_out_lock_until_a_hold_is_recorded() {
+    let rig = Rig::new("koji");
+    let runner = rig.open().unwrap();
+
+    let first = rig.ask(&runner, "status", None);
+    assert!(first.get("lock").is_none(), "{first}");
+
+    let held = rig.ask(&runner, "status", None)["lock"].clone();
+    let here = format!("{}:", file!().replace("tests/mod.rs", "mod.rs"));
+    let sites = held.as_object().expect("the holds by site");
+    assert!(
+        sites.keys().any(|site| site.starts_with(&here)),
+        "no hold for the line that took the lock to answer: {held}"
+    );
+    assert!(sites.values().all(|seconds| seconds.is_f64()), "{held}");
+}
+
+#[test]
 fn a_new_project_has_nothing_in_flight() {
     let rig = Rig::new("koji");
     rig.retro_on();
