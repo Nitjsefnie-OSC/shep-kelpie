@@ -205,10 +205,11 @@ fn red_workflows(status: &Value, lines: &mut Vec<String>) {
     lines.push(format!("  red on main: {}", red.len()));
     for workflow in red {
         lines.push(format!(
-            "    {}: red for {}, {}",
+            "    {}: red for {}, {}; {}",
             workflow["workflow"].as_str().unwrap_or("?"),
             crate::board::briefing::elapsed(workflow["red_for"].as_u64().unwrap_or(0)),
             workflow["url"].as_str().unwrap_or("no link"),
+            workflow["doing"].as_str().unwrap_or("nothing yet"),
         ));
     }
 }

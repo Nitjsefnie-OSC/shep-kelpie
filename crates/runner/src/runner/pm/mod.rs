@@ -36,6 +36,7 @@ mod maintainer;
 mod notes;
 mod prompt;
 mod question;
+mod red;
 #[cfg(test)]
 mod tests;
 mod wakes;
@@ -695,7 +696,7 @@ impl Runner {
             Err(AgentError::Stopped) => return Ok(None),
             Err(e) => return Ok(Some(self.pm_failed(flying, e.to_string()))),
         };
-        let Some(answer) = answer::read(&reply.text) else {
+        let Some(mut answer) = answer::read(&reply.text) else {
             let why = "its reply held no answer kelpie reads";
             return Ok(Some(self.pm_failed(flying, why.into())));
         };
@@ -719,7 +720,7 @@ impl Runner {
         if answer.standing.is_none() {
             self.pm_stand_tells(&flying.told);
         }
-        let (mut acted, dropped) = self.act(&answer, picking)?;
+        let (mut acted, dropped) = self.act(&mut answer, picking)?;
         // Its votes on the rulings it was asked about; one it gave none on
         // abstains. They are part of what kelpie did, so they are recorded
         // before the note below names the wake's actions.

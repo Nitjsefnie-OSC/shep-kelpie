@@ -9,6 +9,7 @@
 //! item twice acts once.
 
 use super::answer::{Action, Answer, Unstick};
+use super::red::Settled;
 use super::{Pick, StuckState, stuck_on};
 use crate::board::briefing::ticket_ref;
 use crate::runner::thread_replies::Settler;
@@ -31,7 +32,7 @@ impl Runner {
     /// [`StateError`] when what it acted on cannot be saved.
     pub(super) fn act(
         &mut self,
-        answer: &Answer,
+        answer: &mut Answer,
         picking: bool,
     ) -> Result<(Vec<String>, Vec<String>), StateError> {
         let ready = self.board_ready();
@@ -50,6 +51,27 @@ impl Runner {
             }
         }
         let mut acted = Vec::new();
+        // A workflow red on `main` is settled first: a fix work item it opens
+        // is first on the board, so a wake that picks nothing starts it.
+        let mut fixed = false;
+        for red in &answer.red {
+            match self.settle_red(red)? {
+                Ok((done, settled)) => {
+                    acted.push(done);
+                    match settled {
+                        Settled::Fixed(_) => fixed = true,
+                        Settled::Asked(message) => {
+                            let reply = answer.reply.take();
+                            answer.reply = Some(match reply {
+                                Some(reply) => format!("{reply}\n\n{message}"),
+                                None => message,
+                            });
+                        }
+                    }
+                }
+                Err(why) => dropped.push(why),
+            }
+        }
         let now = self.ports.clock.now();
         match answer.pick {
             Some(ticket) if held.contains(&ticket) => {
@@ -72,10 +94,18 @@ impl Runner {
                     self.pm.pick = Some(Pick::Rule);
                 }
             }
-            None if picking => {
-                self.pm.pick = Some(Pick::Nothing(now));
-                acted.push("starts nothing now".to_owned());
-            }
+            None if picking && fixed => self.pm.pick = Some(Pick::Rule),
+            None if picking => match self.unsettled_red() {
+                // Nothing started would leave a red main to the maintainer.
+                Some(why) => {
+                    self.pm.pick = Some(Pick::Rule);
+                    dropped.push(format!("starts nothing: {why}"));
+                }
+                None => {
+                    self.pm.pick = Some(Pick::Nothing(now));
+                    acted.push("starts nothing now".to_owned());
+                }
+            },
             None => {}
         }
         if picking {

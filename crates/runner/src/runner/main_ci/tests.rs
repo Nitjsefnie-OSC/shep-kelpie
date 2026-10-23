@@ -209,7 +209,8 @@ fn the_board_names_the_red_workflow_how_long_it_has_been_red_and_its_run() {
     assert!(
         board.contains(
             "## Red on main\n\n- test: red for 3h05m, latest run \
-             https://github.com/shep-pm/shep/actions/runs/91 at head91\n"
+             https://github.com/shep-pm/shep/actions/runs/91 at head91; \
+             kelpie reran its failed jobs and waits for the result\n"
         ),
         "{board}"
     );

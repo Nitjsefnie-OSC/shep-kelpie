@@ -81,6 +81,37 @@ macro_rules! follow_ups {
     };
 }
 
+/// The `red` key as the answer shows it, which a board with a workflow red on
+/// `main` shows again to a session that has seen the answer without it
+macro_rules! red_key {
+    () => {
+        "\"red\": null or {\"workflow\": <a workflow under Red on main>, \"call\": \"fix\", \"title\": \"<the fix issue's title>\", \"body\": \"<the failing check, the log lines you read and the suspect merge>\", \"why\": \"<one sentence>\"} or {\"workflow\": <a workflow under Red on main>, \"call\": \"ask\", \"log\": \"<the log lines you read>\", \"why\": \"<one sentence>\"} or a list of them"
+    };
+}
+
+/// How a red `main` is cleared, shown with the `red` key
+macro_rules! reds {
+    () => {
+        "A workflow red on main is yours to clear, and no reason to start nothing. \
+         `## Red on main` in the board says what is being done about each one, and \
+         `## Code` names the end of each one's failed log, `ci/main-<run>.log`: read it \
+         before you answer. Kelpie reruns a red head's failed jobs once itself, so a \
+         flake needs nothing from you. A head that is red again after its rerun is \
+         yours, once. Tell a flake (the failure has nothing to do with the merges since \
+         main was last green, it differs from run to run, the tests passed on the pull \
+         request) from a break. For a break, `call` `fix` opens a fix work item first on \
+         the board, and its `body` names the failing check, the log lines you read and \
+         the suspect merge. Where you cannot tell, `call` `ask` puts the log lines you \
+         read in `log` to the maintainer, so they need not read the log themself. Kelpie \
+         drops a `red` call for a head whose rerun has not come back red, or that one \
+         already settled. While main is red you may still pick an issue that does not \
+         touch the failing area, and your `why` says why each is safe. A pick of null \
+         while a head is red after its rerun with no fix or question is dropped, and the \
+         board rule picks instead. Cite the failed job and the log lines you read in your \
+         `why` or the fix's `body`."
+    };
+}
+
 /// The `votes` key as the answer shows it, which a wake with a ruling to
 /// vote on shows again to a session that has seen the answer without it
 macro_rules! votes_key {
@@ -131,6 +162,8 @@ const ANSWER: &str = concat!(
     ",\n ",
     follow_up_key!(),
     ",\n ",
+    red_key!(),
+    ",\n ",
     votes_key!(),
     ",
  ",
@@ -152,6 +185,8 @@ that is not stuck.
     questions!(),
     "\n\n",
     follow_ups!(),
+    "\n\n",
+    reds!(),
     "\n\n",
     voting!()
 );
@@ -277,6 +312,14 @@ pub(super) fn wake(
                     answer_key!(),
                     follow_up_key!(),
                     follow_ups!()
+                );
+            }
+            if board.contains("## Red on main") {
+                let _ = write!(
+                    out,
+                    "\nThe object takes this key as well:\n\n```\n{}\n```\n\n{}\n",
+                    red_key!(),
+                    reds!()
                 );
             }
             if wakes.iter().any(|w| matches!(w, Wake::Vote { .. })) {

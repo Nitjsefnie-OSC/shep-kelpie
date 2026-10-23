@@ -2,7 +2,8 @@
 //! folder before it wakes, since it runs no git, and the board section that
 //! names them beside each work item's worktree
 //!
-//! A work item parked on red CI has its failed run's log named beside its diff.
+//! A work item parked on red CI has its failed run's log named beside its diff,
+//! and each workflow red on `main` has its log named after the items.
 //!
 //! The diffs are those the board's last write read, with the runner's lock
 //! let go, so a wake runs no git. The folder is emptied first, so a diff
@@ -43,6 +44,7 @@ impl Runner {
         // so the logs are read once per call and not on every board write.
         // They do not depend on the diffs folder, so they are written first.
         let mut logs = self.pm_ci_logs(folder);
+        let main_logs = self.pm_main_logs(folder);
         if let Err(e) = cleared {
             let why = format!("cannot clear {}: {}", diffs.display(), e.kind());
             self.notes
@@ -50,6 +52,9 @@ impl Runner {
             let _ = writeln!(out, "(no diffs: {why})");
             for (issue, log) in logs {
                 let _ = writeln!(out, "- #{issue}: {log}");
+            }
+            for log in main_logs {
+                let _ = writeln!(out, "- {log}");
             }
             return out;
         }
@@ -90,6 +95,9 @@ impl Runner {
                 let _ = write!(out, ", {log}");
             }
             out.push('\n');
+        }
+        for log in main_logs {
+            let _ = writeln!(out, "- {log}");
         }
         out
     }

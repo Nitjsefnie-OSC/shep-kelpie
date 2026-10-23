@@ -509,13 +509,16 @@ fn a_plain_status_names_what_the_maintainer_looks_for() {
 fn a_plain_status_names_the_red_workflow_how_long_it_has_been_red_and_its_run() {
     let body = r#"{"project":"koji","work_items":[],"red_workflows":[
         {"workflow":"test","first_run":91,"run":91,"head":"head91","since":1700000000,
-         "red_for":11100,"url":"https://github.com/shep-pm/shep/actions/runs/91"}]}"#;
+         "red_for":11100,"url":"https://github.com/shep-pm/shep/actions/runs/91",
+         "doing":"kelpie reran its failed jobs and waits for the result"}]}"#;
     let lines = plain_status("koji", body);
 
     assert!(lines.contains(&"  red on main: 1".to_owned()), "{lines:#?}");
     assert!(
         lines.contains(
-            &"    test: red for 3h05m, https://github.com/shep-pm/shep/actions/runs/91".to_owned()
+            &"    test: red for 3h05m, https://github.com/shep-pm/shep/actions/runs/91; \
+               kelpie reran its failed jobs and waits for the result"
+                .to_owned()
         ),
         "{lines:#?}"
     );
