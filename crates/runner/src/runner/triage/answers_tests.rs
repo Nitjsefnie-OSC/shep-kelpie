@@ -519,3 +519,17 @@ fn a_question_that_quotes_a_later_heading_cannot_move_the_recommended_answers() 
     assert!(given.contains("Q2: here"), "{given}");
     assert!(!given.contains("fake"), "{given}");
 }
+
+#[test]
+fn ok_with_no_recommended_answer_to_take_is_given_as_written() {
+    let found = json!({
+        "type": "bug",
+        "priority": "P2",
+        "open": [{ "question": "Which OS crashes?", "recommended": "" }],
+    });
+    let (rig, _runner) = replied(found, MAINTAINER, "ok");
+
+    let given = answers_given(&rig);
+    assert!(given.contains("ok"), "the reply is not lost: {given}");
+    assert!(!given.contains("Q1:"), "no answer is made up: {given}");
+}

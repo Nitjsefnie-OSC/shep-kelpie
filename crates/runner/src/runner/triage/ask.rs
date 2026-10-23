@@ -452,7 +452,8 @@ fn recommended_in(asked: &str) -> BTreeMap<usize, String> {
 // takes the recommended answer of every question, and a `Qn: ...` line, with the
 // lines under it, changes question `n` alone. Without an `ok` line the answers
 // are as written, so a question they leave out stays unanswered for the second
-// pass to ask again. Any other line is kept after the expanded answers.
+// pass to ask again, and so are they when no question has a recommended answer
+// to expand `ok` into. Any other line is kept after the expanded answers.
 fn confirmed(answers: &str, recommended: &BTreeMap<usize, String>) -> String {
     let mut ok = false;
     let mut changed: BTreeMap<usize, String> = BTreeMap::new();
@@ -482,6 +483,11 @@ fn confirmed(answers: &str, recommended: &BTreeMap<usize, String>) -> String {
     }
     let mut all = recommended.clone();
     all.extend(changed);
+    // With no recommended answer to put in its place, `ok` stays as written
+    // for the second pass to read, rather than leave the reply empty.
+    if all.is_empty() {
+        return answers.to_owned();
+    }
     let mut lines: Vec<String> = all
         .into_iter()
         .map(|(n, text)| format!("Q{n}: {}", text.trim()))
