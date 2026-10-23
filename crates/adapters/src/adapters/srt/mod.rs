@@ -54,6 +54,21 @@ impl SandboxRuntime {
         }
     }
 
+    /// The runtime for a test that runs its wrapped command for real: on macOS
+    /// through the built `shep-kelpie`, and a panic when there is none, since a
+    /// test binary would refuse `--crabpot` and the test would prove nothing
+    #[cfg(test)]
+    pub(crate) fn under_test(tools: Tools) -> Self {
+        let srt = Self::new(tools);
+        match srt.macos {
+            true => {
+                let kelpie = built_kelpie().unwrap_or_else(|why| panic!("no kelpie to run: {why}"));
+                srt.run_by(kelpie)
+            }
+            false => srt,
+        }
+    }
+
     // The program that runs a command in crabpot's sandbox
     fn crabpot(&self) -> Result<PathBuf, SandboxError> {
         match &self.kelpie {

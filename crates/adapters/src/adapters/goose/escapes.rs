@@ -95,7 +95,7 @@ fn curl(world: &World, call: &AgentCall, forwarder: &Forwarder, args: &[&str]) -
         .args(["-w", " [%{http_code}]"])
         .args(args)
         .current_dir(world.path("wt"));
-    let mut wrapped = SandboxRuntime::new(tools)
+    let mut wrapped = SandboxRuntime::under_test(tools)
         .wrap(&policy, &world.path("settings.sandbox.json"), &command)
         .unwrap();
     wrapped.output().unwrap()

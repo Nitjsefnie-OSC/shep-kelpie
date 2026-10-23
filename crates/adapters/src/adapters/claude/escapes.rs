@@ -79,7 +79,7 @@ impl World {
         let policy = policy(&call, &self.path("home"), &[]).unwrap();
         let mut inner = Command::new("/bin/sh");
         inner.args(["-c", script]).current_dir(&call.cwd);
-        SandboxRuntime::new(tools)
+        SandboxRuntime::under_test(tools)
             .wrap(&policy, &self.path("worker/settings.sandbox.json"), &inner)
             .unwrap()
             .output()
@@ -317,7 +317,7 @@ fn a_live_worker_turn_runs_inside_the_sandbox_and_resumes() {
     };
     let home = std::env::var_os("HOME").map(PathBuf::from).unwrap();
     let cli = ClaudeCli::on(
-        &Base::default().sandboxed(Arc::new(SandboxRuntime::new(tools)), home.clone()),
+        &Base::default().sandboxed(Arc::new(SandboxRuntime::under_test(tools)), home.clone()),
     );
     let id = crate::work_item::new_session_id().unwrap();
     let mut call = AgentCall {
