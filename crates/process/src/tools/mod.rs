@@ -133,7 +133,7 @@ const KEYCHAIN_SERVICES: [&str; 2] = ["com.apple.securityd.xpc", "com.apple.Secu
 
 // `profile` without the line that names each keychain service. A runtime that
 // names one on any other number of lines than one is not the one measured
-// (0.0.77 names each on one line), so nothing is cut from it.
+// (0.0.77 and 0.0.81 name each on one line), so nothing is cut from it.
 fn without_keychain(profile: &str) -> Result<String, String> {
     for service in KEYCHAIN_SERVICES {
         let named = profile.lines().filter(|l| l.contains(service)).count();
@@ -192,6 +192,32 @@ const lines = [
     '(allow ipc-posix-shm)',
 ];
 ";
+
+    // Each service's neighbours, copied from `dist/sandbox/macos-sandbox-utils.js`
+    // of 0.0.81 (lines 783 to 788 and 905 to 908), one block after the other.
+    const PROFILE_0_0_81: &str =
+        "        '  (global-name \"com.apple.system.opendirectoryd.membership\")',
+        '  (global-name \"com.apple.bsd.dirhelper\")',
+        '  (global-name \"com.apple.securityd.xpc\")',
+        '  (global-name \"com.apple.coreservices.launchservicesd\")',
+        ')',
+        '',
+        '; Specific mach-lookup permissions for security operations',
+        '(allow mach-lookup (global-name \"com.apple.SecurityServer\"))',
+        '',
+        '; File I/O on device files',
+";
+
+    #[test]
+    fn without_keychain_cuts_one_line_per_service_from_the_0_0_81_profile() {
+        let patched = without_keychain(PROFILE_0_0_81).unwrap();
+        let kept: Vec<_> = PROFILE_0_0_81
+            .lines()
+            .filter(|l| !l.contains("securityd.xpc") && !l.contains("SecurityServer"))
+            .collect();
+        assert_eq!(kept.len(), PROFILE_0_0_81.lines().count() - 2);
+        assert_eq!(patched.lines().collect::<Vec<_>>(), kept);
+    }
 
     fn utils(tools: &Tools) -> PathBuf {
         let cli = tools.sandbox();
@@ -306,7 +332,7 @@ const lines = [
         let text = std::fs::read_to_string(tools.dir().join("package.json")).unwrap();
         let json: serde_json::Value = serde_json::from_str(&text).unwrap();
         assert_eq!(json["dependencies"][PI_WEB_ACCESS], "0.40.0", "{text}");
-        assert_eq!(json["dependencies"][PACKAGE_NAME], "0.0.77", "{text}");
+        assert_eq!(json["dependencies"][PACKAGE_NAME], "0.0.81", "{text}");
         assert_eq!(json["dependencies"]["@playwright/mcp"], "0.0.82", "{text}");
     }
 
