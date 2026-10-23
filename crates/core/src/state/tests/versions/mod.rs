@@ -798,6 +798,9 @@ fn a_version_42_file_loads_with_no_red_workflow_and_red_ones_round_trip() {
         head: "abc123".into(),
         since: Timestamp(1_790_000_000),
         reran: None,
+        reran_head: None,
+        again: false,
+        handled: None,
         noticed: false,
     }];
     store.save(&loaded).unwrap();

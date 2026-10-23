@@ -42,6 +42,7 @@ fn a_failed_run_on_main_lists_its_workflow_as_red() {
             "since": went_red,
             "red_for": 3 * 3600 + 5 * 60,
             "url": "https://github.com/shep-pm/shep/actions/runs/91",
+            "doing": "kelpie reran its failed jobs and waits for the result",
         }])
     );
 }
@@ -208,7 +209,8 @@ fn the_board_names_the_red_workflow_how_long_it_has_been_red_and_its_run() {
     assert!(
         board.contains(
             "## Red on main\n\n- test: red for 3h05m, latest run \
-             https://github.com/shep-pm/shep/actions/runs/91 at head91\n"
+             https://github.com/shep-pm/shep/actions/runs/91 at head91; \
+             kelpie reran its failed jobs and waits for the result\n"
         ),
         "{board}"
     );
@@ -378,4 +380,36 @@ fn a_workflow_list_that_fails_keeps_the_red_workflows_and_is_retried_on_the_back
     step(&runner).unwrap();
     assert_eq!(rig.forge.workflows_reads(), before + 2, "no read 15s on");
     assert_eq!(status(&rig, &runner), red);
+}
+
+#[test]
+fn a_head_rerun_under_a_state_file_from_before_reran_head_is_not_rerun_again() {
+    let rig = Rig::new("acme");
+    rig.forge
+        .set_branch_runs("main", vec![run("test", 91, "failure", Rig::EPOCH)]);
+    let runner = rig.open().unwrap();
+    step(&runner).unwrap();
+    assert_eq!(rig.forge.run_reruns(), [91]);
+    drop(runner);
+    let file = rig.paths().state;
+    let mut state: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+    let red = &mut state["red"][0];
+    assert_eq!(red["reran"], 91);
+    red.as_object_mut().unwrap().remove("reran_head");
+    std::fs::write(&file, serde_json::to_string(&state).unwrap()).unwrap();
+
+    let runner = rig.open().unwrap();
+    assert_eq!(
+        status(&rig, &runner)[0]["doing"],
+        "kelpie reran its failed jobs and waits for the result"
+    );
+    rig.clock.advance(MAIN_CI_POLL.as_secs());
+    step(&runner).unwrap();
+
+    assert_eq!(rig.forge.run_reruns(), [91], "no second rerun");
+    assert_eq!(
+        status(&rig, &runner)[0]["doing"],
+        "red again after its rerun; the project manager opens a fix or asks"
+    );
 }

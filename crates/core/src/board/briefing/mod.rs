@@ -191,6 +191,8 @@ pub struct RedLine {
     pub head: String,
     /// Its latest red run's page on the forge
     pub url: String,
+    /// What is being done about the latest red head
+    pub doing: String,
 }
 
 /// The ready queue as the board last read it
@@ -387,11 +389,12 @@ fn red_on_main(out: &mut String, board: &Briefing<'_>) {
     for red in &board.red {
         let _ = writeln!(
             out,
-            "- {}: red for {}, latest run {} at {}",
+            "- {}: red for {}, latest run {} at {}; {}",
             red.workflow,
             age(board.now, red.since),
             red.url,
-            short(&red.head)
+            short(&red.head),
+            red.doing
         );
     }
     out.push('\n');
