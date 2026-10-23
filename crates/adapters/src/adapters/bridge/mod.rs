@@ -21,6 +21,7 @@ use std::net::Shutdown;
 use std::path::{Path, PathBuf};
 use std::process::{ChildStdin, ChildStdout, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc;
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -29,7 +30,7 @@ use serde_json::{Value, json};
 
 use super::forwarder::unguessable;
 use super::process::{Kept, stop_child};
-use crate::bridge::{Filter, Passage, ended_call, id_key, wait_allowance};
+use crate::bridge::{Filter, Passage, ended_call, ended_request, id_key, wait_allowance};
 use crate::ipc::blocking::{Listener, Stream};
 use crate::ports::{Bridges, OpenBridge, Playwright};
 pub(crate) use client::{Client, Navigation};
@@ -280,7 +281,9 @@ impl Call {
 struct Session {
     // How many servers the connection has had, so a line from a stopped one is known
     generation: u32,
-    to_server: ChildStdin,
+    // Lines for the server, written by a thread of their own so that a server that reads
+    // nothing cannot hold this session
+    to_server: mpsc::Sender<String>,
     waiting: HashMap<String, Waiting>,
     // The worker's opening lines, which a restarted server is sent again
     initialize: Option<String>,
@@ -309,7 +312,9 @@ impl Session {
             };
             self.waiting.insert(id_key(id), waiting);
         }
-        writeln!(self.to_server, "{text}").and_then(|()| self.to_server.flush())
+        self.to_server
+            .send(text.to_owned())
+            .map_err(io::Error::other)
     }
 
     // Whether `reply`, a line from the server, goes on to the worker. A reply to nothing
@@ -392,7 +397,11 @@ impl Running<'_> {
             "kelpie ended a browser call that ran over its {limit:?} limit and restarted the browser, so the page's state is gone"
         );
         for (_, waiting) in session.waiting.drain() {
-            if self.shared.tell(&ended_call(&waiting.id, &why)).is_err() {
+            let ended = match waiting.call {
+                Some(_) => ended_call(&waiting.id, &why),
+                None => ended_request(&waiting.id, &why),
+            };
+            if self.shared.tell(&ended).is_err() {
                 session.over = true;
                 return;
             }
@@ -404,13 +413,10 @@ impl Running<'_> {
             return;
         };
         self.process = process;
-        session.to_server = to_server;
+        session.to_server = writer(to_server);
         let opening = [&session.initialize, &session.initialized];
         for text in opening.into_iter().flatten() {
-            if writeln!(session.to_server, "{text}")
-                .and_then(|()| session.to_server.flush())
-                .is_err()
-            {
+            if session.to_server.send(text.clone()).is_err() {
                 session.over = true;
             }
         }
@@ -457,6 +463,23 @@ fn start(server: &Server) -> Option<(Kept, ChildStdin, ChildStdout)> {
         return None;
     };
     Some((kept, stdin, stdout))
+}
+
+// Writes the lines sent on the channel to the server, until the channel closes or the
+// server stops taking them.
+fn writer(mut to_server: ChildStdin) -> mpsc::Sender<String> {
+    let (send, lines) = mpsc::channel::<String>();
+    thread::spawn(move || {
+        for text in lines {
+            if writeln!(to_server, "{text}")
+                .and_then(|()| to_server.flush())
+                .is_err()
+            {
+                break;
+            }
+        }
+    });
+    send
 }
 
 // Carries what server number `generation` says to the worker, through the filter.
@@ -541,7 +564,7 @@ fn serve(
     let shared = Arc::new(Shared {
         session: Mutex::new(Session {
             generation: 0,
-            to_server,
+            to_server: writer(to_server),
             waiting: HashMap::new(),
             initialize: None,
             initialized: None,

@@ -480,3 +480,68 @@ fn a_call_answered_in_time_is_not_cut_short() {
     assert_eq!(ask(&mut stream, &call(3, "browser_hover"))["id"], 3);
     assert_eq!(pids(&dir).len(), 1);
 }
+
+// A stand-in server that answers `initialize` and then reads nothing more.
+#[cfg(unix)]
+fn deaf_world(call_limit: Duration) -> (tempfile::TempDir, Server) {
+    let (dir, mut server) = world();
+    let script = server.cwd.join("deaf");
+    let text = r#"#!/bin/sh
+echo $$ >> ROOT/pids
+read -r line
+echo '{"jsonrpc":"2.0","id":1,"result":{}}'
+sleep 30
+"#;
+    crate::test::write_script(
+        &script,
+        &text.replace("ROOT", &server.cwd.display().to_string()),
+    );
+    server.command = script;
+    server.call_limit = call_limit;
+    (dir, server)
+}
+
+#[cfg(unix)]
+#[test]
+fn a_server_that_stops_reading_does_not_keep_a_call_past_its_limit() {
+    let (dir, server) = deaf_world(Duration::from_millis(300));
+    let mut stream = greeted(server);
+    // More than a pipe holds, so the write to the server cannot finish.
+    let text = "x".repeat(1 << 20);
+    let big = call_with(2, "browser_type", &json!({ "text": text }));
+    writeln!(stream.get_mut(), "{big}").unwrap();
+    let ended = heard_within(&mut stream, crate::test::CALL_PATIENCE).unwrap();
+    assert_eq!(ended["id"], 2, "{ended}");
+    assert_eq!(ended["result"]["isError"], true, "{ended}");
+    // The error comes first, then the restart.
+    let deadline = Instant::now() + crate::test::CALL_PATIENCE;
+    while pids(&dir).len() < 2 {
+        assert!(Instant::now() < deadline, "no fresh server started");
+        thread::sleep(Duration::from_millis(10));
+    }
+    assert!(!running(&pids(&dir)[0]), "the stuck server stayed");
+}
+
+#[cfg(unix)]
+#[test]
+fn a_request_that_is_not_a_tool_call_is_ended_with_an_error_and_not_a_tool_result() {
+    let (_dir, server) = stalling_world(Duration::from_millis(300), false);
+    let mut stream = greeted(server);
+    let list = json!({ "jsonrpc": "2.0", "id": 2, "method": "tools/list" });
+    writeln!(stream.get_mut(), "{list}").unwrap();
+    writeln!(stream.get_mut(), "{}", call(3, "browser_snapshot")).unwrap();
+    let mut heard = vec![
+        heard_within(&mut stream, crate::test::CALL_PATIENCE).unwrap(),
+        heard_within(&mut stream, crate::test::CALL_PATIENCE).unwrap(),
+    ];
+    heard.sort_by_key(|message| message["id"].as_u64());
+    assert_eq!(heard[0]["id"], 2, "{heard:?}");
+    assert_eq!(heard[0]["result"], Value::Null, "{heard:?}");
+    let why = heard[0]["error"]["message"].as_str().unwrap();
+    assert!(
+        why.contains("300ms") && why.contains("restarted the browser"),
+        "{why}"
+    );
+    assert_eq!(heard[1]["id"], 3, "{heard:?}");
+    assert_eq!(heard[1]["result"]["isError"], true, "{heard:?}");
+}

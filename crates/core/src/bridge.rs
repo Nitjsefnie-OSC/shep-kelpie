@@ -156,6 +156,11 @@ pub fn ended_call(id: &Value, why: &str) -> Value {
     })
 }
 
+/// The JSON-RPC error that answers the request `id`, which is not a tool call, with `why`
+pub fn ended_request(id: &Value, why: &str) -> Value {
+    json!({ "jsonrpc": "2.0", "id": id, "error": { "code": -32603, "message": why } })
+}
+
 /// How long past the bridge's limit a `tools/call` with these `params` may run
 ///
 /// `browser_wait_for` is asked to wait `arguments.time` seconds, which is its own work and
