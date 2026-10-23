@@ -54,9 +54,20 @@ pub enum Handled {
 }
 
 impl RedWorkflow {
+    /// Whether `head` has had its rerun, or its refusal. A state file from
+    /// before `reran_head` holds only `reran`, the run it reran: when that is
+    /// the latest red run, its head was rerun, and a newer run is a head that
+    /// never was.
+    pub fn rerun_done(&self) -> bool {
+        match &self.reran_head {
+            Some(head) => *head == self.head,
+            None => self.reran == Some(self.run),
+        }
+    }
+
     /// What is being done about the workflow's latest red head, in words
     pub fn doing(&self) -> String {
-        match (self.handled, self.again, &self.reran_head) {
+        match (self.handled, self.again, self.rerun_done()) {
             (Some(Handled::Fix(ticket)), ..) => format!(
                 "the project manager opened fix work item {} at the front of the board",
                 ticket.shown()
@@ -67,10 +78,10 @@ impl RedWorkflow {
             (None, true, _) => {
                 "red again after its rerun; the project manager opens a fix or asks".to_owned()
             }
-            (None, false, Some(head)) if *head == self.head => {
+            (None, false, true) => {
                 "kelpie reran its failed jobs and waits for the result".to_owned()
             }
-            (None, false, _) => "kelpie reruns its failed jobs at the next read".to_owned(),
+            (None, false, false) => "kelpie reruns its failed jobs at the next read".to_owned(),
         }
     }
 }

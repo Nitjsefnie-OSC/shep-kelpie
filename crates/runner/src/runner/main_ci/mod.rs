@@ -102,7 +102,7 @@ impl Runner {
     ) -> Vec<Notice> {
         let mut notices = Vec::new();
         for workflow in red.iter_mut().filter(|r| failing.contains(&r.workflow)) {
-            if workflow.reran_head.as_deref() == Some(workflow.head.as_str()) {
+            if workflow.rerun_done() {
                 workflow.again = true;
             } else {
                 match self
