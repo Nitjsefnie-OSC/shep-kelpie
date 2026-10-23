@@ -1,5 +1,7 @@
 use super::*;
 use crate::settings::{Account, AgentHarness, AgentName, EndpointUrl, GatewayName, ModelHost};
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 
 fn url(text: &str) -> EndpointUrl {
     EndpointUrl::try_from(text.to_owned()).unwrap()
@@ -327,6 +329,78 @@ fn defaults_are_written_where_missing_and_never_over_a_file() {
     fs::create_dir_all(script.parent().unwrap()).unwrap();
     fs::write(&script, "#!/bin/sh\n").unwrap();
     assert_eq!(write_defaults(&agents, &home).unwrap(), ["qwen"]);
+}
+
+#[test]
+fn a_default_is_written_as_a_stub_that_extends_the_shipped_agent() {
+    let dir = tempfile::tempdir().unwrap();
+    let agents = dir.path().join("agents");
+    write_defaults(&agents, &dir.path().join("home")).unwrap();
+    assert_eq!(
+        fs::read_to_string(agents.join("triager.md")).unwrap(),
+        "---\nextends: kelpie:triager\n---\n"
+    );
+}
+
+#[test]
+fn defaults_are_also_written_whole_and_read_only_under_dot_defaults() {
+    let dir = tempfile::tempdir().unwrap();
+    let agents = dir.path().join("agents");
+    write_defaults(&agents, &dir.path().join("home")).unwrap();
+    let shipped = Agents::embedded();
+    let kept = agents.join(".defaults");
+    for (agent, _) in shipped.iter() {
+        let file = kept.join(format!("{agent}.md"));
+        let text = fs::read_to_string(&file).unwrap_or_else(|e| panic!("{agent}: {e}"));
+        let written = Agents::load(folder(&[(&format!("{agent}.md"), &text)]).path()).unwrap();
+        assert_eq!(written.get(agent), shipped.get(agent), "{agent}");
+        assert!(fs::metadata(&file).unwrap().permissions().readonly());
+        #[cfg(unix)]
+        assert_eq!(
+            fs::metadata(&file).unwrap().permissions().mode() & 0o777,
+            0o444
+        );
+    }
+    let triager = fs::read_to_string(kept.join("triager.md")).unwrap();
+    let comment: Vec<&str> = triager.lines().skip(1).take(2).collect();
+    let comment = comment.join("\n");
+    assert!(comment.starts_with("# "), "{comment}");
+    for said in ["Kelpie writes this file", "edit", "agents/triager.md"] {
+        assert!(comment.contains(said), "{comment}");
+    }
+    assert!(
+        kept.join("qwen.md").is_file(),
+        "every shipped agent, the script or not"
+    );
+    assert_eq!(
+        Agents::load(&agents).unwrap(),
+        shipped,
+        "the folder holds no agent in `.defaults`"
+    );
+}
+
+#[test]
+fn baselines_put_back_a_file_that_was_edited_or_removed() {
+    let dir = tempfile::tempdir().unwrap();
+    let agents = dir.path().join("agents");
+    write_baselines(&agents).unwrap();
+    let kept = agents.join(".defaults");
+    let before = fs::read_to_string(kept.join("pm.md")).unwrap();
+    let file = kept.join("pm.md");
+    fs::remove_file(&file).unwrap();
+    fs::write(&file, "mine").unwrap();
+    fs::remove_file(kept.join("spec.md")).unwrap();
+    write_baselines(&agents).unwrap();
+    assert_eq!(fs::read_to_string(&file).unwrap(), before);
+    assert!(kept.join("spec.md").is_file());
+    assert!(fs::metadata(&file).unwrap().permissions().readonly());
+    assert!(
+        fs::read_dir(&kept).unwrap().all(|f| {
+            let name = f.unwrap().file_name();
+            name.to_string_lossy().ends_with(".md")
+        }),
+        "no half-written file is left beside them"
+    );
 }
 
 const REVIEWER: &str = "---\nrole: reviewer\nharness: claude-code\nmodel: claude-opus-5-5\n\

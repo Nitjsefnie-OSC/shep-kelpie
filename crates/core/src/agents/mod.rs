@@ -5,9 +5,13 @@
 //! An implementer's body is added to kelpie's own instructions, and a
 //! reviewer's, the issue writer's, the project manager's, the advisor's, the
 //! researcher's, the representative's or the triager's is its prompt.
-//! Kelpie embeds its defaults, which a file of the same name replaces, and `shep kelpie add` writes out any that are
-//! missing. A file with `extends: <name>` builds on another agent, setting
-//! only the keys it changes. A file that cannot be read or used stops the runner, naming the
+//! Kelpie embeds its own agents as baselines, and a file of the same name
+//! replaces one. `shep kelpie add` writes a stub for each that is missing,
+//! `extends: kelpie:<name>` and nothing else, and kelpie writes each baseline
+//! whole and read-only to `.defaults/` to be read and diffed, which nothing
+//! loads. A file with `extends: <name>` builds on the file of that name, and
+//! one with `extends: kelpie:<name>` on a baseline, setting only the keys it
+//! changes. A file that cannot be read or used stops the runner, naming the
 //! file and what is wrong with it. A `.md` file whose name is no agent's,
 //! such as a `README.md`, is skipped and named in the log. A review bot's
 //! file is named for its bot, since the bot's window is its account's.
@@ -32,6 +36,9 @@ mod front;
 
 /// The folder in kelpie's home that holds the agent files
 pub const FOLDER: &str = "agents";
+
+/// The folder of `agents` that holds each baseline whole, for reading and diffing
+pub const BASELINES: &str = ".defaults";
 
 /// The implementer a project lists when it names none
 pub const DEFAULT_IMPLEMENTER: &str = "sonnet-high";
@@ -76,8 +83,9 @@ enum Written {
     Beside(&'static str),
 }
 
-// Kelpie's own agents, by name: what `add` writes out, and what a missing
-// file falls back to. A project lists none of the review bots unless told to.
+// Kelpie's own agents, by name: what `add` writes a stub for, what a file
+// reaches with `extends: kelpie:<name>`, and what a missing file falls back
+// to. A project lists none of the review bots unless told to.
 const DEFAULTS: [(&str, &str, Written); 16] = [
     (
         DEFAULT_IMPLEMENTER,
@@ -458,10 +466,12 @@ impl Agents {
     }
 }
 
-/// Writes each of kelpie's own agents that `folder` lacks, never over a file
+/// Writes a stub for each of kelpie's own agents that `folder` lacks, never over
+/// a file, and refreshes the baselines in `folder`'s `.defaults`
 ///
-/// The `qwen` reviewer is written only where the maintainer's qwen-review
-/// script is installed under `home`. Returns the names written, in order.
+/// A stub is `extends: kelpie:<name>` and nothing else. The `qwen` reviewer
+/// is written only where the maintainer's qwen-review script is installed
+/// under `home`. Returns the names written, in order.
 ///
 /// # Errors
 ///
@@ -469,16 +479,53 @@ impl Agents {
 pub fn write_defaults(folder: &Path, home: &Path) -> Result<Vec<&'static str>, AgentsError> {
     fs::create_dir_all(folder).map_err(|e| failed(folder, e))?;
     let mut written = Vec::new();
-    for (name, text, when) in DEFAULTS {
+    for (name, _, when) in DEFAULTS {
         let wanted = match when {
             Written::Always => true,
             Written::Beside(file) => installed(file, home),
         };
-        if wanted && write_new(&folder.join(format!("{name}.md")), text)? {
+        let stub = format!("---\nextends: {}{name}\n---\n", extends::SHIPPED);
+        if wanted && write_new(&folder.join(format!("{name}.md")), &stub)? {
             written.push(name);
         }
     }
+    write_baselines(folder)?;
     Ok(written)
+}
+
+/// Writes each of kelpie's own agents, whole and read-only, to `folder`'s
+/// `.defaults`, over any file there
+///
+/// Each file leads with a comment saying kelpie writes it, so an edit is
+/// lost, and where to override it instead. A file is replaced by a rename, so
+/// a read never sees half of one.
+///
+/// # Errors
+///
+/// [`AgentsError::Read`] naming the folder or file that could not be written.
+pub fn write_baselines(folder: &Path) -> Result<(), AgentsError> {
+    let kept = folder.join(BASELINES);
+    fs::create_dir_all(&kept).map_err(|e| failed(&kept, e))?;
+    for (name, text, _) in DEFAULTS {
+        let body = text.strip_prefix("---\n").unwrap_or(text);
+        let whole = format!(
+            "---\n# Kelpie writes this file and replaces it on every upgrade, so an edit here is \
+             lost.\n# To change this agent, override it in agents/{name}.md instead.\n{body}"
+        );
+        let path = kept.join(format!("{name}.md"));
+        let beside = kept.join(format!("{name}.md.tmp"));
+        replace(&path, &beside, &whole).map_err(|e| failed(&path, e))?;
+    }
+    Ok(())
+}
+
+// Writes `text` read-only to `beside`, then renames it over `path`.
+fn replace(path: &Path, beside: &Path, text: &str) -> io::Result<()> {
+    fs::write(beside, text)?;
+    let mut permissions = fs::metadata(beside)?.permissions();
+    permissions.set_readonly(true);
+    fs::set_permissions(beside, permissions)?;
+    fs::rename(beside, path)
 }
 
 /// Whether `file`, written with a leading `~/`, is a file under `home`
