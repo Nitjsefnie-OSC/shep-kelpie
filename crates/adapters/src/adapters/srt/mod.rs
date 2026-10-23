@@ -234,6 +234,20 @@ mod tests {
         assert!(plain.get("allowMachLookup").is_none(), "{plain}");
     }
 
+    // From 0.0.80 srt blocks the user namespaces a command makes itself unless
+    // this is set, and setting it gives up the write denies the fence rests on
+    // (`docs/facts/worker-profile-and-sandbox.md`).
+    #[test]
+    fn a_command_may_not_make_user_namespaces_of_its_own() {
+        for macos in [true, false] {
+            let settings = settings_on(&Policy::default(), macos);
+            assert!(
+                settings.get("allowNestedUserNamespaces").is_none(),
+                "{settings}"
+            );
+        }
+    }
+
     #[test]
     fn on_macos_an_opened_folder_is_read_alone_and_a_scratch_glob_is_written_one_level_down() {
         let policy = Policy {
