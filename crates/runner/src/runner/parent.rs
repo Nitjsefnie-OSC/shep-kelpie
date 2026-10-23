@@ -12,7 +12,8 @@ use std::collections::BTreeMap;
 use super::Runner;
 use super::report::{Begin, StepReport};
 use crate::board::ReadyIssue;
-use crate::ports::{SubIssueState, Timestamp};
+use crate::ports::{SubIssueState, Tickets, Timestamp};
+use crate::settings::ForgeSlug;
 use crate::ticket::TicketId;
 
 /// Refusals in a row before this runner stops closing an issue, until it
@@ -35,71 +36,115 @@ pub(super) type Unbuilt = BTreeMap<TicketId, (u64, Timestamp)>;
 /// change how a closed sub-issue closed without changing their count
 const UNBUILT_RECHECK: u64 = 3600;
 
+/// What the search for an issue off the ready list, whose sub-issues are all closed, found
+///
+/// Read with the runner's lock let go (`board_read.rs`), and taken up by [`Runner::close_done_parent`].
+#[derive(Debug)]
+pub(super) struct Unlisted {
+    found: Option<TicketId>,
+    unbuilt: Unbuilt,
+    notes: Vec<String>,
+}
+
+fn may_close(refused: &Refused, ticket: TicketId) -> bool {
+    refused.get(&ticket).is_none_or(|n| *n < TRIES)
+}
+
+/// Whether the board lists an issue, not in `items`, to close for its sub-issues all being closed
+pub(super) fn lists_done_parent(
+    refused: &Refused,
+    ready: &[ReadyIssue],
+    items: &[TicketId],
+) -> bool {
+    ready.iter().any(|i| {
+        !items.contains(&i.ticket) && i.sub_issues.all_closed() && may_close(refused, i.ticket)
+    })
+}
+
+/// An open issue off the ready list whose sub-issues are all closed with
+/// one completed
+///
+/// One listing names the candidates. Each is read once more for how its
+/// sub-issues closed, and one with none completed is read again when its
+/// count of sub-issues changes, or an hour on. A read that fails is told
+/// in the log. `held` are the tickets the board lists or a work item has.
+pub(super) fn find_unlisted(
+    tickets: &dyn Tickets,
+    repo: &ForgeSlug,
+    now: Timestamp,
+    held: &[TicketId],
+    refused: &Refused,
+    mut unbuilt: Unbuilt,
+) -> Unlisted {
+    let mut notes = Vec::new();
+    let listed = match tickets.finished_parents(repo) {
+        Ok(listed) => listed,
+        Err(e) => {
+            notes.push(format!(
+                "cannot list the parents with every sub-issue closed: {e}"
+            ));
+            return Unlisted {
+                found: None,
+                unbuilt,
+                notes,
+            };
+        }
+    };
+    unbuilt.retain(|ticket, (total, at)| {
+        let fresh = now.0 < at.0.saturating_add(UNBUILT_RECHECK);
+        fresh && (listed.iter()).any(|p| p.ticket == *ticket && p.sub_issues == *total)
+    });
+    let mut found = None;
+    for parent in listed {
+        let ticket = parent.ticket;
+        if held.contains(&ticket) || unbuilt.contains_key(&ticket) || !may_close(refused, ticket) {
+            continue;
+        }
+        match tickets.sub_issues(repo, ticket) {
+            // The listing can be stale, so every sub-issue is checked closed here.
+            Ok(subs) if subs.iter().any(|s| s.state == SubIssueState::Open) => {}
+            Ok(subs) if subs.iter().any(|s| s.state == SubIssueState::Completed) => {
+                found = Some(ticket);
+                break;
+            }
+            Ok(subs) if !subs.is_empty() => {
+                unbuilt.insert(ticket, (parent.sub_issues, now));
+            }
+            Ok(_) => {}
+            Err(e) => notes.push(format!(
+                "cannot read the sub-issues of {ticket} to close it: {e}"
+            )),
+        }
+    }
+    Unlisted {
+        found,
+        unbuilt,
+        notes,
+    }
+}
+
 impl Runner {
     /// Closes an issue whose sub-issues are all closed, if the board lists a
-    /// ready one, or the forge an open one with a completed sub-issue, that it
-    /// has not refused too often
-    pub(super) fn close_done_parent(&mut self, ready: &[ReadyIssue]) -> Option<Begin> {
+    /// ready one, or the forge an open one with a completed sub-issue (the
+    /// board's read `unlisted`), that it has not refused too often
+    pub(super) fn close_done_parent(
+        &mut self,
+        ready: &[ReadyIssue],
+        unlisted: Option<Unlisted>,
+    ) -> Option<Begin> {
         let done = ready
             .iter()
-            .find(|i| i.sub_issues.all_closed() && self.may_close(i.ticket));
+            .find(|i| i.sub_issues.all_closed() && may_close(&self.close_refused, i.ticket));
         let ticket = match done {
             Some(done) => done.ticket,
-            None => self.unlisted_done_parent(ready)?,
+            None => {
+                let unlisted = unlisted?;
+                self.unbuilt = unlisted.unbuilt;
+                self.notes.extend(unlisted.notes);
+                unlisted.found?
+            }
         };
         Some(Begin::Report(self.close_parent(ticket)))
-    }
-
-    fn may_close(&self, ticket: TicketId) -> bool {
-        self.close_refused.get(&ticket).is_none_or(|n| *n < TRIES)
-    }
-
-    /// An open issue off the ready list whose sub-issues are all closed with
-    /// one completed
-    ///
-    /// One listing names the candidates. Each is read once more for how its
-    /// sub-issues closed, and one with none completed is read again when its
-    /// count of sub-issues changes, or an hour on. A read that fails is told
-    /// in the log.
-    fn unlisted_done_parent(&mut self, ready: &[ReadyIssue]) -> Option<TicketId> {
-        let listed = match self.ports.tickets.finished_parents(&self.remote) {
-            Ok(listed) => listed,
-            Err(e) => {
-                self.notes.push(format!(
-                    "cannot list the parents with every sub-issue closed: {e}"
-                ));
-                return None;
-            }
-        };
-        let now = self.ports.clock.now();
-        self.unbuilt.retain(|ticket, (total, at)| {
-            let fresh = now.0 < at.0.saturating_add(UNBUILT_RECHECK);
-            fresh && (listed.iter()).any(|p| p.ticket == *ticket && p.sub_issues == *total)
-        });
-        for parent in listed {
-            let ticket = parent.ticket;
-            let held = ready.iter().any(|i| i.ticket == ticket)
-                || self.state.item(ticket).is_some()
-                || self.unbuilt.contains_key(&ticket);
-            if held || !self.may_close(ticket) {
-                continue;
-            }
-            match self.ports.tickets.sub_issues(&self.remote, ticket) {
-                // The listing can be stale, so every sub-issue is checked closed here.
-                Ok(subs) if subs.iter().any(|s| s.state == SubIssueState::Open) => {}
-                Ok(subs) if subs.iter().any(|s| s.state == SubIssueState::Completed) => {
-                    return Some(ticket);
-                }
-                Ok(subs) if !subs.is_empty() => {
-                    self.unbuilt.insert(ticket, (parent.sub_issues, now));
-                }
-                Ok(_) => {}
-                Err(e) => self.notes.push(format!(
-                    "cannot read the sub-issues of {ticket} to close it: {e}"
-                )),
-            }
-        }
-        None
     }
 
     fn close_parent(&mut self, ticket: TicketId) -> StepReport {

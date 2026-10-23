@@ -419,9 +419,12 @@ fn no_board_step_runs_before_the_rate_limit_hold_ends() {
         .set_used_up(Some(Timestamp(rig.clock.now().0 + 1800)));
     wake(&runner);
     let reads = rig.forge.board_reads();
+    // The board is read before the pass, so its read is the first forge call and the one that
+    // hits the hold: the pass reads it once and goes no further.
     assert_eq!(
-        reads, before,
-        "the board step ran past the hold the pass's first forge call hit"
+        reads,
+        before + 1,
+        "the board was read more than once by the pass whose first forge call hit the hold"
     );
 
     for _ in 0..29 {

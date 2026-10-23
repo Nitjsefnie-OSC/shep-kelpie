@@ -130,7 +130,7 @@ impl Runner {
     // `start_over` is the item whose session died unborn, which begins the
     // same turn again.
     pub(super) fn begin_turn(&mut self, start_over: Option<TicketId>) -> Result<Begin, StateError> {
-        self.snapshot.begin_pass();
+        self.begin_pass();
         self.looks.pass_began(self.forge_ledger.writes());
         // What follows asks the forge with the runner's lock held.
         self.post();
@@ -138,7 +138,7 @@ impl Runner {
         // falls between a step's drain check and the call it starts.
         self.read_main_ci();
         let begin = self.step_rotation(start_over);
-        self.snapshot.end_pass();
+        self.end_pass();
         begin
     }
 
@@ -185,7 +185,6 @@ impl Runner {
                 }
                 Slot::Board => {
                     self.focus = None;
-                    self.looks.reading_board(now);
                     self.dispatch()?
                 }
                 Slot::Contributions => {

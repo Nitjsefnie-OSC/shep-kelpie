@@ -80,6 +80,7 @@ impl Tickets for FakeForge {
     fn ready_issues(&self, _repo: &ForgeSlug) -> Result<Vec<ReadyIssue>, ForgeError> {
         self.board_reads.fetch_add(1, Ordering::SeqCst);
         self.ask()?;
+        self.wait_if_held(held::At::Board);
         self.board()?;
         let ready = self.ready.lock().unwrap().clone();
         let closed = self.closed.lock().unwrap().clone();

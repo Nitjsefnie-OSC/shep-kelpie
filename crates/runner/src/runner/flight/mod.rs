@@ -712,6 +712,7 @@ fn one_pass(runner: &Mutex<Runner>) -> Result<Pass, StateError> {
     lock(runner).read_parked()?;
     // The forge is asked with the lock let go.
     super::thread_replies::read_threads(runner)?;
+    super::board_read::read_board(runner);
     super::left::answer_left(runner);
     loop {
         let news = lock(runner).next_news();

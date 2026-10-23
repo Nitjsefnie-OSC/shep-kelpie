@@ -8,6 +8,10 @@
 //! worker's turn, which may have just pushed. The merge call itself holds
 //! the head it was asked about, so a head that moved since the listing is
 //! refused by the forge.
+//!
+//! The board's read, which lists them with the runner's lock let go before the
+//! pass begins, hands its listing over: [`Snapshot::preload`] keeps it, and the
+//! pass that begins next starts with it listed.
 
 use std::cell::RefCell;
 use std::collections::BTreeMap;
@@ -31,20 +35,51 @@ enum Pass {
 #[derive(Debug, Default)]
 pub(super) struct Snapshot {
     pass: RefCell<Pass>,
+    // A listing made before the pass began, which the pass starts with
+    preloaded: RefCell<Option<Result<Vec<OpenPullRequest>, ForgeError>>>,
     // The counts each pull request's review was last read at without finding
     // a rework to start, so a read waits for a count to change
     settled: RefCell<BTreeMap<u64, ReviewMarks>>,
 }
 
 impl Snapshot {
-    /// Starts a pass, which lists the pull requests at most once
+    /// Starts a pass, which lists the pull requests at most once, or not at all
+    /// when a listing was preloaded
     pub(super) fn begin_pass(&self) {
-        *self.pass.borrow_mut() = Pass::Running;
+        *self.pass.borrow_mut() = match self.preloaded.borrow_mut().take() {
+            Some(listed) => Pass::Listed(listed),
+            None => Pass::Running,
+        };
     }
 
     /// Ends the pass, so the next one lists again
     pub(super) fn end_pass(&self) {
         *self.pass.borrow_mut() = Pass::Between;
+        self.drop_preload();
+    }
+
+    /// Keeps a listing made with no pass running for the pass that begins next,
+    /// and gives it to the pass running now if that has listed nothing yet
+    pub(super) fn preload(&self, listed: Result<Vec<OpenPullRequest>, ForgeError>) {
+        let mut pass = self.pass.borrow_mut();
+        match &*pass {
+            Pass::Between => *self.preloaded.borrow_mut() = Some(listed),
+            Pass::Running => *pass = Pass::Listed(listed),
+            Pass::Listed(_) => {}
+        }
+    }
+
+    /// Forgets a preloaded listing, so the next pass lists for itself
+    pub(super) fn drop_preload(&self) {
+        *self.preloaded.borrow_mut() = None;
+    }
+
+    /// What the pass in progress listed, if it has
+    pub(super) fn listed(&self) -> Option<Result<Vec<OpenPullRequest>, ForgeError>> {
+        match &*self.pass.borrow() {
+            Pass::Listed(listed) => Some(listed.clone()),
+            Pass::Between | Pass::Running => None,
+        }
     }
 
     /// Whether a pass is running
