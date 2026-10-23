@@ -2,9 +2,9 @@
 
 use std::io::{self, BufRead, Read, Write};
 use std::net::TcpStream;
-use std::os::unix::net::UnixStream;
 use std::time::{Duration, Instant};
 
+use crate::ipc::blocking::Stream;
 use serde_json::json;
 
 /// The most a request's head may take, in bytes
@@ -60,7 +60,7 @@ pub(in crate::adapters) trait Limited: Read {
     fn limit_read(&self, within: Duration) -> io::Result<()>;
 }
 
-impl Limited for UnixStream {
+impl Limited for Stream {
     fn limit_read(&self, within: Duration) -> io::Result<()> {
         self.set_read_timeout(Some(within))
     }

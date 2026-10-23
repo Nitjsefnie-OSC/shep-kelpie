@@ -7,10 +7,10 @@
 //! takes one line and answers one, so each question is a short connection.
 
 use std::io::{BufRead, BufReader, Read, Write};
-use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 use std::time::Duration;
 
+use crate::ipc::blocking::Stream;
 use crate::lease::door::{Answer, Ask, FORGE, ForgeAsk, LONGEST_LINE};
 use crate::ports::{LocalPace, Pace, Pass, Timestamp};
 
@@ -40,7 +40,7 @@ impl DoorPace {
             forge: Some(forge),
             ..Ask::new(FORGE, std::process::id(), "forge")
         };
-        let mut stream = UnixStream::connect(&self.socket).ok()?;
+        let mut stream = Stream::connect(&self.socket).ok()?;
         stream.set_read_timeout(Some(ANSWER_WITHIN)).ok()?;
         stream.set_write_timeout(Some(ANSWER_WITHIN)).ok()?;
         let mut line = serde_json::to_vec(&ask).ok()?;

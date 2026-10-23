@@ -36,7 +36,7 @@ fn send_and_end(forwarder: &Forwarder, bytes: &[u8]) -> String {
 }
 
 fn exchange_with(forwarder: &Forwarder, bytes: &[u8], end: bool) -> String {
-    let mut stream = UnixStream::connect(&forwarder.socket).unwrap();
+    let mut stream = Stream::connect(&forwarder.socket).unwrap();
     stream
         .set_read_timeout(Some(Duration::from_secs(10)))
         .unwrap();
@@ -201,7 +201,7 @@ fn dropping_the_forwarder_ends_a_call_in_flight_and_removes_the_socket() {
     let server = StandInEndpoint::start([]);
     let (_dir, forwarder) = forwarder(server.url());
     let socket = forwarder.socket.clone();
-    let mut idle = UnixStream::connect(&socket).unwrap();
+    let mut idle = Stream::connect(&socket).unwrap();
     idle.set_read_timeout(Some(Duration::from_secs(10)))
         .unwrap();
     // A head that never ends leaves the connection waiting on the client.
@@ -209,7 +209,7 @@ fn dropping_the_forwarder_ends_a_call_in_flight_and_removes_the_socket() {
         .unwrap();
     drop(forwarder);
     assert!(!socket.exists());
-    assert!(UnixStream::connect(&socket).is_err());
+    assert!(Stream::connect(&socket).is_err());
     let mut rest = Vec::new();
     let ended = idle.read_to_end(&mut rest);
     assert!(ended_or_reset(&ended), "{ended:?}");
@@ -283,7 +283,7 @@ fn connections_past_the_cap_are_turned_away_and_a_slow_client_is_timed_out() {
     let (_dir, forwarder) = forwarder_with(server.url(), limits);
     let mut idle: Vec<_> = (0..2)
         .map(|_| {
-            let stream = UnixStream::connect(&forwarder.socket).unwrap();
+            let stream = Stream::connect(&forwarder.socket).unwrap();
             stream
                 .set_read_timeout(Some(Duration::from_secs(10)))
                 .unwrap();
@@ -335,7 +335,7 @@ fn two_part_server() -> (String, std::sync::mpsc::Sender<()>) {
 fn a_reply_is_relayed_as_it_arrives() {
     let (url, go) = two_part_server();
     let (_dir, forwarder) = forwarder(&url);
-    let mut stream = UnixStream::connect(&forwarder.socket).unwrap();
+    let mut stream = Stream::connect(&forwarder.socket).unwrap();
     stream
         .set_read_timeout(Some(Duration::from_secs(10)))
         .unwrap();
@@ -360,7 +360,7 @@ fn a_reply_is_relayed_as_it_arrives() {
 fn dropping_the_forwarder_ends_a_call_the_model_server_never_answers() {
     let (url, _go) = two_part_server();
     let (_dir, forwarder) = forwarder(&url);
-    let mut stream = UnixStream::connect(&forwarder.socket).unwrap();
+    let mut stream = Stream::connect(&forwarder.socket).unwrap();
     stream
         .set_read_timeout(Some(Duration::from_secs(10)))
         .unwrap();
@@ -375,22 +375,23 @@ fn dropping_the_forwarder_ends_a_call_the_model_server_never_answers() {
     assert!(ended_or_reset(&ended), "{ended:?}");
 }
 
+#[cfg(unix)]
 #[test]
 fn a_sweep_clears_only_old_sockets_nothing_answers_on() {
     let dir = crate::test::short_tempdir();
     let folder = dir.path().canonicalize().unwrap();
     let name = |c: char| format!("{}.sock", c.to_string().repeat(32));
     let stale = folder.join(name('a'));
-    drop(UnixListener::bind(&stale).unwrap());
+    drop(Listener::bind(&stale).unwrap());
     let live = folder.join(name('b'));
-    let _live = UnixListener::bind(&live).unwrap();
+    let _live = Listener::bind(&live).unwrap();
     let other = folder.join("kept.sock");
-    drop(UnixListener::bind(&other).unwrap());
+    drop(Listener::bind(&other).unwrap());
     // Made after the process started, as a socket bound but not yet listening is.
     sweep(&folder, SystemTime::UNIX_EPOCH);
     assert!(stale.exists());
     sweep(&folder, SystemTime::now() + Duration::from_secs(5));
-    assert!(!stale.exists(), "{:?}", UnixStream::connect(&stale));
+    assert!(!stale.exists(), "{:?}", Stream::connect(&stale));
     assert!(live.exists());
     assert!(other.exists());
 }
@@ -514,7 +515,7 @@ fn silent_server() -> (String, std::sync::mpsc::Receiver<io::Result<usize>>) {
 fn a_client_that_hangs_up_while_the_model_server_is_silent_closes_the_upstream_call() {
     let (url, closed) = silent_server();
     let (_dir, forwarder) = forwarder(&url);
-    let mut stream = UnixStream::connect(&forwarder.socket).unwrap();
+    let mut stream = Stream::connect(&forwarder.socket).unwrap();
     stream.write_all(&chat("{}")).unwrap();
     assert!(
         closed.recv_timeout(Duration::from_millis(300)).is_err(),
@@ -533,7 +534,7 @@ fn a_client_that_hangs_up_while_the_model_server_is_silent_closes_the_upstream_c
 fn a_client_that_stays_connected_keeps_the_upstream_open_while_it_is_silent() {
     let (url, go) = two_part_server();
     let (_dir, forwarder) = forwarder(&url);
-    let mut stream = UnixStream::connect(&forwarder.socket).unwrap();
+    let mut stream = Stream::connect(&forwarder.socket).unwrap();
     stream
         .set_read_timeout(Some(Duration::from_secs(10)))
         .unwrap();
@@ -563,7 +564,7 @@ fn a_connection_is_counted_from_its_accept_to_the_end_of_its_reply() {
     let forwarder = Forwarder::open_counted(&folder, upstream(&url), &COUNTED).unwrap();
     assert_eq!(COUNTED.load(Ordering::SeqCst), 0, "an idle forwarder");
 
-    let mut stream = UnixStream::connect(&forwarder.socket).unwrap();
+    let mut stream = Stream::connect(&forwarder.socket).unwrap();
     stream
         .set_read_timeout(Some(Duration::from_secs(10)))
         .unwrap();
@@ -586,14 +587,15 @@ fn a_connection_is_counted_from_its_accept_to_the_end_of_its_reply() {
     assert_eq!(COUNTED.load(Ordering::SeqCst), 0, "the reply ended");
 }
 
+#[cfg(unix)]
 #[test]
 fn a_socket_an_exec_left_bound_to_nothing_is_served_again_at_the_same_path() {
     let server = StandInEndpoint::start([Answer::Says("after the exec")]);
     let dir = crate::test::short_tempdir();
     let folder = dir.path().canonicalize().unwrap();
     let socket = folder.join("0123456789abcdef0123456789abcdef.sock");
-    drop(UnixListener::bind(&socket).unwrap());
-    assert!(UnixStream::connect(&socket).is_err(), "nothing answers");
+    drop(Listener::bind(&socket).unwrap());
+    assert!(Stream::connect(&socket).is_err(), "nothing answers");
 
     let forwarder = Forwarder::reopen(&socket, upstream(server.url())).unwrap();
 

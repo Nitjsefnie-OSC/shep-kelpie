@@ -13,13 +13,13 @@ use std::pin::pin;
 use std::time::Duration;
 
 use tokio::io::BufReader;
-use tokio::net::unix::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::sync::{mpsc, oneshot};
 
 use super::desk::Desk;
 use super::door::{Place, heard, say};
 use super::lock_desk;
 use crate::home::{ProjectName, ProjectPaths};
+use crate::ipc::{ServerReadHalf, ServerWriteHalf};
 use crate::lease::counted::{CountedLease, Taken, Taker, Ticket};
 use crate::lease::door::{Answer, Ask, E2E, NO_E2E_HOST, TIMED_OUT};
 use crate::settings::E2e;
@@ -168,8 +168,8 @@ impl Desk {
 pub(super) async fn visit(
     place: &mut Place,
     ask: Ask,
-    reader: &mut BufReader<OwnedReadHalf>,
-    write: &mut OwnedWriteHalf,
+    reader: &mut BufReader<ServerReadHalf>,
+    write: &mut ServerWriteHalf,
 ) {
     let plan = match Plan::read(&place.kelpie_home, ask.worktree.as_deref()) {
         Ok(plan) => plan,

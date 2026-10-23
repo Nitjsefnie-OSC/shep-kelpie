@@ -37,7 +37,7 @@ fn open(dir: &tempfile::TempDir, server: Server) -> Bridge {
     Bridge::open(&folder, &folder.join("socket-name"), server, filter).unwrap()
 }
 
-fn ask(stream: &mut BufReader<UnixStream>, line: &str) -> Value {
+fn ask(stream: &mut BufReader<Stream>, line: &str) -> Value {
     writeln!(stream.get_mut(), "{line}").unwrap();
     let mut answer = String::new();
     stream.read_line(&mut answer).unwrap();
@@ -80,6 +80,7 @@ fn a_bridge_opened_again_for_the_same_name_file_binds_the_same_socket() {
     assert_eq!(again.socket(), socket);
 }
 
+#[cfg(unix)]
 #[test]
 fn a_socket_a_killed_kelpie_left_behind_does_not_stop_the_next_bridge_binding() {
     let (dir, server) = world();
@@ -109,7 +110,7 @@ fn a_name_file_that_is_not_a_socket_name_is_replaced() {
 fn the_browsers_launch_names_the_proxy_and_sends_loopback_through_it() {
     let (dir, server) = world();
     let bridge = open(&dir, server);
-    let mut stream = BufReader::new(UnixStream::connect(bridge.socket()).unwrap());
+    let mut stream = BufReader::new(Stream::connect(bridge.socket()).unwrap());
     ask(&mut stream, r#"{"jsonrpc":"2.0","id":1,"method":"ping"}"#);
     let root = dir.path().canonicalize().unwrap();
     let config = std::fs::read_to_string(root.join("config.json")).unwrap();
@@ -161,7 +162,7 @@ fn a_folder_too_long_to_bind_in_is_refused_naming_the_path() {
 fn what_passes_reaches_the_server_and_what_is_refused_never_does() {
     let (dir, server) = world();
     let bridge = open(&dir, server);
-    let mut stream = BufReader::new(UnixStream::connect(bridge.socket()).unwrap());
+    let mut stream = BufReader::new(Stream::connect(bridge.socket()).unwrap());
     let list = r#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#;
     // The banner the server printed first is not JSON, so it never comes back.
     assert_eq!(ask(&mut stream, list)["id"], 1);
@@ -180,7 +181,7 @@ fn each_connection_gets_a_fresh_server() {
     let bridge = open(&dir, server);
     let ping = json!({ "jsonrpc": "2.0", "id": 1, "method": "ping" }).to_string();
     for _ in 0..2 {
-        let mut stream = BufReader::new(UnixStream::connect(bridge.socket()).unwrap());
+        let mut stream = BufReader::new(Stream::connect(bridge.socket()).unwrap());
         ask(&mut stream, &ping);
     }
     let started = pids(&dir);
@@ -202,7 +203,7 @@ fn dropping_the_bridge_stops_the_server_and_removes_the_socket() {
     let (dir, server) = world();
     let bridge = open(&dir, server);
     let socket = bridge.socket().to_owned();
-    let mut stream = BufReader::new(UnixStream::connect(&socket).unwrap());
+    let mut stream = BufReader::new(Stream::connect(&socket).unwrap());
     ask(&mut stream, r#"{"jsonrpc":"2.0","id":1,"method":"ping"}"#);
     let pid = pids(&dir).remove(0);
     assert!(running(&pid));
@@ -221,7 +222,7 @@ fn served_once(server: &Server) {
 // As `served_once`, with the client holding its end open until the server's
 // log says `wanted`, so a server is not asked to end before it has spoken.
 fn served_until(server: &Server, wanted: &str) {
-    let (near, far) = UnixStream::pair().unwrap();
+    let (near, far) = Stream::pair().unwrap();
     let (log, wanted) = (server.cwd.join(LOG), wanted.to_owned());
     let client = thread::spawn(move || {
         let started = Instant::now();
@@ -267,7 +268,7 @@ fn what_a_server_prints_on_stderr_is_kept_in_its_log() {
 fn a_server_that_exits_ends_the_connection_instead_of_leaving_it_open() {
     let (dir, mut server) = world();
     server.command = crate::test::write_fake(dir.path(), "exits", &Fake::new());
-    let (near, far) = UnixStream::pair().unwrap();
+    let (near, far) = Stream::pair().unwrap();
     let (done, ended) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
         let held = Mutex::new(None);

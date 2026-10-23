@@ -13,7 +13,6 @@
 use std::collections::HashMap;
 use std::io::{self, BufReader, Read, Write};
 use std::net::{Shutdown, TcpStream, ToSocketAddrs};
-use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
@@ -22,6 +21,7 @@ use std::time::{Duration, Instant, SystemTime};
 
 use crate::confine::Verdict;
 use crate::forwarder::Upstream;
+use crate::ipc::blocking::{Listener, Stream};
 use http::{Head, Reply, Timed};
 
 pub(in crate::adapters) mod http;
@@ -42,9 +42,6 @@ const WATCH_EVERY: Duration = Duration::from_millis(100);
 
 /// How many connections are served at once. pi's calls come one at a time.
 const MAX_CONNECTIONS: usize = 8;
-
-// macOS refuses a socket path of 104 bytes or more.
-const LONGEST_SOCKET: usize = 103;
 
 /// The headers of a chat call that go on to the model server
 const PASSED: [&str; 4] = ["content-type", "accept", "authorization", "user-agent"];
@@ -99,7 +96,7 @@ type Open = Arc<Mutex<HashMap<u64, Ends>>>;
 
 #[derive(Debug)]
 struct Ends {
-    client: UnixStream,
+    client: Stream,
     server: Option<TcpStream>,
 }
 
@@ -134,7 +131,7 @@ impl Forwarder {
         limits: Limits,
     ) -> Result<Self, String> {
         let socket = folder.join(format!("{}.sock", unguessable()?));
-        if socket.as_os_str().len() > LONGEST_SOCKET {
+        if crate::ipc::too_long(&socket) {
             return Err(format!(
                 "{} is too long a path for a socket",
                 socket.display()
@@ -177,7 +174,7 @@ impl Forwarder {
         limits: Limits,
         count: &'static AtomicUsize,
     ) -> Result<Self, String> {
-        let listener = UnixListener::bind(&socket)
+        let listener = Listener::bind(&socket)
             .map_err(|e| format!("cannot open {}: {e}", socket.display()))?;
         let stopping = Arc::new(AtomicBool::new(false));
         let open: Open = Arc::default();
@@ -236,8 +233,7 @@ fn sweep(folder: &Path, before: SystemTime) {
             .is_ok_and(|changed| changed < before);
         if ours
             && old
-            && UnixStream::connect(&path)
-                .is_err_and(|e| e.kind() == io::ErrorKind::ConnectionRefused)
+            && Stream::connect(&path).is_err_and(|e| e.kind() == io::ErrorKind::ConnectionRefused)
         {
             let _ = std::fs::remove_file(&path);
         }
@@ -248,7 +244,7 @@ impl Drop for Forwarder {
     fn drop(&mut self) {
         self.stopping.store(true, Ordering::SeqCst);
         // Wakes the accept, which then sees it is stopping.
-        let _ = UnixStream::connect(&self.socket);
+        let _ = Stream::connect(&self.socket);
         let _ = std::fs::remove_file(&self.socket);
         end_all(&self.open);
         if let Some(thread) = self.thread.take() {
@@ -267,7 +263,7 @@ fn end_all(open: &Open) {
 }
 
 fn accept(
-    listener: &UnixListener,
+    listener: &Listener,
     upstream: &Upstream,
     limits: Limits,
     count: &'static AtomicUsize,
@@ -329,7 +325,7 @@ fn accept(
 }
 
 fn serve(
-    mut client: UnixStream,
+    mut client: Stream,
     upstream: &Upstream,
     limits: Limits,
     stopping: &AtomicBool,
@@ -347,7 +343,7 @@ fn serve(
 // An `Err` is what the worker is told, and nothing was sent to the model
 // server for it.
 fn exchange(
-    client: &mut UnixStream,
+    client: &mut Stream,
     upstream: &Upstream,
     limits: Limits,
     stopping: &AtomicBool,
@@ -423,7 +419,7 @@ fn exchange(
 // Reads what the client sends after its request, which a chat call has no use
 // for, until it hangs up or the reply is done. A hang-up shuts the model
 // server's stream, as the copy would not notice it until the next reply byte.
-fn hang_up_ends(mut client: &UnixStream, server: &TcpStream, done: &AtomicBool) {
+fn hang_up_ends(mut client: &Stream, server: &TcpStream, done: &AtomicBool) {
     let mut unused = [0u8; 512];
     if client.set_read_timeout(Some(WATCH_EVERY)).is_err() {
         return;

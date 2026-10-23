@@ -19,7 +19,7 @@ pub mod upgrade;
 use shep_kelpie_core::dep_sources;
 pub use shep_kelpie_core::{
     agents, board, bridge, browse, coderabbit, codex, confine, cubic, fence, forge_ledger,
-    forwarder, guard, home, hooks, lease, local_paths, local_tickets, metrics, pacer, ports,
+    forwarder, guard, home, hooks, ipc, lease, local_paths, local_tickets, metrics, pacer, ports,
     profile, review_bot, settings, shep_home, shepherd, skills, state, ticket, totp, usage, watch,
     webhook, work_item,
 };

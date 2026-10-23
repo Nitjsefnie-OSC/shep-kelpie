@@ -389,6 +389,7 @@ fn a_403_to_the_connect_is_the_proxys_refusal_and_a_failed_connect_is_not() {
     assert!(!refused_by_the_proxy(""));
 }
 
+#[cfg(unix)]
 #[test]
 #[ignore = "needs kelpie's tools: KELPIE_TOOLS=<dir> from `shep kelpie tools install`"]
 fn a_host_not_allowed_and_a_socket_not_listed_are_refused() {

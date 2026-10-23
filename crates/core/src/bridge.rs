@@ -1,4 +1,4 @@
-//! The browser's MCP server, reached over a Unix socket kelpie filters
+//! The browser's MCP server, reached over a local socket kelpie filters
 //!
 //! Chromium cannot start inside the sandbox, so the Playwright server runs
 //! beside it (the adapters crate holds the socket). The agent starts
@@ -8,13 +8,15 @@
 //! methods a tool call needs pass, only the tools in [`TOOLS`] are called or
 //! listed, and each call's arguments are judged by [`crate::browse::judge`].
 
+use std::collections::HashSet;
 use std::io::{BufRead, BufReader, Write};
-use std::os::unix::net::UnixStream;
 use std::path::Path;
+use std::sync::{Arc, Mutex, PoisonError};
 
 use serde_json::{Value, json};
 
 use crate::confine::Verdict;
+use crate::ipc::blocking::Stream;
 
 /// The server the agent loads the bridge as, which its tools are named after
 pub const SERVER: &str = "playwright";
@@ -136,20 +138,89 @@ fn error(id: &Value, message: &str) -> Value {
     json!({ "jsonrpc": "2.0", "id": id, "error": { "code": -32601, "message": message } })
 }
 
+// Whether closing the write side tells the peer, so that it finishes and hangs
+// up. A Windows pipe has no half to close, so there the replies still owed are
+// counted and the connection ends once they are all in.
+const HALF_CLOSE: bool = cfg!(unix);
+
+// The requests sent that have no reply yet, once stdin has ended.
+#[derive(Debug, Default)]
+struct Outstanding {
+    asked: HashSet<String>,
+    stdin_closed: bool,
+}
+
+impl Outstanding {
+    // The id of a JSON-RPC line, with whether it is a request (it names a method).
+    fn id(line: &[u8]) -> Option<(String, bool)> {
+        let line: Value = serde_json::from_slice(line).ok()?;
+        let id = line.get("id").filter(|id| !id.is_null())?;
+        // A number is keyed by its value, as a server may spell it another way.
+        let key = match id {
+            Value::Number(number) => number
+                .as_f64()
+                .map_or_else(|| id.to_string(), |value| format!("n{value}")),
+            other => other.to_string(),
+        };
+        Some((key, line.get("method").is_some()))
+    }
+
+    fn sent(&mut self, line: &[u8]) {
+        if let Some((id, true)) = Self::id(line) {
+            self.asked.insert(id);
+        }
+    }
+
+    fn replied(&mut self, line: &str) {
+        if let Some((id, false)) = Self::id(line.as_bytes()) {
+            self.asked.remove(&id);
+        }
+    }
+
+    fn close_stdin(&mut self) {
+        self.stdin_closed = true;
+    }
+
+    fn settled(&self) -> bool {
+        self.stdin_closed && self.asked.is_empty()
+    }
+}
+
 /// `kelpie mcp-connect <socket>`: carries stdin to `socket`, and what comes back to stdout
 ///
 /// # Errors
 ///
 /// The reason, when the socket cannot be reached.
 pub fn connect(socket: &Path) -> Result<(), String> {
-    let stream = UnixStream::connect(socket)
-        .map_err(|e| format!("cannot reach {}: {e}", socket.display()))?;
-    let mut to_server = stream
-        .try_clone()
-        .map_err(|e| format!("cannot use {}: {e}", socket.display()))?;
+    let stream =
+        Stream::connect(socket).map_err(|e| format!("cannot reach {}: {e}", socket.display()))?;
+    let cannot_use = |e: std::io::Error| format!("cannot use {}: {e}", socket.display());
+    let mut to_server = stream.try_clone().map_err(cannot_use)?;
+    let calls = Arc::new(Mutex::new(Outstanding::default()));
+    let asked = Arc::clone(&calls);
     std::thread::spawn(move || {
-        let _ = std::io::copy(&mut std::io::stdin().lock(), &mut to_server);
+        let mut stdin = BufReader::new(std::io::stdin().lock());
+        let mut line = Vec::new();
+        loop {
+            line.clear();
+            if !stdin.read_until(b'\n', &mut line).is_ok_and(|n| n > 0) {
+                break;
+            }
+            asked
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .sent(&line);
+            if to_server.write_all(&line).is_err() {
+                break;
+            }
+        }
         let _ = to_server.shutdown(std::net::Shutdown::Write);
+        let mut calls = asked.lock().unwrap_or_else(PoisonError::into_inner);
+        calls.close_stdin();
+        // Nothing is owed, and the peer was not told: end the read here.
+        if !HALF_CLOSE && calls.settled() {
+            let _ = to_server.shutdown(std::net::Shutdown::Both);
+        }
     });
     let mut from_server = BufReader::new(stream);
     let mut stdout = std::io::stdout().lock();
@@ -162,6 +233,11 @@ pub fn connect(socket: &Path) -> Result<(), String> {
         {
             break;
         }
+        let mut calls = calls.lock().unwrap_or_else(PoisonError::into_inner);
+        calls.replied(&line);
+        if !HALF_CLOSE && calls.settled() {
+            break;
+        }
         line.clear();
     }
     Ok(())
@@ -170,6 +246,61 @@ pub fn connect(socket: &Path) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn request(id: &str) -> String {
+        format!(r#"{{"jsonrpc":"2.0","id":{id},"method":"tools/call"}}"#)
+    }
+
+    fn reply(id: &str) -> String {
+        format!(r#"{{"jsonrpc":"2.0","id":{id},"result":{{}}}}"#)
+    }
+
+    #[test]
+    fn a_closed_stdin_is_settled_only_once_every_request_has_its_reply() {
+        let mut calls = Outstanding::default();
+        calls.sent(request("1").as_bytes());
+        calls.sent(request(r#""a""#).as_bytes());
+        assert!(!calls.settled(), "stdin is still open");
+        calls.close_stdin();
+        assert!(!calls.settled());
+        calls.replied(&reply("1"));
+        assert!(!calls.settled(), "\"a\" has no reply yet");
+        calls.replied(&reply(r#""a""#));
+        assert!(calls.settled());
+    }
+
+    #[test]
+    fn a_number_and_the_same_text_are_two_ids() {
+        let mut calls = Outstanding::default();
+        calls.sent(request("1").as_bytes());
+        calls.close_stdin();
+        calls.replied(&reply(r#""1""#));
+        assert!(!calls.settled());
+    }
+
+    // Node echoes the number 1.0 back as 1.
+    #[test]
+    fn a_number_spelled_two_ways_is_one_id() {
+        let mut calls = Outstanding::default();
+        calls.sent(request("1.0").as_bytes());
+        calls.close_stdin();
+        calls.replied(&reply("1"));
+        assert!(calls.settled());
+    }
+
+    #[test]
+    fn notifications_and_the_servers_own_requests_never_hold_it_open() {
+        let mut calls = Outstanding::default();
+        calls.sent(br#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#);
+        calls.sent(reply("7").as_bytes());
+        calls.sent(b"not json");
+        calls.close_stdin();
+        assert!(calls.settled());
+        // A request from the server is not a reply to the client's request.
+        calls.sent(request("2").as_bytes());
+        calls.replied(&request("2"));
+        assert!(!calls.settled());
+    }
 
     fn filter() -> Filter {
         Filter {

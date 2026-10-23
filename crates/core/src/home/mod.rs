@@ -83,8 +83,7 @@ const MOVED_TO: &str = ".moved-to";
 /// is a shepherd's home and not kelpie's old one
 const SHEPHERDS: [&str; 3] = ["flock.json", "shep.toml", "run"];
 
-/// The longest path a Unix socket may have, one byte short of macOS's 104
-pub const LONGEST_SOCKET: usize = 103;
+pub use crate::ipc::LONGEST_SOCKET;
 
 /// Kelpie's home under the shepherd at `shep_home`
 pub fn under(shep_home: &Path) -> PathBuf {
@@ -269,10 +268,10 @@ fn kelpie_home_from(
 ///
 /// A message naming the path, its length and the limit.
 pub fn socket_fits(socket: &Path) -> Result<(), String> {
-    let length = socket.as_os_str().len();
-    if length <= LONGEST_SOCKET {
+    if !crate::ipc::too_long(socket) {
         return Ok(());
     }
+    let length = socket.as_os_str().len();
     Err(format!(
         "{} is {length} bytes, longer than the {LONGEST_SOCKET} a socket's path may be: \
          give the shepherd a shorter SHEP_HOME, or kelpie a shorter {KELPIE_VAR}",
@@ -317,6 +316,7 @@ mod tests {
         assert!(error.contains("absolute"), "{error}");
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_socket_past_the_limit_is_named() {
         let fits = format!("/{}", "a".repeat(LONGEST_SOCKET - 1));

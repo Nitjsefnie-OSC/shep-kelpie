@@ -11,7 +11,7 @@ Kelpie: dog of the maintainer's shepherd; one runner per project takes ready iss
 - Needs shep 0.15.0+ (ADR 0016); `upgrade` refuses builds it would. shep-pm/shep#688, #319, #656, #914
 - Home: `$SHEP_HOME/kelpie` (`KELPIE_HOME`), shep plugin, folder per project; dog files stay in `$SHEP_HOME`. #253
 - The shepherd is reached through the `Dial` port (`crates/core/src/shepherd/connection.rs`): `Socket` is shep's control socket; tests dial `FakeShepherd`, which answers in memory. #587
-- Socket path over 103 bytes: runner refuses to start. `crates/runner/src/runner/mod.rs`
+- Socket path over 103 bytes: runner refuses to start (Windows: pipes, `core/src/ipc`). #1147
 - Home never moved from `~/.kelpie`: refuses to start, naming each old file, exit 78 (`stop_exit_codes`). #311, #345
 - State file version 80 (`VERSION` in `crates/core/src/state/mod.rs`); each change one way: rollback means finishing or dropping open items. `crates/core/src/state/removed/mod.rs`
 - Business code is Rust; Tauri GUI after MVP, a Claude session watches until then. #5

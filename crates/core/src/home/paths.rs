@@ -296,6 +296,7 @@ mod tests {
         assert!(ProjectName::try_from("shep-kelpie_2.0").is_ok());
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_socket_too_long_to_bind_is_named() {
         let koji = ProjectName::try_from("koji").unwrap();
@@ -350,6 +351,7 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_door_too_long_to_bind_is_named() {
         let koji = ProjectName::try_from("koji").unwrap();

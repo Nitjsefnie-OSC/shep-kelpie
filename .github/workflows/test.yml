@@ -194,3 +194,12 @@ jobs:
       - if: steps.check.outcome == 'failure'
         run: |
           echo "::warning title=windows::cargo check fails on Windows until #241 is done. The check step's log names each crate."
+      # The lease door's, the pipe's and the bridge's tests. They run once `core`
+      # compiles for Windows, which the check above says it does not yet (file
+      # modes in the fence, totp and home stamp), and stay non-gating as it is.
+      - id: door
+        continue-on-error: true
+        run: cargo test --locked -p shep-kelpie-core -p shep-kelpie-dog --lib -- ipc:: bridge lease:: door
+      - if: steps.door.outcome == 'failure'
+        run: |
+          echo "::warning title=windows::the lease door's tests do not pass on Windows yet. Until core compiles there, the step's log shows its compile errors, not a test."

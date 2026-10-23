@@ -7,7 +7,6 @@
 //! and the tests below read what that run left.
 
 use std::collections::BTreeMap;
-use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::OnceLock;
@@ -17,6 +16,7 @@ use super::super::super::{Hooks, JOIN_BOUND, Worker};
 use super::exec::{FOLDER, read, worker_of, write};
 use super::*;
 use crate::adapters::{Base, GooseCli};
+use crate::ipc::blocking::Stream;
 use crate::ports::{Agents, Routed};
 use crate::settings::Harness;
 use crate::settings::Timing;
@@ -282,7 +282,7 @@ fn incoming(folder: &Path, host: &str, carry: Carry) {
     let worker = Worker::spawn(Arc::clone(&runner), hooks, wake, woken, died);
     let socket = PathBuf::from(read(folder, "socket").trim());
     eventually("the forwarder answering again", || {
-        UnixStream::connect(&socket).is_ok()
+        Stream::connect(&socket).is_ok()
     });
     write(folder, "go", "");
     eventually("the turn's end", || turn_of_7(&rig, &runner) == "ended");

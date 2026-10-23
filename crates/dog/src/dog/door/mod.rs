@@ -8,19 +8,16 @@
 //! its place back; a line on it does not.
 
 use std::collections::HashMap;
-use std::io;
-use std::os::unix::fs::{FileTypeExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
-use tokio::net::unix::{OwnedReadHalf, OwnedWriteHalf};
-use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::oneshot;
 
 use super::e2e::Remote;
 use super::{Kept, lock_desk};
+use crate::ipc::{Listener, ServerReadHalf, ServerStream, ServerWriteHalf, split};
 use crate::lease::counted::{CARGO_TEST, Taken, Taker, Ticket};
 use crate::lease::door::{Answer, Ask, E2E, FORGE, LONGEST_LINE};
 
@@ -40,20 +37,45 @@ type Waiters = Arc<Mutex<HashMap<Ticket, oneshot::Sender<()>>>>;
 
 /// Opens the door at `socket`, only the maintainer's user may connect
 ///
-/// A socket left by a dog that is gone is replaced. One another dog still
-/// answers on is left alone. The socket is bound under a private name and
-/// restricted before it takes its own, so it never accepts anyone else.
+/// On Unix a socket left by a dog that is gone is replaced, and one another
+/// dog still answers on is left alone. The socket is bound under a private
+/// name and restricted before it takes its own, so it never accepts anyone
+/// else. On Windows the door is a named pipe whose name comes from `socket`,
+/// which only its creator and administrators may write to and which a second
+/// dog cannot create.
 ///
 /// # Errors
 ///
 /// A message when the path is too long, taken by a live dog or something
 /// else, or cannot be bound.
-pub fn open(socket: &Path) -> Result<UnixListener, String> {
+pub fn open(socket: &Path) -> Result<Listener, String> {
+    #[cfg(unix)]
+    {
+        open_socket(socket)
+    }
+    #[cfg(windows)]
+    {
+        Listener::bind(socket).map_err(|e| match e.kind() {
+            std::io::ErrorKind::PermissionDenied => {
+                format!("another dog answers at {}", socket.display())
+            }
+            _ => format!("cannot open {}: {e}", socket.display()),
+        })
+    }
+}
+
+#[cfg(unix)]
+fn open_socket(socket: &Path) -> Result<Listener, String> {
+    use std::io;
+    use std::os::unix::fs::{FileTypeExt, PermissionsExt};
+
+    use crate::ipc::blocking;
+
     let private = socket.with_extension(format!("{}.new", std::process::id()));
     crate::home::socket_fits(&private)?;
     match std::fs::symlink_metadata(socket) {
         Ok(meta) if meta.file_type().is_socket() => {
-            if std::os::unix::net::UnixStream::connect(socket).is_ok() {
+            if blocking::Stream::connect(socket).is_ok() {
                 return Err(format!("another dog answers at {}", socket.display()));
             }
         }
@@ -62,8 +84,8 @@ pub fn open(socket: &Path) -> Result<UnixListener, String> {
         Err(e) => return Err(format!("cannot read {}: {e}", socket.display())),
     }
     let _ = std::fs::remove_file(&private);
-    let listener = UnixListener::bind(&private)
-        .map_err(|e| format!("cannot open {}: {e}", private.display()))?;
+    let listener =
+        Listener::bind(&private).map_err(|e| format!("cannot open {}: {e}", private.display()))?;
     let placed = std::fs::set_permissions(&private, std::fs::Permissions::from_mode(0o600))
         .and_then(|()| std::fs::rename(&private, socket));
     if let Err(e) = placed {
@@ -79,7 +101,7 @@ pub fn open(socket: &Path) -> Result<UnixListener, String> {
 /// An `e2e` ask is placed by the worktree it names under `kelpie_home`, and
 /// run through `remote`.
 pub(super) async fn serve(
-    listener: UnixListener,
+    mut listener: Listener,
     desk: Arc<Mutex<Kept>>,
     grace: Duration,
     kelpie_home: PathBuf,
@@ -92,7 +114,7 @@ pub(super) async fn serve(
     let mut next = 0;
     loop {
         let stream = match listener.accept().await {
-            Ok((stream, _)) => stream,
+            Ok(stream) => stream,
             Err(e) => {
                 println!("the door could not take a connection: {e}");
                 tokio::time::sleep(ACCEPT_REST).await;
@@ -152,8 +174,8 @@ impl Drop for Place {
     }
 }
 
-async fn visit(stream: UnixStream, mut place: Place, fresh_from: tokio::time::Instant) {
-    let (read, mut write) = stream.into_split();
+async fn visit(stream: ServerStream, mut place: Place, fresh_from: tokio::time::Instant) {
+    let (read, mut write) = split(stream);
     let mut reader = BufReader::new(read);
     let mut first = Vec::new();
     let mut limited = (&mut reader).take(LONGEST_LINE);
@@ -241,13 +263,13 @@ pub(super) fn granted_after_wait(taken: Taken, line: String) -> Option<String> {
 
 // Whether the connection sent anything, which it discards: a fixed buffer
 // bounds what the dog holds however much a holder writes.
-pub(super) async fn heard(reader: &mut BufReader<OwnedReadHalf>) -> bool {
+pub(super) async fn heard(reader: &mut BufReader<ServerReadHalf>) -> bool {
     let mut sink = [0; 1024];
     matches!(reader.read(&mut sink).await, Ok(1..))
 }
 
 // A command that went away is heard as the connection's end.
-pub(super) async fn say(write: &mut OwnedWriteHalf, answer: &Answer) {
+pub(super) async fn say(write: &mut ServerWriteHalf, answer: &Answer) {
     let mut line = serde_json::to_vec(answer).expect("an answer serializes to JSON");
     line.push(b'\n');
     let _ = write.write_all(&line).await;
