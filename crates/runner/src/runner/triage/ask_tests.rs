@@ -5,6 +5,7 @@ use std::sync::Mutex;
 
 use serde_json::{Value, json};
 
+use super::ask::REPLY_HINT;
 use super::comment::MARKER;
 use super::pick_tests::{MAINTAINER, issue, list, rig_with};
 use super::research_tests::{calls, crashed_with, moves, reply, restart, triage};
@@ -68,7 +69,7 @@ pub(super) fn asked() -> Value {
 }
 
 // The same with `n` open questions
-fn asked_as(most: usize) -> Value {
+pub(super) fn asked_as(most: usize) -> Value {
     let open: Vec<Value> = (1..=most)
         .map(|n| json!({ "question": format!("Which one, {n}?"), "recommended": format!("the {n}th") }))
         .collect();
@@ -159,7 +160,9 @@ fn the_first_comment_asks_the_questions_and_holds_the_local_prompt_collapsed() {
 
     let [comment] = posted(&rig).try_into().expect("one comment");
     assert!(
-        comment.starts_with(&format!("{ASK_WORDS}\n\n{ONE_QUESTION}\n\n<details>")),
+        comment.starts_with(&format!(
+            "{ASK_WORDS}\n\n{ONE_QUESTION}\n\n{REPLY_HINT}\n\n<details>"
+        )),
         "{comment}"
     );
     assert!(comment.ends_with(MARKER), "{comment}");
@@ -200,7 +203,7 @@ fn the_comment_lists_the_questions_up_to_max_questions_with_their_recommended_an
     assert!(
         comment.starts_with(&format!(
             "{ASK_WORDS}\n\n❓ Q1 - Which one, 1?\n\n➡️ the 1th\n\n---\n\n❓ Q2 - Which one, 2?\n\n\
-             ➡️ the 2th\n\n<details>"
+             ➡️ the 2th\n\n{REPLY_HINT}\n\n<details>"
         )),
         "{comment}"
     );

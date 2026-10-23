@@ -6,7 +6,7 @@ use std::sync::Mutex;
 use serde_json::{Value, json};
 
 use super::ask_tests::{
-    A_WORDS, asked, filed, filed_before, posted, record, settled, settled_ready, wrote,
+    A_WORDS, asked, asked_as, filed, filed_before, posted, record, settled, settled_ready, wrote,
 };
 use super::comment::MARKER;
 use super::pick_tests::{MAINTAINER, issue, list};
@@ -393,4 +393,111 @@ fn answers_whose_issue_body_cannot_be_read_post_nothing_and_are_tried_again() {
         ]
     );
     assert_eq!(record(&rig, &runner)["step"], "done");
+}
+
+// What the second triager call was given as the author's answers, fenced
+fn answers_given(rig: &Rig) -> String {
+    let prompt = calls(rig, Role::Triager).remove(1).call.prompt;
+    let (_, rest) = prompt
+        .split_once("The author's answers")
+        .expect("the answers are fenced");
+    rest.to_owned()
+}
+
+// The author replies and the second pass runs, which settles everything
+fn replied(found: Value, author: &str, reply_text: &str) -> (Rig, Mutex<Runner>) {
+    let (rig, runner) = filed("pick = \"maintainer\"", author, found);
+    assert_eq!(step(&runner).unwrap(), None);
+    wrote(&rig, author, reply_text);
+    rig.claude.script_for(Role::Triager, [reply(settled())]);
+    rig.claude
+        .script_for(Role::Representative, [Scripted::Say(A_WORDS)]);
+    rig.next_look();
+    assert_eq!(step(&runner).unwrap(), None);
+    (rig, runner)
+}
+
+#[test]
+fn a_reply_of_ok_settles_every_question_with_its_recommended_answer() {
+    let (rig, _runner) = replied(asked_as(3), MAINTAINER, "ok");
+
+    let given = answers_given(&rig);
+    for n in 1..=3 {
+        assert!(
+            given.contains(&format!("Q{n}: the {n}th")),
+            "Q{n} takes its recommended answer: {given}"
+        );
+    }
+}
+
+#[test]
+fn ok_in_any_case_with_a_full_stop_is_still_ok() {
+    let (rig, _runner) = replied(asked_as(2), MAINTAINER, "  OK.  ");
+
+    let given = answers_given(&rig);
+    assert!(given.contains("Q1: the 1th"), "{given}");
+    assert!(given.contains("Q2: the 2th"), "{given}");
+}
+
+#[test]
+fn ok_with_q2_changes_only_q2() {
+    let (rig, _runner) = replied(asked_as(3), MAINTAINER, "ok\nQ2: the 9th, not the 2nd\n");
+
+    let given = answers_given(&rig);
+    assert!(given.contains("Q1: the 1th"), "{given}");
+    assert!(given.contains("Q2: the 9th, not the 2nd"), "{given}");
+    assert!(!given.contains("Q2: the 2th"), "{given}");
+    assert!(given.contains("Q3: the 3th"), "{given}");
+}
+
+#[test]
+fn an_answer_for_one_question_runs_over_its_following_lines() {
+    let (rig, _runner) = replied(
+        asked_as(2),
+        MAINTAINER,
+        "Q1: the first\nand a second line\nok",
+    );
+
+    let given = answers_given(&rig);
+    assert!(
+        given.contains("Q1: the first\nand a second line"),
+        "{given}"
+    );
+    assert!(given.contains("Q2: the 2th"), "{given}");
+}
+
+#[test]
+fn answers_with_no_ok_are_given_as_written_and_leave_the_rest_unanswered() {
+    let (rig, _runner) = replied(asked_as(2), MAINTAINER, "Q1: the first");
+
+    let given = answers_given(&rig);
+    assert!(given.contains("Q1: the first"), "{given}");
+    assert!(!given.contains("Q2:"), "no answer is made up: {given}");
+}
+
+#[test]
+fn a_sentence_that_only_starts_with_ok_is_not_ok() {
+    let (rig, _runner) = replied(asked_as(2), MAINTAINER, "ok but not Linux");
+
+    let given = answers_given(&rig);
+    assert!(given.contains("ok but not Linux"), "{given}");
+    assert!(!given.contains("Q1: the 1th"), "{given}");
+}
+
+#[test]
+fn ok_after_a_restart_still_takes_the_recommended_answers_from_the_comment() {
+    let (rig, runner) = filed("pick = \"maintainer\"", MAINTAINER, asked_as(2));
+    assert_eq!(step(&runner).unwrap(), None);
+    let runner = restart(&rig, runner);
+    assert_eq!(step(&runner).unwrap(), None);
+    wrote(&rig, MAINTAINER, "ok");
+    rig.claude.script_for(Role::Triager, [reply(settled())]);
+    rig.claude
+        .script_for(Role::Representative, [Scripted::Say(A_WORDS)]);
+    rig.next_look();
+    assert_eq!(step(&runner).unwrap(), None);
+
+    let given = answers_given(&rig);
+    assert!(given.contains("Q1: the 1th"), "{given}");
+    assert!(given.contains("Q2: the 2th"), "{given}");
 }
