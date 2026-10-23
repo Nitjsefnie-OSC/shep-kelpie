@@ -181,7 +181,7 @@ mod tests {
     #[test]
     fn a_gateway_is_reached_its_key_taken_and_each_agents_model_looked_for() {
         let server = StandInEndpoint::start([Answer::Says("unused")])
-            .like_paddock("pk-right", &["qwen3.8:27b"]);
+            .like_paddock("pk-right", &["qwen3.8:27b", "iq3_xxs"]);
         let book = agents(&[("local.md", ON_PADDOCK), ("box.md", REVIEWS_ON_PADDOCK)]);
         let lines = checks(&gateways(server.host(), |_| Some("pk-right".into())), &book);
         assert_eq!(
@@ -190,6 +190,7 @@ mod tests {
                 ("gateway paddock".to_owned(), "ok"),
                 ("gateway paddock: key".to_owned(), "ok"),
                 ("gateway paddock: box".to_owned(), "missing"),
+                ("gateway paddock: iq3-xxs-review".to_owned(), "ok"),
                 ("gateway paddock: local".to_owned(), "ok"),
             ]
         );
@@ -259,8 +260,16 @@ mod tests {
     }
 
     #[test]
+    fn the_shipped_iq3_xxs_review_is_looked_for_on_paddock_in_every_book() {
+        let book = agents(&[]);
+        let on_paddock: Vec<_> = on(&book, "paddock").collect();
+        assert_eq!(on_paddock, [("iq3-xxs-review".to_owned(), "iq3_xxs")]);
+    }
+
+    #[test]
     fn doctor_takes_an_openai_gateways_key_from_its_models_route() {
-        let server = StandInEndpoint::start([]).like_openai("sk-right", &["qwen3.8:27b"]);
+        let server =
+            StandInEndpoint::start([]).like_openai("sk-right", &["qwen3.8:27b", "iq3_xxs"]);
         let book = agents(&[("local.md", ON_PADDOCK)]);
         let lines = checks(&openai(server.host(), |_| Some("sk-right".into())), &book);
         assert_eq!(
@@ -268,6 +277,7 @@ mod tests {
             [
                 ("gateway paddock".to_owned(), "ok"),
                 ("gateway paddock: key".to_owned(), "ok"),
+                ("gateway paddock: iq3-xxs-review".to_owned(), "ok"),
                 ("gateway paddock: local".to_owned(), "ok"),
             ]
         );
