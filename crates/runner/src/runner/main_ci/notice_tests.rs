@@ -47,18 +47,56 @@ fn log_lines(lines: std::ops::RangeInclusive<u32>) -> String {
 }
 
 #[test]
-fn a_first_red_run_on_main_is_rerun_once() {
+fn each_new_red_head_on_main_is_rerun_once() {
     let (rig, runner) = red_test();
     assert_eq!(rig.forge.run_reruns(), [91]);
 
     read_again(&rig, &runner, vec![run("test", 91, "failure", Rig::EPOCH)]);
+    assert_eq!(rig.forge.run_reruns(), [91], "its head is rerun once");
+
     read_again(
         &rig,
         &runner,
         vec![run("test", 92, "failure", Rig::EPOCH + 1800)],
     );
+    assert_eq!(rig.forge.run_reruns(), [91, 92], "a new head is rerun too");
 
-    assert_eq!(rig.forge.run_reruns(), [91], "never rerun a second time");
+    read_again(
+        &rig,
+        &runner,
+        vec![run("test", 92, "failure", Rig::EPOCH + 1800)],
+    );
+    assert_eq!(rig.forge.run_reruns(), [91, 92], "and only once");
+}
+
+#[test]
+fn a_new_run_on_a_head_already_rerun_is_not_rerun_again() {
+    let (rig, runner) = red_test();
+    let nightly = BranchRun {
+        head: "head91".into(),
+        ..run("test", 93, "failure", Rig::EPOCH + 3600)
+    };
+
+    read_again(&rig, &runner, vec![nightly]);
+
+    assert_eq!(rig.forge.run_reruns(), [91]);
+}
+
+#[test]
+fn a_rerun_the_forge_refuses_for_a_new_head_is_not_tried_at_every_read() {
+    let (rig, runner) = red_test();
+    rig.forge.set_rerun_error("gh: HTTP 403");
+
+    for _ in 0..3 {
+        read_again(
+            &rig,
+            &runner,
+            vec![run("test", 92, "failure", Rig::EPOCH + 1800)],
+        );
+    }
+
+    assert_eq!(rig.forge.run_reruns(), [91]);
+    assert_eq!(rig.alerts.posts().len(), 1, "the stretch is told once");
 }
 
 #[test]
@@ -144,12 +182,21 @@ fn a_second_red_head_posts_no_second_notice() {
 
     assert_eq!(reports, []);
     assert_eq!(rig.alerts.posts().len(), 1);
-    assert_eq!(rig.forge.run_reruns(), [91]);
+    assert_eq!(rig.forge.run_reruns(), [91, 95, 96]);
 }
 
 #[test]
-fn a_later_head_that_is_red_while_the_rerun_goes_posts_the_notice() {
+fn a_later_head_that_is_red_while_the_rerun_goes_is_rerun_and_posts_no_notice_yet() {
     let (rig, runner) = red_test();
+
+    read_again(
+        &rig,
+        &runner,
+        vec![run("test", 95, "failure", Rig::EPOCH + 600)],
+    );
+
+    assert_eq!(rig.forge.run_reruns(), [91, 95]);
+    assert!(rig.alerts.posts().is_empty());
 
     read_again(
         &rig,

@@ -42,6 +42,7 @@ fn a_failed_run_on_main_lists_its_workflow_as_red() {
             "since": went_red,
             "red_for": 3 * 3600 + 5 * 60,
             "url": "https://github.com/shep-pm/shep/actions/runs/91",
+            "doing": "kelpie reran its failed jobs and waits for the result",
         }])
     );
 }

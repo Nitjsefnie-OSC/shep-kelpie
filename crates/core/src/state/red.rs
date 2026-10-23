@@ -3,6 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::ports::Timestamp;
+use crate::ticket::TicketId;
 
 /// A workflow whose latest completed run on `main` failed
 // wire format: changing this is a breaking change to the state file
@@ -21,12 +22,55 @@ pub struct RedWorkflow {
     pub head: String,
     /// When `first_run` was created, so how long kelpie has known it red
     pub since: Timestamp,
-    /// The run whose failed jobs kelpie reran when it first read the workflow
-    /// red, once it has
+    /// The run whose failed jobs kelpie last reran, once it has
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reran: Option<u64>,
+    /// The head whose failed jobs kelpie reran, or tried to and was refused,
+    /// so each red head is rerun once
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reran_head: Option<String>,
+    /// Whether `head` is red again after its rerun, or its rerun was refused,
+    /// which is when the project manager may open a fix or ask
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub again: bool,
+    /// What the project manager did about `head` once it was red again
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub handled: Option<Handled>,
     /// Whether the maintainer was told it stayed red, so a red stretch is
     /// told once
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub noticed: bool,
+}
+
+/// What the project manager did about a head that stayed red after its rerun
+// wire format: changing this is a breaking change to the state file
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Handled {
+    /// It opened this fix work item at the front of the board
+    Fix(TicketId),
+    /// It asked the maintainer, with the log lines it read
+    Asked,
+}
+
+impl RedWorkflow {
+    /// What is being done about the workflow's latest red head, in words
+    pub fn doing(&self) -> String {
+        match (self.handled, self.again, &self.reran_head) {
+            (Some(Handled::Fix(ticket)), ..) => format!(
+                "the project manager opened fix work item {} at the front of the board",
+                ticket.shown()
+            ),
+            (Some(Handled::Asked), ..) => {
+                "the project manager asked the maintainer, with the log lines it read".to_owned()
+            }
+            (None, true, _) => {
+                "red again after its rerun; the project manager opens a fix or asks".to_owned()
+            }
+            (None, false, Some(head)) if *head == self.head => {
+                "kelpie reran its failed jobs and waits for the result".to_owned()
+            }
+            (None, false, _) => "kelpie reruns its failed jobs at the next read".to_owned(),
+        }
+    }
 }
