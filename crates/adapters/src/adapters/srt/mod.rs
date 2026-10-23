@@ -497,7 +497,7 @@ mod tests {
         let policy = Policy {
             read: vec![PathBuf::from("/k/wt/7")],
             write: vec![PathBuf::from("/k/wt/7")],
-            no_read: vec!["/Users/k/**".into()],
+            no_read: vec!["/Users/me/**".into()],
             no_write: vec![PathBuf::from("/k/wt/7/.git/hooks")],
             open: vec![PathBuf::from("/k/graphs")],
             scratch: vec!["/private/tmp/cbm-search-*".into()],
