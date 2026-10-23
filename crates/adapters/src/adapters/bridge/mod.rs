@@ -210,14 +210,16 @@ fn kept_name(file: &Path) -> Result<String, String> {
 impl Drop for Bridge {
     fn drop(&mut self) {
         self.stopping.store(true, Ordering::SeqCst);
-        // Wakes the accept, which then sees it is stopping.
-        let _ = Stream::connect(&self.socket);
-        let _ = std::fs::remove_file(&self.socket);
+        // The served connection ends first: a pipe has one instance free for
+        // the accept, so a connect made while it is served finds none.
         let held = self.serving.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(stream) = held.as_ref() {
             let _ = stream.shutdown(Shutdown::Both);
         }
         drop(held);
+        // Wakes the accept, which then sees it is stopping.
+        let _ = Stream::connect(&self.socket);
+        let _ = std::fs::remove_file(&self.socket);
         if let Some(thread) = self.thread.take() {
             let _ = thread.join();
         }

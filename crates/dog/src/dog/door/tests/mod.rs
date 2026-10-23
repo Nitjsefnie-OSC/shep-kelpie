@@ -309,6 +309,8 @@ async fn a_run_with_no_dog_says_so_with_its_own_exit_code() {
 }
 
 // The wrapper dies outright; its command still runs, so it still holds the lease.
+// A Windows pipe is not handed to the command, so there the lease goes with the wrapper.
+#[cfg(unix)]
 #[tokio::test]
 async fn a_killed_run_keeps_the_lease_until_its_command_ends() {
     let (dir, socket, _desk) = door(1);
@@ -338,10 +340,14 @@ async fn a_command_that_ends_gives_the_lease_back_whatever_it_left_running() {
 }
 
 // A dog in a child process, killing which is its death. No fork of this
-// process can have inherited its door.
+// process can have inherited its door. It has opened once something connects:
+// no file stands for a door on Windows.
 async fn first_dog(socket: &Path) -> Child {
     let dog = child(socket, "dog");
-    until("the first dog never opened", || socket.exists()).await;
+    until("the first dog never opened", || {
+        crate::ipc::blocking::Stream::connect(socket).is_ok()
+    })
+    .await;
     dog
 }
 

@@ -155,7 +155,14 @@ impl Outstanding {
     fn id(line: &[u8]) -> Option<(String, bool)> {
         let line: Value = serde_json::from_slice(line).ok()?;
         let id = line.get("id").filter(|id| !id.is_null())?;
-        Some((id.to_string(), line.get("method").is_some()))
+        // A number is keyed by its value, as a server may spell it another way.
+        let key = match id {
+            Value::Number(number) => number
+                .as_f64()
+                .map_or_else(|| id.to_string(), |value| format!("n{value}")),
+            other => other.to_string(),
+        };
+        Some((key, line.get("method").is_some()))
     }
 
     fn sent(&mut self, line: &[u8]) {
@@ -269,6 +276,16 @@ mod tests {
         calls.close_stdin();
         calls.replied(&reply(r#""1""#));
         assert!(!calls.settled());
+    }
+
+    // Node echoes the number 1.0 back as 1.
+    #[test]
+    fn a_number_spelled_two_ways_is_one_id() {
+        let mut calls = Outstanding::default();
+        calls.sent(request("1.0").as_bytes());
+        calls.close_stdin();
+        calls.replied(&reply("1"));
+        assert!(calls.settled());
     }
 
     #[test]

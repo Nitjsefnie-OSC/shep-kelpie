@@ -20,6 +20,10 @@ use tokio::time::Instant;
 
 use crate::ipc::address;
 
+// How long a connect waits for a pipe whose instances are all busy, which the
+// transport retries without end.
+const CONNECT_WITHIN: Duration = Duration::from_secs(5);
+
 // A runtime that a thread of its own drives for as long as the process lives.
 static RUNTIME: LazyLock<Handle> = LazyLock::new(|| {
     let runtime = Builder::new_current_thread()
@@ -160,10 +164,16 @@ impl Stream {
     ///
     /// # Errors
     ///
-    /// Whatever the OS says, such as nothing listening there.
+    /// Whatever the OS says, such as nothing listening there, or `TimedOut` when
+    /// every instance of the pipe stays busy.
     pub fn connect(socket: impl AsRef<Path>) -> io::Result<Self> {
         let address = address(socket.as_ref());
-        run(async move { transport::connect(&address).await }).map(|c| Self::of(Pipe::Client(c)))
+        run(async move {
+            tokio::time::timeout(CONNECT_WITHIN, transport::connect(&address))
+                .await
+                .unwrap_or_else(|_| Err(io::ErrorKind::TimedOut.into()))
+        })
+        .map(|c| Self::of(Pipe::Client(c)))
     }
 
     /// Two ends connected to each other

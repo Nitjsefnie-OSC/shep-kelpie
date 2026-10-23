@@ -97,7 +97,9 @@ pub async fn run_with_patience(
         return caught.number();
     }
     if let Err(e) = visit.inheritable(true) {
-        say(&format!("{e}: the lease is held by this process alone"));
+        say(&format!(
+            "{e}: the lease is held by this process alone, and ends if it is killed while the command runs"
+        ));
     }
     let spawned = tokio::process::Command::from(crate::spawn::command(program))
         .args(args)
