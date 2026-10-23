@@ -24,6 +24,7 @@ fn world() -> (tempfile::TempDir, Server) {
         args: Vec::new(),
         env: BTreeMap::new(),
         cwd: root,
+        call_limit: CALL_LIMIT,
     };
     (dir, server)
 }
@@ -287,4 +288,195 @@ fn a_server_that_exits_ends_the_connection_instead_of_leaving_it_open() {
         .expect("the connection stayed open after its server exited");
     let mut rest = String::new();
     assert_eq!(BufReader::new(far).read_line(&mut rest).unwrap(), 0);
+}
+
+// A stand-in server that answers `initialize` and every call but two: `browser_snapshot` and
+// `browser_wait_for` never get a reply. With `late`, it ignores the request to end and
+// answers `browser_click` a second afterwards, as a server cut off mid-reply would.
+fn stalling_world(call_limit: Duration, late: bool) -> (tempfile::TempDir, Server) {
+    let (dir, mut server) = world();
+    let root = server.cwd.clone();
+    let script = root.join("stalls");
+    let (trap, click) = if late {
+        ("trap '' TERM", "sleep 1; echo \"$reply\"; exit 0")
+    } else {
+        ("", "echo \"$reply\"")
+    };
+    let text = r#"#!/bin/sh
+TRAP
+echo $$ >> ROOT/pids
+while read -r line; do
+  echo "$line" >> ROOT/got
+  id=${line#*\"id\":}; id=${id%%,*}
+  reply="{\"jsonrpc\":\"2.0\",\"id\":$id,\"result\":{\"content\":[]}}"
+  case "$line" in
+    *'"method":"initialize"'*) echo "$reply" ;;
+    *'"name":"browser_snapshot"'*|*'"name":"browser_wait_for"'*) ;;
+    *'"name":"browser_click"'*) CLICK ;;
+    *'"method":"tools/call"'*) echo "$reply" ;;
+  esac
+done
+"#;
+    let text = text
+        .replace("TRAP", trap)
+        .replace("CLICK", click)
+        .replace("ROOT", &root.display().to_string());
+    crate::test::write_script(&script, &text);
+    server.command = script;
+    server.call_limit = call_limit;
+    (dir, server)
+}
+
+fn call_with(id: u32, tool: &str, arguments: &Value) -> String {
+    json!({ "jsonrpc": "2.0", "id": id, "method": "tools/call", "params": { "name": tool, "arguments": arguments } })
+        .to_string()
+}
+
+fn call(id: u32, tool: &str) -> String {
+    call_with(id, tool, &json!({}))
+}
+
+// What the worker hears next, if anything comes within `wait`.
+#[cfg(unix)]
+fn heard_within(stream: &mut BufReader<Stream>, wait: Duration) -> Option<Value> {
+    stream.get_ref().set_read_timeout(Some(wait)).unwrap();
+    let mut line = String::new();
+    let heard = stream.read_line(&mut line).is_ok_and(|n| n > 0);
+    stream.get_ref().set_read_timeout(None).unwrap();
+    heard.then(|| serde_json::from_str(&line).unwrap())
+}
+
+fn initialize() -> String {
+    json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {} }).to_string()
+}
+
+const INITIALIZED: &str = r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#;
+
+// A worker that has opened its connection to `server` and said hello. Dropping it ends the
+// connection, and the server with it.
+fn greeted(server: Server) -> BufReader<Stream> {
+    let (near, far) = Stream::pair().unwrap();
+    thread::spawn(move || {
+        let held = Mutex::new(None);
+        serve(
+            near,
+            &server,
+            &Filter::default(),
+            &held,
+            &AtomicBool::new(false),
+        );
+    });
+    let mut stream = BufReader::new(far);
+    assert_eq!(ask(&mut stream, &initialize())["id"], 1);
+    writeln!(stream.get_mut(), "{INITIALIZED}").unwrap();
+    stream
+}
+
+#[cfg(unix)]
+#[test]
+fn a_call_with_no_reply_in_its_limit_gets_an_error_result_naming_the_limit() {
+    let (_dir, server) = stalling_world(Duration::from_millis(300), false);
+    let mut stream = greeted(server);
+    let started = Instant::now();
+    let ended = ask(&mut stream, &call(2, "browser_snapshot"));
+    assert!(started.elapsed() >= Duration::from_millis(300));
+    assert_eq!(ended["id"], 2, "{ended}");
+    assert_eq!(ended["result"]["isError"], true, "{ended}");
+    let text = ended["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(text.contains("300ms"), "{text}");
+    assert!(text.contains("restarted the browser"), "{text}");
+}
+
+#[cfg(unix)]
+#[test]
+fn a_reply_after_its_limit_never_reaches_the_worker() {
+    let (dir, server) = stalling_world(Duration::from_millis(300), true);
+    let mut stream = greeted(server);
+    // The stand-in ignores the request to end, and answers this call a second after it came.
+    assert_eq!(
+        ask(&mut stream, &call(2, "browser_click"))["result"]["isError"],
+        true
+    );
+    // The late answer for 2 would be read before, or between, these.
+    assert_eq!(ask(&mut stream, &call(3, "browser_hover"))["id"], 3);
+    assert_eq!(ask(&mut stream, &call(4, "browser_hover"))["id"], 4);
+    assert!(!running(&pids(&dir)[0]));
+}
+
+#[cfg(unix)]
+#[test]
+fn the_call_after_a_timeout_reaches_a_fresh_server_on_the_same_connection() {
+    let (dir, server) = stalling_world(Duration::from_millis(300), false);
+    let mut stream = greeted(server);
+    assert_eq!(
+        ask(&mut stream, &call(2, "browser_snapshot"))["result"]["isError"],
+        true
+    );
+    let answered = ask(&mut stream, &call(3, "browser_hover"));
+    assert_eq!(answered["id"], 3, "{answered}");
+    assert_eq!(answered["result"]["isError"], Value::Null, "{answered}");
+    let started = pids(&dir);
+    assert_eq!(started.len(), 2, "{started:?}");
+    assert!(!running(&started[0]), "the stuck server stayed");
+    assert!(running(&started[1]));
+    let got = std::fs::read_to_string(dir.path().join("got")).unwrap();
+    let got: Vec<&str> = got.lines().collect();
+    assert_eq!(
+        got,
+        [
+            initialize().as_str(),
+            INITIALIZED,
+            call(2, "browser_snapshot").as_str(),
+            initialize().as_str(),
+            INITIALIZED,
+            call(3, "browser_hover").as_str(),
+        ]
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn the_replayed_initialize_reply_is_not_sent_to_the_worker() {
+    let (_dir, server) = stalling_world(Duration::from_millis(300), false);
+    let mut stream = greeted(server);
+    assert_eq!(ask(&mut stream, &call(2, "browser_snapshot"))["id"], 2);
+    // The new server answers the `initialize` it was sent again, with the id 1 as well.
+    assert_eq!(ask(&mut stream, &call(3, "browser_hover"))["id"], 3);
+    assert_eq!(heard_within(&mut stream, Duration::from_millis(200)), None);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_browser_wait_for_gets_its_time_on_top_of_the_limit() {
+    let (dir, server) = stalling_world(Duration::from_millis(400), false);
+    let mut stream = greeted(server);
+    let started = Instant::now();
+    let wait = call_with(2, "browser_wait_for", &json!({ "time": 1 }));
+    writeln!(stream.get_mut(), "{wait}").unwrap();
+    assert_eq!(heard_within(&mut stream, Duration::from_millis(800)), None);
+    assert_eq!(pids(&dir).len(), 1);
+    let ended = heard_within(&mut stream, crate::test::CALL_PATIENCE).unwrap();
+    assert!(started.elapsed() >= Duration::from_millis(1400));
+    assert_eq!(ended["id"], 2, "{ended}");
+    assert_eq!(ended["result"]["isError"], true, "{ended}");
+    assert!(
+        ended["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("1.4s")
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_call_answered_in_time_is_not_cut_short() {
+    let (dir, server) = stalling_world(Duration::from_millis(500), false);
+    let mut stream = greeted(server);
+    let answered = ask(&mut stream, &call(2, "browser_hover"));
+    assert_eq!(answered["id"], 2, "{answered}");
+    assert_eq!(answered["result"]["isError"], Value::Null, "{answered}");
+    // Past the limit, in which nothing may restart the server for a call it answered.
+    thread::sleep(Duration::from_millis(900));
+    assert_eq!(ask(&mut stream, &call(3, "browser_hover"))["id"], 3);
+    assert_eq!(pids(&dir).len(), 1);
 }
