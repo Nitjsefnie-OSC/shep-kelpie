@@ -1,6 +1,7 @@
 //! Calls in flight, driven a pass at a time through the runner's stand-ins
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::path::Path;
 use std::sync::Mutex;
 use std::sync::mpsc::{self, Receiver};
 
@@ -199,6 +200,51 @@ fn triggers_are_answered_while_calls_run() {
     assert_eq!(ended, [ticket(7), ticket(8)]);
     assert!(matches!(driven.pass(), Pass::Idle));
     assert_eq!(rig.claude.calls().len(), 2);
+}
+
+// A pass that reads `main`'s workflow runs holds the lock through the read, which waits its turn
+// behind the login's pace. The longest hold `status` shows is that pass's `begin`.
+#[test]
+fn a_pass_that_waits_on_a_held_read_shows_a_long_begin_hold_in_status() {
+    const HELD_FOR: Duration = Duration::from_millis(200);
+    let (rig, runner) = seven_open("koji");
+    let runner = Arc::new(runner);
+    let read = rig.forge.hold_next_main_runs_read();
+
+    std::thread::scope(|scope| {
+        let pass = scope.spawn(|| advance(&runner));
+        assert!(
+            read.waiting(CALL_PATIENCE),
+            "the pass never reached the read of `main`'s workflows"
+        );
+        std::thread::sleep(HELD_FOR);
+        drop(read);
+        pass.join().expect("the pass thread").unwrap();
+    });
+
+    let status = rig.ask(&runner, "status", None);
+    let (site, seconds) = status["lock"]
+        .as_object()
+        .expect("the holds by site")
+        .iter()
+        .max_by(|a, b| a.1.as_f64().partial_cmp(&b.1.as_f64()).unwrap())
+        .expect("a hold");
+    let (file, line) = site.rsplit_once(':').expect("file:line");
+    let source = std::fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .join(file),
+    )
+    .expect("the source file");
+    let line = source.lines().nth(line.parse::<usize>().unwrap() - 1);
+    assert!(
+        line.is_some_and(|line| line.contains(".begin(")),
+        "the longest hold is not the pass's begin: {site}"
+    );
+    assert!(
+        seconds.as_f64().unwrap() >= HELD_FOR.as_secs_f64(),
+        "{seconds}"
+    );
 }
 
 #[test]

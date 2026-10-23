@@ -89,10 +89,12 @@ mod limits_tests;
 mod lineup;
 #[cfg(test)]
 mod local_ticket_tests;
+mod lock_hold;
 mod login_refresh;
 mod looks;
 mod main_ci;
 mod merge;
+mod off_lock;
 mod older_bots;
 mod open_checks;
 #[cfg(test)]
@@ -444,6 +446,8 @@ pub struct Runner {
     // The ids of comments kelpie posted as the login `gh` acts as since the
     // last save, which the state file keeps: none of them is ever an answer
     posted: std::cell::RefCell<Vec<u64>>,
+    // How long each hold of the runner's lock lasted, in memory only
+    holds: lock_hold::Holds,
 }
 
 impl Runner {
@@ -694,6 +698,7 @@ impl Runner {
             no_checks: std::collections::BTreeSet::new(),
             builds: builds::BuildWatch::default(),
             posted: std::cell::RefCell::default(),
+            holds: lock_hold::Holds::default(),
         };
         runner.settle_older_bots()?;
         runner.settle_labels();
@@ -802,6 +807,7 @@ impl Runner {
             run: self.run_status(),
             forge_held_until: self.forge_hold.until(now),
             settings_refused: self.refusal.as_ref(),
+            lock: self.holds.longest(),
         }
     }
 

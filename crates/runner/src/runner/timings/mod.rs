@@ -105,9 +105,10 @@ impl Runner {
         })
     }
 
-    /// Sends every series again, once a minute, for a metrics dog that
-    /// started or restarted since
-    pub(super) fn send_metrics(&self) {
+    /// Sends the holds of the runner's lock since it last did, and every series
+    /// again, once a minute, for a metrics dog that started or restarted since
+    pub(super) fn send_metrics(&mut self) {
+        self.holds.flush(&self.metrics);
         self.metrics.refresh(self.ports.clock.now());
     }
 
