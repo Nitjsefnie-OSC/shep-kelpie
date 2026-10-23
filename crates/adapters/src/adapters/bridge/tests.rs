@@ -545,3 +545,21 @@ fn a_request_that_is_not_a_tool_call_is_ended_with_an_error_and_not_a_tool_resul
     assert_eq!(heard[1]["id"], 3, "{heard:?}");
     assert_eq!(heard[1]["result"]["isError"], true, "{heard:?}");
 }
+
+#[cfg(unix)]
+#[test]
+fn a_call_the_worker_cancelled_is_not_a_hung_call() {
+    let (dir, server) = stalling_world(Duration::from_millis(300), false);
+    let mut stream = greeted(server);
+    writeln!(stream.get_mut(), "{}", call(2, "browser_snapshot")).unwrap();
+    let cancel = json!({
+        "jsonrpc": "2.0",
+        "method": "notifications/cancelled",
+        "params": { "requestId": 2 },
+    });
+    writeln!(stream.get_mut(), "{cancel}").unwrap();
+    // A cancelled call is never answered, and past its limit the server is left alone.
+    assert_eq!(heard_within(&mut stream, Duration::from_millis(700)), None);
+    assert_eq!(ask(&mut stream, &call(3, "browser_hover"))["id"], 3);
+    assert_eq!(pids(&dir).len(), 1);
+}

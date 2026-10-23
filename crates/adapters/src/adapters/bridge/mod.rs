@@ -300,6 +300,12 @@ impl Session {
         match message["method"].as_str() {
             Some("initialize") => self.initialize = Some(text.to_owned()),
             Some("notifications/initialized") => self.initialized = Some(text.to_owned()),
+            // The server never answers a request it was told to drop.
+            Some("notifications/cancelled") => {
+                if let Some(id) = message["params"].get("requestId") {
+                    self.waiting.remove(&id_key(id));
+                }
+            }
             _ => {}
         }
         if let (Some(id), Some(method)) = (message.get("id"), message.get("method"))
