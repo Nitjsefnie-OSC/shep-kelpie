@@ -14,26 +14,12 @@ async fn an_installed_app_that_mints_a_token_is_ok() {
     );
 }
 
-// The copy of srt that `tools install` makes, with no keychain service in it
-fn patched_srt(scene: &Scene) {
-    let cli = Tools::under(&scene.kelpie_home).sandbox_without_keychain();
-    let sandbox = cli.parent().unwrap().join("sandbox");
-    std::fs::create_dir_all(&sandbox).unwrap();
-    std::fs::write(&cli, "").unwrap();
-    std::fs::write(
-        sandbox.join("macos-sandbox-utils.js"),
-        "(allow ipc-posix-shm)\n",
-    )
-    .unwrap();
-}
-
 // With the keychain blocked in the project's calls, `claude` has no login but
 // the one the maintainer made with `claude setup-token`.
 #[tokio::test]
 async fn a_covered_project_on_a_keychain_needs_the_login_token_and_names_the_two_commands() {
     let mut scene = Scene::new().await;
     scene.host.keychain = true;
-    patched_srt(&scene);
 
     scene.host.token = false;
     let report = scene.report().await;
@@ -59,7 +45,6 @@ async fn a_runner_whose_env_sets_the_login_token_has_a_login_without_it_in_the_s
     let mut scene = Scene::new().await;
     scene.host.keychain = true;
     scene.host.token = false;
-    patched_srt(&scene);
     let secret = "{{secret:CLAUDE_CODE_OAUTH_TOKEN}}";
     scene
         .shepherd
@@ -78,7 +63,6 @@ async fn a_runner_whose_env_sets_the_login_token_to_nothing_has_no_login() {
     let mut scene = Scene::new().await;
     scene.host.keychain = true;
     scene.host.token = false;
-    patched_srt(&scene);
     scene
         .shepherd
         .sets_env("koji", "CLAUDE_CODE_OAUTH_TOKEN", "");
@@ -112,19 +96,6 @@ async fn a_machine_without_a_keychain_needs_no_login_token() {
     let report = scene.report().await;
 
     assert!(!subjects(&report).contains(&"koji: claude login"));
-}
-
-// The copy of srt without the keychain's services is what blocks it.
-#[tokio::test]
-async fn a_keychain_machine_without_the_patched_srt_is_told_to_install_the_tools() {
-    let mut scene = Scene::new().await;
-    scene.host.keychain = true;
-
-    let report = scene.report().await;
-
-    let (what, fix) = missing(&report, "sandbox");
-    assert!(what.contains("keychain"), "{what}");
-    assert_eq!(fix, "run `shep kelpie tools install`");
 }
 
 // No App is unsure: kelpie falls back to the user's own `gh` login, so it does not fail the run.

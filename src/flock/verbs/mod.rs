@@ -8,12 +8,11 @@ use std::sync::Arc;
 
 use super::control::Format;
 use super::{Checkout, Launch, add, attach, control, help, pm, rule, set, ticket, usage, watch};
-use crate::adapters::{Base, ClaudeCli, Gh, LoginToken, SystemGit};
+use crate::adapters::{Base, ClaudeCli, Gh, LoginToken, SandboxRuntime, SystemGit};
 use crate::agents::{Agents, Writer};
 use crate::home::{ProjectName, ProjectPaths};
 use crate::issues::{self, Mode, Project};
 use crate::local_tickets::{LocalTickets, Routed};
-use crate::ports::SandboxError;
 use crate::settings::source;
 use crate::shepherd::{self, Connection, Dial, Socket};
 use crate::state::Projects;
@@ -430,9 +429,9 @@ async fn issue(here: Here<'_>, name: &ProjectName, args: &[&str]) -> Result<Vec<
         };
     }
     let tools = Tools::under(here.kelpie_home);
-    if !tools.sandbox().is_file() {
-        return Err(SandboxError::Missing(tools.sandbox()).to_string());
-    }
+    SandboxRuntime::new(tools.clone())
+        .check()
+        .map_err(|e| e.to_string())?;
     let codex_home =
         (loaded.kelpie.codex_home(here.home, here.kelpie_home)).map_err(|e| e.to_string())?;
     let secret_vars = loaded.kelpie.gateways().key_vars();

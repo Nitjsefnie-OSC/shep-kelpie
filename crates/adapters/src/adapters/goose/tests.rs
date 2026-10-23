@@ -711,7 +711,7 @@ fn record_a_turn_a_resumed_turn_and_an_unreachable_server() {
     let record = PathBuf::from(env("KELPIE_GOOSE_RECORD"));
     let tools = KelpieTools::at(env("KELPIE_TOOLS").into());
     let goose = GooseCli::on(&Base::default().sandboxed(
-        Arc::new(SandboxRuntime::new(tools)),
+        Arc::new(SandboxRuntime::under_test(tools)),
         std::env::var_os("HOME").unwrap().into(),
     ));
     let world = World::new();
@@ -763,7 +763,7 @@ fn record_a_worker_whose_write_and_shell_the_fence_refuses() {
     let record = PathBuf::from(env("KELPIE_GOOSE_RECORD"));
     let tools = KelpieTools::at(env("KELPIE_TOOLS").into());
     let goose = GooseCli::on(&Base::default().sandboxed(
-        Arc::new(SandboxRuntime::new(tools)),
+        Arc::new(SandboxRuntime::under_test(tools)),
         std::env::var_os("HOME").unwrap().into(),
     ));
     let world = World::new();

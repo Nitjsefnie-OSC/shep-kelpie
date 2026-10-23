@@ -47,6 +47,10 @@ shep-kelpie-test-support = { path = "crates/test_support" }
 shep-kelpie-tree = { path = "crates/tree" }
 shep-kelpie-trim = { path = "crates/trim" }
 shep-kelpie-worker-folder = { path = "crates/worker_folder" }
+# The sandbox runtime a macOS worker runs under: kelpie's own binary is its
+# wrapper (`crabpot::run_from_args`), so no node `srt` is on that path. The
+# library only, without the `crabpot` binary.
+crabpot = { version = "0.1", default-features = false }
 # The authenticator codes that answer a ruling from ntfy (RFC 6238 TOTP)
 hmac = { version = "0.13", default-features = false }
 # Zone-aware dates, for the reset times `/usage` prints in the maintainer's zone
@@ -107,6 +111,7 @@ shep-kelpie-runner.workspace = true
 shep-kelpie-tree.workspace = true
 shep-kelpie-trim.workspace = true
 shep-kelpie-worker-folder.workspace = true
+crabpot.workspace = true
 jiff.workspace = true
 serde.workspace = true
 serde-saphyr.workspace = true

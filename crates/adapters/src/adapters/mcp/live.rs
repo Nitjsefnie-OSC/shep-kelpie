@@ -23,14 +23,16 @@ use crate::tools::Tools;
 
 const SYMBOL: &str = "kelpie_probe_symbol";
 
-// The installed runtime and server, or why there are none.
+// The installed code graph, with a built kelpie to run its calls, or why there are none.
 fn installed() -> Result<Tools, String> {
     if !cfg!(target_os = "macos") {
         return Err("srt refuses a Unix socket off macOS".into());
     }
     let home = crate::home::kelpie_home().map_err(|e| e.to_string())?;
     let tools = Tools::under(&home);
-    match tools.sandbox().is_file() && tools.has_code_graph() {
+    // A test binary has no `crabpot::run_from_args`, so a call runs through the built kelpie.
+    crate::adapters::srt::built_kelpie()?;
+    match tools.has_code_graph() {
         true => Ok(tools),
         false => Err(format!(
             "run `shep kelpie tools install` with the code graph for {}",
@@ -132,6 +134,7 @@ fn the_server_answers_a_code_search_in_a_sandbox_that_denies_the_folder_above_it
     }
     server.current_dir(&worktree);
     let mut child = SandboxRuntime::new(tools)
+        .run_by(crate::adapters::srt::built_kelpie().unwrap())
         .wrap(&policy, &root.join("srt.json"), &server)
         .unwrap()
         .stdin(Stdio::piped())
@@ -186,6 +189,7 @@ fn the_server_answers_a_code_search_in_a_sandbox_that_denies_the_folder_above_it
         ])
         .current_dir(&worktree);
     let probe = SandboxRuntime::new(installed().unwrap())
+        .run_by(crate::adapters::srt::built_kelpie().unwrap())
         .wrap(&policy, &root.join("srt.json"), &shell)
         .unwrap()
         .stdin(Stdio::null())

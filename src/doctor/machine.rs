@@ -276,26 +276,13 @@ pub(super) fn sandbox(host: &dyn Host, tools: &Tools) -> Line {
             ),
         );
     }
-    let srt = tools.sandbox();
-    if !srt.is_file() {
+    // macOS runs crabpot, linked into kelpie, so no node `srt` is needed there.
+    if host.os() != "macos" && !tools.sandbox().is_file() {
         return Line::missing(
             "sandbox",
             format!(
                 "the sandbox runtime is not at {}, so no runner starts",
-                srt.display()
-            ),
-            "run `shep kelpie tools install`",
-        );
-    }
-    // `tools install` makes the copy that cuts the keychain out of a call's
-    // profile, and a covered repo's calls run under nothing else.
-    if host.has_keychain() && !tools.keychain_blocked() {
-        return Line::missing(
-            "sandbox",
-            format!(
-                "the sandbox runtime has no copy at {} that keeps a call from the keychain, \
-                 so no call on a repo kelpie's App covers starts",
-                tools.sandbox_without_keychain().display()
+                tools.sandbox().display()
             ),
             "run `shep kelpie tools install`",
         );

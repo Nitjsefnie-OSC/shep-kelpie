@@ -279,7 +279,7 @@ mod tests {
     #[test]
     fn a_missing_sandbox_runs_nothing() {
         let w = World::new();
-        let none = SandboxRuntime::new(KelpieTools::at(w.path("no-tools")));
+        let none = SandboxRuntime::new(KelpieTools::at(w.path("no-tools"))).on_macos(false);
         let cli = w.cli(Arc::new(none));
         for call in [w.worker(), w.call(Role::Reviewer)] {
             let err = cli.run(&call, &Ending::default()).unwrap_err();

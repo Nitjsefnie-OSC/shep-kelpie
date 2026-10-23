@@ -51,7 +51,7 @@ fn curl_allowing(
         .args(["-w", " [%{http_code}]"])
         .args(args)
         .current_dir(world.path("wt"));
-    let wrapped = SandboxRuntime::new(tools)
+    let wrapped = SandboxRuntime::under_test(tools)
         .wrap(
             &policy,
             &world.path("worker/settings.sandbox.json"),
@@ -167,7 +167,7 @@ fn pi_answers_through_the_forwarder_with_no_model_host_in_its_sandbox() {
     let world = World::new();
     let tools = KelpieTools::at(std::env::var("KELPIE_TOOLS").expect(NEEDS).into());
     let pi = PiCli::on(&Base::default().sandboxed(
-        Arc::new(SandboxRuntime::new(tools)),
+        Arc::new(SandboxRuntime::under_test(tools)),
         std::env::var_os("HOME").unwrap().into(),
     ));
     let session = id(WORKER_ID);

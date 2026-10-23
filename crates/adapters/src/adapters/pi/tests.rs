@@ -941,7 +941,7 @@ fn record_a_turn_a_resumed_turn_and_two_refusals() {
     let record = PathBuf::from(env("KELPIE_PI_RECORD"));
     let tools = KelpieTools::at(env("KELPIE_TOOLS").into());
     let pi = PiCli::on(&Base::default().sandboxed(
-        Arc::new(SandboxRuntime::new(tools)),
+        Arc::new(SandboxRuntime::under_test(tools)),
         std::env::var_os("HOME").unwrap().into(),
     ));
     let world = World::new();
