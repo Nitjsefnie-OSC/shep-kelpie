@@ -11,7 +11,7 @@ use crate::ports::{BranchRun, Timestamp};
 use crate::runner::{BOARD_POLL, MAIN_CI_POLL, Runner, StepReport, step};
 use crate::test::{Rig, Scripted, ticket};
 
-const LOG: &str = "--- run 91\nFAIL e2e::checkout times out after 3 tries\n";
+pub(super) const LOG: &str = "--- run 91\nFAIL e2e::checkout times out after 3 tries\n";
 
 fn run(id: u64, created: u64) -> BranchRun {
     BranchRun {
@@ -41,7 +41,7 @@ fn rerun() -> (Rig, Mutex<Runner>) {
 
 /// ... and read run 91 red again after its rerun, which wakes the project
 /// manager once, and it makes no call
-fn red_again() -> (Rig, Mutex<Runner>) {
+pub(super) fn red_again() -> (Rig, Mutex<Runner>) {
     let (rig, runner) = rerun();
     rig.claude.script([Scripted::Say("{\"pick\": null}")]);
     rig.clock.advance(MAIN_CI_POLL.as_secs());

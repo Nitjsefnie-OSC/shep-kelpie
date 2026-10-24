@@ -30,6 +30,8 @@ mod quiet;
 mod red;
 mod wake_prompt;
 
+const NOTHING: &str = "{\"pick\": null}";
+
 const PICK_12: &str = "Neither touches open work, and #12 is smaller.\n\n```json\n\
     {\"pick\": 12, \"hold\": [], \"unstick\": null, \"reply\": null, \
     \"why\": \"#12 is small and touches nothing open.\"}\n```";
@@ -676,4 +678,83 @@ fn an_idle_worker_wakes_it_and_a_retry_ends_the_call_and_resumes_it() {
         "Kelpie stopped your last turn: it ran past its ceiling. Commit any work that \
          builds now, then carry on from where you left off."
     );
+}
+
+// The wake's CI logs are read with the runner's lock let go: a trigger is answered while each
+// is held, and the files are written under the lock from what the reads found.
+#[test]
+fn a_trigger_is_answered_while_the_failed_run_logs_are_read() {
+    let (rig, runner, _) = red::raised("koji", |rig| {
+        rig.forge.set_ci_log("--- run 9\nboom work.txt\n")
+    });
+    let hold = Hold::default();
+    rig.claude
+        .script([Scripted::HoldThenSay(hold.clone(), NOTHING)]);
+    step(&runner).unwrap(); // queues the wake, which waits its window
+    past_the_window(&rig);
+    let read = rig.forge.hold_next_failed_logs_read();
+
+    let (reply, pass) = rig.asked_while_held(&runner, read, "detach", Some("7 1"));
+
+    assert!(
+        reply.is_some(),
+        "the trigger waited for the lock the read held"
+    );
+    assert!(matches!(pass, Ok(Pass::Started)), "{pass:?}");
+    // The call runs on its own thread, so it is waited for before it is counted.
+    assert!(hold.entered(CALL_PATIENCE), "the wake's call never began");
+    assert_eq!(pm_seen(&rig).len(), 1, "the wake happened");
+    hold.release();
+    answered(Some(step_until(&runner, |r| {
+        matches!(r, StepReport::PmAnswered { .. })
+    })));
+}
+
+#[test]
+fn the_log_files_are_written_from_the_read_under_the_lock() {
+    let log = "--- run 9\nFAIL boom work.txt\n";
+    let (rig, runner, _) = red::raised("koji", |rig| rig.forge.set_ci_log(log));
+    let pm = rig.paths().pm;
+    std::fs::create_dir_all(pm.join("ci")).unwrap();
+    std::fs::write(pm.join("ci/7.log"), "stale").unwrap();
+    rig.claude.script([Scripted::Say(NOTHING)]);
+    step(&runner).unwrap(); // queues the wake, which waits its window
+    past_the_window(&rig);
+    let read = rig.forge.hold_next_failed_logs_read();
+
+    let (kept, pass) = rig.during_read(
+        read,
+        || advance(&runner),
+        || std::fs::read_to_string(pm.join("ci/7.log")).unwrap(),
+    );
+
+    assert_eq!(
+        kept.as_deref(),
+        Some("stale"),
+        "a file was written off the lock"
+    );
+    assert!(matches!(pass, Ok(Pass::Started)), "{pass:?}");
+    assert_eq!(std::fs::read_to_string(pm.join("ci/7.log")).unwrap(), log);
+    let board = std::fs::read_to_string(pm.join("board.md")).unwrap();
+    assert!(board.contains(", CI log `ci/7.log`\n"), "{board}");
+}
+
+#[test]
+fn a_trigger_is_answered_while_the_logs_of_a_workflow_red_on_main_are_read() {
+    let (rig, runner) = main_red::red_again();
+    rig.forge.set_run_log_tail(91, main_red::LOG);
+    rig.forge.list_ready(9, false);
+    rig.forge.list_ready(12, false);
+    rig.claude.script([Scripted::Say(NOTHING)]);
+    rig.clock.advance(crate::runner::BOARD_POLL.as_secs());
+    step(&runner).unwrap(); // reads the board, which wakes it for the free slot
+    let read = rig.forge.hold_next_run_log_tail_read();
+
+    let (reply, pass) = rig.asked_while_held(&runner, read, "detach", Some("7 1"));
+
+    reply.expect("the trigger waited for the lock the read held");
+    pass.unwrap();
+    let pm = rig.paths().pm;
+    let log = std::fs::read_to_string(pm.join("ci/main-91.log")).unwrap();
+    assert_eq!(log, main_red::LOG);
 }

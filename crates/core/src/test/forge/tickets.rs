@@ -120,6 +120,7 @@ impl Tickets for FakeForge {
     ) -> Result<Vec<ThreadComment>, ForgeError> {
         let number = number(id);
         self.ask()?;
+        self.wait_if_held(held::At::IssueComments);
         if self.threads.is_unlisted(number) {
             return Err(ForgeError::Failed(format!(
                 "the comments on #{number} cannot be listed right now"

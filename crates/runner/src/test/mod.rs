@@ -43,8 +43,8 @@ pub use reads::{
 pub use registered_app::RegisteredApp;
 pub use script_cli::ScriptCli;
 pub use shep_kelpie_adapters::test::{
-    Asked, DogStandIn, FakeGithub, FakeLeases, FakeReviewer, REVIEW_ID, ScriptedRound, SeenRound,
-    SentReview, Told,
+    Asked, DogStandIn, FakeGithub, FakeLeases, FakeReviewer, HeldToken, REVIEW_ID, ScriptedRound,
+    SeenRound, SentReview, Told,
 };
 pub use shep_kelpie_core::test::{
     Answer, EPOCH, FakeAlerts, FakeBridges, FakeClassifier, FakeClock, FakeDevServers, FakeDisk,
@@ -57,7 +57,7 @@ pub use shep_kelpie_test_support::{
     short_tempdir, waits_for, write_fake, write_in, write_script,
 };
 
-/// A read a test holds open: a forge call or a git fetch
+/// A read a test holds open: a forge call, a token mint or a git fetch
 pub trait Held: Send {
     /// Whether a read reached the stand-in and waits there, within `within`
     fn waiting(&self, within: std::time::Duration) -> bool;
@@ -70,6 +70,12 @@ impl Held for HeldCall {
 }
 
 impl Held for HeldGit {
+    fn waiting(&self, within: std::time::Duration) -> bool {
+        Self::waiting(self, within)
+    }
+}
+
+impl Held for HeldToken {
     fn waiting(&self, within: std::time::Duration) -> bool {
         Self::waiting(self, within)
     }

@@ -336,7 +336,12 @@ impl Runner {
     pub(in crate::runner) fn preparing(&self) -> Option<Begin> {
         let item = self
             .current()
-            .filter(|_| self.reads.git.prepared.is_none())?;
+            .filter(|_| self.reads.git.prepared.is_none())
+            // A turn that fails before it asks for the worktree makes none.
+            .filter(|item| {
+                !matches!(self.reads.started(item.issue).token(), Some(Err(_)))
+                    && self.worker_agent(item).is_ok()
+            })?;
         let job = self.git_job(self.prepare_ask(item, start_of(item)).job())?;
         Some(Begin::Reads(job))
     }

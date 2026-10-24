@@ -319,6 +319,7 @@ impl Runner {
         // running carries on, since a turn is never interrupted, and start_over
         // resumes the same not-yet-begun turn after a session died unborn.
         let due = matches!(item.turn, Turn::Due | Turn::Next { .. });
+        let started = self.reads.has_started(item.issue);
         if let Some(begin) = self.pushed_by_someone_else()? {
             // A read the gate asks for is made and the step made again in the gate's phase, which
             // would not say why, so the reason stands until that step ends.
@@ -337,8 +338,9 @@ impl Runner {
         if due && let Some(why) = self.builds_hold() {
             return Ok(self.idle(why));
         }
-        // A step made again over its worktree has paced already.
-        if due && !self.reads.git.is_prepared() {
+        // A step made again over the start's reads or the worktree was paced clear by the step
+        // before it, and asking again would read the account's usage twice for one turn.
+        if due && !started && !self.reads.git.is_prepared() {
             let pace = self.pace_worker(Scope::Turn)?;
             if let Pace::StillHeld(hold) | Pace::Held(hold) = &pace {
                 self.held_up.because(Reason::Paced(hold.reason.clone()));
@@ -421,7 +423,12 @@ impl Runner {
         if self.token_wait.holds(now) {
             return Ok(self.idle(Reason::Token));
         }
-        // Its worktree is made with the lock let go, and the step made again over what was found.
+        // The token and the first prompt's issue are read with the lock let go, and the step is
+        // made again over them. Asked for only here, past every check that holds the turn back.
+        if let Some(job) = self.start_job(item, takes_issue(item, prompt.as_deref())) {
+            return Ok(Begin::Reads(job));
+        }
+        // Its worktree is made the same way, once the token is in hand.
         if let Some(reads) = self.preparing() {
             return Ok(reads);
         }
@@ -454,7 +461,9 @@ impl Runner {
                 self.token_wait.ends();
                 resumed = !compacting && paused::resumes_pause(item);
                 self.builds_turn_begins();
+                // Dropped or moved on since the check, no call starts.
                 let Some(item) = self.current_in(&mut next) else {
+                    // No flight will take the bridge this turn's call opened.
                     drop(self.opened.take(issue));
                     return Ok(Begin::Idle);
                 };
@@ -533,10 +542,13 @@ impl Runner {
         // Where the App covers the repo, the worker holds its token and never
         // the maintainer's login; a token it cannot have now fails the call
         // rather than run it as the maintainer.
-        let token = (self.ports.voice.worker_token(&self.remote)).map_err(|e| {
-            self.token_error_passes(&e);
-            format!("cannot get the worker a GitHub token: {e}")
-        })?;
+        let started = self.reads.started(item.issue);
+        let token = (started.token())
+            .unwrap_or_else(|| self.ports.voice.worker_token(&self.remote))
+            .map_err(|e| {
+                self.token_error_passes(&e);
+                format!("cannot get the worker a GitHub token: {e}")
+            })?;
         let reach = self.worker_reach(item, start, token.as_ref())?;
         // Named for the work item: the open items' calls run at once, and
         // each harness keeps its own files beside its settings file.
@@ -591,12 +603,10 @@ impl Runner {
             None if item.adopted => adopt::first_prompt(item, None),
             None => {
                 let ticket = item.issue;
-                let issue = self
-                    .ports
-                    .tickets
-                    .issue(&self.remote, ticket)
+                let issue = (started.issue())
+                    .unwrap_or_else(|| self.ports.tickets.issue(&self.remote, ticket))
                     .map_err(|e| format!("cannot read {}: {e}", ticket.shown()))?;
-                let comments = self.maintainer_comments(ticket)?;
+                let comments = self.maintainer_comments(ticket, started.comments())?;
                 self.skills
                     .invoke(Step::Implement, &first_prompt(ticket, &issue, &comments))
             }
@@ -790,6 +800,12 @@ impl Runner {
             .find(|pr| pr.head == branch)
             .map(|pr| pr.number)
     }
+}
+
+// Whether a turn sent `prompt` is prompted with its issue: the first of a work item that is
+// neither a rework nor adopted, which has no prompt of its own
+fn takes_issue(item: &WorkItem, prompt: Option<&str>) -> bool {
+    prompt.is_none() && !item.rework && !item.adopted
 }
 
 pub(super) fn write(folder: &Path, file: &Path, text: &str) -> Result<(), String> {
