@@ -22,7 +22,8 @@ Kelpie: dog of the maintainer's shepherd; one runner per project takes ready iss
 
 | file | covers | read when you touch (`core/` is `crates/core/src/`, `dog/` is `crates/dog/src/dog/`, `adapters/` is `crates/adapters/src/`, `runner/` is `crates/runner/src/runner/`, here and in every area file) |
 |---|---|---|
-| work.md | projects, board, adoption, slots, issue writer | `core/board/`, `src/issues/mod.rs`, `runner/adopt/`, `runner/slots.rs`, `src/flock/verbs.rs`, `core/guard/issues/` |
+| work.md | projects, slots, issues | `src/issues/mod.rs`, `runner/slots.rs`, `src/flock/verbs.rs`, `core/guard/issues/` |
+| board.md | board, items, adoption | `core/board/`, `runner/dispatch/`, `runner/adopt/` |
 | pm.md | the project manager, its board | `runner/pm/`, `runner/briefing/` |
 | workers.md | runner loop, turns | `runner/turn/`, `runner/flight/` |
 | runner-lock.md | the runner's lock, its hold metric | `runner/{lock_hold,off_lock}.rs`, `runner/trigger/` |
