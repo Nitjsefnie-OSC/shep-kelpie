@@ -28,11 +28,13 @@ impl Runner {
 
     /// Pull request `number` as a round's step needs it: a read that failed parks the step for
     /// the gate, and a read to make is the step's `Begin::Reads`
-    pub(in crate::runner) fn round_view(&mut self, number: u64) -> Result<PullRequest, Begin> {
+    pub(in crate::runner) fn round_view(&mut self, number: u64) -> Result<PullRequest, Box<Begin>> {
         match self.read_view(number) {
             Ok(Ok(pr)) => Ok(pr),
-            Ok(Err(e)) => Err(self.gate_failed(format!("cannot read #{number}: {e}"))),
-            Err(job) => Err(Begin::Reads(job)),
+            Ok(Err(e)) => Err(Box::new(
+                self.gate_failed(format!("cannot read #{number}: {e}")),
+            )),
+            Err(job) => Err(Box::new(Begin::Reads(job))),
         }
     }
 

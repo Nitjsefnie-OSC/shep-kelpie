@@ -51,7 +51,7 @@ impl Runner {
         // Read with the runner's lock let go, and the step made again with the result
         let pr = match self.round_view(number) {
             Ok(pr) => pr,
-            Err(begin) => return Ok(Some(begin)),
+            Err(begin) => return Ok(Some(*begin)),
         };
         // A pull request merged or closed by hand ends as the gate ends it,
         // and no reviewer reads it.

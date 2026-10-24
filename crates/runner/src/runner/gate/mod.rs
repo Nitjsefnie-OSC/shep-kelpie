@@ -178,7 +178,7 @@ impl Runner {
         let unread_head = self.current().is_some_and(|item| !item.vouches_for(&head));
         let open = match self.threads_open_read(number) {
             Ok(open) => open,
-            Err(begin) => return Ok(begin),
+            Err(begin) => return Ok(*begin),
         };
         // A merge ruling's `no`, or a bot's late round, sent its fix here
         // unread, so the maintainer decides on it again, even under `auto`,

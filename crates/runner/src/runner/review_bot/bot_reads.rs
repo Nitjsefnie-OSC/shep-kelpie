@@ -26,15 +26,15 @@ impl Runner {
         &mut self,
         bot: Bot,
         number: u64,
-    ) -> Result<Activity, Begin> {
+    ) -> Result<Activity, Box<Begin>> {
         let read = match self.reads.activity(bot, number) {
             Some(kept) => kept.map_err(|e| self.cannot_read(bot, number, &e)),
             None => match self.activity_job(bot, number) {
-                Some(job) => return Err(Begin::Reads(job)),
+                Some(job) => return Err(Box::new(Begin::Reads(job))),
                 None => self.activity(bot, number),
             },
         };
-        read.map_err(|reason| self.gate_failed(reason))
+        read.map_err(|reason| Box::new(self.gate_failed(reason)))
     }
 
     // Passes the quota `activity` states on to the dog's book

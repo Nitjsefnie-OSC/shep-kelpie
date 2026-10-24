@@ -120,7 +120,7 @@ impl Runner {
         };
         let pr = match self.round_view(number) {
             Ok(pr) => pr,
-            Err(begin) => return Ok(begin),
+            Err(begin) => return Ok(*begin),
         };
         match pr.state {
             PullRequestState::Open => {}
@@ -196,7 +196,7 @@ impl Runner {
         let number = self.number();
         let activity = match self.read_activity(bot, number) {
             Ok(activity) => activity,
-            Err(begin) => return Ok(begin),
+            Err(begin) => return Ok(*begin),
         };
         // A drain that landed while the activity was read holds the summon back
         if self.draining() {
@@ -445,7 +445,7 @@ impl Runner {
         let repo = self.remote.clone();
         let pr = match self.round_view(number) {
             Ok(pr) => pr,
-            Err(begin) => return Ok(Some(begin)),
+            Err(begin) => return Ok(Some(*begin)),
         };
         if !pr.draft {
             if !self.item().known.ready {
@@ -487,7 +487,7 @@ impl Runner {
         let number = self.number();
         let activity = match self.read_activity(bot, number) {
             Ok(activity) => activity,
-            Err(begin) => return Ok(begin),
+            Err(begin) => return Ok(*begin),
         };
         let now = self.ports.clock.now().0;
         let waited = now.saturating_sub(at.0);

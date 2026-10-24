@@ -58,7 +58,7 @@ impl Runner {
             };
             let activity = match self.read_activity(bot, number) {
                 Ok(activity) => activity,
-                Err(begin) => return Ok(Some(begin)),
+                Err(begin) => return Ok(Some(*begin)),
             };
             if !self.profile(bot).covers(&activity, &head) {
                 continue;

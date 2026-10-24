@@ -55,7 +55,7 @@ impl Runner {
         let number = self.number();
         let activity = match self.read_activity(bot, number) {
             Ok(activity) => activity,
-            Err(begin) => return Ok(begin),
+            Err(begin) => return Ok(*begin),
         };
         let threads = open_ids(&activity);
         if lands(now, since, open, &threads) {
@@ -93,7 +93,7 @@ impl Runner {
     pub(in crate::runner) fn threads_open_read(
         &mut self,
         number: u64,
-    ) -> Result<OpenThreads, Begin> {
+    ) -> Result<OpenThreads, Box<Begin>> {
         let mut read = Vec::new();
         for listed in self.listed_bots() {
             read.push((listed.bot, self.read_activity(listed.bot, number)?));
