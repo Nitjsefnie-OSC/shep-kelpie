@@ -83,7 +83,8 @@ impl Runner {
     // that waits on a head kelpie never gated is disarmed and goes back to CI.
     fn armed(&mut self, number: u64, head: String) -> Result<Begin, StateError> {
         let repo = self.remote.clone();
-        let pr = match self.round_view(number) {
+        // The queue was read since the step's first view, and auto-merge is armed meanwhile
+        let pr = match self.rechecked_view(number) {
             Ok(pr) => pr,
             Err(begin) => return Ok(*begin),
         };
@@ -329,6 +330,27 @@ mod tests {
             step(&runner).unwrap(),
             Some(StepReport::YesWithdrawn { .. })
         ));
+        assert_eq!(rig.forge.disarmed(), [71]);
+    }
+
+    #[test]
+    fn a_head_gone_red_while_the_queue_is_read_is_disarmed() {
+        let (rig, runner, head) = armed("gengar");
+        let read = rig.forge.hold_next_merge_queue_read();
+
+        let (_, step) = rig.during_read(
+            read,
+            || step(&runner),
+            || {
+                rig.forge
+                    .set_checks(&head, Checks::Failed(vec!["test".into()]));
+            },
+        );
+
+        assert!(
+            matches!(step, Ok(Some(StepReport::YesWithdrawn { .. }))),
+            "{step:?}"
+        );
         assert_eq!(rig.forge.disarmed(), [71]);
     }
 

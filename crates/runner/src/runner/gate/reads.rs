@@ -23,6 +23,20 @@ impl Runner {
         viewed.map_err(|e| Box::new(self.gate_failed(format!("cannot read #{number}: {e}"))))
     }
 
+    /// Pull request `number` read again, for a step that read the queue since its first view: a
+    /// head or checks that moved in between are seen here. A read that failed parks the step for
+    /// the gate, and a read to make is the step's `Begin::Reads`.
+    pub(in crate::runner) fn rechecked_view(&self, number: u64) -> Result<PullRequest, Box<Begin>> {
+        let viewed = match self.reads.recheck(number) {
+            Some(viewed) => viewed,
+            None => match self.recheck_job(number) {
+                Some(job) => return Err(Box::new(Begin::Reads(job))),
+                None => self.ports.forge.pull_request(&self.remote, number),
+            },
+        };
+        viewed.map_err(|e| Box::new(self.gate_failed(format!("cannot read #{number}: {e}"))))
+    }
+
     /// The end of each failed run's log at `head`, errors included, or the step's `Begin::Reads`
     pub(in crate::runner) fn failed_logs(
         &self,

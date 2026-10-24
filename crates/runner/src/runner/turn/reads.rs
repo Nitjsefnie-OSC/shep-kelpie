@@ -21,6 +21,8 @@ use crate::settings::ForgeSlug;
 #[derive(Debug, Default)]
 pub(in crate::runner) struct Reads {
     views: BTreeMap<u64, Result<PullRequest, ForgeError>>,
+    // Read again after the step's other reads, so not the view the step began with
+    rechecks: BTreeMap<u64, Result<PullRequest, ForgeError>>,
     activities: BTreeMap<(Bot, u64), Result<Activity, ForgeError>>,
     talks: BTreeMap<u64, Result<Talk, ForgeError>>,
     // By head, and whether they are the merge queue's runs
@@ -35,6 +37,7 @@ impl Reads {
     /// Forgets what was read, as a pass begins or ends or a step ends
     pub(in crate::runner) fn clear(&mut self) {
         self.views.clear();
+        self.rechecks.clear();
         self.activities.clear();
         self.talks.clear();
         self.logs.clear();
@@ -45,6 +48,14 @@ impl Reads {
     /// Pull request `number`, as the step read it
     pub(in crate::runner) fn view(&self, number: u64) -> Option<Result<PullRequest, ForgeError>> {
         self.views.get(&number).cloned()
+    }
+
+    /// Pull request `number`, as the step read it again after its other reads
+    pub(in crate::runner) fn recheck(
+        &self,
+        number: u64,
+    ) -> Option<Result<PullRequest, ForgeError>> {
+        self.rechecks.get(&number).cloned()
     }
 
     /// What `bot` has posted on pull request `number`, as the step read it
@@ -110,6 +121,8 @@ struct View {
     number: u64,
     // Whether the pass has listed nothing yet, so the read lists first and hands the listing back
     lists: bool,
+    // Whether the answer is kept apart from the view the step began with
+    recheck: bool,
 }
 
 // What a review bot has posted on a pull request
@@ -166,6 +179,7 @@ pub(in crate::runner) enum Done {
         number: u64,
         listed: Option<Result<Vec<OpenPullRequest>, ForgeError>>,
         view: Result<PullRequest, ForgeError>,
+        recheck: bool,
     },
 }
 
@@ -183,6 +197,7 @@ impl Job {
                 remote,
                 number,
                 lists,
+                recheck,
             }) => {
                 let listed = lists.then(|| forge.open_pull_requests(&remote));
                 let served = listed.as_ref().and_then(|listed| view_of(listed, number));
@@ -194,6 +209,7 @@ impl Job {
                     number,
                     listed,
                     view,
+                    recheck,
                 }
             }
             Read::Activity(Posted {
@@ -259,6 +275,7 @@ impl Runner {
                 remote,
                 number,
                 lists,
+                recheck: false,
             })
         })
     }
@@ -271,6 +288,21 @@ impl Runner {
                 remote,
                 number,
                 lists: false,
+                recheck: false,
+            })
+        })
+    }
+
+    // The job that reads pull request `number` itself again, for a step whose earlier reads
+    // may have left its first view behind
+    pub(in crate::runner) fn recheck_job(&self, number: u64) -> Option<Box<Job>> {
+        self.job(|forge, remote| {
+            Read::View(View {
+                forge,
+                remote,
+                number,
+                lists: false,
+                recheck: true,
             })
         })
     }
@@ -340,11 +372,16 @@ impl Runner {
                 number,
                 listed,
                 view,
+                recheck,
             } => {
                 if let Some(listed) = listed {
                     self.snapshot.preload(listed);
                 }
-                self.reads.views.insert(number, view);
+                let kept = match recheck {
+                    true => &mut self.reads.rechecks,
+                    false => &mut self.reads.views,
+                };
+                kept.insert(number, view);
             }
             Done::Activity {
                 bot,
