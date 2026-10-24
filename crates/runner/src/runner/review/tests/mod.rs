@@ -5,7 +5,8 @@ use crate::ports::{AgentError, CLEAN, Cost, Role, Session, SessionId, Severity, 
 use crate::runner::report::Spent;
 use crate::runner::{Pass, advance, step};
 use crate::test::ticket;
-use crate::test::{Rig, Scripted, ScriptedRound};
+use crate::test::{Rig, Scripted, ScriptedRound, git};
+use crate::worktree::Remote;
 
 // `drop` refuses while a call is running (see merge/mod.rs's own test for
 // that), but `end_review` tolerates a work item that is gone anyway,
@@ -367,6 +368,58 @@ fn a_trigger_is_answered_while_origin_head_is_read() {
             Ok(Pass::Report(StepReport::ReviewFindingsSent { .. }))
         ),
         "{pass:?}"
+    );
+}
+
+fn gate_failed(report: Option<StepReport>) -> String {
+    match report {
+        Some(StepReport::GateFailed { reason, .. }) => reason,
+        other => panic!("the gate did not fail: {other:?}"),
+    }
+}
+
+// The step fails as it did when it made the read in place, with git's own words
+#[test]
+fn a_git_read_that_fails_reaches_the_step_as_the_error_the_inline_read_returned() {
+    let (rig, runner) = after_a_round_with_findings("shep");
+    git(
+        &rig.repo(),
+        &["remote", "set-url", "origin", "/nowhere/at/all"],
+    );
+    let inline = worktree::origin_head(&rig.repo(), "kelpie/7", &Remote::Origin).unwrap_err();
+
+    let reason = gate_failed(step(&runner).unwrap());
+
+    assert_eq!(reason, inline.to_string());
+}
+
+// A rebase that holds the lock can have a ref of the repo locked as a fetch in flight updates it.
+// The fetch fails with git's words, the step fails, and the next step reads again.
+#[test]
+fn a_read_in_flight_while_the_pass_rebases_ends_in_the_error_path() {
+    let (rig, runner) = after_a_round_with_findings("shep");
+    let read = rig.hold_git_fetch_after(1);
+    let lock = rig.repo().join(".git/refs/remotes/origin/kelpie/7.lock");
+
+    let (_, pass) = rig.during_read(
+        read,
+        || advance(&runner),
+        || {
+            rig.push_by_hand("kelpie/7", "other.txt");
+            std::fs::write(&lock, "").unwrap();
+        },
+    );
+
+    let Ok(Pass::Report(report)) = pass else {
+        panic!("the pass made no report: {pass:?}");
+    };
+    assert!(gate_failed(Some(report)).contains("kelpie/7.lock"));
+    std::fs::remove_file(&lock).unwrap();
+    rig.clock.advance(60); // past the failed step's wait
+    let again = step(&runner).unwrap();
+    assert!(
+        matches!(again, Some(StepReport::ReviewFindingsSent { .. })),
+        "{again:?}"
     );
 }
 
