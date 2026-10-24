@@ -17,6 +17,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::Runner;
 use super::report::StepReport;
+use crate::board::briefing::ticket_ref;
 use crate::pacer::Scope;
 use crate::ports::{
     AgentError, AgentReply, COMPACT, Finding, PaddockHolder, Session, SessionId, Timestamp, Wait,
@@ -240,6 +241,8 @@ struct Flying {
     read_to: u64,
     // What the state file's `pm_told` the prompt carried, which the standing notes keep
     told: Vec<String>,
+    // The dropped picks the prompt told, which the next wake tells again if this one fails
+    lost: Vec<String>,
     session: SessionId,
     fresh: bool,
 }
@@ -255,6 +258,8 @@ pub(super) struct Desk {
     // Since when a window of held reasons has been open
     holding_since: Option<Timestamp>,
     pick: Option<Pick>,
+    // Each of its picks kelpie dropped, in words, until a wake tells it
+    lost: Vec<String>,
     held: Vec<TicketId>,
     // Each pair of open branches in conflict, with the files
     conflicts: BTreeMap<(TicketId, TicketId), Vec<String>>,
@@ -373,10 +378,7 @@ impl Runner {
         match self.pm.pick.take() {
             Some(Pick::Issue(n)) if takeable.contains(&n) => Choice::Take(n),
             Some(Pick::Issue(n)) => {
-                self.notes.push(format!(
-                    "the project manager's pick #{n} is not an issue the board can take \
-                     now, so the board rule picks"
-                ));
+                self.pick_dropped(n, "it is not an issue the board can take now".to_owned());
                 Choice::Rule
             }
             Some(Pick::Rule) => Choice::Rule,
@@ -402,6 +404,17 @@ impl Runner {
                 Choice::Wait
             }
         }
+    }
+
+    // Logs that the pick of `ticket` was dropped for `why`, and keeps it to
+    // tell the project manager at its next wake.
+    fn pick_dropped(&mut self, ticket: TicketId, why: String) {
+        self.pm.lost.push(format!(
+            "kelpie dropped your pick {} and the board rule picked: {why}",
+            ticket_ref(ticket)
+        ));
+        self.started
+            .push(StepReport::PickDropped { issue: ticket, why });
     }
 
     // Set up, not held by the maintainer's terminal, not down, and within
@@ -612,6 +625,7 @@ impl Runner {
         let wakes = std::mem::take(&mut self.pm.due);
         self.pm.holding_since = None;
         let told = self.state.pm_told.clone();
+        let lost = std::mem::take(&mut self.pm.lost);
         let notes = self.pm_notes();
         let full = fresh || self.pm.full_prompt;
         // The board the wake carries in its prompt, and writes to `board.md`
@@ -620,14 +634,24 @@ impl Runner {
             Ok(text) => text,
             Err(why) => {
                 self.pm.due = wakes;
+                self.pm.lost = lost;
                 return Err(why);
             }
         };
-        let text = prompt::wake(self.project.as_str(), &wakes, &told, full, &notes, &board);
+        let text = prompt::wake(
+            self.project.as_str(),
+            &wakes,
+            &told,
+            &lost,
+            full,
+            &notes,
+            &board,
+        );
         let call = match self.pm_call(agent, session, text, Some(board)) {
             Ok(call) => call,
             Err(why) => {
                 self.pm.due = wakes;
+                self.pm.lost = lost;
                 return Err(why);
             }
         };
@@ -636,6 +660,7 @@ impl Runner {
             wakes,
             read_to: self.state.last_event,
             told,
+            lost,
             session: id,
             fresh,
         });
@@ -654,6 +679,7 @@ impl Runner {
             wakes: Vec::new(),
             read_to: self.state.last_event,
             told: Vec::new(),
+            lost: Vec::new(),
             session: id,
             fresh: false,
         });
@@ -695,6 +721,7 @@ impl Runner {
                 // wake held from here is not read as this failure.
                 let now = self.ports.clock.now();
                 self.pm.holding_since = Some(Timestamp(now.0.saturating_sub(HOLD_FOR)));
+                self.pm.lost.splice(0..0, flying.lost);
                 let later = std::mem::take(&mut self.pm.due);
                 for wake in flying.wakes.into_iter().chain(later) {
                     self.pm_due(wake);
@@ -787,6 +814,7 @@ impl Runner {
         self.pm.fresh = self.pm.failures >= 2;
         let now = self.ports.clock.now();
         self.pm.down_until = Some(Timestamp(now.0.saturating_add(DOWN_FOR)));
+        self.pm.lost.splice(0..0, flying.lost);
         for wake in flying.wakes {
             self.pm_due(wake);
         }

@@ -703,6 +703,14 @@ pub enum StepReport {
         /// The tokens its context held at the call's end
         context: Option<u64>,
     },
+    /// The project manager's pick was dropped before dispatch took it, so the
+    /// board rule picks
+    PickDropped {
+        /// The issue it picked
+        issue: TicketId,
+        /// Why it was dropped
+        why: String,
+    },
     /// The project manager's call failed or its reply held no answer, so
     /// the board rule picks and stuck items keep their rulings for now
     PmFailed {

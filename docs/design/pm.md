@@ -17,6 +17,7 @@ The agent kelpie wakes to pick, answer and unstick, and the board file it reads.
 - Kelpie appends one line to `pm-notes.md` for every wake it answered: the time, what it woke for, what it did, and the answer's `why`, each on one line, cut at 300 characters, with text naming this machine withheld as on the board. A vote it cast, or an abstention it owed on a ruling it was asked about, is recorded among what it did, since a wake for a vote alone has no other action. A wake that failed or gave no readable answer appends nothing, and each tell it carried goes to the standing notes verbatim in the same step. The PM adds only what a later wake needs and that line does not say, and a resumed wake is not sent back to reread its notes. #989, `runner/pm/notes.rs`, `runner/panel/`
 - Answer is one JSON object (`pick`, `hold`, `unstick`, `answer`, `follow_up`, `reply`) checked against the board; anything else dropped + logged. #327
 - Pick of none lasts 30 min with nothing open; hold ends when an item closes. #327
+- A pick of an issue stands whatever opens or closes. Dispatch drops it only where the issue is no longer one the board can take, which logs a `pick-dropped` step with why and tells the project manager at its next wake. #1222
 - One session resumed per wake, compacted past 100k; failed call passed over 10 min, board rule picks meanwhile. #327
 - Answers or escalates worker questions, holding the ruling from maintainer one wake (10 min max). #437
 - Decides `follow-up` rulings, filing `ready-for-agent` or `needs-triage`. #510, #511
