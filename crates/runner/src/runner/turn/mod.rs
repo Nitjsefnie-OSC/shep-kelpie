@@ -206,7 +206,7 @@ impl Runner {
     }
 
     // Remembers why `ticket`'s step began `begin`, and logs a turn held up long
-    fn note_held_up(&mut self, ticket: TicketId, begin: &Begin) {
+    pub(in crate::runner) fn note_held_up(&mut self, ticket: TicketId, begin: &Begin) {
         let now = self.ports.clock.now();
         if let Some(line) = self.held_up.stepped(ticket, begin, now) {
             self.notes.push(line);
@@ -337,7 +337,8 @@ impl Runner {
         if due && let Some(why) = self.builds_hold() {
             return Ok(self.idle(why));
         }
-        if due {
+        // A step made again over its worktree has paced already.
+        if due && !self.reads.git.is_prepared() {
             let pace = self.pace_worker(Scope::Turn)?;
             if let Pace::StillHeld(hold) | Pace::Held(hold) = &pace {
                 self.held_up.because(Reason::Paced(hold.reason.clone()));

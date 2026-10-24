@@ -159,6 +159,10 @@ fn scope(
     resume: Resume,
 ) -> Result<Next, StateError> {
     let begin = match (step, resume) {
+        (Step::Slot(slot), Resume::Applied(begin)) => {
+            runner.slot_finished(slot, &begin, now);
+            *begin
+        }
         (_, Resume::Applied(begin)) => *begin,
         (Step::Slot(slot), Resume::Fresh) if !runner.looks.due(slot, now) => {
             return Ok(Next::Done(Stepped::Idle));

@@ -10,6 +10,8 @@ use std::path::PathBuf;
 
 use super::Runner;
 use super::report::Begin;
+use super::turn::Slot;
+use crate::ports::Timestamp;
 use crate::state::StateError;
 use crate::work_item::Review;
 use crate::worktree::{self, Rebase, Remote, WorktreeError};
@@ -118,6 +120,18 @@ impl Runner {
             Changed::Rebased(caught) => self.caught_up(caught),
             Changed::Removed(cleared) => self.cleaned_up(cleared),
         }
+    }
+
+    /// Notes a slot's step that a change finished, as `step_slot` notes one that ended in place
+    pub(in crate::runner) fn slot_finished(&mut self, slot: Slot, begin: &Begin, now: Timestamp) {
+        if matches!(begin, Begin::Reads(_)) {
+            return;
+        }
+        if let Slot::Item(ticket) = slot {
+            self.note_held_up(ticket, begin);
+        }
+        let held = self.forge_hold.until(now);
+        self.looks.stepped(slot, begin, now, held);
     }
 
     /// The rebase of the work item in focus, whose branch is at `head`, or none when it is gone

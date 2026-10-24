@@ -46,6 +46,11 @@ impl Kept {
             && self.prepared.is_none()
     }
 
+    /// Whether a job made the work item's worktree
+    pub(in crate::runner) fn is_prepared(&self) -> bool {
+        self.prepared.is_some()
+    }
+
     /// Keeps what a job found for the step that asked
     pub(in crate::runner) fn keep(&mut self, found: Found) {
         match found {
