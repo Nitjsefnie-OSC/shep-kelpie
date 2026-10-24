@@ -56,6 +56,7 @@ pub struct FakeForge {
     checks: Arc<Mutex<HashMap<String, Checks>>>,
     comments: Arc<Mutex<Vec<(u64, String)>>>,
     comments_down: Arc<AtomicBool>,
+    talk_down: Arc<AtomicBool>,
     thread_replies_down: Arc<AtomicBool>,
     merges_down: Arc<AtomicBool>,
     merge_answers_lost: Arc<AtomicBool>,
@@ -168,6 +169,7 @@ impl FakeForge {
             checks: Arc::default(),
             comments: Arc::default(),
             comments_down: Arc::default(),
+            talk_down: Arc::default(),
             thread_replies_down: Arc::default(),
             merges_down: Arc::default(),
             merge_answers_lost: Arc::default(),
@@ -285,6 +287,11 @@ impl FakeForge {
     /// Makes posting comments fail, or work again
     pub fn set_comments_down(&self, down: bool) {
         self.comments_down.store(down, Ordering::SeqCst);
+    }
+
+    /// Makes reading what people wrote on a pull request fail, or work again
+    pub fn set_talk_down(&self, down: bool) {
+        self.talk_down.store(down, Ordering::SeqCst);
     }
 
     /// Makes merging fail, or work again
@@ -535,6 +542,9 @@ impl Forge for FakeForge {
     fn talk(&self, _repo: &ForgeSlug, number: u64) -> Result<Talk, ForgeError> {
         self.ask()?;
         self.wait_if_held(held::At::Talk);
+        if self.talk_down.load(Ordering::SeqCst) {
+            return Err(ForgeError::Failed("comments are down".into()));
+        }
         self.opened(number)?;
         let mut talk = self.coderabbit.talk_of(number);
         talk.comments.extend(self.threads.remarks(number));

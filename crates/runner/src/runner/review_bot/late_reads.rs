@@ -11,7 +11,7 @@ use crate::ports::{CLEAN, Checks};
 use crate::runner::coderabbit::tests::now;
 use crate::runner::review_bot::two_bots::{bot_reviewed, listing, reviewed, summoned};
 use crate::runner::slots_tests::{issue_of, slots};
-use crate::runner::{Runner, StepReport, step};
+use crate::runner::{Pass, Runner, StepReport, step};
 use crate::test::ticket;
 use crate::test::{Rig, Scripted};
 
@@ -421,4 +421,37 @@ fn a_second_bot_passed_over_is_read_again_before_a_late_fix_goes_to_ci() {
     };
     assert_eq!(id, ticket(71));
     assert!(question.contains(LATE_FIX), "{question}");
+}
+
+// The activity of a bot passed over is read with the runner's lock let go,
+// when CI turns green and while the merge ruling waits.
+#[test]
+fn a_trigger_is_answered_while_the_late_review_activity_is_read() {
+    let rig = listing("shep", &["cubic"]);
+    let (runner, head) = passed_over(&rig);
+    rig.forge.set_checks(&head, Checks::Passed);
+    assert_eq!(step(&runner).unwrap(), None, "CI settles first");
+    rig.clock.advance(crate::runner::CHECKS_SETTLE);
+    let read = rig.forge.hold_next_activity_read();
+
+    let (reply, pass) = rig.asked_while_held(&runner, read, "status", None);
+
+    let reply = reply.expect("green CI held the lock for the activity's read");
+    assert_eq!(reply["work_items"].as_array().unwrap().len(), 1);
+    assert!(
+        matches!(pass.unwrap(), Pass::Report(StepReport::Ruling { .. })),
+        "no merge ruling"
+    );
+    assert_eq!(
+        step(&runner).unwrap(),
+        Some(StepReport::Alerted { id: ticket(71) })
+    );
+    rig.clock.advance(LATE_READ);
+    let read = rig.forge.hold_next_activity_read();
+
+    let (reply, pass) = rig.asked_while_held(&runner, read, "status", None);
+
+    let reply = reply.expect("the parked work item held the lock for the activity's read");
+    assert_eq!(reply["work_items"].as_array().unwrap().len(), 1);
+    pass.unwrap();
 }
