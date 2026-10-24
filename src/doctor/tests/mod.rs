@@ -986,5 +986,6 @@ mod e2e;
 mod github;
 mod harnesses;
 mod plugins;
+mod reviewers;
 mod sandbox;
 mod template;

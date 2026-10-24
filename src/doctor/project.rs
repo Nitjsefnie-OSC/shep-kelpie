@@ -624,6 +624,13 @@ fn reviewers(
             );
         }
     };
+    // The runner refuses a start whose listed reviewer names a gateway kelpie lacks, and the
+    // gateway checks skip a shipped agent as shipped, so a listed one is looked for here.
+    if let Err(e) = gateways.check_listed_without_keys(book, lineup.iter().map(|r| &r.name)) {
+        let fix = "add the gateway to kelpie's settings, or take the reviewer off \
+                   `agents.reviewers`";
+        return Line::missing(subject, e.to_string(), fix);
+    }
     for reviewer in &lineup {
         // A round behind a gateway is checked on the gateway's own lines.
         let Some(round) = reviewer
