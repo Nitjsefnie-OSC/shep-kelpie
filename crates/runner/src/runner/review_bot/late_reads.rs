@@ -11,7 +11,7 @@ use crate::ports::{CLEAN, Checks};
 use crate::runner::coderabbit::tests::now;
 use crate::runner::review_bot::two_bots::{bot_reviewed, listing, reviewed, summoned};
 use crate::runner::slots_tests::{issue_of, slots};
-use crate::runner::{Pass, Runner, StepReport, step};
+use crate::runner::{Runner, StepReport, step};
 use crate::test::ticket;
 use crate::test::{Rig, Scripted};
 
@@ -26,7 +26,7 @@ fn status(rig: &Rig, runner: &Mutex<Runner>) -> serde_json::Value {
 
 // cubic, last after qwen and Claude, refuses its summon and is passed over,
 // so the pass ends and the pull request goes to CI on the returned head.
-fn passed_over(rig: &Rig) -> (Mutex<Runner>, String) {
+pub(super) fn passed_over(rig: &Rig) -> (Mutex<Runner>, String) {
     let (runner, head) = reviewed(rig);
     step(&runner).unwrap(); // marks the draft ready
     assert_eq!(step(&runner).unwrap(), summoned(&head));
@@ -423,35 +423,55 @@ fn a_second_bot_passed_over_is_read_again_before_a_late_fix_goes_to_ci() {
     assert!(question.contains(LATE_FIX), "{question}");
 }
 
-// The activity of a bot passed over is read with the runner's lock let go,
-// when CI turns green and while the merge ruling waits.
+const DISPUTED: &str =
+    "MEDIUM|src/lib.rs:3|the closure destructures a three-tuple|it reads the zip as three values\n";
+const REASON: &str = "  src/runner/review.rs:312 builds the three-tuple for the next map\n";
+
+// The bot's activity is read with the lock let go, which makes the green-CI
+// step run again after it posted the disputes no reviewer follows to read:
+// the merge ruling still says how many it posted.
 #[test]
-fn a_trigger_is_answered_while_the_late_review_activity_is_read() {
-    let rig = listing("shep", &["cubic"]);
-    let (runner, head) = passed_over(&rig);
-    rig.forge.set_checks(&head, Checks::Passed);
-    assert_eq!(step(&runner).unwrap(), None, "CI settles first");
-    rig.clock.advance(crate::runner::CHECKS_SETTLE);
-    let read = rig.forge.hold_next_activity_read();
-
-    let (reply, pass) = rig.asked_while_held(&runner, read, "status", None);
-
-    let reply = reply.expect("green CI held the lock for the activity's read");
-    assert_eq!(reply["work_items"].as_array().unwrap().len(), 1);
-    assert!(
-        matches!(pass.unwrap(), Pass::Report(StepReport::Ruling { .. })),
-        "no merge ruling"
-    );
-    assert_eq!(
+fn a_bot_read_does_not_cost_the_merge_ruling_the_count_of_the_disputes_posted() {
+    let rig = listing("shep", &["coderabbit", "cubic"]);
+    rig.with_app();
+    let runner = rig.open().unwrap();
+    rig.ask(&runner, "add", Some("7"));
+    rig.forge.open_pull_request(71, "kelpie/7", &[7]);
+    rig.claude.script([
+        Scripted::Push("work.txt", "work\n"),
+        Scripted::Text(DISPUTED),
+    ]);
+    step(&runner).unwrap(); // the worker's first turn: opens the pull request
+    step(&runner).unwrap(); // review round 1, qwen: clean by default
+    step(&runner).unwrap(); // review round 2, claude, finds it
+    step(&runner).unwrap(); // the finding goes to the worker
+    std::fs::write(
+        rig.build_7().join("disputed-findings.md"),
+        format!("{DISPUTED}{REASON}"),
+    )
+    .unwrap();
+    rig.claude.script([Scripted::Say("The finding is wrong.")]);
+    step(&runner).unwrap(); // the fix turn ends with nothing pushed
+    step(&runner).unwrap(); // the dispute is taken: the bots read next
+    step(&runner).unwrap(); // marks the draft ready
+    let head = rig.forge.head_of("kelpie/7").unwrap();
+    assert_eq!(step(&runner).unwrap(), summoned(&head));
+    rig.forge.coderabbit.review(71, &head, now(&rig) + 60, &[]);
+    rig.clock.advance(60);
+    assert_eq!(rig.threads_read(&runner), bot_reviewed(3, "coderabbit", 0));
+    assert_eq!(step(&runner).unwrap(), summoned(&head));
+    rig.forge.coderabbit.cubic_refuse(71, now(&rig) + 20);
+    rig.clock.advance(20);
+    assert!(matches!(
         step(&runner).unwrap(),
-        Some(StepReport::Alerted { id: ticket(71) })
-    );
-    rig.clock.advance(LATE_READ);
-    let read = rig.forge.hold_next_activity_read();
+        Some(StepReport::ReviewerSkipped { .. })
+    ));
+    rig.ci_on_now(&runner);
+    rig.forge.set_checks(&head, Checks::Passed);
 
-    let (reply, pass) = rig.asked_while_held(&runner, read, "status", None);
+    let Some(StepReport::Ruling { question, .. }) = rig.verdict(&runner) else {
+        panic!("no merge ruling");
+    };
 
-    let reply = reply.expect("the parked work item held the lock for the activity's read");
-    assert_eq!(reply["work_items"].as_array().unwrap().len(), 1);
-    pass.unwrap();
+    assert!(question.contains("disputed 1 finding that"), "{question}");
 }

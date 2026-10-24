@@ -2,16 +2,19 @@
 
 use std::sync::{Arc, Mutex};
 
+use super::late::LATE_READ;
+use super::late_reads::passed_over;
+use super::two_bots::listing;
 use super::{DONE_SETTLE, HEARD_WAIT};
 use crate::adapters::ShepLeases;
 use crate::lease::saved::BookFile;
 use crate::lease::wire::{Asker, WindowFact};
 use crate::lease::{Epoch, LeaseKind};
 use crate::ports::Leases;
-use crate::ports::{CLEAN, Finding, Severity, Timestamp};
+use crate::ports::{CLEAN, Checks, Finding, Severity, Timestamp};
 use crate::review_bot::{Activity, Bot, Comment, Login, Profile, Reading, Review, Status, Thread};
 use crate::runner::coderabbit::tests::now;
-use crate::runner::{Pass, Runner, StepReport, advance, step};
+use crate::runner::{CHECKS_SETTLE, Pass, Runner, StepReport, advance, step};
 use crate::settings::AgentName;
 use crate::test::ticket;
 use crate::test::{DogStandIn, Rig, Scripted, Told};
@@ -541,4 +544,37 @@ fn a_read_that_fails_is_handled_as_the_inline_read_was() {
         rig.threads_read(&runner),
         Some(StepReport::BotReviewed { .. })
     ));
+}
+
+// The activity of a bot passed over is read with the runner's lock let go,
+// when CI turns green and while the merge ruling waits.
+#[test]
+fn a_trigger_is_answered_while_the_late_review_activity_is_read() {
+    let rig = listing("shep", &["cubic"]);
+    let (runner, head) = passed_over(&rig);
+    rig.forge.set_checks(&head, Checks::Passed);
+    assert_eq!(step(&runner).unwrap(), None, "CI settles first");
+    rig.clock.advance(CHECKS_SETTLE);
+    let read = rig.forge.hold_next_activity_read();
+
+    let (reply, pass) = rig.asked_while_held(&runner, read, "status", None);
+
+    let reply = reply.expect("green CI held the lock for the activity's read");
+    assert_eq!(reply["work_items"].as_array().unwrap().len(), 1);
+    assert!(
+        matches!(pass.unwrap(), Pass::Report(StepReport::Ruling { .. })),
+        "no merge ruling"
+    );
+    assert_eq!(
+        step(&runner).unwrap(),
+        Some(StepReport::Alerted { id: ticket(71) })
+    );
+    rig.clock.advance(LATE_READ);
+    let read = rig.forge.hold_next_activity_read();
+
+    let (reply, pass) = rig.asked_while_held(&runner, read, "status", None);
+
+    let reply = reply.expect("the parked work item held the lock for the activity's read");
+    assert_eq!(reply["work_items"].as_array().unwrap().len(), 1);
+    pass.unwrap();
 }
