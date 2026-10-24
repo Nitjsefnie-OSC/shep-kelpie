@@ -13,7 +13,7 @@ The calls that change a work item's worktree run with the runner's lock let go. 
 ## Busy
 
 - `off_lock::Busy` records the issue whose worktree a job changes, from the step that returns the job to its apply.
-- `drop` sent meanwhile marks the item and replies as it does when it succeeds. At the apply, the answer is dropped and `drop_work_item` runs. A refusal then stands as a note under `drop N`. A removal's own apply runs and discards the mark.
+- `drop` sent meanwhile marks the item and replies as it does when it succeeds. At the apply, a rebase's answer is saved first, then `drop_work_item` runs; a read's answer is dropped. A refusal then stands as a note under `drop N`. A removal's own apply runs and discards the mark.
 - `rework` and `adopt` queue like `add` (`Posted::ask_queued`) while any job runs. `attach` answers `Waiting` for the busy item, which the client polls.
 
 ## Still on the lock

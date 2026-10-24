@@ -115,6 +115,11 @@ pub(super) fn step(
             if let Some(dropped) =
                 dropped.filter(|_| !matches!(done, Done::Changed(Changed::Removed(_))))
             {
+                // A rebase has pushed or merged already, and the drop may be refused: it is saved
+                // first, and the step's end is the drop's to replace.
+                if let Done::Changed(rebased @ Changed::Rebased(_)) = done {
+                    runner.changed(rebased)?;
+                }
                 return runner
                     .drop_after_job(dropped)
                     .map(|()| Next::Done(Stepped::Idle));
