@@ -15,6 +15,8 @@ pub enum At {
     MainRuns,
     // The read of one issue, which a review round makes for its criteria
     Issue,
+    // The listing of the ready issues, which the board's poll starts with
+    Board,
     // The read of one pull request, which a parked work item's check makes
     PullRequest,
     // The listing of the open pull requests, which following the bumps makes
@@ -64,6 +66,11 @@ impl FakeForge {
     /// Holds the next read of one issue open, and lets every other call through
     pub fn hold_next_issue_read(&self) -> HeldCall {
         self.hold_open(At::Issue)
+    }
+
+    /// Holds the next listing of the ready issues open, and lets every other call through
+    pub fn hold_next_board_read(&self) -> HeldCall {
+        self.hold_open(At::Board)
     }
 
     /// Holds the next read of one pull request open, and lets every other call through
