@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use super::Runner;
 use crate::board::OpenPullRequest;
-use crate::ports::{Forge, ForgeError, PullRequest, Talk};
+use crate::ports::{FailedLogs, Forge, ForgeError, PullRequest, QueueStanding, Talk};
 use crate::review_bot::{Activity, Bot, Profile};
 use crate::runner::off_lock::ItemKey;
 use crate::runner::snapshot::view_of;
@@ -21,8 +21,13 @@ use crate::settings::ForgeSlug;
 #[derive(Debug, Default)]
 pub(in crate::runner) struct Reads {
     views: BTreeMap<u64, Result<PullRequest, ForgeError>>,
+    // Read again after the step's other reads, so not the view the step began with
+    rechecks: BTreeMap<u64, Result<PullRequest, ForgeError>>,
     activities: BTreeMap<(Bot, u64), Result<Activity, ForgeError>>,
     talks: BTreeMap<u64, Result<Talk, ForgeError>>,
+    // By head, and whether they are the merge queue's runs
+    logs: BTreeMap<(String, bool), Result<FailedLogs, ForgeError>>,
+    standings: BTreeMap<u64, Result<QueueStanding, ForgeError>>,
     // The pull requests whose comments the step has handled, so a step made again does not
     // handle them twice
     talked: BTreeSet<u64>,
@@ -32,14 +37,25 @@ impl Reads {
     /// Forgets what was read, as a pass begins or ends or a step ends
     pub(in crate::runner) fn clear(&mut self) {
         self.views.clear();
+        self.rechecks.clear();
         self.activities.clear();
         self.talks.clear();
+        self.logs.clear();
+        self.standings.clear();
         self.talked.clear();
     }
 
     /// Pull request `number`, as the step read it
     pub(in crate::runner) fn view(&self, number: u64) -> Option<Result<PullRequest, ForgeError>> {
         self.views.get(&number).cloned()
+    }
+
+    /// Pull request `number`, as the step read it again after its other reads
+    pub(in crate::runner) fn recheck(
+        &self,
+        number: u64,
+    ) -> Option<Result<PullRequest, ForgeError>> {
+        self.rechecks.get(&number).cloned()
     }
 
     /// What `bot` has posted on pull request `number`, as the step read it
@@ -54,6 +70,23 @@ impl Reads {
     /// What people wrote on pull request `number`, as the step read it
     pub(in crate::runner) fn talk(&self, number: u64) -> Option<Result<Talk, ForgeError>> {
         self.talks.get(&number).cloned()
+    }
+
+    /// The end of the failed runs' logs at `head`, as the step read them
+    pub(in crate::runner) fn logs(
+        &self,
+        head: &str,
+        merge_group: bool,
+    ) -> Option<Result<FailedLogs, ForgeError>> {
+        self.logs.get(&(head.to_owned(), merge_group)).cloned()
+    }
+
+    /// Where pull request `number` stands in the merge queue, as the step read it
+    pub(in crate::runner) fn standing(
+        &self,
+        number: u64,
+    ) -> Option<Result<QueueStanding, ForgeError>> {
+        self.standings.get(&number).cloned()
     }
 
     /// Whether the step has handled the comments on pull request `number`
@@ -77,6 +110,8 @@ enum Read {
     View(View),
     Activity(Posted),
     Talk(Written),
+    Logs(Failed),
+    Standing(Queued),
 }
 
 // The read `pull_request_view` makes, from the pass's listing or the pull request itself
@@ -86,6 +121,8 @@ struct View {
     number: u64,
     // Whether the pass has listed nothing yet, so the read lists first and hands the listing back
     lists: bool,
+    // Whether the answer is kept apart from the view the step began with
+    recheck: bool,
 }
 
 // What a review bot has posted on a pull request
@@ -103,6 +140,21 @@ struct Written {
     number: u64,
 }
 
+// The end of the logs of the runs that failed at a head
+struct Failed {
+    forge: Arc<dyn Forge>,
+    remote: ForgeSlug,
+    head: String,
+    merge_group: bool,
+}
+
+// Where a pull request stands in the merge queue
+struct Queued {
+    forge: Arc<dyn Forge>,
+    remote: ForgeSlug,
+    number: u64,
+}
+
 /// What a [`Job`] found, errors as the inline call returns them
 pub(in crate::runner) enum Done {
     Activity {
@@ -114,10 +166,20 @@ pub(in crate::runner) enum Done {
         number: u64,
         talk: Result<Talk, ForgeError>,
     },
+    Logs {
+        head: String,
+        merge_group: bool,
+        logs: Result<FailedLogs, ForgeError>,
+    },
+    Standing {
+        number: u64,
+        standing: Result<QueueStanding, ForgeError>,
+    },
     View {
         number: u64,
         listed: Option<Result<Vec<OpenPullRequest>, ForgeError>>,
         view: Result<PullRequest, ForgeError>,
+        recheck: bool,
     },
 }
 
@@ -135,6 +197,7 @@ impl Job {
                 remote,
                 number,
                 lists,
+                recheck,
             }) => {
                 let listed = lists.then(|| forge.open_pull_requests(&remote));
                 let served = listed.as_ref().and_then(|listed| view_of(listed, number));
@@ -146,6 +209,7 @@ impl Job {
                     number,
                     listed,
                     view,
+                    recheck,
                 }
             }
             Read::Activity(Posted {
@@ -165,6 +229,24 @@ impl Job {
             }) => Done::Talk {
                 number,
                 talk: forge.talk(&remote, number),
+            },
+            Read::Logs(Failed {
+                forge,
+                remote,
+                head,
+                merge_group,
+            }) => Done::Logs {
+                logs: forge.failed_run_logs(&remote, &head, merge_group),
+                head,
+                merge_group,
+            },
+            Read::Standing(Queued {
+                forge,
+                remote,
+                number,
+            }) => Done::Standing {
+                number,
+                standing: forge.merge_queue(&remote, number),
             },
         }
     }
@@ -193,6 +275,7 @@ impl Runner {
                 remote,
                 number,
                 lists,
+                recheck: false,
             })
         })
     }
@@ -205,6 +288,21 @@ impl Runner {
                 remote,
                 number,
                 lists: false,
+                recheck: false,
+            })
+        })
+    }
+
+    // The job that reads pull request `number` itself again, for a step whose earlier reads
+    // may have left its first view behind
+    pub(in crate::runner) fn recheck_job(&self, number: u64) -> Option<Box<Job>> {
+        self.job(|forge, remote| {
+            Read::View(View {
+                forge,
+                remote,
+                number,
+                lists: false,
+                recheck: true,
             })
         })
     }
@@ -233,6 +331,29 @@ impl Runner {
         })
     }
 
+    // The job that reads the end of the failed runs' logs at `head`
+    pub(in crate::runner) fn logs_job(&self, head: &str, merge_group: bool) -> Option<Box<Job>> {
+        self.job(|forge, remote| {
+            Read::Logs(Failed {
+                forge,
+                remote,
+                head: head.to_owned(),
+                merge_group,
+            })
+        })
+    }
+
+    // The job that reads where pull request `number` stands in the merge queue
+    pub(in crate::runner) fn standing_job(&self, number: u64) -> Option<Box<Job>> {
+        self.job(|forge, remote| {
+            Read::Standing(Queued {
+                forge,
+                remote,
+                number,
+            })
+        })
+    }
+
     // A job for the focused work item's step, or none when no pass runs to make the read and step
     // again, as at a turn's end
     fn job(&self, read: impl FnOnce(Arc<dyn Forge>, ForgeSlug) -> Read) -> Option<Box<Job>> {
@@ -251,11 +372,16 @@ impl Runner {
                 number,
                 listed,
                 view,
+                recheck,
             } => {
                 if let Some(listed) = listed {
                     self.snapshot.preload(listed);
                 }
-                self.reads.views.insert(number, view);
+                let kept = match recheck {
+                    true => &mut self.reads.rechecks,
+                    false => &mut self.reads.views,
+                };
+                kept.insert(number, view);
             }
             Done::Activity {
                 bot,
@@ -269,6 +395,16 @@ impl Runner {
             }
             Done::Talk { number, talk } => {
                 self.reads.talks.insert(number, talk);
+            }
+            Done::Logs {
+                head,
+                merge_group,
+                logs,
+            } => {
+                self.reads.logs.insert((head, merge_group), logs);
+            }
+            Done::Standing { number, standing } => {
+                self.reads.standings.insert(number, standing);
             }
         }
     }

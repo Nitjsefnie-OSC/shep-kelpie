@@ -4,13 +4,13 @@ One `Mutex<Runner>` per project. #1201.
 
 ## What it covers
 
-- Everything the runner knows: the state file, the work items, the forge and model ports. A pass takes it (`runner/trigger/lock`) and holds it through the calls it makes, which wait behind the login's pace. The reads in `one_pass` before the rotation and a step's read do not: see Off the lock and The rotation.
+- Everything the runner knows: the state file, the work items, the forge and model ports. A pass takes it (`runner/trigger/lock`) and holds it through the calls it makes, which wait behind the login's pace. The reads before the rotation and a step's reads do not: see Off the lock and The rotation.
 - `status`, `drain`, `undrain`, `timings` and `board` do not wait: `answer` tries the lock and, while a pass holds it, answers from the copy the loop last posted (status, drain state, board listing, finished history). `board move` and `board top` write, so they wait.
 - `add`, `rework`, `adopt`, `triage` and `rule` do not wait either. While a pass holds the lock, `answer` queues the verb on `Posted` and replies with the posted status, so a refusal is not in the reply. `rule` is checked against the posted rulings first: an id none waits on is refused in the reply. Every other trigger waits.
 
 ## What the metric shows
 
-- `trigger::lock` and `answer` return a `Held` guard (`runner/lock_hold.rs`) that derefs to the `Runner`. On drop it records how long the lock was held, timed by `Instant`, against the `file:line` of the call that took it. `#[track_caller]` does the keying, so a function that calls `lock` must not carry it.
+- `trigger::lock` and `answer` return a `Held` guard (`runner/lock_hold.rs`) that derefs to the `Runner`. On drop it records how long the lock was held against the `file:line` of the call that took it. `#[track_caller]` does the keying, so a function that calls `lock` must not carry it.
 - `Holds` keeps the longest hold per line, which `status` shows as `lock` (seconds, by `file:line`) and leaves out until one is recorded.
 - `send_metrics` sends what was recorded since its last send, in three series: `kelpie_runner_lock_held_seconds_total`, and `kelpie_runner_lock_holds_total{le="1"}` and `{le="+Inf"}`. `crates/core/src/metrics/lock.rs`.
 - A line whose longest hold is long names the call to move off the lock. The sheep's own `lock()` calls (`src/sheep/`) are not timed.
@@ -28,7 +28,7 @@ These reads run with the lock let go, in `one_pass` before the rotation, each as
 
 The triage poll (`runner/triage/poll_read.rs`, #1204) has the same shape without a work item, before the board's read:
 
-- `Runner::triage_poll_job` returns none unless `triage.pick` is not `off` and the look is due (`Looks::triage_due`, which stamps nothing). The run lists the open issues, reads each local wait's issue, and lists the open pulls only where one is used.
+- `Runner::triage_poll_job` returns none unless `triage.pick` is not `off` and the look is due (`Looks::triage_due`). The run lists the open issues, reads each local wait's issue, and lists the open pulls only where one is used.
 - The apply stamps the look (`triage_listed`) and does every write from the state it finds then. A failed listing stamps nothing, so the next pass reads again.
 - The listing and pulls stay as `triage_run.listing`, which `triage_job` starts the triager from. A `triage` verb sent during the read (`Looks::triage_asked`) makes the apply keep none and stamp nothing.
 - Still on the lock: the reads in `ask.rs`, `comment.rs`, `limits.rs` and `addressed.rs`.
@@ -37,7 +37,7 @@ The triage poll (`runner/triage/poll_read.rs`, #1204) has the same shape without
 
 `runner/queued.rs`. `one_pass` takes the queue right after `take_posted`, so a verb waits for at most the pass that was running.
 
-- A verb splits into a guard check, a read and an apply. `add`, `rework`, `adopt` and `triage` take the lock for the check, ask the forge with it let go (the issue, the pull request or the open issues), then take it again, check the guards once more and apply. Refusals read the same as the verb's own (`add_allowed` and `add_found`, and so on for each verb), with one more: `add` refuses an issue that is closed.
+- A verb splits into a guard check, a read and an apply. `add`, `rework`, `adopt` and `triage` take the lock for the check, ask the forge with it let go (the issue, the pull request or the open issues), then take it again, check the guards once more and apply. Refusals read the same as the verb's own (`add_allowed`, `add_found` and the like), with one more: `add` refuses an issue that is closed.
 - A refusal goes to `Notes::standing` under the verb's key (`add 7`): logged once, listed in `status` under `standing`, and ended when that verb next goes through (`trigger::answer` ends the key after a synchronous success). A queued `add` whose ticket has an open work item did what it asked.
 - `rule` applies under the lock: its forge reads sit inside `Runner::rule`. `rework` and `adopt` read the pull request off the lock, but what `start_rework` and `adoptable` read after it (the viewer, the issue, the review bots, the branch's head) is still under it.
 - A queued verb wakes the loop (`Posted::needs_wake`), as `drain` does.
@@ -60,6 +60,6 @@ The triage poll (`runner/triage/poll_read.rs`, #1204) has the same shape without
 
 - A step that needs a read returns `Begin::Reads(job)` (`turn/reads.rs`), built from cloned `Arc`s, owned ids and an `ItemKey` (`Snapshot` is `RefCell`, so `Runner` is not `Sync`). The rotation lets go, runs it, and takes the lock with `with_item`.
 - A changed or dropped item gives an idle slot. Otherwise the answer goes into the pass's `Reads`, errors as the inline call returned them, and the step is made again, taking the answer or reading in place where the store has none. State is read after the gap and drain is checked then, so a drain that lands in the gap starts no call.
-- Reads that ship: the pull request at the top of `check_ci`, which lists the open pulls first when the pass has listed none; the review head (`review/reads.rs`); a bot's activity (`review_bot/bot_reads.rs`); `talk_turn`'s comments. A step asks for what it finds it needs, which costs a second call to it, and its reads are kept until it ends, so a step with several misses is made again over the earlier ones. `talk_turn` tells a failed read once (`Reads::talked`).
+- Reads that ship: the pull request at the top of `check_ci`, which lists the open pulls first when the pass has listed none; the review head (`review/reads.rs`); a bot's activity (`review_bot/bot_reads.rs`); `talk_turn`'s comments; the gate's and merge's (`gate/reads.rs`): the pull request, the failed logs, the queue standing; the merge write stays on the lock. A step asks for what it needs, and its reads are kept until it ends, so a step with several misses is made again over the earlier ones. `talk_turn` tells a failed read once (`Reads::talked`).
 - `origin_head`, `labelled` and `visibility` still read on the lock.
 - `turn_ended` returns `Ended::StartOver(ticket)`, and `hear_news` runs `rotation::start_over` after it drops the lock.
