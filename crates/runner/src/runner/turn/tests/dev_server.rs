@@ -82,6 +82,65 @@ fn shep_launch_file_on_main_plans_its_server_in_the_worktree_on_its_port() {
 }
 
 #[test]
+fn the_server_gets_a_writable_temp_folder_in_the_build_folder() {
+    let rig = project(Some(SHEP));
+    let (run, _) = planned(&rig, |_| {});
+
+    let temp = rig.paths().build(ticket(7)).join("dev-server-tmp");
+    let run = run.expect("a plan");
+    assert_eq!(run.env["TMPDIR"], temp.display().to_string());
+    assert!(temp.is_dir());
+    assert!(run.policy.write.iter().any(|w| temp.starts_with(w)));
+}
+
+#[test]
+fn the_server_gets_the_workers_build_env() {
+    let rig = project(Some(SHEP));
+    rig.edit_settings(|s| {
+        s.replace(
+            "build_env = {}",
+            "build_env = { BUN_INSTALL_CACHE_DIR = \"bun/cache\" }",
+        )
+    });
+    let (run, _) = planned(&rig, |_| {});
+
+    let cache = rig.paths().build(ticket(7)).join("bun/cache");
+    assert_eq!(
+        run.expect("a plan").env["BUN_INSTALL_CACHE_DIR"],
+        cache.display().to_string()
+    );
+}
+
+#[test]
+fn a_worktree_with_no_packages_installs_them_before_its_server_starts() {
+    let rig = project(Some(SHEP));
+    rig.land("web/bun.lock", "{}\n");
+    let (run, _) = planned(&rig, |_| {});
+
+    let run = run.expect("a plan");
+    let script = &run.args[1];
+    assert_eq!(run.program, crate::spawn::sh().to_string_lossy());
+    assert!(script.contains("bun install --frozen-lockfile"), "{script}");
+    assert_eq!(run.args[5..], ["npm", "run", "dev", "--", "--port", "4421"]);
+    assert!(run.policy.hosts.contains(&"registry.npmjs.org".to_owned()));
+    assert!(run.ready_within > crate::ports::READY_WITHIN);
+}
+
+#[test]
+fn a_worktree_that_has_its_packages_gets_its_server_started_at_once() {
+    let rig = project(Some(SHEP));
+    rig.land("web/bun.lock", "{}\n");
+    let (run, _) = planned(&rig, |worktree| {
+        fs::create_dir_all(worktree.join("web/node_modules")).unwrap();
+    });
+
+    assert_eq!(
+        run.expect("a plan").ready_within,
+        crate::ports::READY_WITHIN
+    );
+}
+
+#[test]
 fn the_servers_sandbox_writes_the_worktree_and_build_folder_and_reaches_the_browsers_hosts() {
     let rig = project(Some(SHEP));
     let (run, _) = planned(&rig, |_| {});

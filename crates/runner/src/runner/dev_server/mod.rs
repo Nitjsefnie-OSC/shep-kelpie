@@ -9,6 +9,7 @@
 //! shep's stop reaches it (ADR 0005).
 
 mod bump;
+mod install;
 mod launch;
 
 pub(super) use bump::{Browsed, BrowserProof};
@@ -32,6 +33,9 @@ use crate::work_item::WorkItem;
 
 /// How many times a port is picked before one that no other plan holds is given up on
 const PICKS: usize = 16;
+
+/// The folder in a work item's build folder that is a dev server's `TMPDIR`
+const TEMP: &str = "dev-server-tmp";
 
 /// The Mach service a dev server's file watcher looks up on macOS
 const FS_EVENTS: &str = "com.apple.FSEvents";
@@ -145,9 +149,19 @@ impl Runner {
             Ok(port) => port,
             Err(why) => return without(why),
         };
-        let (args, env) = command_of(&configuration, port, picked);
+        // The sandbox refuses `/tmp`, which a tool falls back to where the variable is unset.
+        let temp = item.build.join(TEMP);
+        if let Err(e) = std::fs::create_dir_all(&temp) {
+            return without(format!("cannot make {}: {}", temp.display(), e.kind()));
+        }
+        let (args, mut env) = command_of(&configuration, port, picked, &temp);
+        // The caches the worker's own tools use, so its install and the server's share them.
+        env.extend(self.settings.worker.build_env.iter().map(|(name, dir)| {
+            let folder = item.build.join(dir.as_path());
+            (name.as_str().to_owned(), folder.display().to_string())
+        }));
         let log = item.build.join("dev-server.log");
-        let plan = DevRun {
+        let mut plan = DevRun {
             program: configuration.runtime_executable,
             args,
             cwd,
@@ -170,6 +184,9 @@ impl Runner {
             ready_within: READY_WITHIN,
             gate: DevPort::default(),
         };
+        // A fresh worktree has no `node_modules`, and the server would fetch its tools into a
+        // temp folder.
+        install::before(&mut plan, &item.worktree, &item.build);
         self.planned.hold(item.issue, Some(plan));
         Some(DevServer::At { port, log })
     }
@@ -232,14 +249,18 @@ impl Runner {
 }
 
 // The arguments and variables that start `configuration`'s server on `port`, which kelpie
-// `picked` when the file's own was taken.
+// `picked` when the file's own was taken, with `temp` for its temporary files.
 fn command_of(
     configuration: &launch::Configuration,
     port: u16,
     picked: bool,
+    temp: &Path,
 ) -> (Vec<String>, BTreeMap<String, String>) {
     let mut args = configuration.runtime_args.clone();
-    let mut env = BTreeMap::from([("NODE_USE_ENV_PROXY".to_owned(), "1".to_owned())]);
+    let mut env = BTreeMap::from([
+        ("NODE_USE_ENV_PROXY".to_owned(), "1".to_owned()),
+        ("TMPDIR".to_owned(), temp.display().to_string()),
+    ]);
     if picked {
         env.insert("PORT".to_owned(), port.to_string());
         let configured = (configuration.port.filter(|&p| p != 0)).map(|p| p.to_string());

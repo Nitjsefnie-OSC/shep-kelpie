@@ -84,9 +84,9 @@ impl Runner {
             .port_for(&configuration)
             .map_err(|why| format!("a web bump, and its dev server cannot be had: {why}"))?;
         self.planned.hold_proof(pull_request, Some(port));
-        let (args, env) = command_of(&configuration, port, picked);
         let worktree = self.paths.bump_worktree(pull_request);
         let build = self.paths.bump_build(pull_request);
+        let (args, env) = command_of(&configuration, port, picked, &build.join(super::TEMP));
         let hosts: Vec<String> = (browser.domains.iter())
             .map(|d| d.as_str().to_owned())
             .collect();
@@ -164,10 +164,11 @@ impl BrowserProof {
             Err(why) => return Browsed::Unavailable(format!("its dev server cannot start: {why}")),
         }
         if let Some(build) = self.run.log.parent().map(Path::to_owned) {
-            if let Err(e) = std::fs::create_dir_all(&build) {
-                return Browsed::NotRun(format!("cannot make {}: {e}", build.display()));
+            let temp = build.join(super::TEMP);
+            if let Err(e) = std::fs::create_dir_all(&temp) {
+                return Browsed::NotRun(format!("cannot make {}: {e}", temp.display()));
             }
-            install::before(&mut self.run, worktree, &build);
+            super::install::before(&mut self.run, worktree, &build);
         }
         let started = match self.servers.start(&self.run) {
             Ok(started) => started,
@@ -258,8 +259,6 @@ fn from_dev_server(url: &str, port: u16) -> bool {
             || (port == default && authority.eq_ignore_ascii_case(host))
     })
 }
-
-mod install;
 
 #[cfg(test)]
 mod tests;

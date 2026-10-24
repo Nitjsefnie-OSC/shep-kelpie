@@ -100,7 +100,7 @@ fn the_dev_server_runs_in_the_bumps_checkout_in_a_sandbox_and_stops_after_the_pr
         run.args
     );
     assert_eq!(run.args[3], worktree.join("web").display().to_string());
-    assert_eq!(run.args[4..8], ["npm", "run", "dev", "--"]);
+    assert_eq!(run.args[5..9], ["npm", "run", "dev", "--"]);
     assert_eq!(run.policy.write, [worktree, rig.paths().bump_build(50)]);
     assert_eq!(run.policy.hosts, ["app.example.com", "registry.npmjs.org"]);
     assert_eq!(

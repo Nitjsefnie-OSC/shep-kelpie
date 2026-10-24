@@ -94,8 +94,18 @@ impl DevServers for SandboxedServers {
         if !self.free(run.port) {
             return Err(format!("port {} is taken", run.port));
         }
-        let mut command = crate::spawn::command(&run.program);
-        command.args(&run.args).current_dir(&run.cwd).envs(&run.env);
+        // Its variables go through `env`, so only the server has them: `srt` puts its proxy
+        // socket under its own `TMPDIR`, and a path past 104 bytes keeps it from starting.
+        let mut command = crate::spawn::command(crate::spawn::env());
+        command
+            .args(
+                run.env
+                    .iter()
+                    .map(|(name, value)| format!("{name}={value}")),
+            )
+            .arg(&run.program)
+            .args(&run.args)
+            .current_dir(&run.cwd);
         let mut wrapped = self
             .sandbox
             .wrap(&run.policy, &run.settings, &command)
