@@ -156,15 +156,16 @@ impl Runner {
     }
 
     // Records the bumps the poll listed and takes each as far as it can go, then records the
-    // poll. A listing the forge refused records nothing, so the next pass lists again.
+    // poll. A listing the forge refused records the poll too, so it is asked again a poll on.
     fn apply_dependencies(
         &mut self,
         read: Result<(Vec<OpenPullRequest>, Reads), ForgeError>,
     ) -> Result<(), StateError> {
+        let now = self.ports.clock.now();
         let Ok((open, mut reads)) = read else {
+            self.looks.dependencies_read(now);
             return Ok(());
         };
-        let now = self.ports.clock.now();
         self.record_bumps(&open, now)?;
         let numbers: Vec<u64> = self.state.bumps.iter().map(|b| b.pull_request).collect();
         for number in numbers {

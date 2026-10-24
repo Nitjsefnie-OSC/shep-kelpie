@@ -789,3 +789,21 @@ fn a_second_green_bump_is_proved_again_after_the_first_is_merged() {
 
     assert_eq!(rig.forge.merges(), [(40, first), (41, second)]);
 }
+
+#[test]
+fn a_listing_the_forge_refuses_is_asked_again_a_poll_on_not_at_the_next_pass() {
+    use std::sync::atomic::Ordering::SeqCst;
+
+    let (rig, runner) = bumping("");
+    rig.forge.set_down(true);
+    let listed = || rig.forge.pull_request_reads().listed.load(SeqCst);
+
+    super::read::follow_dependencies(&runner).unwrap();
+    let first = listed();
+    super::read::follow_dependencies(&runner).unwrap();
+    assert_eq!(listed(), first, "asked again at the next pass");
+
+    rig.next_look();
+    super::read::follow_dependencies(&runner).unwrap();
+    assert_eq!(listed(), first + 1, "not asked a poll on");
+}
