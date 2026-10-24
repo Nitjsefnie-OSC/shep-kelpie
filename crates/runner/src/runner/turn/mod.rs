@@ -168,6 +168,8 @@ impl Runner {
                     }
                     begin
                 } else {
+                    // The reason a step that asked for a read left belongs to this item alone.
+                    self.held_up.forget_pending();
                     Begin::Idle
                 }
             }

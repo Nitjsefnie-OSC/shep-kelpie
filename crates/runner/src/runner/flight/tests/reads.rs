@@ -299,3 +299,50 @@ fn a_pass_that_waits_on_a_held_gate_read_shows_no_hold_as_long_as_the_wait() {
         .fold(0.0, f64::max);
     assert!(longest < HELD_FOR.as_secs_f64() / 2.0, "{longest}");
 }
+
+// Why a step that asked for a read is held up is said when the step ends. An item attached during
+// the gap is not stepped again, so the reason must not wait for the next item's step to take it.
+#[test]
+fn a_reason_left_by_a_step_whose_item_was_attached_in_the_gap_is_not_given_to_the_next_item() {
+    let rig = Rig::new("rotom");
+    rig.ci_on();
+    rig.push_by_hand("fix/timeline", "work.txt");
+    let red = rig.push_by_hand("fix/timeline", "more.txt");
+    rig.forge.open_pull_request(80, "fix/timeline", &[5]);
+    let runner = rig.open().unwrap();
+    rig.ask(&runner, "adopt", Some("80"));
+    advance(&runner).unwrap();
+    rig.forge
+        .set_checks(&red, Checks::Failed(vec!["test".into()]));
+    rig.verdict(&runner);
+    rig.push_by_hand("fix/timeline", "owner.txt");
+    rig.forge.set_lagging(80, Some(&red));
+    let mut held = lock(&runner);
+    let adopted = held.state.work_items[0].issue;
+    let now = rig.clock.now();
+    held.open_pass();
+
+    let first = held.step_slot(Slot::Item(adopted), now).unwrap();
+    assert!(
+        matches!(first, Begin::Reads(_)),
+        "the step asked for no read"
+    );
+    held.update(|item| {
+        item.attached = Some(Attached {
+            by: Holder {
+                pid: 1,
+                started: "Mon Jan  1 00:00:00 2024".into(),
+            },
+            session: None,
+            since: Timestamp(Rig::EPOCH),
+        });
+    })
+    .unwrap();
+    let again = held.step_slot(Slot::Item(adopted), now).unwrap();
+    assert!(matches!(again, Begin::Idle), "attached, yet stepped again");
+
+    // The next item's step, idle for a reason of its own, finds nothing pending.
+    let other = ticket(99);
+    held.held_up.stepped(other, &Begin::Idle, now);
+    assert_eq!(held.held_up.of(other), None);
+}
