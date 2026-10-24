@@ -40,7 +40,11 @@ impl Runner {
         if let Some(held) = self.fork_commits_held()? {
             return Ok(Some(held));
         }
-        let off = match self.off_pushed() {
+        let pushed = match self.head_on_origin() {
+            Ok(pushed) => pushed,
+            Err(begin) => return Ok(Some(*begin)),
+        };
+        let off = match self.off_pushed(pushed) {
             Ok(Ok(head)) => {
                 review.reading = Some(head);
                 let reading = review.reading.clone();
@@ -79,11 +83,15 @@ impl Runner {
     /// The worker's turn to push or discard has ended: `review`'s round runs
     /// on a worktree at the pushed head, or the work item parks
     pub(super) fn pushing_ended(&mut self, review: Review) -> Result<Begin, StateError> {
+        let pushed = match self.head_on_origin() {
+            Ok(pushed) => pushed,
+            Err(begin) => return Ok(*begin),
+        };
         let round = Review {
             stage: ReviewStage::Round,
             ..review
         };
-        let off = match self.off_pushed() {
+        let off = match self.off_pushed(pushed) {
             Ok(off) => off.err(),
             Err(reason) => return self.unreadable(reason),
         };
@@ -175,16 +183,16 @@ impl Runner {
         }
     }
 
-    // Asks git for the worktree's files and head, and `origin` for its head:
+    // Asks git for the worktree's files and head, and takes `origin`'s head as read:
     // the pushed head when the worktree holds it clean, or how it stands off it.
-    fn off_pushed(&self) -> Result<Result<String, Off>, String> {
+    fn off_pushed(&self, pushed: Result<String, String>) -> Result<Result<String, Off>, String> {
         let item = self.current().expect("a worktree is a work item's");
         let repo = &self.settings.git.checkout;
         let files = worktree::uncommitted(repo, &item.worktree)
             .map_err(|e| format!("cannot list issue #{}'s uncommitted files: {e}", item.issue))?;
         let head = worktree::head(repo, &item.worktree)
             .map_err(|e| format!("cannot read issue #{}'s worktree head: {e}", item.issue))?;
-        let pushed = self.origin_head()?;
+        let pushed = pushed?;
         if files.is_empty() && head == pushed {
             return Ok(Ok(pushed));
         }

@@ -576,6 +576,20 @@ fn a_trigger_is_answered_while_a_parked_items_pull_request_is_read() {
 }
 
 #[test]
+fn a_trigger_is_answered_while_the_worktree_is_checked_for_work() {
+    let (rig, runner) = asked("shep");
+    rig.forge.close_issue(7);
+    rig.clock.advance(PARKED_READ);
+    let read = rig.hold_next_git_fetch();
+
+    let (answered, pass) = rig.asked_while_held(&runner, read, "add", Some("8"));
+
+    assert!(answered.is_some(), "the trigger waited for the fetch");
+    pass.unwrap();
+    assert!(seven_has_no_ruling(&rig.ask(&runner, "status", None)));
+}
+
+#[test]
 fn a_parked_item_dropped_during_the_read_ends_the_step_without_a_panic() {
     let (rig, runner, _) = Rig::parked("rotom");
     merged_by_hand(&rig);

@@ -24,6 +24,7 @@ use crate::webhook::{KelpieSettings, Webhook};
 
 mod claude;
 mod fork;
+mod held_git;
 mod home;
 mod reads;
 mod registered_app;
@@ -34,6 +35,7 @@ mod script_cli;
 // The stand-ins and helpers that name only `core` and the leaves, where `core`'s own tests use them
 pub use claude::{FakeClaude, LEFT_BEHIND, Scripted, Seen};
 // The stand-ins that name an adapter
+pub use held_git::HeldGit;
 pub use reads::{
     assert_granted, assert_reads, assert_refuses, installed_sources, sandbox_refuses,
     source_folders, tools_refuse,
@@ -54,6 +56,24 @@ pub use shep_kelpie_test_support::{
     CALL_PATIENCE, Elsewhere, Fake, cut_from_main, git, linked_worktree, main_commits, make_fifo,
     short_tempdir, waits_for, write_fake, write_in, write_script,
 };
+
+/// A read a test holds open: a forge call or a git fetch
+pub trait Held: Send {
+    /// Whether a read reached the stand-in and waits there, within `within`
+    fn waiting(&self, within: std::time::Duration) -> bool;
+}
+
+impl Held for HeldCall {
+    fn waiting(&self, within: std::time::Duration) -> bool {
+        Self::waiting(self, within)
+    }
+}
+
+impl Held for HeldGit {
+    fn waiting(&self, within: std::time::Duration) -> bool {
+        Self::waiting(self, within)
+    }
+}
 
 /// The `git.checkout` in `settings.example.toml`, which the rig points at its own
 const EXAMPLE_REPO: &str = "~/GitHub/shep";
@@ -440,14 +460,14 @@ impl Rig {
         serde_json::from_str(&reply).expect("a JSON reply")
     }
 
-    /// Runs `run` until its forge call `read` is held open, does `meanwhile`, and lets the read go
+    /// Runs `run` until its forge call or git fetch `read` is held open, does `meanwhile`, and lets the read go
     ///
     /// Returns what `meanwhile` returned, or `None` when it had not finished within
     /// [`CALL_PATIENCE`], as a trigger that waits for a lock the read holds has not, and what
     /// `run` returned.
     pub fn during_read<R: Send, T: Send>(
         &self,
-        read: HeldCall,
+        read: impl Held,
         run: impl FnOnce() -> R + Send,
         meanwhile: impl FnOnce() -> T + Send,
     ) -> (Option<T>, R) {
@@ -474,7 +494,7 @@ impl Rig {
     pub fn asked_while_held(
         &self,
         runner: &Mutex<Runner>,
-        read: HeldCall,
+        read: impl Held,
         action: &str,
         params: Option<&str>,
     ) -> (Option<serde_json::Value>, Result<Pass, StateError>) {

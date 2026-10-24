@@ -7,10 +7,11 @@ use std::sync::atomic::Ordering;
 
 use super::*;
 use crate::ports::Timestamp;
-use crate::ports::{Checks, Clock, ForgeError};
+use crate::ports::{Checks, Clock, Finding, ForgeError, Severity};
 use crate::runner::CHECKS_SETTLE;
 use crate::runner::trigger::lock;
 use crate::runner::turn::Slot;
+use crate::test::{Scripted, ScriptedRound};
 use crate::work_item::{Attached, Holder, Phase, Turn};
 
 // A running project whose pull request 71 is red and has been for as long as the gate settles, so
@@ -345,4 +346,38 @@ fn a_reason_left_by_a_step_whose_item_was_attached_in_the_gap_is_not_given_to_th
     let other = ticket(99);
     held.held_up.stepped(other, &Begin::Idle, now);
     assert_eq!(held.held_up.of(other), None);
+}
+
+// A step keeps its first git read while it asks for the second. The work item dropped during that
+// second read leaves nothing for the next slot's step in the same pass to take as its own.
+#[test]
+fn what_a_step_read_is_forgotten_when_its_item_is_dropped_in_a_later_gap() {
+    let rig = Rig::new("shep");
+    let runner = rig.open().unwrap();
+    rig.ask(&runner, "add", Some("7"));
+    rig.forge.open_pull_request(71, "kelpie/7", &[7]);
+    rig.claude.script([Scripted::Push("work.txt", "work\n")]);
+    step(&runner).unwrap();
+    rig.reviewer
+        .script([ScriptedRound::Findings(vec![Finding::new(
+            Severity::Medium,
+            "src/lib.rs",
+            3,
+            "the flag is misnamed",
+            "it reads as its opposite",
+        )])]);
+    step(&runner).unwrap();
+    let now = rig.clock.now();
+    lock(&runner).open_pass();
+    // The step's fetches: the agents' own files first, then the head the findings are sent against.
+    let read = rig.hold_git_fetch_after(1);
+
+    let (_, stepped) = rig.during_read(
+        read,
+        || rotation::step(&runner, rotation::Step::Slot(Slot::Item(ticket(7))), now),
+        || rig.ask(&runner, "drop", None),
+    );
+
+    assert!(matches!(stepped, Ok(rotation::Stepped::Idle)));
+    assert!(lock(&runner).reads.git.is_empty());
 }

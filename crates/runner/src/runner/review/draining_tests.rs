@@ -62,6 +62,46 @@ fn a_drain_that_lands_while_the_issue_is_read_for_a_round_starts_no_call() {
     });
 }
 
+// The same for the head a round reads, which git is asked for after the fetch that checks the
+// branch for agents' own files.
+#[test]
+fn a_drain_that_lands_while_origin_head_is_read_starts_no_call() {
+    let (rig, runner) = at_round_1("koji");
+    let runner = Arc::new(runner);
+    let postings = runner.lock().unwrap().postings();
+    let read = rig.hold_git_fetch_after(1);
+
+    std::thread::scope(|scope| {
+        let pass = scope.spawn(|| advance(&runner));
+        assert!(
+            read.waiting(CALL_PATIENCE),
+            "the round never read the head on origin"
+        );
+        let asking = {
+            let (runner, postings) = (Arc::clone(&runner), Arc::clone(&postings));
+            scope.spawn(move || answer(&runner, &postings, "drain", Some("pause")))
+        };
+        let reply: serde_json::Value =
+            serde_json::from_str(&asking.join().unwrap()).expect("a JSON reply");
+        assert!(
+            postings.draining(),
+            "the drain did not hold new calls back: {reply}"
+        );
+        drop(read);
+        let pass = pass.join().expect("the pass thread");
+        assert!(
+            matches!(pass, Ok(Pass::Idle)),
+            "the pass started a review past the drain: {pass:?}"
+        );
+        assert_eq!(rig.reviewer.seen(), [], "the reviewer ran anyway");
+        assert_eq!(
+            rig.ask(&runner, "status", None)["work_item"]["phase"]["round"],
+            1,
+            "the round was booked past the drain"
+        );
+    });
+}
+
 // The same for a bot's round: its activity is read before the summon, and a
 // drain that lands in that read stops the summon before the lease is asked.
 #[test]

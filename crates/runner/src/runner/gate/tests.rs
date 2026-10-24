@@ -626,3 +626,36 @@ fn a_drain_that_lands_while_the_failed_logs_are_read_starts_no_call() {
         "the runner is draining, so no turn starts"
     );
 }
+
+#[test]
+fn a_trigger_is_answered_while_the_base_is_read() {
+    let (rig, runner, _) = Rig::with_pull_request("koji");
+    let read = rig.hold_next_git_fetch();
+
+    let (reply, pass) = rig.asked_while_held(&runner, read, "status", None);
+
+    let reply = reply.expect("the trigger waited for the lock the fetch held");
+    assert_eq!(reply["work_items"].as_array().unwrap().len(), 1);
+    pass.unwrap();
+}
+
+// The base is read for the head the step saw. A step that asks for another head's base reads it,
+// whatever an earlier read found for the first.
+#[test]
+fn a_base_read_for_a_head_that_moved_during_the_gap_is_not_used() {
+    use crate::runner::git_reads::Found;
+    use crate::runner::trigger::lock;
+    use crate::worktree::Base;
+
+    let (_rig, runner, head) = Rig::with_pull_request("koji");
+    let mut runner = lock(&runner);
+    runner.focus = Some(ticket(7));
+    let moved = "0".repeat(40);
+    runner.reads.git.keep(Found::Base {
+        head: moved.clone(),
+        base: Ok(Base::Behind),
+    });
+
+    assert!(matches!(runner.base_standing(&moved), Ok(Base::Behind)));
+    assert!(matches!(runner.base_standing(&head), Ok(Base::Current)));
+}

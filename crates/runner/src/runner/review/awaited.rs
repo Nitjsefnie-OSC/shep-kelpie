@@ -123,10 +123,10 @@ impl Runner {
         if unreported && settled(since, now) {
             // Only a head with no run at all is caught up here: one that does
             // get CI is not rebased mid-review.
-            match self.base_of(&head) {
+            match self.base_standing(&head) {
                 Ok(Base::Behind) => return self.rebase(number, &head, Some(back)).map(Some),
                 Ok(Base::Lagging | Base::Current) => {}
-                Err(reason) => return Ok(Some(self.gate_failed(reason))),
+                Err(begin) => return Ok(Some(*begin)),
             }
         }
         if verdict.is_some() {

@@ -103,7 +103,11 @@ impl Runner {
         } else {
             self.send_requests(number, at, &sorted)?
         };
-        if begin.is_some() {
+        // A read the send asks for is made and the send made again, which tells these then
+        if begin
+            .as_ref()
+            .is_some_and(|b| !matches!(b, Begin::Reads(_)))
+        {
             self.notes.extend(sorted.ignored);
         }
         Ok(begin)
@@ -156,9 +160,9 @@ impl Runner {
         at: &At,
         sorted: &Sorted,
     ) -> Result<Option<Begin>, StateError> {
-        let head = match self.origin_head() {
+        let head = match self.pushed_head() {
             Ok(head) => head,
-            Err(reason) => return Ok(Some(self.gate_failed(reason))),
+            Err(begin) => return Ok(Some(*begin)),
         };
         let (phase, noted_from, parked) = self.after_comments(at);
         let prompt = prompt(number, &sorted.requests);
@@ -278,9 +282,9 @@ impl Runner {
         if !matches!(item.turn, Turn::Ended { .. }) {
             return Ok(None);
         }
-        let pushed = match self.origin_head() {
+        let pushed = match self.pushed_head() {
             Ok(head) => head != sent_at,
-            Err(reason) => return Ok(Some(self.gate_failed(reason))),
+            Err(begin) => return Ok(Some(*begin)),
         };
         match self.answer_sent(number, pushed)? {
             Answered::Done => {}

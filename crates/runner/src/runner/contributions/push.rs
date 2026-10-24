@@ -100,6 +100,8 @@ impl Runner {
     ) -> Result<Option<Begin>, StateError> {
         match sent {
             Sent::Pushed(head) => {
+                // The push moved the fork's head, so a head fetched before it is stale
+                self.reads.git.clear();
                 self.update(|item| item.known.head = Some(head))?;
                 Ok(None)
             }
