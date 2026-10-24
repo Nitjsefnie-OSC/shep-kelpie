@@ -196,16 +196,15 @@ fn asked_while_held(
     serde_json::from_str(&reply).expect("a JSON reply")
 }
 
-// A pass holds the runner's lock through the forge calls it has not moved off the lock, each
-// of which waits its turn behind the login's pace. The read of `main`'s workflow runs is one;
-// the board's read is not. `upgrade` and `pause` ask `status` and `drain` twice a second
-// while they wait, and must not be held up by one.
+// A pass holds the runner's lock through its forge calls, each of which
+// waits its turn behind the login's pace. `upgrade` and `pause` ask `status`
+// and `drain` twice a second while they wait, and must not be held up by one.
 #[test]
 fn status_and_drain_answer_while_a_pass_waits_in_the_forge() {
     let rig = Rig::new("shep");
     let runner = Arc::new(rig.open().unwrap());
     let postings = postings(&runner);
-    let held = rig.forge.hold_next_main_runs_read();
+    let held = rig.forge.hold_next_call();
     let worker = spawn(&runner);
     assert!(
         held.waiting(REACH_FORGE),

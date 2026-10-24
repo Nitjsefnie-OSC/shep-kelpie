@@ -574,9 +574,17 @@ fn a_turn_that_opened_no_pull_request_records_none() {
 // The first wait of a failed step, and the least a poll waits after a good read
 const RETRY_FIRST: u64 = 15;
 
+// The first pass reads `main`'s workflows with the lock held, and reads the board in its place
+// after them. A board poll later, the board's read is the one made before the pass.
+fn primed(rig: &Rig, runner: &Mutex<Runner>) {
+    advance(runner).unwrap();
+    rig.clock.advance(BOARD_POLL.as_secs());
+}
+
 #[test]
 fn a_trigger_is_answered_while_the_board_is_read() {
     let (rig, runner) = running("shep");
+    primed(&rig, &runner);
     rig.forge.list_ready(8, false);
     let read = rig.forge.hold_next_board_read();
 
@@ -601,6 +609,7 @@ fn a_trigger_is_answered_while_the_board_is_read() {
 #[test]
 fn a_board_read_held_for_three_seconds_holds_the_lock_for_less_than_one() {
     let (rig, runner) = running("shep");
+    primed(&rig, &runner);
     let read = rig.forge.hold_next_board_read();
 
     std::thread::scope(|scope| {
@@ -624,6 +633,7 @@ fn json_f64(v: &serde_json::Value) -> Option<f64> {
 #[test]
 fn a_board_read_that_fails_leaves_no_stamp_and_is_retried_on_the_backoff() {
     let (rig, runner) = running("shep");
+    primed(&rig, &runner);
     rig.forge.set_down(true);
     assert!(matches!(
         step(&runner).unwrap(),
@@ -660,6 +670,7 @@ fn a_board_read_the_pass_did_not_use_is_dropped_and_stamps_nothing() {
     let rig = Rig::new("shep");
     rig.edit_settings(|s| s.replace("active_items = 1", "active_items = 2"));
     let runner = rig.open().unwrap();
+    primed(&rig, &runner);
     rig.ask(&runner, "add", Some("7"));
     rig.forge.list_ready(8, false);
     let turn = Hold::default();
@@ -700,6 +711,9 @@ fn a_board_read_taken_off_the_lock_makes_the_same_forge_calls_as_before() {
     std::fs::create_dir_all(file.parent().unwrap()).unwrap();
     StateStore::new(file.clone()).save(&state).unwrap();
     let runner = rig.open().unwrap();
+    primed(&rig, &runner);
+    let ledger = rig.paths().kelpie_home.join(forge_ledger::FILE);
+    let primed_calls = forge_ledger::read(&ledger).unwrap().len();
     rig.forge.close_issue(6);
     rig.forge.open_issue(5, "A parent", "Split in two.\n");
     rig.forge.link_sub_issue(5, 9);
@@ -710,7 +724,7 @@ fn a_board_read_taken_off_the_lock_makes_the_same_forge_calls_as_before() {
         Some(StepReport::ParentClosed { issue: ticket(5) })
     );
 
-    let lines = forge_ledger::read(&rig.paths().kelpie_home.join(forge_ledger::FILE)).unwrap();
+    let lines = forge_ledger::read(&ledger).unwrap().split_off(primed_calls);
     let board = [
         Kind::ReadyIssues,
         Kind::OpenPullRequests,
