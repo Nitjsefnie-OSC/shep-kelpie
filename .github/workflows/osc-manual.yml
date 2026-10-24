@@ -1,0 +1,262 @@
+name: osc-manual
+# Manual fork CI wrapper, shared by every branch. Dispatch it with a
+# `target_ref` input (a full commit SHA): it checks that ref out and runs the
+# same gates the repository's pull_request CI runs, minus what cannot pass on
+# a fork. Dropped, one line each, with the reason:
+# - test.yml's windows job: non-gating upstream (its steps run
+#   continue-on-error), so it is not a required check
+# - macos-nightly.yml: a schedule-only nightly, not a pull_request trigger,
+#   and the macOS runner's cost
+# - release-plz-pr.yml and release-plz-release.yml: release automation, gated
+#   by repository secrets (a PAT and a crates.io token) and a vars gate
+# - test.yml docs job's parity-gaps step: it reads issue state from the
+#   repository's own issue tracker and a pull request context
+# - file-size.yml's reusable-workflow call: it checks out the dispatch ref
+#   rather than target_ref, so the identical check runs from the repository's
+#   own scripts/file-size.sh on the checked-out tree
+on:
+  workflow_dispatch:
+    inputs:
+      target_ref:
+        description: Full commit SHA to check out and verify
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+env:
+  CARGO_TERM_COLOR: always
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.target_ref }}
+          persist-credentials: false
+      - name: Print provenance
+        env:
+          TARGET_REF: ${{ inputs.target_ref }}
+        run: |
+          echo "provenance: target_ref=$TARGET_REF sha=$(git rev-parse HEAD)"
+      - run: rustup toolchain install stable --profile minimal --component clippy,rustfmt
+      - run: cargo fmt --all --check
+      - run: cargo clippy --all-targets --locked -- -D warnings
+      - run: scripts/no-tmp-tempdir.sh
+      - run: scripts/ticket-port.sh
+
+  private-names:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.target_ref }}
+          persist-credentials: false
+      - name: Print provenance
+        env:
+          TARGET_REF: ${{ inputs.target_ref }}
+        run: |
+          echo "provenance: target_ref=$TARGET_REF sha=$(git rev-parse HEAD)"
+      # PRIVATE_NAMES resolves empty on a fork, and check-private.sh skips its
+      # names half by its own design while the paths half still runs.
+      - run: scripts/check-private.sh
+        env:
+          PRIVATE_NAMES: ${{ secrets.PRIVATE_NAMES }}
+
+  docs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      RUSTDOCFLAGS: -D warnings
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.target_ref }}
+          persist-credentials: false
+      - name: Print provenance
+        env:
+          TARGET_REF: ${{ inputs.target_ref }}
+        run: |
+          echo "provenance: target_ref=$TARGET_REF sha=$(git rev-parse HEAD)"
+      - run: rustup toolchain install stable --profile minimal
+      - run: scripts/design-size.sh
+      - run: scripts/readme-size.sh
+      - run: scripts/docs-links.py
+      # scripts/parity-gaps.sh is dropped: it reads issue state from the
+      # repository's own issue tracker and a pull request context.
+      - run: cargo doc --no-deps --locked
+
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.target_ref }}
+          persist-credentials: false
+      - name: Print provenance
+        env:
+          TARGET_REF: ${{ inputs.target_ref }}
+        run: |
+          echo "provenance: target_ref=$TARGET_REF sha=$(git rev-parse HEAD)"
+      - run: rustup toolchain install stable --profile minimal
+      - run: cargo test --locked
+
+  real-shepherd:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      SHEP_VERSION: 0.16.1
+      KELPIE_TEST_SHEP: ${{ github.workspace }}/.shep/shep
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.target_ref }}
+          persist-credentials: false
+      - name: Print provenance
+        env:
+          TARGET_REF: ${{ inputs.target_ref }}
+        run: |
+          echo "provenance: target_ref=$TARGET_REF sha=$(git rev-parse HEAD)"
+      - run: rustup toolchain install stable --profile minimal
+      - name: Install the pinned shep
+        run: |
+          asset=shep-x86_64-unknown-linux-gnu
+          base=https://github.com/shep-pm/shep/releases/download/shep-v${SHEP_VERSION}
+          mkdir -p .shep
+          curl -fsSL --retry 3 -o ".shep/$asset.tar.gz" "$base/$asset.tar.gz"
+          curl -fsSL --retry 3 -o ".shep/$asset.sha256" "$base/$asset.sha256"
+          (cd .shep && sha256sum --check "$asset.sha256" && tar -xzf "$asset.tar.gz")
+          test "$("$KELPIE_TEST_SHEP" --version | head -n 1)" = "shep ${SHEP_VERSION}"
+      # A filter that matches nothing also passes, so the run must show real
+      # passes; a failing test fails the step on its own.
+      - name: Run the real-shepherd tests
+        run: |
+          set -o pipefail
+          cargo test --locked -p shep-kelpie --test dog_smoke -- --ignored | tee dog_smoke.log
+          grep -Eq 'test result: ok\. [1-9][0-9]* passed' dog_smoke.log
+
+  sandbox:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      KELPIE_TOOLS: ${{ github.workspace }}/.kelpie-tools
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.target_ref }}
+          persist-credentials: false
+      - name: Print provenance
+        env:
+          TARGET_REF: ${{ inputs.target_ref }}
+        run: |
+          echo "provenance: target_ref=$TARGET_REF sha=$(git rev-parse HEAD)"
+      - run: rustup toolchain install stable --profile minimal
+      - name: Install what srt needs on Linux
+        run: sudo apt-get update && sudo apt-get install -y bubblewrap socat ripgrep
+      # Ubuntu 24.04 runners block unprivileged user namespaces, which
+      # bubblewrap needs to build the sandbox.
+      - name: Allow unprivileged user namespaces
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - name: Install the pinned srt
+        run: |
+          mkdir -p "$KELPIE_TOOLS"
+          cp crates/process/src/tools/package.json "$KELPIE_TOOLS/package.json"
+          (cd "$KELPIE_TOOLS" && npm install --no-audit --no-fund)
+      - run: cargo test --locked --no-run
+      - name: Run the sandbox tests
+        run: |
+          set -o pipefail
+          cargo test --locked -- --ignored \
+            adapters::claude::escapes \
+            a_worker_reaches_the_model_only_through_a_forwarder_that_passes_chat \
+            --skip a_live_worker_turn_runs_inside_the_sandbox_and_resumes \
+            --skip pi_answers_through_the_forwarder_with_no_model_host_in_its_sandbox \
+            | tee sandbox.log
+          for name in \
+            the_worktree_the_build_folder_and_the_transcripts_are_written_and_nothing_outside \
+            claude_codes_own_files_are_refused_in_any_case_and_spelling \
+            a_nested_claude_folder_that_existed_at_call_start_is_refused \
+            codexs_own_files_are_refused_in_any_case \
+            a_socket_the_policy_lists_is_still_refused_on_linux \
+            a_host_not_allowed_and_a_socket_not_listed_are_refused \
+            a_worker_reaches_the_model_only_through_a_forwarder_that_passes_chat; do
+            grep -Eq "^test .*::${name} \.\.\. ok$" sandbox.log \
+              || { echo "::error::$name did not run and pass"; exit 1; }
+          done
+
+  msrv:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.target_ref }}
+          persist-credentials: false
+      - name: Print provenance
+        env:
+          TARGET_REF: ${{ inputs.target_ref }}
+        run: |
+          echo "provenance: target_ref=$TARGET_REF sha=$(git rev-parse HEAD)"
+      # Matches `rust-version` in Cargo.toml, which matches shep's.
+      - run: rustup toolchain install 1.88 --profile minimal
+      - run: cargo +1.88 check --all-targets --locked
+
+  conventional:
+    name: conventional subjects
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.target_ref }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Print provenance
+        env:
+          TARGET_REF: ${{ inputs.target_ref }}
+        run: |
+          echo "provenance: target_ref=$TARGET_REF sha=$(git rev-parse HEAD)"
+      # commits.yml checks the pull request's base..head; here the base is the
+      # merge-base with the ref this run was dispatched on.
+      - name: Check every commit subject since the dispatch ref
+        env:
+          BASE_REF: ${{ github.ref_name }}
+        run: |
+          set -eu
+          base="$(git merge-base HEAD "origin/${BASE_REF}")"
+          bad=0
+          while IFS= read -r subject; do
+            [ -z "$subject" ] && continue
+            if printf '%s' "$subject" | grep -qE '^(feat|fix|perf|refactor|docs|test|ci|chore)(\([^()]+\))?!?: .+'; then
+              printf '  ok       %s\n' "$subject"
+            else
+              printf '  REFUSED  %s\n' "$subject"
+              bad=$((bad + 1))
+            fi
+          done <<EOF
+          $(git log --no-merges --format='%s' "$base..HEAD")
+          EOF
+          if [ "$bad" -gt 0 ]; then
+            echo "::error::$bad commit subject(s) above are not conventional. Rewrite them as: type(optional-scope): lowercase summary"
+            exit 1
+          fi
+          echo "All $(git log --no-merges --oneline "$base..HEAD" | wc -l | tr -d ' ') commit subject(s) are conventional."
+
+  file-size:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.target_ref }}
+          persist-credentials: false
+      - name: Print provenance
+        env:
+          TARGET_REF: ${{ inputs.target_ref }}
+        run: |
+          echo "provenance: target_ref=$TARGET_REF sha=$(git rev-parse HEAD)"
+      - run: scripts/file-size.sh
