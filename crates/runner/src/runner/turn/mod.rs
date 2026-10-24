@@ -17,6 +17,7 @@ use super::browser;
 use super::claim::main_fetch_key;
 use super::claude_files::Unchecked;
 use super::contributions::Sent;
+use super::git_reads::start_of;
 use super::instructions;
 use super::pace::Pace;
 use super::pm::WORKER_COMPACT_PAST;
@@ -345,7 +346,9 @@ impl Runner {
                 return Ok(held);
             }
         }
-        let item = self.current().expect("checked above");
+        let Some(item) = self.current() else {
+            return Ok(Begin::Idle);
+        };
         let id = item.session.clone();
         let now = self.ports.clock.now();
         // A turn already running when the runner starts keeps the start it
@@ -417,6 +420,10 @@ impl Runner {
         if self.token_wait.holds(now) {
             return Ok(self.idle(Reason::Token));
         }
+        // Its worktree is made with the lock let go, and the step made again over what was found.
+        if let Some(reads) = self.preparing() {
+            return Ok(reads);
+        }
         self.token_wait.begins();
         let prepared = self.prepare(item, session, prompt);
         let mut next = self.state.clone();
@@ -446,9 +453,10 @@ impl Runner {
                 self.token_wait.ends();
                 resumed = !compacting && paused::resumes_pause(item);
                 self.builds_turn_begins();
-                let item = self
-                    .current_in(&mut next)
-                    .expect("the work item checked above");
+                let Some(item) = self.current_in(&mut next) else {
+                    drop(self.opened.take(issue));
+                    return Ok(Begin::Idle);
+                };
                 if !compacting {
                     item.turn = Turn::Running {
                         since,
@@ -629,16 +637,7 @@ impl Runner {
         start: Start,
         token: Option<&InstallationToken>,
     ) -> Result<Reach, String> {
-        let dirs = worktree::prepare(
-            &self.settings.git.checkout,
-            &item.worktree,
-            &item.branch,
-            start,
-            self.item_base(item),
-            &item.remote,
-            &item.build,
-        )
-        .map_err(|e| e.to_string())?;
+        let dirs = self.worktree_made(item, start).map_err(|e| e.to_string())?;
         // The worker merges `origin/<base>` and runs no fetch of its own, so a
         // fetch that failed leaves it merging a base kelpie last fetched.
         let key = main_fetch_key(item.issue);
@@ -789,16 +788,6 @@ impl Runner {
         open.into_iter()
             .find(|pr| pr.head == branch)
             .map(|pr| pr.number)
-    }
-}
-
-// Where a worktree made for `item` starts: a rework or adopted branch is the
-// one `origin` holds.
-pub(super) fn start_of(item: &WorkItem) -> Start {
-    if item.rework || item.adopted {
-        Start::Pushed
-    } else {
-        Start::Main
     }
 }
 

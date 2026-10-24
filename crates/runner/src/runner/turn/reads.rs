@@ -202,7 +202,11 @@ impl Job {
 
     /// Whether the job changes the work item's worktree, which a trigger on it then waits for
     pub(in crate::runner) fn changes_worktree(&self) -> bool {
-        matches!(&self.read, Read::Change(_))
+        match &self.read {
+            Read::Change(_) => true,
+            Read::Git(git) => git.changes_worktree(),
+            _ => false,
+        }
     }
 
     /// Reads, in the order and with the calls the step would have made inline
