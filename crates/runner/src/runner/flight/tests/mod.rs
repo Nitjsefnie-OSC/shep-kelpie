@@ -466,20 +466,19 @@ fn a_turn_queued_for_its_lease_carries_the_grant_as_when_it_began() {
     hold.release();
 }
 
-// The pass holds the runner's lock from the call it starts to the end of the
-// pass, and a trigger refused the lock answers from the copy the pass posted.
-// The copy lists the call the pass just started, so `drain` never answers that
-// nothing runs while one has.
+// A step posts the call it starts in the lock scope that starts it, and a trigger
+// refused the lock answers from that copy. The copy lists the call the pass just
+// started, so `drain` never answers that nothing runs while one has.
 #[test]
 fn a_call_the_pass_started_is_in_the_copy_a_refused_trigger_reads() {
     let rig = Rig::new("acme");
     let runner = rig.open().unwrap();
     rig.ask(&runner, "add", Some("7"));
     let postings = runner.lock().unwrap().postings();
-    // The lock, held as a pass holds it from the launch to the pass's end.
-    let mut held = runner.lock().unwrap();
-    let pass = held.begin(None).unwrap();
+    let pass = rotation::begin_rotation(&runner).unwrap();
     assert!(matches!(pass, Pass::Started), "no call started: {pass:?}");
+    // The lock, held as a step holds it, so the trigger is refused it.
+    let held = runner.lock().unwrap();
 
     let reply = answer(&runner, &postings, "drain", None);
     drop(held);
@@ -493,3 +492,4 @@ fn a_call_the_pass_started_is_in_the_copy_a_refused_trigger_reads() {
 }
 
 mod builds;
+mod reads;
