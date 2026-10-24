@@ -140,7 +140,13 @@ impl Runner {
         match self.prove(&bump, pr, now, reads) {
             Next::Waiting(why) => self.stand(number, why, false),
             Next::Red(why) => self.go_red(number, &bump.head, why),
-            Next::Merge => self.merge_bump(&bump),
+            Next::Merge => {
+                self.merge_bump(&bump)?;
+                if self.bump(number).is_none() {
+                    reads.moved_on();
+                }
+                Ok(())
+            }
         }
     }
 

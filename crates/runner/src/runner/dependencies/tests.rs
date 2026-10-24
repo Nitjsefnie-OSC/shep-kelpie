@@ -762,3 +762,30 @@ fn a_bump_closed_during_the_read_is_not_merged() {
     poll(&rig, &runner);
     assert!(bumps(&rig, &runner).is_empty());
 }
+
+#[test]
+fn a_second_green_bump_is_proved_again_after_the_first_is_merged() {
+    let (rig, runner) = bumping("");
+    let first = bump(&rig, 40, "Cargo.lock");
+    let second = bump(&rig, 41, "package-lock.json");
+    rig.forge.set_checks(&first, Checks::Passed);
+    rig.forge.set_checks(&second, Checks::Passed);
+
+    settle(&rig, &runner);
+
+    assert_eq!(
+        rig.forge.merges(),
+        [(40, first.clone())],
+        "the second was proved on a main the first has moved"
+    );
+    let listed = bumps(&rig, &runner);
+    assert_eq!(listed.len(), 1);
+    assert_eq!(
+        listed[0]["standing"],
+        "waiting for the next poll to read it"
+    );
+
+    assert_eq!(step(&runner).unwrap(), None);
+
+    assert_eq!(rig.forge.merges(), [(40, first), (41, second)]);
+}

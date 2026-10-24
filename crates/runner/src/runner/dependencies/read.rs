@@ -44,6 +44,17 @@ pub(super) struct Reads {
     pub(super) proofs: BTreeMap<u64, Proof>,
     /// What the forge says of each red bump that left the board, by pull request
     pub(super) left: BTreeMap<u64, Result<PullRequestState, ForgeError>>,
+    /// Whether a merge made the proofs read before it stale
+    stale: bool,
+}
+
+impl Reads {
+    // A merge moved `main`, so no proof read before it holds: the bumps still to come wait, and
+    // the next pass reads them again.
+    pub(super) fn moved_on(&mut self) {
+        self.proofs.clear();
+        self.stale = true;
+    }
 }
 
 /// What git said of one open bump's head
@@ -159,7 +170,9 @@ impl Runner {
         for number in numbers {
             self.work_bump(number, &open, now, &mut reads)?;
         }
-        self.looks.dependencies_read(now);
+        if !reads.stale {
+            self.looks.dependencies_read(now);
+        }
         Ok(())
     }
 }
