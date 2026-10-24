@@ -159,12 +159,14 @@ impl Runner {
             self.board_read = None;
             self.snapshot.drop_preload();
         }
+        self.reads.clear();
         self.snapshot.begin_pass();
     }
 
     /// Ends the pass, dropping a board read it did not use
     pub(super) fn end_pass(&mut self) {
         self.board_read = None;
+        self.reads.clear();
         self.snapshot.end_pass();
     }
 

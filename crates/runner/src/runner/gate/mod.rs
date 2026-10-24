@@ -48,11 +48,19 @@ impl Runner {
         if let Some(parked) = self.send_commits(number)? {
             return Ok(parked);
         }
-        let item = self.current().expect("CI runs on a work item");
-        let pr = match self.pull_request_view(number) {
+        // Read with the runner's lock let go, and the step made again with the result
+        let viewed = match self.take_view(number) {
+            Some(viewed) => viewed,
+            None => match self.view_job(number) {
+                Some(job) => return Ok(Begin::Reads(job)),
+                None => self.pull_request_view(number),
+            },
+        };
+        let pr = match viewed {
             Ok(pr) => pr,
             Err(e) => return Ok(self.gate_failed(format!("cannot read #{number}: {e}"))),
         };
+        let item = self.current().expect("CI runs on a work item");
         match pr.state {
             PullRequestState::Open => {}
             // The maintainer merged it by hand, which is their own ruling,

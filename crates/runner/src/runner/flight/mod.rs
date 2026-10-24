@@ -383,10 +383,9 @@ impl Runner {
         self.board_changed();
     }
 
-    // Begins what is due next, starting the call it names. `start_over` is
-    // the work item whose session died unborn, which begins its turn again.
-    fn begin(&mut self, start_over: Option<TicketId>) -> Result<Pass, StateError> {
-        let begin = self.begin_turn(start_over)?;
+    // Starts the call `begin` names, as a step found it. `again` is a work item whose
+    // session died unborn, which begins its turn again.
+    fn start(&mut self, begin: Begin, again: bool) -> Result<Pass, StateError> {
         let launch = match begin {
             Begin::Idle => return Ok(Pass::Idle),
             Begin::Report(report) => return Ok(Pass::Report(report)),
@@ -398,7 +397,7 @@ impl Runner {
             } => Launch::Turn {
                 call,
                 deadline,
-                again: start_over.is_some(),
+                again,
                 first,
                 compact,
             },
@@ -420,6 +419,8 @@ impl Runner {
                 self.post();
                 return Ok(Pass::Started);
             }
+            // The rotation runs a read before it starts anything.
+            Begin::Reads(_) => return Ok(Pass::Idle),
         };
         let ticket = self.focus.expect("a call is a work item's");
         self.launch(ticket, launch);
@@ -594,12 +595,13 @@ impl Runner {
     }
 
     // Records the end of `ticket`'s turn. A session that died before it
-    // began starts over once, at once, with the same id.
+    // began starts over once, at once, with the same id: the caller starts it
+    // when the runner's lock is let go.
     fn turn_ended(
         &mut self,
         ticket: TicketId,
         result: Result<AgentReply, AgentError>,
-    ) -> Result<Option<StepReport>, StateError> {
+    ) -> Result<Ended, StateError> {
         // A host that cannot be reached holds the turn back, to be tried
         // again, and keeps its session. Time spent on the call is saved
         // while its flight still counts it.
@@ -607,7 +609,7 @@ impl Runner {
             let saved = self.save_time();
             self.flights.flying.remove(&ticket);
             saved?;
-            return Ok(None);
+            return Ok(Ended::Recorded(None));
         }
         let again = self.flights.flying.get(&ticket).is_some_and(|f| f.again);
         if !again && matches!(result, Err(AgentError::NoSession(..))) {
@@ -616,23 +618,28 @@ impl Runner {
             let saved = self.save_time();
             self.flights.flying.remove(&ticket);
             saved?;
-            return match self.begin(Some(ticket))? {
-                Pass::Report(report) => Ok(Some(report)),
-                Pass::Idle | Pass::Started => Ok(None),
-            };
+            return Ok(Ended::StartOver(ticket));
         }
         if let Some(moved) = self.fell_back(ticket, &result) {
             self.flights.flying.remove(&ticket);
-            return moved;
+            return moved.map(Ended::Recorded);
         }
         let ended = self.on(Some(ticket)).end_turn(result);
         self.flights.flying.remove(&ticket);
-        ended
+        ended.map(Ended::Recorded)
     }
 
     fn next_news(&self) -> Option<News> {
         self.flights.news.try_recv().ok()
     }
+}
+
+// How the end of a worker's turn was recorded
+enum Ended {
+    // The turn's end is recorded, and may report
+    Recorded(Option<StepReport>),
+    // The turn's session died before it began, so its work item begins the turn again
+    StartOver(TicketId),
 }
 
 // The end of a call whose thread could not start: a turn on `harness`, or a
@@ -749,7 +756,7 @@ fn one_pass(runner: &Mutex<Runner>) -> Result<Pass, StateError> {
     super::triage::poll_read::read_triage(runner)?;
     // After them, so the board's listing is asked after the call that learns a used-up limit.
     super::board_read::read_board(runner);
-    lock(runner).begin(None)
+    rotation::begin_rotation(runner)
 }
 
 // Records one piece of news from a call in flight, and tells the project's `ruling`
@@ -763,8 +770,8 @@ fn hear(runner: &Mutex<Runner>, news: News) -> Result<Option<StepReport>, StateE
     heard
 }
 
-fn hear_news(runner: &Mutex<Runner>, news: News) -> Result<Option<StepReport>, StateError> {
-    let mut runner = lock(runner);
+fn hear_news(shared: &Mutex<Runner>, news: News) -> Result<Option<StepReport>, StateError> {
+    let mut runner = lock(shared);
     let (ticket, end) = match news {
         News::Stage { ticket, stage, .. } => {
             if stage == RoundStage::Running {
@@ -856,7 +863,14 @@ fn hear_news(runner: &Mutex<Runner>, news: News) -> Result<Option<StepReport>, S
                 runner.append_call(line, unreported);
             }
             runner.pm_after_end(ticket)?;
-            ended
+            match ended? {
+                Ended::Recorded(report) => Ok(report),
+                // Begun with the lock let go, as any step of a pass is.
+                Ended::StartOver(ticket) => {
+                    drop(runner);
+                    rotation::start_over(shared, ticket)
+                }
+            }
         }
         End::Review(reviewed) => {
             let line = open.and_then(|open| runner.review_line(&open, &reviewed));
@@ -885,6 +899,7 @@ pub(super) mod label;
 mod news;
 pub(super) mod panel;
 mod proving;
+mod rotation;
 
 use news::{End, News, Tell};
 

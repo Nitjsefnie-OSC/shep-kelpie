@@ -789,6 +789,9 @@ pub(super) enum Begin {
     Secure(super::contributions::Job),
     /// The triager's research of an untouched issue, which takes a slot while it runs
     Triage(Box<super::flight::triage::Job>),
+    /// A read the step needs, which the rotation makes with the runner's lock let go before it
+    /// steps the work item again
+    Reads(Box<super::turn::reads::Job>),
 }
 
 /// A review call, which runs in flight like a turn
