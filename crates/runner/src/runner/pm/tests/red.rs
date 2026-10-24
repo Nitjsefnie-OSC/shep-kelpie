@@ -11,9 +11,8 @@ use crate::test::{Rig, Scripted, ticket};
 const NOTHING: &str = "{\"pick\": null}";
 
 /// A project with a project manager and #7's pull request, whose worker is
-/// parked on a `StillRed` ruling at the returned head, and the project
-/// manager's wake for it answered
-fn parked_red(project: &str, setup: impl FnOnce(&Rig)) -> (Rig, Mutex<Runner>, String) {
+/// parked on a `StillRed` ruling at the returned head, with no wake yet
+pub(super) fn raised(project: &str, setup: impl FnOnce(&Rig)) -> (Rig, Mutex<Runner>, String) {
     let (rig, runner, head) = Rig::with_pull_request_set(project, |rig| {
         rig.fix_attempts(0);
         rig.edit_settings(|s| {
@@ -29,6 +28,12 @@ fn parked_red(project: &str, setup: impl FnOnce(&Rig)) -> (Rig, Mutex<Runner>, S
         rig.verdict(&runner),
         Some(StepReport::Ruling { id, .. })
      if id == ticket(71)));
+    (rig, runner, head)
+}
+
+/// ... and the project manager's wake for it answered
+fn parked_red(project: &str, setup: impl FnOnce(&Rig)) -> (Rig, Mutex<Runner>, String) {
+    let (rig, runner, head) = raised(project, setup);
     rig.claude.script([Scripted::Say(NOTHING)]);
     past_the_window(&rig);
     answered(Some(step_until(&runner, |r| {

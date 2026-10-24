@@ -696,6 +696,7 @@ impl Forge for FakeForge {
 
     fn run_log_tail(&self, _repo: &ForgeSlug, run: u64) -> Result<String, ForgeError> {
         self.ask()?;
+        self.wait_if_held(held::At::RunLogTail);
         self.run_log_tail_of(run).map_err(ForgeError::Failed)
     }
 

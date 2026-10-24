@@ -31,6 +31,10 @@ pub enum At {
     FailedLogs,
     // The read of where a pull request stands in the merge queue, which a merge makes
     MergeQueue,
+    // The read of the end of one run's failed log, which a wake makes for each workflow red on `main`
+    RunLogTail,
+    // The read of an issue's comments, which a worker's first turn makes
+    IssueComments,
 }
 
 // Who reached the forge and who lets it go
@@ -118,6 +122,16 @@ impl FakeForge {
     /// call through
     pub fn hold_next_merge_queue_read(&self) -> HeldCall {
         self.hold_open(At::MergeQueue)
+    }
+
+    /// Holds the next read of a workflow run's log tail open, and lets every other call through
+    pub fn hold_next_run_log_tail_read(&self) -> HeldCall {
+        self.hold_open(At::RunLogTail)
+    }
+
+    /// Holds the next read of an issue's comments open, and lets every other call through
+    pub fn hold_next_issue_comments_read(&self) -> HeldCall {
+        self.hold_open(At::IssueComments)
     }
 
     fn hold_open(&self, at: At) -> HeldCall {

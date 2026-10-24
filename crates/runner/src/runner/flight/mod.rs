@@ -21,6 +21,7 @@ use super::briefing::{Watched, brief};
 use super::dev_server;
 use super::in_flight::{InFlight, Key};
 use super::login_refresh;
+use super::pm::wake_off_lock;
 use super::replies::answer_replies;
 use super::report::{Begin, ReviewCall, Reviewed, Spent, StepReport};
 use super::review::run_review_call;
@@ -687,7 +688,7 @@ pub fn advance(runner: &Mutex<Runner>) -> Result<Pass, StateError> {
     let pass = match pass {
         // Experts that just started, or a wake, are calls in flight: the loop goes on.
         Ok(Pass::Idle) => {
-            let woke = lock(runner).wake_pm();
+            let woke = wake_off_lock(runner);
             let asked = lock(runner).panel_launched();
             let looked = !woke && lock(runner).retro_launched();
             let proved = lock(runner).proofs_launched();
@@ -698,7 +699,7 @@ pub fn advance(runner: &Mutex<Runner>) -> Result<Pass, StateError> {
             })
         }
         Ok(Pass::Report(report)) if report.waits() => {
-            lock(runner).wake_pm();
+            wake_off_lock(runner);
             Ok(Pass::Report(report))
         }
         pass => pass,

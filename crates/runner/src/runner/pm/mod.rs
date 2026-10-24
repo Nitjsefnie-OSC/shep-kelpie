@@ -44,9 +44,11 @@ mod wakes;
 
 #[cfg(test)]
 pub(super) use call::SECRET_SHAPED;
+pub(super) use ci_logs::wake_off_lock;
 pub use maintainer::{PmAttaching, PmError, PmStatus, Settled};
 
 use answer::Action;
+use ci_logs::Woke;
 use wakes::{LeftAlone, stuck_on};
 
 /// The context, in tokens, past which the session is compacted after a wake
@@ -287,6 +289,8 @@ pub(super) struct Desk {
     // The last few questions it settled, newest last
     settled: Vec<Settled>,
     flying: Option<Flying>,
+    // The CI logs a wake's launch writes, read with the lock let go, while it launches
+    logs: Option<ci_logs::Logs>,
 }
 
 impl Desk {
@@ -474,11 +478,23 @@ impl Runner {
     /// longer shows is dropped before the call starts, however the call came
     /// to start.
     pub(super) fn wake_pm(&mut self) -> bool {
+        matches!(self.wake(false), Woke::Did(true))
+    }
+
+    /// [`Runner::wake_pm`], except that a wake about to launch whose CI logs are not read
+    /// hands back the reads, which [`wake_off_lock`] runs with the lock let go
+    fn wake_pm_or_reads(&mut self) -> Woke {
+        self.wake(true)
+    }
+
+    // Everything before the launch is checked again by the try that follows a read, and drops
+    // or defers the same, so a try that hands back reads has changed nothing the next does not.
+    fn wake(&mut self, reads: bool) -> Woke {
         let Some(agent) = self.agents.pm.clone() else {
-            return false;
+            return Woke::Did(false);
         };
         if self.pm.flying.is_some() || self.draining() {
-            return false;
+            return Woke::Did(false);
         }
         // What the maintainer told it outlasts a restart, and wakes it again.
         if !self.state.pm_told.is_empty() {
@@ -491,7 +507,7 @@ impl Runner {
         }
         self.pm_holds_over();
         if self.pm.due.is_empty() && !self.pm.compact {
-            return false;
+            return Woke::Did(false);
         }
         // A reason nobody waits on waits its window, so the ones that arrive
         // inside it go in the same call.
@@ -501,11 +517,11 @@ impl Runner {
                 Some(since) => since,
                 None => {
                     self.pm.holding_since = Some(now);
-                    return false;
+                    return Woke::Did(false);
                 }
             };
             if now.0 < since.0.saturating_add(HOLD_FOR) {
-                return false;
+                return Woke::Did(false);
             }
         }
         // The window is over, or a reason someone waits on ended it early.
@@ -519,12 +535,20 @@ impl Runner {
         if self.pm.due.is_empty() {
             self.pm.holding_since = None;
             if !self.pm.compact {
-                return false;
+                return Woke::Did(false);
             }
         }
         if !self.pm_available() {
             self.give_up();
-            return false;
+            return Woke::Did(false);
+        }
+        // A compaction writes no logs. A wake with none in hand reads them, if it may.
+        if reads
+            && !self.pm.compact
+            && self.pm.logs.is_none()
+            && let Some(job) = self.pm_logs_job()
+        {
+            return Woke::Reads(Box::new(job));
         }
         let launched = match self.pm.compact {
             true => self.launch_compact(&agent),
@@ -540,7 +564,7 @@ impl Runner {
         if woke {
             self.post();
         }
-        woke
+        Woke::Did(woke)
     }
 
     fn give_up(&mut self) {
