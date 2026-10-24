@@ -704,12 +704,14 @@ fn one_pass(runner: &Mutex<Runner>) -> Result<Pass, StateError> {
     // A `drain` or `undrain` that landed while a pass held the lock set its
     // flag at once; what it asked the runner itself is taken up here.
     lock(runner).take_posted();
+    // The verbs that landed then are applied, reading the forge with the lock let go.
+    super::queued::take_up(runner);
     lock(runner).beat();
     lock(runner).send_metrics();
     lock(runner).read_rate_limit();
     lock(runner).let_go_of_the_gone();
     // Before any answer is taken, so none resumes a worker on a closed issue.
-    lock(runner).read_parked()?;
+    super::closed::read_parked(runner)?;
     // The forge is asked with the lock let go.
     super::thread_replies::read_threads(runner)?;
     super::left::answer_left(runner);
@@ -737,6 +739,11 @@ fn one_pass(runner: &Mutex<Runner>) -> Result<Pass, StateError> {
     if let Some(report) = finished {
         return Ok(Pass::Report(report));
     }
+    // Before any step is chosen, so no forge read falls between a step's drain check and the
+    // call it starts.
+    super::main_ci::read_main_ci_off_lock(runner);
+    super::dispatch::recheck_dropped(runner)?;
+    super::dependencies::follow_dependencies(runner)?;
     // The forge is asked with the lock let go, and the pass takes it for what it
     // read.
     super::triage::poll_read::read_triage(runner)?;

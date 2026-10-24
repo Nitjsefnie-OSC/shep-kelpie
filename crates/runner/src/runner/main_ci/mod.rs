@@ -6,12 +6,13 @@
 //! the board to show. A workflow stays red until a run of it succeeds: a run
 //! that was cancelled or skipped says nothing about the code, so it changes
 //! nothing. A workflow the forge no longer runs, because its file is gone or
-//! it is disabled, drops out whatever its last run was.
+//! it is disabled, drops out whatever its last run was. The forge is asked with the runner's lock
+//! let go (see [`read`]).
 
 use serde::Serialize;
 
 use super::Runner;
-use crate::ports::{BranchRun, ForgeError, Rerun, Timestamp, WorkflowState};
+use crate::ports::{BranchRun, ForgeError, Rerun, Timestamp};
 use crate::state::{MainNotice, Notice, RedWorkflow};
 
 /// A workflow red on `main`, as `status` shows it
@@ -37,56 +38,6 @@ pub struct RedStatus {
 }
 
 impl Runner {
-    // Reads `main`'s workflows when they are due and the forge is not held, at
-    // the start of every pass, before any work item is stepped. A step checks
-    // that it drains just before it saves the turn it starts, and a forge read
-    // between that check and the call is time enough for a `drain` to land past
-    // it. A read the forge refuses waits as any failed read does and leaves what
-    // the state holds; a state that cannot be saved is read again at the next
-    // poll.
-    pub(super) fn read_main_ci(&mut self) {
-        let now = self.ports.clock.now();
-        if !self.looks.main_ci_due(now) || self.forge_hold.until(now).is_some() {
-            return;
-        }
-        let read = self.read_red();
-        self.looks
-            .main_ci_read(now, read.is_ok(), self.forge_hold.until(now));
-        let Ok(read) = read else {
-            return;
-        };
-        let mut next = self.state.clone();
-        next.red = read.red;
-        let notices = self.act_on_reds(&read.failing, &mut next.red, &read.cleared, now);
-        next.notices.extend(notices);
-        if next.red == self.state.red {
-            return;
-        }
-        match self.save(next) {
-            Ok(()) => self.board_changed(),
-            Err(e) => eprintln!("cannot save the red workflows on main: {e}"),
-        }
-    }
-
-    // The red workflows after the latest runs on `main`. A red workflow
-    // stays listed when its latest run is older than the runs read, so the
-    // forge's list of workflows is what drops one that can no longer run;
-    // it is asked only while something is red.
-    fn read_red(&self) -> Result<Read, ForgeError> {
-        let runs = self
-            .ports
-            .forge
-            .branch_runs(&self.remote, self.settings.git.base())?;
-        let mut read = still_red(&self.state.red, &runs);
-        if !read.red.is_empty() {
-            let workflows = self.ports.forge.workflows(&self.remote)?;
-            read.red.retain(|r| {
-                (workflows.iter()).any(|w| w.name == r.workflow && w.state == WorkflowState::Active)
-            });
-        }
-        Ok(read)
-    }
-
     // What to do about the workflows this read found red, and the notices it
     // leaves to post. A workflow in `failing` has the failed jobs of each new
     // red head rerun once, and is told once for the stretch when red again
@@ -287,7 +238,9 @@ fn still_red(red: &[RedWorkflow], runs: &[BranchRun]) -> Read {
     }
 }
 
+pub(super) use read::read_main_ci_off_lock;
 #[cfg(test)]
 mod notice_tests;
+mod read;
 #[cfg(test)]
 mod tests;
