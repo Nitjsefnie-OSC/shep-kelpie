@@ -534,6 +534,7 @@ impl Forge for FakeForge {
 
     fn talk(&self, _repo: &ForgeSlug, number: u64) -> Result<Talk, ForgeError> {
         self.ask()?;
+        self.wait_if_held(held::At::Talk);
         self.opened(number)?;
         let mut talk = self.coderabbit.talk_of(number);
         talk.comments.extend(self.threads.remarks(number));
@@ -742,6 +743,8 @@ impl Forge for FakeForge {
         number: u64,
         login: Login<'_>,
     ) -> Result<Activity, ForgeError> {
+        // Held before the forge is asked, so a test can bring it down meanwhile
+        self.wait_if_held(held::At::Activity);
         self.ask()?;
         self.opened(number)?;
         self.coderabbit.activity(number, login.rest)
