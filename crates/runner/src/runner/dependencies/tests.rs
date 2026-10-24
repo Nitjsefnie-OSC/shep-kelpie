@@ -717,3 +717,93 @@ fn a_bump_that_left_the_board_is_forgotten() {
 
     assert!(bumps(&rig, &runner).is_empty());
 }
+
+#[test]
+fn a_trigger_is_answered_while_a_bumps_pull_request_is_read() {
+    let (rig, runner) = bumping("");
+    let head = bump(&rig, 40, "Cargo.lock");
+    rig.forge
+        .set_checks(&head, Checks::Failed(vec!["test".into()]));
+    rig.forge.set_pull_request_closes_down(true);
+    settle(&rig, &runner);
+    rig.forge
+        .set_state(40, crate::ports::PullRequestState::Closed);
+    rig.next_look();
+    let read = rig.forge.hold_next_pull_request_read();
+
+    let (answered, pass) = rig.asked_while_held(&runner, read, "add", Some("8"));
+
+    assert!(answered.is_some(), "the trigger waited for the read");
+    pass.unwrap();
+    assert_eq!(rig.forge.created().len(), 1, "the closed bump is filed");
+    assert!(bumps(&rig, &runner).is_empty());
+}
+
+#[test]
+fn a_bump_closed_during_the_read_is_not_merged() {
+    let (rig, runner) = bumping("");
+    let head = bump(&rig, 40, "Cargo.lock");
+    rig.forge.set_checks(&head, Checks::Passed);
+    assert_eq!(step(&runner).unwrap(), None);
+    rig.clock.advance(CHECKS_SETTLE);
+    let read = rig.forge.hold_next_open_pull_requests_read();
+
+    let (_, pass) = rig.during_read(
+        read,
+        || advance(&runner),
+        || {
+            rig.forge
+                .set_state(40, crate::ports::PullRequestState::Closed)
+        },
+    );
+
+    pass.unwrap();
+    assert!(rig.forge.merges().is_empty());
+    poll(&rig, &runner);
+    assert!(bumps(&rig, &runner).is_empty());
+}
+
+#[test]
+fn a_second_green_bump_is_proved_again_after_the_first_is_merged() {
+    let (rig, runner) = bumping("");
+    let first = bump(&rig, 40, "Cargo.lock");
+    let second = bump(&rig, 41, "package-lock.json");
+    rig.forge.set_checks(&first, Checks::Passed);
+    rig.forge.set_checks(&second, Checks::Passed);
+
+    settle(&rig, &runner);
+
+    assert_eq!(
+        rig.forge.merges(),
+        [(40, first.clone())],
+        "the second was proved on a main the first has moved"
+    );
+    let listed = bumps(&rig, &runner);
+    assert_eq!(listed.len(), 1);
+    assert_eq!(
+        listed[0]["standing"],
+        "waiting for the next poll to read it"
+    );
+
+    assert_eq!(step(&runner).unwrap(), None);
+
+    assert_eq!(rig.forge.merges(), [(40, first), (41, second)]);
+}
+
+#[test]
+fn a_listing_the_forge_refuses_is_asked_again_a_poll_on_not_at_the_next_pass() {
+    use std::sync::atomic::Ordering::SeqCst;
+
+    let (rig, runner) = bumping("");
+    rig.forge.set_down(true);
+    let listed = || rig.forge.pull_request_reads().listed.load(SeqCst);
+
+    super::read::follow_dependencies(&runner).unwrap();
+    let first = listed();
+    super::read::follow_dependencies(&runner).unwrap();
+    assert_eq!(listed(), first, "asked again at the next pass");
+
+    rig.next_look();
+    super::read::follow_dependencies(&runner).unwrap();
+    assert_eq!(listed(), first + 1, "not asked a poll on");
+}

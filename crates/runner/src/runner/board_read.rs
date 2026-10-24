@@ -116,11 +116,9 @@ impl Runner {
         if !self.board_open() || !self.looks.due(Slot::Board, now) {
             return None;
         }
-        // A pass reads `main`'s workflows with the lock held before it steps the board, and a
-        // limit used up makes that read the first call, the one that learns the hold. A pass
-        // that does both reads the board in its place, so no call goes to the board's listing
-        // against a limit the pass could have heard of first.
-        if self.looks.main_ci_due(now) || self.forge_hold.until(now).is_some() {
+        // A limit used up is learned by the first call the pass makes, which is not the board's
+        // listing.
+        if self.forge_hold.until(now).is_some() {
             return None;
         }
         Some(self.job_at(now, None))

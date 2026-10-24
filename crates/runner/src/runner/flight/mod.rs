@@ -709,10 +709,9 @@ fn one_pass(runner: &Mutex<Runner>) -> Result<Pass, StateError> {
     lock(runner).read_rate_limit();
     lock(runner).let_go_of_the_gone();
     // Before any answer is taken, so none resumes a worker on a closed issue.
-    lock(runner).read_parked()?;
+    super::closed::read_parked(runner)?;
     // The forge is asked with the lock let go.
     super::thread_replies::read_threads(runner)?;
-    super::board_read::read_board(runner);
     super::left::answer_left(runner);
     loop {
         let news = lock(runner).next_news();
@@ -738,6 +737,13 @@ fn one_pass(runner: &Mutex<Runner>) -> Result<Pass, StateError> {
     if let Some(report) = finished {
         return Ok(Pass::Report(report));
     }
+    // Before any step is chosen, so no forge read falls between a step's drain check and the
+    // call it starts.
+    super::main_ci::read_main_ci_off_lock(runner);
+    super::dispatch::recheck_dropped(runner)?;
+    super::dependencies::follow_dependencies(runner)?;
+    // After them, so the board's listing is asked after the call that learns a used-up limit.
+    super::board_read::read_board(runner);
     lock(runner).begin(None)
 }
 

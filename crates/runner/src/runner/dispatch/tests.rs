@@ -147,6 +147,40 @@ fn a_dropped_item_labelled_ready_again_while_the_board_is_shut_is_picked_when_it
 }
 
 #[test]
+fn a_dropped_ticket_read_that_fails_is_read_again_on_the_next_pass() {
+    // #7 is open and the runner finishes it, so the board is not read.
+    let (rig, runner, _) = Rig::with_pull_request_set("acme", |rig| {
+        rig.edit_settings(|s| s.replace("active_items = 1", "active_items = 2"));
+    });
+    rig.forge.list_ready(8, false);
+    rig.ask(&runner, "add", Some("8"));
+    rig.claude
+        .script([Scripted::Reply(Usage::default(), Cost(1))]);
+    step(&runner).unwrap();
+    rig.ask(&runner, "drop", Some("8"));
+    rig.ask(&runner, "finish", None);
+    rig.forge.unlist_ready(8);
+
+    rig.forge.set_down(true);
+    rig.clock.advance(600);
+    step(&runner).unwrap();
+
+    // The forge is back, and the ticket is read at once, with no poll waited.
+    rig.forge.set_down(false);
+    step(&runner).unwrap();
+    rig.forge.list_ready(8, false);
+    rig.clock.advance(600);
+    step(&runner).unwrap();
+
+    rig.ask(&runner, "start", None);
+    let picked = (0..3).find_map(|_| match step(&runner).unwrap() {
+        Some(StepReport::Dispatched { issue, .. }) => Some(issue),
+        _ => None,
+    });
+    assert_eq!(picked, Some(ticket(8)));
+}
+
+#[test]
 fn a_merged_item_the_forge_still_lists_ready_stays_skipped() {
     let (rig, runner, _) = Rig::parked("acme");
     // The forge keeps the issue open: the pull request closes nothing and
@@ -574,17 +608,9 @@ fn a_turn_that_opened_no_pull_request_records_none() {
 // The first wait of a failed step, and the least a poll waits after a good read
 const RETRY_FIRST: u64 = 15;
 
-// The first pass reads `main`'s workflows with the lock held, and reads the board in its place
-// after them. A board poll later, the board's read is the one made before the pass.
-fn primed(rig: &Rig, runner: &Mutex<Runner>) {
-    advance(runner).unwrap();
-    rig.clock.advance(BOARD_POLL.as_secs());
-}
-
 #[test]
 fn a_trigger_is_answered_while_the_board_is_read() {
     let (rig, runner) = running("shep");
-    primed(&rig, &runner);
     rig.forge.list_ready(8, false);
     let read = rig.forge.hold_next_board_read();
 
@@ -609,7 +635,6 @@ fn a_trigger_is_answered_while_the_board_is_read() {
 #[test]
 fn a_board_read_held_for_three_seconds_holds_the_lock_for_less_than_one() {
     let (rig, runner) = running("shep");
-    primed(&rig, &runner);
     let read = rig.forge.hold_next_board_read();
 
     std::thread::scope(|scope| {
@@ -633,7 +658,6 @@ fn json_f64(v: &serde_json::Value) -> Option<f64> {
 #[test]
 fn a_board_read_that_fails_leaves_no_stamp_and_is_retried_on_the_backoff() {
     let (rig, runner) = running("shep");
-    primed(&rig, &runner);
     rig.forge.set_down(true);
     assert!(matches!(
         step(&runner).unwrap(),
@@ -670,7 +694,6 @@ fn a_board_read_the_pass_did_not_use_is_dropped_and_stamps_nothing() {
     let rig = Rig::new("shep");
     rig.edit_settings(|s| s.replace("active_items = 1", "active_items = 2"));
     let runner = rig.open().unwrap();
-    primed(&rig, &runner);
     rig.ask(&runner, "add", Some("7"));
     rig.forge.list_ready(8, false);
     let turn = Hold::default();
@@ -711,9 +734,6 @@ fn a_board_read_taken_off_the_lock_makes_the_same_forge_calls_as_before() {
     std::fs::create_dir_all(file.parent().unwrap()).unwrap();
     StateStore::new(file.clone()).save(&state).unwrap();
     let runner = rig.open().unwrap();
-    primed(&rig, &runner);
-    let ledger = rig.paths().kelpie_home.join(forge_ledger::FILE);
-    let primed_calls = forge_ledger::read(&ledger).unwrap().len();
     rig.forge.close_issue(6);
     rig.forge.open_issue(5, "A parent", "Split in two.\n");
     rig.forge.link_sub_issue(5, 9);
@@ -724,7 +744,7 @@ fn a_board_read_taken_off_the_lock_makes_the_same_forge_calls_as_before() {
         Some(StepReport::ParentClosed { issue: ticket(5) })
     );
 
-    let lines = forge_ledger::read(&ledger).unwrap().split_off(primed_calls);
+    let lines = forge_ledger::read(&rig.paths().kelpie_home.join(forge_ledger::FILE)).unwrap();
     let board = [
         Kind::ReadyIssues,
         Kind::OpenPullRequests,

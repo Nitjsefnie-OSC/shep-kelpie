@@ -11,14 +11,93 @@
 //! issues the board could take, its pick goes in place of the board rule's,
 //! and a ready issue it holds waits.
 
+use std::sync::{Arc, Mutex};
+
 use super::Runner;
 use super::pm::Choice;
 use super::report::{Begin, StepReport};
+use super::trigger::lock;
 use crate::board::{self, ReadyIssue, Skip};
+use crate::ports::{Issue, Tickets};
+use crate::settings::ForgeSlug;
 use crate::state::StateError;
 use crate::ticket::TicketId;
 
+// The board is read only while it may open a work item, so a dropped ticket's label is read on
+// its own when it has not been, at most once a poll, with the runner's lock let go. One that is
+// closed or lost `ready-for-agent` is forgotten, so putting the label back returns it. One the
+// forge cannot answer for stays, and is read again at the next pass.
+pub(super) fn recheck_dropped(runner: &Mutex<Runner>) -> Result<(), StateError> {
+    let job = lock(runner).dropped_job();
+    let Some(job) = job else {
+        return Ok(());
+    };
+    let read = job.run();
+    lock(runner).apply_dropped(read)
+}
+
+// The dropped tickets whose labels are due a read
+struct DroppedJob {
+    tickets: Arc<dyn Tickets>,
+    repo: ForgeSlug,
+    dropped: Vec<TicketId>,
+}
+
+// What the read found: the tickets no longer labelled ready, and whether every one was read
+struct DroppedRead {
+    gone: Vec<TicketId>,
+    complete: bool,
+}
+
+impl DroppedJob {
+    fn run(self) -> DroppedRead {
+        let unlabelled =
+            |issue: &Issue| !issue.open || !issue.labels.iter().any(|l| l == board::READY);
+        let mut read = DroppedRead {
+            gone: Vec::new(),
+            complete: true,
+        };
+        for ticket in self.dropped {
+            match self.tickets.issue(&self.repo, ticket) {
+                Ok(issue) if unlabelled(&issue) => read.gone.push(ticket),
+                Ok(_) => {}
+                Err(_) => read.complete = false,
+            }
+        }
+        read
+    }
+}
+
 impl Runner {
+    // The read, when a dropped ticket is due one
+    fn dropped_job(&self) -> Option<DroppedJob> {
+        if self.state.dropped.is_empty() || !self.looks.dropped_due(self.ports.clock.now()) {
+            return None;
+        }
+        Some(DroppedJob {
+            tickets: Arc::clone(&self.ports.tickets),
+            repo: self.remote.clone(),
+            dropped: self.state.dropped.clone(),
+        })
+    }
+
+    // Forgets the tickets the read found unlabelled that are still dropped, and records the read
+    // unless a ticket could not be read
+    fn apply_dropped(&mut self, read: DroppedRead) -> Result<(), StateError> {
+        let gone: Vec<TicketId> = (read.gone.into_iter())
+            .filter(|t| self.state.dropped.contains(t))
+            .collect();
+        if !gone.is_empty() {
+            let mut next = self.state.clone();
+            next.dropped.retain(|n| !gone.contains(n));
+            self.save(next)?;
+        }
+        if read.complete {
+            self.looks.dropped_read(self.ports.clock.now());
+        }
+        Ok(())
+    }
+
     // The step runs this only while the board may open a work item, and it
     // opens at most one, so nothing here checks `concurrency.active_items` again.
     pub(super) fn dispatch(&mut self) -> Result<Begin, StateError> {
@@ -243,37 +322,6 @@ impl Runner {
         }
         let mut next = self.state.clone();
         next.finished.retain(|n| !closed.contains(n));
-        self.save(next)
-    }
-
-    // The board is read only while it may open a work item, so a dropped
-    // ticket's label is read on its own when it has not been, at most once a
-    // poll. One that is closed or lost `ready-for-agent` is forgotten, so
-    // putting the label back returns it. One the forge cannot answer for stays.
-    pub(super) fn recheck_dropped(&mut self) -> Result<(), StateError> {
-        if self.state.dropped.is_empty() {
-            return Ok(());
-        }
-        if !self.looks.dropped_due(self.ports.clock.now()) {
-            return Ok(());
-        }
-        let repo = &self.remote;
-        let unlabelled = |issue: &crate::ports::Issue| {
-            !issue.open || !issue.labels.iter().any(|l| l == board::READY)
-        };
-        let gone: Vec<TicketId> = (self.state.dropped.iter().copied())
-            .filter(|t| {
-                self.ports
-                    .tickets
-                    .issue(repo, *t)
-                    .is_ok_and(|i| unlabelled(&i))
-            })
-            .collect();
-        if gone.is_empty() {
-            return Ok(());
-        }
-        let mut next = self.state.clone();
-        next.dropped.retain(|n| !gone.contains(n));
         self.save(next)
     }
 

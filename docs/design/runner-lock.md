@@ -4,7 +4,7 @@ One `Mutex<Runner>` per project. #1201.
 
 ## What it covers
 
-- Everything the runner knows: the state file, the work items, the forge and model ports. A pass takes it (`runner/trigger/lock`) and holds it through the calls it makes, which wait their turn behind the login's pace. The reads under "Off the lock" below are the ones it does not hold it through.
+- Everything the runner knows: the state file, the work items, the forge and model ports. A pass takes it (`runner/trigger/lock`) and holds it through the calls it makes, which wait their turn behind the login's pace. The reads in `one_pass` before `begin` do not: see Off the lock.
 - `status`, `drain` and `undrain` do not wait for it: `answer` tries the lock and, while a pass holds it, answers from the copy the loop last posted. Every other trigger waits. See `workers.md`.
 
 ## What the metric shows
@@ -16,11 +16,19 @@ One `Mutex<Runner>` per project. #1201.
 
 ## Off the lock
 
-`runner/off_lock.rs`: `ItemKey` is a work item's `issue`, `session`, `turn`, `phase` and `pull_request` as they stood when the work began. `with_item` takes the lock, returns `None` if the item is gone or any of them changed, and otherwise sets `focus` to it again and applies the answer. Nothing calls it yet.
+`runner/off_lock.rs`: `ItemKey` is a work item's `issue`, `session`, `turn`, `phase` and `pull_request` as they stood when the work began. `with_item` takes the lock, returns `None` if the item is gone or any of them changed, and otherwise sets `focus` to it again and applies the answer. 
+
+These reads run with the lock let go, in `one_pass` before `begin`, each as a job that copies what it needs, reads, and applies on the lock:
+
+- Main's CI (`main_ci/read.rs`): `still_red` is worked out again at the apply, so a workflow that went green meanwhile is not rerun.
+- Parked items' pull requests and issues (`closed/read.rs`): one read per item, applied through `with_item`. `holds_work` still runs on the lock.
+- Dropped tickets (`dispatch/mod.rs`) and the bumps (`dependencies/read.rs`).
+- Each stamps its `looks` or `parked_reads` entry at the apply, so a read that failed is made again at the next pass.
+- A start-over pass makes none of them.
 
 ## The board read
 
-`runner/board_read.rs`: `read_board` runs in `one_pass` after `read_threads`, in three steps like it. `poll_job` takes the lock and, if the board may open a work item, its look is due and the forge is not held, copies the ports and what the read needs into a `BoardJob`. `BoardJob::run` reads with the lock let go. `store_board_read` takes the lock again and keeps the result for the pass.
+`runner/board_read.rs`: `read_board` runs in `one_pass` after the reads above and just before `begin`, in three steps like them. `poll_job` takes the lock and, if the board may open a work item, its look is due and the forge is not held, copies the ports and what the read needs into a `BoardJob`. `BoardJob::run` reads with the lock let go. `store_board_read` takes the lock again and keeps the result for the pass.
 
 - The job reads in the order the pass always did: the ready issues, the open pull requests, the `issue` of each finished ticket the board no longer lists, then the parents off the list (`finished_parents`, `sub_issues`) when the board lists none to close. A read that fails ends the rest. Same calls, same count, same order, so `forge.jsonl` is unchanged.
 - The open-pull-request listing goes into the `Snapshot` as a preload, which `begin_pass` keeps, so the gate, merge and rework steps serve from it as from a listing the pass made.
@@ -28,4 +36,4 @@ One `Mutex<Runner>` per project. #1201.
 - A read the pass did not use is dropped at `end_pass` and stamps nothing, so the next pass reads again. The rotation can act on an earlier slot first, which leaves the read unused: that is the known cost, one board read made for nothing, and it is made at most once a poll.
 - A read is also dropped, with its listing, when a write of kelpie's came after it (`forge_ledger.writes()` changed), since the listing is stale. A board that opens after the pre-pass decided it was not due finds no read and reads in its place with the lock held, as before.
 - `board_moved` flags raised while the read ran are cleared by the stamp. The next poll or write of kelpie's makes the board due again.
-- A pass in which `main`'s workflows are also due (the first pass, then one in fifteen minutes) reads no board before it, and nor does one while the forge is held. Its `read_main_ci` is the first call and learns a used-up limit's hold before the board is asked, as it did before; the board then reads in its place with the lock held. Moving `read_main_ci` off the lock (S3) ends this.
+- It follows `main`'s CI, the dropped tickets and the bumps, as the board's listing always did, so a used-up limit is learned by their first call and `poll_job` reads nothing while the forge is held.
