@@ -5,10 +5,11 @@
 //! refuses. The install is part of the server's command, so it runs in the
 //! server's sandbox, which writes only the checkout and its build folder and
 //! reaches only the hosts listed. It runs only where the lockfile's folder has no
-//! `node_modules`, so a worker's own install is never wiped by `ci`. The package
-//! manager is the one whose lockfile the project keeps, run from the lockfile as
-//! it stands (`ci`, or a frozen lockfile) and with no package's install script,
-//! since a bump's new version is code nobody has read yet.
+//! `node_modules`, or an earlier install left its mark and did not finish, so a
+//! worker's own install is never wiped by `ci`. The package manager is the one
+//! whose lockfile the project keeps, run from the lockfile as it stands (`ci`, or
+//! a frozen lockfile) and with no package's install script, since a bump's new
+//! version is code nobody has read yet.
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -18,11 +19,18 @@ use crate::ports::DevRun;
 /// How long the install and the server together get to answer on the port
 const INSTALL_WITHIN: Duration = Duration::from_secs(300);
 
-// What the shell runs: the install in the lockfile's folder unless it holds `node_modules`,
-// which must succeed, and then the server. The folder is `$1`, and the server's program and
-// arguments follow it.
-const SCRIPT: &str =
-    "(cd \"$1\" && { [ -d node_modules ] || INSTALL; }) || exit 1; shift; exec \"$@\"";
+/// The file in the build folder that an install leaves while it runs
+///
+/// An install stopped part way leaves a `node_modules` that looks whole, so the next start
+/// installs again while this is there.
+const UNFINISHED: &str = "install-unfinished";
+
+// What the shell runs: the install in the lockfile's folder unless it holds `node_modules`
+// that no install left unfinished, which must succeed, and then the server. The folder is
+// `$1`, the mark `$2`, and the server's program and arguments follow them.
+const SCRIPT: &str = "(cd \"$1\" && { { [ -d node_modules ] && [ ! -e \"$2\" ]; } \
+                      || { touch \"$2\" && INSTALL && rm -f \"$2\"; }; }) \
+                      || exit 1; shift 2; exec \"$@\"";
 
 /// A package manager, known by its lockfile
 struct Manager {
@@ -88,6 +96,7 @@ pub(super) fn before(run: &mut DevRun, worktree: &Path, build: &Path) {
     let Some((folder, manager)) = lockfile_folder(worktree, &run.cwd) else {
         return;
     };
+    let mark = build.join(UNFINISHED);
     let server = std::mem::replace(
         &mut run.program,
         crate::spawn::sh().to_string_lossy().into_owned(),
@@ -97,6 +106,7 @@ pub(super) fn before(run: &mut DevRun, worktree: &Path, build: &Path) {
         SCRIPT.replace("INSTALL", manager.install),
         "kelpie-dev-server".to_owned(),
         folder.display().to_string(),
+        mark.display().to_string(),
         server,
     ];
     args.append(&mut run.args);
@@ -106,7 +116,7 @@ pub(super) fn before(run: &mut DevRun, worktree: &Path, build: &Path) {
             .or_insert_with(|| build.join(folder).display().to_string());
     }
     (run.policy.hosts).extend(manager.hosts.iter().map(|&h| h.to_owned()));
-    if !folder.join("node_modules").is_dir() {
+    if !folder.join("node_modules").is_dir() || mark.exists() {
         run.ready_within = INSTALL_WITHIN;
     }
 }

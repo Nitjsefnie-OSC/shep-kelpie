@@ -121,7 +121,7 @@ fn a_worktree_with_no_packages_installs_them_before_its_server_starts() {
     let script = &run.args[1];
     assert_eq!(run.program, crate::spawn::sh().to_string_lossy());
     assert!(script.contains("bun install --frozen-lockfile"), "{script}");
-    assert_eq!(run.args[4..], ["npm", "run", "dev", "--", "--port", "4421"]);
+    assert_eq!(run.args[5..], ["npm", "run", "dev", "--", "--port", "4421"]);
     assert!(run.policy.hosts.contains(&"registry.npmjs.org".to_owned()));
     assert!(run.ready_within > crate::ports::READY_WITHIN);
 }
