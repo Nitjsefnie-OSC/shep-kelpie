@@ -30,7 +30,8 @@ use crate::board::{OpenPullRequest, TRIAGE, is_bump};
 use crate::ports::{Checks, E2eOutcome, ForgeError, NewLabel, PullRequestState, Timestamp};
 use crate::settings::{Dependencies, OnRed};
 use crate::state::{Bump, E2eResult, E2eState, Red, RedStep, StateError};
-use crate::worktree::{self, Base, Remote};
+use crate::worktree::Base;
+use read::Reads;
 
 /// Made on a repo that lacks it before the first issue for a red bump
 const DEPENDENCIES_LABEL: NewLabel<'static> = NewLabel {
@@ -39,8 +40,8 @@ const DEPENDENCIES_LABEL: NewLabel<'static> = NewLabel {
     description: "A bump a bot opened that kelpie closed because it broke",
 };
 
-// The longest list of changed paths read for one bump, in bytes
-const PATHS_LIMIT: usize = 1 << 20;
+// What `status` says of a bump whose poll did not read what it needed, which the next one does
+const UNREAD: &str = "waiting for the next poll to read it";
 
 // What `status` says of a web bump the dog has no host for
 const NO_HOST: &str = "a web bump, and the project has no e2e host, so it is not merged";
@@ -56,28 +57,6 @@ enum Next {
 }
 
 impl Runner {
-    // Brings the bumps the state records in line with the open pull requests
-    // and takes each as far as it can go, once a poll. A listing that cannot
-    // be read leaves the records as they are.
-    pub(super) fn follow_dependencies(&mut self) -> Result<(), StateError> {
-        if self.settings.dependencies.is_off() {
-            return self.forget_bumps();
-        }
-        let now = self.ports.clock.now();
-        if !self.looks.dependencies_due(now) {
-            return Ok(());
-        }
-        let Ok(open) = self.open_listed() else {
-            return Ok(());
-        };
-        self.record_bumps(&open, now)?;
-        let numbers: Vec<u64> = self.state.bumps.iter().map(|b| b.pull_request).collect();
-        for number in numbers {
-            self.work_bump(number, &open, now)?;
-        }
-        Ok(())
-    }
-
     // The bumps as `status` lists them, each with where it stands
     pub(super) fn bumps_status(&self) -> Vec<BumpStatus> {
         (self.state.bumps.iter())
@@ -143,13 +122,14 @@ impl Runner {
         number: u64,
         open: &[OpenPullRequest],
         now: Timestamp,
+        reads: &mut Reads,
     ) -> Result<(), StateError> {
         let Some(bump) = self.bump(number) else {
             return Ok(());
         };
         if bump.red.is_some() {
             let on_board = open.iter().any(|pr| pr.number == number);
-            if !on_board && bump.issue_owed() && self.settle_left_red(&bump)? {
+            if !on_board && bump.issue_owed() && self.settle_left_red(&bump, reads)? {
                 return Ok(());
             }
             return self.finish_red(number);
@@ -157,17 +137,23 @@ impl Runner {
         let Some(pr) = open.iter().find(|pr| pr.number == number) else {
             return Ok(());
         };
-        match self.prove(&bump, pr, now) {
+        match self.prove(&bump, pr, now, reads) {
             Next::Waiting(why) => self.stand(number, why, false),
             Next::Red(why) => self.go_red(number, &bump.head, why),
-            Next::Merge => self.merge_bump(&bump),
+            Next::Merge => {
+                self.merge_bump(&bump)?;
+                if self.bump(number).is_none() {
+                    reads.moved_on();
+                }
+                Ok(())
+            }
         }
     }
 
     // A red bump that left the board before kelpie closed it: closed by
     // someone else, its issue is still owed; merged, there is nothing to
     // file; unreadable, it waits. Says whether that is all for this poll.
-    fn settle_left_red(&mut self, bump: &Bump) -> Result<bool, StateError> {
+    fn settle_left_red(&mut self, bump: &Bump, reads: &mut Reads) -> Result<bool, StateError> {
         let number = bump.pull_request;
         if bump
             .red
@@ -176,15 +162,18 @@ impl Runner {
         {
             return Ok(false);
         }
-        match (self.ports.forge).pull_request(&self.remote, number) {
-            Ok(now) if now.state == PullRequestState::Merged => {
+        let Some(read) = reads.left.remove(&number) else {
+            return Ok(true);
+        };
+        match read {
+            Ok(PullRequestState::Merged) => {
                 self.notes.push(format!(
                     "bump #{number}: merged by someone else while red, so no issue"
                 ));
                 self.drop_bump(number)?;
                 Ok(true)
             }
-            Ok(now) if now.state == PullRequestState::Closed => {
+            Ok(PullRequestState::Closed) => {
                 self.amend(number, |b| {
                     if let Some(red) = b.red.as_mut() {
                         red.step = RedStep::File;
@@ -228,15 +217,17 @@ impl Runner {
     }
 
     // Where `bump`, whose listing is `pr`, stands, and what to do about it.
-    fn prove(&mut self, bump: &Bump, pr: &OpenPullRequest, now: Timestamp) -> Next {
-        let repo = &self.settings.git.checkout;
-        match worktree::base_of(
-            repo,
-            &bump.branch,
-            &bump.head,
-            &Remote::Origin,
-            self.settings.git.base(),
-        ) {
+    fn prove(
+        &mut self,
+        bump: &Bump,
+        pr: &OpenPullRequest,
+        now: Timestamp,
+        reads: &mut Reads,
+    ) -> Next {
+        let Some(read) = reads.proofs.remove(&bump.pull_request) else {
+            return Next::Waiting(UNREAD.into());
+        };
+        match read.base {
             Err(e) => return Next::Waiting(format!("cannot tell where it stands on main: {e}")),
             Ok(Base::Lagging) => {
                 return Next::Waiting("waiting for its branch to match the forge's head".into());
@@ -271,7 +262,7 @@ impl Runner {
             }
             Checks::Passed | Checks::Skipped => {}
         }
-        self.prove_web(bump)
+        self.prove_web(bump, read.web)
     }
 
     // A bump behind `main` is asked to rebase once for each head.
@@ -298,7 +289,7 @@ impl Runner {
 
     // A web bump also needs its proof on this head: its routes opened in the local
     // browser where the project has one, and a passing e2e run where it has a host.
-    fn prove_web(&mut self, bump: &Bump) -> Next {
+    fn prove_web(&mut self, bump: &Bump, web: Option<Result<bool, String>>) -> Next {
         let number = bump.pull_request;
         if bump.e2e_failure().is_some() {
             return Next::Red(vec!["its e2e run failed".into()]);
@@ -315,17 +306,10 @@ impl Runner {
         if self.settings.dependencies.web.is_empty() {
             return Next::Merge;
         }
-        let repo = &self.settings.git.checkout;
-        let paths = worktree::changed_paths(
-            repo,
-            number,
-            &bump.head,
-            PATHS_LIMIT,
-            self.settings.git.base(),
-        );
-        let web = match paths {
-            Ok(paths) => paths.iter().any(|p| self.settings.dependencies.is_web(p)),
-            Err(e) => return Next::Waiting(format!("cannot list the files it changes: {e}")),
+        let web = match web {
+            Some(Ok(web)) => web,
+            Some(Err(e)) => return Next::Waiting(format!("cannot list the files it changes: {e}")),
+            None => return Next::Waiting(UNREAD.into()),
         };
         if !web {
             return Next::Merge;
@@ -573,7 +557,9 @@ pub struct BumpStatus {
     pub standing: String,
 }
 
+pub(super) use read::follow_dependencies;
 #[cfg(test)]
 mod browser_tests;
+mod read;
 #[cfg(test)]
 pub(in crate::runner) mod tests;

@@ -15,6 +15,10 @@ pub enum At {
     MainRuns,
     // The read of one issue, which a review round makes for its criteria
     Issue,
+    // The read of one pull request, which a parked work item's check makes
+    PullRequest,
+    // The listing of the open pull requests, which following the bumps makes
+    OpenPullRequests,
 }
 
 // Who reached the forge and who lets it go
@@ -60,6 +64,16 @@ impl FakeForge {
     /// Holds the next read of one issue open, and lets every other call through
     pub fn hold_next_issue_read(&self) -> HeldCall {
         self.hold_open(At::Issue)
+    }
+
+    /// Holds the next read of one pull request open, and lets every other call through
+    pub fn hold_next_pull_request_read(&self) -> HeldCall {
+        self.hold_open(At::PullRequest)
+    }
+
+    /// Holds the next listing of the open pull requests open, and lets every other call through
+    pub fn hold_next_open_pull_requests_read(&self) -> HeldCall {
+        self.hold_open(At::OpenPullRequests)
     }
 
     fn hold_open(&self, at: At) -> HeldCall {

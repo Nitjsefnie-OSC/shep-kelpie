@@ -134,9 +134,6 @@ impl Runner {
         self.looks.pass_began(self.forge_ledger.writes());
         // What follows asks the forge with the runner's lock held.
         self.post();
-        // Read `main`'s workflows before any step is chosen, so no forge read
-        // falls between a step's drain check and the call it starts.
-        self.read_main_ci();
         let begin = self.step_rotation(start_over);
         self.snapshot.end_pass();
         begin
@@ -154,9 +151,7 @@ impl Runner {
             self.note_held_up(ticket, &begin);
             return Ok(begin);
         }
-        self.recheck_dropped()?;
         self.follow_contributions()?;
-        self.follow_dependencies()?;
         self.follow_triage()?;
         let open: Vec<TicketId> = self.state.work_items.iter().map(|i| i.issue).collect();
         self.unreachable.keep_only(&open);
