@@ -69,6 +69,11 @@ impl Reads {
         self.starts.get(&ticket).cloned().unwrap_or_default()
     }
 
+    /// Whether `ticket`'s turn has read its start, so this step is the one made again over it
+    pub(in crate::runner) fn has_started(&self, ticket: TicketId) -> bool {
+        self.starts.contains_key(&ticket)
+    }
+
     /// Pull request `number`, as the step read it
     pub(in crate::runner) fn view(&self, number: u64) -> Option<Result<PullRequest, ForgeError>> {
         self.views.get(&number).cloned()

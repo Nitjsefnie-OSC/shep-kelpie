@@ -318,6 +318,7 @@ impl Runner {
         // running carries on, since a turn is never interrupted, and start_over
         // resumes the same not-yet-begun turn after a session died unborn.
         let due = matches!(item.turn, Turn::Due | Turn::Next { .. });
+        let started = self.reads.has_started(item.issue);
         if let Some(begin) = self.pushed_by_someone_else()? {
             // A read the gate asks for is made and the step made again in the gate's phase, which
             // would not say why, so the reason stands until that step ends.
@@ -336,7 +337,9 @@ impl Runner {
         if due && let Some(why) = self.builds_hold() {
             return Ok(self.idle(why));
         }
-        if due {
+        // A step made again over the start's reads was paced clear by the step before it, and
+        // asking again would read the account's usage twice for one turn.
+        if due && !started {
             let pace = self.pace_worker(Scope::Turn)?;
             if let Pace::StillHeld(hold) | Pace::Held(hold) = &pace {
                 self.held_up.because(Reason::Paced(hold.reason.clone()));
