@@ -204,16 +204,26 @@ fn status_and_drain_answer_while_a_pass_waits_in_the_forge() {
     let rig = Rig::new("shep");
     let runner = Arc::new(rig.open().unwrap());
     let postings = postings(&runner);
-    let held = rig.forge.hold_next_call();
+    let mut held = rig.forge.hold_next_call();
     let worker = spawn(&runner);
-    assert!(
-        held.waiting(REACH_FORGE),
-        "the pass never reached the forge"
-    );
-    assert!(
-        runner.try_lock().is_err(),
-        "the pass let go of the runner's lock in the forge"
-    );
+    // The reads at the start of a pass let the lock go, so hold calls one by one until a call
+    // the pass makes with the lock held.
+    let mut off_the_lock = 0;
+    loop {
+        assert!(
+            held.waiting(REACH_FORGE),
+            "the pass never reached a forge call it made with the lock held"
+        );
+        if runner.try_lock().is_err() {
+            break;
+        }
+        off_the_lock += 1;
+        assert!(off_the_lock < 20, "no call of the pass held the lock");
+        // The next hold is set before this one lets go, so no call slips between them.
+        let next = rig.forge.hold_next_call();
+        drop(held);
+        held = next;
+    }
 
     let status = asked_while_held(&runner, &postings, "status");
     let drain = asked_while_held(&runner, &postings, "drain");
