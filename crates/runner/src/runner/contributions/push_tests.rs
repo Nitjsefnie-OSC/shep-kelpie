@@ -12,6 +12,7 @@ use std::time::Duration;
 use crate::ports::{CLEAN, Checks, Finding, PullRequestState, Severity};
 use crate::runner::adopt::released::{FORK_BRANCH, adopted, contributed, release};
 use crate::runner::contributions::Sent;
+use crate::runner::git_reads::Found;
 use crate::runner::ruling::Answer;
 use crate::runner::{Runner, StepReport, step};
 use crate::state::{RulingKind, Stuck};
@@ -301,6 +302,20 @@ fn a_fix_the_fork_took_on_the_second_try_is_a_fix_pushed_and_not_a_fix_not_pushe
     );
     assert_eq!(on_fork(&url), worktree_head(&rig));
     assert_eq!(raised(&runner), [], "no ruling over a fix that was pushed");
+}
+
+// The head a step fetched off the lock before the push is the fork's old one, which a step made
+// again after the push would otherwise take as the fork's head
+#[test]
+fn a_push_to_the_fork_forgets_the_head_read_before_it() {
+    let (_rig, runner, _, _) = noted();
+    let mut held = runner.lock().unwrap();
+    held.focus = Some(ticket(5));
+    held.reads.git.keep(Found::Head(Ok("before".to_owned())));
+
+    held.sent(80, Sent::Pushed("after".to_owned())).unwrap();
+
+    assert!(held.reads.git.is_empty());
 }
 
 #[test]
