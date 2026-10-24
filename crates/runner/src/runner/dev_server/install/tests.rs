@@ -102,3 +102,56 @@ fn the_script_stops_when_the_install_fails_and_runs_the_server_when_it_does_not(
         );
     }
 }
+
+// Runs `run`'s script with `install` standing in for the package manager's command, in
+// `dir`, and says whether the stand-in ran.
+fn installed(run: &DevRun, dir: &Path, install: &str) -> bool {
+    let manager = MANAGERS.iter().map(|m| m.install);
+    let script = manager.fold(run.args[1].clone(), |s, m| s.replace(m, install));
+    std::process::Command::new(crate::spawn::sh())
+        .arg("-c")
+        .arg(script)
+        .args(&run.args[2..])
+        .current_dir(dir)
+        .status()
+        .unwrap();
+    dir.join("installed").exists()
+}
+
+#[test]
+fn packages_already_installed_are_left_alone_and_the_server_gets_its_usual_wait() {
+    let dir = checkout(&["bun.lock", "node_modules/vite/package.json"]);
+    let mut run = run(dir.path());
+    run.program = "true".to_owned();
+
+    before(&mut run, dir.path(), Path::new("/build"));
+
+    assert!(!installed(&run, dir.path(), "touch installed"));
+    assert_eq!(run.ready_within, Duration::from_secs(60));
+}
+
+#[test]
+fn a_checkout_with_no_packages_is_installed_into() {
+    let dir = checkout(&["bun.lock"]);
+    let mut run = run(dir.path());
+    run.program = "true".to_owned();
+
+    before(&mut run, dir.path(), Path::new("/build"));
+
+    assert!(installed(&run, dir.path(), "touch installed"));
+}
+
+#[test]
+fn a_cache_the_server_already_names_is_kept() {
+    let dir = checkout(&["bun.lock"]);
+    let mut run = run(dir.path());
+    run.program = "true".to_owned();
+    run.env.insert(
+        "BUN_INSTALL_CACHE_DIR".to_owned(),
+        "/b/bun/cache".to_owned(),
+    );
+
+    before(&mut run, dir.path(), Path::new("/build"));
+
+    assert_eq!(run.env["BUN_INSTALL_CACHE_DIR"], "/b/bun/cache");
+}
