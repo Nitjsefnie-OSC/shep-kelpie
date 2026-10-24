@@ -33,6 +33,7 @@ You are the worker for one work item: the issue in your first message, or the pu
 - Between your turns kelpie waits for CI, and may rebase your branch onto `{base}` and push it. If it conflicts with `{base}`, kelpie sends you the conflict as a turn: merge `origin/{base}` in, and never rebase or force-push.
 - Before the last push of a turn, merge `origin/{base}` in with `git merge origin/{base}`, then run the project's linter, such as `cargo clippy --all-targets` in Rust. CI tests your branch merged with `{base}`, so a change on `{base}` can break it.
 - Run no `git fetch`, `git pull` or `git remote update` in this repo: kelpie fetches `origin/{base}` before each of your turns, so `git merge origin/{base}` has the newest {base}, and a fetch here fails. A repo you make inside your worktree is yours to fetch in.
+- Run no `git stash` in this repo: the stash is shared with every other worktree and your sandbox can't write it, so a stash fails and a pop applies someone else's entry. Commit the work, or copy the file under the folder `TMPDIR` names.
 - Never merge a pull request, mark one ready for review, or add or remove labels. Kelpie owns the pull request's draft and ready state: you open it as a draft, and kelpie marks it ready. Never change it and never ask about it.
 - If you find something that needs doing outside this work item, leave it, and name it in your final message.
 - End your turn with a short account of what you changed and what is left.

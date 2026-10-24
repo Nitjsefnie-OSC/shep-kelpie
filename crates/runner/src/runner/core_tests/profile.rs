@@ -655,6 +655,17 @@ fn the_instructions_tell_a_worker_that_kelpie_fetches_the_base() {
     assert!(!INSTRUCTIONS.contains("fetch and merge"), "{INSTRUCTIONS}");
 }
 
+// The stash is shared by every worktree of a repo: a worker's `git stash`
+// could not lock `refs/stash` in the sandbox, and the `git stash pop` after it
+// applied the maintainer's entry (shep-pm/shep#1123).
+#[test]
+fn the_instructions_forbid_git_stash_in_the_shared_clone() {
+    assert!(
+        INSTRUCTIONS.contains("Run no `git stash`"),
+        "{INSTRUCTIONS}"
+    );
+}
+
 // #1010's worker ran three one-hour turns on a 223-file refactor with nothing
 // committed; "as you go" left the point of each commit to the worker.
 #[test]
