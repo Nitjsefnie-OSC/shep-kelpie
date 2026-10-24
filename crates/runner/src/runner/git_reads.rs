@@ -152,7 +152,13 @@ impl Ask for Changed {
 
     fn run(self) -> Self::Answer {
         let accepted = self.accepted.as_deref();
-        fence::changed(&self.checkout, &self.branch, &self.remote, accepted, &self.base)
+        fence::changed(
+            &self.checkout,
+            &self.branch,
+            &self.remote,
+            accepted,
+            &self.base,
+        )
     }
 
     fn job(self) -> Git {
@@ -199,14 +205,18 @@ impl Runner {
         Ok(read.map_err(|e| e.to_string()))
     }
 
-    /// Where `head`, the forge's head of the work item's branch, stands against its base, or why
-    /// git could not say, or the step's `Begin::Reads`
+    /// The head of the work item's branch on its remote, or the step's end: `Begin::Reads`, or
+    /// the gate failing as git could not say
+    pub(in crate::runner) fn pushed_head(&self) -> Result<String, Box<Begin>> {
+        self.head_on_origin()?
+            .map_err(|reason| Box::new(self.gate_failed(reason)))
+    }
+
+    /// Where `head`, the forge's head of the work item's branch, stands against its base, or the
+    /// step's end: `Begin::Reads`, or the gate failing as git could not say
     ///
     /// A base read for another head is not this one's: it is read again.
-    pub(in crate::runner) fn base_standing(
-        &self,
-        head: &str,
-    ) -> Result<Result<Base, String>, Box<Begin>> {
+    pub(in crate::runner) fn base_standing(&self, head: &str) -> Result<Base, Box<Begin>> {
         let ask = self.current().map(|item| Standing {
             checkout: self.settings.git.checkout.clone(),
             branch: item.branch.clone(),
@@ -215,7 +225,7 @@ impl Runner {
             base: self.item_base(item).to_owned(),
         });
         let read = self.read_git(self.reads.git.bases.get(head).cloned(), ask)?;
-        Ok(read.map_err(|e| format!("cannot fetch main: {e}")))
+        read.map_err(|e| Box::new(self.gate_failed(format!("cannot fetch main: {e}"))))
     }
 
     /// The branch's head on its remote and the agents' own files it changes, or the step's

@@ -35,11 +35,11 @@ mod script_cli;
 // The stand-ins and helpers that name only `core` and the leaves, where `core`'s own tests use them
 pub use claude::{FakeClaude, LEFT_BEHIND, Scripted, Seen};
 // The stand-ins that name an adapter
+pub use held_git::HeldGit;
 pub use reads::{
     assert_granted, assert_reads, assert_refuses, installed_sources, sandbox_refuses,
     source_folders, tools_refuse,
 };
-pub use held_git::HeldGit;
 pub use registered_app::RegisteredApp;
 pub use script_cli::ScriptCli;
 pub use shep_kelpie_adapters::test::{

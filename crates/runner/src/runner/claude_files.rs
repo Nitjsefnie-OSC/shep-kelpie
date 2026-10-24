@@ -34,20 +34,19 @@ impl Runner {
         &mut self,
         unchecked: Unchecked,
     ) -> Result<Option<Begin>, StateError> {
-        let item = self.current().expect("the gate runs on a work item");
+        // A step made again after a read finds the work item as the read left it
+        let Some(item) = self.current() else {
+            return Ok(Some(Begin::Idle));
+        };
         let Some(number) = item.pull_request else {
             return Ok(None);
         };
-        let accepted = item.claude_files_accepted.as_deref();
         let phase = item.phase.clone();
-        let base = self.item_base(item).to_owned();
-        match fence::changed(
-            &self.settings.git.checkout,
-            &item.branch,
-            &item.remote,
-            accepted,
-            &base,
-        ) {
+        let read = match self.agent_files_read() {
+            Ok(read) => read,
+            Err(begin) => return Ok(Some(*begin)),
+        };
+        match read {
             Ok((_, files)) if files.is_empty() => Ok(None),
             Ok((head, files)) => {
                 let kind = RulingKind::AgentFiles { head, files, phase };

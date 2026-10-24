@@ -39,6 +39,28 @@ impl Runner {
         Ok(Begin::Idle)
     }
 
+    // Whether `bot` read the pull request before and the head on `origin`
+    // is one a nit-only fix pushed. Git that cannot say counts as no, which
+    // sends the nits as any round's.
+    pub(super) fn nits_left_open(&self, bot: Bot) -> Result<bool, Box<Begin>> {
+        let item = self.item();
+        let read_before = item.bot_reads.get(&bot).is_some_and(|reads| *reads > 0);
+        if !read_before || item.nit_fix_heads.is_empty() {
+            return Ok(false);
+        }
+        Ok(match self.head_on_origin()? {
+            Ok(head) => item.nit_fix_heads.contains(&head),
+            Err(e) => {
+                let name = bot.name();
+                eprintln!(
+                    "cannot read issue #{}'s head on origin, so {name}'s nits are sent: {e}",
+                    item.issue
+                );
+                false
+            }
+        })
+    }
+
     // Reads the threads again, and lands the review once two reads agree
     // and SETTLE_LEAST has passed, or once SETTLE_MOST has.
     pub(super) fn threads_settling(

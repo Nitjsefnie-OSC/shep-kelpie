@@ -610,9 +610,8 @@ impl Runner {
                 held: 0,
             }));
         }
-        let head = match self.head_on_origin() {
-            Ok(Ok(head)) => head,
-            Ok(Err(reason)) => return Ok(self.gate_failed(reason)),
+        let head = match self.pushed_head() {
+            Ok(head) => head,
             Err(begin) => return Ok(*begin),
         };
         if let Err(reason) = self.bot_label_off(&review) {

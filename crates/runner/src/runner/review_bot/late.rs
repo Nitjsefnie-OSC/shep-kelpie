@@ -43,9 +43,8 @@ impl Runner {
             return Ok(None);
         }
         let skipped = item.bots_skipped.clone();
-        let head = match self.head_on_origin() {
-            Ok(Ok(head)) => head,
-            Ok(Err(reason)) => return Ok(Some(self.gate_failed(reason))),
+        let head = match self.pushed_head() {
+            Ok(head) => head,
             Err(begin) => return Ok(Some(*begin)),
         };
         for reviewer in skipped.iter().map(|s| s.reviewer().clone()) {

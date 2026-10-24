@@ -79,10 +79,10 @@ impl Runner {
             now
         };
         self.note_checks(&pr.checks);
-        let base = match self.base_of(&pr.head) {
+        let base = match self.base_standing(&pr.head) {
             Ok(Base::Lagging) => return Ok(Begin::Idle),
             Ok(base) => base,
-            Err(reason) => return Ok(self.gate_failed(reason)),
+            Err(begin) => return Ok(*begin),
         };
         // A late round that left the head it read pushed no fix, so a
         // catch-up of that head is not one.
@@ -365,19 +365,6 @@ impl Runner {
     pub(super) fn no_checks_of(&self, item: &WorkItem) -> Option<&'static str> {
         let waiting = matches!(item.phase, Phase::Ci { .. } | Phase::Review(_));
         (waiting && self.no_checks.contains(&item.issue)).then_some("none")
-    }
-
-    /// Where `head` stands against `origin`, or why git could not say
-    pub(super) fn base_of(&self, head: &str) -> Result<Base, String> {
-        let item = self.current().expect("a base is of a work item");
-        worktree::base_of(
-            &self.settings.git.checkout,
-            &item.branch,
-            head,
-            &item.remote,
-            self.item_base(item),
-        )
-        .map_err(|e| format!("cannot fetch main: {e}"))
     }
 
     // A head no gate vouched for, such as one a yes under `ask` left before

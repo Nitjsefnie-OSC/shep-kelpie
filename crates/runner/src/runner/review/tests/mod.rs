@@ -338,13 +338,14 @@ fn a_trigger_is_answered_while_the_review_head_is_read() {
 // A round with findings, which the next step sends to the worker against the head git reports
 fn after_a_round_with_findings(project: &str) -> (Rig, std::sync::Mutex<crate::runner::Runner>) {
     let (rig, runner) = at_round_1(project);
-    rig.reviewer.script([ScriptedRound::Findings(vec![Finding::new(
-        Severity::Medium,
-        "src/lib.rs",
-        3,
-        "the flag is misnamed",
-        "it reads as its opposite",
-    )])]);
+    rig.reviewer
+        .script([ScriptedRound::Findings(vec![Finding::new(
+            Severity::Medium,
+            "src/lib.rs",
+            3,
+            "the flag is misnamed",
+            "it reads as its opposite",
+        )])]);
     step(&runner).unwrap(); // round 1's qwen call
     (rig, runner)
 }
@@ -361,7 +362,10 @@ fn a_trigger_is_answered_while_origin_head_is_read() {
     let reply = reply.expect("the trigger waited for the lock the fetch held");
     assert_eq!(reply["work_items"].as_array().unwrap().len(), 1);
     assert!(
-        matches!(pass, Ok(Pass::Report(StepReport::ReviewFindingsSent { .. }))),
+        matches!(
+            pass,
+            Ok(Pass::Report(StepReport::ReviewFindingsSent { .. }))
+        ),
         "{pass:?}"
     );
 }
