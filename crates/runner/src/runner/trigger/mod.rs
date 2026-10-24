@@ -11,6 +11,7 @@ use super::gpu::GpuStatus;
 use super::lock_hold::Held;
 use super::pace::PacerStatus;
 use super::posted::{Body, Posted, Queued};
+use super::timings;
 use super::{Action, Answer, RuleError, Runner};
 use crate::board::Skip;
 use crate::ports::PaddockHolder;
@@ -473,7 +474,8 @@ pub fn answer(
 ///
 /// `status` and `timings` only ask, and `drain` starts its retro itself, so
 /// none wakes the loop: a drain's wait asks `drain` and
-/// `status` twice a second. `undrain` wakes it, to start the calls it lets go.
+/// `status` twice a second. `undrain` wakes it, to start the calls it lets go,
+/// and so does each verb that is queued while a pass holds the lock.
 pub fn wakes(action: &str) -> bool {
     !matches!(action, "status" | "timings" | "drain")
 }
@@ -481,7 +483,8 @@ pub fn wakes(action: &str) -> bool {
 // Answers `request` from what the loop last posted, for a runner whose lock a
 // pass holds.
 //
-// Only the triggers that ask have a posted answer. A `drain` or `undrain`
+// Only the triggers that ask have a posted answer: `status`, `timings` and
+// the `board` listing, which read the copy as it stands. A `drain` or `undrain`
 // answered that way sets its flag here, where every step reads it, and leaves
 // what it asks the runner itself for the pass to take up at its next lock. The
 // verbs that read the forge (`add`, `rework`, `adopt`, `triage` and `rule`)
@@ -501,6 +504,12 @@ fn from_posted(posted: &Posted, request: &Request) -> Option<String> {
         return status_of(posted, body);
     }
     let asked = match request {
+        Request::Timings(last) => {
+            let body = posted.body()?;
+            let totals = timings::totals_of(&body.project, &body.history, *last);
+            return Some(serde_json::to_string(&totals).expect("totals serialize to JSON"));
+        }
+        Request::Board(None) => return Some(posted.body()?.board.to_string()),
         Request::Status => true,
         Request::Drain { at_tool } => {
             posted.ask_drain(*at_tool);
@@ -539,7 +548,9 @@ fn ruling_waits(status: &serde_json::Value, id: TicketId) -> bool {
 
 // The posted status as a reply, with `draining` as the flag stands now.
 fn status_of(posted: &Posted, body: Body) -> Option<String> {
-    let Body { mut status, drain } = body;
+    let Body {
+        mut status, drain, ..
+    } = body;
     if posted.draining() {
         status["draining"] = drain;
     } else {

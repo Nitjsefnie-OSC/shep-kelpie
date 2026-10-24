@@ -5,11 +5,13 @@ use std::time::Duration;
 use serde_json::{Value, json};
 
 use super::*;
-use crate::ports::{Checks, Cost, Usage};
+use crate::ports::{Checks, Cost, Timestamp, Usage};
 use crate::runner::posted::Queued;
 use crate::runner::{StepReport, step};
 use crate::skills::Step;
+use crate::state::{Finished, ProjectState, StateStore};
 use crate::test::{Rig, Scripted, ticket};
+use crate::work_item::{Seconds, TimingPhase};
 
 mod board;
 mod ticket;
@@ -325,4 +327,39 @@ fn rule_is_answered_while_the_pass_holds_the_lock_and_an_unknown_id_is_refused_a
         [Queued::Rule(ticket(71), Answer::No("not yet".into()))],
         "the refused id queued nothing"
     );
+}
+
+#[test]
+fn timings_and_board_answer_from_the_posted_copy() {
+    let rig = Rig::new("koji");
+    let seconds = Seconds::of(&[(TimingPhase::Worker, 60), (TimingPhase::Ci, 40)]);
+    let mut state = ProjectState::new();
+    state.history = vec![Finished {
+        issue: ticket(5),
+        title: "Issue 5".to_owned(),
+        pull_request: Some(65),
+        merged: true,
+        closed: false,
+        at: Timestamp(Rig::EPOCH + 5),
+        wall: seconds.total(),
+        seconds,
+        spend: None,
+    }];
+    let file = rig.paths().state;
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    StateStore::new(file).save(&state).unwrap();
+    let runner = rig.open().unwrap();
+    for issue in [282, 284] {
+        rig.forge.list_ready(issue, false);
+        rig.forge.block(issue, 32);
+    }
+    assert_eq!(step(&runner).unwrap(), None);
+    let (runner, _) = posted(&rig, runner);
+    let timings = rig.ask(&runner, "timings", None);
+    let board = rig.ask(&runner, "board", None);
+    assert_eq!(timings["items"], 1);
+    assert_eq!(board["board"].as_array().map(Vec::len), Some(2));
+
+    assert_eq!(asked_during_a_pass(&runner, "timings", None), timings);
+    assert_eq!(asked_during_a_pass(&runner, "board", None), board);
 }

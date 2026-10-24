@@ -24,6 +24,7 @@ use serde_json::Value;
 
 use super::{Answer, Runner};
 use crate::ports::PaddockHolder;
+use crate::state::Finished;
 use crate::ticket::TicketId;
 
 /// What the loop last posted, and what a trigger asked while a pass held the lock
@@ -70,12 +71,17 @@ impl fmt::Display for Queued {
 }
 
 /// What `status` and `drain` answer while a pass holds the runner's lock
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub(crate) struct Body {
     /// The status as posted, with `draining` left out
     pub(crate) status: Value,
     /// The calls in flight and the longest any may run, whether or not the runner drains
     pub(crate) drain: Value,
+    /// What `board` answers
+    pub(crate) board: Value,
+    /// The project, and the work items it finished, which `timings` totals
+    pub(crate) project: String,
+    pub(crate) history: Vec<Finished>,
 }
 
 /// What a `drain` or `undrain` asked of a runner whose lock a pass held
@@ -88,12 +94,12 @@ pub(crate) enum Pending {
 }
 
 impl Posted {
-    /// Posts `status` and the drain state, replacing what was posted
-    pub(crate) fn post(&self, status: Value, drain: Value) {
+    /// Posts `body`, replacing what was posted
+    pub(crate) fn post(&self, body: Body) {
         *self
             .body
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(Body { status, drain });
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(body);
     }
 
     /// What was last posted, or `None` before the runner posted anything
@@ -264,7 +270,13 @@ impl Runner {
         // `draining` goes in when a trigger reads the post, from the flag the
         // post itself is not held by.
         (status.as_object_mut().expect("a status object")).remove("draining");
-        self.postings.post(status, drain);
+        self.postings.post(Body {
+            status,
+            drain,
+            board: serde_json::to_value(self.board()).expect("the list serializes to JSON"),
+            project: self.project.as_str().to_owned(),
+            history: self.state.history.clone(),
+        });
     }
 }
 
@@ -307,8 +319,16 @@ mod tests {
     fn a_posted_body_is_the_last_one_posted() {
         let posted = Posted::default();
         assert!(posted.body().is_none(), "nothing posted yet");
-        posted.post(json!({ "project": "koji" }), json!({ "calls": [] }));
-        posted.post(json!({ "project": "koji", "run": "finishing" }), json!(0));
+        posted.post(Body {
+            status: json!({ "project": "koji" }),
+            drain: json!({ "calls": [] }),
+            ..Body::default()
+        });
+        posted.post(Body {
+            status: json!({ "project": "koji", "run": "finishing" }),
+            drain: json!(0),
+            ..Body::default()
+        });
         let body = posted.body().expect("a post");
         assert_eq!(
             body.status,
