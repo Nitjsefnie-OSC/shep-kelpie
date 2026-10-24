@@ -687,7 +687,9 @@ fn a_trigger_is_answered_while_the_failed_run_logs_are_read() {
     let (rig, runner, _) = red::raised("koji", |rig| {
         rig.forge.set_ci_log("--- run 9\nboom work.txt\n")
     });
-    rig.claude.script([Scripted::Say(NOTHING)]);
+    let hold = Hold::default();
+    rig.claude
+        .script([Scripted::HoldThenSay(hold.clone(), NOTHING)]);
     step(&runner).unwrap(); // queues the wake, which waits its window
     past_the_window(&rig);
     let read = rig.forge.hold_next_failed_logs_read();
@@ -699,7 +701,13 @@ fn a_trigger_is_answered_while_the_failed_run_logs_are_read() {
         "the trigger waited for the lock the read held"
     );
     assert!(matches!(pass, Ok(Pass::Started)), "{pass:?}");
+    // The call runs on its own thread, so it is waited for before it is counted.
+    assert!(hold.entered(CALL_PATIENCE), "the wake's call never began");
     assert_eq!(pm_seen(&rig).len(), 1, "the wake happened");
+    hold.release();
+    answered(Some(step_until(&runner, |r| {
+        matches!(r, StepReport::PmAnswered { .. })
+    })));
 }
 
 #[test]

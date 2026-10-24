@@ -25,6 +25,11 @@ fn a_trigger_is_answered_while_the_worker_token_is_minted() {
         "the trigger waited for the lock the mint held"
     );
     assert!(matches!(pass, Ok(Pass::Started)), "{pass:?}");
+    // The call runs on its own thread, so its end is waited for before it is counted.
+    assert!(matches!(
+        step(&runner).unwrap(),
+        Some(StepReport::Ended { .. })
+    ));
     assert_eq!(rig.claude.all_calls().len(), 1, "the turn started anyway");
 }
 
@@ -41,6 +46,11 @@ fn a_trigger_is_answered_while_the_issue_is_read_for_the_first_prompt() {
         "the trigger waited for the lock the read held"
     );
     assert!(matches!(pass, Ok(Pass::Started)), "{pass:?}");
+    // The call runs on its own thread, so its end is waited for before it is counted.
+    assert!(matches!(
+        step(&runner).unwrap(),
+        Some(StepReport::Ended { .. })
+    ));
     let [seen] = rig.claude.seen().try_into().unwrap();
     assert!(
         seen.call.prompt.contains("Body of #7."),
@@ -62,6 +72,11 @@ fn a_trigger_is_answered_while_the_issue_comments_are_read() {
         "the trigger waited for the lock the read held"
     );
     assert!(matches!(pass, Ok(Pass::Started)), "{pass:?}");
+    // The call runs on its own thread, so its end is waited for before it is counted.
+    assert!(matches!(
+        step(&runner).unwrap(),
+        Some(StepReport::Ended { .. })
+    ));
 }
 
 #[test]
