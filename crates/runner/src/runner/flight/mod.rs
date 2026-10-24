@@ -744,6 +744,8 @@ fn one_pass(runner: &Mutex<Runner>) -> Result<Pass, StateError> {
     super::main_ci::read_main_ci_off_lock(runner);
     super::dispatch::recheck_dropped(runner)?;
     super::dependencies::follow_dependencies(runner)?;
+    // After them, so the board's listing is asked after the call that learns a used-up limit.
+    super::board_read::read_board(runner);
     lock(runner).begin(None)
 }
 
