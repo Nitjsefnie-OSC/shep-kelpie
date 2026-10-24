@@ -31,12 +31,9 @@ impl Runner {
         head: String,
         queued: MergeQueued,
     ) -> Result<Begin, StateError> {
-        let repo = self.remote.clone();
-        let standing = match self.ports.forge.merge_queue(&repo, number) {
+        let standing = match self.queue_standing(number) {
             Ok(standing) => standing,
-            Err(e) => {
-                return Ok(self.gate_failed(format!("cannot read #{number}'s queue: {e}")));
-            }
+            Err(begin) => return Ok(*begin),
         };
         if standing.queued {
             return Ok(Begin::Idle);
@@ -53,12 +50,22 @@ impl Runner {
             (true, None) => "it was taken out of the queue by hand".to_owned(),
             (false, _) => "it is neither merged nor in the queue".to_owned(),
         };
+        let Some(item) = self.current() else {
+            return Ok(Begin::Idle);
+        };
+        let red = item.red_head.as_deref() == Some(head.as_str());
+        // Read before the queue mark is cleared, which the step made again would not find
+        let help = match red {
+            true => None,
+            false => match self.queue_help(&head) {
+                Ok(help) => Some(help),
+                Err(begin) => return Ok(*begin),
+            },
+        };
         self.update(|item| item.merge_queued = None)?;
-        let item = self.current().expect("a merge is of a work item");
-        if item.red_head.as_deref() == Some(head.as_str()) {
+        let Some(help) = help else {
             return self.raise(number, Stuck::MergeRefused { head, why: reason }.into());
-        }
-        let help = self.queue_help(&head);
+        };
         let prompt = self
             .skills
             .invoke(Step::CiFix, &queue_prompt(number, &head, &reason, &help));
@@ -76,9 +83,9 @@ impl Runner {
     // that waits on a head kelpie never gated is disarmed and goes back to CI.
     fn armed(&mut self, number: u64, head: String) -> Result<Begin, StateError> {
         let repo = self.remote.clone();
-        let pr = match self.ports.forge.pull_request(&repo, number) {
+        let pr = match self.round_view(number) {
             Ok(pr) => pr,
-            Err(e) => return Ok(self.gate_failed(format!("cannot read #{number}: {e}"))),
+            Err(begin) => return Ok(*begin),
         };
         let reason = if pr.head != head {
             format!("#{number} moved to {}", short(&pr.head))
@@ -87,7 +94,9 @@ impl Runner {
         } else {
             return Ok(Begin::Idle);
         };
-        let item = self.current().expect("a merge is of a work item");
+        let Some(item) = self.current() else {
+            return Ok(Begin::Idle);
+        };
         let (issue, auto) = match item.phase {
             Phase::Merge { auto, .. } => (item.issue, auto),
             _ => return Ok(Begin::Idle),

@@ -127,7 +127,9 @@ impl Runner {
     // that pass ends there. A later pass, once the checks have had time to
     // register, merges only on a green run.
     pub(super) fn merge(&mut self) -> Result<Begin, StateError> {
-        let item = self.current().expect("a merge is of a work item");
+        let Some(item) = self.current() else {
+            return Ok(Begin::Idle);
+        };
         let (issue, Some(number)) = (item.issue, item.pull_request) else {
             return Ok(Begin::Idle);
         };
@@ -141,9 +143,10 @@ impl Runner {
         };
         let tried = item.merge_tried.clone();
         let repo = self.remote.clone();
-        let pr = match self.pull_request_view(number) {
+        // Read with the runner's lock let go, and the step made again with the result
+        let pr = match self.gate_view(number) {
             Ok(pr) => pr,
-            Err(e) => return Ok(self.gate_failed(format!("cannot read #{number}: {e}"))),
+            Err(begin) => return Ok(*begin),
         };
         match pr.state {
             PullRequestState::Open => {}
@@ -230,13 +233,14 @@ impl Runner {
         }
         // A queued pull request is not merged yet and a second merge call
         // would refuse it, so a restart that lost the mark finds it here.
-        let removals = match self.ports.forge.merge_queue(&repo, number) {
-            Ok(standing) if standing.queued || standing.armed => {
-                return self.queue_marked(standing.removals);
-            }
-            Ok(standing) => standing.removals,
-            Err(e) => return Ok(self.gate_failed(format!("cannot read #{number}'s queue: {e}"))),
+        let standing = match self.queue_standing(number) {
+            Ok(standing) => standing,
+            Err(begin) => return Ok(*begin),
         };
+        if standing.queued || standing.armed {
+            return self.queue_marked(standing.removals);
+        }
+        let removals = standing.removals;
         if let Err(e) = self.ports.forge.merge(&repo, number, &head) {
             let reason = format!("cannot merge #{number}: {e}");
             if !auto {
@@ -289,9 +293,9 @@ impl Runner {
         notice: bool,
     ) -> Result<Begin, StateError> {
         let mut next = self.state.clone();
-        let item = self
-            .current_in(&mut next)
-            .expect("a merge is of a work item");
+        let Some(item) = self.current_in(&mut next) else {
+            return Ok(Begin::Idle);
+        };
         item.phase = Phase::Done {
             merged: true,
             closed: false,
@@ -344,7 +348,9 @@ impl Runner {
         head: String,
         reason: String,
     ) -> Result<Begin, StateError> {
-        let item = self.current().expect("a merge is of a work item");
+        let Some(item) = self.current() else {
+            return Ok(Begin::Idle);
+        };
         let refused_before = item.merge_refused;
         let tried = Some(head.clone());
         self.update(|item| {
@@ -382,7 +388,9 @@ impl Runner {
             self.close_done_parent_of(issue, number);
         }
         self.release_all()?;
-        let item = self.current().expect("a finish is of a work item");
+        let Some(item) = self.current() else {
+            return Ok(Begin::Idle);
+        };
         if let (false, Some(number)) = (merged, item.pull_request)
             && let Err(reason) = self.hand_back(number)
         {

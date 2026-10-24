@@ -2,10 +2,14 @@ use crate::test::ticket;
 use crate::ticket::TicketId;
 use serde_json::json;
 
+use std::sync::{Arc, Mutex};
+
 use super::*;
 use crate::ports::{CLEAN, Cost, Session, Usage};
+use crate::runner::answer;
+use crate::runner::flight::{Pass, advance};
 use crate::runner::step;
-use crate::test::{Rig, Scripted, git};
+use crate::test::{CALL_PATIENCE, Rig, Scripted, git};
 
 pub(super) fn ruling_report(report: Option<StepReport>) -> (TicketId, String) {
     match report {
@@ -495,5 +499,130 @@ fn a_work_item_saved_before_the_gate_existed_is_left_alone() {
     assert_eq!(
         rig.ask(&runner, "status", None)["work_item"]["phase"],
         json!({ "state": "implement" })
+    );
+}
+
+// The gate's reads are made with the runner's lock let go: a trigger is answered while each is
+// held, and a change that lands in the gap reaches the step made again as it would have inline.
+// A project whose pull request 71 is red and has been for as long as the gate settles, so
+// the next pass reads its failed runs' logs
+fn red(project: &str) -> (Rig, Mutex<Runner>) {
+    let (rig, runner, head) = Rig::with_pull_request_set(project, |_| {});
+    rig.forge
+        .set_checks(&head, Checks::Failed(vec!["test".to_owned()]));
+    assert_eq!(step(&runner).unwrap(), None, "CI settles");
+    rig.clock.advance(CHECKS_SETTLE);
+    (rig, runner)
+}
+
+fn ci_failed(pass: &Result<Pass, StateError>) -> bool {
+    matches!(pass, Ok(Pass::Report(StepReport::CiFailed { .. })))
+}
+
+#[test]
+fn a_trigger_is_answered_while_the_failed_logs_are_read() {
+    let (rig, runner) = red("koji");
+    let read = rig.forge.hold_next_failed_logs_read();
+
+    let (reply, pass) = rig.asked_while_held(&runner, read, "status", None);
+
+    let reply = reply.expect("the trigger waited for the lock the read held");
+    assert_eq!(reply["work_items"].as_array().unwrap().len(), 1);
+    assert!(ci_failed(&pass), "{pass:?}");
+}
+
+#[test]
+fn a_trigger_is_answered_while_the_pull_request_is_read_for_the_ci_gate() {
+    let (rig, runner, _) = Rig::with_pull_request("koji");
+    // The board's read would take the listing the pass makes first, and a finishing runner picks
+    // nothing.
+    rig.ask(&runner, "finish", None);
+    let read = rig.forge.hold_next_open_pull_requests_read();
+
+    let (reply, pass) = rig.asked_while_held(&runner, read, "status", None);
+
+    let reply = reply.expect("the trigger waited for the lock the read held");
+    assert_eq!(reply["work_items"].as_array().unwrap().len(), 1);
+    pass.unwrap();
+}
+
+#[test]
+fn a_log_read_that_fails_is_handled_as_the_inline_read_was() {
+    let (rig, runner, head) = Rig::with_pull_request_set("koji", Rig::with_app);
+    rig.forge
+        .set_checks(&head, Checks::Failed(vec!["test".to_owned()]));
+    assert_eq!(step(&runner).unwrap(), None, "CI settles");
+    rig.clock.advance(CHECKS_SETTLE);
+    rig.forge.set_ci_log_error("the logs are gone");
+    let read = rig.forge.hold_next_failed_logs_read();
+
+    let (_, pass) = rig.asked_while_held(&runner, read, "status", None);
+
+    // The worker is sent back for the failure, told that kelpie could not read its logs.
+    assert!(ci_failed(&pass), "{pass:?}");
+    rig.claude.script([Scripted::Say("fixed")]);
+    step(&runner).unwrap();
+    let prompt = rig.claude.calls().pop().unwrap().prompt;
+    assert!(prompt.contains("could not read it for you"), "{prompt}");
+    assert!(prompt.contains("the logs are gone"), "{prompt}");
+}
+
+#[test]
+fn a_pull_request_that_closed_during_the_read_is_not_gated() {
+    let (rig, runner) = red("koji");
+    rig.ask(&runner, "finish", None);
+    let read = rig.forge.hold_next_open_pull_requests_read();
+    let started = rig.claude.all_calls().len();
+
+    let (_, pass) = rig.during_read(
+        read,
+        || advance(&runner),
+        || rig.forge.set_state(71, PullRequestState::Closed),
+    );
+
+    let Ok(Pass::Report(StepReport::Ruling { question, .. })) = pass else {
+        panic!("a closed pull request was gated: {pass:?}");
+    };
+    assert!(
+        question.starts_with("Pull request #71 was closed without merging."),
+        "{question}"
+    );
+    assert_eq!(rig.claude.all_calls().len(), started);
+}
+
+#[test]
+fn a_drain_that_lands_while_the_failed_logs_are_read_starts_no_call() {
+    let (rig, runner) = red("koji");
+    let runner = Arc::new(runner);
+    let postings = runner.lock().unwrap().postings();
+    let read = rig.forge.hold_next_failed_logs_read();
+    let started = rig.claude.all_calls().len();
+
+    std::thread::scope(|scope| {
+        let pass = scope.spawn(|| advance(&runner));
+        assert!(
+            read.waiting(CALL_PATIENCE),
+            "the gate never read the failed logs"
+        );
+        let asking = {
+            let (runner, postings) = (Arc::clone(&runner), Arc::clone(&postings));
+            scope.spawn(move || answer(&runner, &postings, "drain", Some("pause")))
+        };
+        let reply: serde_json::Value =
+            serde_json::from_str(&asking.join().unwrap()).expect("a JSON reply");
+        assert!(
+            postings.draining(),
+            "the drain did not hold new calls back: {reply}"
+        );
+        drop(read);
+        pass.join().expect("the pass thread").unwrap();
+    });
+
+    // The red run is the worker's next turn, which the drain holds back.
+    assert!(matches!(advance(&runner), Ok(Pass::Idle)));
+    assert_eq!(rig.claude.all_calls().len(), started, "the worker started");
+    assert_eq!(
+        rig.ask(&runner, "status", None)["work_item"]["held_up"]["because"],
+        "the runner is draining, so no turn starts"
     );
 }

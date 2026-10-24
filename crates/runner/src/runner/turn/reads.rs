@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use super::Runner;
 use crate::board::OpenPullRequest;
-use crate::ports::{Forge, ForgeError, PullRequest, Talk};
+use crate::ports::{FailedLogs, Forge, ForgeError, PullRequest, QueueStanding, Talk};
 use crate::review_bot::{Activity, Bot, Profile};
 use crate::runner::off_lock::ItemKey;
 use crate::runner::snapshot::view_of;
@@ -23,6 +23,9 @@ pub(in crate::runner) struct Reads {
     views: BTreeMap<u64, Result<PullRequest, ForgeError>>,
     activities: BTreeMap<(Bot, u64), Result<Activity, ForgeError>>,
     talks: BTreeMap<u64, Result<Talk, ForgeError>>,
+    // By head, and whether they are the merge queue's runs
+    logs: BTreeMap<(String, bool), Result<FailedLogs, ForgeError>>,
+    standings: BTreeMap<u64, Result<QueueStanding, ForgeError>>,
     // The pull requests whose comments the step has handled, so a step made again does not
     // handle them twice
     talked: BTreeSet<u64>,
@@ -34,6 +37,8 @@ impl Reads {
         self.views.clear();
         self.activities.clear();
         self.talks.clear();
+        self.logs.clear();
+        self.standings.clear();
         self.talked.clear();
     }
 
@@ -54,6 +59,23 @@ impl Reads {
     /// What people wrote on pull request `number`, as the step read it
     pub(in crate::runner) fn talk(&self, number: u64) -> Option<Result<Talk, ForgeError>> {
         self.talks.get(&number).cloned()
+    }
+
+    /// The end of the failed runs' logs at `head`, as the step read them
+    pub(in crate::runner) fn logs(
+        &self,
+        head: &str,
+        merge_group: bool,
+    ) -> Option<Result<FailedLogs, ForgeError>> {
+        self.logs.get(&(head.to_owned(), merge_group)).cloned()
+    }
+
+    /// Where pull request `number` stands in the merge queue, as the step read it
+    pub(in crate::runner) fn standing(
+        &self,
+        number: u64,
+    ) -> Option<Result<QueueStanding, ForgeError>> {
+        self.standings.get(&number).cloned()
     }
 
     /// Whether the step has handled the comments on pull request `number`
@@ -77,6 +99,8 @@ enum Read {
     View(View),
     Activity(Posted),
     Talk(Written),
+    Logs(Failed),
+    Standing(Queued),
 }
 
 // The read `pull_request_view` makes, from the pass's listing or the pull request itself
@@ -103,6 +127,21 @@ struct Written {
     number: u64,
 }
 
+// The end of the logs of the runs that failed at a head
+struct Failed {
+    forge: Arc<dyn Forge>,
+    remote: ForgeSlug,
+    head: String,
+    merge_group: bool,
+}
+
+// Where a pull request stands in the merge queue
+struct Queued {
+    forge: Arc<dyn Forge>,
+    remote: ForgeSlug,
+    number: u64,
+}
+
 /// What a [`Job`] found, errors as the inline call returns them
 pub(in crate::runner) enum Done {
     Activity {
@@ -113,6 +152,15 @@ pub(in crate::runner) enum Done {
     Talk {
         number: u64,
         talk: Result<Talk, ForgeError>,
+    },
+    Logs {
+        head: String,
+        merge_group: bool,
+        logs: Result<FailedLogs, ForgeError>,
+    },
+    Standing {
+        number: u64,
+        standing: Result<QueueStanding, ForgeError>,
     },
     View {
         number: u64,
@@ -165,6 +213,24 @@ impl Job {
             }) => Done::Talk {
                 number,
                 talk: forge.talk(&remote, number),
+            },
+            Read::Logs(Failed {
+                forge,
+                remote,
+                head,
+                merge_group,
+            }) => Done::Logs {
+                logs: forge.failed_run_logs(&remote, &head, merge_group),
+                head,
+                merge_group,
+            },
+            Read::Standing(Queued {
+                forge,
+                remote,
+                number,
+            }) => Done::Standing {
+                number,
+                standing: forge.merge_queue(&remote, number),
             },
         }
     }
@@ -233,6 +299,29 @@ impl Runner {
         })
     }
 
+    // The job that reads the end of the failed runs' logs at `head`
+    pub(in crate::runner) fn logs_job(&self, head: &str, merge_group: bool) -> Option<Box<Job>> {
+        self.job(|forge, remote| {
+            Read::Logs(Failed {
+                forge,
+                remote,
+                head: head.to_owned(),
+                merge_group,
+            })
+        })
+    }
+
+    // The job that reads where pull request `number` stands in the merge queue
+    pub(in crate::runner) fn standing_job(&self, number: u64) -> Option<Box<Job>> {
+        self.job(|forge, remote| {
+            Read::Standing(Queued {
+                forge,
+                remote,
+                number,
+            })
+        })
+    }
+
     // A job for the focused work item's step, or none when no pass runs to make the read and step
     // again, as at a turn's end
     fn job(&self, read: impl FnOnce(Arc<dyn Forge>, ForgeSlug) -> Read) -> Option<Box<Job>> {
@@ -269,6 +358,16 @@ impl Runner {
             }
             Done::Talk { number, talk } => {
                 self.reads.talks.insert(number, talk);
+            }
+            Done::Logs {
+                head,
+                merge_group,
+                logs,
+            } => {
+                self.reads.logs.insert((head, merge_group), logs);
+            }
+            Done::Standing { number, standing } => {
+                self.reads.standings.insert(number, standing);
             }
         }
     }

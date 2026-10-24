@@ -32,11 +32,14 @@ mod catch_up;
 #[cfg(test)]
 mod fix_attempts;
 pub(super) mod queued;
+mod reads;
 mod rerun;
 
 impl Runner {
     pub(super) fn check_ci(&mut self) -> Result<Begin, StateError> {
-        let item = self.current().expect("CI runs on a work item");
+        let Some(item) = self.current() else {
+            return Ok(Begin::Idle);
+        };
         let Some(number) = item.pull_request else {
             return Ok(Begin::Idle);
         };
@@ -49,18 +52,13 @@ impl Runner {
             return Ok(parked);
         }
         // Read with the runner's lock let go, and the step made again with the result
-        let viewed = match self.kept_view(number) {
-            Some(viewed) => viewed,
-            None => match self.view_job(number) {
-                Some(job) => return Ok(Begin::Reads(job)),
-                None => self.pull_request_view(number),
-            },
-        };
-        let pr = match viewed {
+        let pr = match self.gate_view(number) {
             Ok(pr) => pr,
-            Err(e) => return Ok(self.gate_failed(format!("cannot read #{number}: {e}"))),
+            Err(begin) => return Ok(*begin),
         };
-        let item = self.current().expect("CI runs on a work item");
+        let Some(item) = self.current() else {
+            return Ok(Begin::Idle);
+        };
         match pr.state {
             PullRequestState::Open => {}
             // The maintainer merged it by hand, which is their own ruling,
@@ -186,7 +184,9 @@ impl Runner {
         // unread, so the maintainer decides on it again, even under `auto`,
         // and is told so. A head kelpie did not send unread itself, such as
         // someone else's push, is not the worker's fix.
-        let item = self.current().expect("CI runs on a work item");
+        let Some(item) = self.current() else {
+            return Ok(Begin::Idle);
+        };
         let fix_from = |from: &Option<String>| {
             from.as_ref().is_some_and(|from| *from != head)
                 && !item.reviewed_heads.contains(&head)
@@ -246,9 +246,14 @@ impl Runner {
     ) -> Result<Begin, StateError> {
         // The failed runs' logs are read once here: they are what the failure is
         // counted by, what a rerun is judged on, and what the fix turn is told.
-        let logs = self.read_logs(&head, false);
+        let logs = match self.read_logs(&head, false) {
+            Ok(logs) => logs,
+            Err(begin) => return Ok(*begin),
+        };
         self.count_ci_failure(&head, &logs)?;
-        let item = self.current().expect("CI runs on a work item");
+        let Some(item) = self.current() else {
+            return Ok(Begin::Idle);
+        };
         if item.red_head.as_deref() == Some(head.as_str()) {
             let fix_turns = None;
             let rerun = self.rerun_offered(&head, &logs);
@@ -267,7 +272,9 @@ impl Runner {
         if let Some(begin) = self.rerun_if_unrelated(number, &head, &checks, &logs)? {
             return Ok(begin);
         }
-        let item = self.current().expect("CI runs on a work item");
+        let Some(item) = self.current() else {
+            return Ok(Begin::Idle);
+        };
         let turns = item.counts.ci_fix_turns;
         if self
             .settings
@@ -318,7 +325,9 @@ impl Runner {
         counted: bool,
         review: Option<Review>,
     ) -> Result<Begin, StateError> {
-        let issue = self.current().expect("CI runs on a work item").issue;
+        let Some(issue) = self.current().map(|item| item.issue) else {
+            return Ok(Begin::Idle);
+        };
         let red = head.clone();
         self.update(|item| {
             if counted {
@@ -374,7 +383,9 @@ impl Runner {
     // A head no gate vouched for, such as one a yes under `ask` left before
     // a restart onto `auto`, goes through every gate before any merge.
     fn regate_unknown(&mut self, number: u64, head: &str) -> Result<Begin, StateError> {
-        let item = self.current().expect("CI runs on a work item");
+        let Some(item) = self.current() else {
+            return Ok(Begin::Idle);
+        };
         let issue = item.issue;
         let at = worktree::head(&self.settings.git.checkout, &item.worktree);
         let regated = at

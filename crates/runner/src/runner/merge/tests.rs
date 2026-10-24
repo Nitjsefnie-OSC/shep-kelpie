@@ -6,6 +6,7 @@ use serde_json::json;
 
 use super::*;
 use crate::ports::{Cost, Usage};
+use crate::runner::flight::{Pass, advance};
 use crate::runner::gate::CHECKS_SETTLE;
 use crate::runner::step;
 use crate::test::{Rig, Scripted, git};
@@ -448,4 +449,79 @@ fn a_finished_issue_the_forge_cannot_answer_for_stays() {
     rig.forge.remove_issue(7);
     assert_eq!(step(&runner).unwrap(), None);
     assert_eq!(finished_on_disk(&rig), json!(["7"]));
+}
+
+// The merge's reads are made with the runner's lock let go: a trigger is answered while each is
+// held, and the write that follows is still the forge's to refuse.
+// After a yes and the pass that marks the draft ready, with CI settled: the next pass reads
+// before it merges
+fn about_to_merge(project: &str) -> (Rig, Mutex<Runner>) {
+    let (rig, runner, _) = Rig::parked(project);
+    rig.ask(&runner, "rule", Some("71 yes"));
+    assert_eq!(step(&runner).unwrap(), marked_ready());
+    rig.clock.advance(CHECKS_SETTLE);
+    (rig, runner)
+}
+
+#[test]
+fn a_trigger_is_answered_while_the_pull_request_is_read_for_the_merge() {
+    let (rig, runner) = about_to_merge("koji");
+    // The board's read would take the listing the pass makes first, and a finishing runner picks
+    // nothing.
+    rig.ask(&runner, "finish", None);
+    let read = rig.forge.hold_next_open_pull_requests_read();
+
+    let (reply, pass) = rig.asked_while_held(&runner, read, "status", None);
+
+    let reply = reply.expect("the trigger waited for the lock the read held");
+    assert_eq!(reply["work_items"].as_array().unwrap().len(), 1);
+    pass.unwrap();
+    assert_eq!(rig.forge.merges().len(), 1, "the merge still went out");
+}
+
+#[test]
+fn a_trigger_is_answered_while_the_merge_queue_is_read() {
+    let (rig, runner) = about_to_merge("koji");
+    let read = rig.forge.hold_next_merge_queue_read();
+
+    let (reply, pass) = rig.asked_while_held(&runner, read, "status", None);
+
+    let reply = reply.expect("the trigger waited for the lock the read held");
+    assert_eq!(reply["work_items"].as_array().unwrap().len(), 1);
+    pass.unwrap();
+    assert_eq!(rig.forge.merges().len(), 1, "the merge still went out");
+}
+
+#[test]
+fn a_head_that_moved_during_the_read_is_still_refused_by_the_forge() {
+    let (rig, runner) = about_to_merge("koji");
+    let read = rig.forge.hold_next_merge_queue_read();
+
+    let (_, pass) = rig.during_read(
+        read,
+        || advance(&runner),
+        // Git still shows the head the step read, so only the forge's own check catches it.
+        || rig.forge.set_lagging(71, Some("0123456789abcdef")),
+    );
+
+    let Ok(Pass::Report(StepReport::GateFailed { reason, .. })) = pass else {
+        panic!("the merge of a moved head was not refused: {pass:?}");
+    };
+    assert!(reason.starts_with("cannot merge #71:"), "{reason}");
+    assert_eq!(rig.forge.merges(), [], "the forge took the old head");
+}
+
+#[test]
+fn a_pull_request_that_closed_during_the_queue_read_is_not_merged() {
+    let (rig, runner) = about_to_merge("koji");
+    let read = rig.forge.hold_next_merge_queue_read();
+
+    let (_, pass) = rig.during_read(
+        read,
+        || advance(&runner),
+        || rig.forge.set_state(71, PullRequestState::Closed),
+    );
+
+    assert!(matches!(pass, Ok(Pass::Report(_))), "{pass:?}");
+    assert_eq!(rig.forge.merges(), []);
 }

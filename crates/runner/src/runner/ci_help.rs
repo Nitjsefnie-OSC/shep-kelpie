@@ -5,6 +5,7 @@
 //! reads the end of the failed runs' logs as the login `gh` acts as, and the
 //! prompt carries them. Any other worker is pointed at the commands.
 
+use super::report::Begin;
 use super::{Runner, instructions};
 use crate::ports::{FailedLogs, ForgeError};
 
@@ -22,13 +23,13 @@ pub(super) enum Logs {
 impl Runner {
     /// Reads the end of each failed run's log at `head`, as the login `gh` acts as.
     /// The same text goes to a red run's prompt and to what its failure counts as
-    /// (`super::ci_failure`).
-    pub(super) fn read_logs(&self, head: &str, merge_group: bool) -> Logs {
-        let read = (self.ports.forge).failed_run_logs(&self.remote, head, merge_group);
-        match read {
+    /// (`super::ci_failure`). The read is made with the runner's lock let go: where it is
+    /// missing, the step's `Begin::Reads`.
+    pub(super) fn read_logs(&self, head: &str, merge_group: bool) -> Result<Logs, Box<Begin>> {
+        Ok(match self.failed_logs(head, merge_group)? {
             Ok(logs) => Logs::Read(logs),
             Err(e) => Logs::Refused(e),
-        }
+        })
     }
 
     /// What a red run's prompt says about reading the failure
@@ -55,13 +56,13 @@ impl Runner {
     /// What a merge queue removal's prompt says about reading the failure. A queue
     /// removal is not a work item's failed CI, so it is not counted
     /// (`super::merge::queue`): its logs are read only to be told.
-    pub(super) fn queue_help(&self, head: &str) -> String {
-        match self.app_covers() {
-            true => self.log_help(&self.read_logs(head, true)),
+    pub(super) fn queue_help(&self, head: &str) -> Result<String, Box<Begin>> {
+        Ok(match self.app_covers() {
+            true => self.log_help(&self.read_logs(head, true)?),
             false => "`gh run list --event merge_group` lists the queue's runs, and `gh run \
                       view <run id> --log-failed` shows what failed."
                 .to_owned(),
-        }
+        })
     }
 
     // What a worker whose token cannot read CI is told about logs kelpie read
