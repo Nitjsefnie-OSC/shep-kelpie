@@ -8,8 +8,8 @@
 //! waits until a slot is free, an issue, or a pull request, whose work item is
 //! open waits for it to end, and an issue naming a file a parked item's
 //! branch changes waits for that item. With a project manager and two or more
-//! issues the board could take, its pick goes in place of the board rule's,
-//! and a ready issue it holds waits.
+//! issues the board could take, its pick goes in place of the board rule's, a
+//! list of picks one a step, and a ready issue it holds waits.
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
@@ -215,7 +215,17 @@ impl Runner {
                 }
                 paced = true;
             }
-            let ticket = match self.pm_pick(&takeable) {
+            // Issues the issue writer, or a call that holds it, is on for now
+            let waiting: Vec<TicketId> = (unlabelled.iter())
+                .filter_map(|skip| match skip {
+                    Skip::Unlabelled {
+                        issue,
+                        ruling: None,
+                    } => Some(*issue),
+                    _ => None,
+                })
+                .collect();
+            let ticket = match self.pm_pick(&takeable, &waiting) {
                 Choice::Take(n) => n,
                 Choice::Rule => picked,
                 Choice::Wait => {
@@ -254,6 +264,7 @@ impl Runner {
             }
             match self.add(ticket) {
                 Ok(agent) => {
+                    self.pm_started(ticket);
                     self.set_skipped(skipped.clone());
                     return Ok(Begin::Report(StepReport::Dispatched {
                         issue: ticket,

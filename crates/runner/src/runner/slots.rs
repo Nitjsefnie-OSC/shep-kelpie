@@ -96,6 +96,11 @@ impl Runner {
         self.slot_issues().len() < self.active_items()
     }
 
+    // How many more work items may open under `concurrency.active_items`
+    pub(super) fn free_slots(&self) -> usize {
+        self.active_items().saturating_sub(self.slot_issues().len())
+    }
+
     // The open work items parked on rulings
     pub(super) fn parked_issues(&self) -> Vec<TicketId> {
         self.issues_where(WorkItem::parked)

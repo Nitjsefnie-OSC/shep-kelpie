@@ -5,7 +5,7 @@ use std::sync::Mutex;
 
 use serde_json::{Value, json};
 
-use super::{PICK_12, answered, pm_seen, step_until, with_pm};
+use super::{PICK_12, answered, name_pm, pm_on, pm_seen, step_until, with_pm};
 use crate::runner::{Runner, StepReport, step};
 use crate::test::{Rig, Scripted, ticket};
 
@@ -19,6 +19,13 @@ fn picked_12() -> (Rig, Mutex<Runner>) {
     let (_, acted, _) = answered(step(&runner).unwrap());
     assert_eq!(acted, ["picked #12"]);
     (rig, runner)
+}
+
+fn dispatched_in_order<const N: usize>(runner: &Mutex<Runner>, issues: [u64; N]) {
+    for issue in issues {
+        let report = step_until(runner, |r| matches!(r, StepReport::Dispatched { .. }));
+        assert!(matches!(report, StepReport::Dispatched { issue: i, .. } if i == ticket(issue)));
+    }
 }
 
 fn dispatched_12(runner: &Mutex<Runner>) {
@@ -95,4 +102,94 @@ fn a_pick_the_board_can_no_longer_take_leaves_a_step_and_is_told_to_the_next_wak
         ),
         "{prompt}"
     );
+}
+
+// A project with three slots and #9, #12 and #14 ready.
+fn three_slots() -> (Rig, Mutex<Runner>) {
+    let rig = Rig::new("koji");
+    rig.edit_settings(|s| s.replace("active_items = 1", "active_items = 3"));
+    let (rig, runner) = pm_on(rig);
+    for n in [9, 12, 14] {
+        rig.forge.list_ready(n, false);
+    }
+    (rig, runner)
+}
+
+const PICKS_14_AND_12: &str =
+    "```json\n{\"pick\": [14, 12], \"why\": \"Both are clear of each other.\"}\n```";
+
+#[test]
+fn one_wake_tells_the_free_slots_and_its_list_of_picks_fills_them_in_order() {
+    let (rig, runner) = three_slots();
+    rig.claude.script([Scripted::Say(PICKS_14_AND_12)]);
+
+    let (woke_for, acted, dropped) = answered(step(&runner).unwrap());
+
+    assert_eq!(
+        woke_for,
+        [
+            "3 slots are free and 3 ready issues could fill them: pick up to 3 as a list, in \
+             the order to start them, or none to start nothing now"
+        ]
+    );
+    assert_eq!(
+        (acted, dropped),
+        (vec!["picked #14, #12".to_owned()], vec![])
+    );
+    dispatched_in_order(&runner, [14, 12]);
+    assert_eq!(pm_seen(&rig).len(), 1, "one wake filled both slots");
+}
+
+#[test]
+fn a_pick_in_the_list_the_board_can_no_longer_take_is_dropped_and_the_next_goes() {
+    let (rig, runner) = three_slots();
+    rig.claude.script([Scripted::Say(PICKS_14_AND_12)]);
+    answered(step(&runner).unwrap());
+
+    // The maintainer opens #14 before dispatch takes it.
+    rig.ask(&runner, "add", Some("14"));
+
+    let report = step_until(
+        &runner,
+        |r| matches!(r, StepReport::Dispatched { issue, .. } if *issue == ticket(12)),
+    );
+    assert!(matches!(report, StepReport::Dispatched { .. }));
+    assert_eq!(pick_dropped_steps(&runner).len(), 1);
+}
+
+#[test]
+fn a_list_longer_than_the_free_slots_drops_the_rest() {
+    let (rig, runner) = three_slots();
+    rig.forge.list_ready(15, false);
+    rig.claude.script([Scripted::Say(
+        "```json\n{\"pick\": [14, 12, 9, 15], \"why\": \"All of them.\"}\n```",
+    )]);
+
+    let (_, acted, dropped) = answered(step(&runner).unwrap());
+
+    assert_eq!(acted, ["picked #14, #12, #9"]);
+    assert_eq!(dropped, ["pick #15: only 3 can start from this wake"]);
+}
+
+#[test]
+fn a_pick_waiting_for_the_issue_writer_keeps_its_place_ahead_of_the_next() {
+    let rig = Rig::new("koji");
+    rig.edit_settings(|s| s.replace("active_items = 1", "active_items = 2"));
+    name_pm(&rig);
+    rig.implementers(&["sonnet-high", "opus-high"]);
+    let runner = rig.open().unwrap();
+    rig.forge.list_ready(12, false);
+    rig.forge.label(12, "agent:sonnet-high");
+    rig.forge.list_ready(14, false);
+    rig.claude.script([
+        Scripted::Say(PICKS_14_AND_12),
+        Scripted::Say("{\"agent\": \"sonnet-high\"}"),
+    ]);
+    answered(step(&runner).unwrap());
+
+    // #14 has no `agent:` label, so the issue writer labels it before it opens.
+    step_until(&runner, |r| matches!(r, StepReport::Labelled { .. }));
+
+    dispatched_in_order(&runner, [14, 12]);
+    assert_eq!(pick_dropped_steps(&runner), Vec::<Value>::new());
 }
