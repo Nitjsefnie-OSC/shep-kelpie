@@ -3,7 +3,7 @@ use serde_json::json;
 use super::*;
 use crate::ports::{AgentError, CLEAN, Cost, Role, Session, SessionId, Severity, Timestamp, Usage};
 use crate::runner::report::Spent;
-use crate::runner::step;
+use crate::runner::{Pass, advance, step};
 use crate::test::ticket;
 use crate::test::{Rig, Scripted, ScriptedRound};
 
@@ -333,6 +333,26 @@ fn a_trigger_is_answered_while_the_review_head_is_read() {
     let reply = reply.expect("the trigger waited for the lock the head's read held");
     assert_eq!(reply["work_items"].as_array().unwrap().len(), 1);
     pass.unwrap();
+}
+
+// A work item dropped while its head is read is gone when the read comes
+// back, so no round is made for it.
+#[test]
+fn an_item_that_left_review_during_the_read_is_not_stepped() {
+    let rig = Rig::new("shep");
+    rig.ci_on();
+    let runner = rig.open().unwrap();
+    rig.ask(&runner, "add", Some("7"));
+    rig.forge.open_pull_request(71, "kelpie/7", &[7]);
+    rig.claude.script([Scripted::Push("work.txt", "work\n")]);
+    step(&runner).unwrap();
+    let read = rig.forge.hold_next_pull_request_read();
+
+    let (_, pass) = rig.during_read(read, || advance(&runner), || rig.ask(&runner, "drop", None));
+
+    assert!(matches!(pass.unwrap(), Pass::Idle));
+    assert_eq!(rig.ask(&runner, "status", None)["work_item"], json!(null));
+    assert_eq!(rig.reviewer.seen().len(), 0, "no round was made");
 }
 
 #[test]
