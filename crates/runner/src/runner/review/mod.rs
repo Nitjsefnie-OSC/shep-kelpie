@@ -275,7 +275,10 @@ impl Runner {
         let unread = review.unread.then(|| self.unread(item, review));
         // Nobody to read it, by the project's own list, sends it unread on purpose.
         let unread_by_choice = match &unread {
-            Some(None) => self.origin_head().map_err(|e| eprintln!("{e}")).ok(),
+            Some(None) => match self.head_on_origin() {
+                Ok(head) => head.map_err(|e| eprintln!("{e}")).ok(),
+                Err(begin) => return Ok(*begin),
+            },
             _ => None,
         };
         if let Some(None) = &unread {
@@ -322,6 +325,13 @@ impl Runner {
         head: Option<String>,
         sent: findings::Sent<'_>,
     ) -> Result<Begin, StateError> {
+        let read = match &head {
+            Some(_) => match self.head_on_origin() {
+                Ok(read) => Some(read),
+                Err(begin) => return Ok(*begin),
+            },
+            None => None,
+        };
         // A fork worker only commits, so a fix is pushed by kelpie. The fork's
         // head unchanged would otherwise read as a fix not pushed.
         if let Some(held) = self.fork_commits_held()? {
@@ -333,8 +343,8 @@ impl Runner {
         let mut left_open = None;
         let (mut checks, mut unchecked) = (Vec::new(), 0);
         let mut failing = Vec::new();
-        let pushed = match head {
-            Some(before) => match self.origin_head() {
+        let pushed = match head.zip(read) {
+            Some((before, read)) => match read {
                 // A note's turn after a test ended sent no findings: pushing nothing is no fault.
                 Ok(now) if now == before && sent.findings.is_empty() => None,
                 Ok(now) if now == before => {
@@ -535,13 +545,6 @@ impl Runner {
         }
     }
 
-    // Asks git rather than the forge: the forge's head lags a push by a moment.
-    pub(super) fn origin_head(&self) -> Result<String, String> {
-        let item = self.current().expect("a head is a work item's");
-        worktree::origin_head(&self.settings.git.checkout, &item.branch, &item.remote)
-            .map_err(|e| e.to_string())
-    }
-
     // Recorded in state before the call is started, the same as a worker's
     // turn marks `Turn::Running`: `drop`
     // refuses while this is set, so a call in flight always has a work
@@ -607,14 +610,15 @@ impl Runner {
                 held: 0,
             }));
         }
+        let head = match self.head_on_origin() {
+            Ok(Ok(head)) => head,
+            Ok(Err(reason)) => return Ok(self.gate_failed(reason)),
+            Err(begin) => return Ok(*begin),
+        };
         if let Err(reason) = self.bot_label_off(&review) {
             return Ok(self.gate_failed(reason));
         }
         let item = self.current().expect("findings are a work item's");
-        let head = match self.origin_head() {
-            Ok(head) => head,
-            Err(reason) => return Ok(self.gate_failed(reason)),
-        };
         let build = &item.build;
         let path = findings::findings_path(build);
         let report_threads = by_thread && !threads.is_empty();

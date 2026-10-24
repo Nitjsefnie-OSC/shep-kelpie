@@ -87,9 +87,10 @@ impl Runner {
         if let Some(parked) = self.park_over_budget()? {
             return Ok(parked);
         }
-        let head = match self.origin_head() {
-            Ok(head) => head,
-            Err(reason) => return Ok(self.gate_failed(reason)),
+        let head = match self.head_on_origin() {
+            Ok(Ok(head)) => head,
+            Ok(Err(reason)) => return Ok(self.gate_failed(reason)),
+            Err(begin) => return Ok(*begin),
         };
         let reviewer = Some(chosen.name.clone());
         let stage = ReviewStage::Summon {
@@ -669,7 +670,10 @@ impl Runner {
         activity: &Activity,
     ) -> Result<Begin, StateError> {
         let profile = self.profile(bot);
-        let nits_left = self.nits_left_open(bot);
+        let nits_left = match self.nits_left_open(bot) {
+            Ok(nits_left) => nits_left,
+            Err(begin) => return Ok(*begin),
+        };
         // The report counts every open thread; the findings leave out the nits left open.
         let open_threads = activity.open_threads().count();
         let (threads, findings): (Vec<String>, Vec<Finding>) = activity
@@ -710,13 +714,13 @@ impl Runner {
     // Whether `bot` read the pull request before and the head on `origin`
     // is one a nit-only fix pushed. Git that cannot say counts as no, which
     // sends the nits as any round's.
-    fn nits_left_open(&self, bot: Bot) -> bool {
+    fn nits_left_open(&self, bot: Bot) -> Result<bool, Box<Begin>> {
         let item = self.item();
         let read_before = item.bot_reads.get(&bot).is_some_and(|reads| *reads > 0);
         if !read_before || item.nit_fix_heads.is_empty() {
-            return false;
+            return Ok(false);
         }
-        match self.origin_head() {
+        Ok(match self.head_on_origin()? {
             Ok(head) => item.nit_fix_heads.contains(&head),
             Err(e) => {
                 let name = bot.name();
@@ -726,7 +730,7 @@ impl Runner {
                 );
                 false
             }
-        }
+        })
     }
 
     // The pass goes on without the bot, and says why. A pass no other

@@ -335,6 +335,37 @@ fn a_trigger_is_answered_while_the_review_head_is_read() {
     pass.unwrap();
 }
 
+// A round with findings, which the next step sends to the worker against the head git reports
+fn after_a_round_with_findings(project: &str) -> (Rig, std::sync::Mutex<crate::runner::Runner>) {
+    let (rig, runner) = at_round_1(project);
+    rig.reviewer.script([ScriptedRound::Findings(vec![Finding::new(
+        Severity::Medium,
+        "src/lib.rs",
+        3,
+        "the flag is misnamed",
+        "it reads as its opposite",
+    )])]);
+    step(&runner).unwrap(); // round 1's qwen call
+    (rig, runner)
+}
+
+// The head the findings are sent against is asked of git, a fetch the step makes with the
+// runner's lock let go, after the fetch that checks the branch for agents' own files
+#[test]
+fn a_trigger_is_answered_while_origin_head_is_read() {
+    let (rig, runner) = after_a_round_with_findings("shep");
+    let read = rig.hold_git_fetch_after(1);
+
+    let (reply, pass) = rig.asked_while_held(&runner, read, "status", None);
+
+    let reply = reply.expect("the trigger waited for the lock the fetch held");
+    assert_eq!(reply["work_items"].as_array().unwrap().len(), 1);
+    assert!(
+        matches!(pass, Ok(Pass::Report(StepReport::ReviewFindingsSent { .. }))),
+        "{pass:?}"
+    );
+}
+
 // A work item dropped while its head is read is gone when the read comes
 // back, so no round is made for it.
 #[test]

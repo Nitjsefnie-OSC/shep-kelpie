@@ -12,6 +12,7 @@ use super::Runner;
 use crate::board::OpenPullRequest;
 use crate::ports::{FailedLogs, Forge, ForgeError, PullRequest, QueueStanding, Talk};
 use crate::review_bot::{Activity, Bot, Profile};
+use crate::runner::git_reads::{Found, Git, Kept};
 use crate::runner::off_lock::ItemKey;
 use crate::runner::snapshot::view_of;
 use crate::settings::ForgeSlug;
@@ -31,6 +32,8 @@ pub(in crate::runner) struct Reads {
     // The pull requests whose comments the step has handled, so a step made again does not
     // handle them twice
     talked: BTreeSet<u64>,
+    // What git said, the fetches and diffs that need no write access to the worktree
+    pub(in crate::runner) git: Kept,
 }
 
 impl Reads {
@@ -43,6 +46,7 @@ impl Reads {
         self.logs.clear();
         self.standings.clear();
         self.talked.clear();
+        self.git.clear();
     }
 
     /// Pull request `number`, as the step read it
@@ -112,6 +116,7 @@ enum Read {
     Talk(Written),
     Logs(Failed),
     Standing(Queued),
+    Git(Git),
 }
 
 // The read `pull_request_view` makes, from the pass's listing or the pull request itself
@@ -181,6 +186,7 @@ pub(in crate::runner) enum Done {
         view: Result<PullRequest, ForgeError>,
         recheck: bool,
     },
+    Git(Found),
 }
 
 impl Job {
@@ -248,6 +254,7 @@ impl Job {
                 number,
                 standing: forge.merge_queue(&remote, number),
             },
+            Read::Git(git) => Done::Git(git.run()),
         }
     }
 }
@@ -354,6 +361,11 @@ impl Runner {
         })
     }
 
+    // The job that reads from git for the focused work item's step
+    pub(in crate::runner) fn git_job(&self, git: Git) -> Option<Box<Job>> {
+        self.job(|_, _| Read::Git(git))
+    }
+
     // A job for the focused work item's step, or none when no pass runs to make the read and step
     // again, as at a turn's end
     fn job(&self, read: impl FnOnce(Arc<dyn Forge>, ForgeSlug) -> Read) -> Option<Box<Job>> {
@@ -406,6 +418,7 @@ impl Runner {
             Done::Standing { number, standing } => {
                 self.reads.standings.insert(number, standing);
             }
+            Done::Git(found) => self.reads.git.keep(found),
         }
     }
 }
