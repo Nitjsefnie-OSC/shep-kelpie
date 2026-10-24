@@ -103,6 +103,7 @@ mod tests {
 
     use crate::ports::{CLEAN, Checks, Cost, MaintainerReview, Usage};
     use crate::runner::Runner;
+    use crate::runner::flight::Pass;
     use crate::runner::gate::short;
     use crate::runner::report::StepReport;
     use crate::runner::step;
@@ -166,6 +167,21 @@ mod tests {
         assert_eq!(step(&runner).unwrap(), None);
         assert!(rig.reviewer.seen().is_empty());
         assert_eq!(rig.claude.all_calls().len(), 1);
+    }
+
+    #[test]
+    fn a_trigger_is_answered_while_the_changed_files_are_read() {
+        let (rig, runner) = pushed(".claude/settings.json");
+        let read = rig.hold_next_git_fetch();
+
+        let (reply, pass) = rig.asked_while_held(&runner, read, "status", None);
+
+        let reply = reply.expect("the trigger waited for the lock the fetch held");
+        assert_eq!(reply["work_items"].as_array().unwrap().len(), 1);
+        assert!(
+            matches!(pass, Ok(Pass::Report(StepReport::Ruling { .. }))),
+            "{pass:?}"
+        );
     }
 
     #[test]
