@@ -406,6 +406,7 @@ pub fn answer(
         Request::Timings(last) => Some(*last),
         _ => None,
     };
+    let queued = queued_verb(&request).map(|verb| verb.to_string());
     let changed = match request {
         Request::Attach(ticket, pid, session) => {
             return match runner.attach(ticket, pid, session) {
@@ -457,6 +458,10 @@ pub fn answer(
         Request::Drop(ticket) => runner.drop_work_item(ticket).map_err(|e| e.to_string()),
         Request::Triage(issue) => runner.triage_ask(issue),
     };
+    // A refusal the queue left stands until the verb goes through, however it did.
+    if let (Ok(()), Some(key)) = (&changed, &queued) {
+        runner.notes.ends(key);
+    }
     // What a trigger asks while a pass holds the lock reads this copy.
     runner.post();
     match (changed, totals_of) {

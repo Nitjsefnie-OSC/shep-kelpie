@@ -142,6 +142,27 @@ mod tests {
     }
 
     #[test]
+    fn a_refusal_stops_standing_when_the_verb_goes_through_with_the_lock_free() {
+        let rig = Rig::new("koji");
+        rig.forge.close_issue(7);
+        let runner = rig.open().unwrap();
+        ask(&runner, Queued::Add(ticket(7)));
+        take_up(&runner);
+        assert_eq!(
+            rig.ask(&runner, "status", None)["standing"]
+                .as_array()
+                .map(Vec::len),
+            Some(1)
+        );
+
+        rig.forge.reopen_issue(7);
+        let status = rig.ask(&runner, "add", Some("7"));
+
+        assert!(status["work_item"].is_object(), "{status}");
+        assert_eq!(status["standing"], json!(null), "nothing stands");
+    }
+
+    #[test]
     fn a_queued_adopt_for_a_pull_request_closed_during_the_read_is_refused() {
         let rig = Rig::new("shep");
         rig.push_by_hand("fix/timeline", "work.txt");
