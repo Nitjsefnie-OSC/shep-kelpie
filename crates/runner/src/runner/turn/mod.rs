@@ -160,11 +160,16 @@ impl Runner {
         let begin = match slot {
             Slot::Item(ticket) => {
                 self.focus = Some(ticket);
-                let begin = self.begin_item(false)?;
-                if !matches!(begin, Begin::Reads(_)) {
-                    self.note_held_up(ticket, &begin);
+                // Attached, or in flight, since the rotation was planned or the read began
+                if self.current().is_some_and(|item| self.rotates(item)) {
+                    let begin = self.begin_item(false)?;
+                    if !matches!(begin, Begin::Reads(_)) {
+                        self.note_held_up(ticket, &begin);
+                    }
+                    begin
+                } else {
+                    Begin::Idle
                 }
-                begin
             }
             Slot::Board => {
                 self.focus = None;
@@ -242,11 +247,9 @@ impl Runner {
     // is free, from the one after the last to act, so one that keeps acting
     // cannot starve the rest
     pub(super) fn rotation(&self) -> Vec<Slot> {
-        let items = (self.state.work_items.iter()).filter_map(|i| {
-            let ticket = i.issue;
-            (!self.flights.flying(ticket) && i.attached.is_none() && i.seat != Seat::Waiting)
-                .then_some(Slot::Item(ticket))
-        });
+        let items = (self.state.work_items.iter())
+            .filter(|i| self.rotates(i))
+            .map(|i| Slot::Item(i.issue));
         let board = self.board_open().then_some(Slot::Board);
         let contributions = (board.is_none() && self.slot_free() && self.contribution_unread())
             .then_some(Slot::Contributions);
@@ -255,6 +258,12 @@ impl Runner {
             slots.rotate_left(at + 1);
         }
         slots
+    }
+
+    // Whether the rotation steps `item`: it has no call in flight, is not attached and does not
+    // wait for a seat. The lock is let go between steps and across a read, so a step asks again.
+    fn rotates(&self, item: &WorkItem) -> bool {
+        !self.flights.flying(item.issue) && item.attached.is_none() && item.seat != Seat::Waiting
     }
 
     // Idle for `reason`, which `status` and the board name

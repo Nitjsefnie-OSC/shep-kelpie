@@ -6,11 +6,12 @@
 use std::sync::atomic::Ordering;
 
 use super::*;
+use crate::ports::Timestamp;
 use crate::ports::{Checks, Clock, ForgeError};
 use crate::runner::CHECKS_SETTLE;
 use crate::runner::trigger::lock;
 use crate::runner::turn::Slot;
-use crate::work_item::{Phase, Turn};
+use crate::work_item::{Attached, Holder, Phase, Turn};
 
 // A running project whose pull request 71 is red and has been for as long as the gate settles, so
 // the next pass reads it and starts a fix turn
@@ -113,6 +114,38 @@ fn a_read_whose_item_was_dropped_during_the_gap_does_not_panic() {
     assert!(matches!(pass, Ok(Pass::Idle)), "{pass:?}");
     assert_eq!(seven(&runner), None);
     assert_eq!(calls(&rig), started);
+}
+
+// `attach` changes nothing the `ItemKey` holds, so the step made again asks for itself
+#[test]
+fn an_item_attached_during_the_gap_is_not_stepped_again() {
+    let (rig, runner) = red("koji");
+    let read = rig.forge.hold_next_open_pull_requests_read();
+    let before = seven(&runner).expect("issue 7 is open");
+
+    let (_, pass) = rig.during_read(
+        read,
+        || advance(&runner),
+        || {
+            let mut held = lock(&runner);
+            held.focus = Some(ticket(7));
+            held.update(|item| {
+                item.attached = Some(Attached {
+                    by: Holder {
+                        pid: 1,
+                        started: "Mon Jan  1 00:00:00 2024".into(),
+                    },
+                    session: None,
+                    since: Timestamp(Rig::EPOCH),
+                });
+            })
+            .unwrap();
+        },
+    );
+
+    assert!(matches!(pass, Ok(Pass::Idle)), "{pass:?}");
+    let after = seven(&runner).expect("issue 7 is open");
+    assert_eq!((after.phase, after.turn), (before.phase, before.turn));
 }
 
 #[test]
