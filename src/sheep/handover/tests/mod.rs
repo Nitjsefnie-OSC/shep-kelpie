@@ -146,6 +146,68 @@ fn a_handover_waits_out_a_call_whose_stdin_is_being_fed() {
     assert!(worker.stop(JOIN_BOUND, || {}));
 }
 
+// Whether an `add 7` asked while a pass holds the runner's lock is answered from the posted copy.
+fn add_is_answered_while_the_lock_is_held(runner: &Arc<Mutex<Runner>>) -> bool {
+    let postings = runner.lock().unwrap().postings();
+    let pass = runner.lock().unwrap();
+    let (replied, reply) = mpsc::channel();
+    let asking = {
+        let runner = Arc::clone(runner);
+        std::thread::spawn(move || {
+            let _ = replied.send(crate::runner::answer(&runner, &postings, "add", Some("7")));
+        })
+    };
+    let answered = reply.recv_timeout(CALL_PATIENCE).is_ok();
+    drop(pass);
+    asking.join().unwrap();
+    answered
+}
+
+#[test]
+fn a_handover_waits_for_a_queued_verb_to_be_taken_up() {
+    let rig = Rig::new("shep");
+    let runner = Arc::new(rig.open().unwrap());
+    rig.ask(&runner, "status", None);
+    let (handing, tried) = refusing("stand-in", &Arc::default());
+    assert!(add_is_answered_while_the_lock_is_held(&runner));
+
+    let (wake, _) = mpsc::channel();
+    let answer: serde_json::Value = serde_json::from_str(&handing.ask(&wake)).unwrap();
+    assert_eq!(answer["handover"], "waiting for the runner's quiet point");
+    handing.attempt(&runner);
+    assert_eq!(
+        tried.execs.load(Ordering::SeqCst),
+        0,
+        "the add is not taken yet"
+    );
+    assert!(handing.pending());
+
+    crate::runner::step(&runner).unwrap();
+    assert!(rig.ask(&runner, "status", None)["work_item"].is_object());
+    handing.attempt(&runner);
+    assert_eq!(
+        tried.execs.load(Ordering::SeqCst),
+        1,
+        "it goes once the add is in"
+    );
+    assert!(!handing.pending());
+}
+
+#[test]
+fn a_refused_handover_lets_the_queue_take_verbs_again() {
+    let rig = Rig::new("shep");
+    let runner = Arc::new(rig.open().unwrap());
+    rig.ask(&runner, "status", None);
+    let (handing, tried) = refusing("stand-in", &Arc::default());
+    let (wake, _) = mpsc::channel();
+    handing.ask(&wake);
+
+    handing.attempt(&runner);
+
+    assert_eq!(tried.execs.load(Ordering::SeqCst), 1);
+    assert!(add_is_answered_while_the_lock_is_held(&runner));
+}
+
 #[test]
 fn a_withdrawn_handover_is_not_made_when_the_hold_ends() {
     let rig = Rig::new("shep");

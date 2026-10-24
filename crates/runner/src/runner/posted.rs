@@ -40,7 +40,14 @@ pub struct Posted {
     // Whether a `drain` or `undrain` landed while a pass held the lock and still wants a pass
     wake: AtomicBool,
     // The verbs that read the forge and landed while a pass held the lock, oldest first
-    queued: Mutex<Vec<Queued>>,
+    queued: Mutex<Line>,
+}
+
+// The queued verbs, and whether the queue still takes more
+#[derive(Debug, Default)]
+struct Line {
+    verbs: Vec<Queued>,
+    closed: bool,
 }
 
 /// A verb that reads the forge, asked while a pass held the runner's lock, for the pass to take up
@@ -206,12 +213,41 @@ impl Posted {
     ///
     /// The verb reads the forge, which a trigger must not wait on, so it
     /// answers now and the pass applies it.
-    pub(crate) fn ask_queued(&self, verb: Queued) {
+    ///
+    /// Returns whether it was queued: not once the queue is closed, which the
+    /// caller then answers by waiting for the lock as any other trigger does.
+    pub(crate) fn ask_queued(&self, verb: Queued) -> bool {
+        let mut line = self.line();
+        if line.closed {
+            return false;
+        }
+        line.verbs.push(verb);
+        drop(line);
+        self.wake.store(true, Ordering::SeqCst);
+        true
+    }
+
+    fn line(&self) -> std::sync::MutexGuard<'_, Line> {
         self.queued
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .push(verb);
-        self.wake.store(true, Ordering::SeqCst);
+    }
+
+    /// Stops the queue taking verbs, unless one waits for a pass
+    ///
+    /// A handover calls it before it replaces the image, since a verb queued
+    /// then would be lost with the reply that said it was taken. Returns
+    /// whether it closed.
+    pub fn close_queue(&self) -> bool {
+        let mut line = self.line();
+        let empty = line.verbs.is_empty();
+        line.closed = empty;
+        empty
+    }
+
+    /// Lets the queue take verbs again, after a handover that did not happen
+    pub fn open_queue(&self) {
+        self.line().closed = false;
     }
 
     /// The verbs asked while a pass held the lock, oldest first, each handed out once
@@ -219,12 +255,7 @@ impl Posted {
     /// Taking them also ends their ask for a pass.
     pub(crate) fn take_queued(&self) -> Vec<Queued> {
         self.wake.store(false, Ordering::SeqCst);
-        std::mem::take(
-            &mut *self
-                .queued
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner),
-        )
+        std::mem::take(&mut self.line().verbs)
     }
 
     /// Whether a posted `drain`, `undrain` or queued verb still wants a pass, clearing the ask
@@ -232,10 +263,7 @@ impl Posted {
     /// A queued verb keeps asking until a pass takes it, whatever cleared the
     /// flag meanwhile.
     pub fn needs_wake(&self) -> bool {
-        let waiting = !(self.queued)
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .is_empty();
+        let waiting = !self.line().verbs.is_empty();
         self.wake.swap(false, Ordering::SeqCst) || waiting
     }
 }
@@ -420,6 +448,22 @@ mod tests {
         );
         assert!(posted.take_queued().is_empty(), "taken once");
         assert!(!posted.needs_wake(), "taking them ends their ask");
+    }
+
+    #[test]
+    fn a_closed_queue_takes_no_verb_until_it_is_opened() {
+        let posted = Posted::default();
+        assert!(posted.close_queue(), "an empty queue closes");
+        assert!(
+            !posted.ask_queued(Queued::Add(ticket(7))),
+            "a closed queue refuses"
+        );
+        assert!(!posted.needs_wake());
+
+        posted.open_queue();
+        assert!(posted.ask_queued(Queued::Add(ticket(7))));
+        assert!(!posted.close_queue(), "a queue holding a verb stays open");
+        assert!(posted.ask_queued(Queued::Adopt(71)), "and takes more");
     }
 
     #[test]

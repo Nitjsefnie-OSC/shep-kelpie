@@ -505,7 +505,9 @@ fn from_posted(posted: &Posted, request: &Request) -> Option<String> {
             let refused = RuleError::NoSuchRuling(*id).to_string();
             return Some(serde_json::json!({ "error": refused }).to_string());
         }
-        posted.ask_queued(verb);
+        if !posted.ask_queued(verb) {
+            return None;
+        }
         return status_of(posted, body);
     }
     let asked = match request {
