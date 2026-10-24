@@ -10,11 +10,16 @@ use std::sync::Arc;
 
 use super::Runner;
 use crate::board::OpenPullRequest;
-use crate::ports::{FailedLogs, Forge, ForgeError, PullRequest, QueueStanding, Talk};
+use crate::ports::{
+    FailedLogs, Forge, ForgeError, InstallationToken, Issue, PullRequest, QueueStanding, Talk,
+    ThreadComment, Tickets, Voice,
+};
 use crate::review_bot::{Activity, Bot, Profile};
 use crate::runner::off_lock::ItemKey;
 use crate::runner::snapshot::view_of;
 use crate::settings::ForgeSlug;
+use crate::ticket::TicketId;
+use crate::work_item::WorkItem;
 
 /// What the pass has read for a step, which the step made again finds where it would have asked
 /// the forge, as often as it asks, until the step ends
@@ -31,6 +36,19 @@ pub(in crate::runner) struct Reads {
     // The pull requests whose comments the step has handled, so a step made again does not
     // handle them twice
     talked: BTreeSet<u64>,
+    // What a work item's turn reads before its call, by ticket
+    starts: BTreeMap<TicketId, Started>,
+}
+
+/// What a turn's start read, each as the inline call returned it
+///
+/// A read is missing when the job did not make it: a turn whose token or issue failed reads
+/// nothing after, as the inline start would not have.
+#[derive(Debug, Default, Clone)]
+pub(in crate::runner) struct Started {
+    token: Option<Result<Option<InstallationToken>, ForgeError>>,
+    issue: Option<Result<Issue, ForgeError>>,
+    comments: Option<Result<Vec<ThreadComment>, ForgeError>>,
 }
 
 impl Reads {
@@ -43,6 +61,12 @@ impl Reads {
         self.logs.clear();
         self.standings.clear();
         self.talked.clear();
+        self.starts.clear();
+    }
+
+    /// What `ticket`'s turn read before its call, as the step read it
+    pub(in crate::runner) fn started(&self, ticket: TicketId) -> Started {
+        self.starts.get(&ticket).cloned().unwrap_or_default()
     }
 
     /// Pull request `number`, as the step read it
@@ -112,6 +136,7 @@ enum Read {
     Talk(Written),
     Logs(Failed),
     Standing(Queued),
+    Start(Starting),
 }
 
 // The read `pull_request_view` makes, from the pass's listing or the pull request itself
@@ -155,8 +180,24 @@ struct Queued {
     number: u64,
 }
 
+// What a turn reads before its call: the worker's token, then the issue it is first prompted with
+// and the comments under it, each only where the turn asks for it
+struct Starting {
+    voice: Arc<dyn Voice>,
+    tickets: Arc<dyn Tickets>,
+    remote: ForgeSlug,
+    ticket: TicketId,
+    token: bool,
+    issue: bool,
+    comments: bool,
+}
+
 /// What a [`Job`] found, errors as the inline call returns them
 pub(in crate::runner) enum Done {
+    Start {
+        ticket: TicketId,
+        started: Started,
+    },
     Activity {
         bot: Bot,
         number: u64,
@@ -248,7 +289,56 @@ impl Job {
                 number,
                 standing: forge.merge_queue(&remote, number),
             },
+            Read::Start(starting) => Done::Start {
+                ticket: starting.ticket,
+                started: starting.run(),
+            },
         }
+    }
+}
+
+impl Starting {
+    // In the order the inline start reads, and stopping where it would have: a token or an issue
+    // that fails ends the turn's start before the next is read
+    fn run(self) -> Started {
+        let mut started = Started::default();
+        if self.token {
+            let token = self.voice.worker_token(&self.remote);
+            let failed = token.is_err();
+            started.token = Some(token);
+            if failed {
+                return started;
+            }
+        }
+        if self.issue {
+            let issue = self.tickets.issue(&self.remote, self.ticket);
+            let failed = issue.is_err();
+            started.issue = Some(issue);
+            if failed {
+                return started;
+            }
+        }
+        if self.comments {
+            started.comments = Some(self.tickets.issue_comments(&self.remote, self.ticket));
+        }
+        started
+    }
+}
+
+impl Started {
+    /// The worker's token, as the job minted it
+    pub(in crate::runner) fn token(&self) -> Option<Result<Option<InstallationToken>, ForgeError>> {
+        self.token.clone()
+    }
+
+    /// The issue a first turn is prompted with, as the job read it
+    pub(in crate::runner) fn issue(&self) -> Option<Result<Issue, ForgeError>> {
+        self.issue.clone()
+    }
+
+    /// The comments on the issue, as the job listed them
+    pub(in crate::runner) fn comments(&self) -> Option<Result<Vec<ThreadComment>, ForgeError>> {
+        self.comments.clone()
     }
 }
 
@@ -354,6 +444,38 @@ impl Runner {
         })
     }
 
+    // The job that reads what `item`'s turn needs before its call and the step has not read: the
+    // worker's token, and for a first turn the issue and the comments under it. None when the
+    // step has them all, or the turn fails before it asks for any, or no pass runs to make the
+    // read and step again.
+    pub(in crate::runner) fn start_job(&self, item: &WorkItem, first: bool) -> Option<Box<Job>> {
+        let ticket = item.issue;
+        let kept = self.reads.started(ticket);
+        // A read that failed ends the turn's start there, as the inline one would.
+        if matches!(kept.token, Some(Err(_))) || matches!(kept.issue, Some(Err(_))) {
+            return None;
+        }
+        let token = kept.token.is_none();
+        let issue = first && kept.issue.is_none();
+        // A maintainer who cannot be named has no comments to read.
+        let comments = first && kept.comments.is_none() && self.maintainer().is_ok();
+        // A turn whose agent cannot run fails before it mints a token.
+        if !(token || issue || comments) || self.worker_agent(item).is_err() {
+            return None;
+        }
+        self.job(|_, remote| {
+            Read::Start(Starting {
+                voice: Arc::clone(&self.ports.voice),
+                tickets: Arc::clone(&self.ports.tickets),
+                remote,
+                ticket,
+                token,
+                issue,
+                comments,
+            })
+        })
+    }
+
     // A job for the focused work item's step, or none when no pass runs to make the read and step
     // again, as at a turn's end
     fn job(&self, read: impl FnOnce(Arc<dyn Forge>, ForgeSlug) -> Read) -> Option<Box<Job>> {
@@ -368,6 +490,9 @@ impl Runner {
     // Keeps what a job found for the step that asked
     pub(in crate::runner) fn keep_job_read(&mut self, done: Done) {
         match done {
+            Done::Start { ticket, started } => {
+                self.reads.starts.insert(ticket, started);
+            }
             Done::View {
                 number,
                 listed,

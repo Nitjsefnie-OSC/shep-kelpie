@@ -417,6 +417,11 @@ impl Runner {
         if self.token_wait.holds(now) {
             return Ok(self.idle(Reason::Token));
         }
+        // The token and the first prompt's issue are read with the lock let go, and the step is
+        // made again over them. Asked for only here, past every check that holds the turn back.
+        if let Some(job) = self.start_job(item, takes_issue(item, prompt.as_deref())) {
+            return Ok(Begin::Reads(job));
+        }
         self.token_wait.begins();
         let prepared = self.prepare(item, session, prompt);
         let mut next = self.state.clone();
@@ -446,9 +451,12 @@ impl Runner {
                 self.token_wait.ends();
                 resumed = !compacting && paused::resumes_pause(item);
                 self.builds_turn_begins();
-                let item = self
-                    .current_in(&mut next)
-                    .expect("the work item checked above");
+                // Dropped or moved on since the check, no call starts.
+                let Some(item) = self.current_in(&mut next) else {
+                    // No flight will take the bridge this turn's call opened.
+                    drop(self.opened.take(issue));
+                    return Ok(Begin::Idle);
+                };
                 if !compacting {
                     item.turn = Turn::Running {
                         since,
@@ -524,10 +532,13 @@ impl Runner {
         // Where the App covers the repo, the worker holds its token and never
         // the maintainer's login; a token it cannot have now fails the call
         // rather than run it as the maintainer.
-        let token = (self.ports.voice.worker_token(&self.remote)).map_err(|e| {
-            self.token_error_passes(&e);
-            format!("cannot get the worker a GitHub token: {e}")
-        })?;
+        let started = self.reads.started(item.issue);
+        let token = (started.token())
+            .unwrap_or_else(|| self.ports.voice.worker_token(&self.remote))
+            .map_err(|e| {
+                self.token_error_passes(&e);
+                format!("cannot get the worker a GitHub token: {e}")
+            })?;
         let reach = self.worker_reach(item, start, token.as_ref())?;
         // Named for the work item: the open items' calls run at once, and
         // each harness keeps its own files beside its settings file.
@@ -582,12 +593,10 @@ impl Runner {
             None if item.adopted => adopt::first_prompt(item, None),
             None => {
                 let ticket = item.issue;
-                let issue = self
-                    .ports
-                    .tickets
-                    .issue(&self.remote, ticket)
+                let issue = (started.issue())
+                    .unwrap_or_else(|| self.ports.tickets.issue(&self.remote, ticket))
                     .map_err(|e| format!("cannot read {}: {e}", ticket.shown()))?;
-                let comments = self.maintainer_comments(ticket)?;
+                let comments = self.maintainer_comments(ticket, started.comments())?;
                 self.skills
                     .invoke(Step::Implement, &first_prompt(ticket, &issue, &comments))
             }
@@ -790,6 +799,12 @@ impl Runner {
             .find(|pr| pr.head == branch)
             .map(|pr| pr.number)
     }
+}
+
+// Whether a turn sent `prompt` is prompted with its issue: the first of a work item that is
+// neither a rework nor adopted, which has no prompt of its own
+fn takes_issue(item: &WorkItem, prompt: Option<&str>) -> bool {
+    prompt.is_none() && !item.rework && !item.adopted
 }
 
 // Where a worktree made for `item` starts: a rework or adopted branch is the

@@ -692,10 +692,12 @@ fn a_trigger_is_answered_while_the_failed_run_logs_are_read() {
     past_the_window(&rig);
     let read = rig.forge.hold_next_failed_logs_read();
 
-    let (reply, pass) = rig.asked_while_held(&runner, read, "status", None);
+    let (reply, pass) = rig.asked_while_held(&runner, read, "detach", Some("7 1"));
 
-    let reply = reply.expect("the trigger waited for the lock the read held");
-    assert_eq!(reply["work_items"].as_array().unwrap().len(), 1);
+    assert!(
+        reply.is_some(),
+        "the trigger waited for the lock the read held"
+    );
     assert!(matches!(pass, Ok(Pass::Started)), "{pass:?}");
     assert_eq!(pm_seen(&rig).len(), 1, "the wake happened");
 }
@@ -740,7 +742,7 @@ fn a_trigger_is_answered_while_the_logs_of_a_workflow_red_on_main_are_read() {
     step(&runner).unwrap(); // reads the board, which wakes it for the free slot
     let read = rig.forge.hold_next_run_log_tail_read();
 
-    let (reply, pass) = rig.asked_while_held(&runner, read, "status", None);
+    let (reply, pass) = rig.asked_while_held(&runner, read, "detach", Some("7 1"));
 
     reply.expect("the trigger waited for the lock the read held");
     pass.unwrap();

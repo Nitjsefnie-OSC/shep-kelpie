@@ -41,8 +41,8 @@ pub use reads::{
 pub use registered_app::RegisteredApp;
 pub use script_cli::ScriptCli;
 pub use shep_kelpie_adapters::test::{
-    Asked, DogStandIn, FakeGithub, FakeLeases, FakeReviewer, REVIEW_ID, ScriptedRound, SeenRound,
-    SentReview, Told,
+    Asked, DogStandIn, FakeGithub, FakeLeases, FakeReviewer, HeldToken, REVIEW_ID, ScriptedRound,
+    SeenRound, SentReview, Told,
 };
 pub use shep_kelpie_core::test::{
     Answer, EPOCH, FakeAlerts, FakeBridges, FakeClassifier, FakeClock, FakeDevServers, FakeDisk,
@@ -135,6 +135,24 @@ pub struct Rig {
     /// GitHub as kelpie's App sees it: the rig has registered no App until
     /// [`Rig::with_app`]
     pub github: FakeGithub,
+}
+
+/// A call a stand-in holds open until it is dropped
+pub trait Held: Send {
+    /// Whether a call reached the stand-in and waits there, within `within`
+    fn waiting(&self, within: std::time::Duration) -> bool;
+}
+
+impl Held for HeldCall {
+    fn waiting(&self, within: std::time::Duration) -> bool {
+        HeldCall::waiting(self, within)
+    }
+}
+
+impl Held for HeldToken {
+    fn waiting(&self, within: std::time::Duration) -> bool {
+        HeldToken::waiting(self, within)
+    }
 }
 
 impl Rig {
@@ -447,7 +465,7 @@ impl Rig {
     /// `run` returned.
     pub fn during_read<R: Send, T: Send>(
         &self,
-        read: HeldCall,
+        read: impl Held,
         run: impl FnOnce() -> R + Send,
         meanwhile: impl FnOnce() -> T + Send,
     ) -> (Option<T>, R) {
@@ -474,7 +492,7 @@ impl Rig {
     pub fn asked_while_held(
         &self,
         runner: &Mutex<Runner>,
-        read: HeldCall,
+        read: impl Held,
         action: &str,
         params: Option<&str>,
     ) -> (Option<serde_json::Value>, Result<Pass, StateError>) {
