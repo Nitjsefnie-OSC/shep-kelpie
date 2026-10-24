@@ -12,6 +12,7 @@ use std::time::Duration;
 use crate::ports::{CLEAN, Checks, Finding, PullRequestState, Severity};
 use crate::runner::adopt::released::{FORK_BRANCH, adopted, contributed, release};
 use crate::runner::contributions::Sent;
+use crate::runner::git_reads::Found;
 use crate::runner::ruling::Answer;
 use crate::runner::{Runner, StepReport, step};
 use crate::state::{RulingKind, Stuck};
@@ -259,6 +260,62 @@ fn a_fix_the_fork_refuses_raises_push_refused_and_not_a_fix_not_pushed() {
         raised(&runner)
     );
     assert_eq!(on_fork(&url), head, "nothing was pushed");
+}
+
+#[test]
+fn a_fix_the_fork_took_on_the_second_try_is_a_fix_pushed_and_not_a_fix_not_pushed() {
+    let (rig, runner) = contributed();
+    let (url, head) = rig.push_to_fork(FORK_BRANCH, "fork.txt");
+    rig.forge.set_fork(80, &url, true);
+    release(&runner);
+    assert_eq!(rig.ask(&runner, "adopt", Some("80")).get("error"), None);
+    assert_eq!(step(&runner).unwrap(), Some(adopted()));
+    rig.reviewer
+        .script([ScriptedRound::Findings(vec![Finding::new(
+            Severity::Medium,
+            "fork.txt",
+            1,
+            "the flag is misnamed",
+            "it reads as its opposite",
+        )])]);
+    // The fork refuses the push at the end of the worker's turn, and takes the next.
+    let hook = Path::new(&url).join("hooks/pre-receive");
+    std::fs::create_dir_all(hook.parent().unwrap()).unwrap();
+    let once = Path::new(&url).join("refused-once");
+    let body = format!(
+        "#!/bin/sh\nif [ ! -e '{once}' ]; then touch '{once}'; echo 'try again' >&2; exit 1; fi\n",
+        once = once.display()
+    );
+    crate::test::write_script(&hook, &body);
+    rig.forge.set_checks(&head, Checks::Passed);
+    rig.claude.script([Scripted::Commit("fix.txt", "fixed\n")]);
+
+    let pushed = (0..12).any(|_| {
+        rig.verdict(&runner);
+        on_fork(&url) != head
+    });
+
+    assert!(
+        pushed,
+        "the second try reached the fork: {:?}",
+        raised(&runner)
+    );
+    assert_eq!(on_fork(&url), worktree_head(&rig));
+    assert_eq!(raised(&runner), [], "no ruling over a fix that was pushed");
+}
+
+// The head a step fetched off the lock before the push is the fork's old one, which a step made
+// again after the push would otherwise take as the fork's head
+#[test]
+fn a_push_to_the_fork_forgets_the_head_read_before_it() {
+    let (_rig, runner, _, _) = noted();
+    let mut held = runner.lock().unwrap();
+    held.focus = Some(ticket(5));
+    held.reads.git.keep(Found::Head(Ok("before".to_owned())));
+
+    held.sent(80, Sent::Pushed("after".to_owned())).unwrap();
+
+    assert!(held.reads.git.is_empty());
 }
 
 #[test]

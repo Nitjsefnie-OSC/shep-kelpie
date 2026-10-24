@@ -68,6 +68,7 @@ mod follow_up;
 mod fresh;
 mod friction;
 mod gate;
+mod git_reads;
 mod gpu;
 #[cfg(test)]
 mod gpu_tests;

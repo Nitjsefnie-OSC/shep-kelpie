@@ -24,6 +24,7 @@ use crate::webhook::{KelpieSettings, Webhook};
 
 mod claude;
 mod fork;
+mod held_git;
 mod home;
 mod reads;
 mod registered_app;
@@ -34,6 +35,7 @@ mod script_cli;
 // The stand-ins and helpers that name only `core` and the leaves, where `core`'s own tests use them
 pub use claude::{FakeClaude, LEFT_BEHIND, Scripted, Seen};
 // The stand-ins that name an adapter
+pub use held_git::HeldGit;
 pub use reads::{
     assert_granted, assert_reads, assert_refuses, installed_sources, sandbox_refuses,
     source_folders, tools_refuse,
@@ -54,6 +56,30 @@ pub use shep_kelpie_test_support::{
     CALL_PATIENCE, Elsewhere, Fake, cut_from_main, git, linked_worktree, main_commits, make_fifo,
     short_tempdir, waits_for, write_fake, write_in, write_script,
 };
+
+/// A read a test holds open: a forge call, a token mint or a git fetch
+pub trait Held: Send {
+    /// Whether a read reached the stand-in and waits there, within `within`
+    fn waiting(&self, within: std::time::Duration) -> bool;
+}
+
+impl Held for HeldCall {
+    fn waiting(&self, within: std::time::Duration) -> bool {
+        Self::waiting(self, within)
+    }
+}
+
+impl Held for HeldGit {
+    fn waiting(&self, within: std::time::Duration) -> bool {
+        Self::waiting(self, within)
+    }
+}
+
+impl Held for HeldToken {
+    fn waiting(&self, within: std::time::Duration) -> bool {
+        Self::waiting(self, within)
+    }
+}
 
 /// The `git.checkout` in `settings.example.toml`, which the rig points at its own
 const EXAMPLE_REPO: &str = "~/GitHub/shep";
@@ -135,24 +161,6 @@ pub struct Rig {
     /// GitHub as kelpie's App sees it: the rig has registered no App until
     /// [`Rig::with_app`]
     pub github: FakeGithub,
-}
-
-/// A call a stand-in holds open until it is dropped
-pub trait Held: Send {
-    /// Whether a call reached the stand-in and waits there, within `within`
-    fn waiting(&self, within: std::time::Duration) -> bool;
-}
-
-impl Held for HeldCall {
-    fn waiting(&self, within: std::time::Duration) -> bool {
-        HeldCall::waiting(self, within)
-    }
-}
-
-impl Held for HeldToken {
-    fn waiting(&self, within: std::time::Duration) -> bool {
-        HeldToken::waiting(self, within)
-    }
 }
 
 impl Rig {
@@ -458,7 +466,7 @@ impl Rig {
         serde_json::from_str(&reply).expect("a JSON reply")
     }
 
-    /// Runs `run` until its forge call `read` is held open, does `meanwhile`, and lets the read go
+    /// Runs `run` until its forge call or git fetch `read` is held open, does `meanwhile`, and lets the read go
     ///
     /// Returns what `meanwhile` returned, or `None` when it had not finished within
     /// [`CALL_PATIENCE`], as a trigger that waits for a lock the read holds has not, and what

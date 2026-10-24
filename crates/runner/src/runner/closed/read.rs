@@ -1,7 +1,7 @@
 //! Reading parked work items' pull requests and issues with the runner's lock let go
 //!
 //! [`Runner::parked_reads_due`] picks the items due and keys each, [`Reads::run`] reads them,
-//! [`Runner::settle_issue_reads`] asks git whether a closed issue's branch holds work, and
+//! [`settle_issue_reads`] asks git whether a closed issue's branch holds work, and
 //! [`Runner::apply_parked`] re-checks each item's key and ends it, or leaves it. A read that
 //! fails, or an item that moved meanwhile, is not stamped, so the next pass reads it again.
 
@@ -32,7 +32,7 @@ pub(in crate::runner) fn read_parked(runner: &Mutex<Runner>) -> Result<(), State
         return Ok(());
     }
     let mut seen = reads.run();
-    lock(runner).settle_issue_reads(&mut seen);
+    settle_issue_reads(runner, &mut seen);
     if let Some(note) = reads.drop_claimed(&mut seen) {
         lock(runner).notes.push(note);
     }
@@ -43,6 +43,29 @@ pub(in crate::runner) fn read_parked(runner: &Mutex<Runner>) -> Result<(), State
         applied.transpose()?;
     }
     Ok(())
+}
+
+/// Asks git whether the branch of each item whose issue was read closed holds work, which a fetch
+/// answers with the lock let go
+fn settle_issue_reads(runner: &Mutex<Runner>, seen: &mut [(Parked, Seen)]) {
+    let closed: Vec<_> = {
+        let runner = lock(runner);
+        (seen.iter().enumerate())
+            .filter(|(_, (_, seen))| matches!(seen, Seen::IssueClosed))
+            .map(|(at, (item, _))| (at, runner.tree_to_check(item.ticket)))
+            .collect()
+    };
+    let read: Vec<_> = (closed.into_iter())
+        .map(|(at, tree)| (at, tree.map(|tree| tree.holds_work())))
+        .collect();
+    let mut runner = lock(runner);
+    for (at, read) in read {
+        let (item, seen) = &mut seen[at];
+        *seen = match runner.no_work(item.ticket, read) {
+            true => Seen::Ended,
+            false => Seen::Quiet,
+        };
+    }
 }
 
 /// The parked work items due a read, and what reads them
@@ -162,20 +185,6 @@ impl Runner {
             tickets: Arc::clone(&self.ports.tickets),
             repo: self.remote.clone(),
             items,
-        }
-    }
-
-    // Asks git whether the branch of each item whose issue was read closed holds work, which a
-    // fetch answers on the lock
-    fn settle_issue_reads(&mut self, seen: &mut [(Parked, Seen)]) {
-        for (item, seen) in seen {
-            if matches!(seen, Seen::IssueClosed) {
-                *seen = if self.holds_no_work(item.ticket) {
-                    Seen::Ended
-                } else {
-                    Seen::Quiet
-                };
-            }
         }
     }
 

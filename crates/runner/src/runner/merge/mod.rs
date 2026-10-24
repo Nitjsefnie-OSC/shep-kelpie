@@ -189,7 +189,7 @@ impl Runner {
                 return self.withdraw(issue, number, auto, reason);
             }
         };
-        match self.base_of(&head) {
+        match self.base_standing(&head) {
             Ok(Base::Current) => {}
             Ok(Base::Lagging) => return Ok(Begin::Idle),
             Ok(Base::Behind) => {
@@ -201,7 +201,7 @@ impl Runner {
                 let reason = format!("main moved since {since}");
                 return self.withdraw(issue, number, auto, reason);
             }
-            Err(reason) => return Ok(self.gate_failed(reason)),
+            Err(begin) => return Ok(*begin),
         }
         if pr.draft {
             if let Err(e) = self.ports.forge.mark_ready(&repo, number) {

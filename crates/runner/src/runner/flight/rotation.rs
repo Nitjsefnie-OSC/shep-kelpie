@@ -71,13 +71,13 @@ fn begin_over(runner: &Mutex<Runner>, ticket: TicketId) -> Result<Stepped, State
 }
 
 #[derive(Clone, Copy)]
-enum Step {
+pub(super) enum Step {
     Slot(Slot),
     StartOver(TicketId),
 }
 
 // What a step came to
-enum Stepped {
+pub(super) enum Stepped {
     // Nothing to do, or nothing due, or the work item changed during a read
     Idle,
     // A report that waits, which the rotation returns only if no other step did anything
@@ -94,7 +94,11 @@ enum Next {
 
 // Steps `step` in one lock scope, then in one more for each read it asks for, which runs with the
 // lock let go
-fn step(runner: &Mutex<Runner>, step: Step, now: Timestamp) -> Result<Stepped, StateError> {
+pub(super) fn step(
+    runner: &Mutex<Runner>,
+    step: Step,
+    now: Timestamp,
+) -> Result<Stepped, StateError> {
     let mut next = scope(&mut lock(runner), step, now, false)?;
     loop {
         let job = match next {
@@ -110,7 +114,10 @@ fn step(runner: &Mutex<Runner>, step: Step, now: Timestamp) -> Result<Stepped, S
         next = match again {
             Some(next) => next?,
             None => {
-                lock(runner).held_up.forget_pending();
+                let mut held = lock(runner);
+                held.held_up.forget_pending();
+                // The next slot's step must not take this one's answers
+                held.reads.clear();
                 return Ok(Stepped::Idle);
             }
         };

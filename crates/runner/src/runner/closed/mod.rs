@@ -15,7 +15,7 @@ use crate::ports::Alert;
 use crate::state::{ProjectState, RulingKind};
 use crate::ticket::TicketId;
 use crate::work_item::{Phase, WorkItem};
-use crate::worktree;
+use crate::worktree::WorktreeError;
 
 /// Seconds between reads of a parked work item's issue. A parked item waits
 /// hours, and each read is a forge call and a fetch.
@@ -43,14 +43,17 @@ impl Runner {
     // Whether the branch and worktree of `ticket`'s work item hold no work. A git that cannot
     // say is noted, and counts as work.
     fn holds_no_work(&mut self, ticket: TicketId) -> bool {
-        let Some(item) = self.state.item(ticket) else {
-            return false;
-        };
-        let (branch, tree) = (item.branch.clone(), item.worktree.clone());
-        let base = self.item_base(item).to_owned();
-        match worktree::holds_work(&self.settings.git.checkout, &tree, &branch, &base) {
-            Ok(held) => !held,
-            Err(e) => {
+        let read = self.tree_to_check(ticket).map(|tree| tree.holds_work());
+        self.no_work(ticket, read)
+    }
+
+    // Whether `read`, of whether the work item of `ticket` holds work, found none. A work item
+    // that is gone, or a git that cannot say, counts as work, and the latter is noted.
+    fn no_work(&mut self, ticket: TicketId, read: Option<Result<bool, WorktreeError>>) -> bool {
+        match read {
+            None => false,
+            Some(Ok(held)) => !held,
+            Some(Err(e)) => {
                 let note = format!(
                     "{} is closed, but its work cannot be read: {e}",
                     ticket.named().to_lowercase()
