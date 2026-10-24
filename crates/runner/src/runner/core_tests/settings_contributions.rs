@@ -4,6 +4,8 @@
 use std::num::NonZeroU32;
 use std::path::Path;
 
+use crate::settings::Gateways;
+
 const EXAMPLE: &str = include_str!("../../../../../settings.example.toml");
 
 const HOME: &str = "/home/me";
@@ -98,11 +100,13 @@ fn absent_reviewers_are_the_projects_agents_reviewers() {
     let book = Agents::embedded().with("opus", REVIEWER);
     let home = tempfile::tempdir().unwrap();
     let listed = EXAMPLE.replace(
-        "# reviewers = [\"qwen\", \"defect-hunter\"]\n",
+        "# reviewers = [\"iq3-xxs-review\", \"defect-hunter-lite\"]\n",
         "reviewers = [\"opus\"]\n",
     );
     let settings = parse(&listed).unwrap();
-    let lineup = settings.contribution_lineup(&book, home.path()).unwrap();
+    let lineup = settings
+        .contribution_lineup(&book, &Gateways::default(), home.path())
+        .unwrap();
     let names: Vec<&str> = lineup.iter().map(|r| r.name.as_str()).collect();
     assert_eq!(names, ["opus"]);
 
@@ -110,7 +114,9 @@ fn absent_reviewers_are_the_projects_agents_reviewers() {
         "{listed}\n{TABLE}reviewers = [\"defect-hunter\", \"opus\"]\n"
     ))
     .unwrap();
-    let lineup = own.contribution_lineup(&book, home.path()).unwrap();
+    let lineup = own
+        .contribution_lineup(&book, &Gateways::default(), home.path())
+        .unwrap();
     let names: Vec<&str> = lineup.iter().map(|r| r.name.as_str()).collect();
     assert_eq!(names, ["defect-hunter", "opus"]);
 }

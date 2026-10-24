@@ -116,20 +116,21 @@ implementers = ["sonnet-high"]
 # reviewer's findings; a round of nits, or of nothing, goes straight to the
 # next. After the last, the pull request goes to CI. A reviewer whose file
 # sets `paths` runs only on a pull request that changes one of them.
-# `defect-hunter` is kelpie's own: Opus 5.5 at high, reading for defects and
-# then looking again for what it missed, with one fix turn after both.
-# `qwen` runs the maintainer's qwen-review script, and `add` writes it, and
-# lists it first, only where `~/.claude/scripts/qwen-review.sh` exists. The review bots `coderabbit`, `cubic` and
+# `defect-hunter-lite` is kelpie's own: Opus 5.5 at medium, reading for
+# defects once. `defect-hunter` is the same prompt at high effort, which then
+# looks again for what it missed, with one fix turn after both.
+# `iq3-xxs-review` is kelpie's own too: a local model, `iq3_xxs`, behind the
+# gateway named `paddock` in kelpie's settings. The review bots `coderabbit`, `cubic` and
 # `codex` are reviewers too, on files `add` writes but lists nowhere: one
-# listed here, as in `["qwen", "defect-hunter", "coderabbit"]`, reads the
+# listed here, as in `["iq3-xxs-review", "defect-hunter-lite", "coderabbit"]`, reads the
 # pull request in its place, once a pass, after waiting for its window, and
 # its open threads get the one fix turn. Each
 # file holds its bot's window, and `rounds` there caps its reads of a work
 # item's pull request. CodeRabbit's free plan reviews public repos only, so
-# a repo GitHub marks private cannot list it. Absent, `qwen` where the
-# script is installed and then `defect-hunter`, with no bot; empty, no
-# review at all.
-# reviewers = ["qwen", "defect-hunter"]
+# a repo GitHub marks private cannot list it. Absent, `iq3-xxs-review` where
+# kelpie's settings hold a gateway named `paddock` and then `defect-hunter-lite`,
+# with no bot; empty, no review at all.
+# reviewers = ["iq3-xxs-review", "defect-hunter-lite"]
 # The project manager, from a file whose role is `pm`: kelpie's own `pm` is
 # Opus 5.5 at medium. Code wakes it when a slot is free with two or more
 # ready issues, two open branches conflict, a work item is stuck, or you
@@ -335,7 +336,7 @@ compact_window = 200000
 # are not read yet.
 # [app.dogs.kelpie.contributions]
 # pick = "off"
-# reviewers = ["defect-hunter"]
+# reviewers = ["defect-hunter-lite"]
 # security_reviewer = "security-reviewer"
 # quiet_days = 7
 # nudge_days = 3

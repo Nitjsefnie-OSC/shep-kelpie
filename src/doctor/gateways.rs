@@ -5,14 +5,27 @@
 //! environment, which may not be the runner's, so a key not set here is
 //! unsure rather than missing.
 
+use std::collections::BTreeSet;
+
 use super::Line;
-use crate::agents::Agents;
+use crate::agents::{Agent, Agents};
 use crate::forwarder::Upstream;
 use crate::ports::KeyCheck;
-use crate::settings::{Gateway, Gateways};
+use crate::settings::{AgentName, Gateway, Gateways};
 
 /// A line for each gateway's reach and key, and for each agent's model on one
-pub(super) fn checks(gateways: &Gateways, agents: &Agents) -> Vec<Line> {
+///
+/// A shipped agent as kelpie ships it is in use only where a project `listed` it, so an
+/// unlisted one gets no line, whatever its gateway serves or lacks.
+pub(super) fn checks(
+    gateways: &Gateways,
+    agents: &Agents,
+    listed: &BTreeSet<AgentName>,
+) -> Vec<Line> {
+    let shipped = Agents::embedded();
+    let idle = |name: &AgentName, agent: &Agent| {
+        !listed.contains(name) && shipped.get(name) == Some(agent)
+    };
     let mut lines = Vec::new();
     for (name, gateway) in gateways.iter() {
         let subject = format!("gateway {name}");
@@ -55,7 +68,7 @@ pub(super) fn checks(gateways: &Gateways, agents: &Agents) -> Vec<Line> {
             Err(why) => unset_key_line(&subject, gateway, &why),
             Ok(_) => key_line(&subject, gateway, &port.key(&upstream)),
         });
-        for (agent, model) in on(agents, name.as_str()) {
+        for (agent, model) in on(agents, name.as_str(), &idle) {
             let line = format!("{subject}: {agent}");
             lines.push(match listed.iter().any(|m| m == model) {
                 true => Line::ok(line, format!("{model} is listed")),
@@ -70,6 +83,7 @@ pub(super) fn checks(gateways: &Gateways, agents: &Agents) -> Vec<Line> {
     for (agent, agent_def) in agents.iter() {
         if let Some((gateway, _)) = agent_def.runs.gateway()
             && gateways.get(gateway).is_none()
+            && !idle(agent, agent_def)
         {
             lines.push(Line::missing(
                 format!("agent {agent}"),
@@ -114,11 +128,15 @@ fn key_line(subject: &str, gateway: &Gateway, check: &KeyCheck) -> Line {
     }
 }
 
-// Each agent whose model is behind `gateway`, with the model's name there.
-fn on<'a>(agents: &'a Agents, gateway: &'a str) -> impl Iterator<Item = (String, &'a str)> {
+// Each agent in use whose model is behind `gateway`, with the model's name there.
+fn on<'a>(
+    agents: &'a Agents,
+    gateway: &'a str,
+    idle: &'a dyn Fn(&AgentName, &Agent) -> bool,
+) -> impl Iterator<Item = (String, &'a str)> {
     agents.iter().filter_map(move |(name, agent)| {
         let (on, model) = agent.runs.gateway()?;
-        (on.as_str() == gateway).then(|| (name.to_string(), model))
+        (on.as_str() == gateway && !idle(name, agent)).then(|| (name.to_string(), model))
     })
 }
 
@@ -162,6 +180,11 @@ mod tests {
     const REVIEWS_ON_PADDOCK: &str = "---\nrole: reviewer\nharness: endpoint\n\
                                       gateway: paddock\nmodel: coder\ncontext: 32768\n---\n";
 
+    fn named(names: &[&str]) -> BTreeSet<AgentName> {
+        let name = |n: &&str| AgentName::try_from((*n).to_owned()).unwrap();
+        names.iter().map(name).collect()
+    }
+
     fn verdicts(lines: &[Line]) -> Vec<(String, &'static str)> {
         let kind = |v: &Verdict| match v {
             Verdict::Ok(_) => "ok",
@@ -177,15 +200,20 @@ mod tests {
     #[test]
     fn a_gateway_is_reached_its_key_taken_and_each_agents_model_looked_for() {
         let server = StandInEndpoint::start([Answer::Says("unused")])
-            .like_paddock("pk-right", &["qwen3.8:27b"]);
+            .like_paddock("pk-right", &["qwen3.8:27b", "iq3_xxs"]);
         let book = agents(&[("local.md", ON_PADDOCK), ("box.md", REVIEWS_ON_PADDOCK)]);
-        let lines = checks(&gateways(server.host(), |_| Some("pk-right".into())), &book);
+        let lines = checks(
+            &gateways(server.host(), |_| Some("pk-right".into())),
+            &book,
+            &named(&["iq3-xxs-review"]),
+        );
         assert_eq!(
             verdicts(&lines),
             [
                 ("gateway paddock".to_owned(), "ok"),
                 ("gateway paddock: key".to_owned(), "ok"),
                 ("gateway paddock: box".to_owned(), "missing"),
+                ("gateway paddock: iq3-xxs-review".to_owned(), "ok"),
                 ("gateway paddock: local".to_owned(), "ok"),
             ]
         );
@@ -206,13 +234,17 @@ mod tests {
     fn a_refused_key_is_missing_and_one_not_set_here_is_unsure() {
         let server = StandInEndpoint::start([]).like_paddock("pk-right", &[]);
         let book = agents(&[]);
-        let lines = checks(&gateways(server.host(), |_| Some("pk-wrong".into())), &book);
+        let lines = checks(
+            &gateways(server.host(), |_| Some("pk-wrong".into())),
+            &book,
+            &named(&[]),
+        );
         assert_eq!(
             verdicts(&lines)[1],
             ("gateway paddock: key".into(), "missing")
         );
         assert!(!lines[1].to_string().contains("pk-wrong"), "{}", lines[1]);
-        let lines = checks(&gateways(server.host(), |_| None), &book);
+        let lines = checks(&gateways(server.host(), |_| None), &book, &named(&[]));
         assert_eq!(
             verdicts(&lines)[1],
             ("gateway paddock: key".into(), "unsure")
@@ -223,7 +255,11 @@ mod tests {
     fn a_gateway_that_does_not_answer_or_an_agent_naming_none_is_missing() {
         let down = unreachable_url();
         let book = agents(&[("local.md", &ON_PADDOCK.replace("paddock", "elsewhere"))]);
-        let lines = checks(&gateways(down.trim_end_matches("/v1"), |_| None), &book);
+        let lines = checks(
+            &gateways(down.trim_end_matches("/v1"), |_| None),
+            &book,
+            &named(&[]),
+        );
         assert_eq!(
             verdicts(&lines),
             [
@@ -239,15 +275,71 @@ mod tests {
     }
 
     #[test]
-    fn doctor_takes_an_openai_gateways_key_from_its_models_route() {
-        let server = StandInEndpoint::start([]).like_openai("sk-right", &["qwen3.8:27b"]);
+    fn a_shipped_agent_as_shipped_is_not_missing_a_gateway_kelpie_has_none_of() {
+        let stub = "---\nextends: kelpie:iq3-xxs-review\n---\n";
+        let book = agents(&[("iq3-xxs-review.md", stub)]);
+        let none = Gateways::default();
+        assert!(checks(&none, &agents(&[]), &named(&[])).is_empty());
+        assert!(checks(&none, &book, &named(&[])).is_empty());
+
+        let edited = "---\nextends: kelpie:iq3-xxs-review\nmodel: other\n---\n";
+        let book = agents(&[("iq3-xxs-review.md", edited)]);
+        let lines = checks(&none, &book, &named(&[]));
+        assert_eq!(
+            verdicts(&lines),
+            [("agent iq3-xxs-review".to_owned(), "missing")]
+        );
+    }
+
+    #[test]
+    fn a_shipped_agent_no_project_lists_gets_no_line_on_a_gateway_that_serves_other_models() {
+        let server = StandInEndpoint::start([]).like_paddock("pk-right", &["qwen3.8:27b"]);
+        let gateways = gateways(server.host(), |_| Some("pk-right".into()));
         let book = agents(&[("local.md", ON_PADDOCK)]);
-        let lines = checks(&openai(server.host(), |_| Some("sk-right".into())), &book);
+
+        let lines = checks(&gateways, &book, &named(&[]));
         assert_eq!(
             verdicts(&lines),
             [
                 ("gateway paddock".to_owned(), "ok"),
                 ("gateway paddock: key".to_owned(), "ok"),
+                ("gateway paddock: local".to_owned(), "ok"),
+            ]
+        );
+        let lines = checks(&gateways, &book, &named(&["iq3-xxs-review"]));
+        let listed = ("gateway paddock: iq3-xxs-review".to_owned(), "missing");
+        assert!(verdicts(&lines).contains(&listed), "{lines:?}");
+    }
+
+    #[test]
+    fn the_shipped_iq3_xxs_review_is_looked_for_on_paddock_in_every_book() {
+        let book = agents(&[]);
+        let on_paddock: Vec<_> = on(&book, "paddock", &|_, _| false).collect();
+        assert_eq!(on_paddock, [("iq3-xxs-review".to_owned(), "iq3_xxs")]);
+        let idle = |name: &AgentName, _: &Agent| name.as_str() == "iq3-xxs-review";
+        assert_eq!(
+            on(&book, "paddock", &idle).count(),
+            0,
+            "an idle one is left out"
+        );
+    }
+
+    #[test]
+    fn doctor_takes_an_openai_gateways_key_from_its_models_route() {
+        let server =
+            StandInEndpoint::start([]).like_openai("sk-right", &["qwen3.8:27b", "iq3_xxs"]);
+        let book = agents(&[("local.md", ON_PADDOCK)]);
+        let lines = checks(
+            &openai(server.host(), |_| Some("sk-right".into())),
+            &book,
+            &named(&["iq3-xxs-review"]),
+        );
+        assert_eq!(
+            verdicts(&lines),
+            [
+                ("gateway paddock".to_owned(), "ok"),
+                ("gateway paddock: key".to_owned(), "ok"),
+                ("gateway paddock: iq3-xxs-review".to_owned(), "ok"),
                 ("gateway paddock: local".to_owned(), "ok"),
             ]
         );
@@ -262,7 +354,11 @@ mod tests {
     fn doctor_reports_an_openai_gateway_that_refuses_the_key_as_missing() {
         let server = StandInEndpoint::start([]).like_openai("sk-right", &[]);
         let book = agents(&[]);
-        let lines = checks(&openai(server.host(), |_| Some("sk-wrong".into())), &book);
+        let lines = checks(
+            &openai(server.host(), |_| Some("sk-wrong".into())),
+            &book,
+            &named(&[]),
+        );
         let kinds = verdicts(&lines);
         assert!(
             kinds.contains(&("gateway paddock: key".to_owned(), "missing")),
@@ -275,7 +371,7 @@ mod tests {
     #[test]
     fn an_openai_gateway_that_lists_to_a_key_alone_is_unsure_of_a_key_this_shell_lacks() {
         let server = StandInEndpoint::start([]).like_openai("sk-right", &[]);
-        let lines = checks(&openai(server.host(), |_| None), &agents(&[]));
+        let lines = checks(&openai(server.host(), |_| None), &agents(&[]), &named(&[]));
         let kinds = verdicts(&lines);
         assert_eq!(
             kinds,

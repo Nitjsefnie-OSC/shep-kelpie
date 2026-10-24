@@ -24,8 +24,9 @@ use crate::coderabbit::LABEL as SUMMON;
 use crate::dog;
 use crate::home::ProjectName;
 use crate::ports::{Forge, NewLabel};
-use crate::settings::{BaseBranch, Settings, table_of};
+use crate::settings::{BaseBranch, Gateways, Settings, table_of};
 use crate::shepherd::{Connection, DOG};
+use crate::webhook::KelpieSettings;
 
 /// The labels kelpie reads and sets on a project's issues and pull requests
 pub const LABELS: [NewLabel<'static>; 4] = [
@@ -162,7 +163,10 @@ pub async fn add(
     // The runner's table as set, or the one to write.
     let (set, table) = match tables.remove(name.as_str()) {
         Some(set) => (true, set),
-        None => (false, settings(name, place, &base)?),
+        None => {
+            let gateways = gateways(client).await?;
+            (false, settings(name, place, &base, &gateways)?)
+        }
     };
     if set {
         let loaded = Settings::from_table(&table, name.as_str(), place.home, place.home)
@@ -265,11 +269,23 @@ pub async fn add(
     }
 }
 
+// Kelpie's gateways, as its section of the shepherd's settings holds them. A section
+// that does not parse holds none: the runner reports it when it starts.
+async fn gateways(client: &dyn Connection) -> Result<Gateways, String> {
+    let section = crate::shepherd::read_section(client).await?;
+    let read = match section.trim().is_empty() {
+        true => Ok(KelpieSettings::default()),
+        false => KelpieSettings::from_section(&section),
+    };
+    Ok(read.map(|kelpie| kelpie.gateways()).unwrap_or_default())
+}
+
 // The project's settings: the defaults with what the checkout and the forge say.
 fn settings(
     name: &ProjectName,
     place: Place<'_>,
     base: &BaseBranch,
+    gateways: &Gateways,
 ) -> Result<Map<String, Value>, String> {
     let root = &place.checkout.root;
     let mut table = table_of(DEFAULTS)?;
@@ -283,9 +299,9 @@ fn settings(
         let workflows = root.join(".github/workflows").is_dir();
         ci.insert("block".into(), Value::Bool(workflows));
     }
-    // `qwen` first where the maintainer's script is installed, as `add`
-    // writes its file, and no review bot: those are listed by hand.
-    let reviewers = crate::settings::default_reviewers(place.home);
+    // `iq3-xxs-review` first where kelpie holds a paddock gateway, and no
+    // review bot: those are listed by hand.
+    let reviewers = crate::settings::default_reviewers(gateways);
     let reviewers = reviewers.iter().map(|name| text(name.as_str())).collect();
     if let Some(Value::Object(agents)) = table.get_mut("agents") {
         agents.insert("reviewers".into(), Value::Array(reviewers));

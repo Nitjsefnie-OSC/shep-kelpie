@@ -290,6 +290,27 @@ fn the_embedded_security_reviewer_file_parses_as_a_reviewer() {
 }
 
 #[test]
+fn the_embedded_default_reviewers_are_a_lite_hunter_and_a_local_endpoint_on_paddock() {
+    let agents = Agents::embedded();
+    let lite = agents.get(&name("defect-hunter-lite")).unwrap();
+    assert_eq!(lite.role, Role::Reviewer);
+    assert_eq!(model(lite).harness, AgentHarness::ClaudeCode);
+    assert_eq!(pair(lite), ("claude-opus-5-5", Effort::Medium));
+    assert!(!lite.second_look, "it reads once");
+    let full = agents.get(&name("defect-hunter")).unwrap();
+    assert_eq!(
+        lite.prompt, full.prompt,
+        "the same prompt on a smaller budget"
+    );
+
+    let local = agents.get(&name("iq3-xxs-review")).unwrap();
+    assert_eq!(local.role, Role::Reviewer);
+    let (gateway, model) = local.runs.gateway().unwrap();
+    assert_eq!((gateway.as_str(), model), ("paddock", "iq3_xxs"));
+    assert!(local.runs.local().is_some() && local.prompt.is_none());
+}
+
+#[test]
 fn defaults_are_written_where_missing_and_never_over_a_file() {
     let dir = tempfile::tempdir().unwrap();
     let agents = dir.path().join("agents");
@@ -300,6 +321,8 @@ fn defaults_are_written_where_missing_and_never_over_a_file() {
             "sonnet-high",
             "opus-high",
             "defect-hunter",
+            "defect-hunter-lite",
+            "iq3-xxs-review",
             "standards",
             "spec",
             "security-reviewer",

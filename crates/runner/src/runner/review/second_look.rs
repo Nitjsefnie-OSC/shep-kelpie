@@ -1,5 +1,6 @@
-//! A new project's review, through the runner and its stand-ins: the qwen
-//! round, then `defect-hunter`, which looks twice before one fix turn
+//! A project that lists `qwen` then `defect-hunter`, through the runner and
+//! its stand-ins: the qwen round, then `defect-hunter`, which looks twice
+//! before one fix turn
 
 use std::sync::Mutex;
 
@@ -13,11 +14,11 @@ use crate::test::ticket;
 use crate::test::{Rig, Scripted, Seen};
 use crate::work_item::CallKind;
 
-// A new project whose worker opened pull request 71 and whose qwen round
-// found nothing, so `defect-hunter` is next.
+// A project listing `qwen` then `defect-hunter`, whose worker opened pull
+// request 71 and whose qwen round found nothing, so `defect-hunter` is next.
 fn at_defect_hunter() -> (Rig, Mutex<Runner>) {
     let rig = Rig::new("shep");
-    rig.default_review();
+    rig.reviewers(&["qwen", "defect-hunter"]);
     let runner = rig.open().unwrap();
     rig.ask(&runner, "add", Some("7"));
     rig.forge.open_pull_request(71, "kelpie/7", &[7]);

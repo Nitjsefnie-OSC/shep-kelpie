@@ -15,9 +15,11 @@ A reviewer runs in one of four ways, by its file's `harness`:
 
 A session's prompt is its file's body with the commit the change is against at `{{BASE}}` and the diff at `{{DIFF}}`. A body with no `{{DIFF}}` gets the diff after it. The body asks for kelpie's format, one finding per line as `SEVERITY|file:line|what|why`, or `CLEAN` alone. Every reviewer's prompt carries the issue's acceptance criteria: the section under an "Acceptance criteria" heading, or the whole body without one. `paths` limits a reviewer to pull requests that change a file under one of its globs, and the review skips it elsewhere. `second_look: true` runs a session twice: the second fresh session is shown what the first found and asked only for what it missed, and the worker gets one fix turn for both lists. With `ci.test_command` set, a `claude-code` reviewer also has `Write`, a `pi` reviewer `write` (and no `edit` or `bash`), a `goose` reviewer `write` (its `edit` stays refused, and its shell is read only), and a `codex` reviewer `apply_patch` (it has no shell), each held to one folder, `review-tests` in the work item's build folder, and is asked to leave one failing test per finding there, at the path the test should have in the repo, named as a fifth field: `SEVERITY|file:line|what|why|tests/flag.rs`. A fifth field that is not a relative path with no `..` and no spaces stays part of `why`. A `command` or `endpoint` reviewer, or any reviewer without the setting, is read as before.
 
-shep-kelpie ships `defect-hunter`: Opus 5.5 at high effort reading the whole pull request for defects, meaning a trigger and an effect a failing test could be written from, and not for style or naming, with a second look. It is a project's review when the project lists none. `qwen` runs `~/.claude/scripts/qwen-review.sh`, an optional local review script, and when that script exists a project that lists none runs `qwen` first.
+shep-kelpie ships `defect-hunter-lite`: Opus 5.5 at medium effort reading the whole pull request for defects, meaning a trigger and an effect a failing test could be written from, and not for style or naming, in one session. `defect-hunter` is the same prompt at high effort with a second look. `iq3-xxs-review` is an endpoint reviewer on the model `iq3_xxs` behind a gateway named `paddock`.
 
-`standards` and `spec` are the two axes of the vendored `code-review` skill, one reviewer each, since the skill runs them as parallel sub-agents and kelpie's workers spawn none. Both run Opus 5.5 at high effort, read once with no second look, and answer in the same `SEVERITY|file:line|what|why` lines. They do not replace `defect-hunter`. `add` writes both files and lists neither, and a project's `agents.reviewers` list replaces the default, so it runs them by naming them in that list, `defect-hunter` included: `reviewers = ["defect-hunter", "standards", "spec"]`.
+A project that lists none runs `defect-hunter-lite`, and `iq3-xxs-review` before it where kelpie's settings hold a gateway named `paddock` (see [Gateways](agents.md#gateways)). `qwen` runs `~/.claude/scripts/qwen-review.sh`, an optional local review script, and is never a default.
+
+`standards` and `spec` are the two axes of the vendored `code-review` skill, one reviewer each, since the skill runs them as parallel sub-agents and kelpie's workers spawn none. Both run Opus 5.5 at high effort, read once with no second look, and answer in the same `SEVERITY|file:line|what|why` lines. They do not replace `defect-hunter-lite`. `add` writes both files and lists neither, and a project's `agents.reviewers` list replaces the default, so it runs them by naming them in that list, `defect-hunter-lite` included: `reviewers = ["defect-hunter-lite", "standards", "spec"]`.
 
 - `standards` reads `CODING_STANDARDS.md`, `CONTRIBUTING.md` and `CLAUDE.md` where the repo has them, and checks the diff against them and against the skill's twelve code smells, such as Duplicated Code and Speculative Generality. It covers the verbose and repeated code `defect-hunter` is told to skip. A documented standard overrides a smell, what tooling enforces is skipped, and a smell is never above `LOW`, since each is a judgement call.
 - `spec` checks the diff against the issue's acceptance criteria, which are cut at 4,000 bytes. It reports a requirement that is missing or partly done, behaviour nobody asked for, and a requirement that looks done but is wrong, quoting the criterion for each.
@@ -26,7 +28,7 @@ A local model before the defect hunter, and a deeper read of the paths where it 
 
 ```toml
 [app.dogs.kelpie.agents]
-reviewers = ["gpu-box", "defect-hunter", "merge-reader"]
+reviewers = ["gpu-box", "defect-hunter-lite", "merge-reader"]
 ```
 
 ```markdown
@@ -60,7 +62,7 @@ A review bot reads the pull request on the forge, in its place in `agents.review
 
 ```toml
 [app.dogs.kelpie.agents]
-reviewers = ["defect-hunter", "coderabbit"]
+reviewers = ["defect-hunter-lite", "coderabbit"]
 ```
 
 ```markdown

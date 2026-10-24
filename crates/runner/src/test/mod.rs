@@ -59,7 +59,7 @@ pub use shep_kelpie_test_support::{
 const EXAMPLE_REPO: &str = "~/GitHub/shep";
 
 /// The reviewers `settings.example.toml` lists, commented out
-const EXAMPLE_REVIEWERS: &str = "# reviewers = [\"qwen\", \"defect-hunter\"]\n";
+const EXAMPLE_REVIEWERS: &str = "# reviewers = [\"iq3-xxs-review\", \"defect-hunter-lite\"]\n";
 
 /// The rig's reviewers: its qwen round and then its own Claude session, `claude`
 pub const RIG_REVIEWERS: &str = "reviewers = [\"qwen\", \"claude\"]\n";
@@ -171,7 +171,7 @@ impl Rig {
         assert!(example.contains(EXAMPLE_REPO), "the example's repo moved");
         // Most tests are about what comes after the review, so the rig's
         // project runs a short one: a local round and then a Claude session. A
-        // test of a new project's review takes that out with [`Rig::default_review`].
+        // test of another lineup names it with [`Rig::reviewers`].
         assert!(
             example.contains(EXAMPLE_REVIEWERS),
             "the example's reviewers moved"
