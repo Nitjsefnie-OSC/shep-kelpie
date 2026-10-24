@@ -53,9 +53,9 @@ impl Runner {
             return Ok(Begin::Idle);
         }
         let number = self.number();
-        let activity = match self.activity(bot, number) {
+        let activity = match self.read_activity(bot, number) {
             Ok(activity) => activity,
-            Err(reason) => return Ok(self.gate_failed(reason)),
+            Err(begin) => return Ok(begin),
         };
         let threads = open_ids(&activity);
         if lands(now, since, open, &threads) {
@@ -81,6 +81,28 @@ impl Runner {
     ///
     /// A message when the forge cannot read a bot's activity.
     pub(in crate::runner) fn threads_open(&self, number: u64) -> Result<OpenThreads, String> {
+        let mut read = Vec::new();
+        for listed in self.listed_bots() {
+            read.push((listed.bot, self.activity(listed.bot, number)?));
+        }
+        Ok(self.threads_in(&read))
+    }
+
+    /// [`Runner::threads_open`] for a step: a bot's activity is read with the runner's lock let
+    /// go, so the step may return `Begin::Reads` and is made again
+    pub(in crate::runner) fn threads_open_read(
+        &mut self,
+        number: u64,
+    ) -> Result<OpenThreads, Begin> {
+        let mut read = Vec::new();
+        for listed in self.listed_bots() {
+            read.push((listed.bot, self.read_activity(listed.bot, number)?));
+        }
+        Ok(self.threads_in(&read))
+    }
+
+    // The unaddressed threads in what each listed bot posted
+    fn threads_in(&self, read: &[(Bot, Activity)]) -> OpenThreads {
         // A thread sent to a fix turn is the worker's, and one the
         // maintainer merged past with a yes holds nothing again.
         let passed: Vec<String> = (self.current().into_iter())
@@ -88,9 +110,8 @@ impl Runner {
             .cloned()
             .collect();
         let (mut holding, mut held_by, mut nits) = (Vec::new(), Vec::new(), Vec::new());
-        for listed in self.listed_bots() {
-            let profile = self.profile(listed.bot);
-            let activity = self.activity(listed.bot, number)?;
+        for (bot, activity) in read {
+            let profile = self.profile(*bot);
             let open = activity.open_threads();
             let read = read_threads(profile.as_ref(), open.filter(|t| !passed.contains(&t.id)));
             let (low, above) = (read.nits, read.above);
@@ -106,11 +127,11 @@ impl Runner {
             }
         }
         let joined = |named: Vec<String>| (!named.is_empty()).then(|| named.join(", "));
-        Ok(OpenThreads {
+        OpenThreads {
             holding: joined(holding),
             held_by,
             nits: joined(nits),
-        })
+        }
     }
 }
 

@@ -32,15 +32,21 @@ impl Runner {
     /// `None` when no such bot has. Parked on a merge ruling, the work item
     /// leaves it, and the ruling is withdrawn.
     pub(in crate::runner) fn late_review(&mut self) -> Result<Option<Begin>, StateError> {
-        if self.item().bots_skipped.is_empty() {
+        // A step made again after a read finds the work item as the read left it
+        let Some(item) = self.current() else {
+            return Ok(Some(Begin::Idle));
+        };
+        let Some(number) = item.pull_request else {
+            return Ok(Some(Begin::Idle));
+        };
+        if item.bots_skipped.is_empty() {
             return Ok(None);
         }
+        let skipped = item.bots_skipped.clone();
         let head = match self.origin_head() {
             Ok(head) => head,
             Err(reason) => return Ok(Some(self.gate_failed(reason))),
         };
-        let number = self.number();
-        let skipped = self.item().bots_skipped.clone();
         for reviewer in skipped.iter().map(|s| s.reviewer().clone()) {
             let listed = self.listed(&reviewer).and_then(|r| r.bot());
             // A review from before an adoption does not stand for one of kelpie's.
@@ -50,9 +56,9 @@ impl Runner {
             else {
                 continue;
             };
-            let activity = match self.activity(bot, number) {
+            let activity = match self.read_activity(bot, number) {
                 Ok(activity) => activity,
-                Err(reason) => return Ok(Some(self.gate_failed(reason))),
+                Err(begin) => return Ok(Some(begin)),
             };
             if !self.profile(bot).covers(&activity, &head) {
                 continue;
@@ -141,16 +147,27 @@ impl Runner {
         if !on_merge {
             return Ok(Begin::Idle);
         }
-        let (issue, now) = (self.item().issue, self.ports.clock.now());
+        let Some(issue) = self.current().map(|item| item.issue) else {
+            return Ok(Begin::Idle);
+        };
+        let now = self.ports.clock.now();
         let last = *self.late_reads.entry(issue).or_insert(now);
         if now.0.saturating_sub(last.0) < LATE_READ {
             return Ok(Begin::Idle);
         }
-        self.late_reads.insert(issue, now);
-        if let Some(begin) = self.late_review()? {
-            return Ok(begin);
+        let begin = match self.late_review()? {
+            Some(begin) => Some(begin),
+            None => self.talk_turn(&At::Parked(id))?,
+        };
+        // Stamped once the reads are made, since a step made again after one is due as well, and
+        // unless the work item left the ruling, which forgets the stamp
+        let parked = self
+            .current()
+            .is_some_and(|item| item.phase == Phase::Ruling { id });
+        if parked && !matches!(begin, Some(Begin::Reads(_))) {
+            self.late_reads.insert(issue, now);
         }
-        Ok(self.talk_turn(&At::Parked(id))?.unwrap_or(Begin::Idle))
+        Ok(begin.unwrap_or(Begin::Idle))
     }
 
     /// Notes that the work item's merge ruling, about to be raised, last

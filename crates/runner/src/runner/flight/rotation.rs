@@ -127,6 +127,10 @@ fn scope(runner: &mut Runner, step: Step, now: Timestamp, read: bool) -> Result<
         Step::Slot(slot) => runner.step_slot(slot, now)?,
         Step::StartOver(ticket) => runner.step_over(ticket)?,
     };
+    // What the step read is kept for its steps made again, and no longer
+    if !matches!(begin, Begin::Reads(_)) {
+        runner.reads.clear();
+    }
     let (slot, again) = match step {
         Step::Slot(slot) => (Some(slot), false),
         Step::StartOver(_) => (None, true),

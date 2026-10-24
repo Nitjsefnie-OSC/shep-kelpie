@@ -315,6 +315,26 @@ fn at_round_1(project: &str) -> (Rig, std::sync::Mutex<crate::runner::Runner>) {
     (rig, runner)
 }
 
+// A round waits for CI on the head it would read, which it asks the forge for
+// with the runner's lock let go
+#[test]
+fn a_trigger_is_answered_while_the_review_head_is_read() {
+    let rig = Rig::new("shep");
+    rig.ci_on();
+    let runner = rig.open().unwrap();
+    rig.ask(&runner, "add", Some("7"));
+    rig.forge.open_pull_request(71, "kelpie/7", &[7]);
+    rig.claude.script([Scripted::Push("work.txt", "work\n")]);
+    step(&runner).unwrap();
+    let read = rig.forge.hold_next_pull_request_read();
+
+    let (reply, pass) = rig.asked_while_held(&runner, read, "status", None);
+
+    let reply = reply.expect("the trigger waited for the lock the head's read held");
+    assert_eq!(reply["work_items"].as_array().unwrap().len(), 1);
+    pass.unwrap();
+}
+
 #[test]
 fn a_claude_round_with_a_finding_records_a_reviewer_call() {
     let (rig, runner) = at_round_1("shep");

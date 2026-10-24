@@ -49,7 +49,7 @@ impl Runner {
             return Ok(parked);
         }
         // Read with the runner's lock let go, and the step made again with the result
-        let viewed = match self.take_view(number) {
+        let viewed = match self.kept_view(number) {
             Some(viewed) => viewed,
             None => match self.view_job(number) {
                 Some(job) => return Ok(Begin::Reads(job)),
@@ -176,9 +176,9 @@ impl Runner {
         };
         let unreviewed = self.current().and_then(|item| item.unreviewed.clone());
         let unread_head = self.current().is_some_and(|item| !item.vouches_for(&head));
-        let open = match self.threads_open(number) {
+        let open = match self.threads_open_read(number) {
             Ok(open) => open,
-            Err(reason) => return Ok(self.gate_failed(reason)),
+            Err(begin) => return Ok(begin),
         };
         // A merge ruling's `no`, or a bot's late round, sent its fix here
         // unread, so the maintainer decides on it again, even under `auto`,

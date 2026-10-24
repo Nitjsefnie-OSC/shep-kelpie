@@ -41,16 +41,17 @@ impl Runner {
         {
             return Ok(None);
         }
-        let item = self.current().expect("a round is a work item's");
-        let (issue, number) = (item.issue, item.pull_request);
-        let number = number.expect("review runs on a pull request");
-        let pr = match self.ports.forge.pull_request(&self.remote, number) {
+        let Some(item) = self.current() else {
+            return Ok(Some(Begin::Idle));
+        };
+        let issue = item.issue;
+        let Some(number) = item.pull_request else {
+            return Ok(Some(Begin::Idle));
+        };
+        // Read with the runner's lock let go, and the step made again with the result
+        let pr = match self.round_view(number) {
             Ok(pr) => pr,
-            Err(e) => {
-                return Ok(Some(
-                    self.gate_failed(format!("cannot read #{number}: {e}")),
-                ));
-            }
+            Err(begin) => return Ok(Some(begin)),
         };
         // A pull request merged or closed by hand ends as the gate ends it,
         // and no reviewer reads it.
