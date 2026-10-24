@@ -1,14 +1,16 @@
 //! Which issues `status` lists as due for triage, through the runner's stand-ins
 
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex, mpsc};
+use std::time::Duration;
 
 use serde_json::Value;
 
-use super::research_tests::{WORDS, nothing, reply};
+use super::research_tests::{WORDS, calls, nothing, reply};
 use crate::ports::{AuthorAssociation, Clock, OpenIssue, Role, Timestamp};
-use crate::runner::{Runner, step};
-use crate::state::StateStore;
-use crate::test::{Rig, Scripted};
+use crate::runner::trigger::lock;
+use crate::runner::{Runner, advance, answer, step};
+use crate::state::{Ruling, RulingKind, StateStore, Stuck};
+use crate::test::{CALL_PATIENCE, Rig, Scripted, ticket};
 
 // The maintainer is not kelpie's account, which is `the-maintainer`
 pub(super) const MAINTAINER: &str = "Boss";
@@ -291,4 +293,133 @@ fn an_unreadable_listing_lists_nothing_and_fails_no_poll() {
     rig.next_look();
     assert_eq!(step(&runner).unwrap(), None);
     assert_eq!(due(&rig, &runner), [30]);
+}
+
+// A pass lists the open issues with the runner's lock let go, so a trigger that needs the
+// lock is answered while the forge is slow, and no hold of the lock is as long as the read.
+#[test]
+fn a_trigger_is_answered_while_the_triage_listing_is_read() {
+    const HELD_FOR: Duration = Duration::from_millis(300);
+    let (rig, runner) = triaging("all");
+    list(&rig, issue(&rig, 30, "newcomer", 5));
+    let runner = Arc::new(runner);
+    let postings = runner.lock().unwrap().postings();
+    let read = rig.forge.hold_next_listing_read();
+
+    let pass = std::thread::scope(|scope| {
+        let pass = scope.spawn(|| advance(&runner));
+        assert!(
+            read.waiting(CALL_PATIENCE),
+            "the pass never reached the listing"
+        );
+        let (sent, heard) = mpsc::channel();
+        {
+            let (runner, postings) = (Arc::clone(&runner), Arc::clone(&postings));
+            scope.spawn(move || sent.send(answer(&runner, &postings, "timings", None)));
+        }
+        let answered = heard.recv_timeout(CALL_PATIENCE);
+        std::thread::sleep(HELD_FOR);
+        // Before the assertion, so a trigger that is still waiting is let go.
+        drop(read);
+        assert!(
+            answered.is_ok(),
+            "`timings` waited for the lock while the listing was read"
+        );
+        pass.join().expect("the pass thread")
+    });
+
+    assert!(pass.is_ok(), "{pass:?}");
+    let status = status(&rig, &runner);
+    let longest = (status["lock"]
+        .as_object()
+        .expect("the holds by site")
+        .values())
+    .map(|seconds| seconds.as_f64().unwrap())
+    .fold(0.0, f64::max);
+    assert!(
+        longest < HELD_FOR.as_secs_f64(),
+        "a hold lasted as long as the read: {longest}s"
+    );
+}
+
+#[test]
+fn a_listing_that_fails_leaves_the_look_due_and_stamps_nothing() {
+    let (rig, runner) = triaging("all");
+    list(&rig, issue(&rig, 30, "newcomer", 5));
+    rig.forge.set_issues_down(true);
+    assert_eq!(step(&runner).unwrap(), None);
+    assert_eq!(due(&rig, &runner), Vec::<u64>::new());
+
+    // No time has passed, and the next pass lists again.
+    rig.forge.set_issues_down(false);
+    assert_eq!(step(&runner).unwrap(), None);
+
+    assert_eq!(due(&rig, &runner), [30]);
+}
+
+// A second pass lists, triages and labels the issue in the gap the first one's listing was read
+// across, so the listing it applies is out of date by one triage.
+#[test]
+fn an_issue_labelled_while_the_listing_was_read_is_not_triaged_twice() {
+    let (rig, runner) = triaging("all");
+    list(&rig, issue(&rig, 30, "newcomer", 5));
+    rig.claude
+        .script_for(Role::Representative, [Scripted::Say(WORDS)]);
+    rig.claude.script_for(Role::Triager, [reply(nothing())]);
+    let runner = Arc::new(runner);
+    let read = rig.forge.hold_next_listing_read();
+
+    std::thread::scope(|scope| {
+        let pass = scope.spawn(|| step(&runner));
+        assert!(
+            read.waiting(CALL_PATIENCE),
+            "the pass never reached the listing"
+        );
+        let second = step(&runner);
+        drop(read);
+        assert_eq!(second.unwrap(), None);
+        assert_eq!(pass.join().expect("the pass thread").unwrap(), None);
+    });
+
+    assert_eq!(rig.github.comments().len(), 1, "it was triaged once");
+    assert_eq!(calls(&rig, Role::Triager).len(), 1);
+    assert_eq!(due(&rig, &runner), Vec::<u64>::new());
+}
+
+// What the apply saves is cloned from the state it finds once the lock is taken again, not from
+// the one the job was built on.
+#[test]
+fn a_ruling_saved_while_the_listing_was_read_is_kept() {
+    let rig = rig_with("pick = \"maintainer\"\nhand_ready = true");
+    let mut by_hand = issue(&rig, 30, MAINTAINER, 5);
+    by_hand.labels = vec!["ready-for-agent".to_owned()];
+    list(&rig, by_hand);
+    let runner = Arc::new(rig.open().unwrap());
+    let read = rig.forge.hold_next_listing_read();
+
+    std::thread::scope(|scope| {
+        let pass = scope.spawn(|| advance(&runner));
+        assert!(
+            read.waiting(CALL_PATIENCE),
+            "the pass never reached the listing"
+        );
+        let mut held = lock(&runner);
+        let mut next = held.state.clone();
+        let kind = RulingKind::Stuck(Stuck::AdoptFailed { why: "no".into() });
+        next.rulings
+            .push(Ruling::new(ticket(71), "Adopt it?", kind));
+        held.save(next).unwrap();
+        drop(held);
+        drop(read);
+        pass.join().expect("the pass thread").unwrap();
+    });
+
+    let status = status(&rig, &runner);
+    assert_eq!(status["rulings"].as_array().map(Vec::len), Some(1));
+    let records = &status["triage"]["issues"];
+    assert_eq!(
+        records[0]["issue"], 30,
+        "the apply saved its record: {records}"
+    );
+    assert_eq!(records[0]["step"], "taken");
 }

@@ -76,6 +76,13 @@ pub(in crate::runner) enum Settled {
     Held,
 }
 
+/// What the log says when the wait on an issue's author ends because it closed
+pub(super) fn closed_note(issue: u64) -> String {
+    format!(
+        "triage #{issue}: it is closed, so the wait on its author ends with no post and no label"
+    )
+}
+
 impl Runner {
     // Whether `author` is one kelpie asks to settle its open questions itself:
     // the maintainer on their own issue, and any author under `pick = "all"`.
@@ -155,13 +162,7 @@ impl Runner {
                 continue;
             }
             let Some(this) = open.iter().find(|i| i.number == issue) else {
-                self.triage_wait_stood(
-                    issue,
-                    format!(
-                        "triage #{issue}: it is closed, so the wait on its author ends with no \
-                         post and no label"
-                    ),
-                )?;
+                self.triage_wait_stood(issue, closed_note(issue))?;
                 continue;
             };
             // The listing is where a restart gets the author's login back, which

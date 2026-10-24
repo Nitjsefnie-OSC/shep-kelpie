@@ -18,7 +18,7 @@ One `Mutex<Runner>` per project. #1201.
 
 ## Off the lock
 
-`runner/off_lock.rs`: `ItemKey` is a work item's `issue`, `session`, `turn`, `phase` and `pull_request` as they stood when the work began. `with_item` takes the lock, returns `None` if the item is gone or any of them changed, and otherwise sets `focus` to it again and applies the answer. 
+`runner/off_lock.rs`: `ItemKey` is a work item's `issue`, `session`, `turn`, `phase` and `pull_request` as they stood when the work began. `with_item` takes the lock, returns `None` if the item is gone or any of them changed, and otherwise sets `focus` to it again and applies the answer.
 
 These reads run with the lock let go, in `one_pass` before `begin`, each as a job that copies what it needs, reads, and applies on the lock:
 
@@ -27,6 +27,14 @@ These reads run with the lock let go, in `one_pass` before `begin`, each as a jo
 - Dropped tickets (`dispatch/mod.rs`) and the bumps (`dependencies/read.rs`).
 - Each stamps its `looks` or `parked_reads` entry at the apply, so a read that failed is made again at the next pass.
 - A start-over pass makes none of them.
+
+The triage poll (`runner/triage/poll_read.rs`, #1204) has the same shape without a work item. `read_triage` runs in `one_pass` before the board's read:
+
+- `Runner::triage_poll_job` returns none unless `triage.pick` is not `off` and the look is due (`Looks::triage_due`, which stamps nothing). The run lists the open issues, reads each local wait's issue, and lists the open pulls only where one is used: a listed issue carries `ready-for-agent`, a recorded taken-back one is listed, or the triager may start.
+- The apply stamps the look (`triage_listed`) and does every write from the state it finds then: `note_triage_authors`, `settle_triage_waits`, `resume_triage`, the take-back's label writes and `save_taken`. A failed listing stamps nothing, so the next pass reads again, at most once a second.
+- The listing and pulls stay as `triage_run.listing`, which `triage_job` starts the triager from.
+- A `triage` verb sent during the read calls `Looks::triage_asked`. The apply then keeps no listing and stamps nothing, so the next pass lists with the queued issue in it.
+- Still on the lock: the reads in `ask.rs`, `comment.rs`, `limits.rs` and `addressed.rs`.
 
 ## Queued verbs
 

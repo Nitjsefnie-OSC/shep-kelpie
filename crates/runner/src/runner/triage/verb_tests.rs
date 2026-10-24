@@ -1,13 +1,15 @@
 //! `shep kelpie triage <n>`, through the runner's trigger
 
+use std::sync::Arc;
+
 use serde_json::{Value, json};
 
 use super::comment::MARKER;
 use super::pick_tests::{issue, list, rig_with, triaging};
 use crate::github::ApiError;
 use crate::ports::{Role, Timestamp};
-use crate::runner::step;
-use crate::test::Scripted;
+use crate::runner::{advance, step};
+use crate::test::{CALL_PATIENCE, Scripted};
 
 const WORDS: &str = "Thanks for the report. I looked it over.";
 
@@ -186,4 +188,42 @@ fn a_triage_asked_again_finds_its_own_comment_after_a_post_that_seemed_to_fail()
     assert_eq!(records[0]["comment"], landed);
     assert_ne!(records[0]["comment"], first["comment"]);
     assert_eq!(records[0]["step"], "done");
+}
+
+// The poll's listing is read with the runner's lock let go, so the verb can queue an issue
+// that listing does not hold. The pass that applies it must not take that listing for a
+// fresh one: it would drop the queued issue unasked, or leave it a whole poll.
+#[test]
+fn an_issue_queued_while_the_triage_listing_was_read_is_triaged_at_once() {
+    let rig = rig_with("pick = \"all\"");
+    let old = issue(&rig, 30, "newcomer", 0);
+    rig.clock.advance(100);
+    let runner = Arc::new(rig.open().unwrap());
+    rig.claude
+        .script_for(Role::Triager, [Scripted::Text(NOTHING)]);
+    rig.claude
+        .script_for(Role::Representative, [Scripted::Say(WORDS)]);
+    let read = rig.forge.hold_next_listing_read();
+
+    std::thread::scope(|scope| {
+        let pass = scope.spawn(|| advance(&runner));
+        assert!(
+            read.waiting(CALL_PATIENCE),
+            "the pass never reached the listing"
+        );
+        // Listed after the read began, so the read does not hold it
+        list(&rig, old);
+        let reply = rig.ask(&runner, "triage", Some("30"));
+        assert_eq!(reply.get("error"), None, "{reply}");
+        drop(read);
+        pass.join().expect("the pass thread").unwrap();
+    });
+    rig.next_look();
+    assert_eq!(step(&runner).unwrap(), None);
+
+    assert_eq!(
+        rig.github.comments(),
+        [(30, format!("{WORDS}\n\n{MARKER}"))],
+        "the queued issue was triaged"
+    );
 }
