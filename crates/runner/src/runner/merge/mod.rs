@@ -270,7 +270,7 @@ impl Runner {
     // Nobody is asked before a merge under `auto`, so a head the gates never
     // saw is adopted into the worktree and goes back through every gate.
     pub(super) fn regate(&mut self, from: &str, tip: &str) -> Result<(), String> {
-        let item = self.current().expect("a gate is of a work item");
+        let item = self.current().ok_or("the work item is gone")?;
         let (repo, branch) = (&self.settings.git.checkout, &item.branch);
         worktree::adopt(repo, &item.worktree, branch, from, tip, &item.remote)
             .map_err(|e| format!("cannot bring the worktree to {}: {e}", short(tip)))?;
