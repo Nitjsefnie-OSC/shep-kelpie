@@ -894,6 +894,24 @@ fn coderabbit_that_cannot_be_read_is_tried_again_later() {
     assert_eq!(rig.threads_read(&runner), reviewed(0));
 }
 
+// The comments' read that fails is told once, though the green-CI step is
+// made again over the CodeRabbit read it waits on after it.
+#[test]
+fn a_comments_read_that_fails_is_told_once_though_the_step_is_made_again() {
+    let (rig, runner, head) = read_clean("koji");
+    rig.forge.set_checks(&head, Checks::Passed);
+    rig.forge.set_talk_down(true);
+
+    assert!(matches!(
+        rig.verdict(&runner),
+        Some(StepReport::Ruling { .. })
+    ));
+
+    let told = runner.lock().unwrap().take_notes();
+    let note = "cannot read what people wrote on #71: gh failed: comments are down";
+    assert_eq!(told.iter().filter(|n| *n == note).count(), 1, "{told:?}");
+}
+
 #[test]
 fn a_commit_pushed_by_hand_after_the_pass_parks_rather_than_reaching_the_merge_ruling() {
     let (rig, runner, _) = read_clean("koji");

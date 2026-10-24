@@ -2,16 +2,19 @@
 
 use std::sync::{Arc, Mutex};
 
+use super::late::LATE_READ;
+use super::late_reads::passed_over;
+use super::two_bots::listing;
 use super::{DONE_SETTLE, HEARD_WAIT};
 use crate::adapters::ShepLeases;
 use crate::lease::saved::BookFile;
 use crate::lease::wire::{Asker, WindowFact};
 use crate::lease::{Epoch, LeaseKind};
 use crate::ports::Leases;
-use crate::ports::{CLEAN, Finding, Severity, Timestamp};
+use crate::ports::{CLEAN, Checks, Finding, Severity, Timestamp};
 use crate::review_bot::{Activity, Bot, Comment, Login, Profile, Reading, Review, Status, Thread};
 use crate::runner::coderabbit::tests::now;
-use crate::runner::{Runner, StepReport, step};
+use crate::runner::{CHECKS_SETTLE, Pass, Runner, StepReport, advance, step};
 use crate::settings::AgentName;
 use crate::test::ticket;
 use crate::test::{DogStandIn, Rig, Scripted, Told};
@@ -462,4 +465,116 @@ fn a_round_that_gives_up_on_the_lease_says_the_wait_it_gave_up_after() {
             "#7 lease-refused kind=stand-in reviewer=coderabbit waited=7200s",
         ]
     );
+}
+
+// The pass reads the bot's activity with the runner's lock let go, so a
+// trigger is not made to wait the read's seconds out.
+#[test]
+fn a_trigger_is_answered_while_a_bots_activity_is_read() {
+    let (rig, runner, _head) = summoned("shep");
+    let read = rig.forge.hold_next_activity_read();
+
+    let (reply, pass) = rig.asked_while_held(&runner, read, "status", None);
+
+    let reply = reply.expect("the trigger waited for the lock the activity's read held");
+    assert_eq!(reply["work_items"].as_array().unwrap().len(), 1);
+    pass.unwrap();
+}
+
+// A review that lands while the activity is read is what the step made
+// again reads, so the round goes on to its threads as it would had the
+// bot answered before the step began.
+#[test]
+fn a_bot_that_answered_during_the_read_is_seen_by_the_step_that_follows() {
+    let (rig, runner, head) = summoned("shep");
+    let summon = now(&rig);
+    let read = rig.forge.hold_next_activity_read();
+
+    let (_, pass) = rig.during_read(
+        read,
+        || advance(&runner),
+        || {
+            rig.forge.coderabbit.post_as(71, LOGIN, |seen| {
+                seen.reviews.push(review(&head, summon + 60));
+            });
+            rig.clock.advance(60);
+        },
+    );
+
+    pass.unwrap();
+    assert_eq!(
+        rig.threads_read(&runner),
+        Some(StepReport::BotReviewed {
+            issue: ticket(7),
+            pull_request: 71,
+            round: 3,
+            reviewer: AgentName::kelpies("coderabbit"),
+            open_threads: 0
+        })
+    );
+    assert!(
+        !rig.leases.held(&stand_in()),
+        "the review answered the summon"
+    );
+}
+
+// A forge that fails the read is told as a failed gate, the way the same
+// read made in place was, and the round goes on once it answers again.
+#[test]
+fn a_read_that_fails_is_handled_as_the_inline_read_was() {
+    let (rig, runner, head) = summoned("shep");
+    let read = rig.forge.hold_next_activity_read();
+
+    let (_, pass) = rig.during_read(read, || advance(&runner), || rig.forge.set_down(true));
+
+    let Pass::Report(StepReport::GateFailed { reason, .. }) = pass.unwrap() else {
+        panic!("a failed read was not reported");
+    };
+    assert!(
+        reason.starts_with("cannot read Stand-in on #71: "),
+        "{reason}"
+    );
+    rig.forge.set_down(false);
+    rig.next_look();
+    let summon = now(&rig);
+    rig.forge.coderabbit.post_as(71, LOGIN, |seen| {
+        seen.reviews.push(review(&head, summon));
+    });
+    assert!(matches!(
+        rig.threads_read(&runner),
+        Some(StepReport::BotReviewed { .. })
+    ));
+}
+
+// The activity of a bot passed over is read with the runner's lock let go,
+// when CI turns green and while the merge ruling waits.
+#[test]
+fn a_trigger_is_answered_while_the_late_review_activity_is_read() {
+    let rig = listing("shep", &["cubic"]);
+    let (runner, head) = passed_over(&rig);
+    rig.forge.set_checks(&head, Checks::Passed);
+    assert_eq!(step(&runner).unwrap(), None, "CI settles first");
+    rig.clock.advance(CHECKS_SETTLE);
+    let read = rig.forge.hold_next_activity_read();
+
+    let (reply, pass) = rig.asked_while_held(&runner, read, "status", None);
+
+    let reply = reply.expect("green CI held the lock for the activity's read");
+    assert_eq!(reply["work_items"].as_array().unwrap().len(), 1);
+    assert!(
+        matches!(pass.unwrap(), Pass::Report(StepReport::Ruling { .. })),
+        "no merge ruling"
+    );
+    assert_eq!(
+        step(&runner).unwrap(),
+        Some(StepReport::Alerted { id: ticket(71) })
+    );
+    rig.clock.advance(LATE_READ);
+    let read = rig.forge.hold_next_activity_read();
+
+    let (reply, pass) = rig.asked_while_held(&runner, read, "status", None);
+
+    let reply = reply.expect("the parked work item held the lock for the activity's read");
+    assert_eq!(reply["work_items"].as_array().unwrap().len(), 1);
+    pass.unwrap();
 }

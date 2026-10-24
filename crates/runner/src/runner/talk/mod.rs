@@ -66,16 +66,20 @@ impl Runner {
         let Some(number) = item.pull_request else {
             return Ok(None);
         };
-        if !item.threads_sent.is_empty() || item.talked.head.is_some() {
+        // A step made again after another read has told these already
+        if !item.threads_sent.is_empty() || item.talked.head.is_some() || self.reads.talked(number)
+        {
             return Ok(None);
         }
-        let talk = match self.ports.forge.talk(&self.remote, number) {
-            Ok(talk) => talk,
-            Err(e) => {
+        let talk = match self.read_talk(number) {
+            Ok(Ok(talk)) => talk,
+            Ok(Err(e)) => {
                 self.notes
                     .push(format!("cannot read what people wrote on #{number}: {e}"));
+                self.reads.talked_on(number);
                 return Ok(None);
             }
+            Err(job) => return Ok(Some(Begin::Reads(job))),
         };
         let mut own: BTreeSet<u64> = self.state.posted.iter().copied().collect();
         own.extend(self.posted.borrow().iter().copied());
@@ -91,6 +95,7 @@ impl Runner {
         if sorted.requests.is_empty() {
             self.note_heard(&sorted)?;
             self.notes.extend(sorted.ignored);
+            self.reads.talked_on(number);
             return Ok(None);
         }
         let begin = if capped {
@@ -125,11 +130,10 @@ impl Runner {
 
     // Notes the comments of `sorted` as handled.
     fn note_heard(&mut self, sorted: &Sorted) -> Result<(), StateError> {
-        let before = self
-            .current()
-            .expect("comments are read on a work item")
-            .talked
-            .clone();
+        let Some(item) = self.current() else {
+            return Ok(());
+        };
+        let before = item.talked.clone();
         let mut after = before.clone();
         after.read = true;
         for id in &sorted.comments {

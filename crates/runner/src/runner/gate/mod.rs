@@ -49,7 +49,7 @@ impl Runner {
             return Ok(parked);
         }
         // Read with the runner's lock let go, and the step made again with the result
-        let viewed = match self.take_view(number) {
+        let viewed = match self.kept_view(number) {
             Some(viewed) => viewed,
             None => match self.view_job(number) {
                 Some(job) => return Ok(Begin::Reads(job)),
@@ -170,16 +170,18 @@ impl Runner {
         if let Some(begin) = self.talk_turn(&At::Ci(head.clone()))? {
             return Ok(begin);
         }
+        // Read before the disputes are posted: a read to make sends the step
+        // round again, and the post's count must not be lost to that.
+        let open = match self.threads_open_read(number) {
+            Ok(open) => open,
+            Err(begin) => return Ok(*begin),
+        };
         let disputes = match self.post_disputes(number)? {
             Ok(disputes) => disputes,
             Err(reason) => return Ok(self.gate_failed(reason)),
         };
         let unreviewed = self.current().and_then(|item| item.unreviewed.clone());
         let unread_head = self.current().is_some_and(|item| !item.vouches_for(&head));
-        let open = match self.threads_open(number) {
-            Ok(open) => open,
-            Err(reason) => return Ok(self.gate_failed(reason)),
-        };
         // A merge ruling's `no`, or a bot's late round, sent its fix here
         // unread, so the maintainer decides on it again, even under `auto`,
         // and is told so. A head kelpie did not send unread itself, such as

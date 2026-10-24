@@ -33,11 +33,10 @@ impl Runner {
         let number = self.number();
         let repo = self.remote.clone();
         // A pull request that cannot be read is left to the step after, which says so.
-        let draft = self
-            .ports
-            .forge
-            .pull_request(&repo, number)
-            .is_ok_and(|pr| pr.draft);
+        let draft = match self.read_view(number) {
+            Ok(read) => read.is_ok_and(|pr| pr.draft),
+            Err(job) => return Ok(Some(Begin::Reads(job))),
+        };
         if !draft {
             return Ok(None);
         }
