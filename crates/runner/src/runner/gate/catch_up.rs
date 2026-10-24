@@ -7,6 +7,7 @@
 
 use crate::runner::Runner;
 use crate::runner::report::{Begin, StepReport};
+use crate::runner::worktree_jobs::Caught;
 use crate::state::{StateError, Stuck};
 use crate::work_item::{Conflict, Phase, Review, Turn};
 use crate::worktree::{self, Rebase};
@@ -26,19 +27,24 @@ impl Runner {
         head: &str,
         review: Option<Review>,
     ) -> Result<Begin, StateError> {
-        let item = self.current().expect("a rebase is of a work item");
-        let issue = item.issue;
-        // An adopted branch's commits are someone else's, so it is merged, never rewritten.
-        let rewrite = !item.adopted;
-        let outcome = worktree::rebase(
-            &self.settings.git.checkout,
-            &item.worktree,
-            &item.branch,
+        let Some(change) = self.rebasing(number, head, review) else {
+            return Ok(Begin::Idle);
+        };
+        self.changing(change, true)
+    }
+
+    // The branch was caught up, or could not be: the step's end, after the push
+    pub(in crate::runner) fn caught_up(&mut self, caught: Caught) -> Result<Begin, StateError> {
+        let Caught {
+            number,
             head,
-            rewrite,
-            &item.remote,
-            self.item_base(item),
-        );
+            review,
+            outcome,
+        } = caught;
+        let head = head.as_str();
+        let Some(issue) = self.current().map(|item| item.issue) else {
+            return Ok(Begin::Idle);
+        };
         match outcome {
             Ok(Rebase::Pushed(rebased)) => {
                 let (seen, since) = (Some(rebased.clone()), self.ports.clock.now());
@@ -87,7 +93,9 @@ impl Runner {
         files: Vec<String>,
         review: Option<Review>,
     ) -> Result<Begin, StateError> {
-        let item = self.current().expect("a conflict is of a work item");
+        let Some(item) = self.current() else {
+            return Ok(Begin::Idle);
+        };
         if item.conflict.as_ref().is_some_and(|sent| {
             sent.head == head || sent.main == main || sent.turns >= CONFLICT_TURNS
         }) {

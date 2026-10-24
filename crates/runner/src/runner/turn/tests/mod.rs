@@ -744,6 +744,25 @@ fn the_turn_after_a_pause_resumes_the_session_with_a_fresh_ceiling() {
     assert_eq!(second.prompt, PAUSED);
 }
 
+// A worker's first turn fetches before it makes its worktree, and the fetch can wait on the
+// network for seconds. A trigger sent in that time is answered, not queued behind the lock.
+#[test]
+fn a_trigger_is_answered_while_a_worktree_is_prepared() {
+    let (rig, runner) = with_issue_7("shep");
+    rig.claude
+        .script([Scripted::Reply(usage(1), Cost(20_085_300))]);
+    let read = rig.hold_next_git_fetch();
+
+    let (reply, pass) = rig.asked_while_held(&runner, read, "status", None);
+
+    let reply = reply.expect("the trigger waited for the lock the fetch held");
+    assert_eq!(reply["work_items"].as_array().unwrap().len(), 1);
+    assert!(
+        matches!(pass, Ok(crate::runner::flight::Pass::Started)),
+        "the turn did not start: {pass:?}"
+    );
+}
+
 mod base;
 mod browser;
 mod budget;

@@ -17,8 +17,11 @@ use crate::ports::{
 use crate::review_bot::{Activity, Bot, Profile};
 use crate::runner::git_reads::{Found, Git, Kept};
 use crate::runner::off_lock::ItemKey;
+use crate::runner::report::Begin;
 use crate::runner::snapshot::view_of;
+use crate::runner::worktree_jobs::{Change, Changed};
 use crate::settings::ForgeSlug;
+use crate::state::StateError;
 use crate::ticket::TicketId;
 use crate::work_item::WorkItem;
 
@@ -147,6 +150,7 @@ enum Read {
     Standing(Queued),
     Start(Starting),
     Git(Git),
+    Change(Change),
 }
 
 // The read `pull_request_view` makes, from the pass's listing or the pull request itself
@@ -233,12 +237,22 @@ pub(in crate::runner) enum Done {
         recheck: bool,
     },
     Git(Found),
+    Changed(Changed),
 }
 
 impl Job {
     /// The work item as it stood when the job was built
     pub(in crate::runner) fn key(&self) -> &ItemKey {
         &self.key
+    }
+
+    /// Whether the job changes the work item's worktree, which a trigger on it then waits for
+    pub(in crate::runner) fn changes_worktree(&self) -> bool {
+        match &self.read {
+            Read::Change(_) => true,
+            Read::Git(git) => git.changes_worktree(),
+            _ => false,
+        }
     }
 
     /// Reads, in the order and with the calls the step would have made inline
@@ -305,6 +319,7 @@ impl Job {
                 started: starting.run(),
             },
             Read::Git(git) => Done::Git(git.run()),
+            Read::Change(change) => Done::Changed(change.run()),
         }
     }
 }
@@ -501,6 +516,11 @@ impl Runner {
         self.job(|_, _| Read::Git(git))
     }
 
+    // The job that changes the focused work item's worktree
+    pub(in crate::runner) fn change_job(&self, change: Change) -> Option<Box<Job>> {
+        self.job(|_, _| Read::Change(change))
+    }
+
     // A job for the focused work item's step, or none when no pass runs to make the read and step
     // again, as at a turn's end
     fn job(&self, read: impl FnOnce(Arc<dyn Forge>, ForgeSlug) -> Read) -> Option<Box<Job>> {
@@ -512,8 +532,18 @@ impl Runner {
         Some(Box::new(Job { key, read }))
     }
 
-    // Keeps what a job found for the step that asked
-    pub(in crate::runner) fn keep_job_read(&mut self, done: Done) {
+    // Applies what a job found. A read is kept for the step that asked, which is made again, and
+    // a change to the worktree finishes the step, whose end this returns.
+    pub(in crate::runner) fn apply_job(&mut self, done: Done) -> Result<Option<Begin>, StateError> {
+        if let Done::Changed(changed) = done {
+            return self.changed(changed).map(Some);
+        }
+        self.keep_job_read(done);
+        Ok(None)
+    }
+
+    // Keeps what a read job found for the step that asked
+    fn keep_job_read(&mut self, done: Done) {
         match done {
             Done::Start { ticket, started } => {
                 self.reads.starts.entry(ticket).or_default().merge(started);
@@ -557,6 +587,7 @@ impl Runner {
                 self.reads.standings.insert(number, standing);
             }
             Done::Git(found) => self.reads.git.keep(found),
+            Done::Changed(_) => {}
         }
     }
 }

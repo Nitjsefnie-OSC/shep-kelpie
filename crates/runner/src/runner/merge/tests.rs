@@ -63,6 +63,25 @@ fn a_yes_merges_the_ruled_head_and_removes_the_branch_worktree_and_build_folder(
 }
 
 #[test]
+fn a_trigger_is_answered_while_a_merged_items_worktree_is_removed() {
+    let (rig, runner, _) = Rig::parked("koji");
+    rig.ask(&runner, "rule", Some("71 yes"));
+    assert_eq!(step(&runner).unwrap(), marked_ready());
+    rig.clock.advance(CHECKS_SETTLE);
+    let read = rig.hold_next_git_push();
+
+    let (reply, pass) = rig.asked_while_held(&runner, read, "status", None);
+
+    let reply = reply.expect("the trigger waited for the lock the removal held");
+    assert_eq!(reply["work_items"].as_array().unwrap().len(), 1);
+    let Ok(Pass::Report(report)) = pass else {
+        panic!("the item did not end: {pass:?}");
+    };
+    assert!(finished(Some(report)), "the item ended");
+    assert!(!rig.worktree_7().exists());
+}
+
+#[test]
 fn a_build_folder_holding_a_read_only_module_cache_is_removed_with_the_item() {
     use std::os::unix::fs::PermissionsExt;
     let (rig, runner, _) = Rig::parked("koji");

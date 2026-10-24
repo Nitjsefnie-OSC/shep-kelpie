@@ -149,6 +149,7 @@ mod untrusted;
 mod voice;
 mod words;
 mod worker_files;
+mod worktree_jobs;
 
 pub use add::AddError;
 pub use adopt::AdoptError;
@@ -372,6 +373,8 @@ pub struct Runner {
     snapshot: snapshot::Snapshot,
     // What the pass in progress read for its steps off the lock, in memory only
     reads: turn::reads::Reads,
+    // The work item whose worktree a job changes with the lock let go, in memory only
+    busy: off_lock::Busy,
     // Why the stored settings are refused while they are, in memory only
     refusal: Option<refused::Refusal>,
     // Until when every forge call is held, the forge's rate limit used up
@@ -649,6 +652,7 @@ impl Runner {
             looks: looks::Looks::default(),
             snapshot: snapshot::Snapshot::default(),
             reads: turn::reads::Reads::default(),
+            busy: off_lock::Busy::default(),
             refusal: None,
             forge_hold,
             forge_ledger,
