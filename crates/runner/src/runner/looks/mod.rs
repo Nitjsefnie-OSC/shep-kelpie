@@ -76,6 +76,7 @@ pub(super) struct Looks {
     dependencies_read: Option<Timestamp>,
     // When the issues were last listed for triage
     triage_read: Option<Timestamp>,
+    triage_asks: u64,
     // Each failing step by its slot: its failures in a row, and when it runs again
     retries: BTreeMap<Slot, (u32, Timestamp)>,
     // Each failing work item's step by its slot: when it first failed, and why it last did
@@ -194,6 +195,13 @@ impl Looks {
     /// issue the verb queued is
     pub(super) fn triage_asked(&mut self) {
         self.triage_read = None;
+        self.triage_asks += 1;
+    }
+
+    /// How many times the verb has made the listing due again, which a read
+    /// made meanwhile can be told apart by
+    pub(super) fn triage_asks(&self) -> u64 {
+        self.triage_asks
     }
 
     /// How long until the open issues are next listed for triage, or `None`

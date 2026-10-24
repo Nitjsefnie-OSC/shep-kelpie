@@ -40,6 +40,8 @@ pub(in crate::runner) struct PollJob {
     research: bool,
     since: Timestamp,
     pruned_through: u64,
+    /// The verb's asks when the job was built, to tell a read that predates one
+    asked: u64,
 }
 
 /// What a poll read
@@ -69,8 +71,9 @@ pub(in crate::runner) fn read_triage(runner: &Mutex<Runner>) -> Result<(), State
     let Some((now, job)) = job else {
         return Ok(());
     };
+    let asked = job.asked;
     let read = job.run();
-    lock(runner).apply_poll(now, read)
+    lock(runner).apply_poll(now, asked, read)
 }
 
 impl PollJob {
@@ -134,19 +137,22 @@ impl Runner {
             research: !self.triage_queue.is_empty() || !waiting.is_empty(),
             since: triage.since,
             pruned_through: triage.pruned_through,
+            asked: self.looks.triage_asks(),
         };
         Some((now, job))
     }
 
     // Acts on what the poll read, on the state as it stands now. A listing that
-    // could not be read leaves the look due, so the next pass tries again, and
-    // the triager is started from no listing until one is read.
+    // could not be read, or that the verb outdated, leaves the look due, so the
+    // next pass tries again, and the triager is started from no listing until
+    // one is read.
     //
     // The same poll lets an issue that failed be tried again, and finishes the
     // triage a restart cut short.
     fn apply_poll(
         &mut self,
         now: Timestamp,
+        asked: u64,
         read: Result<PollRead, ForgeError>,
     ) -> Result<(), StateError> {
         let Some((since, pruned_through)) =
@@ -163,6 +169,12 @@ impl Runner {
             self.triage_run.listing = None;
             return Ok(());
         };
+        // The verb queued an issue while the listing was read, so it may predate
+        // the issue: it is used for nothing and the next pass lists again.
+        if self.looks.triage_asks() != asked {
+            self.triage_run.listing = None;
+            return Ok(());
+        }
         self.looks.triage_listed(now);
         self.flights.triage_retry();
         // A record that names no author, which is what a file saved before the

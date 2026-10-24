@@ -101,11 +101,15 @@ impl Tickets for FakeForge {
 
     fn open_issues(&self, _repo: &ForgeSlug) -> Result<Vec<OpenIssue>, ForgeError> {
         self.ask()?;
+        // The listing is as the forge had it when the read began, however long a
+        // held read takes to come back.
+        let down = self.issues_down.lock().unwrap().clone();
+        let listed = self.issues.lock().unwrap().clone();
         self.wait_if_held(held::At::Listing);
-        if let Some(why) = &*self.issues_down.lock().unwrap() {
-            return Err(ForgeError::Failed(why.clone()));
+        match down {
+            Some(why) => Err(ForgeError::Failed(why)),
+            None => Ok(listed),
         }
-        Ok(self.issues.lock().unwrap().clone())
     }
 
     fn issue_comments(
