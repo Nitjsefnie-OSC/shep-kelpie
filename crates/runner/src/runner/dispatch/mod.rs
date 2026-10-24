@@ -8,8 +8,8 @@
 //! waits until a slot is free, an issue, or a pull request, whose work item is
 //! open waits for it to end, and an issue naming a file a parked item's
 //! branch changes waits for that item. With a project manager and two or more
-//! issues the board could take, its pick goes in place of the board rule's,
-//! and a ready issue it holds waits.
+//! issues the board could take, its pick goes in place of the board rule's, a
+//! list of picks one a step, and a ready issue it holds waits.
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};

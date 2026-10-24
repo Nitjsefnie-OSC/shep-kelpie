@@ -155,7 +155,7 @@ macro_rules! standing_how {
 const ANSWER: &str = concat!(
     "\
 ```
-{\"pick\": <the ready issue to start next, or null to start nothing now>,
+{\"pick\": <the ready issue to start next, or null to start nothing now; when the wake says several slots are free, a list of ready issues in the order to start them>,
  \"hold\": [<every ready issue that should wait until an open work item closes; [] holds none>],
  \"unstick\": null or {\"item\": <a stuck work item's issue>, \"action\": \"retry\" | \"re-scope\" | \"ask\" | \"none\", \"why\": \"<one sentence>\"} or [{\"item\": <a stuck work item's issue>, \"action\": \"retry\" | \"re-scope\" | \"ask\" | \"none\", \"why\": \"<one sentence>\"}, ...],
  ",
@@ -406,9 +406,14 @@ const RED: &str = "\nWhere a stuck item's line under `## Code` in `board.md` nam
 /// One reason for a wake, in words
 pub(super) fn reason(wake: &Wake) -> String {
     match wake {
-        Wake::Pick(ready) => format!(
+        Wake::Pick(ready, 0 | 1) => format!(
             "a slot is free and {ready} ready issues could fill it: pick one, or none to \
              start nothing now"
+        ),
+        Wake::Pick(ready, free) => format!(
+            "{free} slots are free and {ready} ready issues could fill them: pick up to \
+             {most} as a list, in the order to start them, or none to start nothing now",
+            most = free.min(ready)
         ),
         Wake::Conflict(a, b, files) => format!(
             "the branches of {} and {} conflict in {}",
@@ -530,7 +535,7 @@ mod tests {
     #[test]
     fn a_first_wake_names_its_reasons_the_files_and_the_answer() {
         let wakes = [
-            Wake::Pick(3),
+            Wake::Pick(3, 1),
             Wake::Conflict(
                 ticket(7),
                 ticket(9),
@@ -630,7 +635,7 @@ mod tests {
         }
         let text = wake(
             "koji",
-            &[Wake::Pick(2)],
+            &[Wake::Pick(2, 1)],
             &[],
             &[],
             true,
@@ -721,7 +726,7 @@ mod tests {
         assert!(resumed.contains("`PM recommends: <choice>`"), "{resumed}");
         let other = wake(
             "koji",
-            &[Wake::Pick(2)],
+            &[Wake::Pick(2, 1)],
             &[],
             &[],
             false,
@@ -765,7 +770,7 @@ mod tests {
         assert!(resumed.contains("You vote alone"), "{resumed}");
         let other = wake(
             "koji",
-            &[Wake::Pick(2)],
+            &[Wake::Pick(2, 1)],
             &[],
             &[],
             false,

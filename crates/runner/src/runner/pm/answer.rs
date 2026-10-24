@@ -36,8 +36,8 @@ const UNSTICK: &str = "`item`, an `action` of retry, re-scope, ask or none, and 
 /// What the project manager answered, field by field
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(super) struct Answer {
-    /// The ready issue to start next, or none to start nothing now
-    pub(super) pick: Option<TicketId>,
+    /// The ready issues to start, in order, or none to start nothing now
+    pub(super) picks: Vec<TicketId>,
     /// The ready issues to hold until an open work item closes
     pub(super) hold: Vec<TicketId>,
     /// What to do about each stuck work item the wake carried
@@ -176,9 +176,25 @@ pub(super) fn read(text: &str) -> Option<Answer> {
         match key.as_str() {
             "pick" => match &value {
                 Value::Null => {}
+                // One issue is a ticket; several, a list of them in the order to start.
+                Value::Array(items) => {
+                    for item in items {
+                        match ticket(item) {
+                            Some(t) if answer.picks.contains(&t) => {
+                                answer.unread.push(format!("`pick`: {} twice", t.shown()))
+                            }
+                            Some(t) => answer.picks.push(t),
+                            None => answer
+                                .unread
+                                .push(format!("`pick`: a ticket id, not {item}")),
+                        }
+                    }
+                }
                 value => match ticket(value) {
-                    Some(t) => answer.pick = Some(t),
-                    None => answer.unread.push(unread("a ticket id or null")),
+                    Some(t) => answer.picks.push(t),
+                    None => answer
+                        .unread
+                        .push(unread("a ticket id, a list of them or null")),
                 },
             },
             "hold" => match &value {
@@ -465,7 +481,7 @@ mod tests {
         assert_eq!(
             answer,
             Answer {
-                pick: Some(ticket(12)),
+                picks: vec![ticket(12)],
                 hold: vec![ticket(4), ticket(9)],
                 unstick: vec![Unstick {
                     item: ticket(7),
@@ -590,9 +606,25 @@ mod tests {
     #[test]
     fn braces_inside_the_answers_text_are_not_an_answer_of_their_own() {
         let text = "{\"pick\": 12, \"why\": \"not {\\\"pick\\\": 3} as before\"} {unfinished";
-        assert_eq!(read(text).unwrap().pick, Some(ticket(12)));
+        assert_eq!(read(text).unwrap().picks, [ticket(12)]);
         let inner = "{\"reply\": \"{\\\"pick\\\": 3}\", \"pick\": null}";
-        assert_eq!(read(inner).unwrap().pick, None);
+        assert_eq!(read(inner).unwrap().picks, Vec::new());
+    }
+
+    #[test]
+    fn a_pick_is_one_ticket_or_a_list_of_them_in_order() {
+        let list = read("{\"pick\": [14, \"#12\", 9]}").unwrap();
+        assert_eq!(list.picks, [ticket(14), ticket(12), ticket(9)]);
+        let one = read("{\"pick\": [12]}").unwrap();
+        assert_eq!(one.picks, [ticket(12)]);
+        assert_eq!(read("{\"pick\": []}").unwrap().picks, Vec::new());
+
+        let bad = read("{\"pick\": [12, true, 12]}").unwrap();
+        assert_eq!(bad.picks, [ticket(12)]);
+        assert_eq!(
+            bad.unread,
+            ["`pick`: a ticket id, not true", "`pick`: #12 twice"]
+        );
     }
 
     #[test]
@@ -699,19 +731,19 @@ mod tests {
         let answer = read(text).unwrap();
         assert_eq!(
             (
-                answer.pick,
+                &answer.picks,
                 &answer.hold,
                 &answer.unstick,
                 answer.reply.as_deref()
             ),
-            (None, &vec![ticket(5)], &Vec::new(), Some("On it."))
+            (&Vec::new(), &vec![ticket(5)], &Vec::new(), Some("On it."))
         );
         assert_eq!(
             answer.unread,
             [
                 "`hold`: a ticket id, not true",
                 "`merge_order` is not a field kelpie acts on",
-                "`pick`: a ticket id or null, not \"soon\"",
+                "`pick`: a ticket id, a list of them or null, not \"soon\"",
                 "`unstick`: `item`, an `action` of retry, re-scope, ask or none, and `why`, \
                  not {\"action\":\"reboot\",\"item\":7}",
             ]
@@ -729,8 +761,8 @@ mod tests {
 
         let left = read("{\"pick\": null, \"standing\": null}").unwrap();
         assert_eq!(
-            (left.pick, left.standing, left.unread),
-            (None, None, vec![])
+            (left.picks, left.standing, left.unread),
+            (vec![], None, vec![])
         );
 
         let long = "x".repeat(5_000);
@@ -749,7 +781,7 @@ mod tests {
         );
 
         let bad = read("{\"pick\": 3, \"standing\": 4, \"merge_order\": [1]}").unwrap();
-        assert_eq!((bad.pick, bad.standing), (Some(ticket(3)), None));
+        assert_eq!((bad.picks, bad.standing), (vec![ticket(3)], None));
         assert_eq!(
             bad.unread,
             [

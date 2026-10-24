@@ -24,8 +24,8 @@ pub(super) const WORDS: usize = 300;
 
 impl Runner {
     /// Acts on `answer` as far as the board allows, and returns what it
-    /// did and what it dropped, each in words. `picking` says the wake was
-    /// for a free slot.
+    /// did and what it dropped, each in words. `picking` is how many slots
+    /// were free when the wake was for them, and so how many picks it takes.
     ///
     /// # Errors
     ///
@@ -33,7 +33,7 @@ impl Runner {
     pub(super) fn act(
         &mut self,
         answer: &mut Answer,
-        picking: bool,
+        picking: Option<usize>,
     ) -> Result<(Vec<String>, Vec<String>), StateError> {
         let ready = self.board_ready();
         // Starting nothing lasts until its next wake, which says again.
@@ -73,29 +73,31 @@ impl Runner {
             }
         }
         let now = self.ports.clock.now();
-        match answer.pick {
-            Some(ticket) if held.contains(&ticket) => {
-                let named = ticket_ref(ticket);
-                dropped.push(format!("pick {named}: it holds {named} too"));
-                if picking {
-                    self.pm.pick = Some(Pick::Rule);
-                }
-            }
-            Some(ticket) if ready.contains(&ticket) => {
-                self.pm.pick = Some(Pick::Issue(ticket));
-                acted.push(format!("picked {}", ticket_ref(ticket)));
-            }
-            Some(ticket) => {
+        // A wake for free slots takes a pick for each; any other takes one.
+        let slots = picking.unwrap_or(1);
+        let mut picks: Vec<TicketId> = Vec::new();
+        for &ticket in &answer.picks {
+            let named = ticket_ref(ticket);
+            if picks.len() >= slots {
                 dropped.push(format!(
-                    "pick {}: not a ready issue on the board",
-                    ticket_ref(ticket)
+                    "pick {named}: only {slots} can start from this wake"
                 ));
-                if picking {
-                    self.pm.pick = Some(Pick::Rule);
-                }
+            } else if held.contains(&ticket) {
+                dropped.push(format!("pick {named}: it holds {named} too"));
+            } else if ready.contains(&ticket) {
+                picks.push(ticket);
+            } else {
+                dropped.push(format!("pick {named}: not a ready issue on the board"));
             }
-            None if picking && fixed => self.pm.pick = Some(Pick::Rule),
-            None if picking => match self.unsettled_red() {
+        }
+        if !picks.is_empty() {
+            let named: Vec<String> = picks.iter().map(|&t| ticket_ref(t)).collect();
+            acted.push(format!("picked {}", named.join(", ")));
+            self.pm.pick = Some(Pick::Issues(picks));
+        } else if picking.is_some() && (!answer.picks.is_empty() || fixed) {
+            self.pm.pick = Some(Pick::Rule);
+        } else if picking.is_some() {
+            match self.unsettled_red() {
                 // Nothing started would leave a red main to the maintainer.
                 Some(why) => {
                     self.pm.pick = Some(Pick::Rule);
@@ -105,10 +107,9 @@ impl Runner {
                     self.pm.pick = Some(Pick::Nothing(now));
                     acted.push("starts nothing now".to_owned());
                 }
-            },
-            None => {}
+            }
         }
-        if picking {
+        if picking.is_some() {
             self.pm.asked_pick = false;
         }
         if !held.is_empty() {
