@@ -290,9 +290,17 @@ impl Handing {
         if held.notices_running() {
             return;
         }
+        // A verb a trigger queued for the next pass lives only in this image,
+        // so the handover waits for that pass. The queue takes no more until
+        // the exec is made or refused, and a trigger then waits for the lock.
+        let postings = held.postings();
+        if !postings.close_queue() {
+            return;
+        }
         // Taken before the exec, so one withdrawn by now is not made, and
         // none is seen waiting while the exec runs.
         let Some(tell) = self.slot().take() else {
+            postings.open_queue();
             return;
         };
         let why = match held.carry_calls() {
@@ -307,6 +315,7 @@ impl Handing {
             }
             Err(why) => why,
         };
+        postings.open_queue();
         refused(&tell, why);
     }
 

@@ -114,6 +114,7 @@ mod points_tests;
 mod posted;
 mod pull_request_file;
 mod question;
+mod queued;
 mod refused;
 mod replies;
 mod report;

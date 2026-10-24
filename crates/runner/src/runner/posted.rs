@@ -15,14 +15,17 @@
 //! take up at its next lock.
 
 use std::collections::BTreeMap;
+use std::fmt;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use serde_json::Value;
 
-use super::Runner;
+use super::{Answer, Runner};
 use crate::ports::PaddockHolder;
+use crate::state::Finished;
+use crate::ticket::TicketId;
 
 /// What the loop last posted, and what a trigger asked while a pass held the lock
 #[derive(Debug, Default)]
@@ -36,15 +39,56 @@ pub struct Posted {
     draining: AtomicBool,
     // Whether a `drain` or `undrain` landed while a pass held the lock and still wants a pass
     wake: AtomicBool,
+    // The verbs that read the forge and landed while a pass held the lock, oldest first
+    queued: Mutex<Line>,
+}
+
+// The queued verbs, and whether the queue still takes more
+#[derive(Debug, Default)]
+struct Line {
+    verbs: Vec<Queued>,
+    closed: bool,
+}
+
+/// A verb that reads the forge, asked while a pass held the runner's lock, for the pass to take up
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Queued {
+    /// `add <ticket>`
+    Add(TicketId),
+    /// `rework <pull request>`
+    Rework(u64),
+    /// `adopt <pull request>`
+    Adopt(u64),
+    /// `triage <issue>`
+    Triage(u64),
+    /// `rule <id> <answer>`, for a ruling the posted status lists
+    Rule(TicketId, Answer),
+}
+
+impl fmt::Display for Queued {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Add(ticket) => write!(f, "add {ticket}"),
+            Self::Rework(number) => write!(f, "rework {number}"),
+            Self::Adopt(number) => write!(f, "adopt {number}"),
+            Self::Triage(issue) => write!(f, "triage {issue}"),
+            Self::Rule(id, _) => write!(f, "rule {id}"),
+        }
+    }
 }
 
 /// What `status` and `drain` answer while a pass holds the runner's lock
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub(crate) struct Body {
     /// The status as posted, with `draining` left out
     pub(crate) status: Value,
     /// The calls in flight and the longest any may run, whether or not the runner drains
     pub(crate) drain: Value,
+    /// What `board` answers
+    pub(crate) board: Value,
+    /// The project, and the work items it finished, which `timings` totals
+    pub(crate) project: String,
+    pub(crate) history: Vec<Finished>,
 }
 
 /// What a `drain` or `undrain` asked of a runner whose lock a pass held
@@ -57,12 +101,12 @@ pub(crate) enum Pending {
 }
 
 impl Posted {
-    /// Posts `status` and the drain state, replacing what was posted
-    pub(crate) fn post(&self, status: Value, drain: Value) {
+    /// Posts `body`, replacing what was posted
+    pub(crate) fn post(&self, body: Body) {
         *self
             .body
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(Body { status, drain });
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(body);
     }
 
     /// What was last posted, or `None` before the runner posted anything
@@ -165,9 +209,62 @@ impl Posted {
             .take()
     }
 
-    /// Whether a posted `drain` or `undrain` still wants a pass, clearing the ask
+    /// Records `verb` for the runner to take up at the top of its next pass
+    ///
+    /// The verb reads the forge, which a trigger must not wait on, so it
+    /// answers now and the pass applies it.
+    ///
+    /// Returns whether it was queued: not once the queue is closed, which the
+    /// caller then answers by waiting for the lock as any other trigger does.
+    pub(crate) fn ask_queued(&self, verb: Queued) -> bool {
+        let mut line = self.line();
+        if line.closed {
+            return false;
+        }
+        line.verbs.push(verb);
+        drop(line);
+        self.wake.store(true, Ordering::SeqCst);
+        true
+    }
+
+    fn line(&self) -> std::sync::MutexGuard<'_, Line> {
+        self.queued
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// Stops the queue taking verbs, unless one waits for a pass
+    ///
+    /// A handover calls it before it replaces the image, since a verb queued
+    /// then would be lost with the reply that said it was taken. Returns
+    /// whether it closed.
+    pub fn close_queue(&self) -> bool {
+        let mut line = self.line();
+        let empty = line.verbs.is_empty();
+        line.closed = empty;
+        empty
+    }
+
+    /// Lets the queue take verbs again, after a handover that did not happen
+    pub fn open_queue(&self) {
+        self.line().closed = false;
+    }
+
+    /// The verbs asked while a pass held the lock, oldest first, each handed out once
+    ///
+    /// Taking them also ends their ask for a pass.
+    pub(crate) fn take_queued(&self) -> Vec<Queued> {
+        self.wake.store(false, Ordering::SeqCst);
+        std::mem::take(&mut self.line().verbs)
+    }
+
+    /// Whether a posted `drain`, `undrain` or queued verb still wants a pass, clearing the ask
+    ///
+    /// A queued verb keeps asking until a pass takes it, whatever cleared the
+    /// flag meanwhile.
     pub fn needs_wake(&self) -> bool {
-        self.wake.swap(false, Ordering::SeqCst)
+        let waiting = !self.line().verbs.is_empty();
+        self.wake.swap(false, Ordering::SeqCst) || waiting
     }
 }
 
@@ -201,7 +298,13 @@ impl Runner {
         // `draining` goes in when a trigger reads the post, from the flag the
         // post itself is not held by.
         (status.as_object_mut().expect("a status object")).remove("draining");
-        self.postings.post(status, drain);
+        self.postings.post(Body {
+            status,
+            drain,
+            board: serde_json::to_value(self.board()).expect("the list serializes to JSON"),
+            project: self.project.as_str().to_owned(),
+            history: self.state.history.clone(),
+        });
     }
 }
 
@@ -211,7 +314,7 @@ mod tests {
 
     use super::*;
     use crate::runner::advance;
-    use crate::test::Rig;
+    use crate::test::{Rig, ticket};
 
     // A pi implementer behind a gateway, which is what makes `status` ask that
     // gateway who holds its lease.
@@ -244,8 +347,16 @@ mod tests {
     fn a_posted_body_is_the_last_one_posted() {
         let posted = Posted::default();
         assert!(posted.body().is_none(), "nothing posted yet");
-        posted.post(json!({ "project": "koji" }), json!({ "calls": [] }));
-        posted.post(json!({ "project": "koji", "run": "finishing" }), json!(0));
+        posted.post(Body {
+            status: json!({ "project": "koji" }),
+            drain: json!({ "calls": [] }),
+            ..Body::default()
+        });
+        posted.post(Body {
+            status: json!({ "project": "koji", "run": "finishing" }),
+            drain: json!(0),
+            ..Body::default()
+        });
         let body = posted.body().expect("a post");
         assert_eq!(
             body.status,
@@ -320,6 +431,47 @@ mod tests {
             "the second ask cleared the first's ask"
         );
         assert!(!posted.needs_wake(), "the ask was already taken");
+    }
+
+    #[test]
+    fn a_queued_verb_is_taken_once_and_wakes_the_loop() {
+        let posted = Posted::default();
+        assert!(!posted.needs_wake(), "nothing is waiting");
+
+        posted.ask_queued(Queued::Add(ticket(7)));
+        posted.ask_queued(Queued::Adopt(71));
+        assert!(posted.needs_wake(), "a queued verb asks for a pass");
+        assert_eq!(
+            posted.take_queued(),
+            [Queued::Add(ticket(7)), Queued::Adopt(71)],
+            "in the order they were asked"
+        );
+        assert!(posted.take_queued().is_empty(), "taken once");
+        assert!(!posted.needs_wake(), "taking them ends their ask");
+    }
+
+    #[test]
+    fn a_closed_queue_takes_no_verb_until_it_is_opened() {
+        let posted = Posted::default();
+        assert!(posted.close_queue(), "an empty queue closes");
+        assert!(
+            !posted.ask_queued(Queued::Add(ticket(7))),
+            "a closed queue refuses"
+        );
+        assert!(!posted.needs_wake());
+
+        posted.open_queue();
+        assert!(posted.ask_queued(Queued::Add(ticket(7))));
+        assert!(!posted.close_queue(), "a queue holding a verb stays open");
+        assert!(posted.ask_queued(Queued::Adopt(71)), "and takes more");
+    }
+
+    #[test]
+    fn a_drain_taken_up_does_not_forget_a_queued_verbs_wake() {
+        let posted = Posted::default();
+        posted.ask_queued(Queued::Triage(9));
+        posted.take_pending();
+        assert!(posted.needs_wake(), "the verb still waits for its pass");
     }
 
     #[test]
