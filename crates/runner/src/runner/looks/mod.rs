@@ -89,17 +89,18 @@ pub(super) struct Looks {
 }
 
 impl Looks {
-    /// Whether the labels of dropped issues are due a read at `now`, which
-    /// records the read: at most one in each [`BOARD_POLL`], and none in one
-    /// where the board itself was read, since that reads them
-    pub(super) fn dropped_due(&mut self, now: Timestamp) -> bool {
+    /// Whether the labels of dropped issues are due a read at `now`: at most
+    /// one in each [`BOARD_POLL`], and none in one where the board itself was
+    /// read, since that reads them
+    pub(super) fn dropped_due(&self, now: Timestamp) -> bool {
         let poll = BOARD_POLL.as_secs();
         let recent = |at: Option<Timestamp>| at.is_some_and(|at| now.0 < at.0.saturating_add(poll));
-        if recent(self.dropped_read) || recent(self.board_read) {
-            return false;
-        }
+        !recent(self.dropped_read) && !recent(self.board_read)
+    }
+
+    /// Records that the labels of dropped issues were read at `now`
+    pub(super) fn dropped_read(&mut self, now: Timestamp) {
         self.dropped_read = Some(now);
-        true
     }
 
     /// Whether the login's rate limits are due a read at `now`, which records
@@ -155,14 +156,9 @@ impl Looks {
         (now.0 < at).then(|| Duration::from_secs(at - now.0))
     }
 
-    /// Whether the bumps are due to be followed at `now`, which records the
-    /// read: at most one in each [`BOARD_POLL`]
-    pub(super) fn dependencies_due(&mut self, now: Timestamp) -> bool {
-        if self.dependencies_wait(now).is_some() {
-            return false;
-        }
+    /// Records that the bumps were followed at `now`, the most that happens in each [`BOARD_POLL`]
+    pub(super) fn dependencies_read(&mut self, now: Timestamp) {
         self.dependencies_read = Some(now);
-        true
     }
 
     /// How long until the bumps are next followed, or `None` when they are

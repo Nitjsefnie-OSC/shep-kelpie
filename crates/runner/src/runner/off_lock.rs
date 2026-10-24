@@ -14,10 +14,6 @@ use crate::work_item::{Phase, Turn, WorkItem};
 /// A step of the loop moves a work item by its turn or its phase, and a session or pull request
 /// that changed is another run of the same issue.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "first caller lands in the main CI slice")
-)]
 pub(super) struct ItemKey {
     issue: TicketId,
     session: SessionId,
@@ -26,10 +22,6 @@ pub(super) struct ItemKey {
     pull_request: Option<u64>,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "first caller lands in the main CI slice")
-)]
 impl ItemKey {
     pub(super) fn of(item: &WorkItem) -> Self {
         Self {
@@ -46,10 +38,6 @@ impl ItemKey {
 /// taken from
 ///
 /// Returns `None`, running nothing, when the work item is gone or no longer as `key` has it.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "first caller lands in the main CI slice")
-)]
 #[track_caller]
 pub(super) fn with_item<T>(
     runner: &Mutex<Runner>,

@@ -15,8 +15,11 @@ use crate::ports::{
     Timestamp, Utilization,
 };
 use crate::review_bot::Profile;
-use crate::runner::{CHECKS_SETTLE, OpenError, Runner, SETTLE_LEAST, StepReport, answer, step};
+use crate::runner::{
+    CHECKS_SETTLE, OpenError, Pass, Runner, SETTLE_LEAST, StepReport, advance, answer, step,
+};
 use crate::settings::SettingsError;
+use crate::state::StateError;
 use crate::webhook::{KelpieSettings, Webhook};
 
 mod claude;
@@ -43,9 +46,9 @@ pub use shep_kelpie_adapters::test::{
 };
 pub use shep_kelpie_core::test::{
     Answer, EPOCH, FakeAlerts, FakeBridges, FakeClassifier, FakeClock, FakeDevServers, FakeDisk,
-    FakeE2e, FakeForge, FakeGit, FakeMeter, FakePages, FakeShepherd, FakeTests, GB, Hold, Home,
-    LeaseReads, Memory, OpenSandbox, RecordedSink, SeenAsk, StandInEndpoint, Synced, Take, VIEWER,
-    a_work_item, clean_visit, project_table, ticket, unreachable_url,
+    FakeE2e, FakeForge, FakeGit, FakeMeter, FakePages, FakeShepherd, FakeTests, GB, HeldCall, Hold,
+    Home, LeaseReads, Memory, OpenSandbox, RecordedSink, SeenAsk, StandInEndpoint, Synced, Take,
+    VIEWER, a_work_item, clean_visit, project_table, ticket, unreachable_url,
 };
 pub use shep_kelpie_test_support::{
     CALL_PATIENCE, Elsewhere, Fake, cut_from_main, git, linked_worktree, main_commits, make_fifo,
@@ -435,6 +438,48 @@ impl Rig {
         let reply = answer(runner, &postings, action, params);
         runner.lock().unwrap().settle_notices();
         serde_json::from_str(&reply).expect("a JSON reply")
+    }
+
+    /// Runs `run` until its forge call `read` is held open, does `meanwhile`, and lets the read go
+    ///
+    /// Returns what `meanwhile` returned, or `None` when it had not finished within
+    /// [`CALL_PATIENCE`], as a trigger that waits for a lock the read holds has not, and what
+    /// `run` returned.
+    pub fn during_read<R: Send, T: Send>(
+        &self,
+        read: HeldCall,
+        run: impl FnOnce() -> R + Send,
+        meanwhile: impl FnOnce() -> T + Send,
+    ) -> (Option<T>, R) {
+        std::thread::scope(|scope| {
+            let running = scope.spawn(run);
+            assert!(
+                read.waiting(CALL_PATIENCE),
+                "the run never reached the read"
+            );
+            let (sent, heard) = std::sync::mpsc::channel();
+            let doing = scope.spawn(move || sent.send(meanwhile()));
+            let done = heard.recv_timeout(CALL_PATIENCE).ok();
+            drop(read);
+            let _ = doing.join();
+            (done, running.join().expect("the run's thread"))
+        })
+    }
+
+    /// Runs a pass of `runner` until its forge call `read` is held open and asks `action` of it
+    /// meanwhile, a trigger that waits for the lock
+    ///
+    /// Returns the reply, or `None` when the runner did not answer within [`CALL_PATIENCE`], and
+    /// the pass's own result.
+    pub fn asked_while_held(
+        &self,
+        runner: &Mutex<Runner>,
+        read: HeldCall,
+        action: &str,
+        params: Option<&str>,
+    ) -> (Option<serde_json::Value>, Result<Pass, StateError>) {
+        let ask = || self.ask(runner, action, params);
+        self.during_read(read, || advance(runner), ask)
     }
 
     /// A running project whose worker's first turn pushed `work.txt` on

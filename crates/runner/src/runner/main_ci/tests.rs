@@ -3,8 +3,8 @@
 use serde_json::json;
 
 use crate::ports::{BranchRun, Timestamp, Workflow, WorkflowState};
-use crate::runner::{MAIN_CI_POLL, step};
-use crate::test::Rig;
+use crate::runner::{MAIN_CI_POLL, advance, step};
+use crate::test::{CALL_PATIENCE, Rig};
 
 fn run(workflow: &str, id: u64, conclusion: &str, created: u64) -> BranchRun {
     BranchRun {
@@ -412,4 +412,45 @@ fn a_head_rerun_under_a_state_file_from_before_reran_head_is_not_rerun_again() {
         status(&rig, &runner)[0]["doing"],
         "red again after its rerun; the project manager opens a fix or asks"
     );
+}
+
+// A pass that reads `main`'s runs holds the runner's lock through the read, and the read waits its
+// turn behind the login's pace. Read with the lock let go, a trigger that waits for it is answered.
+#[test]
+fn a_trigger_is_answered_while_main_ci_is_read() {
+    let rig = Rig::new("acme");
+    let runner = rig.open().unwrap();
+    let read = rig.forge.hold_next_main_runs_read();
+
+    let (reply, pass) = rig.asked_while_held(&runner, read, "add", Some("7"));
+
+    assert!(reply.is_some(), "the trigger waited for the read of `main`");
+    assert!(pass.is_ok(), "{pass:?}");
+}
+
+#[test]
+fn a_red_workflow_that_went_green_during_the_read_is_not_rerun() {
+    let rig = Rig::new("acme");
+    rig.forge
+        .set_branch_runs("main", vec![run("test", 91, "failure", Rig::EPOCH)]);
+    let runner = rig.open().unwrap();
+    step(&runner).unwrap();
+    assert_eq!(rig.forge.run_reruns(), [91], "the first red head is rerun");
+    rig.clock.advance(MAIN_CI_POLL.as_secs());
+    rig.forge
+        .set_branch_runs("main", vec![run("test", 92, "failure", Rig::EPOCH + 900)]);
+    let read = rig.forge.hold_next_main_runs_read();
+
+    let pass = std::thread::scope(|scope| {
+        let pass = scope.spawn(|| advance(&runner));
+        assert!(read.waiting(CALL_PATIENCE), "the pass never read `main`");
+        rig.forge
+            .set_branch_runs("main", vec![run("test", 93, "success", Rig::EPOCH + 1800)]);
+        drop(read);
+        pass.join().expect("the pass thread")
+    });
+
+    assert!(pass.is_ok(), "{pass:?}");
+    assert_eq!(rig.forge.run_reruns(), [91], "the green workflow was rerun");
+    assert_eq!(status(&rig, &runner), json!(null));
 }

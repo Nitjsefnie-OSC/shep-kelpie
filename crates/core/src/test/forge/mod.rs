@@ -452,6 +452,7 @@ impl Forge for FakeForge {
             .listed
             .fetch_add(1, Ordering::SeqCst);
         self.ask()?;
+        self.wait_if_held(held::At::OpenPullRequests);
         self.board()?;
         self.list_open()
     }
@@ -461,6 +462,7 @@ impl Forge for FakeForge {
             .viewed
             .fetch_add(1, Ordering::SeqCst);
         self.ask()?;
+        self.wait_if_held(held::At::PullRequest);
         self.read(number)
     }
 
@@ -817,6 +819,7 @@ impl Forge for FakeForge {
 }
 
 pub use comments::AppComments;
+pub use held::HeldCall;
 pub use issues::CreatedIssue;
 
 use handed::FakePullRequest;
