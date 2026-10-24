@@ -215,7 +215,17 @@ impl Runner {
                 }
                 paced = true;
             }
-            let ticket = match self.pm_pick(&takeable) {
+            // Issues the issue writer, or a call that holds it, is on for now
+            let waiting: Vec<TicketId> = (unlabelled.iter())
+                .filter_map(|skip| match skip {
+                    Skip::Unlabelled {
+                        issue,
+                        ruling: None,
+                    } => Some(*issue),
+                    _ => None,
+                })
+                .collect();
+            let ticket = match self.pm_pick(&takeable, &waiting) {
                 Choice::Take(n) => n,
                 Choice::Rule => picked,
                 Choice::Wait => {
@@ -254,6 +264,7 @@ impl Runner {
             }
             match self.add(ticket) {
                 Ok(agent) => {
+                    self.pm_started(ticket);
                     self.set_skipped(skipped.clone());
                     return Ok(Begin::Report(StepReport::Dispatched {
                         issue: ticket,
