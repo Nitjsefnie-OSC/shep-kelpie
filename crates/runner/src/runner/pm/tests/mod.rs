@@ -24,6 +24,7 @@ mod hold;
 mod lease;
 mod main_red;
 mod notes;
+mod pick;
 mod question;
 mod quiet;
 mod red;

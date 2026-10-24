@@ -269,7 +269,8 @@ impl Runner {
 
     /// Notes what saving `now` changes that wakes the project manager: a
     /// work item parked on a stuck ruling, or one closing, which lets its
-    /// holds go
+    /// holds go. A pick of an issue stands whatever opens or closes, since
+    /// dispatch checks the board for it.
     pub(in crate::runner) fn pm_noticed(&mut self, now: &ProjectState) {
         if self.agents.pm.is_none() {
             return;
@@ -284,14 +285,9 @@ impl Runner {
             })
             .collect();
         let closed = (was.work_items.iter()).any(|i| now.item(i.issue).is_none());
-        let opened = (now.work_items.iter()).any(|i| was.item(i.issue).is_none());
         self.pm_asked(now);
         for wake in stuck {
             self.pm_due(wake);
-        }
-        // A pick was made on a board that has changed since.
-        if (opened || closed) && matches!(self.pm.pick, Some(Pick::Issue(_))) {
-            self.pm.pick = None;
         }
         if closed {
             self.pm.held.clear();

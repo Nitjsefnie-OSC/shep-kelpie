@@ -217,8 +217,11 @@ pub(super) struct Notes {
     pub condense: bool,
 }
 
-/// The prompt for a wake for `wakes`, carrying `told`, `notes` and `board`:
-/// in full for a new session, shorter for one resumed
+/// The prompt for a wake for `wakes`, carrying `told`, `lost`, `notes` and
+/// `board`: in full for a new session, shorter for one resumed
+///
+/// `lost` is each pick of its own that kelpie dropped since its last wake,
+/// with why.
 ///
 /// A board past [`BOARD_INLINE`] is left out of the prompt, which then tells
 /// the project manager to read `board.md`, where kelpie writes the same text.
@@ -226,6 +229,7 @@ pub(super) fn wake(
     project: &str,
     wakes: &[Wake],
     told: &[String],
+    lost: &[String],
     fresh: bool,
     notes: &Notes,
     board: &str,
@@ -259,6 +263,9 @@ pub(super) fn wake(
             let _ = writeln!(out, "  > {line}");
         }
         out.push('\n');
+    }
+    for note in lost {
+        let _ = writeln!(out, "- {note}");
     }
     let carried = board.len() <= BOARD_INLINE;
     if carried {
@@ -535,6 +542,7 @@ mod tests {
             "koji",
             &wakes,
             &["Hold #12 until\nthe release.".into()],
+            &[],
             true,
             &Notes::default(),
             BOARD,
@@ -557,7 +565,15 @@ mod tests {
 
     #[test]
     fn the_pm_prompt_says_a_candidate_the_maintainer_carries_out_starts_with_you() {
-        let text = wake("koji", &[Wake::Told], &[], true, &Notes::default(), BOARD);
+        let text = wake(
+            "koji",
+            &[Wake::Told],
+            &[],
+            &[],
+            true,
+            &Notes::default(),
+            BOARD,
+        );
         assert!(text.contains("starts with `You`"), "{text}");
         assert!(text.contains("`escalate`"), "{text}");
         assert!(
@@ -578,6 +594,7 @@ mod tests {
                     raised: Some(Timestamp(1)),
                 },
             }],
+            &[],
             &[],
             false,
             &Notes::default(),
@@ -603,6 +620,7 @@ mod tests {
                 "koji",
                 std::slice::from_ref(&stuck),
                 &[],
+                &[],
                 fresh,
                 &Notes::default(),
                 BOARD,
@@ -613,6 +631,7 @@ mod tests {
         let text = wake(
             "koji",
             &[Wake::Pick(2)],
+            &[],
             &[],
             true,
             &Notes::default(),
@@ -628,7 +647,7 @@ mod tests {
             id: ticket(1),
             asked: "Which flag?".into(),
         };
-        let text = wake("koji", &[ask], &[], false, &Notes::default(), BOARD);
+        let text = wake("koji", &[ask], &[], &[], false, &Notes::default(), BOARD);
         assert!(text.contains("\"answer\": null or {\"item\""), "{text}");
         assert!(text.contains("`PM recommends: <choice>`"), "{text}");
         assert!(!text.contains("\"pick\""), "{text}");
@@ -658,6 +677,7 @@ mod tests {
             "koji",
             std::slice::from_ref(&follow_up),
             &[],
+            &[],
             true,
             &Notes::default(),
             BOARD,
@@ -681,7 +701,15 @@ mod tests {
             fresh.contains("Decide the ruling with `follow_up`"),
             "{fresh}"
         );
-        let resumed = wake("koji", &[follow_up], &[], false, &Notes::default(), BOARD);
+        let resumed = wake(
+            "koji",
+            &[follow_up],
+            &[],
+            &[],
+            false,
+            &Notes::default(),
+            BOARD,
+        );
         assert!(
             resumed.contains("\"answer\": null or {\"item\""),
             "{resumed}"
@@ -694,6 +722,7 @@ mod tests {
         let other = wake(
             "koji",
             &[Wake::Pick(2)],
+            &[],
             &[],
             false,
             &Notes::default(),
@@ -715,6 +744,7 @@ mod tests {
             "koji",
             std::slice::from_ref(&vote),
             &[],
+            &[],
             true,
             &Notes::default(),
             BOARD,
@@ -727,7 +757,7 @@ mod tests {
             "{fresh}"
         );
         assert!(fresh.contains("\"votes\": [] or [{\"ruling\""), "{fresh}");
-        let resumed = wake("koji", &[vote], &[], false, &Notes::default(), BOARD);
+        let resumed = wake("koji", &[vote], &[], &[], false, &Notes::default(), BOARD);
         assert!(
             resumed.contains("\"votes\": [] or [{\"ruling\""),
             "{resumed}"
@@ -736,6 +766,7 @@ mod tests {
         let other = wake(
             "koji",
             &[Wake::Pick(2)],
+            &[],
             &[],
             false,
             &Notes::default(),

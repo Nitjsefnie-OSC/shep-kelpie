@@ -11,7 +11,8 @@ use crate::ports::{AgentCall, Role};
 impl Runner {
     /// The steps of what happened in the middle of a pass since the last call,
     /// oldest first: the `session-started` of each call started, and a
-    /// `pull-request-not-opened` of a turn's end
+    /// `pull-request-not-opened` of a turn's end, and the `pick-dropped` of a
+    /// project manager's pick that dispatch could not take
     ///
     /// They are not a pass's result, since a call starts in the middle of one,
     /// so the runner logs them as they come.
