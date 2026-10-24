@@ -254,7 +254,9 @@ async fn projects(
         // An agents folder that cannot be read is each project's line to report.
         let folder = here.kelpie_home.join(crate::agents::FOLDER);
         let agents = Agents::load(&folder).unwrap_or_else(|_| Agents::embedded());
-        lines.extend(gateways::checks(&kelpie.gateways(), &agents));
+        let gateways = kelpie.gateways();
+        let listed = project::listed_reviewers(&tables, here, (&agents, &gateways));
+        lines.extend(gateways::checks(&gateways, &agents, &listed));
     }
     if ask.test_alert {
         lines.push(rulings::test_alert(kelpie.as_ref(), probes.alerts));

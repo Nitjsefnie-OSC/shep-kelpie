@@ -1,6 +1,6 @@
 //! The checks that hold for one project, from its settings
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use serde_json::{Map, Value};
@@ -13,8 +13,8 @@ use crate::local_tickets::LocalTickets;
 use crate::ports::{Forge, NewLabel, Visibility};
 use crate::runner::{NO_ORIGIN, check_checkout, check_instructions, source_of};
 use crate::settings::{
-    Account, AgentHarness, ForgeSlug, Gateways, Limit, Pick, RoleModel, Settings, SettingsError,
-    TicketSource,
+    Account, AgentHarness, AgentName, ForgeSlug, Gateways, Limit, Pick, RoleModel, Settings,
+    SettingsError, TicketSource,
 };
 use crate::webhook::KelpieSettings;
 
@@ -81,6 +81,30 @@ pub(super) fn old_home(
         }
     }
     lines
+}
+
+/// The reviewers the projects in `tables` list, which a table that does not load or a
+/// lineup that does not resolve adds none to: their own lines say why
+pub(super) fn listed_reviewers(
+    tables: &BTreeMap<String, Map<String, Value>>,
+    here: Here<'_>,
+    (book, gateways): (&Agents, &Gateways),
+) -> BTreeSet<AgentName> {
+    let mut names = BTreeSet::new();
+    for (sheep, table) in tables {
+        let Ok(project) = ProjectName::try_from(sheep.as_str()) else {
+            continue;
+        };
+        let paths = ProjectPaths::under(here.kelpie_home, here.shep_home, &project);
+        let Ok(settings) = Settings::from_table(table, sheep, here.home, &paths.folder) else {
+            continue;
+        };
+        let lineup = settings
+            .lineup(book, gateways, here.home)
+            .unwrap_or_default();
+        names.extend(lineup.into_iter().map(|reviewer| reviewer.name));
+    }
+    names
 }
 
 /// Every check for the project on `sheep`, whose table is `table` and whose
