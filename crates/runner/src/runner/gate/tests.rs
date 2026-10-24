@@ -639,6 +639,80 @@ fn a_trigger_is_answered_while_the_base_is_read() {
     pass.unwrap();
 }
 
+fn rebased(pass: &Result<Pass, StateError>) -> bool {
+    matches!(pass, Ok(Pass::Report(StepReport::Rebased { .. })))
+}
+
+#[test]
+fn a_trigger_is_answered_while_a_branch_is_rebased() {
+    let (rig, runner, head) = Rig::with_pull_request("koji");
+    rig.land_on_origin("landed.txt");
+    let read = rig.hold_next_git_push();
+
+    let (reply, pass) = rig.asked_while_held(&runner, read, "status", None);
+
+    let reply = reply.expect("the trigger waited for the lock the rebase held");
+    assert_eq!(reply["work_items"].as_array().unwrap().len(), 1);
+    assert!(rebased(&pass), "{pass:?}");
+    assert_ne!(
+        rig.forge.head_of("kelpie/7"),
+        Some(head),
+        "the push went out"
+    );
+}
+
+#[test]
+fn a_drop_sent_during_a_rebase_cleans_up_after_it() {
+    let (rig, runner, _) = Rig::with_pull_request("koji");
+    rig.land_on_origin("landed.txt");
+    let read = rig.hold_next_git_push();
+
+    let (reply, pass) = rig.asked_while_held(&runner, read, "drop", Some("7"));
+
+    let reply = reply.expect("the drop waited for the lock the rebase held");
+    assert_eq!(reply.get("error"), None, "{reply}");
+    assert!(pass.is_ok(), "{pass:?}");
+    let status = rig.ask(&runner, "status", None);
+    assert_eq!(
+        status["work_items"],
+        json!([]),
+        "the drop ran after the job"
+    );
+    assert!(!rig.worktree_7().exists(), "its worktree was removed");
+}
+
+#[test]
+fn a_rebase_whose_item_changed_during_the_job_is_not_saved() {
+    use crate::runner::trigger::lock;
+
+    let (rig, runner, head) = Rig::with_pull_request("koji");
+    rig.land_on_origin("landed.txt");
+    let read = rig.hold_next_git_push();
+
+    let (moved, pass) = rig.during_read(
+        read,
+        || advance(&runner),
+        || {
+            let mut held = lock(&runner);
+            held.focus = Some(ticket(7));
+            held.update(|item| item.pull_request = Some(72)).unwrap();
+        },
+    );
+
+    moved.expect("the item moved while the rebase ran");
+    assert!(matches!(pass, Ok(Pass::Idle)), "{pass:?}");
+    let pushed = rig.forge.head_of("kelpie/7").unwrap();
+    assert_ne!(pushed, head, "the push went out");
+    let seen = lock(&runner)
+        .state
+        .item(ticket(7))
+        .unwrap()
+        .known
+        .head
+        .clone();
+    assert_ne!(seen, Some(pushed), "the new head was not saved");
+}
+
 // The base is read for the head the step saw. A step that asks for another head's base reads it,
 // whatever an earlier read found for the first.
 #[test]

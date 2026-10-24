@@ -10,17 +10,15 @@
 use std::fmt;
 
 use super::Runner;
-use super::claim::main_fetch_key;
 use super::gate::{settled, short};
 use super::report::{Begin, StepReport};
-use super::retro::journal::Entry;
 use super::trigger::WhichItem;
 use crate::ports::{Checks, PullRequestState};
 use crate::settings::Merging;
-use crate::state::{Finished, MergeNotice, Notice, RulingKind, StateError, Stuck};
+use crate::state::{MergeNotice, Notice, RulingKind, StateError, Stuck};
 use crate::ticket::TicketId;
 use crate::work_item::{Phase, Review, ReviewCallState, ReviewStage, Turn};
-use crate::worktree::{self, Base, Remote};
+use crate::worktree::{self, Base};
 
 /// Why `drop` was refused
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -117,7 +115,7 @@ impl Runner {
         if matches!(&item.phase, Phase::Review(review) if summoning(review)) {
             self.leave_round();
         }
-        match self.cleanup(false).map_err(DropError::State)? {
+        match self.cleanup(false, false).map_err(DropError::State)? {
             Begin::Report(StepReport::GateFailed { reason, .. }) => Err(DropError::Cleanup(reason)),
             _ => Ok(()),
         }
@@ -365,114 +363,11 @@ impl Runner {
 
     // Ends a work item that finished.
     pub(super) fn finish(&mut self, merged: bool) -> Result<Begin, StateError> {
-        self.cleanup(merged)
-    }
-
-    // Removes the worktree, branch and build folder, then the work
-    // item, and records its issue so the board does not take it again until the
-    // forge closes it, or for one not merged, until it is ready again or edited. A pull
-    // request left unmerged is handed back to the maintainer first.
-    fn cleanup(&mut self, merged: bool) -> Result<Begin, StateError> {
-        // First, since the findings sit in the build folder this removes.
-        if merged && let Some(begin) = self.follow_ups()? {
-            return Ok(begin);
-        }
-        // Before anything is removed, so a refused close runs this step again.
-        if let (true, Some(item)) = (merged, self.current())
-            && let Some(number) = item.pull_request
-        {
-            let issue = item.issue;
-            if let Some(reason) = self.close_merged_issue(issue, number) {
-                return Ok(self.gate_failed(reason));
-            }
-            self.close_done_parent_of(issue, number);
-        }
-        self.release_all()?;
-        let Some(item) = self.current() else {
-            return Ok(Begin::Idle);
-        };
-        if let (false, Some(number)) = (merged, item.pull_request)
-            && let Err(reason) = self.hand_back(number)
-        {
-            return Ok(self.gate_failed(reason));
-        }
-        // Read before the build folder goes, which holds the file it is in.
-        let friction = self.friction_of(item);
-        let removed = worktree::remove(
-            &self.settings.git.checkout,
-            &item.worktree,
-            &item.branch,
-            &item.build,
-            merged.then_some(&Remote::Origin),
-        );
-        let removed = removed.map_err(|e| e.to_string());
-        if let Err(e) = removed.and_then(|()| self.remove_code_graph(item.issue)) {
-            return Ok(self.gate_failed(format!("cannot clean up: {e}")));
-        }
-        // The item is gone, so a main it could not fetch warns about nothing.
-        self.notes.ends(&main_fetch_key(item.issue));
-        let now = self.ports.clock.now();
-        let timings = item.split(now, self.timing_phase(item));
-        let closed = matches!(item.phase, Phase::Done { closed: true, .. });
-        let record = Finished {
-            issue: item.issue,
-            title: item.title.clone(),
-            pull_request: item.pull_request,
-            merged,
-            closed,
-            at: now,
-            wall: timings.wall,
-            seconds: timings.seconds.clone(),
-            spend: Some(item.tally()),
-        };
-        let mut line = crate::usage::FinishedLine::of(&record, item, item.issue);
-        if let Ok(agent) = self.worker_agent(item) {
-            line.harness = Some(agent.harness.harness().as_str().to_owned());
-            line.model = Some(agent.model);
-        }
-        let ended = record.clone();
-        let report = StepReport::Finished {
-            issue: item.issue,
-            pull_request: item.pull_request,
-            merged,
-            closed,
-            spend: Box::new(item.spend()),
-            qwen: item.qwen,
-            timings,
-        };
-        let issue = item.issue;
-        let mut next = self.state.clone();
-        next.work_items.retain(|open| open.issue != item.issue);
-        // Rulings about this work item go with it, a question asked before
-        // its pull request included.
-        next.rulings.retain(|r| r.issue != Some(item.issue));
-        // An issue whose item ended with no merged pull request, dropped or stopped
-        // by a no, stays open, unlike a merged one the forge closes, so it goes on
-        // its own list, which a label put back or an edit clears.
-        let (listed, other) = match merged {
-            false => (&mut next.dropped, &mut next.finished),
-            true => (&mut next.finished, &mut next.dropped),
-        };
-        other.retain(|n| *n != item.issue);
-        if !listed.contains(&item.issue) {
-            listed.push(item.issue);
-        }
-        // Forgotten, so the board takes what the issue reads as then.
-        next.dropped_text.remove(&item.issue);
-        next.record_finished(record);
-        self.save(next)?;
-        self.ledger.append(&crate::usage::Line::Finished(line));
-        if let Some(text) = friction {
-            self.journal_at(now, Entry::Friction { issue, text });
-        }
-        self.tell_done(&ended);
-        self.mark_held(issue, false);
-        self.late_reads.remove(&issue);
-        self.parked_reads.remove(&issue);
-        Ok(Begin::Report(report))
+        self.cleanup(merged, true)
     }
 }
 
+mod cleanup;
 mod queue;
 
 #[cfg(test)]

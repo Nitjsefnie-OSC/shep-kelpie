@@ -1,21 +1,21 @@
-//! A git fetch the test holds open
+//! A git fetch or push the test holds open
 
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use super::*;
 
-/// A fetch from `origin` that waits here until this is dropped
+/// A fetch from or push to `origin` that waits here until this is dropped
 ///
-/// The project's checkout runs `remote.origin.uploadpack` as a script in place of git's own, which
-/// holds the next fetch open. Every fetch made after it goes through.
+/// The project's checkout runs `remote.origin.uploadpack` or `receivepack` as a script in place
+/// of git's own, which holds the next fetch or push open. Every one made after it goes through.
 #[derive(Debug)]
 pub struct HeldGit {
     folder: PathBuf,
 }
 
 impl HeldGit {
-    /// Whether a fetch reached origin and waits here, within `within`
+    /// Whether a fetch or push reached origin and waits here, within `within`
     pub fn waiting(&self, within: Duration) -> bool {
         let until = Instant::now() + within;
         while !self.folder.join("entered").exists() {
@@ -46,9 +46,21 @@ impl Rig {
     /// A step fetches in more than one place, so a test names the read it holds by how many
     /// fetches the step makes first.
     pub fn hold_git_fetch_after(&self, skipped: usize) -> HeldGit {
-        let folder = self.home.path().join("held-git");
+        self.hold_git("held-git", "uploadpack", "upload-pack", skipped)
+    }
+
+    /// Holds the next push to origin open, and lets every other through, so a test can ask a
+    /// trigger of a runner whose pass is in the middle of a rebase's push
+    pub fn hold_next_git_push(&self) -> HeldGit {
+        self.hold_git("held-push", "receivepack", "receive-pack", 0)
+    }
+
+    // Runs `remote.origin.<key>` as a script that holds the call after the next `skipped` open
+    // and then runs git's own `tool`
+    fn hold_git(&self, name: &str, key: &str, tool: &str, skipped: usize) -> HeldGit {
+        let folder = self.home.path().join(name);
         std::fs::create_dir_all(&folder).unwrap();
-        let script = folder.join("upload-pack.sh");
+        let script = folder.join("hold.sh");
         let (armed, entered, release, skips) = (
             path(&folder.join("armed")).to_owned(),
             path(&folder.join("entered")).to_owned(),
@@ -63,7 +75,7 @@ impl Rig {
              elif mv '{armed}' '{entered}' 2>/dev/null; then\n\
              while [ ! -e '{release}' ]; do sleep 0.01; done\n\
              fi\n\
-             exec git upload-pack \"$@\"\n"
+             exec git {tool} \"$@\"\n"
         );
         let _ = std::fs::remove_file(&script);
         write_script(&script, &body);
@@ -71,7 +83,7 @@ impl Rig {
         std::fs::write(folder.join("skips"), skipped.to_string()).unwrap();
         git(
             &self.repo(),
-            &["config", "remote.origin.uploadpack", path(&script)],
+            &["config", &format!("remote.origin.{key}"), path(&script)],
         );
         HeldGit { folder }
     }
