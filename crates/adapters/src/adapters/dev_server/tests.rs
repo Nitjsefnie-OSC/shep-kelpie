@@ -196,3 +196,45 @@ fn a_sandbox_that_refuses_starts_nothing() {
     assert!(why.contains("sandbox runtime is missing"), "{why}");
     assert!(!dir.path().join("ran").exists());
 }
+
+// The environment the sandbox runtime itself is started with, which a server's variables
+// would reach there: `srt` puts its proxy socket under its own `TMPDIR`.
+#[test]
+fn the_servers_variables_reach_the_server_and_not_the_sandbox_runtime() {
+    #[derive(Debug, Default)]
+    struct Watching(std::sync::Mutex<Vec<usize>>);
+    impl Sandbox for Watching {
+        fn wrap(
+            &self,
+            _: &Policy,
+            _: &Path,
+            command: &Command,
+        ) -> Result<Command, crate::ports::SandboxError> {
+            self.0.lock().unwrap().push(command.get_envs().count());
+            let mut copy = Command::new(command.get_program());
+            copy.args(command.get_args());
+            Ok(copy)
+        }
+    }
+    let dir = short_tempdir();
+    let watching = Arc::new(Watching::default());
+    let mut run = run_of(
+        dir.path(),
+        "#!/bin/sh\necho \"temp $TMPDIR port $PORT\"\n",
+        unused(),
+        Duration::from_millis(300),
+    );
+    run.env.insert("TMPDIR".to_owned(), "/build/tmp".to_owned());
+    let servers = SandboxedServers {
+        sandbox: watching.clone(),
+    };
+
+    drop(servers.start(&run).unwrap());
+
+    assert_eq!(*watching.0.lock().unwrap(), [0]);
+    let log = std::fs::read_to_string(&run.log).unwrap();
+    assert!(
+        log.contains(&format!("temp /build/tmp port {}", run.port)),
+        "{log}"
+    );
+}

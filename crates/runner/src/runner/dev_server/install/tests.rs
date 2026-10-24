@@ -47,10 +47,11 @@ fn the_packages_are_installed_from_the_lockfile_before_the_server_starts() {
         "{:?}",
         run.args
     );
-    assert!(run.args[1].ends_with("shift; exec \"$@\""));
+    assert!(run.args[1].ends_with("shift 2; exec \"$@\""));
     // The folder, then the server's own command.
     assert_eq!(run.args[3], cwd.display().to_string());
-    assert_eq!(run.args[4..], ["npm", "run", "dev"]);
+    assert_eq!(run.args[4], "/build/install-unfinished");
+    assert_eq!(run.args[5..], ["npm", "run", "dev"]);
     assert_eq!(run.env["npm_config_cache"], "/build/npm-cache");
     assert_eq!(run.policy.hosts, ["app.example.com", "registry.npmjs.org"]);
     assert!(run.ready_within > Duration::from_secs(60));
@@ -89,6 +90,7 @@ fn the_script_stops_when_the_install_fails_and_runs_the_server_when_it_does_not(
         run.args = vec!["served".to_owned()];
         before(&mut run, dir.path(), &build);
         let script = run.args[1].replace("npm ci --ignore-scripts --no-audit --no-fund", install);
+        std::fs::create_dir_all(&build).unwrap();
         let out = std::process::Command::new(crate::spawn::sh())
             .arg("-c")
             .arg(script)
@@ -101,4 +103,88 @@ fn the_script_stops_when_the_install_fails_and_runs_the_server_when_it_does_not(
             "{install}"
         );
     }
+}
+
+// Runs `run`'s script with `install` standing in for the package manager's command, in
+// `dir`, and says whether the stand-in ran.
+fn installed(run: &DevRun, dir: &Path, install: &str) -> bool {
+    std::fs::create_dir_all(Path::new(&run.args[4]).parent().unwrap()).unwrap();
+    let manager = MANAGERS.iter().map(|m| m.install);
+    let script = manager.fold(run.args[1].clone(), |s, m| s.replace(m, install));
+    std::process::Command::new(crate::spawn::sh())
+        .arg("-c")
+        .arg(script)
+        .args(&run.args[2..])
+        .current_dir(dir)
+        .status()
+        .unwrap();
+    dir.join("installed").exists()
+}
+
+#[test]
+fn packages_already_installed_are_left_alone_and_the_server_gets_its_usual_wait() {
+    let dir = checkout(&["bun.lock", "node_modules/vite/package.json"]);
+    let mut run = run(dir.path());
+    run.program = "true".to_owned();
+
+    before(&mut run, dir.path(), &dir.path().join("b"));
+
+    assert!(!installed(&run, dir.path(), "touch installed"));
+    assert_eq!(run.ready_within, Duration::from_secs(60));
+}
+
+#[test]
+fn a_checkout_with_no_packages_is_installed_into() {
+    let dir = checkout(&["bun.lock"]);
+    let mut run = run(dir.path());
+    run.program = "true".to_owned();
+
+    before(&mut run, dir.path(), &dir.path().join("b"));
+
+    assert!(installed(&run, dir.path(), "touch installed"));
+}
+
+#[test]
+fn an_install_that_did_not_finish_is_run_again_with_time_to_finish() {
+    let dir = checkout(&["bun.lock", "node_modules/vite/package.json"]);
+    let build = dir.path().join("b");
+    std::fs::create_dir_all(&build).unwrap();
+    std::fs::write(build.join(UNFINISHED), "").unwrap();
+    let mut run = run(dir.path());
+    run.program = "true".to_owned();
+
+    before(&mut run, dir.path(), &build);
+
+    assert!(installed(&run, dir.path(), "touch installed"));
+    assert!(run.ready_within > Duration::from_secs(60));
+}
+
+#[test]
+fn only_an_install_that_succeeded_clears_its_mark() {
+    for (install, mark) in [("true", false), ("false", true)] {
+        let dir = checkout(&["bun.lock"]);
+        let build = dir.path().join("b");
+        let mut run = run(dir.path());
+        run.program = "true".to_owned();
+        before(&mut run, dir.path(), &build);
+
+        installed(&run, dir.path(), install);
+
+        assert_eq!(build.join(UNFINISHED).exists(), mark, "{install}");
+    }
+}
+
+#[test]
+fn a_cache_the_server_already_names_is_kept() {
+    let dir = checkout(&["bun.lock"]);
+    let mut run = run(dir.path());
+    run.program = "true".to_owned();
+    run.env.insert(
+        "BUN_INSTALL_CACHE_DIR".to_owned(),
+        "/b/bun/cache".to_owned(),
+    );
+
+    before(&mut run, dir.path(), Path::new("/build"));
+
+    assert_eq!(run.env["BUN_INSTALL_CACHE_DIR"], "/b/bun/cache");
 }
