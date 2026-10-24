@@ -13,8 +13,12 @@ mod charging;
 mod phases;
 mod totals;
 
-fn timings(rig: &Rig, runner: &Mutex<Runner>) -> Value {
-    rig.ask(runner, "status", None)["work_item"]["timings"].clone()
+// Read under the lock: `status` asked through a trigger is answered from the
+// copy last posted while a pass holds the lock, and that copy was charged
+// before the test moved the clock, so it counts none of the seconds since.
+fn timings(_rig: &Rig, runner: &Mutex<Runner>) -> Value {
+    let status = serde_json::to_value(runner.lock().unwrap().status()).expect("status serializes");
+    status["work_item"]["timings"].clone()
 }
 
 fn secs(timings: &Value, phase: &str) -> u64 {
