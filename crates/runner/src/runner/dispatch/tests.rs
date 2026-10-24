@@ -117,6 +117,79 @@ fn a_dropped_item_labelled_ready_again_is_picked_again() {
     ));
 }
 
+// Stops #7's item with a no on a turn-timeout ruling, the issue still listed ready.
+fn stopped_by_a_no(rig: &Rig, runner: &Mutex<Runner>) {
+    rig.forge.list_ready(7, false);
+    step(runner).unwrap();
+    rig.claude.script([Scripted::Fail(AgentError::TimedOut(
+        crate::settings::Harness::ClaudeCode,
+    ))]);
+    step(runner).unwrap();
+    rig.ask(runner, "rule", Some("7 no not worth waiting for"));
+    assert!(matches!(
+       step(runner).unwrap(),
+       Some(StepReport::Finished { issue, merged: false, .. }) if issue == ticket(7)
+    ));
+}
+
+#[test]
+fn an_item_stopped_by_a_no_stays_skipped_as_dropped_until_its_issue_is_edited() {
+    let (rig, runner) = running("shep");
+    stopped_by_a_no(&rig, &runner);
+
+    rig.next_look();
+    assert_eq!(step(&runner).unwrap(), None);
+    assert_eq!(
+        rig.ask(&runner, "status", None)["skipped"],
+        json!([{ "reason": "dropped", "issue": "7" }])
+    );
+
+    rig.forge
+        .set_ready_body(7, "Body of #7, narrowed to one file.\n");
+    rig.next_look();
+    assert!(matches!(
+       step(&runner).unwrap(),
+       Some(StepReport::Dispatched { issue, .. }) if issue == ticket(7)
+    ));
+}
+
+#[test]
+fn an_item_stopped_by_a_no_is_picked_again_once_its_label_is_put_back() {
+    let (rig, runner) = running("shep");
+    stopped_by_a_no(&rig, &runner);
+    rig.next_look();
+    assert_eq!(step(&runner).unwrap(), None);
+
+    rig.forge.unlist_ready(7);
+    rig.next_look();
+    assert_eq!(step(&runner).unwrap(), None);
+    rig.forge.list_ready(7, false);
+    rig.next_look();
+    assert!(matches!(
+       step(&runner).unwrap(),
+       Some(StepReport::Dispatched { issue, .. }) if issue == ticket(7)
+    ));
+}
+
+#[test]
+fn an_edit_after_a_restart_still_picks_a_stopped_item_again() {
+    let (rig, runner) = running("shep");
+    stopped_by_a_no(&rig, &runner);
+    rig.next_look();
+    assert_eq!(step(&runner).unwrap(), None);
+    drop(runner);
+
+    let runner = rig.open().unwrap();
+    assert_eq!(step(&runner).unwrap(), None);
+    rig.forge
+        .set_ready_body(7, "Body of #7, narrowed to one file.\n");
+    rig.next_look();
+    assert!(matches!(
+       step(&runner).unwrap(),
+       Some(StepReport::Dispatched { issue, .. }) if issue == ticket(7)
+    ));
+}
+
 #[test]
 fn a_dropped_item_labelled_ready_again_while_the_board_is_shut_is_picked_when_it_opens() {
     // #7 is open and the runner finishes it, so the board is not read.

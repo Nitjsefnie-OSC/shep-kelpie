@@ -97,6 +97,19 @@ pub struct ReadyIssue {
     pub sub_issues: SubIssues,
 }
 
+impl ReadyIssue {
+    /// A digest of the text its author wrote, its title and body, which an
+    /// edit changes
+    pub fn fingerprint(&self) -> String {
+        use sha1::{Digest, Sha1};
+        let mut hash = Sha1::new();
+        hash.update(self.title.as_bytes());
+        hash.update([0]);
+        hash.update(self.body.as_bytes());
+        hash.finalize().iter().map(|b| format!("{b:02x}")).collect()
+    }
+}
+
 /// How many sub-issues an issue has, and how many of them are closed
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct SubIssues {
@@ -283,9 +296,10 @@ pub struct Pick {
 /// forge can still list one as open and ready for a while after its pull
 /// request merges, so the board never takes one again.
 ///
-/// `dropped` lists the issues whose work items `drop` ended. The board leaves
-/// one be while the forge lists it. The runner forgets one once the forge no
-/// longer lists it, so a label put back returns it.
+/// `dropped` lists the issues whose work items ended with no merged pull
+/// request. The board leaves one be while the forge lists it. The runner
+/// forgets one once the forge no longer lists it or its text changes, so a
+/// label put back or an edit returns it.
 pub fn pick(
     ready: &[ReadyIssue],
     open: &[OpenPullRequest],

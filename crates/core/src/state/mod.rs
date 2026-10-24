@@ -10,6 +10,7 @@ mod bumps;
 mod contributions;
 mod events;
 mod lease;
+mod notices;
 mod numbered;
 mod projects;
 mod red;
@@ -24,6 +25,7 @@ pub use contributions::{
 };
 pub use events::{BoardEvent, EVENTS_KEPT};
 pub use lease::{LeaseHeld, Resource};
+pub use notices::{MainNotice, MergeNotice, Notice};
 pub use projects::Projects;
 pub use red::{Handled, RedWorkflow};
 pub use removed::OldWorker;
@@ -50,7 +52,7 @@ use crate::work_item::{Attached, Known, Phase, Priced, Review, Seconds, Tally, T
 /// The name of a project's state file, in its folder
 pub const STATE_FILE: &str = "state.json";
 
-/// The state file's format version. 82 added the triage `taken` step, which an older kelpie refuses, 81 added a red workflow's `reran_head`, `again` and `handled`, which an older kelpie refuses, 80 added the `check-queued` stuck reason, which an older kelpie refuses, 79 added a work item's `base`, which an older file's items take from the runner that loads them, 78 added a work item's `contributor`, 77 added the `push-refused` stuck reason, which an older kelpie refuses, 76 added the triage `pruned_through`, which an older file's records set as it loads, 75 added a work item's `disputed`, `deferred` and `outcomes_counted` counts, 74 added a work item's `ceiling_resumes`, 73 keys its work items, rulings, finished, dropped and saved order by ticket id, so an older file's issue numbers load as GitHub ticket ids, 72 added the project manager's `pm_unmined`, 71 added a work item's `ci_failures` count, 70 added a triage record's `spam`, 69 added a triage record's `at`, `author`, `held` and `calls` and the `unrecorded` calls of an issue with no record yet, 68 added its `local` wait, 67 added its
+/// The state file's format version. 83 added `dropped_text`, which an older kelpie refuses, 82 added the triage `taken` step, which an older kelpie refuses, 81 added a red workflow's `reran_head`, `again` and `handled`, which an older kelpie refuses, 80 added the `check-queued` stuck reason, which an older kelpie refuses, 79 added a work item's `base`, which an older file's items take from the runner that loads them, 78 added a work item's `contributor`, 77 added the `push-refused` stuck reason, which an older kelpie refuses, 76 added the triage `pruned_through`, which an older file's records set as it loads, 75 added a work item's `disputed`, `deferred` and `outcomes_counted` counts, 74 added a work item's `ceiling_resumes`, 73 keys its work items, rulings, finished, dropped and saved order by ticket id, so an older file's issue numbers load as GitHub ticket ids, 72 added the project manager's `pm_unmined`, 71 added a work item's `ci_failures` count, 70 added a triage record's `spam`, 69 added a triage record's `at`, `author`, `held` and `calls` and the `unrecorded` calls of an issue with no record yet, 68 added its `local` wait, 67 added its
 /// `asked` and `questions` and its `answers` step, 66 added a contribution's `adopting`, a merge ruling's `rework` verdict and the `cannot-adopt` contribution ruling, 65 added a work item's `remote`, `left_open` and the `no-edits` contribution ruling, 64 added a triage record's `ready_body`, `seen` and its `body-written` and `ready` steps, 63 added a triage record's `duplicate_of` and its `closed` step, 62 added a triage record's `issues`, 61 added a contribution's `ruled` and the `merge` contribution ruling, 60 added `triage`, 59 added a contribution's `asked` and `released` and the `waiting` contribution ruling, 58 added a contribution's `answered` and `deciding` and the `question` contribution ruling, 57 added a pass's `review` and `note`, 56 added `bumps`, 55 added the `adopt-failed` stuck reason, 54 added a work item's `disputes` and `disputes_comment`, the merge ruling's `disputes` and the fix-not-pushed stuck reason's `said`, 53 added a contribution's `waiting_since`, 52 added a contribution's `walking` and a pass's `nits`, 51 added a contribution's `pass`, `last_answered` and `local_failures`, 50 added a contribution's `ci`, 49 added a contribution's `spend` and `budget_raises`, `spent` and the `over-budget` contribution ruling, 48 added a contribution's `heard`, `context` and `reviews_from`, 47 added the `contribution` ruling kind, 46 added a contribution's `security` and `passed`, 45 added a red workflow's `reran` and `noticed` and the main-workflow notice, 44 added the still-red stuck reason's `rerun` and the turn-failed one's `restore`, 43 added `red`, 42 added a ruling's `skipped`, 41 added a test check's `sent_back` and the `test-still-fails` stuck reason, 40 added `contributions`, 39 added a work item's `talked`, 38 named rulings by their work item's number and dropped
 /// `last_ruling`, 37 added the still-red stuck reason's `review`, 36 added a work item's `reran`, 35 added a work item's `test_checks`, 34 added a finding's `test`, 33 added a work item's `budget_raises` and the `over-budget` stuck reason, 32 added a ruling verdict's `risky` and `shadow`, 31 added `order` and `ranked`, 30 added a ruling's `verdict`, 29 added `dropped`, 28 added a ruling's `panel` and `unposted`, 27 added `unmentioned`, 26 added `heard`'s `ruling_comment`, 25 added a work item's `threads_accepted` and a merge ruling's `held_by`, 24 added a work item's `context`, 23 added a review's `ci`, 22 added `heard` and `posted`, 21 added a work item's `thread_answers`, 20 added a work item's `retro`, 19 added `finishing`, 18 added `closed`
 /// to the `done` phase and to a finished work item, 17 added a work item's `pinned` and the
@@ -66,7 +68,7 @@ pub const STATE_FILE: &str = "state.json";
 /// kinds to six, 8 added the project manager's session, notes and attach, 7
 /// a work item's `attached`, 6 folded the timing phases to six, and 5 added
 /// the board's events, each of which an older kelpie refuses
-pub const VERSION: u32 = 82;
+pub const VERSION: u32 = 83;
 
 /// The format before a project could have more than one work item open,
 /// which this kelpie still reads
@@ -120,10 +122,17 @@ pub struct ProjectState {
     /// Tickets whose work items kelpie finished, which the board never takes again
     #[serde(default)]
     pub finished: Vec<TicketId>,
-    /// Tickets whose work items `drop` ended, which the board leaves be until
-    /// the forge stops listing them as ready, so a label put back returns one
+    /// Tickets whose work items ended with no merged pull request, `drop`ped or
+    /// stopped by a `no`, which the board leaves be until the forge stops
+    /// listing them as ready, so a label put back returns one, or their text
+    /// changes
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub dropped: Vec<TicketId>,
+    /// What each ticket in `dropped` read as when the board first saw it after,
+    /// as [`crate::board::ReadyIssue::fingerprint`], so an edit returns it. A ticket the board
+    /// has not yet seen has none.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub dropped_text: BTreeMap<TicketId, String>,
     /// The ready tickets in the order the board takes them, first to go
     /// first. Each read of the board updates it. Empty until one has.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -272,6 +281,7 @@ impl ProjectState {
             renamed: numbered::Renamed::default(),
             finished: Vec::new(),
             dropped: Vec::new(),
+            dropped_text: BTreeMap::new(),
             order: Vec::new(),
             ranked: BTreeMap::new(),
             history: Vec::new(),
@@ -445,54 +455,6 @@ pub struct LastRead {
     /// When the webhook took it
     pub time: Timestamp,
 }
-
-/// Something kelpie tells the maintainer after it happens
-///
-/// Not a ruling: it has no id and takes no answer. It goes once the
-/// webhook post lands. The two kinds have no field in common, so a file
-/// from before the second reads as the first.
-// wire format: changing this is a breaking change to the state file
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum Notice {
-    /// A merge kelpie made under `auto`
-    Merged(MergeNotice),
-    /// A workflow on `main` that stayed red after a rerun, or went green again
-    Main(MainNotice),
-}
-
-/// A merge kelpie made under `auto`
-// wire format: changing this is a breaking change to the state file
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct MergeNotice {
-    /// The work item's ticket
-    pub issue: TicketId,
-    /// The pull request merged
-    pub pull_request: u64,
-    /// The head it merged at
-    pub head: String,
-}
-
-/// A workflow on `main` that is red for good or green again
-// wire format: changing this is a breaking change to the state file
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct MainNotice {
-    /// The workflow's name
-    pub workflow: String,
-    /// The run it names: the red one that stayed red, or the green one
-    pub run: u64,
-    /// How long the workflow was red when this was written, in seconds
-    pub red_for: u64,
-    /// The end of the red run's failed log, or none where it could not be
-    /// read, and none for a green notice
-    pub log: String,
-    /// Whether the workflow went green
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub green: bool,
-}
-
 /// What raised a ruling. A no's note, or an answer, always goes to the worker.
 // wire format: changing this is a breaking change to the state file
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

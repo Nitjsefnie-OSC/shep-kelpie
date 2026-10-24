@@ -379,7 +379,7 @@ fn a_dropped_item_still_listed_ready_is_named_as_dropped_with_the_command_that_t
     rig.clock.advance(5 * 60);
     super::brief(&runner);
     let text = board(&rig);
-    let waits = "waits: dropped, and `shep kelpie add 7` takes it back";
+    let waits = "waits: stopped with no merged pull request, and an edit to the issue, a label put back or `shep kelpie add 7` takes it back";
     assert!(text.contains(waits), "{text}");
     assert!(!text.contains("kelpie finished it"), "{text}");
 }

@@ -29,7 +29,7 @@ Projects, the board, work items, slots, issue writer. The project manager is in 
 - `agent:<name>` label picks implementer, `!` pins against fallback; unknown or doubled label skipped; kelpie only adds missing `agent:` labels (deleting strips every issue). #381
 - Issue with sub-issues never worked (they are, instead); closed when all sub-issues closed. The sweep also closes an open issue off the ready list once its sub-issues are all closed with one completed (all not planned stays open); a sub-issue still open on the board's reread stops the close, and one with none completed is read again when its count changes or an hour on. #738, `runner/parent.rs`
 - Held issue carries `in-progress` (courtesy, refusal logged). #199
-- Merged issues never retaken until they read closed (`Resolves` lags merge); `drop` keeps the PR, lists issue `dropped` until it leaves the ready list; its recheck leaves the lock. #172, #481, #1205
+- Merged issues never retaken until they read closed (`Resolves` lags merge); `drop` keeps the PR, lists issue `dropped` until it leaves the ready list; its recheck leaves the lock. Any item ended with no merged pull request (`drop`, a `no` on a turn-timeout, turn-failed, push-refused or agent-files ruling, a yes on `closed`) lists `dropped`, not `finished`, and `dropped_text` keeps a digest of the issue's title and body from the board's first read after: an edit returns the issue, as does the label put back. An edit made before that first read is not seen (`shep kelpie add`). #172, #481, #1205, #1229
 - Kelpie works its own repo from a separate clone, never the session checkout; worker rules in `CLAUDE.md`; merged changes reach runner only on upgrade. #140
 
 ## Slots
