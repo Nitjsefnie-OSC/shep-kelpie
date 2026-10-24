@@ -51,6 +51,7 @@ mod handover;
 pub(super) mod held_up;
 mod issue_comments;
 pub(super) mod paused;
+pub(super) mod reads;
 mod unfinished;
 pub(super) mod unreachable;
 
@@ -125,32 +126,18 @@ pub(super) enum Slot {
 }
 
 impl Runner {
-    // Steps each open work item with no call in flight, and the board while
-    // a slot is free, from the one after the last to act, until one acts.
-    // `start_over` is the item whose session died unborn, which begins the
-    // same turn again.
-    pub(super) fn begin_turn(&mut self, start_over: Option<TicketId>) -> Result<Begin, StateError> {
+    // Begins a pass: its snapshot, and what a trigger reads. What follows asks the forge, a step
+    // at a time, with the runner's lock held for that step only.
+    pub(super) fn open_pass(&mut self) {
         self.begin_pass();
         self.looks.pass_began(self.forge_ledger.writes());
-        // What follows asks the forge with the runner's lock held.
         self.post();
-        let begin = self.step_rotation(start_over);
-        self.end_pass();
-        begin
     }
 
-    fn step_rotation(&mut self, start_over: Option<TicketId>) -> Result<Begin, StateError> {
-        if let Some(ticket) = start_over {
-            self.focus = Some(ticket);
-            let begin = if self.current().is_some_and(|item| item.attached.is_some()) {
-                self.held_up.because(Reason::Attached);
-                Begin::Idle
-            } else {
-                self.begin_item(true)?
-            };
-            self.note_held_up(ticket, &begin);
-            return Ok(begin);
-        }
+    // Follows the contributions and settles what the rotation reads, and returns the rotation:
+    // the open work items with no call in flight, and the board while a slot is free, from the
+    // one after the last to act, with the time its steps are judged at
+    pub(super) fn plan_rotation(&mut self) -> Result<(Vec<Slot>, Timestamp), StateError> {
         self.follow_contributions()?;
         let open: Vec<TicketId> = self.state.work_items.iter().map(|i| i.issue).collect();
         self.unreachable.keep_only(&open);
@@ -158,48 +145,63 @@ impl Runner {
         self.queued_reruns.keep_only(&open);
         self.no_checks.retain(|ticket| open.contains(ticket));
         self.seat_waiting()?;
-        let mut waiting = None;
         let now = self.ports.clock.now();
         let rotation = self.rotation();
         self.note_left_out(&rotation, now);
         self.looks.keep_only(&rotation);
-        for slot in rotation {
-            if !self.looks.due(slot, now) {
-                continue;
-            }
-            // The step ahead asks the forge with the runner's lock held, so
-            // post what a trigger reads before it waits.
-            self.post();
-            let begin = match slot {
-                Slot::Item(ticket) => {
-                    self.focus = Some(ticket);
+        Ok((rotation, now))
+    }
+
+    // Steps `slot`, with what a trigger reads posted before the step asks the forge with the
+    // runner's lock held. A step that asks for a read is not recorded as stepped, since it has
+    // not finished.
+    pub(super) fn step_slot(&mut self, slot: Slot, now: Timestamp) -> Result<Begin, StateError> {
+        self.post();
+        let begin = match slot {
+            Slot::Item(ticket) => {
+                self.focus = Some(ticket);
+                // Attached, or in flight, since the rotation was planned or the read began
+                if self.current().is_some_and(|item| self.rotates(item)) {
                     let begin = self.begin_item(false)?;
-                    self.note_held_up(ticket, &begin);
+                    if !matches!(begin, Begin::Reads(_)) {
+                        self.note_held_up(ticket, &begin);
+                    }
                     begin
+                } else {
+                    // The reason a step that asked for a read left belongs to this item alone.
+                    self.held_up.forget_pending();
+                    Begin::Idle
                 }
-                Slot::Board => {
-                    self.focus = None;
-                    self.dispatch()?
-                }
-                Slot::Contributions => {
-                    self.focus = None;
-                    self.contribution_due()?.unwrap_or(Begin::Idle)
-                }
-            };
+            }
+            Slot::Board => {
+                self.focus = None;
+                self.dispatch()?
+            }
+            Slot::Contributions => {
+                self.focus = None;
+                self.contribution_due()?.unwrap_or(Begin::Idle)
+            }
+        };
+        if !matches!(begin, Begin::Reads(_)) {
             let held = self.forge_hold.until(now);
             self.looks.stepped(slot, &begin, now, held);
-            match begin {
-                Begin::Idle => {}
-                Begin::Report(report) if report.waits() => {
-                    waiting.get_or_insert(report);
-                }
-                begin => {
-                    self.last_acted = Some(slot);
-                    return Ok(begin);
-                }
-            }
         }
-        Ok(waiting.map_or(Begin::Idle, Begin::Report))
+        Ok(begin)
+    }
+
+    // Begins `ticket`'s turn again, as its session died unborn
+    pub(super) fn step_over(&mut self, ticket: TicketId) -> Result<Begin, StateError> {
+        self.focus = Some(ticket);
+        let begin = if self.current().is_some_and(|item| item.attached.is_some()) {
+            self.held_up.because(Reason::Attached);
+            Begin::Idle
+        } else {
+            self.begin_item(true)?
+        };
+        if !matches!(begin, Begin::Reads(_)) {
+            self.note_held_up(ticket, &begin);
+        }
+        Ok(begin)
     }
 
     // Remembers why `ticket`'s step began `begin`, and logs a turn held up long
@@ -247,11 +249,9 @@ impl Runner {
     // is free, from the one after the last to act, so one that keeps acting
     // cannot starve the rest
     pub(super) fn rotation(&self) -> Vec<Slot> {
-        let items = (self.state.work_items.iter()).filter_map(|i| {
-            let ticket = i.issue;
-            (!self.flights.flying(ticket) && i.attached.is_none() && i.seat != Seat::Waiting)
-                .then_some(Slot::Item(ticket))
-        });
+        let items = (self.state.work_items.iter())
+            .filter(|i| self.rotates(i))
+            .map(|i| Slot::Item(i.issue));
         let board = self.board_open().then_some(Slot::Board);
         let contributions = (board.is_none() && self.slot_free() && self.contribution_unread())
             .then_some(Slot::Contributions);
@@ -260,6 +260,12 @@ impl Runner {
             slots.rotate_left(at + 1);
         }
         slots
+    }
+
+    // Whether the rotation steps `item`: it has no call in flight, is not attached and does not
+    // wait for a seat. The lock is let go between steps and across a read, so a step asks again.
+    fn rotates(&self, item: &WorkItem) -> bool {
+        !self.flights.flying(item.issue) && item.attached.is_none() && item.seat != Seat::Waiting
     }
 
     // Idle for `reason`, which `status` and the board name
@@ -313,7 +319,9 @@ impl Runner {
         // resumes the same not-yet-begun turn after a session died unborn.
         let due = matches!(item.turn, Turn::Due | Turn::Next { .. });
         if let Some(begin) = self.pushed_by_someone_else()? {
-            if matches!(begin, Begin::Idle) {
+            // A read the gate asks for is made and the step made again in the gate's phase, which
+            // would not say why, so the reason stands until that step ends.
+            if matches!(begin, Begin::Idle | Begin::Reads(_)) {
                 self.held_up.because(Reason::PushedByAnother);
             }
             return Ok(begin);

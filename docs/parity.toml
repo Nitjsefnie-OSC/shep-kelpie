@@ -183,9 +183,9 @@ goose = "yes"
 [harness.issue-writer]
 what = "Runs the issue writer"
 claude-code = "yes"
-pi = { cannot = "its guard is a Claude Code hook", doc = "docs/design/work.md", says = "`role: issue-writer`, Claude Code only" }
-codex = { cannot = "its guard is a Claude Code hook", doc = "docs/design/work.md", says = "`role: issue-writer`, Claude Code only" }
-goose = { cannot = "its guard is a Claude Code hook", doc = "docs/design/work.md", says = "`role: issue-writer`, Claude Code only" }
+pi = { cannot = "its guard is a Claude Code hook", doc = "docs/design/board.md", says = "`role: issue-writer`, Claude Code only" }
+codex = { cannot = "its guard is a Claude Code hook", doc = "docs/design/board.md", says = "`role: issue-writer`, Claude Code only" }
+goose = { cannot = "its guard is a Claude Code hook", doc = "docs/design/board.md", says = "`role: issue-writer`, Claude Code only" }
 
 [harness.pm]
 what = "Runs the project manager"

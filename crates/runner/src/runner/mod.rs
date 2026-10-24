@@ -369,6 +369,8 @@ pub struct Runner {
     looks: looks::Looks,
     // The open pull requests the pass in progress listed, in memory only
     snapshot: snapshot::Snapshot,
+    // What the pass in progress read for its steps off the lock, in memory only
+    reads: turn::reads::Reads,
     // Why the stored settings are refused while they are, in memory only
     refusal: Option<refused::Refusal>,
     // Until when every forge call is held, the forge's rate limit used up
@@ -645,6 +647,7 @@ impl Runner {
             parked_reads: BTreeMap::new(),
             looks: looks::Looks::default(),
             snapshot: snapshot::Snapshot::default(),
+            reads: turn::reads::Reads::default(),
             refusal: None,
             forge_hold,
             forge_ledger,

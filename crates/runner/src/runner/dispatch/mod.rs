@@ -11,6 +11,7 @@
 //! issues the board could take, its pick goes in place of the board rule's,
 //! and a ready issue it holds waits.
 
+use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
 use super::Runner;
@@ -327,17 +328,26 @@ impl Runner {
 
     // The board leaves a dropped ticket be while the forge lists it ready, so
     // an entry goes once the forge stops listing it: a label put back is then
-    // new.
+    // new. It goes too once the issue's text reads differently from the first
+    // time the board saw it after the drop: an edit re-scopes it.
     fn trim_dropped(&mut self, ready: &[ReadyIssue]) -> Result<(), StateError> {
-        let kept: Vec<TicketId> = (self.state.dropped.iter())
-            .filter(|t| ready.iter().any(|r| &r.ticket == *t))
-            .copied()
-            .collect();
-        if kept.len() == self.state.dropped.len() {
+        let mut next = self.state.clone();
+        let mut text = BTreeMap::new();
+        next.dropped.retain(|t| {
+            let Some(issue) = ready.iter().find(|r| r.ticket == *t) else {
+                return false;
+            };
+            let now = issue.fingerprint();
+            let unedited = (self.state.dropped_text.get(t)).is_none_or(|then| *then == now);
+            if unedited {
+                text.insert(*t, now);
+            }
+            unedited
+        });
+        next.dropped_text = text;
+        if next == self.state {
             return Ok(());
         }
-        let mut next = self.state.clone();
-        next.dropped = kept;
         self.save(next)
     }
 }

@@ -580,7 +580,9 @@ pub(super) fn passed_over(skip: &Skip, shown: &dyn Fn(String) -> String) -> (Str
             false,
         ),
         Skip::Dropped { issue } => (
-            format!("dropped, and `shep kelpie add {issue}` takes it back"),
+            format!(
+                "stopped with no merged pull request, and an edit to the issue, a label put back or `shep kelpie add {issue}` takes it back"
+            ),
             false,
         ),
         Skip::Assigned { .. } => ("someone is assigned to it".into(), false),

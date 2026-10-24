@@ -87,6 +87,17 @@ impl Snapshot {
         !matches!(*self.pass.borrow(), Pass::Between)
     }
 
+    /// Whether the pass running has listed nothing yet, so the first step that needs the listing
+    /// makes it
+    pub(super) fn lists_next(&self) -> bool {
+        matches!(*self.pass.borrow(), Pass::Running)
+    }
+
+    /// Whether the pass's listing holds pull request `number`
+    pub(super) fn serves(&self, number: u64) -> bool {
+        matches!(&*self.pass.borrow(), Pass::Listed(Ok(open)) if open.iter().any(|pr| pr.number == number))
+    }
+
     /// Whether `pr`'s reviews and threads are the same as when they were last
     /// read and nothing came of them, or there are none
     pub(super) fn nothing_new(&self, pr: &OpenPullRequest) -> bool {
@@ -127,13 +138,23 @@ impl Runner {
     // listing when it holds the pull request, and from the forge otherwise
     pub(super) fn pull_request_view(&self, number: u64) -> Result<PullRequest, ForgeError> {
         if self.snapshot.in_pass()
-            && let Ok(open) = self.open_listed()
-            && let Some(pr) = open.iter().find(|pr| pr.number == number)
+            && let Some(pr) = view_of(&self.open_listed(), number)
         {
-            return Ok(pr.view());
+            return Ok(pr);
         }
         self.ports.forge.pull_request(&self.remote, number)
     }
+}
+
+/// Pull request `number` as `listed` holds it
+pub(super) fn view_of(
+    listed: &Result<Vec<OpenPullRequest>, ForgeError>,
+    number: u64,
+) -> Option<PullRequest> {
+    let open = listed.as_ref().ok()?;
+    open.iter()
+        .find(|pr| pr.number == number)
+        .map(OpenPullRequest::view)
 }
 
 #[cfg(test)]

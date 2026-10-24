@@ -88,6 +88,11 @@ impl HeldUps {
         self.pending = Some(reason);
     }
 
+    /// The step in hand will not end, as its work item changed during a read
+    pub(in crate::runner) fn forget_pending(&mut self) {
+        self.pending = None;
+    }
+
     /// Records that `ticket`'s step began `begin` at `now`, and returns the
     /// log line when a turn has waited [`LOG_AFTER`] on a reason not yet told
     pub(in crate::runner) fn stepped(
