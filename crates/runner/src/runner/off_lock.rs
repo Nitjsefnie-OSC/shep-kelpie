@@ -4,8 +4,11 @@
 use std::sync::Mutex;
 
 use super::Runner;
+use super::merge::DropError;
 use super::trigger::lock;
+use super::turn::reads::Job;
 use crate::ports::SessionId;
+use crate::state::StateError;
 use crate::ticket::TicketId;
 use crate::work_item::{Phase, Turn, WorkItem};
 
@@ -31,6 +34,70 @@ impl ItemKey {
             phase: item.phase.clone(),
             pull_request: item.pull_request,
         }
+    }
+}
+
+/// The work item whose worktree a job is changing with the lock let go
+///
+/// A trigger that would change the same worktree waits for the job: `drop` is marked here and
+/// runs at the apply, `rework` and `adopt` are queued, and `attach` is told to wait.
+#[derive(Debug, Default)]
+pub(super) struct Busy {
+    issue: Option<TicketId>,
+    dropped: bool,
+}
+
+impl Busy {
+    /// Notes that `job`, which the lock is let go for, changes its work item's worktree
+    pub(super) fn begin(&mut self, job: &Job) {
+        if job.changes_worktree() {
+            *self = Self {
+                issue: Some(job.key().issue),
+                dropped: false,
+            };
+        }
+    }
+
+    /// Whether a job is changing a worktree
+    pub(super) fn any(&self) -> bool {
+        self.issue.is_some()
+    }
+
+    /// Whether a job is changing the worktree of `ticket`'s work item, or of the only one open
+    /// when none is named
+    pub(super) fn is_changing(&self, ticket: Option<TicketId>, open: &[TicketId]) -> bool {
+        match (self.issue, ticket) {
+            (Some(busy), Some(ticket)) => busy == ticket,
+            (Some(busy), None) => open == [busy],
+            (None, _) => false,
+        }
+    }
+
+    /// Marks that a `drop` came while the job ran
+    pub(super) fn drop_after(&mut self) {
+        self.dropped = true;
+    }
+
+    /// Ends the job's mark, and returns the work item a `drop` came for meanwhile
+    pub(super) fn end(&mut self) -> Option<TicketId> {
+        let busy = std::mem::take(self);
+        busy.issue.filter(|_| busy.dropped)
+    }
+}
+
+impl Runner {
+    // Drops `issue`'s work item as the `drop` sent during a job asked, now that the job is over.
+    // A refusal stands in `status` under the verb's key, as a queued verb's does.
+    pub(super) fn drop_after_job(&mut self, issue: TicketId) -> Result<(), StateError> {
+        self.held_up.forget_pending();
+        self.reads.clear();
+        let key = format!("drop {issue}");
+        match self.drop_work_item(Some(issue)) {
+            Ok(()) => self.notes.ends(&key),
+            Err(DropError::State(e)) => return Err(e),
+            Err(why) => (self.notes).standing(&key, format!("queued `{key}` refused: {why}")),
+        }
+        Ok(())
     }
 }
 

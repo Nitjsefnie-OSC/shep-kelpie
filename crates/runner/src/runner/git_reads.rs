@@ -1,7 +1,8 @@
 //! The git reads a step makes with the runner's lock let go
 //!
-//! A fetch or a diff in the repo needs no write access to the worktree. A step that finds the
-//! read it needs missing returns it as a job (`turn/reads.rs`) and is made again with the
+//! A fetch or a diff in the repo needs no write access to the worktree, and nor does the
+//! worktree's making, whose answer a turn's preparation takes in place of its own. A step that
+//! finds the read it needs missing returns it as a job (`turn/reads.rs`) and is made again with the
 //! answer, which stays for its later asks. A read that fails reaches the step as the inline call
 //! returned it. A rebase that holds the lock can contend for a ref lock with a fetch in flight,
 //! and the fetch then fails with git's own error, which takes the step's error path. Read in
@@ -14,7 +15,8 @@ use super::Runner;
 use super::report::Begin;
 use crate::fence;
 use crate::ticket::TicketId;
-use crate::worktree::{self, Base, Remote, WorktreeError};
+use crate::work_item::WorkItem;
+use crate::worktree::{self, Base, Remote, Start, Worktree, WorktreeError};
 
 /// The head of a branch and the files it changes that a fetch found
 type Changes = (String, Vec<String>);
@@ -26,6 +28,7 @@ pub(in crate::runner) struct Kept {
     // By the head the base was read for, which a step that finds another reads again
     bases: BTreeMap<String, Result<Base, WorktreeError>>,
     changes: Option<Result<Changes, WorktreeError>>,
+    prepared: Option<Result<Worktree, WorktreeError>>,
 }
 
 impl Kept {
@@ -37,7 +40,15 @@ impl Kept {
     /// Whether nothing is kept
     #[cfg(test)]
     pub(in crate::runner) fn is_empty(&self) -> bool {
-        self.head.is_none() && self.bases.is_empty() && self.changes.is_none()
+        self.head.is_none()
+            && self.bases.is_empty()
+            && self.changes.is_none()
+            && self.prepared.is_none()
+    }
+
+    /// Whether a job made the work item's worktree
+    pub(in crate::runner) fn is_prepared(&self) -> bool {
+        self.prepared.is_some()
     }
 
     /// Keeps what a job found for the step that asked
@@ -48,6 +59,7 @@ impl Kept {
                 self.bases.insert(head, base);
             }
             Found::Changes(changes) => self.changes = Some(changes),
+            Found::Prepared(prepared) => self.prepared = Some(prepared),
         }
     }
 }
@@ -57,6 +69,7 @@ pub(in crate::runner) enum Git {
     Head(Head),
     Base(Standing),
     Changes(Changed),
+    Prepare(Preparing),
 }
 
 /// What a [`Git`] read found, errors as the inline call returns them
@@ -67,9 +80,15 @@ pub(in crate::runner) enum Found {
         base: Result<Base, WorktreeError>,
     },
     Changes(Result<Changes, WorktreeError>),
+    Prepared(Result<Worktree, WorktreeError>),
 }
 
 impl Git {
+    /// Whether the read changes the work item's worktree, which a trigger on it then waits for
+    pub(in crate::runner) fn changes_worktree(&self) -> bool {
+        matches!(self, Self::Prepare(_))
+    }
+
     /// Reads, with the calls the step would have made inline
     pub(in crate::runner) fn run(self) -> Found {
         match self {
@@ -82,6 +101,7 @@ impl Git {
                 }
             }
             Self::Changes(ask) => Found::Changes(ask.run()),
+            Self::Prepare(ask) => Found::Prepared(ask.run()),
         }
     }
 }
@@ -169,6 +189,46 @@ impl Ask for Changed {
 
     fn job(self) -> Git {
         Git::Changes(self)
+    }
+}
+
+/// A work item's worktree and build folder, made ready from `start` after a fetch
+pub(in crate::runner) struct Preparing {
+    checkout: PathBuf,
+    worktree: PathBuf,
+    branch: String,
+    start: Start,
+    base: String,
+    remote: Remote,
+    build: PathBuf,
+}
+
+impl Ask for Preparing {
+    type Answer = Result<Worktree, WorktreeError>;
+
+    fn run(self) -> Self::Answer {
+        worktree::prepare(
+            &self.checkout,
+            &self.worktree,
+            &self.branch,
+            self.start,
+            &self.base,
+            &self.remote,
+            &self.build,
+        )
+    }
+
+    fn job(self) -> Git {
+        Git::Prepare(self)
+    }
+}
+
+/// Where a worktree made for `item` starts: a rework or adopted branch is the one `origin` holds
+pub(in crate::runner) fn start_of(item: &WorkItem) -> Start {
+    if item.rework || item.adopted {
+        Start::Pushed
+    } else {
+        Start::Main
     }
 }
 
@@ -269,6 +329,43 @@ impl Runner {
             Some(job) => Begin::Reads(job),
             None => Begin::Idle,
         }))
+    }
+
+    /// The job that makes the focused work item's worktree, or none when the step's earlier ask
+    /// kept it, no pass runs to make it, or the work item is gone
+    pub(in crate::runner) fn preparing(&self) -> Option<Begin> {
+        let item = self
+            .current()
+            .filter(|_| self.reads.git.prepared.is_none())
+            // A turn that fails before it asks for the worktree makes none.
+            .filter(|item| {
+                !matches!(self.reads.started(item.issue).token(), Some(Err(_)))
+                    && self.worker_agent(item).is_ok()
+            })?;
+        let job = self.git_job(self.prepare_ask(item, start_of(item)).job())?;
+        Some(Begin::Reads(job))
+    }
+
+    /// The worktree of `item` made ready: what the step's job found, else made in place
+    pub(in crate::runner) fn worktree_made(
+        &self,
+        item: &WorkItem,
+        start: Start,
+    ) -> Result<Worktree, WorktreeError> {
+        let kept = self.reads.git.prepared.clone();
+        kept.unwrap_or_else(|| self.prepare_ask(item, start).run())
+    }
+
+    fn prepare_ask(&self, item: &WorkItem, start: Start) -> Preparing {
+        Preparing {
+            checkout: self.settings.git.checkout.clone(),
+            worktree: item.worktree.clone(),
+            branch: item.branch.clone(),
+            start,
+            base: self.item_base(item).to_owned(),
+            remote: item.remote.clone(),
+            build: item.build.clone(),
+        }
     }
 
     /// The check of whether `ticket`'s work item holds work, or none when it is gone

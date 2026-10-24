@@ -164,7 +164,7 @@ impl Runner {
         }
         let mine = attached.as_ref().is_some_and(|a| a.by == me);
         let seated = item.seat == Seat::Held;
-        let flying = self.flights.flying(ticket);
+        let flying = self.flights.flying(ticket) || self.busy.is_changing(Some(ticket), &[]);
         if let Some(refused) = self.refusal(item, ticket, flying) {
             if mine {
                 self.update(|item| item.attached = None)

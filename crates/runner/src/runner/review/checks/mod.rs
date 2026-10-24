@@ -16,8 +16,9 @@ use std::io;
 use std::path::{Component, Path, PathBuf};
 
 use super::super::Runner;
+use super::super::git_reads::start_of;
 use super::super::report::Begin;
-use super::super::turn::{start_of, ticket_name};
+use super::super::turn::ticket_name;
 use super::attached::kept_folder;
 use super::findings::{Sent, still_failing_prompt};
 use crate::ports::{CEILING, Finding, TestOutcome, TestRun};

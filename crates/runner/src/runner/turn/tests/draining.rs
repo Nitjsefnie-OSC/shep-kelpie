@@ -102,3 +102,47 @@ fn a_drain_that_lands_while_mains_workflows_are_read_starts_no_call() {
         "the turn does not say it waits on the drain"
     );
 }
+
+// A worker's worktree is made with the runner's lock let go, and a `drain` answered in that time
+// sets its flag after the step checked it. The step is made again over the worktree it found and
+// checks the drain once more, so the turn stays due rather than starting past the drain.
+#[test]
+fn a_drain_that_lands_while_a_worktree_is_prepared_starts_no_call() {
+    let rig = Rig::new("koji");
+    let runner = rig.open().unwrap();
+    rig.ask(&runner, "add", Some("7"));
+    let runner = Arc::new(runner);
+    let postings = runner.lock().unwrap().postings();
+    let read = rig.hold_next_git_fetch();
+
+    let pass = std::thread::scope(|scope| {
+        let pass = scope.spawn(|| advance(&runner));
+        assert!(
+            read.waiting(CALL_PATIENCE),
+            "the turn never reached the fetch that prepares its worktree"
+        );
+        let asking = {
+            let (runner, postings) = (Arc::clone(&runner), Arc::clone(&postings));
+            scope.spawn(move || answer(&runner, &postings, "drain", Some("pause")))
+        };
+        let reply: serde_json::Value =
+            serde_json::from_str(&asking.join().unwrap()).expect("a JSON reply");
+        assert!(
+            postings.draining(),
+            "the drain did not hold new calls back: {reply}"
+        );
+        drop(read);
+        pass.join().expect("the pass thread")
+    });
+    assert!(
+        matches!(pass, Ok(Pass::Idle)),
+        "the pass started a call past the drain: {pass:?}"
+    );
+
+    assert_eq!(rig.claude.all_calls(), [], "the worker started anyway");
+    assert_eq!(
+        rig.ask(&runner, "status", None)["work_item"]["held_up"]["because"],
+        "the runner is draining, so no turn starts",
+        "the turn does not say it waits on the drain"
+    );
+}

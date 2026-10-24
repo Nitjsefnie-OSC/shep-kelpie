@@ -406,8 +406,12 @@ pub fn answer(
         Request::Timings(last) => Some(*last),
         _ => None,
     };
-    let queued = queued_verb(&request).map(|verb| verb.to_string());
+    let deferred = defer(&mut runner, posted, &request);
+    let queued = queued_verb(&request)
+        .filter(|_| !deferred)
+        .map(|verb| verb.to_string());
     let changed = match request {
+        _ if deferred => Ok(()),
         Request::Attach(ticket, pid, session) => {
             return match runner.attach(ticket, pid, session) {
                 Ok(attaching) => {
@@ -532,6 +536,26 @@ fn from_posted(posted: &Posted, request: &Request) -> Option<String> {
         return None;
     }
     status_of(posted, posted.body()?)
+}
+
+// Whether `request` is left for the end of the job that is changing the worktree it would
+// change: a `drop` is marked, a `rework` or `adopt` is queued, and an `attach` is told to wait
+// where it is answered.
+fn defer(runner: &mut Runner, posted: &Posted, request: &Request) -> bool {
+    match request {
+        Request::Drop(ticket)
+            if runner
+                .busy
+                .is_changing(*ticket, &runner.state.open_tickets()) =>
+        {
+            runner.busy.drop_after();
+            true
+        }
+        Request::Rework(_) | Request::Adopt(_) if runner.busy.any() => {
+            queued_verb(request).is_some_and(|verb| posted.ask_queued(verb))
+        }
+        _ => false,
+    }
 }
 
 // The verb `request` queues for the pass, when it is one that reads the forge.

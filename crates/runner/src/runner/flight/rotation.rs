@@ -14,7 +14,8 @@ use crate::runner::off_lock::with_item;
 use crate::runner::report::{Begin, StepReport};
 use crate::runner::trigger::lock;
 use crate::runner::turn::Slot;
-use crate::runner::turn::reads::Job;
+use crate::runner::turn::reads::{Done, Job};
+use crate::runner::worktree_jobs::Changed;
 use crate::state::StateError;
 use crate::ticket::TicketId;
 
@@ -99,7 +100,7 @@ pub(super) fn step(
     step: Step,
     now: Timestamp,
 ) -> Result<Stepped, StateError> {
-    let mut next = scope(&mut lock(runner), step, now, false)?;
+    let mut next = scope(&mut lock(runner), step, now, Resume::Fresh)?;
     loop {
         let job = match next {
             Next::Done(done) => return Ok(done),
@@ -108,13 +109,34 @@ pub(super) fn step(
         let key = job.key().clone();
         let done = job.run();
         let again = with_item(runner, &key, |runner| {
-            runner.keep_job_read(done);
-            scope(runner, step, now, true)
+            let dropped = runner.busy.end();
+            // A removal has done what a drop asks, and a drop the job's work item has outlived
+            // is refused as any other is.
+            if let Some(dropped) =
+                dropped.filter(|_| !matches!(done, Done::Changed(Changed::Removed(_))))
+            {
+                // A rebase has pushed or merged already, and the drop may be refused: it is saved
+                // first, and the step's end is the drop's to replace.
+                if let Done::Changed(rebased @ Changed::Rebased(_)) = done {
+                    runner.changed(rebased)?;
+                }
+                return runner
+                    .drop_after_job(dropped)
+                    .map(|()| Next::Done(Stepped::Idle));
+            }
+            let resume = match runner.apply_job(done)? {
+                Some(begin) => Resume::Applied(Box::new(begin)),
+                None => Resume::Read,
+            };
+            scope(runner, step, now, resume)
         });
         next = match again {
             Some(next) => next?,
             None => {
                 let mut held = lock(runner);
+                if let Some(dropped) = held.busy.end() {
+                    held.drop_after_job(dropped)?;
+                }
                 held.held_up.forget_pending();
                 // The next slot's step must not take this one's answers
                 held.reads.clear();
@@ -124,15 +146,34 @@ pub(super) fn step(
     }
 }
 
-// The step and the call it starts, under the lock. A step made again after a read is already
-// known to be due.
-fn scope(runner: &mut Runner, step: Step, now: Timestamp, read: bool) -> Result<Next, StateError> {
-    let begin = match step {
-        Step::Slot(slot) if !read && !runner.looks.due(slot, now) => {
+// How a scope's step begins
+enum Resume {
+    // The step is made, if it is due
+    Fresh,
+    // The step is made again over the reads it asked for, and is already known to be due
+    Read,
+    // A change to the worktree finished the step, which came to this
+    Applied(Box<Begin>),
+}
+
+// The step and the call it starts, under the lock
+fn scope(
+    runner: &mut Runner,
+    step: Step,
+    now: Timestamp,
+    resume: Resume,
+) -> Result<Next, StateError> {
+    let begin = match (step, resume) {
+        (Step::Slot(slot), Resume::Applied(begin)) => {
+            runner.slot_finished(slot, &begin, now);
+            *begin
+        }
+        (_, Resume::Applied(begin)) => *begin,
+        (Step::Slot(slot), Resume::Fresh) if !runner.looks.due(slot, now) => {
             return Ok(Next::Done(Stepped::Idle));
         }
-        Step::Slot(slot) => runner.step_slot(slot, now)?,
-        Step::StartOver(ticket) => runner.step_over(ticket)?,
+        (Step::Slot(slot), _) => runner.step_slot(slot, now)?,
+        (Step::StartOver(ticket), _) => runner.step_over(ticket)?,
     };
     // What the step read is kept for its steps made again, and no longer
     if !matches!(begin, Begin::Reads(_)) {
@@ -143,7 +184,10 @@ fn scope(runner: &mut Runner, step: Step, now: Timestamp, read: bool) -> Result<
         Step::StartOver(_) => (None, true),
     };
     let stepped = match begin {
-        Begin::Reads(job) => return Ok(Next::Reads(job)),
+        Begin::Reads(job) => {
+            runner.busy.begin(&job);
+            return Ok(Next::Reads(job));
+        }
         Begin::Idle if slot.is_some() => Stepped::Idle,
         Begin::Report(report) if slot.is_some() && report.waits() => Stepped::Waits(report),
         begin => {

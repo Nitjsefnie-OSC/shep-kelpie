@@ -17,6 +17,7 @@ use super::browser;
 use super::claim::main_fetch_key;
 use super::claude_files::Unchecked;
 use super::contributions::Sent;
+use super::git_reads::start_of;
 use super::instructions;
 use super::pace::Pace;
 use super::pm::WORKER_COMPACT_PAST;
@@ -205,7 +206,7 @@ impl Runner {
     }
 
     // Remembers why `ticket`'s step began `begin`, and logs a turn held up long
-    fn note_held_up(&mut self, ticket: TicketId, begin: &Begin) {
+    pub(in crate::runner) fn note_held_up(&mut self, ticket: TicketId, begin: &Begin) {
         let now = self.ports.clock.now();
         if let Some(line) = self.held_up.stepped(ticket, begin, now) {
             self.notes.push(line);
@@ -337,9 +338,9 @@ impl Runner {
         if due && let Some(why) = self.builds_hold() {
             return Ok(self.idle(why));
         }
-        // A step made again over the start's reads was paced clear by the step before it, and
-        // asking again would read the account's usage twice for one turn.
-        if due && !started {
+        // A step made again over the start's reads or the worktree was paced clear by the step
+        // before it, and asking again would read the account's usage twice for one turn.
+        if due && !started && !self.reads.git.is_prepared() {
             let pace = self.pace_worker(Scope::Turn)?;
             if let Pace::StillHeld(hold) | Pace::Held(hold) = &pace {
                 self.held_up.because(Reason::Paced(hold.reason.clone()));
@@ -348,7 +349,9 @@ impl Runner {
                 return Ok(held);
             }
         }
-        let item = self.current().expect("checked above");
+        let Some(item) = self.current() else {
+            return Ok(Begin::Idle);
+        };
         let id = item.session.clone();
         let now = self.ports.clock.now();
         // A turn already running when the runner starts keeps the start it
@@ -424,6 +427,10 @@ impl Runner {
         // made again over them. Asked for only here, past every check that holds the turn back.
         if let Some(job) = self.start_job(item, takes_issue(item, prompt.as_deref())) {
             return Ok(Begin::Reads(job));
+        }
+        // Its worktree is made the same way, once the token is in hand.
+        if let Some(reads) = self.preparing() {
+            return Ok(reads);
         }
         self.token_wait.begins();
         let prepared = self.prepare(item, session, prompt);
@@ -641,16 +648,7 @@ impl Runner {
         start: Start,
         token: Option<&InstallationToken>,
     ) -> Result<Reach, String> {
-        let dirs = worktree::prepare(
-            &self.settings.git.checkout,
-            &item.worktree,
-            &item.branch,
-            start,
-            self.item_base(item),
-            &item.remote,
-            &item.build,
-        )
-        .map_err(|e| e.to_string())?;
+        let dirs = self.worktree_made(item, start).map_err(|e| e.to_string())?;
         // The worker merges `origin/<base>` and runs no fetch of its own, so a
         // fetch that failed leaves it merging a base kelpie last fetched.
         let key = main_fetch_key(item.issue);
@@ -808,16 +806,6 @@ impl Runner {
 // neither a rework nor adopted, which has no prompt of its own
 fn takes_issue(item: &WorkItem, prompt: Option<&str>) -> bool {
     prompt.is_none() && !item.rework && !item.adopted
-}
-
-// Where a worktree made for `item` starts: a rework or adopted branch is the
-// one `origin` holds.
-pub(super) fn start_of(item: &WorkItem) -> Start {
-    if item.rework || item.adopted {
-        Start::Pushed
-    } else {
-        Start::Main
-    }
 }
 
 pub(super) fn write(folder: &Path, file: &Path, text: &str) -> Result<(), String> {
