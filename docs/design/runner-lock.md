@@ -5,7 +5,8 @@ One `Mutex<Runner>` per project. #1201.
 ## What it covers
 
 - Everything the runner knows: the state file, the work items, the forge and model ports. A pass takes it (`runner/trigger/lock`) and holds it through the calls it makes, forge reads included, which wait their turn behind the login's pace.
-- `status`, `drain` and `undrain` do not wait for it: `answer` tries the lock and, while a pass holds it, answers from the copy the loop last posted. Every other trigger waits. See `workers.md`.
+- `status`, `drain`, `undrain`, `timings` and `board` do not wait for it: `answer` tries the lock and, while a pass holds it, answers from the copy the loop last posted. The copy holds the status, the drain state, the board listing and the finished history. `board move` and `board top` write, so they wait.
+- `add`, `rework`, `adopt`, `triage` and `rule` do not wait either. While a pass holds the lock, `answer` queues the verb on `Posted` and replies with the posted status, so a refusal is not in the reply. `rule` is checked against the posted rulings first: an id none waits on is refused in the reply. Every other trigger waits. See `workers.md`.
 - Which calls run under the lock is unchanged by measuring it.
 
 ## What the metric shows
@@ -18,3 +19,13 @@ One `Mutex<Runner>` per project. #1201.
 ## Off the lock
 
 `runner/off_lock.rs`: `ItemKey` is a work item's `issue`, `session`, `turn`, `phase` and `pull_request` as they stood when the work began. `with_item` takes the lock, returns `None` if the item is gone or any of them changed, and otherwise sets `focus` to it again and applies the answer. Nothing calls it yet.
+
+## Queued verbs
+
+`runner/queued.rs`. `one_pass` takes the queue right after `take_posted`, so a verb waits for at most the pass that was running.
+
+- A verb splits into a guard check, a read and an apply. `add`, `rework`, `adopt` and `triage` take the lock for the check, ask the forge with it let go (the issue, the pull request or the open issues), then take it again, check the guards once more and apply. Refusals read the same as the verb's own (`add_allowed` and `add_found`, `rework_allowed` and `rework_found`, `adopt_wanted` and `adopt_found`, `triage_allowed` and `triage_found`), with one more: `add` refuses an issue that is closed.
+- A refusal goes to `Notes::standing` under the verb's key (`add 7`): it is logged once, lists in `status` under `standing`, and ends when that verb next goes through.
+- `rule` applies under the lock: its forge reads sit inside `Runner::rule`, so they are not off the lock yet. A trigger that arrives meanwhile reads the posted copy.
+- `rework` and `adopt` read the pull request off the lock. What `start_rework` and `adoptable` read after it (the viewer, the issue, the review bots, the branch's head) is still under the lock.
+- A queued verb wakes the loop (`Posted::needs_wake`), as `drain` does.

@@ -56,18 +56,25 @@ pub(super) fn reply(sheep: &str, action: &str, params: Option<&str>, body: &str)
         "board" => board(sheep, &answer["board"]),
         "gate" => vec![format!("{sheep}: sent {} to the review gate", of())],
         "drop" => vec![format!("{sheep}: dropped {}", of())],
+        // The runner answers these with its status, which says nothing of the
+        // request: it queued it, and a refusal shows later in its log and in
+        // `status`'s `standing`.
         "add" => vec![format!(
-            "{sheep}: opened a work item for {}",
+            "{sheep}: queued a work item for {}",
             params.map_or_else(|| "?".to_owned(), ticket_name)
         )],
-        // The runner answers these with its status, which says nothing of the
-        // request: it only queued the issue or took the pull request up.
         "triage" => vec![format!(
             "{sheep}: queued {} for triage",
             params.map_or_else(|| "?".to_owned(), ticket_name)
         )],
-        "rework" => vec![format!("{sheep}: reworking PR #{}", params.unwrap_or("?"))],
-        "adopt" => vec![format!("{sheep}: adopting PR #{}", params.unwrap_or("?"))],
+        "rework" => vec![format!(
+            "{sheep}: queued a rework of PR #{}",
+            params.unwrap_or("?")
+        )],
+        "adopt" => vec![format!(
+            "{sheep}: queued adoption of PR #{}",
+            params.unwrap_or("?")
+        )],
         _ => vec![body.to_owned()],
     }
 }
