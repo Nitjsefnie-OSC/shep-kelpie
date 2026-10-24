@@ -704,6 +704,8 @@ fn one_pass(runner: &Mutex<Runner>) -> Result<Pass, StateError> {
     // A `drain` or `undrain` that landed while a pass held the lock set its
     // flag at once; what it asked the runner itself is taken up here.
     lock(runner).take_posted();
+    // The verbs that landed then are applied, reading the forge with the lock let go.
+    super::queued::take_up(runner);
     lock(runner).beat();
     lock(runner).send_metrics();
     lock(runner).read_rate_limit();

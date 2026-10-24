@@ -555,14 +555,27 @@ impl Runner {
     // Why it is refused: `triage.pick` is `off`, the issue is not open or
     // carries a triage label, or its call is in flight.
     pub(super) fn triage_ask(&mut self, issue: u64) -> Result<(), String> {
+        self.triage_allowed(issue)?;
+        let open = (self.ports.tickets.open_issues(&self.remote))
+            .map_err(|e| format!("cannot read the open issues: {e}"))?;
+        self.triage_found(issue, &open)
+    }
+
+    // Whether `issue` may be asked for now, before the open issues are read.
+    pub(super) fn triage_allowed(&self, issue: u64) -> Result<(), String> {
         if self.state.triage.is_none() {
             return Err("`triage.pick` is `off`, so no issue is triaged".to_owned());
         }
         if self.flights.triaging() == Some(issue) {
             return Err(format!("the triage call on #{issue} is in flight"));
         }
-        let open = (self.ports.tickets.open_issues(&self.remote))
-            .map_err(|e| format!("cannot read the open issues: {e}"))?;
+        Ok(())
+    }
+
+    // Asks for `issue` from the open issues as read. What was checked before
+    // the read is checked again, since the runner may have moved since.
+    pub(super) fn triage_found(&mut self, issue: u64, open: &[OpenIssue]) -> Result<(), String> {
+        self.triage_allowed(issue)?;
         let Some(found) = open.iter().find(|i| i.number == issue) else {
             return Err(format!("#{issue} is not an open issue"));
         };

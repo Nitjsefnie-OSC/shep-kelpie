@@ -10,7 +10,7 @@ use serde::Serialize;
 use super::Runner;
 use super::trigger::{issue_list, lock};
 use crate::ports::{ForgeError, RoundStage, Timestamp};
-use crate::state::{ProjectState, StateError};
+use crate::state::{Finished, ProjectState, StateError};
 use crate::ticket::TicketId;
 use crate::work_item::{CallKind, Seconds, TimingPhase, Timings, WorkItem};
 
@@ -44,6 +44,26 @@ pub struct Totals {
     pub table: String,
 }
 
+/// The totals of `project` over the last `last` of its `history`
+pub(super) fn totals_of(project: &str, history: &[Finished], last: usize) -> Totals {
+    let taken = &history[history.len().saturating_sub(last)..];
+    let mut seconds = Seconds::default();
+    let mut wall = 0u64;
+    for record in taken {
+        wall = wall.saturating_add(record.wall);
+        seconds.add_all(&record.seconds);
+    }
+    let issues: Vec<TicketId> = taken.iter().map(|r| r.issue).collect();
+    Totals {
+        project: project.to_owned(),
+        items: taken.len(),
+        table: table(&issues, wall, &seconds),
+        issues,
+        wall,
+        seconds,
+    }
+}
+
 impl Runner {
     // Charges each work item in `next` that is also open now, to the phase
     // the open one is in. A work item new to `next` has nothing to charge.
@@ -64,23 +84,7 @@ impl Runner {
 
     /// The totals over the last `last` finished work items, or all of them
     pub fn totals(&self, last: usize) -> Totals {
-        let history = &self.state.history;
-        let taken = &history[history.len().saturating_sub(last)..];
-        let mut seconds = Seconds::default();
-        let mut wall = 0u64;
-        for record in taken {
-            wall = wall.saturating_add(record.wall);
-            seconds.add_all(&record.seconds);
-        }
-        let issues: Vec<TicketId> = taken.iter().map(|r| r.issue).collect();
-        Totals {
-            project: self.project.as_str().to_owned(),
-            items: taken.len(),
-            table: table(&issues, wall, &seconds),
-            issues,
-            wall,
-            seconds,
-        }
+        totals_of(self.project.as_str(), &self.state.history, last)
     }
 
     /// Records that the local round in flight queues for the GPU, or no longer does

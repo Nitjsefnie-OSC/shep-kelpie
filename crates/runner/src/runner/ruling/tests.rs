@@ -276,6 +276,7 @@ fn a_ruling_answered_is_refused_when_its_number_is_named_again() {
     ));
     drop(runner);
     let runner = rig.open().unwrap();
+    rig.forge.reopen_issue(7);
     rig.ask(&runner, "add", Some("7"));
     rig.forge.open_pull_request(72, "kelpie/7", &[7]);
     rig.claude.script([
