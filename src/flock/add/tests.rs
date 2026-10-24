@@ -129,7 +129,7 @@ async fn add_in_a_scratch_repo_writes_the_table_makes_the_labels_and_adds_the_ru
     let reviewers = settings.agents.reviewers.clone().unwrap();
     assert_eq!(
         reviewers,
-        [AgentName::try_from("defect-hunter".to_owned()).unwrap()]
+        [AgentName::try_from("defect-hunter-lite".to_owned()).unwrap()]
     );
     let listed: Vec<&str> = (settings.agents.implementers.iter())
         .map(|n| n.as_str())
@@ -181,18 +181,32 @@ async fn add_in_a_scratch_repo_writes_the_table_makes_the_labels_and_adds_the_ru
 }
 
 #[tokio::test]
-async fn where_the_qwen_review_script_is_installed_add_writes_qwen_and_lists_it_first() {
+async fn where_the_qwen_review_script_is_installed_add_still_lists_defect_hunter_lite_alone() {
     let scene = Scene::new().await;
     let script = scene.home.join(".claude/scripts/qwen-review.sh");
     std::fs::create_dir_all(script.parent().unwrap()).unwrap();
     crate::test::write_script(&script, "#!/bin/sh\nexit 0\n");
     scene.add().await.unwrap();
 
-    let listed: Vec<String> = (scene.settings().agents.reviewers.unwrap().iter())
-        .map(|n| n.as_str().to_owned())
-        .collect();
-    assert_eq!(listed, ["qwen", "defect-hunter"]);
+    let listed = scene.settings().agents.reviewers.unwrap();
+    assert_eq!(listed, [AgentName::kelpies("defect-hunter-lite")]);
     assert_eq!(scene.written("qwen"), stub("qwen"));
+}
+
+#[tokio::test]
+async fn where_kelpie_holds_a_paddock_gateway_add_lists_iq3_xxs_review_first() {
+    let scene = Scene::new().await;
+    scene.shepherd.holds_section(
+        "[gateways.paddock]\nurl = \"http://gpu-box:8700\"\nkey_env = \"PADDOCK_KEY\"\n",
+    );
+    scene.add().await.unwrap();
+
+    let listed = scene.settings().agents.reviewers.unwrap();
+    let names = ["iq3-xxs-review", "defect-hunter-lite"].map(AgentName::kelpies);
+    assert_eq!(listed, names);
+    for agent in ["iq3-xxs-review", "defect-hunter-lite"] {
+        assert_eq!(scene.written(agent), stub(agent));
+    }
 }
 
 // The runner works its home out from the `SHEP_HOME` its entry carries.
@@ -262,7 +276,7 @@ async fn a_public_repo_with_no_ci_gets_no_ci_and_still_lists_no_review_bot() {
     let settings = scene.settings();
     assert!(!settings.ci.block);
     let reviewers = settings.agents.reviewers.unwrap();
-    assert_eq!(reviewers, [AgentName::kelpies("defect-hunter")]);
+    assert_eq!(reviewers, [AgentName::kelpies("defect-hunter-lite")]);
 }
 
 #[tokio::test]
@@ -277,7 +291,7 @@ async fn add_writes_both_files_and_lists_neither() {
         );
     }
     let reviewers = scene.settings().agents.reviewers.unwrap();
-    assert_eq!(reviewers, [AgentName::kelpies("defect-hunter")]);
+    assert_eq!(reviewers, [AgentName::kelpies("defect-hunter-lite")]);
 }
 
 #[tokio::test]

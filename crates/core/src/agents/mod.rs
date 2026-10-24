@@ -44,8 +44,15 @@ pub const BASELINES: &str = ".defaults";
 /// The implementer a project lists when it names none
 pub const DEFAULT_IMPLEMENTER: &str = "sonnet-high";
 
-/// The reviewer every project lists when it names none
+/// The reviewer that reads a pull request twice, Opus 5.5 at high effort
 pub const DEFECT_HUNTER: &str = "defect-hunter";
+
+/// The reviewer every project lists last when it names none
+pub const DEFECT_HUNTER_LITE: &str = "defect-hunter-lite";
+
+/// The reviewer every project lists first when it names none, where paddock is
+/// set up
+pub const IQ3_XXS_REVIEW: &str = "iq3-xxs-review";
 
 /// The reviewer that runs the maintainer's qwen-review script
 pub const QWEN: &str = "qwen";
@@ -87,7 +94,7 @@ enum Written {
 // Kelpie's own agents, by name: what `add` writes a stub for, what a file
 // reaches with `extends: kelpie:<name>`, and what a missing file falls back
 // to. A project lists none of the review bots unless told to.
-const DEFAULTS: [(&str, &str, Written); 16] = [
+const DEFAULTS: [(&str, &str, Written); 18] = [
     (
         DEFAULT_IMPLEMENTER,
         include_str!("../../../../agents/sonnet-high.md"),
@@ -101,6 +108,16 @@ const DEFAULTS: [(&str, &str, Written); 16] = [
     (
         DEFECT_HUNTER,
         include_str!("../../../../agents/defect-hunter.md"),
+        Written::Always,
+    ),
+    (
+        DEFECT_HUNTER_LITE,
+        include_str!("../../../../agents/defect-hunter-lite.md"),
+        Written::Always,
+    ),
+    (
+        IQ3_XXS_REVIEW,
+        include_str!("../../../../agents/iq3-xxs-review.md"),
         Written::Always,
     ),
     (

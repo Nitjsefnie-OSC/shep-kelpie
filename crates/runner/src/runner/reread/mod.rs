@@ -83,10 +83,13 @@ impl Runner {
         let gpu_metrics_url = kelpie.gpu_metrics_url.clone();
         let mut book = Agents::load(&self.paths.agents)?;
         let mut agents = settings.role_agents(&book)?;
-        let mut lineup = settings.lineup(&book, &self.home)?;
+        let gateways = kelpie.gateways();
+        let mut lineup = settings.lineup(&book, &gateways, &self.home)?;
+        // The gateways the agents in use were listed under.
+        let mut in_use = &gateways;
         // The gateways must hold as a start checks them.
-        check_gateways(&kelpie.gateways(), &book, &agents, &lineup)?;
-        kelpie.gateways().check_triage_spam(&settings.triage.spam)?;
+        check_gateways(&gateways, &book, &agents, &lineup)?;
+        gateways.check_triage_spam(&settings.triage.spam)?;
         // Agents the adapters cannot route yet wait with the gateways they name.
         if check_gateways(&self.gateways, &book, &agents, &lineup).is_err() {
             waiting.push("agents");
@@ -96,7 +99,8 @@ impl Runner {
             book.clone_from(&self.book);
             // The agents the runner has, under the new settings as a start reads them.
             agents = settings.role_agents(&book)?;
-            lineup = settings.lineup(&book, &self.home)?;
+            in_use = &self.gateways;
+            lineup = settings.lineup(&book, in_use, &self.home)?;
         }
         // A start refuses a hook that does not resolve, and a change to either table is checked as one.
         if settings.hooks != self.settings.hooks
@@ -117,13 +121,13 @@ impl Runner {
                 &settings,
                 self.ports.voice.as_ref(),
                 &self.remote,
-                &book,
+                (&book, in_use),
                 &self.home,
             )?
         } else if settings.contributions.is_off() {
             Vec::new()
         } else {
-            settings.contribution_lineup(&book, &self.home)?
+            settings.contribution_lineup(&book, in_use, &self.home)?
         };
         if settings.triage != self.settings.triage {
             open_checks::triage(&settings, self.ports.voice.as_ref(), &self.remote, &book)?;

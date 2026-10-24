@@ -90,8 +90,11 @@ url = "https://ntfy.sh/your-private-topic"
 # Agents are not settings: each is a file of its own, `agents/<name>.md` in
 # kelpie's home (`$SHEP_HOME/kelpie/agents/`), YAML frontmatter then a
 # Markdown body. Kelpie ships `sonnet-high` and `opus-high`, which build,
-# and `defect-hunter`, which reviews, and `shep kelpie add` writes them out
-# and never overwrites one. It writes `qwen`, a reviewer that runs the
+# and `defect-hunter-lite`, `defect-hunter` and `iq3-xxs-review`, which
+# review, and `shep kelpie add` writes them out and never overwrites one.
+# `iq3-xxs-review` runs on a gateway named `paddock`, which a project that
+# lists no reviewers gets first only where this file holds that gateway. It
+# writes `qwen`, a reviewer that runs the
 # maintainer's qwen-review script, only where that script is installed. A
 # project lists the ones that build its work items in `agents.implementers`
 # and the ones that review its pull requests in `agents.reviewers`. The

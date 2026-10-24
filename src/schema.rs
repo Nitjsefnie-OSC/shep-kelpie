@@ -152,7 +152,7 @@ mod tests {
                 "# [[app.dogs.kelpie.hooks]]\n# point = \"publish\"\n# command =",
                 "[[app.dogs.kelpie.hooks]]\npoint = \"publish\"\ncommand =",
             )
-            .replace("# reviewers = [\"qwen\", \"defect-hunter\"]", "reviewers = [\"qwen\"]")
+            .replace("# reviewers = [\"iq3-xxs-review\", \"defect-hunter-lite\"]", "reviewers = [\"qwen\"]")
             .replace(
                 "# test_command = \"cargo test --test {name}\"",
                 "test_command = \"cargo test --test {name}\"",
@@ -178,7 +178,7 @@ mod tests {
                 "[app.dogs.kelpie.rulings]\ndecide = \"panel\"\npm_alone =",
             )
             .replace(
-                "# [app.dogs.kelpie.contributions]\n# pick = \"off\"\n# reviewers = [\"defect-hunter\"]\n# security_reviewer = \"security-reviewer\"\n# quiet_days = 7\n# nudge_days = 3\n",
+                "# [app.dogs.kelpie.contributions]\n# pick = \"off\"\n# reviewers = [\"defect-hunter-lite\"]\n# security_reviewer = \"security-reviewer\"\n# quiet_days = 7\n# nudge_days = 3\n",
                 "[app.dogs.kelpie.contributions]\npick = \"off\"\nreviewers = [\"defect-hunter\"]\nsecurity_reviewer = \"security-reviewer\"\nquiet_days = 7\nnudge_days = 3\n",
             )
             .replace(

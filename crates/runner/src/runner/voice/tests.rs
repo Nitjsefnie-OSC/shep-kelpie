@@ -253,7 +253,7 @@ fn a_merge_card_does_not_say_rounds_read_a_head_that_no_round_read() {
 #[test]
 fn a_round_with_a_second_look_costs_both_looks() {
     let rig = Rig::new("shep");
-    rig.default_review();
+    rig.reviewers(&["qwen", "defect-hunter"]);
     rig.with_app();
     rig.maintainer("octocat");
     let runner = rig.open().unwrap();

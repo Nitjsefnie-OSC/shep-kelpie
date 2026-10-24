@@ -205,12 +205,6 @@ impl Rig {
         });
     }
 
-    /// Makes the project a new one, which lists no reviewers: the qwen round,
-    /// since the rig has the script, and then `defect-hunter`
-    pub fn default_review(&self) {
-        self.edit_settings(|s| s.replace(RIG_REVIEWERS, ""));
-    }
-
     /// Lists `names` as the project's reviewers, read when a runner next opens
     pub fn reviewers(&self, names: &[&str]) {
         let listed = format!("reviewers = {names:?}\n");
