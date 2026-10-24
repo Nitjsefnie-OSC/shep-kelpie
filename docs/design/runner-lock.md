@@ -25,7 +25,7 @@ One `Mutex<Runner>` per project. #1201.
 `runner/queued.rs`. `one_pass` takes the queue right after `take_posted`, so a verb waits for at most the pass that was running.
 
 - A verb splits into a guard check, a read and an apply. `add`, `rework`, `adopt` and `triage` take the lock for the check, ask the forge with it let go (the issue, the pull request or the open issues), then take it again, check the guards once more and apply. Refusals read the same as the verb's own (`add_allowed` and `add_found`, `rework_allowed` and `rework_found`, `adopt_wanted` and `adopt_found`, `triage_allowed` and `triage_found`), with one more: `add` refuses an issue that is closed.
-- A refusal goes to `Notes::standing` under the verb's key (`add 7`): it is logged once, lists in `status` under `standing`, and ends when that verb next goes through, queued or applied at once with the lock free (`trigger::answer` ends the key after a synchronous success).
+- A refusal goes to `Notes::standing` under the verb's key (`add 7`): it is logged once, lists in `status` under `standing`, and ends when that verb next goes through, queued or applied at once with the lock free (`trigger::answer` ends the key after a synchronous success). A queued `add` whose ticket already has an open work item is not a refusal: it did what it asked.
 - `rule` applies under the lock: its forge reads sit inside `Runner::rule`, so they are not off the lock yet. A trigger that arrives meanwhile reads the posted copy.
 - `rework` and `adopt` read the pull request off the lock. What `start_rework` and `adoptable` read after it (the viewer, the issue, the review bots, the branch's head) is still under the lock.
 - A queued verb wakes the loop (`Posted::needs_wake`), as `drain` does.

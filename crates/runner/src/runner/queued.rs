@@ -39,15 +39,21 @@ pub(super) fn take_up(runner: &Mutex<Runner>) {
 }
 
 fn add(runner: &Mutex<Runner>, ticket: TicketId) -> Result<(), String> {
+    match read_and_add(runner, ticket) {
+        // A work item for the ticket is open, whoever opened it: the add is done.
+        Err(AddError::InFlight(_)) if lock(runner).state.item(ticket).is_some() => Ok(()),
+        applied => applied.map_err(|e| e.to_string()),
+    }
+}
+
+fn read_and_add(runner: &Mutex<Runner>, ticket: TicketId) -> Result<(), AddError> {
     let (tickets, remote) = {
         let held = lock(runner);
-        held.add_allowed(ticket).map_err(|e| e.to_string())?;
+        held.add_allowed(ticket)?;
         (held.ports.tickets.clone(), held.remote.clone())
     };
-    let found = (tickets.issue(&remote, ticket)).map_err(|e| AddError::Forge(e).to_string())?;
-    (lock(runner).add_found(ticket, found))
-        .map(drop)
-        .map_err(|e| e.to_string())
+    let found = (tickets.issue(&remote, ticket)).map_err(AddError::Forge)?;
+    lock(runner).add_found(ticket, found).map(drop)
 }
 
 fn rework(runner: &Mutex<Runner>, number: u64) -> Result<(), String> {
@@ -158,6 +164,21 @@ mod tests {
         rig.forge.reopen_issue(7);
         let status = rig.ask(&runner, "add", Some("7"));
 
+        assert!(status["work_item"].is_object(), "{status}");
+        assert_eq!(status["standing"], json!(null), "nothing stands");
+    }
+
+    #[test]
+    fn a_queued_add_for_a_ticket_already_open_is_not_a_refusal() {
+        let rig = Rig::new("koji");
+        let runner = rig.open().unwrap();
+        ask(&runner, Queued::Add(ticket(7)));
+        ask(&runner, Queued::Add(ticket(7)));
+
+        take_up(&runner);
+
+        assert!(lock(&runner).notes.take().is_empty());
+        let status = rig.ask(&runner, "status", None);
         assert!(status["work_item"].is_object(), "{status}");
         assert_eq!(status["standing"], json!(null), "nothing stands");
     }
