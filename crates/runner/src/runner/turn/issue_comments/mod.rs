@@ -10,7 +10,7 @@
 use jiff::tz::TimeZone;
 
 use super::{Runner, TicketId, ticket_name};
-use crate::ports::{ThreadComment, Timestamp};
+use crate::ports::{ForgeError, ThreadComment, Timestamp};
 
 /// The most the comments take of the prompt
 const CAP: usize = 16 * 1024;
@@ -24,6 +24,9 @@ impl Runner {
     /// A maintainer who cannot be named is no one's, so no comment is read, and
     /// a note says why.
     ///
+    /// `listed` is the issue's comments as a read made with the lock let go found them, where
+    /// the turn's step made one. The listing is made here where it is none.
+    ///
     /// # Errors
     ///
     /// Why the comments cannot be read, which fails the turn's start so that
@@ -31,6 +34,7 @@ impl Runner {
     pub(super) fn maintainer_comments(
         &self,
         ticket: TicketId,
+        listed: Option<Result<Vec<ThreadComment>, ForgeError>>,
     ) -> Result<Vec<ThreadComment>, String> {
         let maintainer = match self.maintainer() {
             Ok(maintainer) => maintainer,
@@ -43,10 +47,8 @@ impl Runner {
                 return Ok(Vec::new());
             }
         };
-        let mut comments = self
-            .ports
-            .tickets
-            .issue_comments(&self.remote, ticket)
+        let mut comments = listed
+            .unwrap_or_else(|| self.ports.tickets.issue_comments(&self.remote, ticket))
             .map_err(|e| format!("cannot read {} comments: {e}", ticket_name(ticket)))?;
         // Where no App covers the repo, kelpie comments as the login `gh` acts as,
         // which may be the maintainer's. The ids it kept tell its comments from

@@ -7,11 +7,20 @@
 //!
 //! Each workflow red on `main` has the end of its latest red run's failed log
 //! beside them, as `ci/main-<run>.log`.
+//!
+//! The forge is asked with the runner's lock let go. [`wake_off_lock`] has the wake's
+//! first try name the reads, runs them as a [`LogsJob`], and tries again over what they
+//! found. The files are written under the lock from that, and a log the job did not read is
+//! read in place.
 
 use std::collections::BTreeMap;
 use std::path::Path;
+use std::sync::{Arc, Mutex};
 
+use crate::ports::{FailedLogs, Forge, ForgeError};
 use crate::runner::Runner;
+use crate::runner::trigger::lock;
+use crate::settings::ForgeSlug;
 use crate::state::{RulingKind, Stuck};
 use crate::ticket::TicketId;
 use crate::work_item::Phase;
@@ -30,29 +39,12 @@ impl Runner {
             Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
             _ => Ok(()),
         };
-        let red: Vec<(TicketId, String)> = self
-            .state
-            .work_items
-            .iter()
-            .filter_map(|item| {
-                let Phase::Ruling { id } = item.phase else {
-                    return None;
-                };
-                match &self.state.rulings.iter().find(|r| r.id == id)?.kind {
-                    RulingKind::Stuck(Stuck::StillRed { head, .. }) => {
-                        Some((item.issue, head.clone()))
-                    }
-                    _ => None,
-                }
-            })
-            .collect();
         let mut said = BTreeMap::new();
-        for (ticket, head) in red {
+        for (ticket, head) in self.still_red() {
             let file = format!("{CI}/{ticket}.log");
-            // A `StillRed` ruling is raised only on a pull request's red run
-            // (`ci_failed`), never on a merge queue removal, so not `merge_group`.
-            let read = (self.ports.forge)
-                .failed_run_logs(&self.remote, &head, false)
+            let kept = (self.pm.logs.as_ref()).and_then(|logs| logs.failed.get(&head).cloned());
+            let read = kept
+                .unwrap_or_else(|| self.ports.forge.failed_run_logs(&self.remote, &head, false))
                 .map(|logs| logs.text)
                 .map_err(|e| format!("kelpie could not read it ({e})"))
                 .and_then(|logs| match logs.trim().is_empty() {
@@ -99,8 +91,9 @@ impl Runner {
         let mut said = Vec::new();
         for (workflow, run) in reds {
             let file = format!("{CI}/main-{run}.log");
-            let read = (self.ports.forge)
-                .run_log_tail(&self.remote, run)
+            let kept = (self.pm.logs.as_ref()).and_then(|logs| logs.tails.get(&run).cloned());
+            let read = kept
+                .unwrap_or_else(|| self.ports.forge.run_log_tail(&self.remote, run))
                 .map_err(|e| format!("kelpie could not read it ({e})"))
                 .and_then(|log| match log.trim().is_empty() {
                     true => Err(format!("kelpie found no failed log of run {run}")),
@@ -123,6 +116,108 @@ impl Runner {
             said.push(format!("main, {workflow}: {line}"));
         }
         said
+    }
+}
+
+impl Runner {
+    // Each work item parked on a `StillRed` ruling, with the head that stayed red
+    fn still_red(&self) -> Vec<(TicketId, String)> {
+        (self.state.work_items.iter())
+            .filter_map(|item| {
+                let Phase::Ruling { id } = item.phase else {
+                    return None;
+                };
+                match &self.state.rulings.iter().find(|r| r.id == id)?.kind {
+                    RulingKind::Stuck(Stuck::StillRed { head, .. }) => {
+                        Some((item.issue, head.clone()))
+                    }
+                    _ => None,
+                }
+            })
+            .collect()
+    }
+
+    // The reads a wake's logs need, or none when no item is parked on red and no workflow is red
+    pub(super) fn pm_logs_job(&self) -> Option<LogsJob> {
+        let heads: Vec<String> = self.still_red().into_iter().map(|(_, head)| head).collect();
+        let runs: Vec<u64> = self.state.red.iter().map(|r| r.run).collect();
+        if heads.is_empty() && runs.is_empty() {
+            return None;
+        }
+        Some(LogsJob {
+            forge: Arc::clone(&self.ports.forge),
+            remote: self.remote.clone(),
+            heads,
+            runs,
+        })
+    }
+}
+
+/// Wakes the project manager, reading its CI logs with the runner's lock let go
+///
+/// The first try goes as far as the launch and, finding logs to read, hands back the reads
+/// instead. They run with the lock let go, and the second try writes their files and launches.
+/// Says whether a call started.
+pub(in crate::runner) fn wake_off_lock(runner: &Mutex<Runner>) -> bool {
+    let job = match lock(runner).wake_pm_or_reads() {
+        Woke::Did(woke) => return woke,
+        Woke::Reads(job) => job,
+    };
+    let read = job.run();
+    let mut held = lock(runner);
+    held.pm.logs = Some(read);
+    // The drain, the pace and what the board shows are all checked again.
+    let woke = matches!(held.wake_pm_or_reads(), Woke::Did(true));
+    held.pm.logs = None;
+    woke
+}
+
+/// What a wake's first try came to
+pub(super) enum Woke {
+    /// It ran as far as it goes, and a call started or did not
+    Did(bool),
+    /// The logs it would write are to be read first
+    Reads(Box<LogsJob>),
+}
+
+/// The CI logs a wake writes, to be read without the runner's lock
+pub(super) struct LogsJob {
+    forge: Arc<dyn Forge>,
+    remote: ForgeSlug,
+    heads: Vec<String>,
+    runs: Vec<u64>,
+}
+
+/// What a [`LogsJob`] read, errors as the inline call returns them
+#[derive(Debug, Default)]
+pub(super) struct Logs {
+    // By head, as `failed_run_logs` of a pull request's runs read them
+    failed: BTreeMap<String, Result<FailedLogs, ForgeError>>,
+    // By run, the end of its failed log
+    tails: BTreeMap<u64, Result<String, ForgeError>>,
+}
+
+impl LogsJob {
+    // In the order the wake would have asked: each parked item's, then each red workflow's
+    fn run(self) -> Logs {
+        let Self {
+            forge,
+            remote,
+            heads,
+            runs,
+        } = self;
+        // A `StillRed` ruling is raised only on a pull request's red run
+        // (`ci_failed`), never on a merge queue removal, so not `merge_group`.
+        let failed = (heads.into_iter())
+            .map(|head| {
+                let read = forge.failed_run_logs(&remote, &head, false);
+                (head, read)
+            })
+            .collect();
+        let tails = (runs.into_iter())
+            .map(|run| (run, forge.run_log_tail(&remote, run)))
+            .collect();
+        Logs { failed, tails }
     }
 }
 
