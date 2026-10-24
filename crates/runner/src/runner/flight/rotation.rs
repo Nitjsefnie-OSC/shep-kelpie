@@ -120,7 +120,7 @@ pub(super) fn step(
                     .map(|()| Next::Done(Stepped::Idle));
             }
             let resume = match runner.apply_job(done)? {
-                Some(begin) => Resume::Applied(begin),
+                Some(begin) => Resume::Applied(Box::new(begin)),
                 None => Resume::Read,
             };
             scope(runner, step, now, resume)
@@ -148,7 +148,7 @@ enum Resume {
     // The step is made again over the reads it asked for, and is already known to be due
     Read,
     // A change to the worktree finished the step, which came to this
-    Applied(Begin),
+    Applied(Box<Begin>),
 }
 
 // The step and the call it starts, under the lock
@@ -159,7 +159,7 @@ fn scope(
     resume: Resume,
 ) -> Result<Next, StateError> {
     let begin = match (step, resume) {
-        (_, Resume::Applied(begin)) => begin,
+        (_, Resume::Applied(begin)) => *begin,
         (Step::Slot(slot), Resume::Fresh) if !runner.looks.due(slot, now) => {
             return Ok(Next::Done(Stepped::Idle));
         }
