@@ -204,6 +204,9 @@ fn status_and_drain_answer_while_a_pass_waits_in_the_forge() {
     let rig = Rig::new("shep");
     let runner = Arc::new(rig.open().unwrap());
     let postings = postings(&runner);
+    // A ready issue is what gives a pass a call to make with the lock held: dispatching it asks
+    // the forge with the lock held. A quiet pass makes none, for its reads let the lock go.
+    rig.forge.list_ready(8, false);
     let mut held = rig.forge.hold_next_call();
     let worker = spawn(&runner);
     // The reads at the start of a pass let the lock go, so hold calls one by one until a call

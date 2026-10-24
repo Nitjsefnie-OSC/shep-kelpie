@@ -24,18 +24,17 @@ These reads run with the lock let go, in `one_pass` before `begin`, each as a jo
 
 - Main's CI (`main_ci/read.rs`): `still_red` is worked out again at the apply, so a workflow that went green meanwhile is not rerun.
 - Parked items' pull requests and issues (`closed/read.rs`): one read per item, applied through `with_item`. `holds_work` still runs on the lock.
-- Dropped tickets (`dispatch.rs`) and the bumps (`dependencies/read.rs`).
+- Dropped tickets (`dispatch/mod.rs`) and the bumps (`dependencies/read.rs`).
 - Each stamps its `looks` or `parked_reads` entry at the apply, so a read that failed is made again at the next pass.
 - A start-over pass makes none of them.
 
-The triage poll (`runner/triage/poll_read.rs`, #1204) has the same shape without a work item. `read_triage` runs in `one_pass` before the pass takes the lock, in three parts like `thread_replies`:
+The triage poll (`runner/triage/poll_read.rs`, #1204) has the same shape without a work item. `read_triage` runs in `one_pass` before the board's read:
 
-- The job is built under the lock: `Runner::poll_job` returns none unless `triage.pick` is not `off` and the look is due (`Looks::triage_due`, which stamps nothing), and copies the ports, the local waits' issue numbers and what the pulls need.
-- The run lists the open issues, reads each local wait's issue, and lists the open pulls only where one is used: a listed issue carries `ready-for-agent`, a recorded taken-back one is listed, or the triager may be started.
-- The apply re-takes the lock, stamps the look (`triage_listed`), and does every write from the state it finds then: `note_triage_authors`, `settle_triage_waits`, `resume_triage`, the take-back's label writes and `save_taken`. A failed listing stamps nothing, so the next pass reads again, at most once a second.
-- The listing and pulls stay as `triage_run.listing`, the snapshot `triage_job` starts the triager from. It is at most one poll old, and what a round has since changed in the records is checked against the state, not the snapshot.
-- A `triage` verb sent while the read is in flight makes the look due again (`Looks::triage_asked`), and the apply then keeps that listing for nothing and stamps nothing, so the next pass lists with the queued issue in it.
-- Still under the lock: the reads in `ask.rs`, `comment.rs`, `limits.rs` and `addressed.rs`.
+- `Runner::triage_poll_job` returns none unless `triage.pick` is not `off` and the look is due (`Looks::triage_due`, which stamps nothing). The run lists the open issues, reads each local wait's issue, and lists the open pulls only where one is used: a listed issue carries `ready-for-agent`, a recorded taken-back one is listed, or the triager may start.
+- The apply stamps the look (`triage_listed`) and does every write from the state it finds then: `note_triage_authors`, `settle_triage_waits`, `resume_triage`, the take-back's label writes and `save_taken`. A failed listing stamps nothing, so the next pass reads again, at most once a second.
+- The listing and pulls stay as `triage_run.listing`, which `triage_job` starts the triager from.
+- A `triage` verb sent during the read calls `Looks::triage_asked`. The apply then keeps no listing and stamps nothing, so the next pass lists with the queued issue in it.
+- Still on the lock: the reads in `ask.rs`, `comment.rs`, `limits.rs` and `addressed.rs`.
 
 ## Queued verbs
 
@@ -47,3 +46,15 @@ The triage poll (`runner/triage/poll_read.rs`, #1204) has the same shape without
 - `rework` and `adopt` read the pull request off the lock. What `start_rework` and `adoptable` read after it (the viewer, the issue, the review bots, the branch's head) is still under the lock.
 - A queued verb wakes the loop (`Posted::needs_wake`), as `drain` does.
 - A queued verb lives only in memory, so a handover waits for the pass that takes it. `Handing::attempt` closes the queue under the runner lock (`Posted::close_queue`, which refuses while a verb waits) and opens it again once the exec is made or refused. A verb that finds the queue closed is not queued: `answer` waits for the lock, as every other trigger does across a handover.
+
+## The board read
+
+`runner/board_read.rs`: `read_board` runs in `one_pass` after the reads above and just before `begin`, in three steps like them. `poll_job` takes the lock and, if the board may open a work item, its look is due and the forge is not held, copies the ports and what the read needs into a `BoardJob`. `BoardJob::run` reads with the lock let go. `store_board_read` takes the lock again and keeps the result for the pass.
+
+- The job reads in the order the pass always did: the ready issues, the open pull requests, the `issue` of each finished ticket the board no longer lists, then the parents off the list (`finished_parents`, `sub_issues`) when the board lists none to close. A read that fails ends the rest. Same calls, same count, same order, so `forge.jsonl` is unchanged.
+- The open-pull-request listing goes into the `Snapshot` as a preload, which `begin_pass` keeps, so the gate, merge and rework steps serve from it as from a listing the pass made.
+- `dispatch` takes the stored read and only then stamps the look (`reading_board`). A failed read stamps nothing and `stepped` gives the slot its retry: 15 seconds, doubling to 10 minutes, as `main_ci_read` does. `trim_finished`, `close_done_parent`, `close_issue` and every save stay on the lock.
+- A read the pass did not use is dropped at `end_pass` and stamps nothing, so the next pass reads again. The rotation can act on an earlier slot first, which leaves the read unused: that is the known cost, one board read made for nothing, and it is made at most once a poll.
+- A read is also dropped, with its listing, when a write of kelpie's came after it (`forge_ledger.writes()` changed), since the listing is stale. A board that opens after the pre-pass decided it was not due finds no read and reads in its place with the lock held, as before.
+- `board_moved` flags raised while the read ran are cleared by the stamp. The next poll or write of kelpie's makes the board due again.
+- It follows `main`'s CI, the dropped tickets and the bumps, as the board's listing always did, so a used-up limit is learned by their first call and `poll_job` reads nothing while the forge is held.

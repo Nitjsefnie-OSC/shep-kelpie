@@ -747,6 +747,8 @@ fn one_pass(runner: &Mutex<Runner>) -> Result<Pass, StateError> {
     // The forge is asked with the lock let go, and the pass takes it for what it
     // read.
     super::triage::poll_read::read_triage(runner)?;
+    // After them, so the board's listing is asked after the call that learns a used-up limit.
+    super::board_read::read_board(runner);
     lock(runner).begin(None)
 }
 

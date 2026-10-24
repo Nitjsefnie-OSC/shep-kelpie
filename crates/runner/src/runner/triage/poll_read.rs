@@ -3,7 +3,7 @@
 //! A poll lists the open issues, reads each issue whose triage waits on the
 //! author's own session, and, where the pass may need them, lists the open pull
 //! requests. [`read_triage`] asks the forge for all of it before the pass takes the
-//! lock, so a trigger sent meanwhile is answered: [`Runner::poll_job`] decides a
+//! lock, so a trigger sent meanwhile is answered: [`Runner::triage_poll_job`] decides a
 //! poll is due and copies what the reads need, [`PollJob::run`] reads, and
 //! [`Runner::apply_poll`] acts on what was read, on the state it finds then.
 //!
@@ -67,7 +67,7 @@ pub(in crate::runner) struct Listing {
 /// Reads the triage poll, if one is due, asking the forge with the runner's lock
 /// let go, and acts on it
 pub(in crate::runner) fn read_triage(runner: &Mutex<Runner>) -> Result<(), StateError> {
-    let job = lock(runner).poll_job();
+    let job = lock(runner).triage_poll_job();
     let Some((now, job)) = job else {
         return Ok(());
     };
@@ -109,7 +109,7 @@ impl PollJob {
 impl Runner {
     // Decides whether the poll is read now: at most once a [`BOARD_POLL`], while
     // `triage.pick` is not `off`. Returns the time and what the read needs.
-    fn poll_job(&self) -> Option<(Timestamp, PollJob)> {
+    fn triage_poll_job(&self) -> Option<(Timestamp, PollJob)> {
         let triage = self.state.triage.as_ref()?;
         let now = self.ports.clock.now();
         if !self.looks.triage_due(now) {

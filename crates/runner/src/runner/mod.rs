@@ -39,6 +39,7 @@ mod adopt;
 mod agents_tests;
 mod alert;
 mod attach;
+mod board_read;
 mod briefing;
 mod browser;
 mod builds;
@@ -281,6 +282,8 @@ pub struct Runner {
     close_refused: parent::Refused,
     // The parents off the ready list that built nothing, kept in memory only
     unbuilt: parent::Unbuilt,
+    // What the board's read found before the pass took the lock, until the pass uses it or ends
+    board_read: Option<board_read::BoardRead>,
     // The review's reviewers, in order, from the project's list
     lineup: Vec<ListedReviewer>,
     // The reviewers a contribution's pass walks, in order. None while the
@@ -598,6 +601,7 @@ impl Runner {
             adopt_failing: BTreeMap::new(),
             close_refused: parent::Refused::new(),
             unbuilt: parent::Unbuilt::new(),
+            board_read: None,
             lineup,
             contribution_lineup,
             agents,
