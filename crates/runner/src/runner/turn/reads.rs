@@ -331,6 +331,14 @@ impl Starting {
 }
 
 impl Started {
+    // Adds what a later job read to what the step already holds, so a job that asked for less
+    // (the comments alone, once the maintainer can be named) does not drop what an earlier one read
+    fn merge(&mut self, later: Started) {
+        self.token = later.token.or(self.token.take());
+        self.issue = later.issue.or(self.issue.take());
+        self.comments = later.comments.or(self.comments.take());
+    }
+
     /// The worker's token, as the job minted it
     pub(in crate::runner) fn token(&self) -> Option<Result<Option<InstallationToken>, ForgeError>> {
         self.token.clone()
@@ -496,7 +504,7 @@ impl Runner {
     pub(in crate::runner) fn keep_job_read(&mut self, done: Done) {
         match done {
             Done::Start { ticket, started } => {
-                self.reads.starts.insert(ticket, started);
+                self.reads.starts.entry(ticket).or_default().merge(started);
             }
             Done::View {
                 number,

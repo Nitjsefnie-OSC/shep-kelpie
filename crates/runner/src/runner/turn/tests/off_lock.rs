@@ -1,6 +1,7 @@
 //! A turn's token and the issue its first prompt quotes are read with the lock let go
 
 use super::*;
+use crate::ports::ForgeError;
 use crate::runner::flight::{Pass, advance};
 use crate::test::Asked;
 
@@ -137,4 +138,37 @@ fn a_read_that_fails_is_handled_as_the_inline_read_was() {
     assert_eq!(rig.claude.all_calls(), [], "the worker started anyway");
     let status = rig.ask(&runner, "status", None);
     assert_eq!(status["work_item"]["turn"]["state"], "failed");
+}
+
+#[test]
+fn a_maintainer_named_while_the_start_is_read_keeps_what_that_read_found() {
+    let rig = Rig::new("koji");
+    rig.forge
+        .set_viewer_down(ForgeError::Failed("no login".into()));
+    let runner = rig.open().unwrap();
+    assert_eq!(
+        rig.ask(&runner, "add", Some("7"))["work_item"]["issue"],
+        "7"
+    );
+    rig.claude.script([Scripted::Say("done")]);
+    let read = rig.forge.hold_next_issue_read();
+
+    // The account is named while the token and the issue are read, so the next job reads only
+    // the comments.
+    let (reply, pass) = rig.during_read(
+        read,
+        || advance(&runner),
+        || {
+            rig.forge.set_viewer_up();
+            rig.ask(&runner, "tell", Some("hello"))
+        },
+    );
+
+    assert!(reply.is_some(), "the trigger waited for the lock");
+    assert!(matches!(pass, Ok(Pass::Started)), "{pass:?}");
+    assert!(matches!(
+        step(&runner).unwrap(),
+        Some(StepReport::Ended { .. })
+    ));
+    assert_eq!(rig.claude.all_calls().len(), 1, "the turn never started");
 }
