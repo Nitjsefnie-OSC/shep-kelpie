@@ -27,6 +27,10 @@ pub enum At {
     Activity,
     // The read of the comments and threads on one pull request, which a talk step makes
     Talk,
+    // The read of the end of the failed runs' logs, which a red run makes
+    FailedLogs,
+    // The read of where a pull request stands in the merge queue, which a merge makes
+    MergeQueue,
 }
 
 // Who reached the forge and who lets it go
@@ -103,6 +107,17 @@ impl FakeForge {
     /// Holds the next read of a pull request's comments open, and lets every other call through
     pub fn hold_next_talk_read(&self) -> HeldCall {
         self.hold_open(At::Talk)
+    }
+
+    /// Holds the next read of the failed runs' logs open, and lets every other call through
+    pub fn hold_next_failed_logs_read(&self) -> HeldCall {
+        self.hold_open(At::FailedLogs)
+    }
+
+    /// Holds the next read of a pull request's merge queue standing open, and lets every other
+    /// call through
+    pub fn hold_next_merge_queue_read(&self) -> HeldCall {
+        self.hold_open(At::MergeQueue)
     }
 
     fn hold_open(&self, at: At) -> HeldCall {

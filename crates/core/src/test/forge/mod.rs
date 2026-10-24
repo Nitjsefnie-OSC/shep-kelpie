@@ -679,6 +679,7 @@ impl Forge for FakeForge {
         _merge_group: bool,
     ) -> Result<FailedLogs, ForgeError> {
         self.ask()?;
+        self.wait_if_held(held::At::FailedLogs);
         self.ci.lock().unwrap().log().map_err(ForgeError::Failed)
     }
 
@@ -818,6 +819,7 @@ impl Forge for FakeForge {
 
     fn merge_queue(&self, _repo: &ForgeSlug, number: u64) -> Result<QueueStanding, ForgeError> {
         self.ask()?;
+        self.wait_if_held(held::At::MergeQueue);
         self.opened(number)?;
         Ok(self.standing(number))
     }

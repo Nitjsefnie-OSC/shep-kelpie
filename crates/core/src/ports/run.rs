@@ -55,7 +55,7 @@ pub enum WorkflowState {
 /// so a head with more failed runs than that has logs kelpie never saw. They are
 /// counted here rather than left out of the answer, since what they hold is what a
 /// caller cannot know is not there.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct FailedLogs {
     /// The end of each failed run's log, `--- run <id>` above each. Empty where
     /// kelpie found no failed run to read
