@@ -23,6 +23,7 @@ mod checks;
 mod criteria;
 mod keep;
 mod ran;
+pub(super) mod reads;
 pub(in crate::runner) use keep::prune_at_start;
 pub(in crate::runner) use ran::{record_spent, run_review_call};
 pub(super) mod disputes;
@@ -75,13 +76,16 @@ impl Runner {
         if self.unseated() {
             return Ok(Begin::Idle);
         }
-        let item = self.current().expect("review runs on a work item");
+        // A step made again after a read finds the work item as the read left it
+        let Some(item) = self.current() else {
+            return Ok(Begin::Idle);
+        };
         let Phase::Review(review) = item.phase.clone() else {
             unreachable!("review_step only runs in the review phase")
         };
-        let number = item
-            .pull_request
-            .expect("review starts once a pull request is known");
+        let Some(number) = item.pull_request else {
+            return Ok(Begin::Idle);
+        };
         let (ticket, worktree) = (item.issue, item.worktree.clone());
         let base = item.review_base(self.item_base(item));
         let build = item.build.clone();

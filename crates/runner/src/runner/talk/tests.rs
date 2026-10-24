@@ -547,3 +547,37 @@ fn comments_on_an_adopted_pull_request_from_before_are_not_sent() {
     assert!(prompt.contains(ASK), "{prompt}");
     assert!(!prompt.contains("Old news."), "{prompt}");
 }
+
+// The comments are read with the runner's lock let go, and what a writer
+// said while they were read still reaches the worker.
+#[test]
+fn a_trigger_is_answered_while_the_comments_are_read() {
+    let (rig, runner, _) = Rig::parked("rotom");
+    assert_eq!(
+        step(&runner).unwrap(),
+        Some(StepReport::Alerted { id: ticket(71) })
+    );
+    rig.clock.advance(LATE_READ);
+    let read = rig.forge.hold_next_talk_read();
+
+    let (reply, pass) = rig.during_read(
+        read,
+        || crate::runner::advance(&runner),
+        || {
+            rig.forge
+                .coderabbit
+                .person_says(71, "octo-reviewer", Standing::Writer, ASK);
+            rig.ask(&runner, "status", None)
+        },
+    );
+
+    let reply = reply.expect("the parked work item held the lock for the comments' read");
+    assert_eq!(reply["work_items"].as_array().unwrap().len(), 1);
+    pass.unwrap();
+    assert_eq!(rig.ask(&runner, "status", None)["rulings"], json!([]));
+    rig.claude
+        .script([Scripted::Push("rename.txt", "renamed\n")]);
+    step(&runner).unwrap(); // the worker's turn
+    let prompt = rig.claude.seen().last().unwrap().call.prompt.clone();
+    assert!(prompt.contains(ASK), "{prompt}");
+}

@@ -27,6 +27,7 @@
 //! full review.
 
 mod answer;
+mod bot_reads;
 mod failed;
 mod late;
 pub(in crate::runner) use answer::{Answered, is_reply};
@@ -113,12 +114,18 @@ impl Runner {
 
     /// Steps a review bot's round, waiting to summon or waiting for its review
     pub(super) fn bot_step(&mut self) -> Result<Begin, StateError> {
-        let number = self.number();
-        let pr = self.ports.forge.pull_request(&self.remote, number);
-        match pr.map(|pr| pr.state) {
-            Ok(PullRequestState::Open) => {}
+        // A step made again after a read finds the work item as the read left it
+        let Some(number) = self.current().and_then(|item| item.pull_request) else {
+            return Ok(Begin::Idle);
+        };
+        let pr = match self.round_view(number) {
+            Ok(pr) => pr,
+            Err(begin) => return Ok(*begin),
+        };
+        match pr.state {
+            PullRequestState::Open => {}
             // The maintainer merged it by hand, which is their own ruling.
-            Ok(PullRequestState::Merged) => {
+            PullRequestState::Merged => {
                 self.update(|item| {
                     item.phase = Phase::Done {
                         merged: true,
@@ -127,11 +134,10 @@ impl Runner {
                 })?;
                 return self.finish(true);
             }
-            Ok(PullRequestState::Closed) => {
+            PullRequestState::Closed => {
                 self.leave_round();
                 return self.raise(number, Stuck::Closed.into());
             }
-            Err(e) => return Ok(self.gate_failed(format!("cannot read #{number}: {e}"))),
         }
         let stage = self.pass().stage;
         let (ReviewStage::Summon { bot, .. }
@@ -188,10 +194,14 @@ impl Runner {
         full: bool,
     ) -> Result<Begin, StateError> {
         let number = self.number();
-        let activity = match self.activity(bot, number) {
+        let activity = match self.read_activity(bot, number) {
             Ok(activity) => activity,
-            Err(reason) => return Ok(self.gate_failed(reason)),
+            Err(begin) => return Ok(*begin),
         };
+        // A drain that landed while the activity was read holds the summon back
+        if self.draining() {
+            return Ok(Begin::Idle);
+        }
         if self.lands_unsummoned(bot, &head, &activity) {
             self.release(bot)?;
             self.update(|item| item.reviewed(head))?;
@@ -433,12 +443,9 @@ impl Runner {
         full: bool,
     ) -> Result<Option<Begin>, StateError> {
         let repo = self.remote.clone();
-        let pr = match self.ports.forge.pull_request(&repo, number) {
+        let pr = match self.round_view(number) {
             Ok(pr) => pr,
-            Err(e) => {
-                let reason = format!("cannot read #{number}: {e}");
-                return Ok(Some(self.gate_failed(reason)));
-            }
+            Err(begin) => return Ok(Some(*begin)),
         };
         if !pr.draft {
             if !self.item().known.ready {
@@ -478,9 +485,9 @@ impl Runner {
         resent: bool,
     ) -> Result<Begin, StateError> {
         let number = self.number();
-        let activity = match self.activity(bot, number) {
+        let activity = match self.read_activity(bot, number) {
             Ok(activity) => activity,
-            Err(reason) => return Ok(self.gate_failed(reason)),
+            Err(begin) => return Ok(*begin),
         };
         let now = self.ports.clock.now().0;
         let waited = now.saturating_sub(at.0);
@@ -617,6 +624,9 @@ impl Runner {
         full: bool,
     ) -> Result<Begin, StateError> {
         let number = self.number();
+        if self.draining() {
+            return Ok(Begin::Idle);
+        }
         if !self.holds_own(bot) {
             return self.accepted(bot, at).map(|()| Begin::Idle);
         }
@@ -817,22 +827,6 @@ impl Runner {
                 review.stage = stage;
             }
         })
-    }
-
-    // Reads `bot`'s activity and passes the quota it last stated on.
-    pub(in crate::runner) fn activity(&self, bot: Bot, number: u64) -> Result<Activity, String> {
-        let bot = self.profile(bot);
-        let activity = self
-            .ports
-            .forge
-            .review_bot(&self.remote, number, bot.login())
-            .map_err(|e| format!("cannot read {} on #{number}: {e}", bot.name()))?;
-        if let Some((per_hour, at)) = bot.quota(&activity) {
-            self.ports
-                .leases
-                .window(&bot.lease(), WindowFact::Quota(per_hour), at.0);
-        }
-        Ok(activity)
     }
 
     // Changes `bot`'s label only when it is not already as asked, and does

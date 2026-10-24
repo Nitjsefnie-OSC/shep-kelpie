@@ -61,3 +61,43 @@ fn a_drain_that_lands_while_the_issue_is_read_for_a_round_starts_no_call() {
         );
     });
 }
+
+// The same for a bot's round: its activity is read before the summon, and a
+// drain that lands in that read stops the summon before the lease is asked.
+#[test]
+fn a_drain_that_lands_while_a_bots_activity_is_read_starts_no_call() {
+    let (rig, runner, _head) = crate::runner::coderabbit::tests::reviewed_by_qwen("koji");
+    assert!(matches!(
+        step(&runner).unwrap(),
+        Some(crate::runner::StepReport::MarkedReady { .. })
+    ));
+    let runner = Arc::new(runner);
+    let postings = runner.lock().unwrap().postings();
+    let read = rig.forge.hold_next_activity_read();
+
+    std::thread::scope(|scope| {
+        let pass = scope.spawn(|| advance(&runner));
+        assert!(
+            read.waiting(CALL_PATIENCE),
+            "the round never read the bot's activity"
+        );
+        let asking = {
+            let (runner, postings) = (Arc::clone(&runner), Arc::clone(&postings));
+            scope.spawn(move || answer(&runner, &postings, "drain", Some("pause")))
+        };
+        let reply: serde_json::Value =
+            serde_json::from_str(&asking.join().unwrap()).expect("a JSON reply");
+        assert!(
+            postings.draining(),
+            "the drain did not hold new calls back: {reply}"
+        );
+        drop(read);
+        let pass = pass.join().expect("the pass thread");
+        assert!(
+            matches!(pass, Ok(Pass::Idle)),
+            "the pass summoned the bot past the drain: {pass:?}"
+        );
+        assert_eq!(rig.forge.coderabbit.label_log(), [], "the bot was summoned");
+        assert_eq!(rig.leases.told(), [], "the bot's lease was asked for");
+    });
+}

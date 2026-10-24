@@ -23,6 +23,10 @@ pub enum At {
     PullRequest,
     // The listing of the open pull requests, which following the bumps makes
     OpenPullRequests,
+    // The read of a review bot's activity on one pull request, which a bot's round makes
+    Activity,
+    // The read of the comments and threads on one pull request, which a talk step makes
+    Talk,
 }
 
 // Who reached the forge and who lets it go
@@ -89,6 +93,16 @@ impl FakeForge {
     /// Holds the next listing of the open pull requests open, and lets every other call through
     pub fn hold_next_open_pull_requests_read(&self) -> HeldCall {
         self.hold_open(At::OpenPullRequests)
+    }
+
+    /// Holds the next read of a review bot's activity open, and lets every other call through
+    pub fn hold_next_activity_read(&self) -> HeldCall {
+        self.hold_open(At::Activity)
+    }
+
+    /// Holds the next read of a pull request's comments open, and lets every other call through
+    pub fn hold_next_talk_read(&self) -> HeldCall {
+        self.hold_open(At::Talk)
     }
 
     fn hold_open(&self, at: At) -> HeldCall {
