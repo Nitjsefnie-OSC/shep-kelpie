@@ -178,26 +178,34 @@ impl Runner {
     /// also goes to it as a comment, or why the change cannot be saved.
     /// Nothing is adopted then.
     pub fn adopt(&mut self, number: u64) -> Result<(), AdoptError> {
+        if !self.adopt_wanted(number)? {
+            return Ok(());
+        }
+        let pr = (self.ports.forge.reviewed(&self.remote, number))
+            .map_err(|e| AdoptError::PullRequest(number, e))?;
+        self.adopt_found(number, &pr)
+    }
+
+    // Whether `number` is yet to be adopted, which is not so while it waits or
+    // is in flight, before the pull request is read.
+    pub(super) fn adopt_wanted(&self, number: u64) -> Result<bool, AdoptError> {
         if !self.picks() {
             return Err(AdoptError::Finishing);
         }
         if self.local_store() {
             return Err(AdoptError::LocalStore);
         }
-        let in_flight = self
-            .state
-            .work_items
-            .iter()
-            .any(|i| i.pull_request == Some(number));
-        if in_flight || self.waiting(number) {
+        let in_flight = (self.state.work_items.iter()).any(|i| i.pull_request == Some(number));
+        Ok(!(in_flight || self.waiting(number)))
+    }
+
+    // Adopts `number` from the pull request as read. What was checked before
+    // the read is checked again, since the runner may have moved since.
+    pub(super) fn adopt_found(&mut self, number: u64, pr: &Reviewed) -> Result<(), AdoptError> {
+        if !self.adopt_wanted(number)? {
             return Ok(());
         }
-        let pr = self
-            .ports
-            .forge
-            .reviewed(&self.remote, number)
-            .map_err(|e| AdoptError::PullRequest(number, e))?;
-        if let Err(e) = self.adoptable(number, &pr) {
+        if let Err(e) = self.adoptable(number, pr) {
             if e.settled() {
                 let _ = self.refusal_comment(number, &e);
             }

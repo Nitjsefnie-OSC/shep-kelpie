@@ -126,17 +126,31 @@ impl Runner {
     /// the change cannot be saved. A refusal changes nothing. A label or
     /// save that fails after the triage labels began coming off leaves them off.
     pub fn rework(&mut self, number: u64) -> Result<AgentName, ReworkError> {
+        self.rework_allowed()?;
+        let pr = (self.ports.forge.reviewed(&self.remote, number))
+            .map_err(|e| ReworkError::PullRequest(number, e))?;
+        self.rework_found(number, pr)
+    }
+
+    // Whether a rework may start now, before the pull request is read.
+    pub(super) fn rework_allowed(&self) -> Result<(), ReworkError> {
         if !self.picks() {
             return Err(ReworkError::Finishing);
         }
         if !self.slot_free() {
             return Err(ReworkError::InFlight(self.slot_issues()));
         }
-        let pr = self
-            .ports
-            .forge
-            .reviewed(&self.remote, number)
-            .map_err(|e| ReworkError::PullRequest(number, e))?;
+        Ok(())
+    }
+
+    // Starts the rework of `number` from the pull request as read. The guards
+    // are checked again, since the runner may have moved since they were.
+    pub(super) fn rework_found(
+        &mut self,
+        number: u64,
+        pr: Reviewed,
+    ) -> Result<AgentName, ReworkError> {
+        self.rework_allowed()?;
         self.start_rework(number, pr)
     }
 

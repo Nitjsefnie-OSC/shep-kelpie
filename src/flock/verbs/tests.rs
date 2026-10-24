@@ -272,10 +272,10 @@ async fn gate_drop_and_add_say_what_they_did_to_the_work_item() {
         ("gate", "7", "koji: sent #7 to the review gate"),
         ("drop", "", "koji: dropped the open work item"),
         ("drop", "7", "koji: dropped #7"),
-        ("add", "7", "koji: opened a work item for #7"),
+        ("add", "7", "koji: queued a work item for #7"),
         ("gate", "k12", "koji: sent k12 to the review gate"),
         ("drop", "k12", "koji: dropped k12"),
-        ("add", "k12", "koji: opened a work item for k12"),
+        ("add", "k12", "koji: queued a work item for k12"),
     ] {
         let (plain, json) = both(command, args, status).await;
         assert_eq!(plain, [line], "{command} {args}");

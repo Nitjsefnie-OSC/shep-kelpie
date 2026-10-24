@@ -733,14 +733,14 @@ fn a_plain_triage_says_the_issue_is_queued_for_triage() {
 }
 
 #[test]
-fn a_plain_rework_and_adopt_name_the_pull_request() {
+fn a_plain_rework_and_adopt_say_the_pull_request_is_queued() {
     assert_eq!(
         plain_reply("koji", "rework", Some("40"), STATUS_OBJECT),
-        ["koji: reworking PR #40"]
+        ["koji: queued a rework of PR #40"]
     );
     assert_eq!(
         plain_reply("koji", "adopt", Some("40"), STATUS_OBJECT),
-        ["koji: adopting PR #40"]
+        ["koji: queued adoption of PR #40"]
     );
 }
 
