@@ -141,7 +141,11 @@ impl Runner {
                 let unlisted = unlisted?;
                 self.unbuilt = unlisted.unbuilt;
                 self.notes.extend(unlisted.notes);
-                unlisted.found?
+                // The read is a step behind a work item opened since, which a local ticket's
+                // `add` does without a write to the forge that would have dropped the read.
+                unlisted
+                    .found
+                    .filter(|ticket| self.state.item(*ticket).is_none())?
             }
         };
         Some(Begin::Report(self.close_parent(ticket)))
@@ -367,6 +371,22 @@ mod tests {
         rig.next_look();
         assert_eq!(step(&runner).unwrap(), None);
         assert_eq!(rig.forge.comments(), [(5, PARENT_CLOSED.to_owned())]);
+    }
+
+    #[test]
+    fn a_parent_given_a_work_item_after_it_was_read_is_not_closed() {
+        let (rig, runner) = running("xilriws");
+        rig.ask(&runner, "add", Some("5"));
+        let read = Unlisted {
+            found: Some(ticket(5)),
+            unbuilt: Unbuilt::new(),
+            notes: Vec::new(),
+        };
+
+        let begin = runner.lock().unwrap().close_done_parent(&[], Some(read));
+
+        assert!(begin.is_none());
+        assert!(rig.forge.closings().is_empty());
     }
 
     #[test]
