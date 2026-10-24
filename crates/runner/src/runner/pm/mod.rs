@@ -104,8 +104,9 @@ pub(super) enum StuckState {
 /// Why the project manager is woken
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum Wake {
-    /// A slot is free, and this many ready issues could fill it
-    Pick(usize),
+    /// Slots are free, and this many ready issues could fill them, then
+    /// this many slots are free
+    Pick(usize, usize),
     /// The branches of two open work items conflict in these files
     Conflict(TicketId, TicketId, Vec<String>),
     /// A work item is stuck, as this says, on this
@@ -175,7 +176,7 @@ impl Wake {
     // Whether `other` is the same reason, whatever it says, so each is queued once.
     fn same(&self, other: &Self) -> bool {
         match (self, other) {
-            (Self::Pick(_), Self::Pick(_)) | (Self::Told, Self::Told) => true,
+            (Self::Pick(..), Self::Pick(..)) | (Self::Told, Self::Told) => true,
             (Self::Conflict(a, b, _), Self::Conflict(c, d, _)) => (a, b) == (c, d),
             (Self::Stuck { ticket: a, .. }, Self::Stuck { ticket: b, .. }) => a == b,
             (Self::LeaseWait { ticket: a, .. }, Self::LeaseWait { ticket: b, .. }) => a == b,
@@ -189,10 +190,10 @@ impl Wake {
 }
 
 /// The project manager's last word on what the board starts next
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum Pick {
-    /// This ready issue
-    Issue(TicketId),
+    /// These ready issues, in the order dispatch starts them, one a step
+    Issues(Vec<TicketId>),
     /// Nothing, decided at this time, until its next wake, or for
     /// [`NOTHING_FOR`] while no work item is open
     Nothing(Timestamp),
@@ -341,7 +342,7 @@ impl Runner {
     /// waits unused.
     pub(super) fn pm_forget_pick(&mut self) {
         let due = self.pm.due.len();
-        self.pm.due.retain(|wake| !matches!(wake, Wake::Pick(_)));
+        self.pm.due.retain(|wake| !matches!(wake, Wake::Pick(..)));
         if self.pm.due.len() < due {
             self.pm.asked_pick = false;
         }
@@ -370,15 +371,33 @@ impl Runner {
 
     /// What dispatch starts out of `takeable`, the ready issues the board
     /// could take now: the project manager's pick, or nothing while it said
-    /// so, or it is asked where two or more could start; else the board rule's
-    pub(super) fn pm_pick(&mut self, takeable: &[TicketId]) -> Choice {
+    /// so, or it is asked where two or more could start; else the board rule's.
+    /// `waiting` are those out of `takeable` only for now, as the issue writer
+    /// labels them, which a list of picks keeps its place for.
+    pub(super) fn pm_pick(&mut self, takeable: &[TicketId], waiting: &[TicketId]) -> Choice {
         if self.agents.pm.is_none() {
             return Choice::Rule;
         }
         match self.pm.pick.take() {
-            Some(Pick::Issue(n)) if takeable.contains(&n) => Choice::Take(n),
-            Some(Pick::Issue(n)) => {
-                self.pick_dropped(n, "it is not an issue the board can take now".to_owned());
+            Some(Pick::Issues(mut named)) => {
+                // The head stays until its work item opens (`pm_started`), so
+                // the issue writer labelling it first does not lose its place.
+                // One it cannot start falls to the next it named, and when
+                // none is left, to the board rule.
+                while let Some(&n) = named.first() {
+                    if takeable.contains(&n) {
+                        self.pm.pick = Some(Pick::Issues(named));
+                        return Choice::Take(n);
+                    }
+                    if waiting.contains(&n) {
+                        // The issue writer has it: the next it named can start.
+                        let rest = named.iter().copied().find(|t| takeable.contains(t));
+                        self.pm.pick = Some(Pick::Issues(named));
+                        return rest.map_or(Choice::Wait, Choice::Take);
+                    }
+                    named.remove(0);
+                    self.pick_dropped(n, "it is not an issue the board can take now".to_owned());
+                }
                 Choice::Rule
             }
             Some(Pick::Rule) => Choice::Rule,
@@ -400,8 +419,19 @@ impl Runner {
             None if self.pm.asked_pick => Choice::Wait,
             None => {
                 self.pm.asked_pick = true;
-                self.pm_due(Wake::Pick(takeable.len()));
+                self.pm_due(Wake::Pick(takeable.len(), self.free_slots()));
                 Choice::Wait
+            }
+        }
+    }
+
+    /// Takes `ticket` off the project manager's picks, since its work item
+    /// opened
+    pub(super) fn pm_started(&mut self, ticket: TicketId) {
+        if let Some(Pick::Issues(named)) = &mut self.pm.pick {
+            named.retain(|&n| n != ticket);
+            if named.is_empty() {
+                self.pm.pick = None;
             }
         }
     }
@@ -517,7 +547,7 @@ impl Runner {
         self.pm.holding_since = None;
         for wake in std::mem::take(&mut self.pm.due) {
             match wake {
-                Wake::Pick(_) => {
+                Wake::Pick(..) => {
                     self.pm.pick = Some(Pick::Rule);
                     self.pm.asked_pick = false;
                 }
@@ -751,7 +781,10 @@ impl Runner {
             .drain(..flying.told.len().min(next.pm_told.len()));
         self.save(next)?;
         let woke_for: Vec<String> = flying.wakes.iter().map(prompt::reason).collect();
-        let picking = flying.wakes.iter().any(|w| matches!(w, Wake::Pick(_)));
+        let picking = flying.wakes.iter().find_map(|w| match w {
+            Wake::Pick(_, free) => Some((*free).max(1)),
+            _ => None,
+        });
         // Each tell this wake carried goes into the standing notes before the
         // answer acts, so an action that cannot be saved cannot lose a rule the
         // maintainer gave. An answer that gave the whole file was told to carry
