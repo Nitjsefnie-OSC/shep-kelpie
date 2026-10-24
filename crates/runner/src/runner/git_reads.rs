@@ -34,6 +34,12 @@ impl Kept {
         *self = Self::default();
     }
 
+    /// Whether nothing is kept
+    #[cfg(test)]
+    pub(in crate::runner) fn is_empty(&self) -> bool {
+        self.head.is_none() && self.bases.is_empty() && self.changes.is_none()
+    }
+
     /// Keeps what a job found for the step that asked
     pub(in crate::runner) fn keep(&mut self, found: Found) {
         match found {

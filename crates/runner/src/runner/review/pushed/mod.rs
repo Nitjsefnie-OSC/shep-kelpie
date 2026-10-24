@@ -37,13 +37,13 @@ impl Runner {
         &mut self,
         review: &mut Review,
     ) -> Result<Option<Begin>, StateError> {
+        if let Some(held) = self.fork_commits_held()? {
+            return Ok(Some(held));
+        }
         let pushed = match self.head_on_origin() {
             Ok(pushed) => pushed,
             Err(begin) => return Ok(Some(*begin)),
         };
-        if let Some(held) = self.fork_commits_held()? {
-            return Ok(Some(held));
-        }
         let off = match self.off_pushed(pushed) {
             Ok(Ok(head)) => {
                 review.reading = Some(head);

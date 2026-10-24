@@ -325,6 +325,13 @@ impl Runner {
         head: Option<String>,
         sent: findings::Sent<'_>,
     ) -> Result<Begin, StateError> {
+        // A fork worker only commits, so a fix is pushed by kelpie. The fork's
+        // head unchanged would otherwise read as a fix not pushed. The push is
+        // made before the read, which is fetched after it, and a step made
+        // again finds the fork holding the head and pushes nothing.
+        if let Some(held) = self.fork_commits_held()? {
+            return Ok(held);
+        }
         let read = match &head {
             Some(_) => match self.head_on_origin() {
                 Ok(read) => Some(read),
@@ -332,11 +339,6 @@ impl Runner {
             },
             None => None,
         };
-        // A fork worker only commits, so a fix is pushed by kelpie. The fork's
-        // head unchanged would otherwise read as a fix not pushed.
-        if let Some(held) = self.fork_commits_held()? {
-            return Ok(held);
-        }
 
         let issue = self.current().expect("a fix is a work item's").issue;
         let round = review.round;
