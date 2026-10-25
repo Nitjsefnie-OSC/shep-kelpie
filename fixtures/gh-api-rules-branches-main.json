@@ -1,0 +1,120 @@
+[
+  {
+    "type": "deletion",
+    "ruleset_source_type": "Repository",
+    "ruleset_source": "shep-pm/shep",
+    "ruleset_id": 21511395
+  },
+  {
+    "type": "deletion",
+    "ruleset_source_type": "Repository",
+    "ruleset_source": "shep-pm/shep",
+    "ruleset_id": 21693120
+  },
+  {
+    "type": "non_fast_forward",
+    "ruleset_source_type": "Repository",
+    "ruleset_source": "shep-pm/shep",
+    "ruleset_id": 21693120
+  },
+  {
+    "type": "pull_request",
+    "parameters": {
+      "required_approving_review_count": 0,
+      "dismiss_stale_reviews_on_push": false,
+      "required_reviewers": [
+
+      ],
+      "require_code_owner_review": false,
+      "dismissal_restriction": {
+        "enabled": false,
+        "allowed_actors": [
+
+        ]
+      },
+      "require_last_push_approval": false,
+      "required_review_thread_resolution": false,
+      "require_extra_approval_for_unattributed_changes": true,
+      "allowed_merge_methods": [
+        "merge",
+        "squash",
+        "rebase"
+      ]
+    },
+    "ruleset_source_type": "Repository",
+    "ruleset_source": "shep-pm/shep",
+    "ruleset_id": 21693120
+  },
+  {
+    "type": "required_status_checks",
+    "parameters": {
+      "strict_required_status_checks_policy": false,
+      "do_not_enforce_on_create": false,
+      "required_status_checks": [
+        {
+          "context": "lint",
+          "integration_id": 15368
+        },
+        {
+          "context": "docs",
+          "integration_id": 15368
+        },
+        {
+          "context": "typos",
+          "integration_id": 15368
+        },
+        {
+          "context": "musl",
+          "integration_id": 15368
+        },
+        {
+          "context": "minimal-versions",
+          "integration_id": 15368
+        },
+        {
+          "context": "features (ubuntu-latest)",
+          "integration_id": 15368
+        },
+        {
+          "context": "test (ubuntu-latest, stable)",
+          "integration_id": 15368
+        },
+        {
+          "context": "test (ubuntu-latest, 1.88)",
+          "integration_id": 15368
+        },
+        {
+          "context": "test (windows-latest, stable)",
+          "integration_id": 15368
+        },
+        {
+          "context": "conventional subjects",
+          "integration_id": 15368
+        },
+        {
+          "context": "intra-workspace dev-dependencies",
+          "integration_id": 15368
+        },
+        {
+          "context": "test (ubuntu-24.04-arm, stable)",
+          "integration_id": 15368
+        },
+        {
+          "context": "features (windows-latest)",
+          "integration_id": 15368
+        },
+        {
+          "context": "windows-gnu",
+          "integration_id": 15368
+        },
+        {
+          "context": "deny",
+          "integration_id": 15368
+        }
+      ]
+    },
+    "ruleset_source_type": "Repository",
+    "ruleset_source": "shep-pm/shep",
+    "ruleset_id": 21693120
+  }
+]

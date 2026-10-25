@@ -199,17 +199,26 @@ pub async fn run(
         }
         Action::Rollback => {
             let staged = install::stage_previous(&layout)?;
-            match Build::of(staged.path()) {
-                Ok(build) => fits(&build, &daemon, scene, &layout.previous())?,
+            // The build put back, kept for the lines that name it and the
+            // runners left behind on another one.
+            let build = match Build::of(staged.path()) {
+                Ok(build) => {
+                    fits(&build, &daemon, scene, &layout.previous())?;
+                    Some(build)
+                }
                 // Only a build from before `version --json` cannot say, and the
                 // maintainer asked for it by name. One that does not run is refused.
-                Err(e) if e.predates_version() => say(format!(
-                    "{} does not say which shep it is made for, so the shepherd's version is unchecked",
-                    layout.previous().display()
-                )),
+                Err(e) if e.predates_version() => {
+                    say(format!(
+                        "{} does not say which shep it is made for, so the shepherd's version is \
+                         unchecked",
+                        layout.previous().display()
+                    ));
+                    None
+                }
                 Err(e) => return Err(e.into()),
-            }
-            (Some(staged), None, None)
+            };
+            (Some(staged), build, None)
         }
     };
     // The build can take minutes: look at the shepherd and its flock again,
@@ -236,11 +245,8 @@ pub async fn run(
     let finish = format!("`shep kelpie upgrade --binary {installed}`");
     match (action, change) {
         (Action::Installed, _) => {
-            let build = build.expect("an install has a build");
-            say(format!(
-                "kelpie {} (shep {}) is installed as {installed}",
-                build.kelpie, build.shep
-            ));
+            let build = named(build.as_ref().expect("an install has a build"));
+            say(format!("{build} is installed as {installed}"));
             // Without a record, a copy may be kept from an earlier upgrade: say which.
             let kept = Build::of(&layout.previous()).map_or_else(
                 |_| "no earlier build is kept either".to_owned(),
@@ -258,37 +264,27 @@ pub async fn run(
             ));
         }
         (Action::Rollback, _) => {
-            let back = match Build::of(layout.installed()) {
-                Ok(b) => format!("kelpie {} (shep {})", b.kelpie, b.shep),
-                Err(_) => installed.clone(),
-            };
+            let back = build.as_ref().map(named).unwrap_or(installed.clone());
             say(format!(
                 "put back {back}, and kept the build it replaced as the previous"
             ));
         }
         (_, Change::First | Change::Replaced) => {
-            let build = build.expect("an install has a build");
+            let build = named(build.as_ref().expect("an install has a build"));
             let kept = Build::of(&layout.previous())
                 .map_or(String::new(), |b| format!(", kelpie {}", b.kelpie));
             say(if change == Change::First {
-                format!(
-                    "installed kelpie {} (shep {}) as {installed}",
-                    build.kelpie, build.shep
-                )
+                format!("installed {build} as {installed}")
             } else {
                 format!(
-                    "installed kelpie {} (shep {}), and kept the previous build{kept} for \
-                     `shep kelpie upgrade --rollback`",
-                    build.kelpie, build.shep
+                    "installed {build}, and kept the previous build{kept} for `shep kelpie \
+                     upgrade --rollback`"
                 )
             });
         }
         (_, Change::Unchanged) => {
-            let build = build.expect("an install has a build");
-            say(format!(
-                "kelpie {} (shep {}) is installed already",
-                build.kelpie, build.shep
-            ));
+            let build = named(build.as_ref().expect("an install has a build"));
+            say(format!("{build} is installed already"));
         }
     }
     say(format!(
@@ -331,6 +327,11 @@ pub async fn run(
             "{e}, so a bare `shep kelpie upgrade` will restart again"
         ));
     }
+    // The upgrade is done: name the runners it left on another build, which is
+    // what a runner whose restart did not take looks like from here.
+    if let Some(commit) = build.and_then(|build| build.commit) {
+        restart::still_behind(&client, &plan, &commit, say).await;
+    }
     Ok(())
 }
 
@@ -338,6 +339,18 @@ async fn connect(scene: &Scene<'_>) -> Result<Box<dyn crate::shepherd::Connectio
     shepherd::connect_any(scene.shepherd, scene.shep_home)
         .await
         .map_err(|e| e.describe(scene.shep_home))
+}
+
+// What a build is called in the lines that name it: its version, the shep it
+// is made for, and the commit it was made from when it names one.
+fn named(build: &Build) -> String {
+    match build.commit.as_deref() {
+        Some(commit) => format!(
+            "kelpie {} (shep {}, built from {commit})",
+            build.kelpie, build.shep
+        ),
+        None => format!("kelpie {} (shep {})", build.kelpie, build.shep),
+    }
 }
 
 // A release must hold the kelpie it names, or nothing is installed.

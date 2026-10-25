@@ -37,7 +37,7 @@ fn endpoint(repo: &ForgeSlug, path: &str) -> String {
 }
 
 // GitHub answers a repo or path it does not have with a 404, which `gh` reports on stderr.
-fn is_not_found(error: &ForgeError) -> bool {
+pub(super) fn is_not_found(error: &ForgeError) -> bool {
     matches!(error, ForgeError::Failed(stderr) if stderr.contains("HTTP 404"))
 }
 

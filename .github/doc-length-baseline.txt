@@ -180,7 +180,6 @@ crates/runner/src/runner/contributions/ruling.rs	9,13	/// Carries the maintainer
 crates/runner/src/runner/contributions/ruling.rs	7,11	/// Records the head a yes to `ruling` trusts, in `next`, so that it counts as
 crates/runner/src/runner/contributions/security.rs	18	//! Reading a contribution's head for security before anything of theirs runs
 crates/runner/src/runner/contributions/security.rs	7	// The read of the current head of one contribution no review has read, as
-crates/runner/src/runner/dependencies/mod.rs	22	//! Merging the bumps bots open, and closing the ones that break
 crates/runner/src/runner/dev_server/bump/mod.rs	12	//! The browser proof of a web bump: its dev server, and its routes opened in the local browser
 crates/runner/src/runner/dev_server/install/mod.rs	12	//! The packages of a checkout, installed before its dev server starts
 crates/runner/src/runner/dev_server/mod.rs	7,7	/// Starts `run` on the call's thread, and says what the worker should know

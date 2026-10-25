@@ -21,6 +21,7 @@ use crate::test::ticket;
 use crate::test::{CALL_PATIENCE, FakeShepherd, waits_for, write_script};
 use crate::ticket::TicketId;
 
+mod commit;
 mod drain;
 mod files;
 mod handover;
@@ -96,6 +97,13 @@ impl Rig {
     fn build(&self, file: &str, kelpie: &str, shep: &str) -> PathBuf {
         let path = self.builds.join(file);
         write_script(&path, &answering(kelpie, shep));
+        path
+    }
+
+    // A stand-in build that also names the commit it was made from.
+    fn built_from(&self, file: &str, kelpie: &str, commit: &str) -> PathBuf {
+        let path = self.builds.join(file);
+        write_script(&path, &naming(kelpie, commit));
         path
     }
 
@@ -180,6 +188,14 @@ fn answering(kelpie: &str, shep: &str) -> String {
 // A stand-in build on shep's `protocol`.
 fn speaking(kelpie: &str, shep: &str, protocol: u32) -> String {
     let json = format!(r#"{{"kelpie":"{kelpie}","shep":"{shep}","protocol":{protocol}}}"#);
+    format!("#!/bin/sh\necho '{json}'\n")
+}
+
+// A stand-in build that names the commit it was made from.
+fn naming(kelpie: &str, commit: &str) -> String {
+    let json = format!(
+        r#"{{"kelpie":"{kelpie}","shep":"0.16.1","protocol":{PROTOCOL_VERSION},"commit":"{commit}"}}"#
+    );
     format!("#!/bin/sh\necho '{json}'\n")
 }
 

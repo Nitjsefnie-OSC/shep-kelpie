@@ -12,6 +12,8 @@ pub enum Kind {
     Visibility,
     /// The repo's default branch
     DefaultBranch,
+    /// Whether the repo requires a pull request's branch to be up to date with its base
+    RequiresUpToDate,
     /// Whether the repo has a branch
     BranchExists,
     /// A folder of the repo's default branch, listed
@@ -147,6 +149,7 @@ impl Kind {
             self,
             Self::Visibility
                 | Self::DefaultBranch
+                | Self::RequiresUpToDate
                 | Self::BranchExists
                 | Self::Folder
                 | Self::FileText
@@ -224,6 +227,7 @@ impl Kind {
             | Self::AppResolveThread
             | Self::AppReplyToThread => Api::GraphQl,
             Self::BranchExists
+            | Self::RequiresUpToDate
             | Self::Folder
             | Self::FileText
             | Self::SubIssues
