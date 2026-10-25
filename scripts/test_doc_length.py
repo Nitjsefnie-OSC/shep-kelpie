@@ -67,6 +67,12 @@ class LineCommentLimit(unittest.TestCase):
         result = check({"src/a.rs": lines("//", 3) + "fn a() {}\n" + lines("//", 3)})
         self.assertEqual(result.returncode, 0, result.stdout)
 
+    def test_example_headings_and_fences_do_not_exempt_a_line_comment(self):
+        example = "// # Example\n" + lines("//", 8) + "fn a() {}\n"
+        fenced = "// ```\n" + lines("//", 8) + "// ```\nfn b() {}\n"
+        self.assertEqual(check({"src/a.rs": example}).returncode, 1)
+        self.assertEqual(check({"src/a.rs": fenced}).returncode, 1)
+
     def test_five_lines_in_a_row_fail_naming_file_and_first_line(self):
         result = check({"src/a.rs": "fn a() {}\n\n" + lines("//", 5) + "fn b() {}\n"})
         self.assertEqual(result.returncode, 1)

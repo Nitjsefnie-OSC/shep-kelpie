@@ -94,8 +94,10 @@ def counted(texts):
 
 def sizes(kind, texts):
     """What a block is measured by, in the order of LIMITS[kind]."""
+    if kind == "//":
+        return (len(texts),)
     lines = counted(texts)
-    if kind != "///":
+    if kind == "//!":
         return (len(lines),)
     # The summary is the first line, and a blank line after it only separates.
     lines = lines[2:] if len(lines) > 1 and not lines[1][1] else lines[1:]
