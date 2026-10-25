@@ -306,12 +306,18 @@ impl WorkerProfile<'_> {
         // in, the git and toolchain its build runs, the plugins its skills name,
         // and the config its `git` and `gh` start with. A credential named beside
         // them stays in `no_read`, which the sandbox applies after every allow.
-        let read = [self.worktree, self.build, self.kelpie, self.git_common_dir, self.skills]
-            .into_iter()
-            .map(Path::to_owned)
-            .chain(dep_sources::toolchain_homes(self.home, &ProcessEnv))
-            .chain(self.login_carve_outs())
-            .collect();
+        let read = [
+            self.worktree,
+            self.build,
+            self.kelpie,
+            self.git_common_dir,
+            self.skills,
+        ]
+        .into_iter()
+        .map(Path::to_owned)
+        .chain(dep_sources::toolchain_homes(self.home, &ProcessEnv))
+        .chain(self.login_carve_outs())
+        .collect();
         let no_commands = PM_ONLY
             .iter()
             .chain(&GH_DENY)

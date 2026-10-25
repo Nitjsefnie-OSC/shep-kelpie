@@ -12,7 +12,7 @@ use serde_json::{Value, json};
 
 use crate::guard::{AFTER_FLAG, FOLDER_FLAG, PAUSE_FLAG, RECORD_FLAG};
 use crate::hooks::GUARD_BUDGET;
-use crate::ports::{Fence, Guard, PM_NOTES, Reach, Tools};
+use crate::ports::{AgentCall, Fence, Guard, PM_NOTES, Reach, Tools};
 use crate::settings::{HookEvent, HookPoint};
 use crate::spawn::shell_quote;
 use crate::trim::trimmed;
@@ -199,14 +199,15 @@ const GUARDED_TOOLS: &str = "Bash|Agent|Task";
 // Seconds past the guard's budget for hooks that Claude Code waits for the guard.
 const GUARD_MARGIN: u64 = 10;
 
-/// The Read rules that keep a call with no fence, working in `cwd`, out of
-/// `unfenced` but for `cwd` and the folders it reads
-pub(crate) fn unfenced_reads(cwd: &Path, reach: &Reach, unfenced: &[String]) -> Vec<String> {
-    if reach.fence.is_some() {
+/// The Read rules that keep a call with no fence out of `unfenced` but for its
+/// own folder, the folders it is granted, and the plugins it is given
+pub(crate) fn unfenced_reads(call: &AgentCall, unfenced: &[String]) -> Vec<String> {
+    if call.reach.fence.is_some() {
         return Vec::new();
     }
-    let own: Vec<PathBuf> = std::iter::once(cwd.to_owned())
-        .chain(reach.read.iter().cloned())
+    let own: Vec<PathBuf> = (std::iter::once(call.cwd.clone()))
+        .chain(call.reach.read.iter().cloned())
+        .chain(call.plugin_dirs.iter().cloned())
         .collect();
     read_denials(unfenced, &own)
         .iter()

@@ -469,19 +469,23 @@ mod tests {
     #[test]
     fn an_unfenced_call_reads_nothing_of_the_shepherds_home_but_its_own_folder() {
         let w = World::new();
-        let review = w.call(Role::Reviewer);
+        let mut review = w.call(Role::Reviewer);
+        review.plugin_dirs = vec![w.path("skills/mattpocock")];
         let shep = vec![format!("{}/**", w.path("").display())];
         let policy = policy(&review, &w.path("home"), &w.path("claude"), &shep).unwrap();
         assert!(policy.no_read.contains(&shep[0]), "{:?}", policy.no_read);
         assert!(policy.read.contains(&w.path("wt")));
-        let deny = super::super::settings::unfenced_reads(&review.cwd, &review.reach, &shep);
+        assert!(policy.read.contains(&w.path("skills/mattpocock")));
+        let deny = super::super::settings::unfenced_reads(&review, &shep);
         let deny = deny.join(" ");
         let worker = format!("Read(/{}/**)", w.path("worker").display());
         assert!(deny.contains(&worker), "{deny}");
-        assert!(
-            !deny.contains(&w.path("wt").display().to_string()),
-            "{deny}"
-        );
+        for own in ["wt", "skills/mattpocock"] {
+            assert!(
+                !deny.contains(&w.path(own).display().to_string()),
+                "{own} is denied: {deny}"
+            );
+        }
         let without = super::policy(&review, &w.path("home"), &w.path("claude"), &[]).unwrap();
         assert!(
             !without.read.contains(&w.path("wt")),

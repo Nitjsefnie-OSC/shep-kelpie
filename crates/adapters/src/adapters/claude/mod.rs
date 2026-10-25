@@ -262,7 +262,7 @@ pub fn write_settings(call: &AgentCall, unfenced: &[String]) -> Result<(), Agent
         settings::compacting(&mut value, window, &again, &marks);
     }
     mcp::allow(&mut value, call);
-    let reads = settings::unfenced_reads(&call.cwd, &call.reach, unfenced);
+    let reads = settings::unfenced_reads(call, unfenced);
     if let Some(deny) = value["permissions"]["deny"].as_array_mut() {
         deny.extend(reads.into_iter().map(serde_json::Value::from));
     }

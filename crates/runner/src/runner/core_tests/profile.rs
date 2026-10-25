@@ -233,7 +233,11 @@ fn a_worker_reads_its_own_toolchain_and_no_other_repo_of_the_home() {
         home.join("checkouts/shep/.git"),
         home.join("checkouts/shep/.git/worktrees/7"),
     );
-    let (worktree, build) = (home.join("wt/shep/7"), home.join("targets/shep/7"));
+    let (worktree, build, skills) = (
+        home.join("wt/shep/7"),
+        home.join("targets/shep/7"),
+        home.join("skills"),
+    );
     for (rel, text) in [
         ("other-repo/.env", "SECRET=1\n"),
         ("other-repo/src/lib.rs", "work\n"),
@@ -242,6 +246,7 @@ fn a_worker_reads_its_own_toolchain_and_no_other_repo_of_the_home() {
         (".cargo/credentials.toml", "token\n"),
         (".rustup/toolchains/stable/bin/rustc", "x\n"),
         (".gitconfig", "[user]\n"),
+        ("skills/tdd/SKILL.md", "step skills\n"),
     ] {
         let path = home.join(rel);
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -263,6 +268,7 @@ fn a_worker_reads_its_own_toolchain_and_no_other_repo_of_the_home() {
         build_env: &BTreeMap::new(),
         home: &home,
         shep_home: &home,
+        skills: &skills,
         door: Path::new("/s/kelpie/dog/lease.sock"),
         token: None,
     }
@@ -277,6 +283,7 @@ fn a_worker_reads_its_own_toolchain_and_no_other_repo_of_the_home() {
         home.join(".cargo").as_path(),
         home.join(".rustup").as_path(),
         home.join(".gitconfig").as_path(),
+        skills.as_path(),
     ] {
         assert!(
             allow.contains(&folder.to_str().unwrap()),
@@ -310,6 +317,7 @@ fn a_worker_reads_its_own_toolchain_and_no_other_repo_of_the_home() {
         home.join(".rustup/toolchains/stable/bin/rustc")
             .to_str()
             .unwrap(),
+        home.join("skills/tdd/SKILL.md").to_str().unwrap(),
     ] {
         assert!(
             !deny.iter().any(|r| covers(r, folder)),
