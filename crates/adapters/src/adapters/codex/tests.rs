@@ -7,10 +7,10 @@ use super::*;
 use crate::adapters::ClaudeCli;
 use crate::adapters::SandboxRuntime;
 use crate::adapters::harness::ERROR_TAIL;
-use crate::ports::{Browser, CodeGraph, Role, Unreadable};
+use crate::ports::{Role, Unreadable};
 use crate::profile::WorkerProfile;
 use crate::settings::Effort;
-use crate::test::OpenSandbox;
+use crate::test::{NO_PROGRAM, OpenSandbox};
 use crate::tools::Tools as KelpieTools;
 
 pub(super) const WORKER_ID: &str = "5a2e9d40-1c7b-4b38-8e6f-2d4a9c1b7e53";
@@ -258,93 +258,13 @@ fn a_call_on_a_covered_repo_runs_without_the_keychain_and_any_other_with_it() {
         w.fenced(Path::new("/k/kelpie"), Session::New(id(WORKER_ID))),
         w.call(Role::Reviewer, Session::New(id(WORKER_ID))),
     ];
+    let login = w.path("login");
     for call in &mut calls {
-        let policy = |call: &AgentCall| policy(call, &w.path("login"), &Files::of(call), &[]);
+        let policy = |call: &AgentCall| policy(call, &login, &Files::of(call), &NO_PROGRAM, &[]);
         assert!(!policy(call).no_keychain);
         call.reach.block_keychain = true;
         assert!(policy(call).no_keychain);
     }
-}
-
-#[test]
-fn a_call_with_a_browser_loads_playwright_and_the_sandbox_connects_only_to_its_socket() {
-    let w = World::new();
-    let browser = Browser {
-        kelpie: PathBuf::from("/k/kelpie"),
-        socket: w.path("0123456789abcdef0123456789abcdef.sock"),
-    };
-    let mut call = w.fenced(Path::new("/k/kelpie"), Session::New(id(WORKER_ID)));
-    let login = w.path("login");
-    let without = policy(&call, &login, &Files::of(&call), &[]);
-    let argv_without = strings(&call, None, None);
-    call.reach.browser = Some(Box::new(browser.clone()));
-    let with = policy(&call, &login, &Files::of(&call), &[]);
-    let argv_with = strings(&call, None, None);
-
-    assert!(!without.sockets.contains(&browser.socket));
-    assert_eq!(
-        with.sockets
-            .iter()
-            .filter(|s| !without.sockets.contains(s))
-            .collect::<Vec<_>>(),
-        [&browser.socket]
-    );
-    assert!(
-        !argv_without
-            .iter()
-            .any(|a| a.starts_with("mcp_servers.playwright")),
-        "{argv_without:?}"
-    );
-    let at = argv_with
-        .iter()
-        .position(|a| a.starts_with("mcp_servers.playwright="))
-        .expect("the override");
-    assert_eq!(argv_with[at - 1], "-c");
-    // Read back the way Codex reads `-c`: the server must carry the socket the sandbox allows.
-    let line: toml::Table = toml::from_str(&argv_with[at]).unwrap();
-    let server = &line["mcp_servers"]["playwright"];
-    assert_eq!(server["command"].as_str(), Some("/k/kelpie"));
-    let args: Vec<_> = server["args"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|a| a.as_str().unwrap())
-        .collect();
-    assert_eq!(args, ["mcp-connect", browser.socket.to_str().unwrap()]);
-}
-
-#[test]
-fn the_sandbox_reads_the_code_graph_binary_and_writes_only_its_index_and_daemon_folder() {
-    let w = World::new();
-    let graph = CodeGraph {
-        binary: PathBuf::from("/k/tools/codebase-memory-mcp"),
-        index: PathBuf::from("/k/graphs/7"),
-        runtime: PathBuf::from("/k/cbm/7"),
-    };
-    let mut call = w.fenced(Path::new("/k/kelpie"), Session::New(id(WORKER_ID)));
-    let login = w.path("login");
-    let without = policy(&call, &login, &Files::of(&call), &[]);
-    call.reach.code_graph = Some(graph.clone());
-    let with = policy(&call, &login, &Files::of(&call), &[]);
-
-    assert!(with.read.contains(&graph.binary) && with.read.contains(&graph.index));
-    assert!(with.write.contains(&graph.index));
-    assert!(!with.write.contains(&graph.binary));
-    assert!(!without.read.contains(&graph.binary) && !without.write.contains(&graph.index));
-    let granted: Vec<_> = with
-        .write
-        .iter()
-        .filter(|p| !without.write.contains(p))
-        .collect();
-    assert_eq!(granted, [&graph.index, &graph.runtime]);
-    let sockets: Vec<_> = (with.sockets.iter())
-        .filter(|s| !without.sockets.contains(s))
-        .collect();
-    assert_eq!(
-        sockets,
-        [&graph.runtime],
-        "its daemon's socket, and no other"
-    );
 }
 
 #[test]
@@ -353,7 +273,7 @@ fn a_call_reads_the_login_and_writes_only_its_own_codex_home() {
     let login = w.path("login");
     let call = w.fenced(Path::new("/k/kelpie"), Session::New(id(WORKER_ID)));
     let files = Files::of(&call);
-    let policy = policy(&call, &login, &files, &[]);
+    let policy = policy(&call, &login, &files, &NO_PROGRAM, &[]);
     for unread in ["~/.codex/**", "~/.agents/**", "~/.claude.json", "~/.ssh/**"] {
         assert!(policy.no_read.iter().any(|p| p == unread), "{unread}");
     }
@@ -411,7 +331,7 @@ fn a_call_reads_the_login_and_writes_only_its_own_codex_home() {
     assert_eq!(policy.hosts.last().unwrap(), MODEL_HOST);
 
     let review = w.call(Role::Reviewer, Session::New(id(WORKER_ID)));
-    let unfenced = super::policy(&review, &login, &Files::of(&review), &[]);
+    let unfenced = super::policy(&review, &login, &Files::of(&review), &NO_PROGRAM, &[]);
     assert_eq!(unfenced.hosts, [MODEL_HOST]);
     assert!(
         unfenced.verify_tls,
@@ -430,7 +350,7 @@ fn an_unfenced_codex_session_is_denied_the_shepherds_home_but_its_own_folder() {
     let sandbox = OpenSandbox::default();
     let codex = CodexCli::on(
         &Base::default()
-            .unfenced_unread(&w.path("shep"))
+            .unfenced_unread(&w.path("home"), &w.path("shep"))
             .sandboxed(Arc::new(sandbox.clone()), w.path("home")),
         w.path("login"),
     )
@@ -455,7 +375,7 @@ fn a_fenced_call_reads_its_codex_home_inside_the_shepherds() {
     let mut call = w.fenced(Path::new("/k/kelpie"), Session::New(id(WORKER_ID)));
     call.settings = w.path("shep/kelpie/koji/worker/settings.json");
     let files = Files::of(&call);
-    let policy = policy(&call, &w.path("login"), &files, &[]);
+    let policy = policy(&call, &w.path("login"), &files, &NO_PROGRAM, &[]);
     let unread = |path: &Path| {
         policy
             .no_read
@@ -779,6 +699,7 @@ fn worker_in(wt: &Path, build: &Path, kelpie: &Path, root: &Path, call: AgentCal
     let profile = WorkerProfile {
         worktree: wt,
         build,
+        home: root,
         git_common_dir: &git,
         git_dir: &git,
         branch: "kelpie/34",

@@ -70,11 +70,12 @@ impl Base {
         self.sandboxed(Arc::new(sandbox), home)
     }
 
-    /// Keeps a call with no fence, such as a reviewer's session, out of
-    /// `shep_home`, which holds the sheep entries' `env` and `dogs.toml`
+    /// Keeps a call with no fence, such as a reviewer's session, out of the
+    /// home folder and `shep_home`, which hold the sheep entries' `env`,
+    /// `dogs.toml` and everything else of the machine the call works no part of
     #[must_use]
-    pub fn unfenced_unread(mut self, shep_home: &Path) -> Self {
-        self.unfenced_no_read = vec![format!("{}/**", shep_home.display())];
+    pub fn unfenced_unread(mut self, home: &Path, shep_home: &Path) -> Self {
+        self.unfenced_no_read = crate::profile::home_denials([home, shep_home]);
         self
     }
 

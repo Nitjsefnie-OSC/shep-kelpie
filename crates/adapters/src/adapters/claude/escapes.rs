@@ -37,9 +37,11 @@ impl World {
 
     fn call(&self) -> AgentCall {
         let (wt, build, git) = (self.path("wt"), self.path("build"), self.path("repo/.git"));
+        let home = self.path("home");
         let profile = WorkerProfile {
             worktree: &wt,
             build: &build,
+            home: &home,
             git_common_dir: &git,
             git_dir: &git.join("worktrees/7"),
             branch: "kelpie/7",
@@ -76,7 +78,7 @@ impl World {
     fn try_to(&self, script: &str) -> Output {
         let tools = KelpieTools::at(std::env::var_os("KELPIE_TOOLS").expect(NEEDS).into());
         let call = self.call();
-        let policy = policy(&call, &self.path("home"), &[]).unwrap();
+        let policy = policy(&call, &self.path("home"), Path::new("/nowhere/claude"), &[]).unwrap();
         let mut inner = Command::new("/bin/sh");
         inner.args(["-c", script]).current_dir(&call.cwd);
         SandboxRuntime::under_test(tools)
@@ -254,6 +256,48 @@ fn codexs_own_files_are_refused_in_any_case() {
     }
 }
 
+// A worker's shell reads its worktree, its build folder and an installed
+// dependency source, and nothing of another repo of the same home folder,
+// private ones and their `.env` files included.
+#[test]
+#[ignore = "needs kelpie's tools: KELPIE_TOOLS=<dir> from `shep kelpie tools install`"]
+fn a_worker_reads_its_own_folders_and_no_other_repo_of_the_home() {
+    let w = World::new();
+    let dep = w.path("home/.cargo/registry/src/serde-1.0.2");
+    let files: Vec<(PathBuf, &str)> = vec![
+        (w.path("wt/src/lib.rs"), "the worktree's own\n"),
+        (w.path("build/built.txt"), "the build folder's own\n"),
+        (dep.join("src/lib.rs"), "an installed dependency\n"),
+        (w.path("home/other-repo/.env"), "SECRET=1\n"),
+        (w.path("home/other-repo/src/lib.rs"), "private work\n"),
+        (w.path("home/other-repo/.git/config"), "[remote]\n"),
+    ];
+    for (path, text) in &files {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, text).unwrap();
+    }
+
+    for path in files[..3].iter() {
+        let out = w.try_to(&format!("cat {}", path.0.display()));
+        assert_eq!(
+            String::from_utf8_lossy(&out.stdout),
+            path.1,
+            "{}: {}",
+            path.0.display(),
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+    for path in files[3..].iter() {
+        let out = w.try_to(&format!("cat {}", path.0.display()));
+        let why = String::from_utf8_lossy(&out.stderr).to_string();
+        assert!(
+            !out.status.success() && why.contains("Operation not permitted"),
+            "{} was read: {why}",
+            path.0.display()
+        );
+    }
+}
+
 // The real adapter on Haiku: a worker turn with kelpie's hooks from this
 // build, then the same session resumed.
 #[test]
@@ -300,6 +344,7 @@ fn a_live_worker_turn_runs_inside_the_sandbox_and_resumes() {
     let profile = WorkerProfile {
         worktree: &wt,
         build: &build,
+        home: &root,
         git_common_dir: &git_dir,
         git_dir: &git_dir.join("worktrees/wt"),
         branch: "kelpie/7",

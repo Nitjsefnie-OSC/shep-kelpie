@@ -689,6 +689,7 @@ impl Runner {
             repo: &self.settings.git.checkout,
             allowed_domains: &self.settings.worker.allowed_domains,
             build_env: &self.settings.worker.build_env,
+            home: &self.home,
             shep_home: &self.paths.shep_home,
             door: &self.paths.door,
             token,
@@ -780,6 +781,7 @@ impl Runner {
             }
         }
         self.with_dep_sources(&mut call);
+        self.with_plugin_reads(&mut call);
         self.with_code_graph(&mut call);
         self.with_browser(&mut call)?;
         if let Err(e) = self.ports.agents.prepare(&call) {

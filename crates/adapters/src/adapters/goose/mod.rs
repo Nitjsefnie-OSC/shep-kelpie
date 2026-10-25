@@ -23,13 +23,13 @@
 //! gateway's lease on its model from start to end, where its kind offers one.
 
 use std::ffi::OsString;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 use self::files::Files;
 use self::output::Spent;
 use super::cli::{Cli, CliAdapter, FollowUp, Launch, Turn};
-use super::harness::{Base, bind_in_scratch, call_policy};
+use super::harness::{Base, bind_in_scratch, call_policy, program_folder};
 use super::process::record::CallFiles;
 use crate::fence;
 use crate::forwarder::Upstream;
@@ -46,7 +46,6 @@ use {
     super::forwarder::Forwarder,
     crate::ports::{Agents, Ending, Forward},
     crate::settings::{AgentHarness, Gateways, ModelHost},
-    std::path::Path,
 };
 
 mod activity;
@@ -275,6 +274,7 @@ impl Cli for Goose {
         Ok(fenced(
             call,
             &Files::of(&call.settings),
+            Path::new(&self.program),
             &self.unfenced_no_read,
         ))
     }
@@ -606,7 +606,7 @@ fn argv(call: &AgentCall) -> Result<Vec<OsString>, AgentError> {
 ///
 /// The model's host is not in it. The one host goose may dial is the forwarder's,
 /// which the adapter adds.
-fn fenced(call: &AgentCall, files: &Files, unfenced: &[String]) -> Policy {
+fn fenced(call: &AgentCall, files: &Files, program: &Path, unfenced: &[String]) -> Policy {
     let mut policy = call_policy(call, unfenced);
     // A retro and an advisor run under a fence that can write, which their
     // read-only shell must not use: the hook is the first layer, this the second.
@@ -626,6 +626,7 @@ fn fenced(call: &AgentCall, files: &Files, unfenced: &[String]) -> Policy {
     policy.read.extend(
         [files.root.clone(), files.scratch.clone()]
             .into_iter()
+            .chain(program_folder(program))
             .chain([outputs.stdout, outputs.stderr])
             .chain(call.instructions.iter().cloned())
             .chain(call.plugin_dirs.iter().cloned())
@@ -644,9 +645,10 @@ fn policy(
     files: &Files,
     upstream: &Upstream,
     forwarder: &Path,
+    program: &Path,
     unfenced: &[String],
 ) -> Policy {
-    let mut policy = fenced(call, files, unfenced);
+    let mut policy = fenced(call, files, program, unfenced);
     super::harness::dial_the_forwarder(&mut policy, upstream, forwarder);
     policy
 }

@@ -152,11 +152,11 @@ fn reach(
     )
     .map_err(|e| e.to_string())?;
     let local = settings.tickets.source == TicketSource::Local;
-    let homes = [&paths.shep_home, &paths.kelpie_home]
-        .into_iter()
-        .enumerate()
-        .filter(|&(i, home)| i == 0 || !home.starts_with(&paths.shep_home))
-        .map(|(_, home)| format!("{}/**", home.display()));
+    let homes = crate::profile::home_denials([
+        project.home,
+        paths.shep_home.as_path(),
+        paths.kelpie_home.as_path(),
+    ]);
     let rules = IssueRules {
         status: mode.status().to_owned(),
         agents: (project.agents.implementers.iter())
@@ -174,6 +174,8 @@ fn reach(
     // A local project's writer files into its tickets folder, which its home's
     // `no_read` would otherwise hide.
     let tickets = local.then(|| paths.tickets());
+    // `gh` starts on its config folder, which the denied home would otherwise hide.
+    let gh_config = project.home.join(".config/gh");
     let fence = Fence {
         write: tickets.iter().cloned().collect(),
         no_write: crate::fence::deny_write(checkout),
@@ -181,12 +183,17 @@ fn reach(
             .map(|&p| p.to_owned())
             .chain(homes)
             .collect(),
-        read: [checkout.to_owned(), project.kelpie.to_owned()]
-            .into_iter()
-            .chain(also.iter().cloned())
-            .chain(dep.iter().cloned())
-            .chain(tickets)
-            .collect(),
+        read: [
+            checkout.to_owned(),
+            project.kelpie.to_owned(),
+            PathBuf::from(&common),
+        ]
+        .into_iter()
+        .chain(gh_config.exists().then_some(gh_config))
+        .chain(also.iter().cloned())
+        .chain(dep.iter().cloned())
+        .chain(tickets)
+        .collect(),
         hosts: vec!["github.com".to_owned(), "api.github.com".to_owned()],
         no_commands: Vec::new(),
         env: Default::default(),

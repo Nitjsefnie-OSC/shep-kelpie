@@ -154,11 +154,9 @@ impl Runner {
         hosts: Vec<String>,
     ) -> Reach {
         let folder = folder.to_owned();
-        let (shep, kelpie) = (&self.paths.shep_home, &self.paths.kelpie_home);
-        let homes = [shep.clone()]
-            .into_iter()
-            .chain((!kelpie.starts_with(shep)).then(|| kelpie.clone()))
-            .map(|home| format!("{}/**", home.display()));
+        let (home, shep, kelpie) = (&self.home, &self.paths.shep_home, &self.paths.kelpie_home);
+        let homes =
+            crate::profile::home_denials([home.as_path(), shep.as_path(), kelpie.as_path()]);
         // Both layers let a deny inside a folder it reads win: the sandbox
         // emits it after the folder's allow, and Claude Code's denies win.
         let secrets = code.iter().flat_map(|tree| {

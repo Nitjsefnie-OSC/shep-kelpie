@@ -80,6 +80,7 @@ fn curl(world: &World, call: &AgentCall, forwarder: &Forwarder, args: &[&str]) -
         &Files::of(&call.settings),
         &upstream,
         &forwarder.socket,
+        Path::new("/nowhere/goose"),
         &[],
     );
     let mut command = Command::new("env");

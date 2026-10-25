@@ -1,7 +1,8 @@
 //! The sandbox policy every harness starts from
 
+use std::env;
 use std::net::{IpAddr, ToSocketAddrs};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::forwarder::{Upstream, WORKER_HOST};
 use crate::ports::{AgentCall, Fence, Forward, Policy, Tools};
@@ -51,6 +52,36 @@ pub(crate) fn call_policy(call: &AgentCall, unfenced: &[String]) -> Policy {
             policy
         }
     }
+}
+
+/// Where `program` runs, as the files the sandbox must let through
+///
+/// A call whose sandbox denies the home folder whole must allow back the harness
+/// it starts, which may sit under it: a bare name is looked up on `PATH`, and a
+/// link is followed to what it runs, since the sandbox judges the real file but
+/// the shell still has to read the link it ran.
+pub(crate) fn program_folder(program: &Path) -> Vec<PathBuf> {
+    let on_path = || {
+        env::var_os("PATH")
+            .iter()
+            .flat_map(|paths| env::split_paths(paths))
+            .map(|folder| folder.join(program))
+            .find(|candidate| candidate.is_file())
+    };
+    let Some(found) = (match program.parent() {
+        // A name with no folder is the shell's to find, and kelpie finds it the
+        // same way, so the call starts what its sandbox is told to let through.
+        None => on_path(),
+        Some(_) => program.is_file().then(|| program.to_owned()),
+    }) else {
+        return Vec::new();
+    };
+    let real = found.canonicalize().unwrap_or_else(|_| found.clone());
+    [found, real]
+        .into_iter()
+        .collect::<std::collections::BTreeSet<PathBuf>>()
+        .into_iter()
+        .collect()
 }
 
 /// Lets a call that runs a work item's tests bind Unix sockets in `scratch`,

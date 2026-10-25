@@ -22,7 +22,9 @@ use std::process::{Command, Output};
 use serde::{Deserialize, Serialize};
 
 use super::cli::{Cli, CliAdapter, Launch, Turn};
-use super::harness::{Base, Records, bind_in_scratch, call_policy, step_skill, tail};
+use super::harness::{
+    Base, Records, bind_in_scratch, call_policy, program_folder, step_skill, tail,
+};
 use super::process::record::CallFiles;
 use super::unreachable::reaches_no_host;
 use crate::fence;
@@ -63,6 +65,9 @@ mod hook_tests;
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod ports_tests;
 
 #[cfg(test)]
 mod reading_tests;
@@ -276,7 +281,13 @@ impl Cli for Codex {
 
     fn policy(&self, call: &AgentCall, _: &Launch<'_>) -> Result<Policy, AgentError> {
         let files = Files::of(call);
-        Ok(policy(call, &self.login, &files, &self.unfenced_no_read))
+        Ok(policy(
+            call,
+            &self.login,
+            &files,
+            Path::new(&self.program),
+            &self.unfenced_no_read,
+        ))
     }
 
     fn parse(
@@ -745,7 +756,13 @@ fn hook_entry(matcher: &str, command: String) -> toml::Value {
 }
 
 /// The whole call's policy: its fence, or none, and what Codex itself needs
-fn policy(call: &AgentCall, login: &Path, files: &Files, unfenced: &[String]) -> Policy {
+fn policy(
+    call: &AgentCall,
+    login: &Path,
+    files: &Files,
+    program: &Path,
+    unfenced: &[String],
+) -> Policy {
     let mut policy = call_policy(call, unfenced);
     if reading::writes_nothing(call.tools) {
         policy.write.clear();
@@ -765,6 +782,7 @@ fn policy(call: &AgentCall, login: &Path, files: &Files, unfenced: &[String]) ->
     policy.read.extend(
         [login.join(AUTH), files.home.clone(), files.scratch.clone()]
             .into_iter()
+            .chain(program_folder(program))
             .chain(call.instructions.iter().cloned())
             .chain(call.plugin_dirs.iter().cloned())
             .chain(call.reach.read.iter().cloned()),

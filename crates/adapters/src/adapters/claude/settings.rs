@@ -218,8 +218,14 @@ pub(crate) fn unfenced_reads(cwd: &Path, reach: &Reach, unfenced: &[String]) -> 
 pub fn settings(tools: Tools, reach: &Reach) -> Value {
     let mut deny: Vec<String> = Vec::new();
     if let Some(fence) = &reach.fence {
+        // What the call reads back inside a folder its fence denies: the fence's
+        // own carve-outs, and every folder the call is granted.
+        let carve: Vec<PathBuf> = (fence.read.iter())
+            .chain(reach.read.iter())
+            .cloned()
+            .collect();
         deny.extend(
-            read_denials(&fence.no_read, &fence.read)
+            read_denials(&fence.no_read, &carve)
                 .iter()
                 .map(|p| read_rule(p)),
         );

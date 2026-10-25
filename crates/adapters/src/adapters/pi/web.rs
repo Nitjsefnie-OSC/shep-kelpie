@@ -261,7 +261,14 @@ mod tests {
                 call.reach.extensions = vec![package(&w)];
                 let argv = strings(&call);
                 let files = super::super::Files::of(&call);
-                let policy = super::super::policy(&call, &files, &upstream, &socket, &[]);
+                let policy = super::super::policy(
+                    &call,
+                    &files,
+                    &upstream,
+                    &socket,
+                    Path::new("/nowhere/pi"),
+                    &[],
+                );
                 let env = super::super::env_args(&call, &files);
                 let env: Vec<_> = env.iter().map(|v| v.to_string_lossy()).collect();
                 let has_web = role == Role::Researcher && tools == Tools::Research;
@@ -319,7 +326,14 @@ mod tests {
                 .upstream(super::super::server(&call).unwrap())
                 .unwrap();
             let files = super::super::Files::of(&call);
-            super::super::policy(&call, &files, &upstream, &w.path("f.sock"), &[])
+            super::super::policy(
+                &call,
+                &files,
+                &upstream,
+                &w.path("f.sock"),
+                Path::new("/nowhere/pi"),
+                &[],
+            )
         };
         assert!(policy.read.contains(&w.path("settings.pi")));
         assert!(!policy.write.contains(&w.path("settings.pi")));

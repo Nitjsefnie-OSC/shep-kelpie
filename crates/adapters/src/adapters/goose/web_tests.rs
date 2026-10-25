@@ -58,7 +58,17 @@ fn made(call: &AgentCall) -> (Vec<String>, Policy) {
     let env = env_args(call, server(call).unwrap(), &files, &upstream, None);
     let env = env.into_iter().map(|v| v.into_string().unwrap()).collect();
     let socket = Path::new("/k/forwarder.sock");
-    (env, policy(call, &files, &upstream, socket, &[]))
+    (
+        env,
+        policy(
+            call,
+            &files,
+            &upstream,
+            socket,
+            Path::new("/nowhere/goose"),
+            &[],
+        ),
+    )
 }
 
 #[test]

@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use super::{Claude, LOGIN_VAR};
-use crate::adapters::harness::{bind_in_scratch, call_policy, prompt_file};
+use crate::adapters::harness::{bind_in_scratch, call_policy, program_folder, prompt_file};
 use crate::fence;
 use crate::ports::{AgentCall, AgentError, Policy};
 
@@ -70,6 +70,7 @@ const LONGEST_NAME: usize = 200;
 pub(crate) fn policy(
     call: &AgentCall,
     home: &Path,
+    program: &Path,
     unfenced: &[String],
 ) -> Result<Policy, AgentError> {
     let mut policy = call_policy(call, unfenced);
@@ -78,15 +79,29 @@ pub(crate) fn policy(
     let transcripts = transcripts(home, &call.cwd)?;
     // Auto memory there loads into every session in the folder, a review's too.
     policy.no_write.push(transcripts.join("memory"));
-    policy.write.extend([transcripts, scratch(call)]);
-    // Claude Code reads its own files for the call wherever they are kept.
+    policy.write.extend([transcripts.clone(), scratch(call)]);
+    // A fence denies the home folder whole, so what Claude Code reads to run is
+    // named beside the call's own files: its login and state, the settings,
+    // skills and shell snapshots under its home, and the program it is,
+    // wherever they sit. Another project's transcripts stay denied: they hold
+    // what those sessions read, and this call writes none of its own there.
+    let own = [
+        transcripts.clone(),
+        home.join(".claude.json"),
+        home.join(".claude"),
+    ]
+    .into_iter()
+    .chain(program_folder(program))
+    .chain([call.settings.clone(), scratch(call)]);
+    policy.no_read.push("~/.claude/projects/**".to_owned());
     policy.read.extend(
-        [&call.settings, &scratch(call)]
-            .into_iter()
-            .chain(&call.instructions)
-            .chain(&call.plugin_dirs)
-            .chain(&call.reach.read)
-            .cloned(),
+        own.chain(
+            call.instructions
+                .iter()
+                .chain(&call.plugin_dirs)
+                .chain(&call.reach.read)
+                .cloned(),
+        ),
     );
     // The hook that hands the prompt back after a compaction reads it inside the sandbox.
     if call.compact_window.is_some() {
@@ -200,9 +215,11 @@ mod tests {
 
         fn worker(&self) -> AgentCall {
             let (wt, build) = (self.path("wt"), self.path("build"));
+            let home = self.path("home");
             let profile = WorkerProfile {
                 worktree: &wt,
                 build: &build,
+                home: &home,
                 git_common_dir: Path::new("/k/repo/.git"),
                 git_dir: Path::new("/k/repo/.git/worktrees/7"),
                 branch: "kelpie/7",
@@ -233,7 +250,7 @@ mod tests {
 
         fn cli(&self, sandbox: Arc<dyn crate::ports::Sandbox>) -> ClaudeCli {
             let base = Base::default()
-                .unfenced_unread(&self.path("shep"))
+                .unfenced_unread(&self.path("home"), &self.path("shep"))
                 .sandboxed(sandbox, self.path("home"));
             ClaudeCli::on(&base).with_program(self.path("claude"))
         }
@@ -294,7 +311,7 @@ mod tests {
     #[test]
     fn a_worker_writes_its_fence_its_transcripts_and_its_scratch_and_reaches_the_model() {
         let w = World::new();
-        let policy = policy(&w.worker(), &w.path("home"), &[]).unwrap();
+        let policy = policy(&w.worker(), &w.path("home"), &w.path("claude"), &[]).unwrap();
         let transcripts = transcripts(&w.path("home"), &w.path("wt")).unwrap();
         let scratch = w.path("worker/settings.tmp");
         assert_eq!(policy.write[..2], [w.path("wt"), w.path("build")]);
@@ -309,16 +326,24 @@ mod tests {
         assert_eq!(policy.hosts.last().unwrap(), MODEL_HOST);
         assert!(policy.read.contains(&w.path("worker/settings.json")));
         assert!(policy.no_read.iter().any(|p| p == "~/.ssh/**"));
-        // Another harness's login, and none of Claude Code's own, which it reads to run.
+        // Another harness's login, and none of Claude Code's own but the
+        // transcripts of the other projects it shares the folder with.
         assert!(policy.no_read.iter().any(|p| p == "~/.codex/**"));
-        assert!(!policy.no_read.iter().any(|p| p.starts_with("~/.claude")));
+        assert!(
+            !policy
+                .no_read
+                .iter()
+                .any(|p| { p.starts_with("~/.claude") && *p != "~/.claude/projects/**" })
+        );
+        assert!(policy.no_read.iter().any(|p| p == "~/.claude/projects/**"));
         assert!(policy.verify_tls);
     }
 
     #[test]
     fn a_workers_scratch_folder_is_where_it_may_bind_sockets_and_a_reviewers_is_not() {
         let w = World::new();
-        let policy = |call: &AgentCall| policy(call, &w.path("home"), &[]).unwrap();
+        let policy =
+            |call: &AgentCall| policy(call, &w.path("home"), &w.path("claude"), &[]).unwrap();
         assert_eq!(
             policy(&w.worker()).socket_folders,
             [w.path("worker/settings.tmp")]
@@ -340,7 +365,7 @@ mod tests {
             plugin_dirs: vec![w.path("skills/mattpocock")],
             ..w.worker()
         };
-        let policy = policy(&call, &w.path("home"), &[]).unwrap();
+        let policy = policy(&call, &w.path("home"), &w.path("claude"), &[]).unwrap();
         assert!(policy.read.contains(&w.path("skills/mattpocock")));
     }
 
@@ -351,10 +376,10 @@ mod tests {
     fn a_worker_with_a_compact_window_reads_back_the_prompt_its_hook_prints() {
         let w = World::new();
         let mut call = w.worker();
-        let without = policy(&call, &w.path("home"), &[]).unwrap();
+        let without = policy(&call, &w.path("home"), &w.path("claude"), &[]).unwrap();
         assert!(!without.read.contains(&w.path("worker/settings.prompt.md")));
         call.compact_window = std::num::NonZeroU32::new(200_000);
-        let with = policy(&call, &w.path("home"), &[]).unwrap();
+        let with = policy(&call, &w.path("home"), &w.path("claude"), &[]).unwrap();
         assert!(with.read.contains(&w.path("worker/settings.prompt.md")));
     }
 
@@ -363,9 +388,17 @@ mod tests {
         let w = World::new();
         for mut call in [w.worker(), w.call(Role::Reviewer)] {
             let home = w.path("home");
-            assert!(!policy(&call, &home, &[]).unwrap().no_keychain);
+            assert!(
+                !policy(&call, &home, &w.path("claude"), &[])
+                    .unwrap()
+                    .no_keychain
+            );
             call.reach.block_keychain = true;
-            assert!(policy(&call, &home, &[]).unwrap().no_keychain);
+            assert!(
+                policy(&call, &home, &w.path("claude"), &[])
+                    .unwrap()
+                    .no_keychain
+            );
         }
     }
 
@@ -375,7 +408,7 @@ mod tests {
         let mut review = w.call(Role::Reviewer);
         review.settings = w.path("worker/review-settings.json");
         review.reach.read = vec![w.path("extra")];
-        let policy = policy(&review, &w.path("home"), &[]).unwrap();
+        let policy = policy(&review, &w.path("home"), &w.path("claude"), &[]).unwrap();
         assert_eq!(
             policy.write,
             [
@@ -392,6 +425,7 @@ mod tests {
             "~/.local/share/goose/**".into(),
             "~/.local/state/goose/**".into(),
             "~/Library/Application Support/Block/goose/**".into(),
+            "~/.claude/projects/**".into(),
         ]);
         assert_eq!(policy.no_read, denied);
         assert!(policy.read.contains(&w.path("extra")));
@@ -405,7 +439,7 @@ mod tests {
         let w = World::new();
         let review = w.call(Role::Reviewer);
         let shep = vec![format!("{}/**", w.path("").display())];
-        let policy = policy(&review, &w.path("home"), &shep).unwrap();
+        let policy = policy(&review, &w.path("home"), &w.path("claude"), &shep).unwrap();
         assert!(policy.no_read.contains(&shep[0]), "{:?}", policy.no_read);
         assert!(policy.read.contains(&w.path("wt")));
         let deny = super::super::settings::unfenced_reads(&review.cwd, &review.reach, &shep);
@@ -416,7 +450,7 @@ mod tests {
             !deny.contains(&w.path("wt").display().to_string()),
             "{deny}"
         );
-        let without = super::policy(&review, &w.path("home"), &[]).unwrap();
+        let without = super::policy(&review, &w.path("home"), &w.path("claude"), &[]).unwrap();
         assert!(
             !without.read.contains(&w.path("wt")),
             "nothing to read around"
@@ -455,7 +489,7 @@ mod tests {
         let issue_writer = w.call(Role::IssueWriter);
         for call in [w.worker(), w.call(Role::Reviewer), issue_writer] {
             let command = cli.sandboxed_command(&call).unwrap();
-            let policy = policy(&call, &w.path("home"), &[]).unwrap();
+            let policy = policy(&call, &w.path("home"), &w.path("claude"), &[]).unwrap();
             let role = call.role;
             let env = |name: &str| command.get_envs().find(|(n, _)| *n == name);
             assert!(env("TMPDIR").is_none(), "{role:?}: srt would see TMPDIR");
@@ -633,7 +667,10 @@ mod tests {
         let [(policy_used, file)] = wrapped.as_slice() else {
             panic!("wrapped once, not {wrapped:?}")
         };
-        assert_eq!(policy_used, &policy(&call, &w.path("home"), &[]).unwrap());
+        assert_eq!(
+            policy_used,
+            &policy(&call, &w.path("home"), &w.path("claude"), &[]).unwrap()
+        );
         assert_eq!(file, &w.path("worker/settings.sandbox.json"));
         assert!(
             !w.path("ran").exists(),

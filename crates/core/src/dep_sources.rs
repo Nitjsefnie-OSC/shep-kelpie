@@ -179,6 +179,25 @@ fn normalize(path: &Path) -> PathBuf {
     out
 }
 
+/// The tool homes themselves, whole, where they are on this machine: what each
+/// tool reads to run at all, its binaries, its config and its cache, beside the
+/// sources it reads.
+///
+/// A call whose fence denies its home whole reads these back, or its own cargo
+/// cannot start. They are no wider than the homes the tools name for themselves,
+/// and a credential inside one stays denied by name.
+pub fn toolchain_homes(home: &Path, env: &dyn Env) -> Vec<PathBuf> {
+    let mut homes: Vec<PathBuf> = Vec::new();
+    for (name, default) in [("CARGO_HOME", ".cargo"), ("RUSTUP_HOME", ".rustup")] {
+        for dir in tool_homes(env, name, home, default) {
+            if dir.is_dir() && !homes.iter().any(|held| held == &dir) {
+                homes.push(dir);
+            }
+        }
+    }
+    homes
+}
+
 /// The dependency and toolchain sources `home`'s machine holds, as it holds them
 /// now, for a call that has no build folder of its own
 pub fn machine_sources(home: &Path) -> Vec<PathBuf> {
