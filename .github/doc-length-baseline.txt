@@ -119,7 +119,6 @@ crates/core/src/watch/mod.rs	9,9	/// Each of the `wanted` sessions the steps fil
 crates/core/src/webhook.rs	11	//! Kelpie's own settings: the webhook, the counted leases' capacities, the
 crates/core/src/webhook.rs	7,10	/// Checks in the section's text that a webhook with `trusted = true` has
 crates/dog/src/dog/door/mod.rs	7,11	/// Opens the door at `socket`, only the maintainer's user may connect
-crates/dog/src/dog/e2e/run/deliver.rs	11	//! Putting the results the host sent into the worktree, past no link
 crates/dog/src/dog/e2e/run/mod.rs	7,11	/// Copies the worktree to the host, runs the project's command there, copies
 crates/dog/src/dog/e2e/run/mod.rs	5	// The results folder alone, into a folder of the dog's own, and from there
 crates/dog/src/dog/mod.rs	7	// Kelpie's section, for its leases. One that cannot be read holds them at

@@ -1,14 +1,4 @@
-//! Putting the results the host sent into the worktree, past no link
-//!
-//! rsync writes the results into a folder of the dog's own, and this copies
-//! them from there. The worktree is the worker's to change while the copy
-//! goes, so a path checked and then used could be a link by the time it is
-//! used. Each folder is instead opened from the one before it with
-//! `O_NOFOLLOW`, and each file is created through the folder it is in, so a
-//! link anywhere on the way is refused wherever it appears, and nothing is
-//! written through it. A file that is already there is unlinked and made
-//! again, never opened: a hard link would be written through, and a FIFO
-//! would block the dog.
+//! The copy on Unix, through `openat` and `unlinkat`
 
 use std::ffi::OsStr;
 use std::fs::File;
@@ -27,7 +17,11 @@ use rustix::io::Errno;
 ///
 /// A message when `results` or a folder above it in the worktree is a link,
 /// or when a folder or file cannot be made or written.
-pub(super) fn deliver(staging: &Path, worktree: &Path, results: &Path) -> Result<(), String> {
+pub(in crate::dog::e2e::run) fn deliver(
+    staging: &Path,
+    worktree: &Path,
+    results: &Path,
+) -> Result<(), String> {
     let root = rustix::fs::open(
         worktree,
         OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
