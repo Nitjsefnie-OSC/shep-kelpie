@@ -2,10 +2,12 @@
 
 use super::*;
 
-// A runner whose `status` names the build it was already running, and one that
-// names the build the upgrade installs, made from a tree with changes on top.
+// A runner whose `status` names the build it was already running, one naming
+// the installed commit with uncommitted changes on top of it, and one naming
+// the installed build itself, made from a tree with changes on top.
 const ON_OLD: &str = r#"{"work_items":[],"commit":"1f2e3a4"}"#;
-const ON_NEW: &str = r#"{"work_items":[],"commit":"9c8b7a6-dirty"}"#;
+const ON_DIRTY: &str = r#"{"work_items":[],"commit":"9c8b7a6-dirty"}"#;
+const ON_INSTALLED: &str = r#"{"work_items":[],"commit":"9c8b7a6"}"#;
 
 #[tokio::test]
 async fn an_install_says_which_commit_the_build_it_installed_was_made_from() {
@@ -59,9 +61,9 @@ async fn an_upgrade_names_a_runner_still_on_another_commit() {
 }
 
 #[tokio::test]
-async fn an_upgrade_says_nothing_about_a_runner_on_the_installed_commit() {
+async fn an_upgrade_says_nothing_about_a_runner_on_the_installed_build() {
     let rig = Rig::new().await;
-    rig.shepherd.says("koji", &[ON_NEW]);
+    rig.shepherd.says("koji", &[ON_INSTALLED]);
     let new = rig.built_from("new", "0.3.0", "9c8b7a6");
 
     let (ran, said) = rig.install(&new).await;
@@ -72,6 +74,37 @@ async fn an_upgrade_says_nothing_about_a_runner_on_the_installed_commit() {
         !said.iter().any(|l| l.contains("names no build")),
         "{said:?}"
     );
+}
+
+#[tokio::test]
+async fn an_upgrade_names_a_runner_on_an_uncommitted_build_of_the_installed_commit() {
+    // The runner runs a build made from changes on top of the commit the
+    // installed build was made from, which is a different binary.
+    let rig = Rig::new().await;
+    rig.shepherd.says("koji", &[ON_DIRTY]);
+    let new = rig.built_from("new", "0.3.0", "9c8b7a6");
+
+    let (ran, said) = rig.install(&new).await;
+
+    ran.unwrap();
+    assert!(
+        said.contains(&"`koji` still runs 9c8b7a6-dirty, not the installed 9c8b7a6".to_owned()),
+        "{said:?}"
+    );
+}
+
+#[tokio::test]
+async fn an_upgrade_says_nothing_about_a_runner_on_the_installed_uncommitted_build() {
+    // A name carries no content beyond the commit, so two builds made from
+    // different uncommitted trees of one commit cannot be told apart here.
+    let rig = Rig::new().await;
+    rig.shepherd.says("koji", &[ON_DIRTY]);
+    let new = rig.built_from("new", "0.3.0", "9c8b7a6-dirty");
+
+    let (ran, said) = rig.install(&new).await;
+
+    ran.unwrap();
+    assert!(!said.iter().any(|l| l.contains("still runs")), "{said:?}");
 }
 
 #[tokio::test]

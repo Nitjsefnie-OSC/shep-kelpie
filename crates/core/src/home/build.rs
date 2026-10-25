@@ -105,21 +105,6 @@ pub fn version_with_commit(version: &str, commit: Option<&str>) -> String {
     )
 }
 
-/// Whether two builds name the same commit, reading past the `-dirty` a build
-/// made from a tree with uncommitted changes carries
-///
-/// The `-dirty` is said on the line itself, and is no reason to call a runner
-/// behind a build that is the same commit with changes on top of it.
-#[must_use]
-pub fn same_commit(one: &str, other: &str) -> bool {
-    bare(one) == bare(other)
-}
-
-// A commit on its own, without the `-dirty` its tree's uncommitted changes add.
-fn bare(commit: &str) -> &str {
-    commit.strip_suffix("-dirty").unwrap_or(commit)
-}
-
 impl Build {
     /// This build
     pub fn this() -> Self {
@@ -253,14 +238,6 @@ mod tests {
             version_with_commit("0.3.0", Some("1f2e3a4-dirty")),
             "0.3.0+1f2e3a4-dirty"
         );
-    }
-
-    #[test]
-    fn a_dirty_build_names_the_commit_the_clean_one_does() {
-        assert!(same_commit("1f2e3a4-dirty", "1f2e3a4"));
-        assert!(same_commit("1f2e3a4", "1f2e3a4-dirty"));
-        assert!(!same_commit("1f2e3a4-dirty", "9c8b7a6"));
-        assert!(!same_commit("1f2e3a4", "9c8b7a6"));
     }
 
     #[test]

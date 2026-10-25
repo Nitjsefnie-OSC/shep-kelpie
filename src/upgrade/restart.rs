@@ -30,7 +30,7 @@ use super::handover::{Handed, hand_over};
 use crate::dog;
 use crate::flock::control::{Answered, trigger};
 use crate::flock::{flock, kelpie_sheep, resume, script, tables};
-use crate::home::{same_commit, stamp_of};
+use crate::home::stamp_of;
 use crate::interrupt::{Caught, Interrupts};
 use crate::shepherd::Connection;
 use crate::ticket::TicketId;
@@ -348,7 +348,7 @@ pub async fn still_behind(
             .ok()
             .and_then(|status| status["commit"].as_str().map(str::to_owned));
         let behind = match shown {
-            Some(shown) if same_commit(&shown, commit) => None,
+            Some(shown) if shown == commit => None,
             Some(shown) => Some(format!(
                 "`{name}` still runs {shown}, not the installed {commit}"
             )),

@@ -241,8 +241,20 @@ fn a_plain_status_says_a_build_made_from_an_uncommitted_tree_is_dirty() {
     let body = r#"{"project":"koji","work_items":[],"commit":"1f2e3a4-dirty","rulings":[]}"#;
 
     assert_eq!(
-        plain_status("koji", body, Some("1f2e3a4"))[2],
+        plain_status("koji", body, Some("1f2e3a4-dirty"))[2],
         "  build: 1f2e3a4-dirty"
+    );
+}
+
+#[test]
+fn a_plain_status_marks_an_uncommitted_build_as_not_the_installed_clean_one() {
+    // The runner runs a build made from changes on top of the installed
+    // commit, which is a different binary from the one installed.
+    let body = r#"{"project":"koji","work_items":[],"commit":"1f2e3a4-dirty","rulings":[]}"#;
+
+    assert_eq!(
+        plain_status("koji", body, Some("1f2e3a4"))[2],
+        "  build: 1f2e3a4-dirty, not the installed 1f2e3a4"
     );
 }
 
