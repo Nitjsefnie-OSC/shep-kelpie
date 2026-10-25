@@ -2,28 +2,30 @@
 //!
 //! A repo's `.claude/settings.json` names a marketplace in
 //! `extraKnownMarketplaces` and the plugin in `enabledPlugins`. Claude Code
-//! loads only a plugin that is installed, and a headless run installs none,
-//! so kelpie does it: it reads that file from the checkout's default branch
-//! (never a worker's branch, so a branch cannot turn a plugin on for itself),
-//! finds each enabled plugin's folder in its marketplace, and copies the
-//! plugin's `skills/`, `agents/`, `commands/` and `hooks/` that
-//! `repo_setup.parts` loads into a plugin of the same name under the project's
-//! skills folder. Every call the runner makes gets that folder with
-//! `--plugin-dir`. A plugin's hooks sit in its own folder, so they run beside
-//! the hooks in the call's settings file and cannot replace them.
+//! loads only a plugin that is installed, and a headless run installs none, so
+//! kelpie does it: it reads that file from the checkout's default branch (never
+//! a worker's branch, so a branch cannot turn a plugin on for itself), finds
+//! each enabled plugin's folder in its marketplace, and copies the plugin's
+//! `skills/`, `agents/`, `commands/` and `hooks/` that `repo_setup.parts`
+//! loads, beside every other folder of it and the files at its root, into a
+//! plugin of the same name under the project's skills folder: a skill names a
+//! file under the plugin's root, and the name reaches nothing where the copy
+//! has none of it. Every call gets that folder with `--plugin-dir`. A plugin's
+//! hooks sit in their own folder, so they run beside the hooks of the call's
+//! settings file and cannot replace them.
 //!
-//! The repo's own `.claude` files load as one more plugin (`own`).
-//!
-//! A plugin's MCP servers, and the repo's own in the `.mcp.json` of its
-//! default branch, are not copied but handed to each call's MCP config (see [`mcp`]).
-//!
-//! A plugin that cannot load is skipped with its reason, and the run goes on.
+//! The repo's own `.claude` files load as one more plugin (`own`). A plugin's
+//! MCP servers, and the repo's own in its `.mcp.json`, are handed to each
+//! call's MCP config rather than copied (see [`mcp`]). A plugin that cannot
+//! load is skipped with its reason, and the run goes on.
 
 use std::collections::BTreeMap;
+use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Component, Path, PathBuf};
 
+use serde::de::IgnoredAny;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Value};
 
@@ -41,7 +43,12 @@ pub const MARKETPLACES: &str = "marketplaces";
 const SETTINGS: &str = ".claude/settings.json";
 
 /// The parts of a plugin that are one folder each, which kelpie copies whole
+/// where `repo_setup.parts` loads them and leaves out where it does not
 const FOLDERS: [Part; 4] = [Part::Skills, Part::Agents, Part::Commands, Part::Hooks];
+
+/// The folder a plugin's manifest sits in, which the copy writes trimmed of its
+/// own rather than copying
+const MANIFEST_FOLDER: &str = ".claude-plugin";
 
 /// The manifest keys a copied plugin keeps: what names and describes it. The
 /// rest of a manifest points at parts outside the folders kelpie copies.
@@ -67,6 +74,11 @@ pub struct RepoPlugin {
     /// Why it is an older copy, where its marketplace could not be fetched
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stale: Option<String>,
+    /// Each of its `SKILL.md` files a strict harness refuses, named with the
+    /// parser's message. The plugin loads, and so does every skill of it the
+    /// harness can read.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub unreadable: Vec<String>,
     #[serde(skip)]
     dir: Option<PathBuf>,
     // Where it is read from, until `install` has copied it to `dir`.
@@ -182,21 +194,28 @@ impl RepoPlugins {
         &self.plugins
     }
 
-    /// A log line for each plugin that was skipped or is an older copy
+    /// A log line for each plugin that was skipped or is an older copy, and
+    /// for each of its skill files a strict harness refuses
     pub fn notices(&self) -> impl Iterator<Item = String> + '_ {
-        self.plugins
-            .iter()
-            .filter_map(|p| match (&p.skipped, &p.stale) {
-                (Some(reason), _) => Some(format!(
-                    "the repo's plugin {} is skipped: {reason}",
-                    p.plugin
-                )),
-                (None, Some(reason)) => Some(format!(
+        self.plugins.iter().flat_map(|p| {
+            let skipped = p
+                .skipped
+                .as_ref()
+                .map(|reason| format!("the repo's plugin {} is skipped: {reason}", p.plugin));
+            let stale = p.stale.as_ref().map(|reason| {
+                format!(
                     "the repo's plugin {} is the copy from the last good fetch: {reason}",
                     p.plugin
-                )),
-                (None, None) => None,
-            })
+                )
+            });
+            let unreadable = (p.unreadable.iter()).map(move |reason| {
+                format!(
+                    "the repo's plugin {} has a skill whose frontmatter is not valid YAML: {reason}",
+                    p.plugin
+                )
+            });
+            skipped.into_iter().chain(stale).chain(unreadable)
+        })
     }
 }
 
@@ -207,6 +226,7 @@ impl RepoPlugin {
             skills: Vec::new(),
             skipped: Some(reason),
             stale: None,
+            unreadable: Vec::new(),
             dir: None,
             found: None,
             own: None,
@@ -260,11 +280,20 @@ fn plan_one(resolved: Result<Found, Skipped>, into: &Path, setup: &RepoSetup) ->
         );
         return RepoPlugin::skipped(found.id, reason);
     }
+    let unreadable: Vec<String> = skills
+        .iter()
+        .filter_map(|skill| {
+            let file = format!("{}/{skill}/SKILL.md", Part::Skills.as_str());
+            let reason = frontmatter_error(&found.folder.join(&file))?;
+            Some(format!("{file}: {reason}"))
+        })
+        .collect();
     RepoPlugin {
         plugin: found.id.clone(),
         skills,
         skipped: None,
         stale: found.stale.clone(),
+        unreadable,
         dir: Some(dir),
         digest: fingerprint(&found),
         found: Some(found),
@@ -612,6 +641,7 @@ fn export(checkout: &Path, base: &str, relative: &Path, into: &Path) -> Result<(
 }
 
 // What the files of the plugin at `folder` hold, to tell a change to them.
+// Every folder of the plugin counts, since the copy holds every one of them.
 fn fingerprint(found: &Found) -> u64 {
     fn walk(dir: &Path, hasher: &mut DefaultHasher) {
         let Ok(entries) = fs::read_dir(dir) else {
@@ -638,11 +668,8 @@ fn fingerprint(found: &Found) -> u64 {
     let mut hasher = DefaultHasher::new();
     for part in &found.parts {
         part.as_str().hash(&mut hasher);
-        match part {
-            Part::Mcp => walk(&found.folder, &mut hasher),
-            _ => walk(&found.folder.join(part.as_str()), &mut hasher),
-        }
     }
+    walk(&found.folder, &mut hasher);
     manifest(&found.folder, "").hash(&mut hasher);
     hasher.finish()
 }
@@ -682,6 +709,38 @@ fn inside(root: &Path, relative: &Path) -> Result<PathBuf, ()> {
         (Ok(place_now), Ok(root_now)) if !place_now.starts_with(&root_now) => Err(()),
         _ => Ok(place),
     }
+}
+
+// What the `SKILL.md` at `file` gets wrong about its frontmatter, where it
+// gets any of it wrong. A harness that refuses a frontmatter lists no skill of
+// the file and puts its warning where kelpie keeps no log, so the reason is
+// told here. A file that opens none is the harness's own to take or leave.
+fn frontmatter_error(file: &Path) -> Option<String> {
+    let Ok(text) = fs::read_to_string(file) else {
+        return None;
+    };
+    let rest = text
+        .strip_prefix("---\n")
+        .or_else(|| text.strip_prefix("---\r\n"))?;
+    let Some(yaml) = frontmatter(rest) else {
+        return Some("it opens with `---` and never closes it".to_owned());
+    };
+    serde_saphyr::from_str::<IgnoredAny>(yaml)
+        .err()
+        .map(|e| e.without_snippet().to_string())
+}
+
+// The frontmatter of a file whose text after the opening `---` line is `rest`:
+// the text up to the next line that is `---`, where one closes it.
+fn frontmatter(rest: &str) -> Option<&str> {
+    let mut at = 0;
+    for line in rest.split_inclusive('\n') {
+        if line.trim_end_matches(['\n', '\r']) == "---" {
+            return Some(&rest[..at]);
+        }
+        at += line.len();
+    }
+    None
 }
 
 // The names of the skills in the plugin at `folder`: the folders of its
@@ -730,8 +789,8 @@ impl Git for Fetched {
     }
 }
 
-// Writes the plugin's parts and a trimmed manifest into `dir`, replacing
-// what was there.
+// Writes the plugin's parts, every other folder of it, and a trimmed manifest
+// into `dir`, replacing what was there.
 fn install(found: &Found, dir: &Path) -> Result<(), String> {
     let manifest = manifest(&found.folder, &found.name);
     let written = (|| {
@@ -739,8 +798,8 @@ fn install(found: &Found, dir: &Path) -> Result<(), String> {
             Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(e),
             _ => {}
         }
-        fs::create_dir_all(dir.join(".claude-plugin"))?;
-        fs::write(dir.join(".claude-plugin/plugin.json"), manifest)?;
+        fs::create_dir_all(dir.join(MANIFEST_FOLDER))?;
+        fs::write(dir.join(MANIFEST_FOLDER).join("plugin.json"), manifest)?;
         for part in &found.parts {
             match part {
                 Part::Mcp => copy_plain(&found.folder, &dir.join(mcp::ROOT))?,
@@ -750,9 +809,85 @@ fn install(found: &Found, dir: &Path) -> Result<(), String> {
                 }
             }
         }
+        for name in rest(&found.folder) {
+            let from = found.folder.join(&name);
+            let to = dir.join(&name);
+            // A skill may name a file at the plugin's own root, not only one
+            // under a folder of it.
+            if is_folder(&from) {
+                copy_plain(&from, &to)?;
+            } else {
+                fs::copy(&from, &to)?;
+            }
+        }
+        fill_in_skills(&dir.join(Part::Skills.as_str()), &dir.display().to_string())?;
         Ok(())
     })();
     written.map_err(|e| format!("cannot copy it into {}: {e}", dir.display()))
+}
+
+// Writes each `${CLAUDE_PLUGIN_ROOT}` in a `SKILL.md` under `dir` as the
+// plugin's copy at `root`, the way [`mcp`] writes it for a server. A harness
+// passes a skill's text as written, so the variable is a name only kelpie can
+// answer, and a worker is left to guess which folder the skill means.
+fn fill_in_skills(dir: &Path, root: &str) -> std::io::Result<()> {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return Ok(());
+    };
+    for entry in entries.filter_map(Result::ok) {
+        let kind = entry.file_type()?;
+        let path = entry.path();
+        if kind.is_dir() {
+            fill_in_skills(&path, root)?;
+        } else if kind.is_file() && entry.file_name() == "SKILL.md" {
+            // A file that is not text is left as `copy_plain` wrote it. Filling
+            // in is a convenience, and a failed install skips the whole plugin:
+            // one skill file no harness reads cannot take its siblings' skills,
+            // agents, hooks and MCP servers with it.
+            let Ok(bytes) = fs::read(&path) else {
+                continue;
+            };
+            let Ok(text) = std::str::from_utf8(&bytes) else {
+                continue;
+            };
+            let filled = mcp::fill_in(text, root);
+            if filled != text {
+                fs::write(&path, filled)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+// The entries of the plugin at `folder` that are none of the parts, in name
+// order: its folders and the files at its own root, which a skill names a file
+// from. `.claude-plugin`, `mcp::ROOT` and `mcp::CONFIG_FILE` are aside: the
+// copy writes its own manifest, and a server's files reach it through `mcp-root`.
+fn rest(folder: &Path) -> Vec<OsString> {
+    let Ok(entries) = fs::read_dir(folder) else {
+        return Vec::new();
+    };
+    let is_part = |name: &OsStr| FOLDERS.iter().any(|part| part.as_str() == name);
+    let mut names: Vec<OsString> = entries
+        .filter_map(Result::ok)
+        // A link is no entry of a plugin kelpie copies: it could lead out.
+        .filter(|entry| {
+            entry
+                .file_type()
+                .is_ok_and(|kind| kind.is_dir() || kind.is_file())
+        })
+        .map(|entry| entry.file_name())
+        .filter(|name| {
+            let name = name.as_os_str();
+            !is_part(name)
+                && name != MANIFEST_FOLDER
+                && name != ".git"
+                && name != OsStr::new(mcp::ROOT)
+                && name != OsStr::new(mcp::CONFIG_FILE)
+        })
+        .collect();
+    names.sort();
+    names
 }
 
 // Copies `from` into `to`, files and folders only. A link is left out, since
@@ -789,7 +924,7 @@ fn is_file(path: &Path) -> bool {
 // The plugin's manifest with its name forced and its parts left out, or a
 // bare one where the plugin has none.
 fn manifest(plugin: &Path, name: &str) -> String {
-    let file = plugin.join(".claude-plugin/plugin.json");
+    let file = plugin.join(MANIFEST_FOLDER).join("plugin.json");
     let read: Value = fs::read_to_string(&file)
         .ok()
         .filter(|_| is_file(&file))
