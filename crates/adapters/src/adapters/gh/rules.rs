@@ -2,22 +2,33 @@
 
 use serde::Deserialize;
 
+use super::contents::is_not_found;
 use super::{gh, unreadable};
 use crate::ports::ForgeError;
 use crate::settings::ForgeSlug;
 
-/// The rules GitHub lists for `base`, read for whether they require a pull
-/// request's branch to be up to date with it
+/// Whether `base`'s rules require a pull request's branch to be up to date with it
 ///
-/// `gh api` pages an array answer, so every ruleset's rules arrive in one call.
+/// Two reads, in order. The rulesets endpoint answers 30 rules at a time, so it
+/// goes through `--paginate`, which merges the pages of an array answer into
+/// one array: a strict rule belongs to the branch whatever page it lands on.
+/// It covers rulesets only, so when it holds no `required_status_checks` rule
+/// the classic protection of the branch is asked too, and a branch with
+/// neither requires nothing.
 pub(super) fn requires_up_to_date(repo: &ForgeSlug, base: &str) -> Result<bool, ForgeError> {
     let path = format!("repos/{}/rules/branches/{base}", repo.as_str());
-    parse_rules(&gh(&["api", &path])?)
+    match parse_rules(&gh(&["api", "--paginate", &path])?) {
+        Ok(Some(required)) => Ok(required),
+        Ok(None) => classic_protection(repo, base),
+        Err(e) => Err(e),
+    }
 }
 
-// A branch no `required_status_checks` rule protects has nothing to require,
-// and one several rulesets cover is up to date only if any of them is strict.
-fn parse_rules(stdout: &[u8]) -> Result<bool, ForgeError> {
+// What the rulesets answer says: `Some(true)` when any ruleset covering the
+// branch is strict, `Some(false)` when one covers it and none is, and `None`
+// when no `required_status_checks` rule covers it, which the classic
+// protection may still do.
+fn parse_rules(stdout: &[u8]) -> Result<Option<bool>, ForgeError> {
     #[derive(Deserialize)]
     struct Rule {
         #[serde(rename = "type")]
@@ -42,12 +53,38 @@ fn parse_rules(stdout: &[u8]) -> Result<bool, ForgeError> {
         })
         .collect();
     if strict.contains(&Some(true)) {
-        return Ok(true);
+        return Ok(Some(true));
     }
     if strict.contains(&None) {
         return Err(unreadable(stdout));
     }
-    Ok(false)
+    Ok((!strict.is_empty()).then_some(false))
+}
+
+// Classic branch protection, which the rulesets endpoint does not cover.
+// `GET /repos/<repo>/branches/<base>/protection/required_status_checks`
+// answers with the protection's `strict`, and 404s when no such protection is
+// set, which requires nothing.
+fn classic_protection(repo: &ForgeSlug, base: &str) -> Result<bool, ForgeError> {
+    let path = format!(
+        "repos/{}/branches/{base}/protection/required_status_checks",
+        repo.as_str()
+    );
+    let stdout = match gh(&["api", &path]) {
+        Ok(stdout) => stdout,
+        Err(e) if is_not_found(&e) => return Ok(false),
+        Err(e) => return Err(e),
+    };
+    parse_protection(&stdout)
+}
+
+fn parse_protection(stdout: &[u8]) -> Result<bool, ForgeError> {
+    #[derive(Deserialize)]
+    struct Protection {
+        strict: Option<bool>,
+    }
+    let protection: Protection = serde_json::from_slice(stdout).map_err(|_| unreadable(stdout))?;
+    protection.strict.ok_or_else(|| unreadable(stdout))
 }
 
 #[cfg(test)]
@@ -64,12 +101,12 @@ mod tests {
 
     #[test]
     fn a_rule_that_does_not_require_up_to_date_is_read_as_one_that_does_not() {
-        assert_eq!(parse_rules(SHEP_MAIN.as_bytes()), Ok(false));
+        assert_eq!(parse_rules(SHEP_MAIN.as_bytes()), Ok(Some(false)));
     }
 
     #[test]
-    fn a_branch_no_rule_protects_requires_nothing() {
-        assert_eq!(parse_rules(NO_RULES.as_bytes()), Ok(false));
+    fn a_branch_no_rule_protects_leaves_the_question_to_classic_protection() {
+        assert_eq!(parse_rules(NO_RULES.as_bytes()), Ok(None));
     }
 
     // The shape of the recorded rule with its policy on, written from GitHub's
@@ -82,7 +119,7 @@ mod tests {
 
     #[test]
     fn a_strict_rule_is_read_as_one_that_requires_up_to_date() {
-        assert_eq!(parse_rules(STRICT.as_bytes()), Ok(true));
+        assert_eq!(parse_rules(STRICT.as_bytes()), Ok(Some(true)));
     }
 
     #[test]
@@ -95,7 +132,7 @@ mod tests {
                 .to_owned()
         };
         let both = format!("[{},{}]", rules(SHEP_MAIN), rules(STRICT));
-        assert_eq!(parse_rules(both.as_bytes()), Ok(true));
+        assert_eq!(parse_rules(both.as_bytes()), Ok(Some(true)));
     }
 
     #[test]
@@ -112,6 +149,37 @@ mod tests {
         for text in ["", "{}", "not json"] {
             assert!(
                 matches!(parse_rules(text.as_bytes()), Err(ForgeError::Unreadable(_))),
+                "{text}"
+            );
+        }
+    }
+
+    // Written from GitHub's "Get required status checks for a branch" answer.
+    // The endpoint answers 401 to a request with no token at all, and the
+    // guard runs no `gh api` for a worker, so no answer of a real repo is
+    // recorded here.
+    const STRICT_PROTECTION: &str =
+        r#"{"strict":true,"contexts":["test"],"checks":[{"context":"test"}]}"#;
+
+    #[test]
+    fn classic_protection_that_is_strict_is_read_as_requiring_up_to_date() {
+        assert_eq!(parse_protection(STRICT_PROTECTION.as_bytes()), Ok(true));
+    }
+
+    #[test]
+    fn classic_protection_that_is_not_strict_is_read_as_not_requiring_it() {
+        let said = r#"{"strict":false,"contexts":[],"checks":[]}"#;
+        assert_eq!(parse_protection(said.as_bytes()), Ok(false));
+    }
+
+    #[test]
+    fn classic_protection_that_does_not_say_strict_is_unreadable() {
+        for text in ["{}", "not json", "[]"] {
+            assert!(
+                matches!(
+                    parse_protection(text.as_bytes()),
+                    Err(ForgeError::Unreadable(_))
+                ),
                 "{text}"
             );
         }
