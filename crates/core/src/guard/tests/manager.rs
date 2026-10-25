@@ -1,5 +1,6 @@
 //! What only the project manager does, refused in every shape a worker could write it
 
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 
 use super::*;
@@ -150,6 +151,7 @@ impl Scripts {
     fn write(&self, file: &str, text: &str) {
         let path = self.0.path().join(file);
         fs::write(&path, text).unwrap();
+        #[cfg(unix)]
         fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
     }
 
@@ -159,6 +161,7 @@ impl Scripts {
 }
 
 #[test]
+#[cfg_attr(windows, ignore = "a script runs by its Unix executable bit")]
 fn a_script_file_is_read_for_its_commands() {
     let dir = Scripts::with(
         "push.sh",
@@ -193,6 +196,7 @@ fn a_script_file_is_read_for_its_commands() {
 }
 
 #[test]
+#[cfg_attr(windows, ignore = "a script runs by its Unix executable bit")]
 fn a_script_a_worker_runs_goes_through() {
     let dir = Scripts::with("check.sh", "#!/bin/sh\ncargo test\ngit status\n");
     for command in [
@@ -215,6 +219,7 @@ fn a_script_a_worker_runs_goes_through() {
 }
 
 #[test]
+#[cfg_attr(windows, ignore = "a script runs by its Unix executable bit")]
 fn a_script_the_guard_cannot_read_is_refused() {
     let dir = Scripts::with("push.sh", "git push origin HEAD:main\n");
     for command in [

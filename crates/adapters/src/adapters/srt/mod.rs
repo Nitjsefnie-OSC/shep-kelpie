@@ -231,7 +231,10 @@ fn settings_on(policy: &Policy, platform: Platform, loopback_open: bool) -> Valu
         let mut hosts = policy.hosts.clone();
         hosts.push(forward.host.clone());
         network["allowedDomains"] = json!(hosts);
-        network["mitmProxy"] = json!({ "socketPath": forward.socket, "domains": [&forward.host] });
+        network["mitmProxy"] = json!({
+            "socketPath": crate::ipc::address(&forward.socket),
+            "domains": [&forward.host],
+        });
     }
     let folders = policy.socket_folders.iter().filter(|_| platform.macos());
     let sockets: Vec<&PathBuf> = policy.sockets.iter().chain(folders).collect();
@@ -348,6 +351,28 @@ mod tests {
     }
 
     #[test]
+    fn the_forwarded_traffic_goes_to_the_address_the_forwarder_listens_on() {
+        let socket = PathBuf::from("/k/worker/model.sock");
+        let policy = Policy {
+            forward: Some(crate::ports::Forward {
+                host: "model.kelpie.test".into(),
+                socket: socket.clone(),
+            }),
+            ..Policy::default()
+        };
+        let settings = settings_on(&policy, Platform::here(), false);
+        let dialed = settings["network"]["mitmProxy"]["socketPath"]
+            .as_str()
+            .unwrap();
+        assert_eq!(Path::new(dialed), crate::ipc::address(&socket));
+        if cfg!(windows) {
+            assert!(dialed.starts_with(r"\\.\pipe\kelpie-"), "{dialed}");
+        } else {
+            assert_eq!(dialed, "/k/worker/model.sock");
+        }
+    }
+
+    #[test]
     fn a_forwarded_host_is_the_only_one_allowed_and_its_traffic_goes_to_the_socket() {
         let policy = Policy {
             forward: Some(crate::ports::Forward {
@@ -361,8 +386,8 @@ mod tests {
         assert_eq!(network["deniedDomains"], json!([]));
         assert!(network.get("deniedResolvedAddresses").is_none());
         assert_eq!(
-            network["mitmProxy"],
-            json!({ "socketPath": "/k/worker/model.sock", "domains": ["model.kelpie.test"] })
+            network["mitmProxy"]["domains"],
+            json!(["model.kelpie.test"])
         );
         assert!(network.get("allowUnixSockets").is_none());
         let denying = Policy {

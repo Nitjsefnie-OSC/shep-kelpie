@@ -274,9 +274,9 @@ dependencies = [
 
 [[package]]
 name = "crabpot"
-version = "0.2.0"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0cf69101c75d5edf2b748f8e6f7b628529070302686c5165dd0710215121f061"
+checksum = "a5127fd8f9e7f73e353764ee5c43e8673fefd37809b0f0edc02f0aec0713cd23"
 dependencies = [
  "crabpot-core",
  "crabpot-linux",
@@ -290,9 +290,9 @@ dependencies = [
 
 [[package]]
 name = "crabpot-core"
-version = "0.2.0"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2164fd52fbbb649abfd0d0477ff4f0f5d3aef5ba73c497bed4b3baa66f053d04"
+checksum = "ff94e9e91c98a1059137638bedbce76f0fa741b28dcb8447d9048b13b92d1c19"
 dependencies = [
  "getrandom",
  "httparse",
@@ -307,9 +307,9 @@ dependencies = [
 
 [[package]]
 name = "crabpot-linux"
-version = "0.2.0"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aa58771aa558a4015455df389ce40ca169134a805ed4c2f45b2fa3488f35cfb7"
+checksum = "c783a2bec33d94df63d74b1ba06d5759a6c3e81bc12e6162401f03325fdbc967"
 dependencies = [
  "crabpot-core",
  "libc",
@@ -319,18 +319,18 @@ dependencies = [
 
 [[package]]
 name = "crabpot-macos"
-version = "0.2.0"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eb43a3d3a217cc286966319a9cbdfea6e86c0a43f359b536364f27b1b5e3e67c"
+checksum = "9eb42b556b26cf5ff24b0d78d1d43f716a7bd3a15cb435e505480a997854e3a0"
 dependencies = [
  "crabpot-core",
 ]
 
 [[package]]
 name = "crabpot-windows"
-version = "0.2.0"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8a3cca4fc74c47ed7c25972930fca67ce8c5bc969a58d3bd6161963c39ea4fa4"
+checksum = "089a5659c0683071706b26d019714b24147dc501bd8a7670184979e21845ed03"
 dependencies = [
  "anyhow",
  "clap",

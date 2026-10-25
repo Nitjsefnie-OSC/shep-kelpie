@@ -105,6 +105,7 @@ fn a_path_that_only_looks_like_a_home_is_not_one() {
     }
 }
 
+#[cfg(unix)]
 #[test]
 fn a_symlinked_folder_is_found_in_its_canonical_form_too() {
     let dir = tempfile::tempdir().unwrap();

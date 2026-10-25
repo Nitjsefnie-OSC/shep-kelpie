@@ -75,6 +75,7 @@ pub(super) fn env(build: &Path) -> Vec<(String, String)> {
 mod tests {
     use std::fs;
     use std::io::Write;
+    #[cfg(unix)]
     use std::os::unix::fs::{PermissionsExt, symlink};
     use std::process::{Command, Stdio};
 
@@ -84,6 +85,7 @@ mod tests {
         InstallationToken::new(text.to_owned())
     }
 
+    #[cfg(unix)]
     #[test]
     fn the_token_is_written_for_the_user_alone_and_replaced_by_the_next_calls() {
         let build = tempfile::tempdir().unwrap();
@@ -102,6 +104,7 @@ mod tests {
     }
 
     // A folder an earlier kelpie, or the worker, left with looser files.
+    #[cfg(unix)]
     #[test]
     fn both_files_are_for_the_user_alone_even_where_older_ones_were_not() {
         let build = tempfile::tempdir().unwrap();
@@ -121,6 +124,7 @@ mod tests {
     }
 
     // The worker can write its build folder, and kelpie writes as the maintainer.
+    #[cfg(unix)]
     #[test]
     fn a_link_where_the_file_is_staged_leaves_what_it_points_to_alone() {
         let (build, theirs) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
@@ -136,6 +140,7 @@ mod tests {
         assert!(text.contains("oauth_token: ghs_scoped"), "{text}");
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_link_for_the_folder_is_refused_and_the_maintainers_own_login_is_not_replaced() {
         let (build, theirs) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());

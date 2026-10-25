@@ -1,6 +1,6 @@
 # Agents
 
-Harnesses and gateways, and the agent settings. The agent file itself is in agent-files.md. The runner loop is in workers.md, the fence in fence.md, skills in skills.md, waits and spend by role in waits-and-spend.md.
+Harnesses and gateways, and the agent settings. The agent file itself is in agent-files.md. The runner loop is in workers.md, the fence in fence.md, skills in skills.md, repo plugins in plugins.md, waits and spend by role in waits-and-spend.md.
 
 - `agents.implementers` (default `["sonnet-high"]`, first is default), `reviewers`, `pm`, `issue_writer`, `representative` (default `representative`, checked only when `contributions.pick` is not `off`, representative.md); missing or wrong-role file stops runner. `crates/core/src/settings/agents/mod.rs`
 - A new CLI is a folder `adapters/<cli>/` with an `impl Cli` (required: `write_config`, `command`, `policy`, `parse`, `parse_adopted`; the rest default), a `HarnessFacts` row in `core/settings/agents/facts.rs`, and one entry in `Routed::new` (`src/sheep/mod.rs`). `CliAdapter` does the rest. cli-adapter.md

@@ -8,8 +8,13 @@
 //! a step answers once across every project: see [`answers`].
 
 use std::fmt;
-use std::fs::{self, DirBuilder, OpenOptions};
-use std::io::{self, Read, Write};
+use std::fs;
+#[cfg(unix)]
+use std::fs::{DirBuilder, OpenOptions};
+#[cfg(unix)]
+use std::io::Write;
+use std::io::{self, Read};
+#[cfg(unix)]
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 
@@ -51,6 +56,9 @@ pub enum SecretError {
     /// Someone other than its owner may read or write the file's folder,
     /// and so put a secret of their own there
     FolderExposed(PathBuf),
+    /// The file system cannot be told to keep the file to its owner: on
+    /// Windows until #1264 gives it an owner-only ACL
+    Unsupported,
 }
 
 impl fmt::Display for SecretError {
@@ -74,6 +82,10 @@ impl fmt::Display for SecretError {
                  if someone else may have read or replaced the secret in it",
                 folder.display()
             ),
+            Self::Unsupported => f.write_str(
+                "the authenticator secret needs a file only its owner can read, which kelpie \
+                 cannot make on Windows yet (#1264)",
+            ),
         }
     }
 }
@@ -94,17 +106,7 @@ impl Secret {
             Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
             Err(e) => return Err(io(e)),
         };
-        if file.metadata().map_err(io)?.mode() & 0o077 != 0 {
-            return Err(SecretError::Exposed(path.to_owned()));
-        }
-        // Someone who can write the folder can put their own secret in it.
-        let folder = path.parent().unwrap_or(Path::new("."));
-        let folder_mode = fs::metadata(folder)
-            .map_err(|e| SecretError::Io(folder.to_owned(), e.kind()))?
-            .mode();
-        if folder_mode & 0o077 != 0 {
-            return Err(SecretError::FolderExposed(folder.to_owned()));
-        }
+        owner_only(path, &file)?;
         let mut text = String::new();
         file.read_to_string(&mut text).map_err(io)?;
         decode(text.trim())
@@ -144,6 +146,7 @@ impl Secret {
     // synced, then renamed over the old one when `replace`, else linked into
     // place, which fails when a secret is already there. The folder is synced
     // after, so a crash cannot bring the old secret back.
+    #[cfg(unix)]
     fn write(path: &Path, replace: bool) -> Result<Self, SecretError> {
         let io = |e: io::Error| SecretError::Io(path.to_owned(), e.kind());
         let mut bytes = [0u8; 20];
@@ -154,12 +157,7 @@ impl Secret {
         private_dir(folder).map_err(io)?;
         let fresh = folder.join(format!(".secret.{}", std::process::id()));
         let _ = fs::remove_file(&fresh);
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .open(&fresh)
-            .map_err(io)?;
+        let mut file = create_private(&fresh).map_err(io)?;
         let placed = writeln!(file, "{}", encode(&bytes))
             .and_then(|()| file.sync_all())
             .and_then(|()| {
@@ -174,6 +172,13 @@ impl Secret {
             .and_then(|()| fs::File::open(folder)?.sync_all())
             .map_err(io)?;
         Ok(Self(bytes))
+    }
+
+    // Windows keeps a file to its owner by an ACL, which kelpie does not set
+    // yet (#1264), so it makes no secret rather than one others may read.
+    #[cfg(windows)]
+    fn write(_path: &Path, _replace: bool) -> Result<Self, SecretError> {
+        Err(SecretError::Unsupported)
     }
 
     /// The `otpauth://` URI an authenticator app scans
@@ -316,8 +321,64 @@ fn same(a: u32, b: u32) -> bool {
 
 /// Makes `folder` and any folder above it, the new ones readable by their
 /// owner alone
+#[cfg(unix)]
 pub fn private_dir(folder: &Path) -> io::Result<()> {
     DirBuilder::new().recursive(true).mode(0o700).create(folder)
+}
+
+/// Makes `folder` and any folder above it
+///
+/// On Windows the new ones take the ACL they inherit, which #1264 narrows to
+/// the owner. It does not refuse, since the runner calls it to mint the App's
+/// token.
+#[cfg(windows)]
+pub fn private_dir(folder: &Path) -> io::Result<()> {
+    fs::create_dir_all(folder)
+}
+
+/// Makes the file `path`, which must not exist, writable and readable by
+/// its owner alone
+#[cfg(unix)]
+pub(crate) fn create_private(path: &Path) -> io::Result<fs::File> {
+    OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(path)
+}
+
+/// Refuses to make a file for its owner alone, since Windows keeps one by an
+/// ACL that kelpie does not set yet (#1264)
+#[cfg(windows)]
+pub(crate) fn create_private(_path: &Path) -> io::Result<fs::File> {
+    Err(io::Error::new(
+        io::ErrorKind::Unsupported,
+        "a file only its owner can read is not made on Windows yet (#1264)",
+    ))
+}
+
+// Whether `file`, which is `path`, and its folder are the owner's alone.
+#[cfg(unix)]
+fn owner_only(path: &Path, file: &fs::File) -> Result<(), SecretError> {
+    let io = |e: io::Error| SecretError::Io(path.to_owned(), e.kind());
+    if file.metadata().map_err(io)?.mode() & 0o077 != 0 {
+        return Err(SecretError::Exposed(path.to_owned()));
+    }
+    // Someone who can write the folder can put their own secret in it.
+    let folder = path.parent().unwrap_or(Path::new("."));
+    let folder_mode = fs::metadata(folder)
+        .map_err(|e| SecretError::Io(folder.to_owned(), e.kind()))?
+        .mode();
+    if folder_mode & 0o077 != 0 {
+        return Err(SecretError::FolderExposed(folder.to_owned()));
+    }
+    Ok(())
+}
+
+// A secret already in place is not read, since its ACL is not checked yet (#1264).
+#[cfg(windows)]
+fn owner_only(_path: &Path, _file: &fs::File) -> Result<(), SecretError> {
+    Err(SecretError::Unsupported)
 }
 
 fn encode(bytes: &[u8]) -> String {
@@ -388,6 +449,7 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
     #[test]
     fn the_secret_is_written_once_for_its_owner_and_read_back() {
         use std::os::unix::fs::PermissionsExt;
@@ -416,6 +478,7 @@ mod tests {
         assert!(!err.to_string().contains("not base32"), "{err}");
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_secret_others_may_read_is_refused() {
         use std::os::unix::fs::PermissionsExt;
@@ -432,6 +495,7 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_folder_others_may_use_is_refused() {
         use std::os::unix::fs::PermissionsExt;
@@ -453,6 +517,34 @@ mod tests {
     }
 
     #[test]
+    fn a_folder_for_the_secret_is_made_with_any_folder_above_it() {
+        let home = tempfile::tempdir().unwrap();
+        let folder = home.path().join("a/b");
+        private_dir(&folder).unwrap();
+        private_dir(&folder).unwrap();
+        assert!(folder.is_dir());
+    }
+
+    // Until #1264, no secret is made or read on Windows, rather than one others may read.
+    #[cfg(windows)]
+    #[test]
+    fn no_secret_is_made_or_read_without_an_owner_only_acl() {
+        let home = tempfile::tempdir().unwrap();
+        let path = home.path().join("totp/secret");
+        assert_eq!(Secret::load(&path), Ok(None));
+        let err = Secret::load_or_create(&path).unwrap_err();
+        assert_eq!(err, SecretError::Unsupported);
+        assert!(err.to_string().contains("#1264"), "{err}");
+        assert_eq!(Secret::rotate(&path), Err(SecretError::Unsupported));
+        assert!(!path.exists());
+
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ\n").unwrap();
+        assert_eq!(Secret::load(&path), Err(SecretError::Unsupported));
+    }
+
+    #[test]
+    #[cfg_attr(windows, ignore = "the secret waits on an owner-only ACL, #1264")]
     fn two_first_runs_at_once_keep_one_secret() {
         let home = tempfile::tempdir().unwrap();
         let path = home.path().join("totp/secret");
@@ -469,6 +561,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "the secret waits on an owner-only ACL, #1264")]
     fn a_rotated_secret_replaces_the_old_one_whole() {
         let home = tempfile::tempdir().unwrap();
         let path = home.path().join("totp/secret");
@@ -481,6 +574,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "the secret waits on an owner-only ACL, #1264")]
     fn show_prints_the_uri_and_a_qr_code_of_one_secret() {
         let home = tempfile::tempdir().unwrap();
         let path = home.path().join("totp/secret");
