@@ -151,6 +151,14 @@ pub trait Forge: Send + Sync {
     /// [`ForgeError`] when the forge cannot be asked or its answer read.
     fn default_branch(&self, repo: &ForgeSlug) -> Result<String, ForgeError>;
 
+    /// Whether `repo`'s rules require a pull request's branch to be up to date
+    /// with `base` before it may merge
+    ///
+    /// # Errors
+    ///
+    /// [`ForgeError`] when the forge cannot be asked or its answer read.
+    fn requires_up_to_date(&self, repo: &ForgeSlug, base: &str) -> Result<bool, ForgeError>;
+
     /// Whether `repo` has a branch named `branch`
     ///
     /// # Errors

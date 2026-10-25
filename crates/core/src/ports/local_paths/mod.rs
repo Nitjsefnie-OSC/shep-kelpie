@@ -166,6 +166,10 @@ impl Forge for Guarded {
         self.forge.default_branch(repo)
     }
 
+    fn requires_up_to_date(&self, repo: &ForgeSlug, base: &str) -> Result<bool, ForgeError> {
+        self.forge.requires_up_to_date(repo, base)
+    }
+
     fn branch_exists(&self, repo: &ForgeSlug, branch: &str) -> Result<bool, ForgeError> {
         self.forge.branch_exists(repo, branch)
     }
