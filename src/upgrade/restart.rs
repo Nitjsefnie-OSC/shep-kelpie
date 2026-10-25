@@ -337,12 +337,22 @@ async fn ask_again(
     while !pending.is_empty() {
         let mut still = Vec::new();
         for name in pending {
-            match trigger(client, name, "status", None).await? {
-                Answered::Runner(_) => say(format!("restarted `{name}`")),
-                _ if !is_running(client, name).await? => failed.push(format!(
+            // Each look ends with the shared wait, so a few silent runners
+            // cannot stretch it to a trigger's own deadline apiece.
+            let left = patience.start.saturating_sub(waited.elapsed());
+            let looked = tokio::time::timeout(
+                left.max(patience.poll),
+                trigger(client, name, "status", None),
+            )
+            .await;
+            if let Answered::Runner(_) = looked.unwrap_or(Ok(Answered::TimedOut))? {
+                say(format!("restarted `{name}`"));
+            } else if is_running(client, name).await? {
+                still.push(name);
+            } else {
+                failed.push(format!(
                     "`{name}` is not running after its restart: `shep bleats {name}` says why"
-                )),
-                _ => still.push(name),
+                ));
             }
         }
         pending = still;
