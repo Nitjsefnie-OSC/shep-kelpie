@@ -189,8 +189,8 @@ jobs:
           echo "::warning title=windows::cargo check fails on Windows until #241 is done. The check step's log names each crate."
       # The lease door's, the pipe's and the bridge's tests. They run once `dog`
       # compiles for Windows, which the check above says it does not yet
-      # (`dog`'s e2e delivery uses `std::os::fd` and `rustix::fs`), and stay
-      # non-gating as it is.
+      # (`dog`'s e2e delivery uses `std::os::fd` and `rustix::fs`, #1274), and
+      # stay non-gating as it is.
       - id: door
         continue-on-error: true
         run: 'cargo test --locked -p shep-kelpie-core -p shep-kelpie-dog --lib -- ipc:: bridge lease:: door'

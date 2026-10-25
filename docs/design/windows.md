@@ -9,7 +9,7 @@ Kelpie is being ported (#241). This area holds the shell-outs and the tests' sta
 - A test's stand-in command is `write_fake` and `Fake` from `test_support`: an `sh` script on Unix, a `.cmd` file on Windows. `write_script` is for a script that needs real shell, which Windows runs through `spawn::sh()`.
 - A test that needs a FIFO is `#[cfg_attr(windows, ignore = "a FIFO is a Unix file")]`.
 - `docs/agents/sandbox-red-tests.md` lists what Windows cannot run, read from the source, since the Windows job only runs `cargo check`.
-- `core` and the crates below it compile for Windows, tests included (#1262), and the `windows` job's gating `cargo check` covers them. `dog` and the crates above it do not yet (#241).
+- `core` and the crates below it compile for Windows, tests included (#1262), and the `windows` job's gating `cargo check` covers them. `dog` and the crates above it do not yet (#1274).
 - A file's mode is a Unix answer, and `core` gives Windows one of its own where it can (#1262):
   - the home stamp reads `Metadata::modified`.
   - the fence takes no executable bit from a Windows disk, since git there keeps none: a fenced file matches either regular mode of the commit.
