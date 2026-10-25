@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use serde_json::{Map, Value, json};
 
 use super::*;
+use crate::adapters::host::WindowsInstall;
 use crate::flock::Launch;
 use crate::github::AppTokens;
 use crate::ports::{ForgeError, MeterError, Visibility};
@@ -36,6 +37,8 @@ struct FakeHost {
     goose_version: Option<Result<&'static str, &'static str>>,
     // When set, `PATH` holds exactly these programs and nothing else
     path: Option<Vec<&'static str>>,
+    // What `windows_status` answers, a ready install with loopback closed when unset
+    windows: Option<Result<WindowsInstall, &'static str>>,
 }
 
 impl Host for FakeHost {
@@ -56,6 +59,14 @@ impl Host for FakeHost {
 
     fn os(&self) -> &'static str {
         self.os
+    }
+
+    fn windows_status(&self) -> Result<WindowsInstall, String> {
+        match &self.windows {
+            Some(Ok(status)) => Ok(status.clone()),
+            Some(Err(why)) => Err((*why).to_owned()),
+            None => Ok(WindowsInstall::provisioned(false)),
+        }
     }
 
     fn login_token(&self) -> bool {
@@ -129,9 +140,6 @@ impl Scene {
             clock,
             shepherd,
         };
-        let srt = Tools::under(&scene.kelpie_home).sandbox();
-        std::fs::create_dir_all(srt.parent().unwrap()).unwrap();
-        std::fs::write(srt, "").unwrap();
         scene.runs("koji", |_| {});
         scene
     }
@@ -447,17 +455,6 @@ async fn a_sandbox_the_machine_lacks_names_what_it_lacks() {
         "{fix}"
     );
     assert!(!fix.contains("apt-get"), "{fix}");
-    assert!(!report.passed());
-}
-
-#[tokio::test]
-async fn a_machine_without_the_sandbox_runtime_is_told_to_install_it() {
-    let scene = Scene::new().await;
-    std::fs::remove_file(Tools::under(&scene.kelpie_home).sandbox()).unwrap();
-    let report = scene.report().await;
-    let (what, fix) = missing(&report, "sandbox");
-    assert!(what.contains("no runner starts"), "{what}");
-    assert_eq!(fix, "run `shep kelpie tools install`");
     assert!(!report.passed());
 }
 

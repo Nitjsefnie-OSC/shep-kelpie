@@ -13,9 +13,12 @@ mod mcp;
 mod project;
 mod rulings;
 
+use std::collections::BTreeMap;
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+
+use serde_json::{Map, Value};
 
 use crate::adapters::host::Host;
 use crate::adapters::{Base, Curl, CurlGithub, Gh, LocalReviewer, Openssl, SystemHost};
@@ -28,7 +31,6 @@ use crate::ports::{Alerts, Clock, Forge, Meter, Reviewer, SystemClock};
 use crate::review_bot::Profile;
 use crate::shep_home;
 use crate::shepherd::{self, Connection, Dial, Socket};
-use crate::tools::Tools;
 
 /// How one check came out
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -201,19 +203,35 @@ pub async fn check(shep_home: &Path, probes: Probes<'_>, here: Here<'_>, ask: As
     let mut lines = vec![
         machine::claude(probes.meter, probes.clock),
         machine::gh(probes.forge),
-        machine::sandbox(probes.host, &Tools::under(here.kelpie_home)),
     ];
-    lines.extend(machine::sandbox_limits(probes.host));
     match shepherd::connect(probes.shepherd, shep_home).await {
         Ok(client) => {
+            let read = async {
+                let tables = flock::tables(&client).await?;
+                let section = shepherd::read_section(&client).await?;
+                Ok::<_, String>((tables, section))
+            };
+            let read = read.await;
+            // The sandbox fix is fitted to what the configured projects run:
+            // only a project with the browser starts a dev server that binds
+            // a local port, and on Windows only an `--allow-loopback` install
+            // can hold one.
+            let listen = match &read {
+                Ok((tables, _)) => runs_a_dev_server(tables),
+                Err(_) => false,
+            };
+            lines.push(machine::sandbox(probes.host, listen));
+            lines.extend(machine::sandbox_limits(probes.host));
             lines.push(machine::shepherd(&client, shep_home));
             lines.push(match flock::flock(&client).await {
                 Ok(rows) => machine::dog(&rows),
                 Err(e) => Line::missing("dog", e, "put the shepherd right"),
             });
-            lines.extend(projects(&client, probes, here, ask).await);
+            lines.extend(projects(&client, read, probes, here, ask).await);
         }
         Err(refused) => {
+            lines.push(machine::sandbox(probes.host, false));
+            lines.extend(machine::sandbox_limits(probes.host));
             lines.push(machine::refused(&refused, shep_home));
             lines.push(Line::unsure(
                 "projects",
@@ -225,18 +243,30 @@ pub async fn check(shep_home: &Path, probes: Probes<'_>, here: Here<'_>, ask: As
     Report { lines }
 }
 
+// Whether any configured project turns the browser on, which is what starts a
+// dev server that binds a local port.
+fn runs_a_dev_server(tables: &BTreeMap<String, Map<String, Value>>) -> bool {
+    tables.values().any(|table| {
+        table
+            .get("browser")
+            .and_then(|browser| browser.get("enabled"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+    })
+}
+
+// A project's `[app.dogs.kelpie]` table as the shepherd answers it, and the
+// shepherd's own section, read together for the project lines
+pub(crate) type FlockRead = (BTreeMap<String, Map<String, Value>>, String);
+
 async fn projects(
     client: &dyn Connection,
+    read: Result<FlockRead, String>,
     probes: Probes<'_>,
     here: Here<'_>,
     ask: Ask<'_>,
 ) -> Vec<Line> {
-    let read = async {
-        let tables = flock::tables(client).await?;
-        let section = shepherd::read_section(client).await?;
-        Ok::<_, String>((tables, section))
-    };
-    let (tables, section) = match read.await {
+    let (tables, section) = match read {
         Ok(read) => read,
         Err(e) => return vec![Line::missing("projects", e, "put the shepherd right")],
     };
