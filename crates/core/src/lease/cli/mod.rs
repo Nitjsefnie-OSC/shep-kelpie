@@ -274,6 +274,7 @@ mod tests {
 
     // A caught signal reaches every run alive when it lands, so the tests
     // that listen for signals take turns.
+    #[cfg(unix)]
     pub(super) static LISTENING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
     fn words(args: &[&str]) -> Vec<String> {

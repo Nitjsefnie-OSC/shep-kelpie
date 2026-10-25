@@ -7,12 +7,11 @@
 //! reply agree it is the one that used its step, and count it as one
 //! failure, not two.
 
-use std::fs::{self, OpenOptions};
+use std::fs;
 use std::io::{self, Write};
-use std::os::unix::fs::OpenOptionsExt;
 use std::path::PathBuf;
 
-use super::{STEP, private_dir, step_of};
+use super::{STEP, create_private, private_dir, step_of};
 use crate::ports::Timestamp;
 
 /// Wrong codes, in messages kelpie has not seen before, after which answers
@@ -65,11 +64,7 @@ impl Answers {
         let name = used.join(step.to_string());
         let fresh = used.join(format!(".{step}.{message}.{}", std::process::id()));
         let _ = fs::remove_file(&fresh);
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .open(&fresh)?;
+        let mut file = create_private(&fresh)?;
         file.write_all(message.as_bytes())?;
         file.sync_all()?;
         let linked = fs::hard_link(&fresh, &name);
@@ -115,11 +110,7 @@ impl Answers {
         let message = plain(message)?;
         let failed = self.0.join("failed");
         private_dir(&failed)?;
-        let counted = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .open(failed.join(message));
+        let counted = create_private(&failed.join(message));
         match counted {
             Ok(_) => {}
             Err(e) if e.kind() == io::ErrorKind::AlreadyExists => return Ok(Failure::Counted),
@@ -128,11 +119,7 @@ impl Answers {
         if fs::read_dir(&failed)?.count() < FAILURES {
             return Ok(Failure::Counted);
         }
-        let locked = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .open(self.0.join("locked"));
+        let locked = create_private(&self.0.join("locked"));
         match locked {
             Ok(_) => Ok(Failure::LockedNow),
             Err(e) if e.kind() == io::ErrorKind::AlreadyExists => Ok(Failure::Counted),
@@ -196,7 +183,21 @@ mod tests {
 
     const NOW: Timestamp = Timestamp(1_111_111_109);
 
+    // Until #1264, no claim is made on Windows, rather than one others may read.
+    #[cfg(windows)]
     #[test]
+    fn no_claim_is_made_without_an_owner_only_acl() {
+        let home = tempfile::tempdir().unwrap();
+        let answers = Answers::in_folder(home.path().to_owned());
+        let claim = answers.claim(step_of(NOW), "m1", NOW).unwrap_err();
+        assert_eq!(claim.kind(), io::ErrorKind::Unsupported);
+        assert!(claim.to_string().contains("#1264"), "{claim}");
+        let fail = answers.fail("m1").unwrap_err();
+        assert_eq!(fail.kind(), io::ErrorKind::Unsupported);
+    }
+
+    #[test]
+    #[cfg_attr(windows, ignore = "a claim waits on an owner-only ACL, #1264")]
     fn a_step_is_the_first_messages_across_every_runner() {
         let home = tempfile::tempdir().unwrap();
         let (one, two) = (
@@ -218,6 +219,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "a claim waits on an owner-only ACL, #1264")]
     fn a_clock_running_ahead_never_lets_go_of_a_claim_in_use() {
         let home = tempfile::tempdir().unwrap();
         let answers = Answers::in_folder(home.path().to_owned());
@@ -230,6 +232,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "a claim waits on an owner-only ACL, #1264")]
     fn a_half_made_claim_is_let_go_and_odd_ids_are_refused() {
         let home = tempfile::tempdir().unwrap();
         let answers = Answers::in_folder(home.path().to_owned());
@@ -254,6 +257,7 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
     #[test]
     fn the_fifth_wrong_code_turns_answers_off_until_unlocked() {
         use std::os::unix::fs::PermissionsExt;

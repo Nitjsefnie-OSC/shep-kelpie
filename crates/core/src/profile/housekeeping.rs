@@ -26,7 +26,8 @@
 pub const PARAMETERS: &str =
     "'http.proxyAuthMethod'='basic' 'gc.auto'='0' 'maintenance.auto'='false' 'fetch.prune'='false'";
 
-#[cfg(test)]
+// Shutting a folder to new files is a Unix mode, and Windows has no `/dev/null`.
+#[cfg(all(test, unix))]
 mod tests {
     use std::fs;
     use std::os::unix::fs::PermissionsExt;
