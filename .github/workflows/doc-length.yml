@@ -1,0 +1,23 @@
+name: doc length
+# IR-47: the line limits for comment blocks. Blocks over a limit when the check
+# was added are listed in .github/doc-length-baseline.txt: a listed block may
+# shrink, a new one may not appear, and one that now fits is taken off.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  merge_group:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  doc-length:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - run: python3 -I scripts/test_doc_length.py
+      - run: python3 -I scripts/doc-length.py
