@@ -6,6 +6,10 @@ fn notes(runner: &Mutex<Runner>) -> Vec<String> {
     runner.lock().unwrap().take_notes()
 }
 
+// What `drain pause` says when the pause file cannot be written for a turn in flight
+const REFUSED: &str = "drain pause: no turn was asked to end at a tool call; \
+                       the pause could not be written for #7";
+
 #[test]
 fn a_pause_says_which_turns_it_asked_to_end_and_the_turn_that_ended_says_so() {
     let (rig, runner) = with_issue_7("shep");
@@ -74,24 +78,40 @@ fn a_pause_that_could_not_be_written_does_not_say_no_turn_could_end() {
         Box::new(Scripted::Say("done")),
     )]);
 
-    std::thread::scope(|scope| {
-        scope.spawn(|| {
+    let (asked, said) = std::thread::scope(|scope| {
+        let asking = scope.spawn(|| {
             assert!(tool.entered(crate::test::CALL_PATIENCE));
             // A folder where the request file goes: the write fails.
             let request = Pause::in_build(&rig.build_7()).requested_file().to_owned();
             std::fs::create_dir_all(request).unwrap();
-            rig.ask(&runner, "drain", Some("pause"));
-            tool.release();
+            // One `drain pause` may land while the step holds the runner's lock,
+            // answered from the posted copy and leaving its pause for a pass this
+            // step never runs. Ask again, as `shep kelpie pause` polls, until one
+            // reaches the runner and notes the refusal, keeping what it noted.
+            let deadline = std::time::Instant::now() + crate::test::CALL_PATIENCE;
+            loop {
+                rig.ask(&runner, "drain", Some("pause"));
+                let told = notes(&runner);
+                if told.iter().any(|n| n.contains("could not be written")) {
+                    tool.release();
+                    return told;
+                }
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "the drain pause never reached the runner: {told:?}"
+                );
+                std::thread::yield_now();
+            }
         });
         step(&runner).unwrap();
+        (asking.join().unwrap(), notes(&runner))
     });
 
-    let said = notes(&runner);
-    assert_eq!(
-        said[0],
-        "drain pause: no turn was asked to end at a tool call; \
-         the pause could not be written for #7",
-        "{said:?}"
+    let said: Vec<String> = asked.into_iter().chain(said).collect();
+    assert!(said.iter().any(|n| n == REFUSED), "{said:?}");
+    assert!(
+        !said.iter().any(|n| n.contains("paused-at-tool")),
+        "a turn no pause was set for ends on its own, not paused: {said:?}"
     );
 }
 
