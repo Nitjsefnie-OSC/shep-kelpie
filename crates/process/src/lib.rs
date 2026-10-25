@@ -10,4 +10,5 @@ pub mod spawn;
 pub mod status;
 pub mod terminal;
 pub mod tools;
+pub mod workflows;
 pub mod worktree;

@@ -45,6 +45,9 @@ pub(in crate::runner) fn stuck_comment(reason: &Stuck) -> String {
             short(head),
             checks.join(", ")
         ),
+        Stuck::NoChecks { head, .. } => {
+            format!("No check has appeared at {}.", short(head))
+        }
         // The forge's own words stay off a public pull request.
         Stuck::MergeRefused { head, .. } => {
             format!("Merging at {} was refused twice.", short(head))

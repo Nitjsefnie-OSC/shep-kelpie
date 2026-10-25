@@ -240,17 +240,6 @@ fn a_forge_still_showing_the_head_from_before_a_push_is_waited_out() {
 }
 
 #[test]
-fn with_ci_on_a_head_without_checks_waits_however_long_it_takes() {
-    let (rig, runner, head) = Rig::with_pull_request("chelone");
-    rig.forge.set_checks(&head, Checks::None);
-    for _ in 0..5 {
-        rig.clock.advance(3600);
-        assert_eq!(step(&runner).unwrap(), None);
-    }
-    assert_eq!(rig.forge.comments(), []);
-}
-
-#[test]
 fn a_verdict_waits_for_the_check_set_to_settle() {
     let (rig, runner, head) = Rig::with_pull_request("acme");
     rig.forge.set_checks(&head, Checks::Passed);
