@@ -56,7 +56,7 @@ Kelpie: dog of the maintainer's shepherd; one runner per project takes ready iss
 | contribution-release.md | asking for a release: yes, thumbs up, silence, ruling | `runner/contributions/{release,ruling}.rs` |
 | contribution-merge.md | a contribution's merge ruling: yes, thanks, no | `runner/contributions/{merge,ruling}.rs`, `core/settings/rulings.rs` |
 | representative.md | agent file, `agents.representative`, post wording | `runner/representative/`, `core/agents/front/`, `core/settings/agents/`, `agents/representative.md` |
-| dependencies.md | bot bumps: rebase, proof, merge, red | `core/settings/dependencies.rs`, `runner/dependencies/`, `runner/flight/proving.rs`, `runner/dev_server/bump/`, `core/state/bumps.rs`, `adapters/e2e_runner.rs`, `adapters/pages.rs`, `adapters/bridge/client/` |
+| dependencies.md | bot bumps: the behind rule, rebase, proof, merge, red | `core/settings/dependencies.rs`, `runner/dependencies/`, `runner/flight/proving.rs`, `runner/dev_server/bump/`, `core/state/bumps.rs`, `adapters/e2e_runner.rs`, `adapters/pages.rs`, `adapters/bridge/client/`, `adapters/gh/rules.rs` |
 | triage.md | settings, triager, pick rule, `since`, the verb, `status` | `core/settings/triage.rs`, `runner/triage/`, `runner/open_checks.rs`, `core/ports/issue.rs` |
 | triage-limits.md | the limits | `runner/triage/limits.rs` |
 | triage-pass.md | one issue's pass: post, labels, duplicate close, agent-ready | `runner/triage/`, `runner/flight/`, `core/ports/voice.rs` |
