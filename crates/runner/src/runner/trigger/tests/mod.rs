@@ -38,6 +38,21 @@ fn issue_lists_read_as_prose() {
 }
 
 #[test]
+fn status_names_the_commit_this_build_was_made_from() {
+    let rig = Rig::new("koji");
+    let runner = rig.open().unwrap();
+
+    let commit = rig.ask(&runner, "status", None)["commit"]
+        .as_str()
+        .expect("`status` names the commit this build was made from")
+        .to_owned();
+
+    let sha = commit.strip_suffix("-dirty").unwrap_or(&commit);
+    assert_eq!(sha.len(), 7, "{commit}");
+    assert!(sha.chars().all(|c| c.is_ascii_hexdigit()), "{commit}");
+}
+
+#[test]
 fn status_leaves_out_lock_until_a_hold_is_recorded() {
     let rig = Rig::new("koji");
     let runner = rig.open().unwrap();
@@ -91,6 +106,7 @@ fn a_new_project_has_nothing_in_flight() {
             "pull_request_template": "none",
             "board": rig.paths().board,
             "build": crate::home::stamp_of(&std::env::current_exe().unwrap()).unwrap(),
+            "commit": crate::home::COMMIT,
         })
     );
 }

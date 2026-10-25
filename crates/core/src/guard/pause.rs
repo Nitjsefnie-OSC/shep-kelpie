@@ -76,9 +76,12 @@ impl Pause {
         fs::write(&self.requested, "")
     }
 
-    /// Whether a pause is set
+    /// Whether a pause is set: the flag file the runner wrote is there
+    ///
+    /// A folder at that path is no pause. It is what a failed [`Pause::request`]
+    /// leaves behind, and a turn is never ended for a pause no one set.
     pub fn is_requested(&self) -> bool {
-        self.requested.exists()
+        self.requested.is_file()
     }
 
     /// Records that the turn ended for the pause, and answers with what

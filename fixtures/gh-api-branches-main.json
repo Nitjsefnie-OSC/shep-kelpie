@@ -1,0 +1,108 @@
+{
+  "name": "main",
+  "commit": {
+    "sha": "640dc61e06ef9cbb06e108f47f0a3248757fb799",
+    "node_id": "C_kwDOTytUD9oAKDY0MGRjNjFlMDZlZjljYmIwNmUxMDhmNDdmMGEzMjQ4NzU3ZmI3OTk",
+    "commit": {
+      "author": {
+        "name": "Turtle",
+        "email": "58572875+TurtIeSocks@users.noreply.github.com",
+        "date": "2026-10-25T18:01:01Z"
+      },
+      "committer": {
+        "name": "GitHub",
+        "email": "noreply@github.com",
+        "date": "2026-10-25T18:01:01Z"
+      },
+      "message": "refactor(cli): name lookout's unset and default texts once (#1200)",
+      "tree": {
+        "sha": "f306f6257c0cd35af20401a620f445a0efd0ed36",
+        "url": "https://api.github.com/repos/shep-pm/shep/git/trees/f306f6257c0cd35af20401a620f445a0efd0ed36"
+      },
+      "url": "https://api.github.com/repos/shep-pm/shep/git/commits/640dc61e06ef9cbb06e108f47f0a3248757fb799",
+      "comment_count": 0,
+      "verification": {
+        "verified": true,
+        "reason": "valid",
+        "signature": "-----BEGIN PGP SIGNATURE-----\n\nwsFcBAABCAAQBQJq3kPdCRC1aQ7uu5UhlAAA2RoQAIHBo3dLB5BG+cl7iDGWkA5R\n8qd8xRZm2d5FD9wzTw8e/By0ltcxFNnvk+QHt0evQiOJqqQ7aXFBKznxW9h6+COR\n5hISCba0sDSHengQ8d7lUfLTsCASwpPqgbkNmxvi93SQTlzwW3hmVL7JeINDMYt5\nnr0hpStQ64gh+yYsOM6uuTxL7X67miUGCShdOkM+J5hc4vWSbA6U1c92xV/urr16\nujzwlHAczCkN6b6rwlfipEdj67yByaq3v+5Z5GXbydUivnbJtIOtqZLia64dYpQU\niJ6D+03vf6sTiNa2CMXq4S1/vX2S53gpCLg2e6VG+UkCQb+XXc+1R036jTKTSlFf\nwaVM0jgp6Og0AyNMdAxN4oMMrYVB/ZkR5ZHTVWGkPBhKRRmcKwkO4tKpyiAY+X+/\nLDEBtk7wekC9QDIH+GmpF3c6AoV0A9n71VYKRTruaOFtl7lMCcAZqEFUTEqxgK5d\npHSaxpvCm5tKpjTesTc1ENYbNcyi6bXx9Por+wJQmrZabTNHBZ5+gSZYXJ/MHtxT\nxb16vVh6SsNTYNb5P/ALXx90TgpeyPMNH0cHhNsAKfnokfaPXjvEhS2ySS4ymYfu\nC9RqbtZ/FIrs649MJWoQuBv8MjX0JlPmh/5GC8ZOKL0JNf5DDy/0zCVlmqf1A67p\nWTjt5np3eQiIC4RhRxR4\n=eibR\n-----END PGP SIGNATURE-----\n",
+        "payload": "tree f306f6257c0cd35af20401a620f445a0efd0ed36\nparent 8e18097e0ba1b3553c4ea97351aa53439dc8dd34\nparent e1b63b8dbedcc523442d10c82a470c6a2b9bf0f6\nauthor Turtle <58572875+TurtIeSocks@users.noreply.github.com> 1792951261 -0400\ncommitter GitHub <noreply@github.com> 1792951261 -0400\n\nrefactor(cli): name lookout's unset and default texts once (#1200)",
+        "verified_at": "2026-10-25T18:01:01Z"
+      }
+    },
+    "url": "https://api.github.com/repos/shep-pm/shep/commits/640dc61e06ef9cbb06e108f47f0a3248757fb799",
+    "html_url": "https://github.com/shep-pm/shep/commit/640dc61e06ef9cbb06e108f47f0a3248757fb799",
+    "comments_url": "https://api.github.com/repos/shep-pm/shep/commits/640dc61e06ef9cbb06e108f47f0a3248757fb799/comments",
+    "author": {
+      "login": "TurtIeSocks",
+      "id": 58572875,
+      "node_id": "MDQ6VXNlcjU4NTcyODc1",
+      "avatar_url": "https://avatars.githubusercontent.com/u/58572875?v=4",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/TurtIeSocks",
+      "html_url": "https://github.com/TurtIeSocks",
+      "followers_url": "https://api.github.com/users/TurtIeSocks/followers",
+      "following_url": "https://api.github.com/users/TurtIeSocks/following{/other_user}",
+      "gists_url": "https://api.github.com/users/TurtIeSocks/gists{/gist_id}",
+      "starred_url": "https://api.github.com/users/TurtIeSocks/starred{/owner}{/repo}",
+      "subscriptions_url": "https://api.github.com/users/TurtIeSocks/subscriptions",
+      "organizations_url": "https://api.github.com/users/TurtIeSocks/orgs",
+      "repos_url": "https://api.github.com/users/TurtIeSocks/repos",
+      "events_url": "https://api.github.com/users/TurtIeSocks/events{/privacy}",
+      "received_events_url": "https://api.github.com/users/TurtIeSocks/received_events",
+      "type": "User",
+      "user_view_type": "public",
+      "site_admin": false
+    },
+    "committer": {
+      "login": "web-flow",
+      "id": 19864447,
+      "node_id": "MDQ6VXNlcjE5ODY0NDQ3",
+      "avatar_url": "https://avatars.githubusercontent.com/u/19864447?v=4",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/web-flow",
+      "html_url": "https://github.com/web-flow",
+      "followers_url": "https://api.github.com/users/web-flow/followers",
+      "following_url": "https://api.github.com/users/web-flow/following{/other_user}",
+      "gists_url": "https://api.github.com/users/web-flow/gists{/gist_id}",
+      "starred_url": "https://api.github.com/users/web-flow/starred{/owner}{/repo}",
+      "subscriptions_url": "https://api.github.com/users/web-flow/subscriptions",
+      "organizations_url": "https://api.github.com/users/web-flow/orgs",
+      "repos_url": "https://api.github.com/users/web-flow/repos",
+      "events_url": "https://api.github.com/users/web-flow/events{/privacy}",
+      "received_events_url": "https://api.github.com/users/web-flow/received_events",
+      "type": "User",
+      "user_view_type": "public",
+      "site_admin": false
+    },
+    "parents": [
+      {
+        "sha": "8e18097e0ba1b3553c4ea97351aa53439dc8dd34",
+        "url": "https://api.github.com/repos/shep-pm/shep/commits/8e18097e0ba1b3553c4ea97351aa53439dc8dd34",
+        "html_url": "https://github.com/shep-pm/shep/commit/8e18097e0ba1b3553c4ea97351aa53439dc8dd34"
+      },
+      {
+        "sha": "e1b63b8dbedcc523442d10c82a470c6a2b9bf0f6",
+        "url": "https://api.github.com/repos/shep-pm/shep/commits/e1b63b8dbedcc523442d10c82a470c6a2b9bf0f6",
+        "html_url": "https://github.com/shep-pm/shep/commit/e1b63b8dbedcc523442d10c82a470c6a2b9bf0f6"
+      }
+    ]
+  },
+  "_links": {
+    "self": "https://api.github.com/repos/shep-pm/shep/branches/main",
+    "html": "https://github.com/shep-pm/shep/tree/main"
+  },
+  "protected": true,
+  "protection": {
+    "enabled": false,
+    "required_status_checks": {
+      "enforcement_level": "off",
+      "contexts": [
+
+      ],
+      "checks": [
+
+      ]
+    }
+  },
+  "protection_url": "https://api.github.com/repos/shep-pm/shep/branches/main/protection"
+}

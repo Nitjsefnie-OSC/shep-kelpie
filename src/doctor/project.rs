@@ -13,8 +13,8 @@ use crate::local_tickets::LocalTickets;
 use crate::ports::{Forge, NewLabel, Visibility};
 use crate::runner::{NO_ORIGIN, check_checkout, check_instructions, source_of};
 use crate::settings::{
-    Account, AgentHarness, AgentName, ForgeSlug, Gateways, Limit, Pick, RoleModel, Settings,
-    SettingsError, TicketSource,
+    Account, AgentName, DoctorProbe, ForgeSlug, Gateways, Harness, Limit, Pick, RoleModel,
+    Settings, SettingsError, TicketSource,
 };
 use crate::webhook::KelpieSettings;
 
@@ -198,16 +198,20 @@ pub(super) fn checks(
             Err(e) => Line::missing(at("codex usage"), e.to_string(), "set `codex_home` in kelpie's settings to a folder of kelpie's own, absolute or under `~/`"),
         });
     }
-    // parity: harness.doctor
-    let on_pi = |h: &AgentHarness| matches!(h, AgentHarness::Pi(_));
-    if spends_on(&settings, (&book, &gateways), here, on_pi) {
-        lines.push(super::machine::pi(at("pi"), probes.host));
-        lines.push(super::machine::pi_tools(at("pi tools"), probes.host));
-    }
-    // parity: harness.doctor
-    let on_goose = |h: &AgentHarness| matches!(h, AgentHarness::Goose(_));
-    if spends_on(&settings, (&book, &gateways), here, on_goose) {
-        lines.push(super::machine::goose(at("goose"), probes.host));
+    for harness in Harness::ALL {
+        let Some(probe) = harness.facts().doctor_probe else {
+            continue;
+        };
+        if !spends_on(&settings, (&book, &gateways), here, harness) {
+            continue;
+        }
+        match probe {
+            DoctorProbe::Pi => {
+                lines.push(super::machine::pi(at("pi"), probes.host));
+                lines.push(super::machine::pi_tools(at("pi tools"), probes.host));
+            }
+            DoctorProbe::Goose => lines.push(super::machine::goose(at("goose"), probes.host)),
+        }
     }
     if let Some(kelpie) = kelpie {
         lines.push(rulings::channel(at("rulings"), kelpie));
@@ -440,17 +444,16 @@ fn spends_codex(
     sessions || roles.is_some_and(|roles| roles.implementers.iter().any(|i| codex(&i.limit)))
 }
 
-// Whether an implementer, another role agent or a reviewer runs on the harness
-// `on` picks out, pi or goose: one listed
+// Whether an implementer, another role agent or a reviewer runs on `harness`: one listed
 // in `agents.reviewers`, or, when contributions are picked up, one that reads a
 // contribution. Settings that do not resolve are another line's to report.
 fn spends_on(
     settings: &Settings,
     (book, gateways): (&Agents, &Gateways),
     here: Here<'_>,
-    on: impl Fn(&AgentHarness) -> bool,
+    harness: Harness,
 ) -> bool {
-    let pi = |model: &RoleModel| on(&model.harness);
+    let on_it = |model: &RoleModel| model.harness.harness() == harness;
     let roles = settings.role_agents(book).ok();
     let mut reviewers = settings
         .lineup(book, gateways, here.home)
@@ -468,7 +471,7 @@ fn spends_on(
         .iter()
         .filter_map(|r| r.runs.session())
         .chain(security.and_then(|a| a.runs.session()))
-        .any(|(model, _)| pi(model));
+        .any(|(model, _)| on_it(model));
     reviewers
         || roles.is_some_and(|roles| {
             let others = [
@@ -476,7 +479,8 @@ fn spends_on(
                 roles.advisor.as_ref().map(|a| &a.model),
                 roles.researcher.as_ref().map(|a| &a.model),
             ];
-            roles.implementers.iter().any(|i| pi(&i.model)) || others.into_iter().flatten().any(pi)
+            roles.implementers.iter().any(|i| on_it(&i.model))
+                || others.into_iter().flatten().any(on_it)
         })
 }
 
