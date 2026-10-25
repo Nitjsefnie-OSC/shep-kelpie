@@ -7,9 +7,11 @@ use crate::ports::{AgentCall, Role};
 use crate::runner::step;
 use crate::test::{Rig, Scripted, Synced, git};
 
+mod frontmatter;
 mod narrow;
 mod own;
 mod parts;
+mod rest;
 
 // The files of a marketplace named `market` holding each of `plugins` with one skill, by path
 // from the marketplace

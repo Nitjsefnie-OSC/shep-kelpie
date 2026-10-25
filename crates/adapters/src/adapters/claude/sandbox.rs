@@ -209,6 +209,7 @@ mod tests {
                 base: "main",
                 kelpie_pushes: false,
                 kelpie: Path::new("/k/kelpie"),
+                skills: Path::new("/k/shep/skills"),
                 kelpie_home: Path::new("/k"),
                 repo: Path::new("/k/repo"),
                 guard_hooks: &[],

@@ -7,9 +7,11 @@
 //! them itself and hands them to the adapter as the call's `mcpServers`.
 //!
 //! A plugin's server may run a file of the plugin through
-//! `${CLAUDE_PLUGIN_ROOT}`, and the plugin's folder holds only the parts
-//! `repo_setup.parts` loads, so the whole plugin is copied to a folder inside
-//! the plugin's own, which Claude Code does not read, and the variable names that.
+//! `${CLAUDE_PLUGIN_ROOT}`, and `repo_setup.parts` can leave a part folder out
+//! of the copy, so the whole plugin is copied to a folder inside the plugin's
+//! own, which Claude Code does not read, and the variable names that. A skill's
+//! text gets the copy's own folder in place of the variable, since the copy
+//! holds every folder of the plugin.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -23,9 +25,18 @@ use super::{inside, is_file};
 pub type Servers = BTreeMap<String, Value>;
 
 /// The folder inside a plugin's copy that holds the whole plugin, for a server that runs one of its files
+///
+/// The copy beside it holds every folder of the plugin but the parts
+/// `repo_setup.parts` leaves out, and this one holds all of them, so a server
+/// runs a file of a part that is not loaded.
 pub(super) const ROOT: &str = "mcp-root";
 
 const ROOT_VARIABLE: &str = "${CLAUDE_PLUGIN_ROOT}";
+
+/// `text` with each `${CLAUDE_PLUGIN_ROOT}` in it the folder `root`
+pub(super) fn fill_in(text: &str, root: &str) -> String {
+    text.replace(ROOT_VARIABLE, root)
+}
 
 // The servers `value` lists: its `mcpServers`, or itself where a file lists them bare.
 // An entry that is no object is no server.
@@ -52,7 +63,8 @@ pub(super) fn plugin_servers(folder: &Path) -> Servers {
     let mut servers = read(&folder.join(".mcp.json"))
         .map(|file| entries(&file))
         .unwrap_or_default();
-    let manifest = read(&folder.join(".claude-plugin/plugin.json")).unwrap_or(Value::Null);
+    let manifest =
+        read(&folder.join(super::MANIFEST_FOLDER).join("plugin.json")).unwrap_or(Value::Null);
     let named = match &manifest["mcpServers"] {
         Value::String(path) => vec![path.as_str()],
         Value::Array(paths) => paths.iter().filter_map(Value::as_str).collect(),
@@ -103,7 +115,7 @@ fn tool_name(name: &str) -> String {
 
 fn substitute(value: &mut Value, root: &str) {
     match value {
-        Value::String(text) => *text = text.replace(ROOT_VARIABLE, root),
+        Value::String(text) => *text = fill_in(text, root),
         Value::Array(items) => items.iter_mut().for_each(|item| substitute(item, root)),
         Value::Object(map) => map.values_mut().for_each(|item| substitute(item, root)),
         _ => {}

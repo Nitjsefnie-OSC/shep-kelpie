@@ -69,6 +69,7 @@ pub(super) fn plan(
         skills,
         skipped: None,
         stale: None,
+        unreadable: Vec::new(),
         dir: Some(into.join(NAME)),
         found: None,
         digest: 0,
