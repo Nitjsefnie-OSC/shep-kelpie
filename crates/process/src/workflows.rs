@@ -17,17 +17,18 @@ pub fn runs_on_pull_requests(text: &str) -> bool {
 }
 
 /// Whether a workflow's checks show on a work branch's pull request: a pull
-/// request event runs it, or a push that reaches a work branch does
-pub fn runs_on_a_pull_request(text: &str) -> bool {
-    runs_on_pull_requests(text) || runs_on_push(text)
+/// request event runs it, or a push that reaches a work branch does, `base`
+/// being the branch the pull request is against
+pub fn runs_on_a_pull_request(text: &str, base: &str) -> bool {
+    runs_on_pull_requests(text) || runs_on_push(text, base)
 }
 
 /// Whether a push to a work branch runs a workflow, whatever its draft
 /// conditions say, since a condition on the pull request is empty there
 ///
 /// A `push` with `branches` runs on a work branch only when the list matches
-/// more than `main`.
-pub fn runs_on_push(text: &str) -> bool {
+/// more than `base`.
+pub fn runs_on_push(text: &str, base: &str) -> bool {
     let text = without_comments(text);
     let triggers = text.split("\njobs:").next().unwrap_or("");
     let words = || triggers.split(|c: char| !(c.is_alphanumeric() || c == '_'));
@@ -35,7 +36,7 @@ pub fn runs_on_push(text: &str) -> bool {
         return false;
     }
     match push_branches(triggers) {
-        Some(branches) => branches.iter().any(|branch| branch != "main"),
+        Some(branches) => branches.iter().any(|branch| branch != base),
         None => true,
     }
 }
@@ -84,8 +85,8 @@ fn indent(line: &str) -> usize {
 /// Whether a workflow does not run on a draft: its trigger never fires on one,
 /// or every job carries a condition that is false on a draft, in the forms
 /// GitHub's documentation shows. A push runs it whatever either says.
-pub fn skips_drafts(text: &str) -> bool {
-    if runs_on_push(text) {
+pub fn skips_drafts(text: &str, base: &str) -> bool {
+    if runs_on_push(text, base) {
         return false;
     }
     if trigger_skips_drafts(text) {
@@ -190,8 +191,8 @@ mod tests {
             "on:\n  push:\n    branches: [main]\n  workflow_dispatch:\n",
         ] {
             let text = format!("{on}jobs:\n  t:\n    runs-on: ubuntu-latest\n");
-            assert!(!runs_on_push(&text), "{on}");
-            assert!(!runs_on_a_pull_request(&text), "{on}");
+            assert!(!runs_on_push(&text, "main"), "{on}");
+            assert!(!runs_on_a_pull_request(&text, "main"), "{on}");
         }
     }
 
@@ -209,22 +210,30 @@ mod tests {
             "on:\n  push:\n    branches: [my-main]\n",
         ] {
             let text = format!("{on}jobs:\n  t:\n    runs-on: ubuntu-latest\n");
-            assert!(runs_on_push(&text), "{on}");
+            assert!(runs_on_push(&text, "main"), "{on}");
         }
+    }
+
+    #[test]
+    fn a_push_limited_to_the_base_does_not_run_on_a_work_branch_whatever_it_is_called() {
+        let text = "on:\n  push:\n    branches: [develop]\njobs:\n  t:\n";
+        assert!(!runs_on_push(text, "develop"));
+        assert!(!runs_on_a_pull_request(text, "develop"));
+        assert!(runs_on_push(text, "main"), "main is not this base");
     }
 
     #[test]
     fn a_pull_request_event_runs_on_a_pull_request_whatever_the_push_says() {
         let text = "on:\n  push:\n    branches: [main]\n  pull_request:\njobs:\n  t:\n";
-        assert!(runs_on_a_pull_request(text));
-        assert!(!runs_on_push(text));
+        assert!(runs_on_a_pull_request(text, "main"));
+        assert!(!runs_on_push(text, "main"));
     }
 
     #[test]
     fn a_comment_or_a_condition_is_not_a_trigger() {
         let text = "on:\n  push:\n    branches: [main]\n# pull_request:\njobs:\n  t:\n    \
                     if: github.event.pull_request.draft == false\n";
-        assert!(!runs_on_a_pull_request(text));
+        assert!(!runs_on_a_pull_request(text, "main"));
     }
 
     #[test]
@@ -236,13 +245,15 @@ mod tests {
             "if: '!github.event.pull_request.draft'",
         ] {
             let text = format!("on: pull_request\njobs:\n  t:\n    {condition}\n");
-            assert!(skips_drafts(&text), "{condition}");
+            assert!(skips_drafts(&text, "main"), "{condition}");
         }
         assert!(!skips_drafts(
-            "on: pull_request\n# if: github.event.pull_request.draft == false\n"
+            "on: pull_request\n# if: github.event.pull_request.draft == false\n",
+            "main"
         ));
         assert!(!skips_drafts(
-            "on: pull_request\njobs:\n  t:\n    if: github.event.pull_request.draft == true\n"
+            "on: pull_request\njobs:\n  t:\n    if: github.event.pull_request.draft == true\n",
+            "main"
         ));
     }
 
@@ -255,8 +266,11 @@ mod tests {
         let head = "on:\n  pull_request:\njobs:\n";
         let both = format!("{head}{}{}", job("a", skip), job("b", skip));
         let one = format!("{head}{}{}", job("a", skip), job("b", ""));
-        assert!(skips_drafts(&both));
-        assert!(!skips_drafts(&one), "the job with no condition runs");
+        assert!(skips_drafts(&both, "main"));
+        assert!(
+            !skips_drafts(&one, "main"),
+            "the job with no condition runs"
+        );
     }
 
     #[test]
@@ -267,7 +281,7 @@ mod tests {
             "    types:\n      - ready_for_review\n      - labeled\n",
         ] {
             let text = format!("on:\n  pull_request:\n{types}{job}");
-            assert!(skips_drafts(&text), "{types}");
+            assert!(skips_drafts(&text, "main"), "{types}");
         }
         for types in [
             "    types: [opened, ready_for_review]\n",
@@ -275,7 +289,7 @@ mod tests {
             "    branches: [main]\n",
         ] {
             let text = format!("on:\n  pull_request:\n{types}{job}");
-            assert!(!skips_drafts(&text), "{types}");
+            assert!(!skips_drafts(&text, "main"), "{types}");
         }
     }
 
@@ -287,7 +301,7 @@ mod tests {
         ] {
             let text =
                 format!("{on}jobs:\n  t:\n    if: github.event.pull_request.draft == false\n");
-            assert!(!skips_drafts(&text), "{on}");
+            assert!(!skips_drafts(&text, "main"), "{on}");
         }
     }
 }

@@ -24,7 +24,7 @@ pub fn runs_on_pull_requests(repo: &Path, base: &str) -> Result<bool, WorktreeEr
     )?;
     for path in listed.lines().filter(|path| is_workflow_file(path)) {
         let text = git(repo, ["show", &format!("{tip}:{path}")])?;
-        if runs_on_a_pull_request(&text) {
+        if runs_on_a_pull_request(&text, base) {
             return Ok(true);
         }
     }

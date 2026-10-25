@@ -689,6 +689,7 @@ async fn ci_that_never_runs_on_a_pull_request_is_missing_where_ci_blocks() {
         what.contains("no workflow runs on a pull request"),
         "{what}"
     );
+    assert!(!what.contains("  "), "{what}");
     assert!(fix.contains("`pull_request`"), "{fix}");
     assert!(fix.contains("set `ci.block` to false"), "{fix}");
     assert!(!report.passed());

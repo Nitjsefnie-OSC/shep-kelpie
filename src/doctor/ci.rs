@@ -23,12 +23,14 @@ pub(super) fn pull_requests(subject: String, settings: &Settings) -> Option<Line
     }
     let folder = settings.git.checkout.join(".github/workflows");
     let texts = workflow_texts(&folder)?;
-    if texts.iter().any(|text| runs_on_a_pull_request(text)) {
+    let base = settings.git.base();
+    if texts.iter().any(|text| runs_on_a_pull_request(text, base)) {
         return None;
     }
     Some(Line::missing(
         subject,
-        "no workflow runs on a pull request, so no check ever appears on one and `ci.block`          would hold every work item for CI that never runs",
+        "no workflow runs on a pull request, so no check ever appears on one and `ci.block` \
+         would hold every work item for CI that never runs",
         "add a workflow that runs on `pull_request`, or set `ci.block` to false in the \
          project's `[app.dogs.kelpie.ci]` table",
     ))
@@ -43,7 +45,7 @@ pub(super) fn drafts(subject: String, settings: &Settings) -> Option<Line> {
         return None;
     }
     let folder = settings.git.checkout.join(".github/workflows");
-    let skipping = skipping(&folder)?;
+    let skipping = skipping(&folder, settings.git.base())?;
     let named = skipping
         .iter()
         .map(|file| format!("`{file}`"))
@@ -88,11 +90,11 @@ fn workflow_texts(folder: &Path) -> Option<Vec<String>> {
 
 // The workflow files in `folder` that run on a pull request, when every one
 // of them skips a draft.
-fn skipping(folder: &Path) -> Option<Vec<String>> {
+fn skipping(folder: &Path, base: &str) -> Option<Vec<String>> {
     let mut on_pull_requests = Vec::new();
     for (name, text) in workflow_files(folder)? {
         if runs_on_pull_requests(&text) {
-            on_pull_requests.push((name, skips_drafts(&text)));
+            on_pull_requests.push((name, skips_drafts(&text, base)));
         }
     }
     on_pull_requests.sort();
@@ -121,7 +123,7 @@ mod tests {
     fn a_repo_whose_every_pull_request_workflow_skips_drafts_is_named() {
         let dir = workflows(&[("ci.yml", SKIPS), ("lint.yaml", SKIPS)]);
         assert_eq!(
-            skipping(dir.path()),
+            skipping(dir.path(), "main"),
             Some(vec!["ci.yml".to_owned(), "lint.yaml".to_owned()])
         );
     }
@@ -129,21 +131,24 @@ mod tests {
     #[test]
     fn one_workflow_that_runs_on_drafts_is_enough() {
         let dir = workflows(&[("ci.yml", SKIPS), ("lint.yml", RUNS)]);
-        assert_eq!(skipping(dir.path()), None);
+        assert_eq!(skipping(dir.path(), "main"), None);
     }
 
     #[test]
     fn a_workflow_that_never_runs_on_a_pull_request_counts_for_nothing() {
         let push = "on: push\njobs:\n  t:\n    if: github.event.pull_request.draft == false\n";
         let dir = workflows(&[("release.yml", push)]);
-        assert_eq!(skipping(dir.path()), None);
+        assert_eq!(skipping(dir.path(), "main"), None);
         let dir = workflows(&[("release.yml", push), ("ci.yml", SKIPS)]);
-        assert_eq!(skipping(dir.path()), Some(vec!["ci.yml".to_owned()]));
+        assert_eq!(
+            skipping(dir.path(), "main"),
+            Some(vec!["ci.yml".to_owned()])
+        );
     }
 
     #[test]
     fn no_workflows_folder_is_nothing_to_say() {
         let dir = tempfile::tempdir().unwrap();
-        assert_eq!(skipping(&dir.path().join("none")), None);
+        assert_eq!(skipping(&dir.path().join("none"), "main"), None);
     }
 }
