@@ -155,6 +155,7 @@ pub(crate) fn dog_problem(rows: &[ProcessInfo]) -> Option<(String, String)> {
             DogSource::Adopted {
                 channel: false,
                 path,
+                ..
             },
             ..,
         )) => problem(

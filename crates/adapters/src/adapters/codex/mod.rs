@@ -440,7 +440,7 @@ fn link_login(login: &Path, home: &Path) -> Result<(), AgentError> {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
         _ => std::fs::remove_file(&link).map_err(setup)?,
     }
-    std::os::unix::fs::symlink(&target, &link).map_err(setup)
+    crate::adapters::files::link(&target, &link).map_err(setup)
 }
 
 /// The Codex session one of kelpie's session ids is

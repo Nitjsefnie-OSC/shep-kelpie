@@ -1,5 +1,6 @@
 //! A goose reviewer asked for a failing test: `write`, held to its tests folder
 
+#[cfg(unix)]
 use std::os::unix::fs::symlink;
 use std::path::{Path, PathBuf};
 use std::process::Command as Process;
@@ -197,6 +198,7 @@ fn the_hook_resolves_a_path_as_goose_does() {
     ));
 }
 
+#[cfg(unix)]
 #[test]
 fn a_write_through_a_link_in_the_tests_folder_to_the_worktree_is_refused() {
     let w = World::new();
