@@ -363,7 +363,8 @@ const ctx = { cwd: process.argv[2], abort: () => { aborts += 1; } };
 const event = { toolName: "read", input: { path: "a" }, content: [], isError: false };
 const first = (await handler(event, ctx)) ?? null;
 process.stdout.write(JSON.stringify({ aborts_before: aborts }) + "\n");
-writeFileSync(process.argv[3], "");
+// A pause the runner cannot write is no pause: the script does not stop for it.
+try { writeFileSync(process.argv[3], "") } catch {}
 const second = (await handler(event, ctx)) ?? null;
 console.log(JSON.stringify({ aborts, first, second }));
 "#;
@@ -415,6 +416,25 @@ fn the_guard_extension_aborts_after_a_tool_result_while_a_pause_is_set() {
         "the result is kept"
     );
     assert!(ended, "the runner tells a paused turn by this");
+}
+
+#[test]
+fn the_guard_extension_ends_no_turn_for_a_pause_that_could_not_be_written() {
+    // A folder where the flag file goes cannot be written as a file.
+    let blocked = |pause: &crate::guard::Pause| {
+        std::fs::create_dir(pause.requested_file()).unwrap();
+    };
+    let Some((lines, ended)) = pause_run(blocked) else {
+        return;
+    };
+    assert_eq!(
+        lines[1]["aborts"], 0,
+        "the extension ends nothing for a pause no one set"
+    );
+    assert!(
+        !ended,
+        "no marker is left, so the runner tells no paused turn"
+    );
 }
 
 #[test]

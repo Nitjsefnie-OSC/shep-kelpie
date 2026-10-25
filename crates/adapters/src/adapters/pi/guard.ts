@@ -5,7 +5,7 @@
 // code 2 refuses. Kelpie fills in CHECKS for each call. Anything that fails refuses.
 // While a pause is set, the turn ends at its next tool result.
 import { spawnSync } from "node:child_process";
-import { existsSync, writeFileSync } from "node:fs";
+import { statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 
@@ -90,6 +90,16 @@ async function afterCommand(event: any, ctx: any) {
 	};
 }
 
+// The flag is the file the runner wrote: a folder at that path is a pause whose
+// write failed, and no turn ends for a pause no one set.
+function pauseIsSet(path: string): boolean {
+	try {
+		return statSync(path).isFile();
+	} catch {
+		return false;
+	}
+}
+
 export default function (pi: any) {
 	pi.on("tool_call", async (event: any, ctx: any) => {
 		const cwd = ctx?.cwd ?? process.cwd();
@@ -120,7 +130,7 @@ export default function (pi: any) {
 	pi.on("tool_result", async (event: any, ctx: any) => {
 		const result = await afterCommand(event, ctx);
 		// The result is kept: the turn ends before the next model call, never during one.
-		if (existsSync(CHECKS.pause.requested)) {
+		if (pauseIsSet(CHECKS.pause.requested)) {
 			// Without the marker the runner could not tell the pause, so the turn goes on.
 			try {
 				writeFileSync(CHECKS.pause.ended, "");
