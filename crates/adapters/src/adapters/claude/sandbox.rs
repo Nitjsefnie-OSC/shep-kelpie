@@ -166,7 +166,6 @@ mod tests {
     use crate::profile::WorkerProfile;
     use crate::settings::Effort;
     use crate::test::OpenSandbox;
-    use crate::tools::Tools as KelpieTools;
 
     const RESULT: &str = include_str!("../../../../../fixtures/claude-p-result.json");
 
@@ -296,12 +295,23 @@ mod tests {
     #[test]
     fn a_missing_sandbox_runs_nothing() {
         let w = World::new();
-        let none = SandboxRuntime::new(KelpieTools::at(w.path("no-tools"))).on_os("windows");
+        // A Windows machine with no `crabpot windows-install` has no sandbox
+        // to run a call in.
+        let none = SandboxRuntime::new()
+            .on(crate::adapters::srt::Platform::Windows)
+            .with_install(crate::adapters::host::WindowsInstall {
+                provisioned: false,
+                setup_installed: None,
+                setup_expected: 1,
+                loopback_open: false,
+                seclogon_runs: true,
+                desktop_session: true,
+            });
         let cli = w.cli(Arc::new(none));
         for call in [w.worker(), w.call(Role::Reviewer)] {
             let err = cli.run(&call, &Ending::default()).unwrap_err();
             assert!(
-                matches!(&err, AgentError::Setup(why) if why.contains("tools install")),
+                matches!(&err, AgentError::Setup(why) if why.contains("crabpot windows-install")),
                 "{err:?}"
             );
         }

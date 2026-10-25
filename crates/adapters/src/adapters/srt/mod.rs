@@ -1,49 +1,92 @@
 //! The sandbox runtime a call runs under
 //!
-//! On macOS and Linux it is crabpot, linked into kelpie's own binary: a
+//! It is crabpot, linked into kelpie's own binary, on every platform: a
 //! wrapped command is `shep-kelpie --crabpot --settings <file> -- prog args`,
 //! which `crabpot::run_from_args` takes over first thing in `main`. On Linux
-//! crabpot fences with bubblewrap. Elsewhere it is `srt` from kelpie's own
-//! tools, the engine under Claude Code's own sandbox: bubblewrap, and a proxy
-//! that holds the network to a host list. Kelpie pins its version in
-//! [`crate::tools::PACKAGE`]. A sandbox cannot start inside another, so
-//! nothing it runs may start one of its own.
+//! crabpot fences with bubblewrap. On Windows it fences with the WFP filter
+//! engine, and the machine needs a one-time `crabpot windows-install`: the
+//! install fixes the loopback mode of every session after it, and srt-win
+//! refuses a session that asks for the other. A sandbox cannot start inside
+//! another, so nothing it runs may start one of its own.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use serde_json::{Value, json};
 
+use crate::adapters::host::WindowsInstall;
 use crate::ports::{Policy, Sandbox, SandboxError};
-use crate::tools::Tools;
 
 // The Mach services a command asks the keychain through, which a covered call may not look up
 const KEYCHAIN_SERVICES: [&str; 2] = ["com.apple.securityd.xpc", "com.apple.SecurityServer"];
 
-/// The sandbox runtime installed under kelpie's tools
+/// This machine's operating system, as far as the sandbox reads it
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Platform {
+    Macos,
+    Linux,
+    Windows,
+    /// Any other, which kelpie does not fence on yet
+    Other,
+}
+
+impl Platform {
+    fn of(os: &str) -> Self {
+        match os {
+            "macos" => Self::Macos,
+            "linux" => Self::Linux,
+            "windows" => Self::Windows,
+            _ => Self::Other,
+        }
+    }
+
+    fn here() -> Self {
+        Self::of(std::env::consts::OS)
+    }
+
+    // Whether only this platform has a keychain to ask, an `open` folder to
+    // list or a scratch glob to write.
+    fn macos(self) -> bool {
+        self == Self::Macos
+    }
+}
+
+/// The sandbox runtime every call runs in
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SandboxRuntime {
-    tools: Tools,
-    // This machine's operating system, as `std::env::consts::OS` names it
-    os: &'static str,
+    // This machine's operating system
+    platform: Platform,
     // The program that is crabpot: kelpie itself, unless a test names the built one.
     kelpie: Option<PathBuf>,
+    // What the Windows install says about itself, when a test named one.
+    // `None` reads this machine, which only a Windows one answers.
+    install: Option<WindowsInstall>,
 }
 
 impl SandboxRuntime {
-    /// The runtime `shep kelpie tools install` put in `tools`
-    pub fn new(tools: Tools) -> Self {
+    /// The runtime on this machine
+    pub fn new() -> Self {
         Self {
-            tools,
-            os: std::env::consts::OS,
+            platform: Platform::here(),
             kelpie: None,
+            install: None,
         }
     }
 
     /// The same, as on macOS, Linux or Windows, which a test runs on any of them
     #[cfg(test)]
-    pub(crate) fn on_os(self, os: &'static str) -> Self {
-        Self { os, ..self }
+    pub(crate) fn on(self, platform: Platform) -> Self {
+        Self { platform, ..self }
+    }
+
+    /// The same, with `install` as what the Windows machine reports, since a
+    /// test on another platform cannot read one
+    #[cfg(test)]
+    pub(crate) fn with_install(self, install: WindowsInstall) -> Self {
+        Self {
+            install: Some(install),
+            ..self
+        }
     }
 
     /// The same, with `kelpie` as crabpot, since a test binary has no
@@ -56,26 +99,16 @@ impl SandboxRuntime {
         }
     }
 
-    /// The runtime for a test that runs its wrapped command for real: on macOS
-    /// and Linux through the built `shep-kelpie`, and a panic when there is
-    /// none, since a test binary would refuse `--crabpot` and the test would
-    /// prove nothing
+    /// The runtime for a test that runs its wrapped command for real: through
+    /// the built `shep-kelpie`, and a panic when there is none, since a test
+    /// binary would refuse `--crabpot` and the test would prove nothing
     #[cfg(test)]
-    pub(crate) fn under_test(tools: Tools) -> Self {
-        let srt = Self::new(tools);
-        match srt.in_crabpot() {
-            true => {
-                let kelpie = built_kelpie().unwrap_or_else(|why| panic!("no kelpie to run: {why}"));
-                srt.run_by(kelpie)
-            }
-            false => srt,
+    pub(crate) fn under_test() -> Self {
+        let srt = Self::new();
+        match built_kelpie() {
+            Ok(kelpie) => srt.run_by(kelpie),
+            Err(why) => panic!("no kelpie to run: {why}"),
         }
-    }
-
-    // Whether this machine runs its calls in crabpot, which is in kelpie's own
-    // binary: macOS and Linux.
-    fn in_crabpot(&self) -> bool {
-        matches!(self.os, "macos" | "linux")
     }
 
     // The program that runs a command in crabpot's sandbox
@@ -86,32 +119,47 @@ impl SandboxRuntime {
         }
     }
 
-    /// Whether a call can run: macOS and Linux need nothing installed, since
-    /// crabpot is in kelpie, and elsewhere node `srt` must be in kelpie's tools
-    ///
-    /// # Errors
-    ///
-    /// [`SandboxError::Missing`] when node `srt` is needed and is not there.
-    pub fn check(&self) -> Result<(), SandboxError> {
-        let cli = self.tools.sandbox();
-        match self.in_crabpot() || cli.is_file() {
-            true => Ok(()),
-            false => Err(SandboxError::Missing(cli)),
+    // What the Windows install says about itself, refused when no session can
+    // be opened under it. None off Windows, where the install is the machine.
+    fn install_status(&self) -> Result<Option<WindowsInstall>, SandboxError> {
+        if self.platform != Platform::Windows {
+            return Ok(None);
+        }
+        let install = match &self.install {
+            Some(install) => install.clone(),
+            None => crate::adapters::host::read_windows_status().map_err(SandboxError::Install)?,
+        };
+        match install.refusal() {
+            Some(why) => Err(SandboxError::Install(why)),
+            None => Ok(Some(install)),
         }
     }
 
-    // The command that runs a program under `--settings`: crabpot on macOS and
-    // Linux, node `srt` elsewhere
+    /// Whether a call can run: macOS and Linux need nothing installed, since
+    /// crabpot is in kelpie, and Windows needs a `crabpot windows-install` of
+    /// this build's setup version, held by a running Secondary Logon service
+    /// and a desktop session
+    ///
+    /// # Errors
+    ///
+    /// [`SandboxError::Install`] when the Windows install is missing, of
+    /// another setup version, or held by a service or session that refuses it.
+    pub fn check(&self) -> Result<(), SandboxError> {
+        self.install_status().map(|_| ())
+    }
+
+    // The command that runs a program under `--settings`: crabpot, in kelpie's
+    // own binary, on every platform
     fn runtime(&self) -> Result<Command, SandboxError> {
-        self.check()?;
-        if self.in_crabpot() {
-            let mut crabpot = crate::spawn::command(self.crabpot_exe()?);
-            crabpot.arg("--crabpot");
-            return Ok(crabpot);
-        }
-        let mut node = crate::spawn::command("node");
-        node.arg(self.tools.sandbox());
-        Ok(node)
+        let mut crabpot = crate::spawn::command(self.crabpot_exe()?);
+        crabpot.arg("--crabpot");
+        Ok(crabpot)
+    }
+}
+
+impl Default for SandboxRuntime {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -122,8 +170,19 @@ impl Sandbox for SandboxRuntime {
         settings: &Path,
         command: &Command,
     ) -> Result<Command, SandboxError> {
+        let install = self.install_status()?;
+        // The loopback mode is the install's, not the session's: a session
+        // that asks for the other is refused by srt-win, so the settings ask
+        // for the install's mode, and a policy that listens on a closed
+        // install is refused here, with the doctor's hint.
+        let loopback_open = install
+            .as_ref()
+            .is_some_and(|install| install.loopback_open);
+        if install.is_some_and(|install| !install.loopback_open) && policy.listen {
+            return Err(SandboxError::Loopback);
+        }
         let mut wrapped = self.runtime()?;
-        let text = serde_json::to_string_pretty(&settings_on(policy, self.os == "macos"))
+        let text = serde_json::to_string_pretty(&settings_on(policy, self.platform, loopback_open))
             .expect("settings are JSON");
         let folder = settings.parent().unwrap_or(Path::new("/"));
         std::fs::create_dir_all(folder)
@@ -151,12 +210,14 @@ impl Sandbox for SandboxRuntime {
 /// `srt`'s settings file for `policy`, on this machine
 #[cfg(any(test, feature = "test-support"))]
 pub fn srt_settings(policy: &Policy) -> Value {
-    settings_on(policy, cfg!(target_os = "macos"))
+    settings_on(policy, Platform::here(), false)
 }
 
-// `srt`'s settings file for `policy`, on macOS or not: `open`, `scratch` and
-// `socket_folders` reach srt on macOS alone.
-fn settings_on(policy: &Policy, macos: bool) -> Value {
+// `srt`'s settings file for `policy`, on this platform: `open`, `scratch` and
+// `socket_folders` reach srt on macOS alone, and on Windows `allowLocalBinding`
+// is the install's loopback mode, not the policy's `listen`, since srt-win
+// refuses a session that asks for the other mode the install fixed.
+fn settings_on(policy: &Policy, platform: Platform, loopback_open: bool) -> Value {
     // Without `strictAllowlist`, a host off the list is asked about rather than refused.
     let mut network = json!({
         "allowedDomains": policy.hosts,
@@ -172,24 +233,30 @@ fn settings_on(policy: &Policy, macos: bool) -> Value {
         network["allowedDomains"] = json!(hosts);
         network["mitmProxy"] = json!({ "socketPath": forward.socket, "domains": [&forward.host] });
     }
-    let folders = policy.socket_folders.iter().filter(|_| macos);
+    let folders = policy.socket_folders.iter().filter(|_| platform.macos());
     let sockets: Vec<&PathBuf> = policy.sockets.iter().chain(folders).collect();
     if !sockets.is_empty() {
         network["allowUnixSockets"] = json!(sockets);
     }
-    if policy.listen {
-        network["allowLocalBinding"] = json!(true);
+    match platform {
+        Platform::Windows => {
+            if loopback_open {
+                network["allowLocalBinding"] = json!(true);
+            }
+        }
+        _ if policy.listen => network["allowLocalBinding"] = json!(true),
+        _ => {}
     }
     if !policy.services.is_empty() {
         network["allowMachLookup"] = json!(policy.services);
     }
     // Only macOS has a keychain to ask. crabpot denies these last, over any allow.
-    if policy.no_keychain && macos {
+    if policy.no_keychain && platform.macos() {
         network["denyMachLookup"] = json!(KEYCHAIN_SERVICES);
     }
     let mut read = json!(policy.read);
     let mut write = json!(policy.write);
-    if macos {
+    if platform.macos() {
         let (read, write) = (array(&mut read), array(&mut write));
         read.extend(policy.open.iter().map(|folder| alone(folder).into()));
         for glob in &policy.scratch {
@@ -259,18 +326,24 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_missing_runtime_refuses_to_run_anything() {
+    fn a_windows_machine_with_no_install_refuses_to_run_anything() {
         let dir = tempfile::tempdir().unwrap();
-        let srt = SandboxRuntime::new(Tools::at(dir.path().to_owned())).on_os("windows");
+        let srt = SandboxRuntime::new()
+            .on(Platform::Windows)
+            .with_install(WindowsInstall {
+                provisioned: false,
+                setup_installed: None,
+                setup_expected: 1,
+                loopback_open: false,
+                seclogon_runs: true,
+                desktop_session: true,
+            });
         let settings = dir.path().join("call.srt.json");
         let err = srt
             .wrap(&Policy::default(), &settings, &Command::new("claude"))
             .unwrap_err();
-        assert!(matches!(err, SandboxError::Missing(_)), "{err:?}");
-        assert!(
-            err.to_string().contains("shep kelpie tools install"),
-            "{err}"
-        );
+        assert!(matches!(err, SandboxError::Install(_)), "{err:?}");
+        assert!(err.to_string().contains("crabpot windows-install"), "{err}");
         assert!(!settings.exists());
     }
 
@@ -311,12 +384,31 @@ mod tests {
             services: vec!["com.apple.FSEvents".into()],
             ..Policy::default()
         };
-        let network = &srt_settings(&listening)["network"];
+        let network = &settings_on(&listening, Platform::Macos, false)["network"];
         assert_eq!(network["allowLocalBinding"], json!(true));
         assert_eq!(network["allowMachLookup"], json!(["com.apple.FSEvents"]));
-        let plain = &srt_settings(&Policy::default())["network"];
+        let plain = &settings_on(&Policy::default(), Platform::Macos, false)["network"];
         assert!(plain.get("allowLocalBinding").is_none(), "{plain}");
         assert!(plain.get("allowMachLookup").is_none(), "{plain}");
+    }
+
+    // On Windows the loopback mode is the install's, not the policy's: every
+    // worker on an `--allow-loopback` install gets `allowLocalBinding`, and a
+    // closed install writes nothing, whether or not the policy listens.
+    #[test]
+    fn on_windows_the_settings_ask_for_the_installs_loopback_mode_not_the_policys() {
+        let listening = Policy {
+            listen: true,
+            ..Policy::default()
+        };
+        let open = &settings_on(&Policy::default(), Platform::Windows, true)["network"];
+        assert_eq!(open["allowLocalBinding"], json!(true));
+        let open_listening = &settings_on(&listening, Platform::Windows, true)["network"];
+        assert_eq!(open_listening["allowLocalBinding"], json!(true));
+        for policy in [&Policy::default(), &listening] {
+            let closed = &settings_on(policy, Platform::Windows, false)["network"];
+            assert!(closed.get("allowLocalBinding").is_none(), "{closed}");
+        }
     }
 
     // From 0.0.80 srt blocks the user namespaces a command makes itself unless
@@ -324,8 +416,8 @@ mod tests {
     // (`docs/facts/worker-profile-and-sandbox.md`).
     #[test]
     fn a_command_may_not_make_user_namespaces_of_its_own() {
-        for macos in [true, false] {
-            let settings = settings_on(&Policy::default(), macos);
+        for platform in [Platform::Macos, Platform::Linux] {
+            let settings = settings_on(&Policy::default(), platform, false);
             assert!(
                 settings.get("allowNestedUserNamespaces").is_none(),
                 "{settings}"
@@ -342,7 +434,7 @@ mod tests {
             scratch: vec!["/private/tmp/cbm-search-*".into()],
             ..Policy::default()
         };
-        let files = &settings_on(&policy, true)["filesystem"];
+        let files = &settings_on(&policy, Platform::Macos, false)["filesystem"];
         assert_eq!(
             files["allowRead"],
             json!(["/k/wt/7", "/k/graph[s]", "/k/odd[[]1[]][*][?]"])
@@ -355,7 +447,7 @@ mod tests {
                 "/private/tmp/cbm-search-*/*"
             ])
         );
-        let files = &settings_on(&policy, false)["filesystem"];
+        let files = &settings_on(&policy, Platform::Linux, false)["filesystem"];
         assert_eq!(files["allowRead"], json!(["/k/wt/7"]));
         assert_eq!(files["allowWrite"], json!(["/k/wt/7"]));
     }
@@ -374,40 +466,35 @@ mod tests {
         let socket_only = policy(vec![socket.clone()], vec![]);
         let neither = policy(vec![], vec![]);
 
-        let listed = |policy: &Policy, macos: bool| {
-            settings_on(policy, macos)["network"]
+        let listed = |policy: &Policy, platform: Platform| {
+            settings_on(policy, platform, false)["network"]
                 .get("allowUnixSockets")
                 .cloned()
         };
         assert_eq!(
-            listed(&both, true),
+            listed(&both, Platform::Macos),
             Some(json!(["/k/dog/lease.sock", "/private/k/call.tmp"]))
         );
         assert_eq!(
-            listed(&folder_only, true),
+            listed(&folder_only, Platform::Macos),
             Some(json!(["/private/k/call.tmp"]))
         );
         assert_eq!(
-            listed(&socket_only, true),
+            listed(&socket_only, Platform::Macos),
             Some(json!(["/k/dog/lease.sock"]))
         );
-        assert_eq!(listed(&neither, true), None);
+        assert_eq!(listed(&neither, Platform::Macos), None);
 
-        assert_eq!(listed(&both, false), Some(json!(["/k/dog/lease.sock"])));
-        assert_eq!(listed(&folder_only, false), None);
         assert_eq!(
-            listed(&socket_only, false),
+            listed(&both, Platform::Linux),
             Some(json!(["/k/dog/lease.sock"]))
         );
-        assert_eq!(listed(&neither, false), None);
-    }
-
-    // A tools folder with the node runtime installed
-    fn installed(dir: &Path) -> Tools {
-        let tools = Tools::at(dir.to_owned());
-        std::fs::create_dir_all(tools.sandbox().parent().unwrap()).unwrap();
-        std::fs::write(tools.sandbox(), "").unwrap();
-        tools
+        assert_eq!(listed(&folder_only, Platform::Linux), None);
+        assert_eq!(
+            listed(&socket_only, Platform::Linux),
+            Some(json!(["/k/dog/lease.sock"]))
+        );
+        assert_eq!(listed(&neither, Platform::Linux), None);
     }
 
     // The call every wrap test makes, and the settings file it writes
@@ -445,8 +532,8 @@ mod tests {
         // Nothing is installed: crabpot is in kelpie, so no node `srt` is needed.
         let dir = tempfile::tempdir().unwrap();
         let settings = dir.path().join("worker").join("call.srt.json");
-        let wrapped = SandboxRuntime::new(Tools::at(dir.path().to_owned()))
-            .on_os("macos")
+        let wrapped = SandboxRuntime::new()
+            .on(Platform::Macos)
             .wrap(&policy(), &settings, &inner())
             .unwrap();
         assert_eq!(
@@ -468,21 +555,61 @@ mod tests {
         );
         assert_carries_the_call(&wrapped);
         let written = written(&settings);
-        assert_eq!(written, settings_on(&policy(), true));
+        assert_eq!(written, settings_on(&policy(), Platform::Macos, false));
         assert_eq!(written["network"]["strictAllowlist"], true);
         assert_eq!(written["filesystem"]["allowWrite"], json!(["/k/wt/7"]));
     }
 
+    // No platform has a node `srt` to install. Windows needs a crabpot
+    // install instead, and `check` is the gate that names it.
     #[test]
-    fn macos_and_linux_need_no_node_srt_to_start_and_windows_does() {
+    fn no_platform_needs_a_node_runtime_and_windows_needs_its_install() {
         let dir = tempfile::tempdir().unwrap();
-        let srt = SandboxRuntime::new(Tools::at(dir.path().to_owned()));
-        srt.clone().on_os("macos").check().unwrap();
-        srt.clone().on_os("linux").check().unwrap();
-        let err = srt.clone().on_os("windows").check().unwrap_err();
-        assert!(matches!(err, SandboxError::Missing(_)), "{err:?}");
-        let installed = SandboxRuntime::new(installed(dir.path())).on_os("windows");
-        installed.check().unwrap();
+        let srt = SandboxRuntime::new();
+        srt.clone().on(Platform::Macos).check().unwrap();
+        srt.clone().on(Platform::Linux).check().unwrap();
+        srt.clone()
+            .on(Platform::Windows)
+            .with_install(WindowsInstall::provisioned(false))
+            .check()
+            .unwrap();
+        let outdated = srt
+            .clone()
+            .on(Platform::Windows)
+            .with_install(WindowsInstall {
+                provisioned: false,
+                setup_installed: Some(3),
+                setup_expected: 4,
+                loopback_open: false,
+                seclogon_runs: true,
+                desktop_session: true,
+            });
+        let err = outdated.clone().check().unwrap_err();
+        assert!(matches!(err, SandboxError::Install(_)), "{err:?}");
+        assert!(
+            err.to_string().contains("setup version 3")
+                && err.to_string().contains("wants 4")
+                && err.to_string().contains("crabpot windows-install"),
+            "{err}"
+        );
+        outdated
+            .wrap(&policy(), &dir.path().join("s.json"), &inner())
+            .unwrap_err();
+        let off = srt
+            .clone()
+            .on(Platform::Windows)
+            .with_install(WindowsInstall {
+                seclogon_runs: false,
+                ..WindowsInstall::provisioned(false)
+            });
+        let err = off.check().unwrap_err();
+        assert!(err.to_string().contains("Secondary Logon"), "{err}");
+        let zero = srt.on(Platform::Windows).with_install(WindowsInstall {
+            desktop_session: false,
+            ..WindowsInstall::provisioned(false)
+        });
+        let err = zero.check().unwrap_err();
+        assert!(err.to_string().contains("session 0"), "{err}");
     }
 
     // Nothing is installed: crabpot is in kelpie on Linux too, so no node `srt`
@@ -491,8 +618,8 @@ mod tests {
     fn on_linux_the_wrapped_command_is_current_exe_crabpot_too() {
         let dir = tempfile::tempdir().unwrap();
         let settings = dir.path().join("worker").join("call.srt.json");
-        let wrapped = SandboxRuntime::new(Tools::at(dir.path().to_owned()))
-            .on_os("linux")
+        let wrapped = SandboxRuntime::new()
+            .on(Platform::Linux)
             .wrap(&policy(), &settings, &inner())
             .unwrap();
         assert_eq!(
@@ -514,9 +641,80 @@ mod tests {
         );
         assert_carries_the_call(&wrapped);
         let written = written(&settings);
-        assert_eq!(written, settings_on(&policy(), false));
+        assert_eq!(written, settings_on(&policy(), Platform::Linux, false));
         assert_eq!(written["network"]["strictAllowlist"], true);
         assert_eq!(written["filesystem"]["allowWrite"], json!(["/k/wt/7"]));
+    }
+
+    // A Windows worker runs through the same binary, and its settings carry
+    // the install's loopback mode: every worker on an `--allow-loopback`
+    // install gets `allowLocalBinding`, whether or not its policy listens.
+    #[test]
+    fn on_windows_the_wrapped_command_is_current_exe_crabpot_too() {
+        let dir = tempfile::tempdir().unwrap();
+        let settings = dir.path().join("worker").join("call.srt.json");
+        let srt = SandboxRuntime::new()
+            .on(Platform::Windows)
+            .with_install(WindowsInstall::provisioned(true));
+        let wrapped = srt.wrap(&policy(), &settings, &inner()).unwrap();
+        assert_eq!(
+            wrapped.get_program(),
+            std::env::current_exe().unwrap().as_os_str()
+        );
+        let args: Vec<_> = wrapped.get_args().collect();
+        assert_eq!(
+            args,
+            [
+                "--crabpot".as_ref(),
+                "--settings".as_ref(),
+                settings.as_os_str(),
+                "--".as_ref(),
+                "claude".as_ref(),
+                "-p".as_ref(),
+                "it's".as_ref(),
+            ]
+        );
+        assert_carries_the_call(&wrapped);
+        let written = written(&settings);
+        assert_eq!(written, settings_on(&policy(), Platform::Windows, true));
+        assert_eq!(written["network"]["allowLocalBinding"], json!(true));
+    }
+
+    // A session may not ask for the other loopback mode than the install
+    // fixed (srt-win refuses it as exit 19), so a policy that listens on a
+    // closed install is refused here, with the doctor's hint.
+    #[test]
+    fn a_listening_policy_on_a_closed_install_is_refused_with_the_doctors_hint() {
+        let dir = tempfile::tempdir().unwrap();
+        let srt = SandboxRuntime::new()
+            .on(Platform::Windows)
+            .with_install(WindowsInstall::provisioned(false));
+        let listening = Policy {
+            listen: true,
+            ..policy()
+        };
+        let settings = dir.path().join("call.srt.json");
+        let err = srt.wrap(&listening, &settings, &inner()).unwrap_err();
+        assert!(matches!(err, SandboxError::Loopback), "{err:?}");
+        let said = err.to_string();
+        assert!(
+            said.contains("crabpot windows-install --allow-loopback"),
+            "{said}"
+        );
+        assert!(said.contains("loopback address"), "{said}");
+        assert!(!settings.exists());
+        // A policy that does not listen runs, and asks for nothing local.
+        let wrapped = srt.wrap(&policy(), &settings, &inner()).unwrap();
+        assert_eq!(
+            written(&settings),
+            settings_on(&policy(), Platform::Windows, false)
+        );
+        assert!(
+            written(&settings)["network"]
+                .get("allowLocalBinding")
+                .is_none(),
+            "{wrapped:?}"
+        );
     }
 
     #[test]
@@ -526,7 +724,7 @@ mod tests {
             services: vec!["com.apple.FSEvents".into()],
             ..Policy::default()
         };
-        let network = &settings_on(&covered, true)["network"];
+        let network = &settings_on(&covered, Platform::Macos, false)["network"];
         assert_eq!(
             network["denyMachLookup"],
             json!(["com.apple.securityd.xpc", "com.apple.SecurityServer"])
@@ -534,10 +732,10 @@ mod tests {
         // The allow is kept: crabpot denies last, over every allow.
         assert_eq!(network["allowMachLookup"], json!(["com.apple.FSEvents"]));
         // A call that leaves the keychain reachable denies nothing.
-        let open = &settings_on(&Policy::default(), true)["network"];
+        let open = &settings_on(&Policy::default(), Platform::Macos, false)["network"];
         assert!(open.get("denyMachLookup").is_none(), "{open}");
         // There is no keychain to ask off macOS.
-        let linux = &settings_on(&covered, false)["network"];
+        let linux = &settings_on(&covered, Platform::Linux, false)["network"];
         assert!(linux.get("denyMachLookup").is_none(), "{linux}");
     }
 
@@ -566,7 +764,7 @@ mod tests {
             verify_tls: true,
             no_keychain: true,
         };
-        let text = settings_on(&policy, true).to_string();
+        let text = settings_on(&policy, Platform::Macos, false).to_string();
         let config = crabpot::Config::from_json(&text).unwrap_or_else(|e| panic!("{e}: {text}"));
         assert_eq!(
             config.network.deny_mach_lookup,

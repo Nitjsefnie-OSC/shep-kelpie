@@ -160,9 +160,7 @@ fn serve(project: &str, arrival: Option<Arrival<Carry>>) -> Result<(), Exit> {
     }
     let kelpie = std::env::current_exe().map_err(|e| format!("cannot find kelpie itself: {e}"))?;
     // Every agent call runs inside the sandbox runtime, so a runner without one stops here.
-    SandboxRuntime::new(paths.tools.clone())
-        .check()
-        .map_err(|e| e.to_string())?;
+    SandboxRuntime::new().check().map_err(|e| e.to_string())?;
     let sheep = std::env::var("SHEP_NAME")
         .ok()
         .filter(|name| !name.is_empty())
@@ -196,12 +194,7 @@ fn serve(project: &str, arrival: Option<Arrival<Carry>>) -> Result<(), Exit> {
     // The runner's `env` holds the token `claude` logs in with, for `claude` alone.
     let login = LoginToken::take();
     let base = Base::labelling(Arc::new(shepherd.clone()))
-        .in_runtime(
-            paths.tools.clone(),
-            home.clone(),
-            &codex_home,
-            gateways.key_vars(),
-        )
+        .in_runtime(home.clone(), &codex_home, gateways.key_vars())
         .unfenced_unread(&home, &shep_home);
     let reviewer = LocalReviewer::default().with_gateways(gateways.clone());
     let epoch = Epoch(u64::from(std::process::id()));

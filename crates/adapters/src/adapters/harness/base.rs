@@ -7,7 +7,6 @@ use super::LambLabels;
 use crate::adapters::process::{Processes, Sealed};
 use crate::adapters::srt::SandboxRuntime;
 use crate::ports::{Sandbox, Unreadable};
-use crate::tools::Tools;
 
 /// The process and sandbox base each harness adapter is made on
 ///
@@ -24,7 +23,7 @@ pub struct Base {
     pub(crate) unfenced_no_read: Vec<String>,
 }
 
-// The default home and tools are the maintainer's: `$HOME` and kelpie's own tools.
+// The default home is the maintainer's: `$HOME`.
 impl Default for Base {
     fn default() -> Self {
         let home = std::env::var_os("HOME")
@@ -33,9 +32,7 @@ impl Default for Base {
         Self {
             processes: Processes::default(),
             lambs: None,
-            sandbox: Arc::new(SandboxRuntime::new(Tools::under(
-                &crate::home::kelpie_home().unwrap_or_else(|_| home.join(crate::home::OLD)),
-            ))),
+            sandbox: Arc::new(SandboxRuntime::new()),
             home,
             unfenced_no_read: Vec::new(),
         }
@@ -51,20 +48,14 @@ impl Base {
         }
     }
 
-    /// Runs each call inside the sandbox runtime in `tools`, with the
-    /// harness's home at `home`, the way a runner does
+    /// Runs each call inside the sandbox runtime, with the harness's home at
+    /// `home`, the way a runner does
     ///
     /// No call on any harness reads kelpie's Codex login in `codex_home`,
     /// apart from Codex's own link to its `auth.json`, or sees the variables
     /// in `secret_vars`.
-    pub fn in_runtime(
-        self,
-        tools: Tools,
-        home: PathBuf,
-        codex_home: &Path,
-        secret_vars: Vec<String>,
-    ) -> Self {
-        let runtime = Arc::new(SandboxRuntime::new(tools));
+    pub fn in_runtime(self, home: PathBuf, codex_home: &Path, secret_vars: Vec<String>) -> Self {
+        let runtime = Arc::new(SandboxRuntime::new());
         let unread = vec![format!("{}/**", codex_home.display())];
         let sandbox = Unreadable::new(runtime, unread).unsetting(secret_vars);
         self.sandboxed(Arc::new(sandbox), home)

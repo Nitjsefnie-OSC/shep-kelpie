@@ -73,7 +73,8 @@ pub trait Sandbox: Send + Sync + fmt::Debug {
     ///
     /// # Errors
     ///
-    /// [`SandboxError`] when the sandbox is missing or its settings cannot be written.
+    /// [`SandboxError`] when the sandbox cannot run this call or its settings
+    /// cannot be written.
     fn wrap(
         &self,
         policy: &Policy,
@@ -132,21 +133,34 @@ impl Sandbox for Unreadable {
 /// Why a process could not be put in its sandbox
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SandboxError {
-    /// The sandbox program is not at this path
-    Missing(PathBuf),
+    /// The crabpot install a Windows machine runs its calls in is missing, of
+    /// another setup version, or held by a service or session that refuses it.
+    /// `reason` says which, and names the fix
+    Install(String),
+    /// The policy listens on a local port, and the crabpot install closes
+    /// loopback, so no session can be opened for it. The fix is the doctor's
+    /// hint: an `--allow-loopback` install, and what opening it allows
+    Loopback,
     /// The sandbox's settings could not be written at this path, for this reason
     Settings(PathBuf, String),
-    /// Kelpie cannot find its own executable, which runs the sandbox on macOS, for this reason
+    /// Kelpie cannot find its own executable, which runs the sandbox, for this reason
     Executable(String),
 }
 
 impl fmt::Display for SandboxError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Missing(path) => write!(
+            Self::Install(reason) => {
+                write!(
+                    f,
+                    "the crabpot sandbox cannot run on this machine: {reason}"
+                )
+            }
+            Self::Loopback => write!(
                 f,
-                "the sandbox runtime is missing at {}: run `shep kelpie tools install`",
-                path.display()
+                "this call listens on a local port, and this crabpot install closes loopback: \
+                 run `crabpot windows-install --allow-loopback`, which lets every sandboxed \
+                 worker on this machine reach every service on its own loopback address"
             ),
             Self::Settings(path, reason) => write!(
                 f,

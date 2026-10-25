@@ -191,14 +191,12 @@ mod tests {
     use super::*;
     use shep_kelpie_test_support::write_script;
 
-    // An npm that lays down what a real install of the four packages would: the
-    // runtime's cli, and playwright-core with a cli that fetches a Chromium build.
+    // An npm that lays down what a real install of the three packages would:
+    // playwright-core with a cli that fetches a Chromium build.
     const NPM: &str = r#"#!/bin/sh
 set -e
-echo "added 4 packages"
-runtime=node_modules/@anthropic-ai/sandbox-runtime
-mkdir -p $runtime/dist node_modules/playwright-core node_modules/@playwright/mcp
-echo '// srt' > $runtime/dist/cli.js
+echo "added 3 packages"
+mkdir -p node_modules/playwright-core node_modules/@playwright/mcp
 cat > node_modules/playwright-core/cli.js <<'JS'
 const fs = require('fs');
 const path = require('path');
@@ -326,7 +324,7 @@ cp "$0.body" "$out"
 
         let packages = step(&lines, 1);
         let pinned = pinned_in(rig.tools.dir());
-        assert_eq!(pinned.len(), 4, "{pinned:?}");
+        assert_eq!(pinned.len(), 3, "{pinned:?}");
         for (name, version) in &pinned {
             let named = format!("{name} {version}");
             assert!(packages[0].contains(&named), "{named} not in {packages:?}");

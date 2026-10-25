@@ -9,15 +9,13 @@ use super::web::SEARCH_HOST;
 use super::*;
 use crate::adapters::SandboxRuntime;
 use crate::ports::Sandbox;
-use crate::tools::{GOOSE_WEB_SERVER, Tools as KelpieTools};
-
-const NEEDS: &str = "needs kelpie's tools: KELPIE_TOOLS=<dir> from `shep kelpie tools install`";
+use crate::tools::GOOSE_WEB_SERVER;
 
 // A researcher's fetch is the server dialling the page's host through the sandbox's proxy, which
 // `curl` does the same way, so the proxy's answer is the server's: a listed host is let through,
 // any other is refused by name. Plain `http://` URLs make the proxy answer in its own words.
 #[test]
-#[ignore = "needs kelpie's tools, and runs the real sandbox"]
+#[ignore = "runs the real sandbox, after `cargo build`"]
 fn a_researchers_fetch_reaches_only_the_hosts_its_policy_lists() {
     let world = World::new();
     let mut call = world.fenced(URL, Path::new("/k/kelpie"), Session::New(id(FRESH_ID)));
@@ -71,7 +69,6 @@ fn a_researchers_fetch_reaches_only_the_hosts_its_policy_lists() {
 // `curl`'s arguments, run whole inside the sandbox with the proxy settings the sandbox gives it.
 // `env` first, since the sandbox sets its own `no_proxy`.
 fn curl(world: &World, call: &AgentCall, forwarder: &Forwarder, args: &[&str]) -> Output {
-    let tools = KelpieTools::at(std::env::var("KELPIE_TOOLS").expect(NEEDS).into());
     let upstream = GooseCli::on(&Base::default())
         .upstream(server(call).unwrap())
         .unwrap();
@@ -96,7 +93,7 @@ fn curl(world: &World, call: &AgentCall, forwarder: &Forwarder, args: &[&str]) -
         .args(["-w", " [%{http_code}]"])
         .args(args)
         .current_dir(world.path("wt"));
-    let mut wrapped = SandboxRuntime::under_test(tools)
+    let mut wrapped = SandboxRuntime::under_test()
         .wrap(&policy, &world.path("settings.sandbox.json"), &command)
         .unwrap();
     wrapped.output().unwrap()

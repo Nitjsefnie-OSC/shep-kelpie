@@ -14,9 +14,6 @@ use crate::adapters::SandboxRuntime;
 use crate::ports::Role;
 use crate::ports::Sandbox;
 use crate::test::{Answer, StandInEndpoint};
-use crate::tools::Tools as KelpieTools;
-
-const NEEDS: &str = "needs kelpie's tools: KELPIE_TOOLS=<dir> from `shep kelpie tools install`";
 
 // `curl`'s arguments, run whole inside the sandbox with the proxy settings
 // the sandbox gives it. `env` first, since the sandbox sets its own `no_proxy`.
@@ -32,7 +29,6 @@ fn curl_allowing(
     allowed: &[String],
     args: &[&str],
 ) -> Output {
-    let tools = KelpieTools::at(std::env::var("KELPIE_TOOLS").expect(NEEDS).into());
     let upstream = PiCli::on(&Base::default())
         .upstream(server(call).unwrap())
         .unwrap();
@@ -58,7 +54,7 @@ fn curl_allowing(
         .args(["-w", " [%{http_code}]"])
         .args(args)
         .current_dir(world.path("wt"));
-    let wrapped = SandboxRuntime::under_test(tools)
+    let wrapped = SandboxRuntime::under_test()
         .wrap(
             &policy,
             &world.path("worker/settings.sandbox.json"),
@@ -74,7 +70,7 @@ fn said(output: &Output) -> String {
 }
 
 #[test]
-#[ignore = "needs kelpie's tools, and runs the real sandbox"]
+#[ignore = "runs the real sandbox, after `cargo build`"]
 fn a_worker_reaches_the_model_only_through_a_forwarder_that_passes_chat() {
     let server = StandInEndpoint::start([Answer::Says("hello from the model")]);
     let world = World::new();
@@ -168,13 +164,12 @@ fn a_worker_reaches_the_model_only_through_a_forwarder_that_passes_chat() {
 // The real pi, through the forwarder, answering from the stand-in: its models
 // file names a host nothing resolves, and its calls still arrive.
 #[test]
-#[ignore = "needs kelpie's tools and pi, and runs the real sandbox"]
+#[ignore = "needs pi, and runs the real sandbox, after `cargo build`"]
 fn pi_answers_through_the_forwarder_with_no_model_host_in_its_sandbox() {
     let server = StandInEndpoint::start([Answer::Says("ok")]);
     let world = World::new();
-    let tools = KelpieTools::at(std::env::var("KELPIE_TOOLS").expect(NEEDS).into());
     let pi = PiCli::on(&Base::default().sandboxed(
-        Arc::new(SandboxRuntime::under_test(tools)),
+        Arc::new(SandboxRuntime::under_test()),
         std::env::var_os("HOME").unwrap().into(),
     ));
     let session = id(WORKER_ID);
@@ -203,7 +198,7 @@ fn pi_answers_through_the_forwarder_with_no_model_host_in_its_sandbox() {
 // package's: a listed host is let through, any other is refused by name. Plain
 // `http://` URLs make the proxy answer in its own words, as the tests above do.
 #[test]
-#[ignore = "needs kelpie's tools, and runs the real sandbox"]
+#[ignore = "runs the real sandbox, after `cargo build`"]
 fn a_researchers_fetch_reaches_only_the_hosts_its_policy_lists() {
     let world = World::new();
     let mut call = world.fenced(URL, Path::new("/k/kelpie"), Session::New(id(WORKER_ID)));
