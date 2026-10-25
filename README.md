@@ -48,8 +48,8 @@ You need these on your machine:
 - macOS or Linux
 - [shep](https://github.com/shep-pm/shep) 0.13, from 0.13.0, and Rust 1.88 or later, to build shep-kelpie
 - Claude Code, signed in
-- `node` and `npm`: `tools install` runs them, and so does every agent's sandbox
-- on Linux, `bwrap` and `socat`, which the sandbox needs. There the sandbox fences a nested `.claude` or `.codex` folder only if it exists when a call starts (a new one is caught after the call), and a worker cannot reach the dog's lease door, so its `cargo-test` runs unleased. `shep kelpie doctor` says so
+- `node` and `npm`: `tools install` runs them, and Windows runs each agent's sandbox through them
+- on Linux, `bwrap`, which the sandbox needs. There the sandbox fences a nested `.claude` or `.codex` folder only if it exists when a call starts (a new one is caught after the call), and a worker cannot reach the dog's lease door, so its `cargo-test` runs unleased. `shep kelpie doctor` says so
 - `git`, and `gh` signed in to the account that opens the pull requests
 - `curl` and `openssl`, which reach GitHub as kelpie's App and sign its tokens
 - `pi`, `codex` or `goose`, only to run an agent on that harness (see [Agents](docs/guide/agents.md#agents))

@@ -266,18 +266,24 @@ pub(super) fn sandbox(host: &dyn Host, tools: &Tools) -> Line {
     let gaps = host.sandbox_gaps();
     if !gaps.is_empty() {
         let list = gaps.join(" and ");
+        // The fix names what is missing, and the example fits the machine:
+        // `sandbox-exec` ships with macOS, and Debian calls `bwrap` `bubblewrap`.
+        let fix = match host.os() {
+            "macos" => format!("{list} ships with macOS at /usr/bin/sandbox-exec, so restore it"),
+            _ => format!(
+                "install {list} with your package manager, such as `sudo apt-get install bubblewrap` on Debian"
+            ),
+        };
         return Line::missing(
             "sandbox",
             format!(
                 "the sandbox runtime needs {list}, which this machine lacks, so no agent can run"
             ),
-            format!(
-                "install {list} with your package manager, such as `sudo apt-get install bubblewrap socat` on Debian"
-            ),
+            fix,
         );
     }
-    // macOS runs crabpot, linked into kelpie, so no node `srt` is needed there.
-    if host.os() != "macos" && !tools.sandbox().is_file() {
+    // macOS and Linux run crabpot, linked into kelpie, so no node `srt` is needed there.
+    if !matches!(host.os(), "macos" | "linux") && !tools.sandbox().is_file() {
         return Line::missing(
             "sandbox",
             format!(
@@ -292,7 +298,7 @@ pub(super) fn sandbox(host: &dyn Host, tools: &Tools) -> Line {
 
 /// What the sandbox cannot do on this machine, when it is Linux
 ///
-/// srt skips the globs of `denyWrite` there, and turns every Unix socket off
+/// The sandbox skips the globs of `denyWrite` there, and turns every Unix socket off
 /// whatever the policy lists (`docs/facts/worker-profile-and-sandbox.md`).
 pub(super) fn sandbox_limits(host: &dyn Host) -> Option<Line> {
     (host.os() == "linux").then(|| {

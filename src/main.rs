@@ -90,9 +90,10 @@ const REFUSE: u8 = 2;
 
 fn main() -> ExitCode {
     // First of all, before anything opens a descriptor or starts a thread: a
-    // call on macOS runs `kelpie --crabpot ...`, and this becomes the sandbox
-    // that runs its command and exits with the command's status. Any other
-    // launch carries on.
+    // call on macOS or Linux runs `kelpie --crabpot ...`, and this becomes the
+    // sandbox that runs its command and exits with the command's status. On
+    // Linux the sandbox calls the binary back as its helper, which this answers
+    // too. Any other launch carries on.
     crabpot::run_from_args();
     // Then, before anything opens a descriptor or starts a thread: a build a
     // handover execs is asked here whether it reads the state, and takes it.

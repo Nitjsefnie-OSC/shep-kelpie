@@ -1,12 +1,13 @@
 //! The sandbox runtime a call runs under
 //!
-//! On macOS it is crabpot, linked into kelpie's own binary: a wrapped command
-//! is `shep-kelpie --crabpot --settings <file> -- prog args`, which
-//! `crabpot::run_from_args` takes over first thing in `main`. On Linux it is
-//! `srt` from kelpie's own tools, the engine under Claude Code's own sandbox:
-//! bubblewrap, and a proxy that holds the network to a host list. Kelpie pins
-//! its version in [`crate::tools::PACKAGE`]. A sandbox cannot start inside
-//! another, so nothing it runs may start one of its own.
+//! On macOS and Linux it is crabpot, linked into kelpie's own binary: a
+//! wrapped command is `shep-kelpie --crabpot --settings <file> -- prog args`,
+//! which `crabpot::run_from_args` takes over first thing in `main`. On Linux
+//! crabpot fences with bubblewrap. Elsewhere it is `srt` from kelpie's own
+//! tools, the engine under Claude Code's own sandbox: bubblewrap, and a proxy
+//! that holds the network to a host list. Kelpie pins its version in
+//! [`crate::tools::PACKAGE`]. A sandbox cannot start inside another, so
+//! nothing it runs may start one of its own.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -23,8 +24,9 @@ const KEYCHAIN_SERVICES: [&str; 2] = ["com.apple.securityd.xpc", "com.apple.Secu
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SandboxRuntime {
     tools: Tools,
-    macos: bool,
-    // The program that is crabpot on macOS: kelpie itself, unless a test names the built one.
+    // This machine's operating system, as `std::env::consts::OS` names it
+    os: &'static str,
+    // The program that is crabpot: kelpie itself, unless a test names the built one.
     kelpie: Option<PathBuf>,
 }
 
@@ -33,18 +35,18 @@ impl SandboxRuntime {
     pub fn new(tools: Tools) -> Self {
         Self {
             tools,
-            macos: cfg!(target_os = "macos"),
+            os: std::env::consts::OS,
             kelpie: None,
         }
     }
 
-    /// The same, as on macOS or not, which a test runs on either
+    /// The same, as on macOS, Linux or Windows, which a test runs on any of them
     #[cfg(test)]
-    pub(crate) fn on_macos(self, macos: bool) -> Self {
-        Self { macos, ..self }
+    pub(crate) fn on_os(self, os: &'static str) -> Self {
+        Self { os, ..self }
     }
 
-    /// The same, with `kelpie` as crabpot on macOS, since a test binary has no
+    /// The same, with `kelpie` as crabpot, since a test binary has no
     /// `run_from_args`
     #[cfg(test)]
     pub(crate) fn run_by(self, kelpie: PathBuf) -> Self {
@@ -55,12 +57,13 @@ impl SandboxRuntime {
     }
 
     /// The runtime for a test that runs its wrapped command for real: on macOS
-    /// through the built `shep-kelpie`, and a panic when there is none, since a
-    /// test binary would refuse `--crabpot` and the test would prove nothing
+    /// and Linux through the built `shep-kelpie`, and a panic when there is
+    /// none, since a test binary would refuse `--crabpot` and the test would
+    /// prove nothing
     #[cfg(test)]
     pub(crate) fn under_test(tools: Tools) -> Self {
         let srt = Self::new(tools);
-        match srt.macos {
+        match srt.in_crabpot() {
             true => {
                 let kelpie = built_kelpie().unwrap_or_else(|why| panic!("no kelpie to run: {why}"));
                 srt.run_by(kelpie)
@@ -69,33 +72,40 @@ impl SandboxRuntime {
         }
     }
 
+    // Whether this machine runs its calls in crabpot, which is in kelpie's own
+    // binary: macOS and Linux.
+    fn in_crabpot(&self) -> bool {
+        matches!(self.os, "macos" | "linux")
+    }
+
     // The program that runs a command in crabpot's sandbox
-    fn crabpot(&self) -> Result<PathBuf, SandboxError> {
+    fn crabpot_exe(&self) -> Result<PathBuf, SandboxError> {
         match &self.kelpie {
             Some(kelpie) => Ok(kelpie.clone()),
             None => std::env::current_exe().map_err(|e| SandboxError::Executable(e.to_string())),
         }
     }
 
-    /// Whether a call can run: macOS needs nothing installed, since crabpot is
-    /// in kelpie, and elsewhere node `srt` must be in kelpie's tools
+    /// Whether a call can run: macOS and Linux need nothing installed, since
+    /// crabpot is in kelpie, and elsewhere node `srt` must be in kelpie's tools
     ///
     /// # Errors
     ///
     /// [`SandboxError::Missing`] when node `srt` is needed and is not there.
     pub fn check(&self) -> Result<(), SandboxError> {
         let cli = self.tools.sandbox();
-        match self.macos || cli.is_file() {
+        match self.in_crabpot() || cli.is_file() {
             true => Ok(()),
             false => Err(SandboxError::Missing(cli)),
         }
     }
 
-    // The command that runs a program under `--settings`: crabpot on macOS, node `srt` elsewhere
+    // The command that runs a program under `--settings`: crabpot on macOS and
+    // Linux, node `srt` elsewhere
     fn runtime(&self) -> Result<Command, SandboxError> {
         self.check()?;
-        if self.macos {
-            let mut crabpot = crate::spawn::command(self.crabpot()?);
+        if self.in_crabpot() {
+            let mut crabpot = crate::spawn::command(self.crabpot_exe()?);
             crabpot.arg("--crabpot");
             return Ok(crabpot);
         }
@@ -113,7 +123,7 @@ impl Sandbox for SandboxRuntime {
         command: &Command,
     ) -> Result<Command, SandboxError> {
         let mut wrapped = self.runtime()?;
-        let text = serde_json::to_string_pretty(&settings_on(policy, self.macos))
+        let text = serde_json::to_string_pretty(&settings_on(policy, self.os == "macos"))
             .expect("settings are JSON");
         let folder = settings.parent().unwrap_or(Path::new("/"));
         std::fs::create_dir_all(folder)
@@ -251,7 +261,7 @@ mod tests {
     #[test]
     fn a_missing_runtime_refuses_to_run_anything() {
         let dir = tempfile::tempdir().unwrap();
-        let srt = SandboxRuntime::new(Tools::at(dir.path().to_owned())).on_macos(false);
+        let srt = SandboxRuntime::new(Tools::at(dir.path().to_owned())).on_os("windows");
         let settings = dir.path().join("call.srt.json");
         let err = srt
             .wrap(&Policy::default(), &settings, &Command::new("claude"))
@@ -436,7 +446,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let settings = dir.path().join("worker").join("call.srt.json");
         let wrapped = SandboxRuntime::new(Tools::at(dir.path().to_owned()))
-            .on_macos(true)
+            .on_os("macos")
             .wrap(&policy(), &settings, &inner())
             .unwrap();
         assert_eq!(
@@ -464,32 +474,36 @@ mod tests {
     }
 
     #[test]
-    fn macos_needs_no_node_srt_to_start_and_linux_does() {
+    fn macos_and_linux_need_no_node_srt_to_start_and_windows_does() {
         let dir = tempfile::tempdir().unwrap();
         let srt = SandboxRuntime::new(Tools::at(dir.path().to_owned()));
-        srt.clone().on_macos(true).check().unwrap();
-        let err = srt.clone().on_macos(false).check().unwrap_err();
+        srt.clone().on_os("macos").check().unwrap();
+        srt.clone().on_os("linux").check().unwrap();
+        let err = srt.clone().on_os("windows").check().unwrap_err();
         assert!(matches!(err, SandboxError::Missing(_)), "{err:?}");
-        let installed = SandboxRuntime::new(installed(dir.path())).on_macos(false);
+        let installed = SandboxRuntime::new(installed(dir.path())).on_os("windows");
         installed.check().unwrap();
     }
 
+    // Nothing is installed: crabpot is in kelpie on Linux too, so no node `srt`
+    // and no `socat` is on that path.
     #[test]
-    fn on_linux_the_wrapped_command_is_still_node() {
+    fn on_linux_the_wrapped_command_is_current_exe_crabpot_too() {
         let dir = tempfile::tempdir().unwrap();
-        let tools = installed(dir.path());
         let settings = dir.path().join("worker").join("call.srt.json");
-        let wrapped = SandboxRuntime::new(tools.clone())
-            .on_macos(false)
+        let wrapped = SandboxRuntime::new(Tools::at(dir.path().to_owned()))
+            .on_os("linux")
             .wrap(&policy(), &settings, &inner())
             .unwrap();
-        assert_eq!(wrapped.get_program(), "node");
+        assert_eq!(
+            wrapped.get_program(),
+            std::env::current_exe().unwrap().as_os_str()
+        );
         let args: Vec<_> = wrapped.get_args().collect();
-        let cli = tools.sandbox();
         assert_eq!(
             args,
             [
-                cli.as_os_str(),
+                "--crabpot".as_ref(),
                 "--settings".as_ref(),
                 settings.as_os_str(),
                 "--".as_ref(),
