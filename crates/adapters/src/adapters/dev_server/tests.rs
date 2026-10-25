@@ -133,6 +133,7 @@ fn dropping_a_server_ends_what_it_started() {
     assert!(!alive(&pid), "the server's child outlived it");
 }
 
+#[cfg(unix)]
 #[test]
 fn a_link_left_at_the_log_is_replaced_not_written_through() {
     let dir = short_tempdir();

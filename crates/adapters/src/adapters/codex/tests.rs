@@ -495,6 +495,7 @@ fn a_calls_zsh_makes_its_heredoc_files_in_the_calls_scratch_folder() {
     );
 }
 
+#[cfg(unix)]
 #[test]
 fn every_call_runs_on_a_codex_home_of_its_own_with_the_login_linked_in() {
     let w = World::new();
@@ -589,6 +590,7 @@ fn a_turn_answers_with_its_last_message_and_its_tokens() {
 
 // Codex has run by the time its thread is recorded, so that failing is the
 // call's failure, never its setup's: the usage ledger counts the call.
+#[cfg(unix)]
 #[test]
 fn a_thread_that_cannot_be_recorded_fails_the_call_not_its_setup() {
     let w = World::new();
