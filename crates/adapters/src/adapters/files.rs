@@ -46,6 +46,30 @@ pub(in crate::adapters) fn link(target: &Path, link: &Path) -> io::Result<()> {
     }
 }
 
+/// Removes the link `link` makes, whatever it points at
+///
+/// On Windows a link to a folder goes by `remove_dir`, since `remove_file`
+/// refuses it.
+#[cfg(unix)]
+pub(in crate::adapters) fn unlink(link: &Path) -> io::Result<()> {
+    fs::remove_file(link)
+}
+
+/// Removes the link `link` makes, whatever it points at
+///
+/// On Windows a link to a folder goes by `remove_dir`, since `remove_file`
+/// refuses it.
+#[cfg(windows)]
+pub(in crate::adapters) fn unlink(link: &Path) -> io::Result<()> {
+    use std::os::windows::fs::FileTypeExt;
+
+    if fs::symlink_metadata(link)?.file_type().is_symlink_dir() {
+        fs::remove_dir(link)
+    } else {
+        fs::remove_file(link)
+    }
+}
+
 #[cfg(all(test, unix))]
 mod tests {
     use std::os::unix::fs::PermissionsExt;
@@ -87,5 +111,21 @@ mod tests {
         assert_eq!(fs::read_to_string(inner).unwrap(), "inside");
         let again = link(&file, &dir.path().join("to-file")).unwrap_err();
         assert_eq!(again.kind(), io::ErrorKind::AlreadyExists);
+    }
+
+    #[test]
+    fn a_removed_link_leaves_its_target() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("file");
+        let folder = dir.path().join("folder");
+        fs::write(&file, "kept").unwrap();
+        fs::create_dir(&folder).unwrap();
+        for (target, name) in [(&file, "to-file"), (&folder, "to-folder")] {
+            let made = dir.path().join(name);
+            link(target, &made).unwrap();
+            unlink(&made).unwrap();
+            assert!(!made.is_symlink(), "{name}");
+        }
+        assert!(file.is_file() && folder.is_dir());
     }
 }

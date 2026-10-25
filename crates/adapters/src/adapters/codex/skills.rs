@@ -25,7 +25,7 @@ pub(super) fn link_skills(call: &AgentCall, home: &Path) -> Result<(), AgentErro
             for entry in entries {
                 let path = entry.map_err(|e| setup(&folder, e))?.path();
                 if path.is_symlink() {
-                    std::fs::remove_file(&path).map_err(|e| setup(&path, e))?;
+                    crate::adapters::files::unlink(&path).map_err(|e| setup(&path, e))?;
                 }
             }
         }
