@@ -13,6 +13,7 @@ mod curl;
 mod dev_server;
 mod disk;
 mod e2e_runner;
+mod files;
 pub mod forwarder;
 mod gateway_ports;
 pub mod gh;
