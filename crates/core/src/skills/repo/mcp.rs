@@ -11,7 +11,7 @@
 //! of the copy, so the whole plugin is copied to a folder inside the plugin's
 //! own, which Claude Code does not read, and the variable names that. A skill's
 //! text gets the copy's own folder in place of the variable, since the copy
-//! holds every folder of the plugin.
+//! holds every folder of the plugin and the files it keeps at its own root.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -26,10 +26,14 @@ pub type Servers = BTreeMap<String, Value>;
 
 /// The folder inside a plugin's copy that holds the whole plugin, for a server that runs one of its files
 ///
-/// The copy beside it holds every folder of the plugin but the parts
-/// `repo_setup.parts` leaves out, and this one holds all of them, so a server
-/// runs a file of a part that is not loaded.
+/// The copy beside it holds every folder of the plugin and the files at its
+/// root, but not the parts `repo_setup.parts` leaves out, and this one holds
+/// all of them, so a server runs a file of a part that is not loaded.
 pub(super) const ROOT: &str = "mcp-root";
+
+/// The file at a plugin's root that lists its servers, which the copy keeps out of its own root
+/// and holds in `ROOT` instead
+pub(super) const CONFIG_FILE: &str = ".mcp.json";
 
 const ROOT_VARIABLE: &str = "${CLAUDE_PLUGIN_ROOT}";
 
@@ -60,7 +64,7 @@ fn read(path: &Path) -> Option<Value> {
 
 /// The servers of the plugin at `folder`, by the name its files give them
 pub(super) fn plugin_servers(folder: &Path) -> Servers {
-    let mut servers = read(&folder.join(".mcp.json"))
+    let mut servers = read(&folder.join(CONFIG_FILE))
         .map(|file| entries(&file))
         .unwrap_or_default();
     let manifest =

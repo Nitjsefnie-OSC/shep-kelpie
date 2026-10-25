@@ -813,8 +813,16 @@ fn install(found: &Found, dir: &Path) -> Result<(), String> {
                 }
             }
         }
-        for folder in rest(&found.folder) {
-            copy_plain(&found.folder.join(&folder), &dir.join(&folder))?;
+        for name in rest(&found.folder) {
+            let from = found.folder.join(&name);
+            let to = dir.join(&name);
+            // A skill may name a file at the plugin's own root, not only one
+            // under a folder of it.
+            if is_folder(&from) {
+                copy_plain(&from, &to)?;
+            } else {
+                fs::copy(&from, &to)?;
+            }
         }
         fill_in_skills(&dir.join(Part::Skills.as_str()), &dir.display().to_string())?;
         Ok(())
@@ -855,11 +863,15 @@ fn fill_in_skills(dir: &Path, root: &str) -> std::io::Result<()> {
     Ok(())
 }
 
-// The folders of the plugin at `folder` that are none of the parts, in name
-// order. A skill names a file under the plugin's root, and only the copy
-// reaches it. The manifest folder is left out, since the copy writes a trimmed
-// one of its own, and `mcp::ROOT` with it, so a plugin that holds a folder of
-// that name does not land beside its own servers.
+// The entries of the plugin at `folder` that are none of the parts, in name
+// order: its folders and the files it keeps at its own root. A skill names a
+// file under the plugin's root, and only the copy reaches it. The manifest
+// folder is left out, since the copy writes a trimmed one of its own, and
+// `mcp::ROOT` with it, so a plugin that holds a folder of that name does not
+// land beside its own servers. `mcp::CONFIG_FILE` is left out too: the copy's
+// manifest is trimmed of `mcpServers` and kelpie hands the servers to the call
+// itself, so a second one beside the copy is one a harness could load on its
+// own, and it reaches a server that runs a file of it through `mcp::ROOT`.
 fn rest(folder: &Path) -> Vec<OsString> {
     let Ok(entries) = fs::read_dir(folder) else {
         return Vec::new();
@@ -867,7 +879,12 @@ fn rest(folder: &Path) -> Vec<OsString> {
     let is_part = |name: &OsStr| FOLDERS.iter().any(|part| part.as_str() == name);
     let mut names: Vec<OsString> = entries
         .filter_map(Result::ok)
-        .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
+        // A link is no entry of a plugin kelpie copies: it could lead out.
+        .filter(|entry| {
+            entry
+                .file_type()
+                .is_ok_and(|kind| kind.is_dir() || kind.is_file())
+        })
         .map(|entry| entry.file_name())
         .filter(|name| {
             let name = name.as_os_str();
@@ -875,6 +892,7 @@ fn rest(folder: &Path) -> Vec<OsString> {
                 && name != MANIFEST_FOLDER
                 && name != ".git"
                 && name != OsStr::new(mcp::ROOT)
+                && name != OsStr::new(mcp::CONFIG_FILE)
         })
         .collect();
     names.sort();

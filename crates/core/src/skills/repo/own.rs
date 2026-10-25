@@ -8,7 +8,9 @@
 //! reads them from `origin`'s default branch, never a worker's branch, and
 //! writes them as one more plugin, `kelpie-repo`, which a repo's plugin cannot
 //! be named. The hooks go to the plugin's `hooks/hooks.json`, where they run
-//! beside the hooks of the call's settings file and cannot replace them.
+//! beside the hooks of the call's settings file and cannot replace them. A
+//! skill of it that names `${CLAUDE_PLUGIN_ROOT}` gets this copy's own folder
+//! in place of it, the way a repo plugin's skills do.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -26,7 +28,7 @@ pub(super) const NAME: &str = "kelpie-repo";
 const ID: &str = ".claude";
 
 /// The repo's MCP servers, at its root
-const MCP_JSON: &str = ".mcp.json";
+const MCP_JSON: &str = mcp::CONFIG_FILE;
 
 /// The folders of `.claude` that are one part each
 const FOLDERS: [Part; 3] = [Part::Skills, Part::Agents, Part::Commands];
@@ -203,6 +205,10 @@ pub(super) fn install(own: &Own, dir: &Path) -> Result<(), String> {
                 json!({ "hooks": hooks }).to_string(),
             )?;
         }
+        // A skill's text reaches the harness as it was written, so the variable
+        // kelpie answers for a repo plugin's skill is answered here too, with
+        // this copy's own folder.
+        super::fill_in_skills(&dir.join(Part::Skills.as_str()), &dir.display().to_string())?;
         Ok(())
     })();
     written.map_err(|e| format!("cannot write it into {}: {e}", dir.display()))
