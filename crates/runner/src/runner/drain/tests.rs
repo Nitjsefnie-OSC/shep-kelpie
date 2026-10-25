@@ -9,7 +9,7 @@ use serde_json::{Value, json};
 use crate::guard::Pause;
 use crate::ports::{CLEAN, Cost, Role, Usage};
 use crate::runner::gate::CHECKS_SETTLE;
-use crate::runner::{Pass, Runner, advance, answer, step};
+use crate::runner::{CallRole, Pass, Runner, advance, answer, step};
 use crate::test::{CALL_PATIENCE, Hold, Rig, Scripted};
 
 // A running project with issue 7 open and its first turn due
@@ -319,8 +319,40 @@ fn every_harness_whose_attached_session_holds_a_handover_has_a_role() {
         .into_iter()
         .filter(|h| h.facts().holds_handover_at_attach.is_some())
         .collect();
-    let roles: Vec<_> = super::ATTACHED.iter().map(|(h, _)| *h).collect();
+    let roles: Vec<_> = crate::settings::Harness::ALL
+        .into_iter()
+        .filter(|h| h.facts().attached_role.is_some())
+        .collect();
 
     assert!(held.iter().all(|h| roles.contains(h)), "{held:?} {roles:?}");
     assert_eq!(roles.len(), held.len());
+}
+
+#[test]
+fn status_names_each_role_as_it_always_has() {
+    let roles = [
+        (CallRole::Worker, "worker"),
+        (CallRole::Reviewer, "reviewer"),
+        (CallRole::Pm, "pm"),
+        (CallRole::IssueWriter, "issue_writer"),
+        (CallRole::Security, "security"),
+        (CallRole::Triager, "triager"),
+        (CallRole::Panel, "panel"),
+        (CallRole::Retro, "retro"),
+        (CallRole::E2e, "e2e"),
+        (CallRole::Attached("pi_session"), "pi_session"),
+    ];
+    for (role, name) in roles {
+        assert_eq!(serde_json::to_value(role).unwrap(), name);
+    }
+}
+
+#[test]
+fn attached_sessions_are_listed_pi_then_goose_then_codex() {
+    let roles: Vec<_> = crate::settings::Harness::ALL
+        .into_iter()
+        .filter_map(|h| h.facts().attached_role)
+        .collect();
+
+    assert_eq!(roles, ["pi_session", "goose_session", "codex_session"]);
 }
