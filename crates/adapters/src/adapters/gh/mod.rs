@@ -526,6 +526,8 @@ enum Check {
         name: String,
         status: Option<String>,
         conclusion: Option<String>,
+        #[serde(rename = "completedAt")]
+        completed_at: Option<String>,
         #[serde(rename = "detailsUrl")]
         details_url: Option<String>,
         // Only in the board's listing, which counts each suite's check runs by it
@@ -550,20 +552,23 @@ enum Outcome {
     Failed,
 }
 
+// What GitHub writes as the `completedAt` of a check run that has not finished
+const NOT_COMPLETED: &str = "0001-01-01T00:00:00Z";
+
 impl Check {
     fn outcome(&self) -> (&str, Outcome) {
         match self {
             Self::CheckRun {
-                name,
-                status,
-                conclusion,
-                ..
+                name, conclusion, ..
             } => {
-                let outcome = match (status.as_deref(), conclusion.as_deref()) {
-                    (Some("COMPLETED"), Some("SKIPPED")) => Outcome::Skipped,
-                    (Some("COMPLETED"), Some("SUCCESS" | "NEUTRAL")) => Outcome::Passed,
-                    (Some("COMPLETED"), _) => Outcome::Failed,
-                    _ => Outcome::Pending,
+                let outcome = if self.finished() {
+                    match conclusion.as_deref() {
+                        Some("SKIPPED") => Outcome::Skipped,
+                        Some("SUCCESS" | "NEUTRAL") => Outcome::Passed,
+                        _ => Outcome::Failed,
+                    }
+                } else {
+                    Outcome::Pending
                 };
                 (name, outcome)
             }
@@ -577,11 +582,32 @@ impl Check {
             }
         }
     }
+
+    // A check run is finished when its status says so, or when it has a time
+    // it completed at and a conclusion: GitHub sometimes leaves the status at
+    // `IN_PROGRESS` or `QUEUED` after the run ended.
+    fn finished(&self) -> bool {
+        match self {
+            Self::CheckRun {
+                status,
+                conclusion,
+                completed_at,
+                ..
+            } => {
+                status.as_deref() == Some("COMPLETED")
+                    || (conclusion.as_deref().is_some_and(|c| !c.is_empty())
+                        && (completed_at.as_deref())
+                            .is_some_and(|at| !at.is_empty() && at != NOT_COMPLETED))
+            }
+            Self::StatusContext { .. } => false,
+        }
+    }
 }
 
 impl Check {
-    // The check run that is still queued: one that started ends at its own
-    // timeout, and a commit status has no run.
+    // The check run that is still queued or in progress, which the gate
+    // reruns past a cap if its workflow run finished: GitHub leaves a job of
+    // a finished run in either state for good, and a commit status has no run.
     fn queued(&self) -> Option<Queued> {
         match self {
             Self::CheckRun {
@@ -589,10 +615,13 @@ impl Check {
                 status: Some(status),
                 details_url,
                 ..
-            } if status == "QUEUED" => Some(Queued {
-                name: name.clone(),
-                run: details_url.as_deref().and_then(run_of),
-            }),
+            } if matches!(status.as_str(), "QUEUED" | "IN_PROGRESS") && !self.finished() => {
+                Some(Queued {
+                    name: name.clone(),
+                    run: details_url.as_deref().and_then(run_of),
+                    running: status == "IN_PROGRESS",
+                })
+            }
             _ => None,
         }
     }
@@ -643,296 +672,4 @@ fn checks(rollup: &[Check]) -> Checks {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::test::ticket;
-
-    // Recorded from gh 2.96 on this repo: `gh issue view 6 --json title,body,labels,state`.
-    const ISSUE: &str = include_str!("../../../../../fixtures/gh-issue-view.json");
-
-    // Recorded from gh 2.96 on cli/cli:
-    // `gh issue view 14528 --json title,body,labels,state,parent,blockedBy`.
-    const SUB_ISSUE: &str = include_str!("../../../../../fixtures/gh-issue-view-sub-issue.json");
-
-    #[test]
-    fn an_issue_is_read_with_its_parent_and_blockers() {
-        let issue = parse_issue(SUB_ISSUE.as_bytes()).unwrap();
-        assert_eq!(
-            (issue.parent, issue.blocked_by),
-            (Some(ticket(14529)), vec![])
-        );
-        let blocked = br#"{"title":"t","body":"","labels":[],"state":"OPEN","parent":null,
-            "blockedBy":{"nodes":[{"number":3,"state":"OPEN"}],"totalCount":1}}"#;
-        let issue = parse_issue(blocked).unwrap();
-        assert_eq!((issue.parent, issue.blocked_by), (None, vec![ticket(3)]));
-    }
-
-    #[test]
-    fn visibility_is_read() {
-        let read = |s: &str| parse_visibility(s.as_bytes());
-        assert_eq!(read(r#"{"visibility":"PUBLIC"}"#), Ok(Visibility::Public));
-        assert_eq!(read(r#"{"visibility":"PRIVATE"}"#), Ok(Visibility::Private));
-        assert_eq!(
-            read(r#"{"visibility":"INTERNAL"}"#),
-            Ok(Visibility::Internal)
-        );
-        assert!(matches!(
-            read(r#"{"visibility":"SECRET"}"#),
-            Err(ForgeError::Unreadable(_))
-        ));
-    }
-
-    #[test]
-    fn a_repo_s_label_names_are_read() {
-        let read = |s: &str| parse_label_names(s.as_bytes());
-        assert_eq!(
-            read(r#"[{"name":"bug"},{"name":"review please"}]"#),
-            Ok(vec!["bug".to_owned(), "review please".to_owned()])
-        );
-        assert!(matches!(read("{}"), Err(ForgeError::Unreadable(_))));
-    }
-
-    #[test]
-    fn the_default_branch_is_read() {
-        let read = |s: &str| parse_default_branch(s.as_bytes());
-        assert_eq!(
-            read(r#"{"defaultBranchRef":{"name":"trunk"}}"#),
-            Ok("trunk".to_owned())
-        );
-        assert!(matches!(read("{}"), Err(ForgeError::Unreadable(_))));
-    }
-
-    #[test]
-    fn an_issue_is_read() {
-        let issue = parse_issue(ISSUE.as_bytes()).unwrap();
-        assert_eq!(issue.title, "Project runner skeleton with a status trigger");
-        assert!(
-            issue.body.starts_with("## Parent\n\n#5\n"),
-            "{}",
-            issue.body
-        );
-        assert_eq!(issue.labels, ["ready-for-agent"]);
-        assert!(!issue.open);
-    }
-
-    #[test]
-    fn an_open_issue_is_read_as_open() {
-        let issue = parse_issue(br#"{"title":"t","body":"","labels":[],"state":"OPEN"}"#).unwrap();
-        assert!(issue.open);
-    }
-
-    #[test]
-    fn an_issue_without_a_body_has_an_empty_one() {
-        let issue =
-            parse_issue(br#"{"title":"t","body":null,"labels":[],"state":"OPEN"}"#).unwrap();
-        assert_eq!(issue.body, "");
-    }
-
-    #[test]
-    fn an_issue_without_a_title_is_unreadable() {
-        assert!(matches!(
-            parse_issue(br#"{"body":"x"}"#),
-            Err(ForgeError::Unreadable(_))
-        ));
-    }
-
-    // Recorded from gh 2.96: `gh pr view 23 --repo shep-pm/shep-kelpie` with
-    // the `pull_request` arguments.
-    const PR_GREEN: &str = include_str!("../../../../../fixtures/gh-pr-view-green.json");
-
-    // Recorded the same way from shep-pm/shep#625: skipped check runs and a
-    // CodeRabbit commit status.
-    const PR_SKIPPED: &str = include_str!("../../../../../fixtures/gh-pr-view-skipped.json");
-
-    // The check runs GitHub recorded on this repo's commit edc8526, a red
-    // lint, read through GraphQL and set in `gh pr view`'s shape.
-    const PR_RED: &str = include_str!("../../../../../fixtures/gh-pr-view-red.json");
-
-    fn rollup(checks: &str) -> Checks {
-        let view = format!(
-            r#"{{"headRefOid":"abc","isDraft":true,"state":"OPEN","statusCheckRollup":{checks}}}"#
-        );
-        parse_pull_request(view.as_bytes()).unwrap().checks
-    }
-
-    #[test]
-    fn a_merged_pull_request_with_every_check_green_is_read() {
-        let pr = parse_pull_request(PR_GREEN.as_bytes()).unwrap();
-        assert_eq!(
-            pr,
-            PullRequest {
-                state: PullRequestState::Merged,
-                draft: false,
-                head: "baea925a2ed5358932b3506e99ecb9f20cba5e2c".into(),
-                checks: Checks::Passed,
-                labels: vec![],
-            }
-        );
-    }
-
-    // Recorded the same way, labels included, from shep-pm/shep#598.
-    const PR_LABELLED: &str = include_str!("../../../../../fixtures/gh-pr-view-labelled.json");
-
-    #[test]
-    fn a_pull_request_is_read_with_its_labels() {
-        let pr = parse_pull_request(PR_LABELLED.as_bytes()).unwrap();
-        assert_eq!(pr.labels, ["review please"]);
-    }
-
-    #[test]
-    fn a_pull_requests_labels_are_read() {
-        let view = br#"{"headRefOid":"abc","isDraft":false,"state":"OPEN",
-            "statusCheckRollup":[],"labels":[{"name":"review please"},{"name":"bug"}]}"#;
-        let pr = parse_pull_request(view).unwrap();
-        assert_eq!(pr.labels, ["review please", "bug"]);
-    }
-
-    #[test]
-    fn a_pull_request_recorded_before_labels_were_read_has_none() {
-        let view = br#"{"headRefOid":"abc","isDraft":false,"state":"OPEN","statusCheckRollup":[]}"#;
-        assert_eq!(
-            parse_pull_request(view).unwrap().labels,
-            Vec::<String>::new()
-        );
-    }
-
-    #[test]
-    fn skipped_runs_and_a_green_commit_status_pass() {
-        let pr = parse_pull_request(PR_SKIPPED.as_bytes()).unwrap();
-        assert_eq!(pr.checks, Checks::Passed);
-    }
-
-    // The shape `gh pr view --json state,isDraft,headRefOid,statusCheckRollup,labels`
-    // gives shep-pm/shep#982, where the `windows-gnu` job of a finished run
-    // stayed queued.
-    const PR_QUEUED: &str = include_str!("../../../../../fixtures/gh-pr-view-queued.json");
-
-    #[test]
-    fn a_queued_check_run_is_read_with_its_workflow_run() {
-        let pr = parse_pull_request(PR_QUEUED.as_bytes()).unwrap();
-        assert_eq!(
-            pr.checks,
-            Checks::Pending(vec![Queued {
-                name: "windows-gnu".into(),
-                run: Some(39_697_676_985),
-            }])
-        );
-    }
-
-    #[test]
-    fn a_queued_check_run_whose_link_names_no_run_has_none() {
-        let queued = r#"{"__typename":"CheckRun","name":"deploy","status":"QUEUED","conclusion":"","detailsUrl":"https://ci.example.com/jobs/4"}"#;
-        let unlinked =
-            r#"{"__typename":"CheckRun","name":"build","status":"QUEUED","conclusion":""}"#;
-        assert_eq!(
-            rollup(&format!("[{queued},{unlinked}]")),
-            Checks::Pending(vec![
-                Queued {
-                    name: "deploy".into(),
-                    run: None
-                },
-                Queued {
-                    name: "build".into(),
-                    run: None
-                },
-            ])
-        );
-    }
-
-    #[test]
-    fn a_red_run_names_its_failed_checks() {
-        let pr = parse_pull_request(PR_RED.as_bytes()).unwrap();
-        assert_eq!(
-            (pr.state, pr.draft, pr.checks),
-            (
-                PullRequestState::Open,
-                true,
-                Checks::Failed(vec!["lint".into()])
-            )
-        );
-    }
-
-    #[test]
-    fn skipped_runs_pass_beside_a_run_that_ran_and_are_skipped_alone() {
-        let skipped = r#"{"__typename":"CheckRun","name":"test","status":"COMPLETED","conclusion":"SKIPPED"}"#;
-        let passed = r#"{"__typename":"CheckRun","name":"lint","status":"COMPLETED","conclusion":"SUCCESS"}"#;
-        assert_eq!(rollup(&format!("[{skipped},{skipped}]")), Checks::Skipped);
-        assert_eq!(rollup(&format!("[{skipped},{passed}]")), Checks::Passed);
-    }
-
-    #[test]
-    fn no_checks_is_not_green() {
-        assert_eq!(rollup("[]"), Checks::None);
-    }
-
-    #[test]
-    fn a_running_check_holds_the_verdict_even_beside_a_failure() {
-        let failed = r#"{"__typename":"CheckRun","name":"lint","status":"COMPLETED","conclusion":"FAILURE"}"#;
-        for running in [
-            r#"{"__typename":"CheckRun","name":"test","status":"IN_PROGRESS","conclusion":""}"#,
-            r#"{"__typename":"CheckRun","name":"test","status":"QUEUED","conclusion":null}"#,
-            r#"{"__typename":"StatusContext","context":"CodeRabbit","state":"PENDING"}"#,
-        ] {
-            assert!(matches!(
-                rollup(&format!("[{failed},{running}]")),
-                Checks::Pending(_)
-            ));
-        }
-    }
-
-    #[test]
-    fn a_cancelled_run_and_an_errored_status_fail() {
-        let checks = r#"[
-            {"__typename":"CheckRun","name":"test","status":"COMPLETED","conclusion":"CANCELLED"},
-            {"__typename":"StatusContext","context":"ci/other","state":"ERROR"}
-        ]"#;
-        assert_eq!(
-            rollup(checks),
-            Checks::Failed(vec!["test".into(), "ci/other".into()])
-        );
-    }
-
-    #[test]
-    fn a_state_gh_does_not_name_is_unreadable() {
-        let view = br#"{"headRefOid":"a","isDraft":false,"state":"LOCKED","statusCheckRollup":[]}"#;
-        assert!(matches!(
-            parse_pull_request(view),
-            Err(ForgeError::Unreadable(_))
-        ));
-    }
-
-    #[test]
-    fn a_rerun_of_failed_jobs_passes_failed_and_a_rerun_of_all_does_not() {
-        let slug = ForgeSlug::try_from("shep-pm/shep".to_owned()).unwrap();
-        assert_eq!(
-            runs::rerun_args(&slug, "7", Rerun::Failed),
-            ["run", "rerun", "7", "--repo", "shep-pm/shep", "--failed"]
-        );
-        assert_eq!(
-            runs::rerun_args(&slug, "7", Rerun::All),
-            ["run", "rerun", "7", "--repo", "shep-pm/shep"]
-        );
-    }
-
-    #[test]
-    fn a_merge_is_a_merge_commit_of_the_ruled_head_only() {
-        let slug = ForgeSlug::try_from("shep-pm/shep".to_owned()).unwrap();
-        let args = merge_args(&slug, "30", "1a2b");
-        assert_eq!(
-            args,
-            [
-                "pr",
-                "merge",
-                "30",
-                "--repo",
-                "shep-pm/shep",
-                "--merge",
-                "--match-head-commit",
-                "1a2b"
-            ]
-        );
-        for never in ["--squash", "-s", "--rebase", "-r", "--auto", "--admin"] {
-            assert!(!args.contains(&never), "{never}");
-        }
-    }
-}
+mod tests;

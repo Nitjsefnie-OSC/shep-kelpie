@@ -7,11 +7,16 @@ use crate::test::{Rig, Scripted, ticket};
 const RUN: u64 = 39_697_676_985;
 const CAP: u64 = 60 * 60;
 
+fn stuck(name: &str, run: u64) -> Queued {
+    Queued {
+        name: name.to_owned(),
+        run: Some(run),
+        running: false,
+    }
+}
+
 fn windows_queued() -> Checks {
-    Checks::Pending(vec![Queued {
-        name: "windows-gnu".to_owned(),
-        run: Some(RUN),
-    }])
+    Checks::Pending(vec![stuck("windows-gnu", RUN)])
 }
 
 #[test]
@@ -145,7 +150,8 @@ fn head_of(rig: &Rig) -> String {
 #[test]
 fn a_check_that_started_is_never_rerun_for_being_slow() {
     let (rig, runner, head) = Rig::with_pull_request("shep");
-    // A check run that started is in the rollup but not in the queued list.
+    // A pending check that is neither queued nor in progress, such as a commit
+    // status, is in the rollup but not in the list.
     rig.forge.set_checks(&head, Checks::Pending(Vec::new()));
     rig.verdict(&runner);
 
@@ -182,18 +188,8 @@ fn a_rerun_the_forge_refuses_waits_another_cap_and_tells_once() {
 
 #[test]
 fn each_queued_run_is_rerun_once_before_a_ruling_is_raised() {
-    const OTHER: u64 = 39_697_679_104;
     let (rig, runner, head) = Rig::with_pull_request("shep");
-    let both = Checks::Pending(vec![
-        Queued {
-            name: "windows-gnu".to_owned(),
-            run: Some(RUN),
-        },
-        Queued {
-            name: "docs".to_owned(),
-            run: Some(OTHER),
-        },
-    ]);
+    let both = Checks::Pending(vec![stuck("windows-gnu", RUN), stuck("docs", OTHER)]);
     rig.forge.set_checks(&head, both);
     rig.verdict(&runner);
     rig.clock.advance(CAP);
@@ -201,13 +197,8 @@ fn each_queued_run_is_rerun_once_before_a_ruling_is_raised() {
     assert_eq!(rig.forge.whole_run_reruns(), [RUN]);
 
     // The first run clears, and the second is still queued.
-    rig.forge.set_checks(
-        &head,
-        Checks::Pending(vec![Queued {
-            name: "docs".to_owned(),
-            run: Some(OTHER),
-        }]),
-    );
+    rig.forge
+        .set_checks(&head, Checks::Pending(vec![stuck("docs", OTHER)]));
     rig.clock.advance(CAP);
     let report = step(&runner).unwrap();
     assert!(
@@ -219,4 +210,83 @@ fn each_queued_run_is_rerun_once_before_a_ruling_is_raised() {
     rig.clock.advance(CAP);
     let (_, question) = ruling_report(step(&runner).unwrap());
     assert!(question.starts_with("docs stayed queued"), "{question}");
+}
+
+const OTHER: u64 = 39_697_679_104;
+
+fn docs_in_progress() -> Queued {
+    Queued {
+        running: true,
+        ..stuck("docs", OTHER)
+    }
+}
+
+#[test]
+fn a_check_in_progress_on_a_run_still_going_stays_pending_and_is_never_ruled_on() {
+    let (rig, runner, head) = Rig::with_pull_request("shep");
+    rig.forge
+        .set_checks(&head, Checks::Pending(vec![docs_in_progress()]));
+    rig.forge.set_run_in_progress(OTHER);
+    rig.verdict(&runner);
+
+    for _ in 0..3 {
+        rig.clock.advance(CAP);
+        let report = step(&runner).unwrap();
+        assert!(
+            matches!(report, Some(StepReport::GateFailed { .. })),
+            "{report:?}"
+        );
+    }
+
+    assert_eq!(rig.forge.whole_run_reruns(), Vec::<u64>::new());
+}
+
+#[test]
+fn a_run_still_going_does_not_hold_up_the_stuck_run_beside_it() {
+    let (rig, runner, head) = Rig::with_pull_request("shep");
+    let both = Checks::Pending(vec![docs_in_progress(), stuck("windows-gnu", RUN)]);
+    rig.forge.set_checks(&head, both);
+    rig.forge.set_run_in_progress(OTHER);
+    rig.verdict(&runner);
+    rig.clock.advance(CAP);
+
+    let report = step(&runner).unwrap();
+
+    assert_eq!(rig.forge.whole_run_reruns(), [RUN]);
+    match report {
+        Some(StepReport::CiRerun { checks, .. }) => assert_eq!(checks, ["windows-gnu"]),
+        other => panic!("{other:?}"),
+    }
+}
+
+// A rerun run that is still going after another cap is waited on, not ruled on,
+// until a job's own timeout has passed: GitHub ends a hosted job at six hours.
+#[test]
+fn a_check_of_a_rerun_run_still_going_is_ruled_on_only_past_a_jobs_timeout() {
+    const JOB_TIMEOUT: u64 = 6 * 60 * 60;
+    let (rig, runner, head) = Rig::with_pull_request("shep");
+    rig.forge.set_checks(&head, windows_queued());
+    rig.verdict(&runner);
+    rig.clock.advance(CAP);
+    step(&runner).unwrap();
+    assert_eq!(rig.forge.whole_run_reruns(), [RUN]);
+
+    // The rerun started, and its job is running
+    let running = Queued {
+        running: true,
+        ..stuck("windows-gnu", RUN)
+    };
+    rig.forge.set_checks(&head, Checks::Pending(vec![running]));
+    rig.clock.advance(CAP);
+    assert_eq!(step(&runner).unwrap(), None, "it waits for the job to end");
+    rig.clock.advance(JOB_TIMEOUT - CAP - 1);
+    assert_eq!(step(&runner).unwrap(), None);
+
+    rig.clock.advance(1);
+    let (_, question) = ruling_report(step(&runner).unwrap());
+    assert!(
+        question.starts_with("windows-gnu stayed queued"),
+        "{question}"
+    );
+    assert_eq!(rig.forge.whole_run_reruns(), [RUN], "no second rerun");
 }

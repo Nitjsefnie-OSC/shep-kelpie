@@ -58,7 +58,7 @@ const OPEN_QUERY: &str = concat!(
     labels(first: 100) { nodes { name } } \
     reviews(first: 1) { totalCount } reviewThreads(first: 1) { totalCount } \
     commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) { nodes { \
-    __typename ... on CheckRun { name status conclusion checkSuite { id } } \
+    __typename ... on CheckRun { name status conclusion completedAt detailsUrl checkSuite { id } } \
     ... on StatusContext { context state } } } } ",
     suites_fields!(),
     " } } } } } } }"
@@ -330,7 +330,7 @@ pub(super) fn closed_here(closes: Vec<Closes>, repo: &ForgeSlug) -> Vec<u64> {
 mod tests {
     use super::*;
     use crate::board::is_bump;
-    use crate::ports::Checks;
+    use crate::ports::{Checks, Queued};
     use crate::settings::Dependencies;
     use crate::test::ticket;
 
@@ -564,21 +564,60 @@ mod tests {
         assert!(OPEN_QUERY.contains("checkSuite { id }"));
     }
 
-    // A pull request whose rollup holds one green check run of suite `S1`,
-    // beside `suites`
-    fn listed_with(suites: &str) -> Checks {
+    // A pull request whose rollup holds `check_run`, beside `suites`
+    fn listed_check(check_run: &str, suites: &str) -> Checks {
         let page = r#"{"data":{"repository":{"pullRequests":{
             "pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[{
             "number":1,"headRefName":"a","headRefOid":"b","isDraft":false,
             "isCrossRepository":false,"author":null,"closingIssuesReferences":{"nodes":[]},
             "labels":{"nodes":[]},"reviews":{"totalCount":0},"reviewThreads":{"totalCount":0},
             "commits":{"nodes":[{"commit":{"statusCheckRollup":{"contexts":{"nodes":[
-                {"__typename":"CheckRun","name":"test","status":"COMPLETED",
-                 "conclusion":"SUCCESS","checkSuite":{"id":"S1"}}]}},
+                CHECK_RUN]}},
             "checkSuites":{"nodes":[SUITES]}}}]}}]}}}}"#
+            .replace("CHECK_RUN", check_run)
             .replace("SUITES", suites);
         let mut page = parse_pull_requests(page.as_bytes(), &kelpie()).unwrap();
         page.pull_requests.remove(0).checks
+    }
+
+    // A pull request whose rollup holds one green check run of suite `S1`,
+    // beside `suites`
+    fn listed_with(suites: &str) -> Checks {
+        let green = r#"{"__typename":"CheckRun","name":"test","status":"COMPLETED",
+            "conclusion":"SUCCESS","checkSuite":{"id":"S1"}}"#;
+        listed_check(green, suites)
+    }
+
+    // The listing asks for the time a check run completed and its link, for
+    // a run GitHub left at `IN_PROGRESS` after it finished (shep-pm/shep#1050).
+    #[test]
+    fn the_listing_asks_for_what_reads_a_check_run_left_in_progress() {
+        assert!(OPEN_QUERY.contains("completedAt detailsUrl"));
+    }
+
+    #[test]
+    fn a_listed_check_run_left_in_progress_with_a_conclusion_is_read_by_it() {
+        let done = r#"{"__typename":"CheckRun","name":"typos","status":"IN_PROGRESS",
+            "conclusion":"SUCCESS","completedAt":"2026-10-23T05:56:37Z",
+            "detailsUrl":"https://github.com/shep-pm/shep/actions/runs/39908548395/job/1",
+            "checkSuite":{"id":"S1"}}"#;
+        assert_eq!(listed_check(done, ""), Checks::Passed);
+    }
+
+    #[test]
+    fn a_listed_check_run_still_in_progress_names_its_workflow_run() {
+        let running = r#"{"__typename":"CheckRun","name":"docs","status":"IN_PROGRESS",
+            "conclusion":null,"completedAt":null,
+            "detailsUrl":"https://github.com/shep-pm/shep/actions/runs/39697679104/job/2",
+            "checkSuite":{"id":"S1"}}"#;
+        assert_eq!(
+            listed_check(running, ""),
+            Checks::Pending(vec![Queued {
+                name: "docs".into(),
+                run: Some(39_697_679_104),
+                running: true,
+            }])
+        );
     }
 
     #[test]

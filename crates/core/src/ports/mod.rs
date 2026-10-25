@@ -620,13 +620,16 @@ pub enum Checks {
     Failed(Vec<String>),
 }
 
-/// A check run that has not started, as the pull request's rollup lists it
+/// A check run still queued or in progress, as the pull request's rollup lists it
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Queued {
     /// The check's name
     pub name: String,
     /// The workflow run it belongs to, when its link names one
     pub run: Option<u64>,
+    /// It started and has not finished, so it ends at its own timeout. A
+    /// queued one waits for a runner that may never come.
+    pub running: bool,
 }
 
 /// What `rerun_run` starts again of a workflow run
