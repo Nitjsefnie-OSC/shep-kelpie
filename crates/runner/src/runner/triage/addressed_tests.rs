@@ -3,7 +3,7 @@
 
 use serde_json::json;
 
-use super::comment::{MARKER, duplicate_marker};
+use super::marker::{MARKER, duplicate_marker};
 use super::pick_tests::{issue, list};
 use super::research_tests::{
     APP, WORDS, calls, crashed_with, facts, moves, pump, reply, researching, triage, untouched,

@@ -288,10 +288,18 @@ fn kelpies_own_body_edit_does_not_start_a_triage() {
     assert_eq!(rig.github.issue_edits(), [(30, written.to_owned())]);
 
     // The forge now holds what kelpie wrote. Triaged again by hand, its author
-    // is asked again, and the body kelpie last saw is what the wait is measured
-    // against: kelpie's own write is not the author's edit.
+    // is asked a new question: the pass reads the round it ran and does not ask
+    // again what the author settled. The body kelpie last saw is what the wait
+    // is measured against: kelpie's own write is not the author's edit.
     list(&rig, rewritten(&rig, "newcomer", written));
-    rig.claude.script_for(Role::Triager, [reply(asked())]);
+    rig.claude.script_for(
+        Role::Triager,
+        [reply(json!({
+            "type": "bug",
+            "priority": "P2",
+            "open": [{ "question": "Which display server?", "recommended": "X11" }],
+        }))],
+    );
     rig.claude
         .script_for(Role::Representative, [Scripted::Say(ASK_WORDS)]);
     rig.ask(&runner, "triage", Some("30"));

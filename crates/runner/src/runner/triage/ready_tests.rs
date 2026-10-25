@@ -5,7 +5,7 @@ use std::sync::Mutex;
 
 use serde_json::{Value, json};
 
-use super::comment::MARKER;
+use super::marker::MARKER;
 use super::pick_tests::{MAINTAINER, issue, list, rig_with};
 use super::research_tests::{
     WORDS, calls, crashed_with, facts, moves, nothing, pump, reply, triage,
@@ -57,9 +57,9 @@ fn filed_at(
     crash.title = "Crash on start".to_owned();
     crash.body = "It crashes when I run it.".to_owned();
     list(&rig, crash);
+    before(&rig);
     rig.claude
         .script_for(Role::Representative, [Scripted::Say(WORDS)]);
-    before(&rig);
     let runner = rig.open().unwrap();
     (rig, runner)
 }
@@ -448,6 +448,38 @@ fn a_triage_label_put_on_while_the_call_ran_stands_and_the_body_is_kept() {
     assert!(said.contains("The maintainer triages it next"), "{said}");
     assert_eq!(moves(&rig), ["comment"], "nothing more is labelled");
     assert_eq!(rig.forge.issue_labels(30), ["needs-info"]);
+    assert_eq!(triage(&rig, &runner)["issues"][0]["step"], "done");
+}
+
+// The same stand, come by after the pass read it: it landed while the
+// representative was wording the comment, so the record must not take it for a
+// label the issue already carried.
+#[test]
+fn a_triage_label_put_on_while_the_comment_is_worded_stands_and_the_body_is_kept() {
+    let hold = Hold::default();
+    let (rig, runner) = filed_before("maintainer", MAINTAINER, |rig| {
+        rig.claude.script_for(Role::Triager, [reply(sure())]);
+        rig.claude.script_for(
+            Role::Representative,
+            [Scripted::HoldThenSay(hold.clone(), WORDS)],
+        );
+    });
+
+    std::thread::scope(|scope| {
+        let posting = scope.spawn(|| step(&runner).unwrap());
+        assert!(hold.entered(CALL_PATIENCE), "the comment was never worded");
+        rig.forge.label(30, "needs-triage");
+        hold.release();
+        posting.join().unwrap();
+    });
+
+    assert_eq!(
+        rig.github.issue_edits(),
+        [],
+        "the body is kept as the author wrote it"
+    );
+    assert_eq!(moves(&rig), ["comment"], "nothing more is labelled");
+    assert_eq!(rig.forge.issue_labels(30), ["needs-triage"]);
     assert_eq!(triage(&rig, &runner)["issues"][0]["step"], "done");
 }
 

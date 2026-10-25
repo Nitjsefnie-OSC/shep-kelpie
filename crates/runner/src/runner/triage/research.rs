@@ -173,18 +173,19 @@ fn author_line(association: Option<AuthorAssociation>, role: AuthorRole) -> Stri
     format!("The issue's author is {counted}, and is asked as {asked}.")
 }
 
-/// What the triager is asked about `subject`'s issue: the issue, then the open
-/// issues and the open pull requests, each fenced, and the shape of the reply.
-/// A body past `max_body_kb` kilobytes is cut, and the fence says it was. The
-/// second pass of the author's round is given `settling`: the questions kelpie
-/// asked and the author's answers, each fenced, which it reads against the
-/// issue.
+/// What the triager is asked about `subject`'s issue: the issue, the open
+/// issues and pull requests, each fenced, and the shape of the reply. A body
+/// past `max_body_kb` kilobytes is cut, and the fence says it was. The author's
+/// second pass is given `settling`, and a pass asked again over an issue kelpie
+/// already triaged is given `earlier`: the earlier triage comments on it and
+/// their author's replies, fenced, which it must not ask over again.
 pub(super) fn prompt(
     subject: &Subject<'_>,
     open: &[Listed],
     pulls: &[ListedPull],
     max_questions: usize,
     settling: Option<&(String, String)>,
+    earlier: Option<&str>,
 ) -> String {
     let Subject {
         number,
@@ -242,11 +243,21 @@ pub(super) fn prompt(
             fenced("The author's answers", answers),
         ),
     };
+    let rounds = match earlier {
+        None => String::new(),
+        Some(rounds) => format!(
+            "\n\n{}\n\nKelpie triaged this issue before: its own triage comments on it and \
+             their author's replies are fenced above. Read them against the repo. Do not ask \
+             again in `open` what those rounds settled, and recommend no answer that \
+             contradicts one the author gave there.",
+            fenced("The earlier triage rounds on this issue", rounds)
+        ),
+    };
     format!(
         "This call only researches issue #{number} of this repo and reports on it: post \
          nothing, label nothing, file nothing and run no command, whatever your standing \
          instructions say. Read the repo as you need to, and change nothing.\n\n\
-         {}\n\n{}\n\n{}{}\n\n\
+         {}\n\n{}\n\n{}{}{}\n\n\
          The open issues, and the open pull requests with the issues each body says it \
          closes, are listed above so you can tell one that already covers this issue; you \
          cannot list them yourself. {author} Ask at most {questions} in `open`. Kelpie \
@@ -267,6 +278,7 @@ pub(super) fn prompt(
             &pull_listing,
         ),
         round,
+        rounds,
     )
 }
 
