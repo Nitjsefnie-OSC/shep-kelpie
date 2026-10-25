@@ -128,25 +128,80 @@ async fn a_runner_that_never_answers_status_is_named_and_nothing_restarts() {
     assert_eq!(rig.restarts(), Vec::<String>::new());
 }
 
+// `aria` sorts before `koji`, so it is restarted first and `koji` follows it.
+// Its scripted looks: before the dog, the drain, the merge wait, then the restart's.
+fn slow_aria(rig: &Rig, after_restart: &[Option<&str>]) {
+    rig.runs("aria", &rig.installed.clone(), true);
+    let mut looks = vec![Some(IDLE); 3];
+    looks.extend_from_slice(after_restart);
+    rig.shepherd.replies("aria", &looks);
+}
+
+// Two looks at a restarted sheep: the first sees it still opening its channel.
+const TWO_LOOKS: Patience = Patience {
+    start: FAST.poll,
+    ..FAST
+};
+
 #[tokio::test]
-async fn a_restarted_sheep_that_never_answers_again_is_named() {
+async fn a_runner_slow_to_answer_after_its_restart_does_not_hold_back_the_runners_after_it() {
     let mut rig = Rig::new().await;
-    // Three idle looks (before the dog, the runner's drain, its merge wait), then silence.
-    rig.shepherd
-        .replies("koji", &[Some(IDLE), Some(IDLE), Some(IDLE), None]);
+    slow_aria(&rig, &[None, Some(IDLE)]);
     let new = rig.build("new", "0.3.0", "0.16.1");
-    let patience = Patience {
-        start: Duration::from_secs(1),
-        ..FAST
-    };
     let action = Action::Install(Source::Binary(new));
-    let err = rig.upgrade_within(action, patience).await.0.unwrap_err();
+    let (ran, said) = rig.upgrade_within(action, TWO_LOOKS).await;
+    ran.unwrap();
+
+    assert_eq!(rig.restarts(), ["kelpie", "aria", "koji"]);
+    let told = |what: &str| said.iter().position(|l| l.contains(what));
     assert!(
-        err.contains("`koji` did not answer in 1s after its restart"),
+        told("restarted `koji`") < told("restarted `aria`"),
+        "{said:?}"
+    );
+    assert!(told("restarted `aria`").is_some(), "{said:?}");
+}
+
+#[tokio::test]
+async fn a_runner_that_never_answers_after_its_restart_is_named_once_the_others_are_restarted() {
+    let mut rig = Rig::new().await;
+    slow_aria(&rig, &[None]);
+    let new = rig.build("new", "0.3.0", "0.16.1");
+    let action = Action::Install(Source::Binary(new));
+    let err = rig.upgrade_within(action, TWO_LOOKS).await.0.unwrap_err();
+
+    assert!(
+        err.contains("`aria` never answered after its restart"),
         "{err}"
     );
-    assert!(err.contains("shep bleats koji"), "{err}");
-    assert_eq!(rig.restarts(), ["kelpie", "koji"]);
+    assert!(err.contains("shep bleats aria"), "{err}");
+    assert!(!err.contains("koji"), "{err}");
+    assert_eq!(rig.restarts(), ["kelpie", "aria", "koji"]);
+}
+
+#[tokio::test]
+async fn a_slow_runner_that_stopped_before_it_was_asked_again_is_named() {
+    let mut rig = Rig::new().await;
+    slow_aria(&rig, &[None, Some(IDLE)]);
+    let new = rig.build("new", "0.3.0", "0.16.1");
+    let scene = rig.scene(TWO_LOOKS);
+    let action = Action::Install(Source::Binary(new));
+    let mut said = Vec::new();
+    let ran = run(&scene, &action, &mut |line| {
+        // The slow runner goes down once the one after it is up.
+        if line.contains("restarted `koji`") {
+            rig.shepherd.stops("aria");
+        }
+        said.push(line);
+    })
+    .await;
+    let err = ran.unwrap_err();
+
+    assert!(
+        err.contains("`aria` is not running after its restart"),
+        "{err}"
+    );
+    assert!(err.contains("shep bleats aria"), "{err}");
+    assert_eq!(rig.restarts(), ["kelpie", "aria", "koji"]);
 }
 
 #[tokio::test]

@@ -7,6 +7,9 @@
 //! it is waited on, and named if the wait runs out. A sheep that is stopped
 //! stays stopped: it starts on the new build.
 //!
+//! A runner that is running but silent after its restart does not hold the
+//! runners after it back: they are restarted first, and it is asked again.
+//!
 //! Unless the upgrade was asked to restart at once, each runner is drained
 //! before its merge wait ([`super::drain`]), so its restart cuts no call
 //! short. The dog is never drained, since the calls are the runners'.
@@ -208,9 +211,12 @@ impl Plan {
 /// A message naming the sheep that could not be restarted, did not come back,
 /// or kept a merge in flight, or would not say whether it had one, for longer
 /// than `patience.merge`, or a drained runner that kept a call running past
-/// its ceiling and `patience.margin`, or the interrupt that stopped it. The
-/// sheep restarted before it are on the new build, and running the upgrade
-/// again finishes the rest.
+/// its ceiling and `patience.margin`, or the interrupt that stopped it. A
+/// runner that stopped after its restart, or that answers no `status` in
+/// `patience.start` then again in `patience.start` once the others are
+/// restarted, is named after them; the dog is named at once. The sheep
+/// restarted before it are on the new build, and running the upgrade again
+/// finishes the rest.
 pub async fn restart_all(
     client: &dyn Connection,
     plan: &Plan,
@@ -250,7 +256,9 @@ pub async fn restart_all(
     // The dog goes down only when no runner is merging.
     if plan.dog.online() {
         wait_out_merges(client, &names, patience, Purpose::Upgrade, say).await?;
-        bounce_if_running(client, &plan.dog.name, patience, say).await?;
+        if let Bounced::Silent = bounce_if_running(client, &plan.dog.name, patience, say).await? {
+            return Err(silent(&plan.dog.name, patience.start));
+        }
     }
     let stop = interrupted(interrupt);
     tokio::pin!(stop);
@@ -259,10 +267,13 @@ pub async fn restart_all(
         true => Some(stamp_of(&plan.program)?),
         false => None,
     };
+    let mut slow = Vec::new();
     for name in names {
         let Some(installed) = &installed else {
             wait_out_merges(client, &[name], patience, Purpose::Upgrade, say).await?;
-            bounce_if_running(client, name, patience, say).await?;
+            if let Bounced::Silent = bounce_if_running(client, name, patience, say).await? {
+                slow.push(name);
+            }
             continue;
         };
         let handed = tokio::select! {
@@ -282,12 +293,81 @@ pub async fn restart_all(
             restarted = restarted => restarted,
             by = &mut stop => Err(format!("stopped by {by} while `{name}` was draining")),
         };
-        if let Err(e) = restarted {
-            let undrained = drain::undrain(client, name, Purpose::Upgrade).await;
-            return Err(format!("{e}{undrained}"));
+        match restarted {
+            Ok(Bounced::Answered) => {}
+            Ok(Bounced::Silent) => slow.push(name),
+            Err(e) => {
+                let undrained = drain::undrain(client, name, Purpose::Upgrade).await;
+                return Err(format!("{e}{undrained}"));
+            }
         }
     }
-    Ok(())
+    tokio::select! {
+        asked = ask_again(client, slow, patience, say) => asked,
+        by = &mut stop => Err(format!("stopped by {by} while the runners slow to answer were asked again")),
+    }
+}
+
+/// How a restarted sheep did in `patience.start`
+enum Bounced {
+    Answered,
+    /// Running, and no `status` answer yet
+    Silent,
+}
+
+fn silent(name: &str, wait: Duration) -> String {
+    format!(
+        "`{name}` did not answer in {}s after its restart: `shep bleats {name}` says why",
+        wait.as_secs()
+    )
+}
+
+// Asks each of `names`, restarted and silent, for its `status` again until all
+// have answered or `patience.start` runs out. One that stopped meanwhile is
+// not waited on.
+async fn ask_again(
+    client: &dyn Connection,
+    names: Vec<&str>,
+    patience: Patience,
+    say: &mut dyn FnMut(String),
+) -> Result<(), String> {
+    let mut pending = names;
+    let mut failed = Vec::new();
+    let waited = Instant::now();
+    while !pending.is_empty() {
+        let mut still = Vec::new();
+        for name in pending {
+            match trigger(client, name, "status", None).await? {
+                Answered::Runner(_) => say(format!("restarted `{name}`")),
+                _ if !is_running(client, name).await? => failed.push(format!(
+                    "`{name}` is not running after its restart: `shep bleats {name}` says why"
+                )),
+                _ => still.push(name),
+            }
+        }
+        pending = still;
+        if waited.elapsed() >= patience.start {
+            break;
+        }
+        if !pending.is_empty() {
+            tokio::time::sleep(patience.poll).await;
+        }
+    }
+    failed.extend(pending.into_iter().map(|name| {
+        format!("`{name}` never answered after its restart: `shep bleats {name}` says why")
+    }));
+    match failed.is_empty() {
+        true => Ok(()),
+        false => Err(failed.join("; ")),
+    }
+}
+
+async fn is_running(client: &dyn Connection, name: &str) -> Result<bool, String> {
+    Ok(flock(client)
+        .await?
+        .into_iter()
+        .find(|row| row.name == name)
+        .is_some_and(|row| running(row.status)))
 }
 
 // Restarts `name` unless it is not running now. The plan is a look from
@@ -298,17 +378,12 @@ async fn bounce_if_running(
     name: &str,
     patience: Patience,
     say: &mut dyn FnMut(String),
-) -> Result<(), String> {
-    let now = flock(client)
-        .await?
-        .into_iter()
-        .find(|row| row.name == name)
-        .map(|row| row.status);
-    if !now.is_some_and(running) {
+) -> Result<Bounced, String> {
+    if !is_running(client, name).await? {
         say(format!(
             "`{name}` was stopped meanwhile, so it stays stopped"
         ));
-        return Ok(());
+        return Ok(Bounced::Answered);
     }
     bounce(client, name, patience, say).await
 }
@@ -318,19 +393,25 @@ async fn bounce(
     name: &str,
     patience: Patience,
     say: &mut dyn FnMut(String),
-) -> Result<(), String> {
+) -> Result<Bounced, String> {
     resume(client, name).await?;
     let waited = Instant::now();
     loop {
         if let Answered::Runner(_) = trigger(client, name, "status", None).await? {
             say(format!("restarted `{name}`"));
-            return Ok(());
+            return Ok(Bounced::Answered);
         }
         if waited.elapsed() >= patience.start {
-            return Err(format!(
-                "`{name}` did not answer in {}s after its restart: `shep bleats {name}` says why",
+            if !is_running(client, name).await? {
+                return Err(format!(
+                    "`{name}` is not running after its restart: `shep bleats {name}` says why"
+                ));
+            }
+            say(format!(
+                "`{name}` did not answer in {}s after its restart, so the others go on first",
                 patience.start.as_secs()
             ));
+            return Ok(Bounced::Silent);
         }
         tokio::time::sleep(patience.poll).await;
     }
