@@ -1,0 +1,5 @@
+# Checks stuck on a finished run
+
+GitHub leaves a job of a finished workflow run `QUEUED` or `IN_PROGRESS`. Part of CI in merge.md.
+
+- A check run `QUEUED` or `IN_PROGRESS` past `ci.queued_minutes` (60) of the wait's `since`, in `Phase::Ci` or review's CI wait, gets each such run rerun whole once per head (`Rerun::All`, in memory like `held_up`), and the cap restarts. The rollup does not say whether a run finished, so the forge's refusal of a rerun of one still going is the test: each run is tried in turn, a refused one waits another cap and does not hold up the others, and a run really still going is never ruled on. Still stuck: `check-queued` ruling, whose yes reruns once more and whose no waits again. A check run with a real `completedAt` and a `conclusion` is read by its conclusion whatever its `status` says (GitHub leaves some at `IN_PROGRESS`); an unfinished one reads `completedAt` `0001-01-01T00:00:00Z`. #1164, #1249, `runner/gate/queued/`, `crates/adapters/src/adapters/gh/mod.rs`
