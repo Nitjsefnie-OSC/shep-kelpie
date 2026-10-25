@@ -8,9 +8,10 @@ use std::process::{Command, Output};
 
 use super::sandbox::{policy, transcripts};
 use crate::adapters::{Base, SandboxRuntime};
-use crate::ports::{AgentCall, Ending, Role, Sandbox, Session, SessionId, Tools};
+use crate::ports::{AgentCall, Ending, Policy, Role, Sandbox, Session, SessionId, Tools};
 use crate::profile::WorkerProfile;
 use crate::settings::Effort;
+use crate::test::NO_PROGRAM;
 
 struct World {
     _dir: tempfile::TempDir,
@@ -71,10 +72,17 @@ impl World {
         }
     }
 
+    // The policy the wrapped shell runs under, with a stand-in for the harness
+    // program, which the sandbox must read to exec it.
+    fn sandbox_policy(&self) -> Policy {
+        let call = self.call();
+        policy(&call, &self.path("home"), &NO_PROGRAM, &[]).unwrap()
+    }
+
     // Runs `script` in the worktree, inside the worker's sandbox.
     fn try_to(&self, script: &str) -> Output {
         let call = self.call();
-        let policy = policy(&call, &self.path("home"), Path::new("/nowhere/claude"), &[]).unwrap();
+        let policy = self.sandbox_policy();
         let mut inner = Command::new("/bin/sh");
         inner.args(["-c", script]).current_dir(&call.cwd);
         SandboxRuntime::under_test()
@@ -469,7 +477,7 @@ fn a_socket_the_policy_lists_is_still_refused_on_linux() {
     let door = w.path("dog/lease.sock");
     std::fs::create_dir_all(door.parent().unwrap()).unwrap();
     let _listener = std::os::unix::net::UnixListener::bind(&door).unwrap();
-    let policy = policy(&w.call(), &w.path("home"), &[]).unwrap();
+    let policy = w.sandbox_policy();
     assert_eq!(
         policy.sockets,
         std::slice::from_ref(&door),
