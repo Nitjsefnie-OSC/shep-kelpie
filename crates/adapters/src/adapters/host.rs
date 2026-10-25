@@ -71,7 +71,7 @@ fn numbers(version: &str) -> Option<[u64; 3]> {
 pub const fn sandbox_needs(os: &str) -> &'static [&'static str] {
     match os.as_bytes() {
         b"macos" => &["sandbox-exec"],
-        b"linux" => &["bwrap", "socat"],
+        b"linux" => &["bwrap"],
         _ => &[],
     }
 }
@@ -181,9 +181,9 @@ mod tests {
     use crate::test::Fake;
 
     #[test]
-    fn macos_needs_its_own_sandbox_and_linux_needs_two_programs() {
+    fn macos_needs_its_own_sandbox_and_linux_needs_bwrap_alone() {
         assert_eq!(sandbox_needs("macos"), ["sandbox-exec"]);
-        assert_eq!(sandbox_needs("linux"), ["bwrap", "socat"]);
+        assert_eq!(sandbox_needs("linux"), ["bwrap"]);
         assert!(sandbox_needs("windows").is_empty());
     }
 
@@ -217,8 +217,7 @@ mod tests {
     fn a_gap_is_a_needed_program_off_the_path() {
         let needs = sandbox_needs("linux");
         assert_eq!(gaps(needs, |_| true), Vec::<&str>::new());
-        assert_eq!(gaps(needs, |p| p == "bwrap"), ["socat"]);
-        assert_eq!(gaps(needs, |_| false), ["bwrap", "socat"]);
+        assert_eq!(gaps(needs, |_| false), ["bwrap"]);
     }
 
     #[test]

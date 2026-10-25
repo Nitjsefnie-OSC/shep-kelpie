@@ -427,11 +427,11 @@ async fn gh_missing_or_logged_out_is_told_its_fix() {
 #[tokio::test]
 async fn a_sandbox_the_machine_lacks_names_what_it_lacks() {
     let mut scene = Scene::new().await;
-    scene.host.gaps = vec!["bwrap", "socat"];
+    scene.host.gaps = vec!["bwrap"];
     let report = scene.report().await;
     let (what, fix) = missing(&report, "sandbox");
-    assert!(what.contains("bwrap and socat"), "{what}");
-    assert!(fix.contains("bubblewrap"), "{fix}");
+    assert!(what.contains("bwrap"), "{what}");
+    assert!(fix.contains("sudo apt-get install bubblewrap"), "{fix}");
     assert!(!report.passed());
 }
 
