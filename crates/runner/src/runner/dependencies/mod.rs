@@ -288,7 +288,7 @@ impl Runner {
             }
             Ok(Base::Current) => None,
             Ok(Base::Behind) => match behind_rule(&read, reads.up_to_date.clone()) {
-                Behind::Ask(why) => return self.ask_rebase(bump, &why),
+                Behind::Ask(why) => return Next::Waiting(self.ask_rebase(bump, &why)),
                 Behind::Prove => Some(BEHIND_ALLOWED),
             },
         };
@@ -330,17 +330,15 @@ impl Runner {
 
     // A bump behind `main` is asked to rebase once for each head, for the
     // reason `why` gives: it conflicts, `main` requires it, or the rule that
-    // might not require it could not be read.
-    fn ask_rebase(&mut self, bump: &Bump, why: &Why) -> Next {
+    // might not require it could not be read. The answer is its standing.
+    fn ask_rebase(&mut self, bump: &Bump, why: &Why) -> String {
         let standing = why.standing();
         if bump.rebase_asked.as_deref() == Some(&bump.head) {
-            return Next::Waiting(format!(
-                "{standing}: asked to rebase, and has not pushed yet"
-            ));
+            return format!("{standing}: asked to rebase, and has not pushed yet");
         }
         let mention = format!("@{} rebase", Dependencies::mention(&bump.author));
         if let Err(e) = self.comment_as_gh(bump.pull_request, &mention) {
-            return Next::Waiting(format!("{standing}, and cannot ask for a rebase: {e}"));
+            return format!("{standing}, and cannot ask for a rebase: {e}");
         }
         self.notes.push(format!(
             "bump #{}: asked {} to rebase it onto main, at {}: {}",
@@ -351,8 +349,8 @@ impl Runner {
         ));
         let head = bump.head.clone();
         match self.amend(bump.pull_request, |b| b.rebase_asked = Some(head)) {
-            Ok(()) => Next::Waiting(format!("{standing}: asked to rebase")),
-            Err(e) => Next::Waiting(format!("asked to rebase, but cannot save that: {e}")),
+            Ok(()) => format!("{standing}: asked to rebase"),
+            Err(e) => format!("asked to rebase, but cannot save that: {e}"),
         }
     }
 
@@ -473,7 +471,20 @@ impl Runner {
     fn merge_bump(&mut self, bump: &Bump, behind: Option<&'static str>) -> Result<(), StateError> {
         let number = bump.pull_request;
         if let Err(e) = self.ports.forge.merge(&self.remote, number, &bump.head) {
-            return self.stand(number, format!("cannot merge it: {e}"), true);
+            return match behind {
+                // The forge refused a merge of a head that was behind as it
+                // stands: that is the rule kelpie could not read saying
+                // itself. Ask for the rebase, once for this head, as for any
+                // rule kelpie cannot tell.
+                Some(_) => {
+                    let why = self.ask_rebase(
+                        bump,
+                        &Why::Unknown(format!("the forge refused the merge: {e}")),
+                    );
+                    self.stand(number, why, false)
+                }
+                None => self.stand(number, format!("cannot merge it: {e}"), true),
+            };
         }
         let at = short(&bump.head);
         self.notes.push(match behind {
@@ -635,6 +646,8 @@ pub struct BumpStatus {
 }
 
 pub(super) use read::follow_dependencies;
+#[cfg(test)]
+mod behind_tests;
 #[cfg(test)]
 mod browser_tests;
 mod read;

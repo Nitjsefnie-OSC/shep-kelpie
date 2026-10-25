@@ -9,25 +9,23 @@ use crate::settings::ForgeSlug;
 
 /// Whether `base`'s rules require a pull request's branch to be up to date with it
 ///
-/// Two reads, in order. The rulesets endpoint answers 30 rules at a time, so it
-/// goes through `--paginate`, which merges the pages of an array answer into
-/// one array: a strict rule belongs to the branch whatever page it lands on.
-/// It covers rulesets only, so when it holds no `required_status_checks` rule
-/// the classic protection of the branch is asked too, and a branch with
-/// neither requires nothing.
+/// Rulesets and classic protection apply together and the stricter wins, so
+/// the two are asked in order and only a strict ruleset answers alone. The
+/// rulesets endpoint answers 30 rules at a time, so it goes through
+/// `--paginate`, which merges the pages of an array answer into one array: a
+/// strict rule belongs to the branch whatever page it lands on.
 pub(super) fn requires_up_to_date(repo: &ForgeSlug, base: &str) -> Result<bool, ForgeError> {
     let path = format!("repos/{}/rules/branches/{base}", repo.as_str());
-    match parse_rules(&gh(&["api", "--paginate", &path])?) {
-        Ok(Some(required)) => Ok(required),
-        Ok(None) => classic_protection(repo, base),
-        Err(e) => Err(e),
+    match parse_rules(&gh(&["api", "--paginate", &path])?)? {
+        Some(true) => Ok(true),
+        said => classic_protection(repo, base, said.is_some()),
     }
 }
 
 // What the rulesets answer says: `Some(true)` when any ruleset covering the
 // branch is strict, `Some(false)` when one covers it and none is, and `None`
-// when no `required_status_checks` rule covers it, which the classic
-// protection may still do.
+// when no `required_status_checks` rule covers it. Only `Some(true)` answers
+// the question: the rest leave it to the classic protection.
 fn parse_rules(stdout: &[u8]) -> Result<Option<bool>, ForgeError> {
     #[derive(Deserialize)]
     struct Rule {
@@ -61,21 +59,26 @@ fn parse_rules(stdout: &[u8]) -> Result<Option<bool>, ForgeError> {
     Ok((!strict.is_empty()).then_some(false))
 }
 
-// Classic branch protection, which the rulesets endpoint does not cover.
-// `GET /repos/<repo>/branches/<base>/protection/required_status_checks`
-// answers with the protection's `strict`, and 404s when no such protection is
-// set, which requires nothing.
-fn classic_protection(repo: &ForgeSlug, base: &str) -> Result<bool, ForgeError> {
+// The classic protection of the branch, which the rulesets endpoint does not
+// cover: its `strict` decides. A 404 means none where the rulesets already
+// spoke; where they were silent it can also mean protection hidden from this
+// login, which the branch listing's `protected` flag splits.
+fn classic_protection(repo: &ForgeSlug, base: &str, rules_said: bool) -> Result<bool, ForgeError> {
     let path = format!(
         "repos/{}/branches/{base}/protection/required_status_checks",
         repo.as_str()
     );
-    let stdout = match gh(&["api", &path]) {
-        Ok(stdout) => stdout,
-        Err(e) if is_not_found(&e) => return Ok(false),
+    let hidden = match gh(&["api", &path]) {
+        Ok(stdout) => return parse_protection(&stdout),
+        Err(e) if is_not_found(&e) && rules_said => return Ok(false),
+        Err(e) if is_not_found(&e) => e,
         Err(e) => return Err(e),
     };
-    parse_protection(&stdout)
+    match branch_protected(repo, base) {
+        Ok(false) => Ok(false),
+        Ok(true) => Err(hidden),
+        Err(e) => Err(e),
+    }
 }
 
 fn parse_protection(stdout: &[u8]) -> Result<bool, ForgeError> {
@@ -85,6 +88,20 @@ fn parse_protection(stdout: &[u8]) -> Result<bool, ForgeError> {
     }
     let protection: Protection = serde_json::from_slice(stdout).map_err(|_| unreadable(stdout))?;
     protection.strict.ok_or_else(|| unreadable(stdout))
+}
+
+fn branch_protected(repo: &ForgeSlug, base: &str) -> Result<bool, ForgeError> {
+    let path = format!("repos/{}/branches/{base}", repo.as_str());
+    parse_protected(&gh(&["api", &path])?)
+}
+
+fn parse_protected(stdout: &[u8]) -> Result<bool, ForgeError> {
+    #[derive(Deserialize)]
+    struct Branch {
+        protected: Option<bool>,
+    }
+    let branch: Branch = serde_json::from_slice(stdout).map_err(|_| unreadable(stdout))?;
+    branch.protected.ok_or_else(|| unreadable(stdout))
 }
 
 #[cfg(test)]
@@ -100,12 +117,12 @@ mod tests {
     const NO_RULES: &str = "[]";
 
     #[test]
-    fn a_rule_that_does_not_require_up_to_date_is_read_as_one_that_does_not() {
+    fn a_rule_that_does_not_require_up_to_date_leaves_the_question_open() {
         assert_eq!(parse_rules(SHEP_MAIN.as_bytes()), Ok(Some(false)));
     }
 
     #[test]
-    fn a_branch_no_rule_protects_leaves_the_question_to_classic_protection() {
+    fn a_branch_no_rule_protects_leaves_the_question_open() {
         assert_eq!(parse_rules(NO_RULES.as_bytes()), Ok(None));
     }
 
@@ -178,6 +195,35 @@ mod tests {
             assert!(
                 matches!(
                     parse_protection(text.as_bytes()),
+                    Err(ForgeError::Unreadable(_))
+                ),
+                "{text}"
+            );
+        }
+    }
+
+    // Recorded 2026-10-25 from api.github.com: `GET /repos/shep-pm/shep/branches/main`,
+    // protected by its rulesets, and `GET /repos/octocat/Hello-World/branches/master`,
+    // protected by nothing.
+    const PROTECTED_MAIN: &str = include_str!("../../../../../fixtures/gh-api-branches-main.json");
+    const BARE_MASTER: &str = include_str!("../../../../../fixtures/gh-api-branches-master.json");
+
+    #[test]
+    fn a_protected_branch_is_read_as_protected() {
+        assert_eq!(parse_protected(PROTECTED_MAIN.as_bytes()), Ok(true));
+    }
+
+    #[test]
+    fn an_unprotected_branch_is_read_as_unprotected() {
+        assert_eq!(parse_protected(BARE_MASTER.as_bytes()), Ok(false));
+    }
+
+    #[test]
+    fn a_branch_answer_without_its_protected_field_is_unreadable() {
+        for text in [r#"{"name":"main"}"#, "not json"] {
+            assert!(
+                matches!(
+                    parse_protected(text.as_bytes()),
                     Err(ForgeError::Unreadable(_))
                 ),
                 "{text}"
