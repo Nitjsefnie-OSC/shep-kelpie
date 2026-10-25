@@ -286,8 +286,15 @@ fn a_worker_reads_its_own_folders_and_no_other_repo_of_the_home() {
     for path in files[3..].iter() {
         let out = w.try_to(&format!("cat {}", path.0.display()));
         let why = String::from_utf8_lossy(&out.stderr).to_string();
+        // macOS seatbelt refuses the open. Linux crabpot covers a denied
+        // folder with an empty tmpfs, so the name is not there at all.
+        let expected = if cfg!(target_os = "linux") {
+            "No such file or directory"
+        } else {
+            "Operation not permitted"
+        };
         assert!(
-            !out.status.success() && why.contains("Operation not permitted"),
+            !out.status.success() && why.contains(expected),
             "{} was read: {why}",
             path.0.display()
         );

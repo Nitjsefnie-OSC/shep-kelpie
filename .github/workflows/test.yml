@@ -131,6 +131,7 @@ jobs:
             | tee sandbox.log
           for name in \
             the_worktree_the_build_folder_and_the_transcripts_are_written_and_nothing_outside \
+            a_worker_reads_its_own_folders_and_no_other_repo_of_the_home \
             claude_codes_own_files_are_refused_in_any_case_and_spelling \
             a_nested_claude_folder_that_existed_at_call_start_is_refused \
             codexs_own_files_are_refused_in_any_case \
