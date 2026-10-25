@@ -36,10 +36,11 @@ pub(in crate::adapters) fn link(target: &Path, link: &Path) -> io::Result<()> {
 /// Makes `link` a symbolic link to `target`
 ///
 /// On Windows that takes Developer Mode (#1271), and the kind of link follows
-/// what `target` is.
+/// what `target` is. A `target` that is not there yet gets a file link, as Unix
+/// makes a dangling one.
 #[cfg(windows)]
 pub(in crate::adapters) fn link(target: &Path, link: &Path) -> io::Result<()> {
-    if fs::metadata(target)?.is_dir() {
+    if fs::metadata(target).is_ok_and(|meta| meta.is_dir()) {
         std::os::windows::fs::symlink_dir(target, link)
     } else {
         std::os::windows::fs::symlink_file(target, link)
