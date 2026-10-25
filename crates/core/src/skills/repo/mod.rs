@@ -2,25 +2,22 @@
 //!
 //! A repo's `.claude/settings.json` names a marketplace in
 //! `extraKnownMarketplaces` and the plugin in `enabledPlugins`. Claude Code
-//! loads only a plugin that is installed, and a headless run installs none,
-//! so kelpie does it: it reads that file from the checkout's default branch
-//! (never a worker's branch, so a branch cannot turn a plugin on for itself),
-//! finds each enabled plugin's folder in its marketplace, and copies the
-//! plugin's `skills/`, `agents/`, `commands/` and `hooks/` that
-//! `repo_setup.parts` loads, beside every other folder of the plugin, into a
-//! plugin of the same name under the project's skills folder. The other folders
-//! come across because a skill names a file under the plugin's root, and the
-//! name reaches nothing where the file is not in the copy. Every call the
-//! runner makes gets that folder with `--plugin-dir`. A plugin's hooks sit in
-//! their own folder, so they run beside the hooks in the call's settings file
-//! and cannot replace them.
+//! loads only a plugin that is installed, and a headless run installs none, so
+//! kelpie does it: it reads that file from the checkout's default branch (never
+//! a worker's branch, so a branch cannot turn a plugin on for itself), finds
+//! each enabled plugin's folder in its marketplace, and copies the plugin's
+//! `skills/`, `agents/`, `commands/` and `hooks/` that `repo_setup.parts`
+//! loads, beside every other folder of it and the files at its root, into a
+//! plugin of the same name under the project's skills folder: a skill names a
+//! file under the plugin's root, and the name reaches nothing where the copy
+//! has none of it. Every call gets that folder with `--plugin-dir`. A plugin's
+//! hooks sit in their own folder, so they run beside the hooks of the call's
+//! settings file and cannot replace them.
 //!
-//! The repo's own `.claude` files load as one more plugin (`own`).
-//!
-//! A plugin's MCP servers, and the repo's own in the `.mcp.json` of its
-//! default branch, are not copied but handed to each call's MCP config (see [`mcp`]).
-//!
-//! A plugin that cannot load is skipped with its reason, and the run goes on.
+//! The repo's own `.claude` files load as one more plugin (`own`). A plugin's
+//! MCP servers, and the repo's own in its `.mcp.json`, are handed to each
+//! call's MCP config rather than copied (see [`mcp`]). A plugin that cannot
+//! load is skipped with its reason, and the run goes on.
 
 use std::collections::BTreeMap;
 use std::ffi::{OsStr, OsString};
@@ -717,8 +714,7 @@ fn inside(root: &Path, relative: &Path) -> Result<PathBuf, ()> {
 // What the `SKILL.md` at `file` gets wrong about its frontmatter, where it
 // gets any of it wrong. A harness that refuses a frontmatter lists no skill of
 // the file and puts its warning where kelpie keeps no log, so the reason is
-// told here instead. A file that opens no frontmatter is the harness's own to
-// take or leave.
+// told here. A file that opens none is the harness's own to take or leave.
 fn frontmatter_error(file: &Path) -> Option<String> {
     let Ok(text) = fs::read_to_string(file) else {
         return None;
@@ -864,14 +860,9 @@ fn fill_in_skills(dir: &Path, root: &str) -> std::io::Result<()> {
 }
 
 // The entries of the plugin at `folder` that are none of the parts, in name
-// order: its folders and the files it keeps at its own root. A skill names a
-// file under the plugin's root, and only the copy reaches it. The manifest
-// folder is left out, since the copy writes a trimmed one of its own, and
-// `mcp::ROOT` with it, so a plugin that holds a folder of that name does not
-// land beside its own servers. `mcp::CONFIG_FILE` is left out too: the copy's
-// manifest is trimmed of `mcpServers` and kelpie hands the servers to the call
-// itself, so a second one beside the copy is one a harness could load on its
-// own, and it reaches a server that runs a file of it through `mcp::ROOT`.
+// order: its folders and the files at its own root, which a skill names a file
+// from. `.claude-plugin`, `mcp::ROOT` and `mcp::CONFIG_FILE` are aside: the
+// copy writes its own manifest, and a server's files reach it through `mcp-root`.
 fn rest(folder: &Path) -> Vec<OsString> {
     let Ok(entries) = fs::read_dir(folder) else {
         return Vec::new();

@@ -1,16 +1,14 @@
 //! The repo's own `.claude` files, which load with no plugin
 //!
-//! A repo sets Claude Code up for everyone who works in it without a plugin
-//! too: skills in `.claude/skills/`, sub-agents in `.claude/agents/`, commands
-//! in `.claude/commands/` and hooks in `.claude/settings.json`. A call that runs in
-//! a worktree loads them from there, but the project manager, the advisor,
-//! the researcher and the issue writer run in folders of their own. So kelpie
-//! reads them from `origin`'s default branch, never a worker's branch, and
-//! writes them as one more plugin, `kelpie-repo`, which a repo's plugin cannot
-//! be named. The hooks go to the plugin's `hooks/hooks.json`, where they run
-//! beside the hooks of the call's settings file and cannot replace them. A
-//! skill of it that names `${CLAUDE_PLUGIN_ROOT}` gets this copy's own folder
-//! in place of it, the way a repo plugin's skills do.
+//! A repo sets Claude Code up without a plugin too: skills in
+//! `.claude/skills/`, sub-agents in `.claude/agents/`, commands in
+//! `.claude/commands/` and hooks in `.claude/settings.json`. A call in a
+//! worktree loads them from there, but the project manager, the advisor, the
+//! researcher and the issue writer run in folders of their own. So kelpie reads
+//! them from `origin`'s default branch, never a worker's branch, and writes
+//! them as one more plugin, `kelpie-repo`. Its hooks go to `hooks/hooks.json`,
+//! where they run beside the call's own and cannot replace them, and its
+//! skills name this copy where they name `${CLAUDE_PLUGIN_ROOT}`.
 
 use std::collections::BTreeMap;
 use std::fs;
