@@ -514,6 +514,11 @@ fn stuck(reason: &Stuck) -> (&'static str, &'static str, Option<&'static str>) {
             "Reruns the run once more and kelpie waits again",
             Some("Leaves the item waiting for you to act on the forge"),
         ),
+        Stuck::NoChecks { .. } => (
+            "No check has appeared on this head. Go on without one?",
+            "Passes this head as skipped, and kelpie goes on",
+            Some("Waits another while for a check to appear"),
+        ),
         Stuck::MergeRefused { .. } => (
             "Merging was refused twice. Try again?",
             "Kelpie looks again and merges once every gate passes",

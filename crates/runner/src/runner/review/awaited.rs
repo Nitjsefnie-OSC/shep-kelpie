@@ -78,7 +78,7 @@ impl Runner {
             since,
             green: false,
         };
-        let conclusion = match &pr.checks {
+        let mut conclusion = match &pr.checks {
             Checks::Failed(_) => "failed",
             Checks::Skipped => "skipped",
             _ => "passed",
@@ -92,7 +92,7 @@ impl Runner {
             _ => Vec::new(),
         };
         let unreported = pr.checks == Checks::None;
-        let verdict = match pr.checks {
+        let mut verdict = match pr.checks {
             _ if !settled(since, now) => None,
             Checks::None | Checks::Pending(_) => None,
             // Nothing ran on a draft whose jobs all skip it, and the real
@@ -105,14 +105,7 @@ impl Runner {
             }
             Checks::Failed(checks) => Some(Err(checks)),
         };
-        if review.ci.as_deref() != Some(&ci) {
-            review.ci = Some(Box::new(ci.clone()));
-            self.update(|item| {
-                if let Phase::Review(review) = &mut item.phase {
-                    review.ci = Some(Box::new(ci));
-                }
-            })?;
-        }
+        self.keep_ci(review, &ci)?;
         let back = Review {
             reading: None,
             ..review.clone()
@@ -125,7 +118,16 @@ impl Runner {
             // get CI is not rebased mid-review.
             match self.base_standing(&head) {
                 Ok(Base::Behind) => return self.rebase(number, &head, Some(back)).map(Some),
-                Ok(Base::Lagging | Base::Current) => {}
+                Ok(Base::Lagging) => {}
+                Ok(Base::Current) => {
+                    match self.without_checks(number, &head, since, Some(&back))? {
+                        Some(begin) => return Ok(Some(begin)),
+                        None => {
+                            (ci.green, conclusion, verdict) = (true, "skipped", Some(Ok(())));
+                            self.keep_ci(review, &ci)?;
+                        }
+                    }
+                }
                 Err(begin) => return Ok(Some(*begin)),
             }
         }
@@ -137,5 +139,19 @@ impl Runner {
             Some(Ok(())) => Ok(None),
             Some(Err(checks)) => self.ci_failed(number, head, checks, Some(back)).map(Some),
         }
+    }
+
+    // Keeps `ci`, the wait on the head being read, in the round and the state file.
+    fn keep_ci(&mut self, review: &mut Review, ci: &Awaited) -> Result<(), StateError> {
+        if review.ci.as_deref() == Some(ci) {
+            return Ok(());
+        }
+        review.ci = Some(Box::new(ci.clone()));
+        let ci = ci.clone();
+        self.update(|item| {
+            if let Phase::Review(review) = &mut item.phase {
+                review.ci = Some(Box::new(ci));
+            }
+        })
     }
 }

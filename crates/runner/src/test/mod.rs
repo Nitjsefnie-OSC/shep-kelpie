@@ -81,6 +81,9 @@ impl Held for HeldToken {
     }
 }
 
+/// The workflow the rig's repo holds on `main`
+const WORKFLOW: &str = ".github/workflows/ci.yml";
+
 /// The `git.checkout` in `settings.example.toml`, which the rig points at its own
 const EXAMPLE_REPO: &str = "~/GitHub/shep";
 
@@ -281,13 +284,24 @@ impl Rig {
             &["clone", "--quiet", path(&origin), path(&self.repo())],
         );
         std::fs::write(self.repo().join("README.md"), "a project\n").unwrap();
-        git(&self.repo(), &["add", "README.md"]);
+        // Checks appear on a pull request only where a workflow runs on one.
+        let workflow = self.repo().join(WORKFLOW);
+        std::fs::create_dir_all(workflow.parent().unwrap()).unwrap();
+        std::fs::write(&workflow, "on: pull_request\njobs:\n  test:\n").unwrap();
+        git(&self.repo(), &["add", "README.md", WORKFLOW]);
         git(&self.repo(), &["commit", "--quiet", "-m", "first"]);
         git(&self.repo(), &["push", "--quiet", "origin", "main"]);
     }
 
     fn origin(&self) -> PathBuf {
         self.home.path().join("origin.git")
+    }
+
+    /// Has origin's `main` hold a workflow that runs on a push to `main` alone, so
+    /// no check ever appears on a pull request
+    pub fn without_pull_request_ci(&self) {
+        let on_main = "on:\n  push:\n    branches: [main]\njobs:\n  test:\n";
+        self.land(WORKFLOW, on_main);
     }
 
     /// Lands a commit on origin's `main` from another clone, as a merge
