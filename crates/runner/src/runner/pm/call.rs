@@ -175,7 +175,10 @@ impl Runner {
                 write,
                 no_write: Vec::new(),
                 no_read,
-                read: std::iter::once(folder.clone())
+                // The guard's own binary, which these calls' hooks run inside
+                // the fence, and exec needs file-read of the file it runs.
+                read: [folder.clone(), self.kelpie.clone()]
+                    .into_iter()
                     .chain(code.iter().cloned())
                     .collect(),
                 hosts,

@@ -280,6 +280,9 @@ fn it_reads_its_folder_appends_to_its_notes_and_runs_nothing() {
     let hook = wake.settings["hooks"]["PreToolUse"][0]["hooks"][0]["command"].clone();
     let command = format!("'{}' 'confine' '--append' '{notes}'", Rig::KELPIE);
     assert_eq!(hook, json!(command));
+    // The hook runs kelpie inside the fence, so the fence reads its binary.
+    let allowed = wake.sandbox["filesystem"]["allowRead"].to_string();
+    assert!(allowed.contains(Rig::KELPIE), "{allowed}");
     assert!(denied.contains("Read(~/.config/gh/**)"), "{denied}");
     let sandbox = wake.sandbox.to_string();
     assert!(
