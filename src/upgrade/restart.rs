@@ -30,7 +30,7 @@ use super::handover::{Handed, hand_over};
 use crate::dog;
 use crate::flock::control::{Answered, trigger};
 use crate::flock::{flock, kelpie_sheep, resume, script, tables};
-use crate::home::stamp_of;
+use crate::home::{same_commit, stamp_of};
 use crate::interrupt::{Caught, Interrupts};
 use crate::shepherd::Connection;
 use crate::ticket::TicketId;
@@ -319,6 +319,46 @@ pub async fn restart_all(
     tokio::select! {
         asked = ask_again(client, slow, patience, say) => asked,
         by = &mut stop => Err(format!("stopped by {by} while the runners slow to answer were asked again")),
+    }
+}
+
+/// Says which running runners answer `status` with a build other than `commit`,
+/// or name none at all
+///
+/// Run after the restarts, so a runner the upgrade moved is not named, nor one
+/// that stopped and starts on the new build when it starts. A runner that
+/// answers nothing is left to what the restarts already said of it. Nothing
+/// here fails an upgrade, which is done by now.
+pub async fn still_behind(
+    client: &dyn Connection,
+    plan: &Plan,
+    commit: &str,
+    say: &mut dyn FnMut(String),
+) {
+    for name in plan
+        .runners
+        .iter()
+        .filter(|m| m.online())
+        .map(|m| m.name.as_str())
+    {
+        let Ok(Answered::Runner(body)) = trigger(client, name, "status", None).await else {
+            continue;
+        };
+        let shown = serde_json::from_str::<Value>(&body)
+            .ok()
+            .and_then(|status| status["commit"].as_str().map(str::to_owned));
+        let behind = match shown {
+            Some(shown) if same_commit(&shown, commit) => None,
+            Some(shown) => Some(format!(
+                "`{name}` still runs {shown}, not the installed {commit}"
+            )),
+            None => Some(format!(
+                "`{name}` names no build, and the installed build is {commit}"
+            )),
+        };
+        if let Some(behind) = behind {
+            say(behind);
+        }
     }
 }
 
