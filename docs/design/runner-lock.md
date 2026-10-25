@@ -7,6 +7,7 @@ One `Mutex<Runner>` per project. #1201.
 - Everything the runner knows: the state file, work items, forge and model ports. A pass takes it (`runner/trigger/lock`) and holds it through its calls, which wait behind the login's pace. The reads before the rotation and a step's reads do not: see Off the lock and The rotation.
 - `status`, `drain`, `undrain`, `timings` and `board` do not wait: `answer` tries the lock and, while a pass holds it, answers from the copy the loop last posted (status, drain state, board listing, finished history). `board move` and `board top` write, so wait.
 - `add`, `rework`, `adopt`, `triage` and `rule` do not wait either. While a pass holds the lock, `answer` queues the verb on `Posted` and replies with the posted status. `rule` is checked against the posted rulings first: an id none waits on is refused in the reply. Every other trigger waits.
+- shep 0.17 runs each action handler on a thread of its own (up to 32), so a trigger that waits for the lock holds only its own thread, and a `status` sent after it is no longer held behind it. Posted copies stay: `status` would wait on the same lock, past shep's `action_timeout`. `status_sent_after_a_trigger_that_waits_for_the_pass_is_answered_at_once` in `crates/runner/src/runner/trigger/tests/mod.rs`. #1288
 
 ## What the metric shows
 

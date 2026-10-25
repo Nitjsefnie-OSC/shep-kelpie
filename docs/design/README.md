@@ -8,7 +8,7 @@ Kelpie: dog of the maintainer's shepherd; one runner per project takes ready iss
 - Kelpie controls each agent's context growth. `runner/turn/`
 - Naming: dog = adopted `kelpie` (lease dog); project = sheep; agent calls = lambs. One kelpie for all projects. ADR 0001 to 0004
 - Binary is the dog with no args + `SHEP_DOG_NAME` and `SHEP_NAME` set; needs the `shep adopt` channel; names itself in the handshake, so never `silent`. `src/sheep/mod.rs`
-- Needs shep 0.16.1+ (ADR 0016); `upgrade` refuses builds it would. shep-pm/shep#688, #319, #656, #914
+- Needs shep 0.17.0+ (ADR 0016); `upgrade` refuses builds it would. shep-pm/shep#688, #319, #656, #914
 - Home: `$SHEP_HOME/kelpie` (`KELPIE_HOME`), shep plugin, folder per project; the dog's files stay under `$SHEP_HOME`. #253
 - The shepherd is reached through the `Dial` port (`core/shepherd/connection.rs`): `Socket` is the real one; tests dial `FakeShepherd`. #587
 - Socket path over 103 bytes: runner refuses to start. #1147

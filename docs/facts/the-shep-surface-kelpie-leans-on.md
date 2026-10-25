@@ -61,6 +61,12 @@
   - `PROTOCOL_VERSION` is 11 in shep-core 0.15.0, 0.15.1, 0.15.2 and 0.16.0. `MIN_SUPPORTED`, the oldest protocol a shepherd accepts, is 8.
   - A shepherd refuses a client only below `MIN_SUPPORTED` (`crates/shep-daemon/src/server/conn_protocol.rs` in shep), so it takes a newer client. Its `HelloAck` carries `protocol` and `min_supported`, and shep-client refuses no shepherd on its own.
   - The same day `shep kelpie finish` refused a shep 0.16.0 shepherd: "kelpie is built for shep 0.15.0 and takes only a 0.15.x shepherd from 0.15.0 on".
+  - `PROTOCOL_VERSION` is 12 in shep-core 0.17.0, with `MIN_SUPPORTED` still 8 (read 2026-10-25). Kelpie's pin moved to 0.17.0 and its floor with it, so a 0.16 shepherd is refused as one before the floor.
+- shep-channel 0.17.0 runs each action handler on a thread of its own (shep-pm/shep#1071), read 2026-10-25 from its source (`loops.rs`, `lib.rs`):
+  - Up to 32 handlers run at once. Past that, and for a shutdown, the reader answers on its own thread. Each reply carries the id of the action it answers, so replies land on the right trigger in whatever order the handlers finish. `action_timeout` (3s by default) is still one handler's budget.
+  - Before it, one reader thread ran every handler, so a trigger that waited on the runner's lock held `status` behind it. `status` is still answered from the posted copy while a pass holds the lock: a thread of its own would wait on the same lock.
+  - shep-channel's own test `a_fast_action_is_answered_while_a_slow_one_is_still_running` holds the property. `shep-client`'s stand-ins fake the shepherd's socket, never the channel to a sheep, so kelpie's test is the runner's: `status` sent after a trigger that waits for the pass's lock is answered at once.
+- shep 0.17.0 `DogSource` carries a dog's `grants` (`None` for a dog that declared nothing, which keeps full access), read 2026-10-25. Kelpie's `Probe` declares no permissions, so its dog stays undeclared; declaring them is a separate ask.
 - A dog's section and secrets, read 2026-10-23 from shep-client 0.16.1's source (shep-pm/shep#1075):
   - `Client::dog_config` asks `DogConfigResolved`, so a `{{secret:...}}` in the section arrives resolved. Plain `DogConfig` returns the text as written.
   - Against a shepherd that does not know `DogConfigResolved` it falls back on `DogConfig`, and refuses a section that still holds a reference with `RpcErrorCode::Unsupported`.
