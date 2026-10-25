@@ -6,16 +6,16 @@ Kelpie: dog of the maintainer's shepherd; one runner per project takes ready iss
 
 - Gates, locks, rate windows live in code; Claude only for work and judgement. ADR 0001
 - Kelpie controls each agent's context growth. `runner/turn/`
-- Naming: dog = adopted `kelpie` (lease dog); project = sheep; agent calls = lambs. One kelpie for all projects (bot windows, pacer are machine/account-wide). ADR 0001 to 0004
+- Naming: dog = adopted `kelpie` (lease dog); project = sheep; agent calls = lambs. One kelpie for all projects. ADR 0001 to 0004
 - Binary is the dog with no args + `SHEP_DOG_NAME` and `SHEP_NAME` set; needs the `shep adopt` channel; names itself in the handshake, so never `silent`. `src/sheep/mod.rs`
 - Needs shep 0.16.1+ (ADR 0016); `upgrade` refuses builds it would. shep-pm/shep#688, #319, #656, #914
-- Home: `$SHEP_HOME/kelpie` (`KELPIE_HOME`), shep plugin, folder per project; dog files stay in `$SHEP_HOME`. #253
+- Home: `$SHEP_HOME/kelpie` (`KELPIE_HOME`), shep plugin, folder per project; the dog's files stay under `$SHEP_HOME`. #253
 - The shepherd is reached through the `Dial` port (`core/shepherd/connection.rs`): `Socket` is the real one; tests dial `FakeShepherd`. #587
-- Socket path over 103 bytes: runner refuses to start (Windows: pipes, `core/ipc`). #1147
+- Socket path over 103 bytes: runner refuses to start. #1147
 - Home never moved from `~/.kelpie`: refuses to start naming each old file, exit 78 (`stop_exit_codes`). #311, #345
 - State file version 82 (`VERSION` in `core/state/mod.rs`); each change one way: rollback = finish or drop open items. `core/state/removed/mod.rs`
-- Business code is Rust; Tauri GUI after MVP, a Claude session watches till then. #5
-- Crates under `crates/` use nothing above them; the root holds the binary and verbs (`src/{flock,upgrade,sheep,doctor,issues}/`, `src/schema.rs`) and reaches every crate. ADR 0015
+- Business code is Rust; Tauri GUI after MVP. #5
+- Crates under `crates/` use nothing above them; the root holds the binary and verbs (`src/{flock,upgrade,sheep,doctor,issues}/`, `src/schema.rs`). ADR 0015
 - No budget numbers in agent prompts; no worker merges/posts as the maintainer (fence.md, github-app.md).
 
 ## Files
@@ -30,6 +30,7 @@ Kelpie: dog of the maintainer's shepherd; one runner per project takes ready iss
 | runner-lock-worktrees.md | worktree jobs | `runner/worktree_jobs.rs` |
 | fence.md | sandbox, guard, hooks, reads | `core/{profile,guard,hooks}/`, `core/dep_sources.rs`, `runner/turn/dep_reads.rs` |
 | browser.md | a worker's browser: bridge, filter, tools | `core/{bridge,browse}.rs`, `adapters/bridge/`, `runner/browser.rs`, `core/settings/browser.rs`, `crates/process/src/tools/` |
+| browser-proxy.md | the browser's proxy: origins, addresses, limits | `adapters/bridge/proxy/`, `adapters/forwarder/http.rs` |
 | browser-dev-server.md | a worker's dev server: launch, port, readiness | `runner/dev_server/`, `core/ports/dev_server.rs`, `adapters/dev_server/` |
 | compaction.md | when a session compacts, `compact_window`, `COMPACT` | `runner/compact/`, `adapters/pi/compact.rs`, `adapters/codex/context.rs`, `adapters/goose/compact.rs` |
 | skills.md | step skills, repo plugins, how harnesses load them | `core/skills/`, `adapters/skills.rs`, `runner/turn/` (`prepared`) |
