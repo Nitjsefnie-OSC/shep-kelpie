@@ -11,9 +11,6 @@ use crate::adapters::{Base, SandboxRuntime};
 use crate::ports::{AgentCall, Ending, Role, Sandbox, Session, SessionId, Tools};
 use crate::profile::WorkerProfile;
 use crate::settings::Effort;
-use crate::tools::Tools as KelpieTools;
-
-const NEEDS: &str = "needs kelpie's tools: KELPIE_TOOLS=<dir> from `shep kelpie tools install`";
 
 struct World {
     _dir: tempfile::TempDir,
@@ -75,12 +72,11 @@ impl World {
 
     // Runs `script` in the worktree, inside the worker's sandbox.
     fn try_to(&self, script: &str) -> Output {
-        let tools = KelpieTools::at(std::env::var_os("KELPIE_TOOLS").expect(NEEDS).into());
         let call = self.call();
         let policy = policy(&call, &self.path("home"), &[]).unwrap();
         let mut inner = Command::new("/bin/sh");
         inner.args(["-c", script]).current_dir(&call.cwd);
-        SandboxRuntime::under_test(tools)
+        SandboxRuntime::under_test()
             .wrap(&policy, &self.path("worker/settings.sandbox.json"), &inner)
             .unwrap()
             .output()
@@ -101,7 +97,7 @@ impl World {
 }
 
 #[test]
-#[ignore = "needs kelpie's tools: KELPIE_TOOLS=<dir> from `shep kelpie tools install`"]
+#[ignore = "runs the real sandbox, after `cargo build`"]
 fn the_worktree_the_build_folder_and_the_transcripts_are_written_and_nothing_outside() {
     let w = World::new();
     let transcripts = transcripts(&w.path("home"), &w.path("wt")).unwrap();
@@ -145,7 +141,7 @@ fn the_worktree_the_build_folder_and_the_transcripts_are_written_and_nothing_out
 }
 
 #[test]
-#[ignore = "needs kelpie's tools: KELPIE_TOOLS=<dir> from `shep kelpie tools install`"]
+#[ignore = "runs the real sandbox, after `cargo build`"]
 fn claude_codes_own_files_are_refused_in_any_case_and_spelling() {
     let w = World::new();
     for (script, written) in [
@@ -196,7 +192,7 @@ fn claude_codes_own_files_are_refused_in_any_case_and_spelling() {
 // below the worktree when the call starts. `World::try_to` builds its policy
 // from the worktree as it stands, which is the call's start.
 #[test]
-#[ignore = "needs kelpie's tools: KELPIE_TOOLS=<dir> from `shep kelpie tools install`"]
+#[ignore = "runs the real sandbox, after `cargo build`"]
 fn a_nested_claude_folder_that_existed_at_call_start_is_refused() {
     let w = World::new();
     std::fs::create_dir_all(w.path("wt/src/.claude")).unwrap();
@@ -220,7 +216,7 @@ fn a_nested_claude_folder_that_existed_at_call_start_is_refused() {
 }
 
 #[test]
-#[ignore = "needs kelpie's tools: KELPIE_TOOLS=<dir> from `shep kelpie tools install`"]
+#[ignore = "runs the real sandbox, after `cargo build`"]
 fn codexs_own_files_are_refused_in_any_case() {
     let w = World::new();
     for (script, written) in [
@@ -258,7 +254,7 @@ fn codexs_own_files_are_refused_in_any_case() {
 // The real adapter on Haiku: a worker turn with kelpie's hooks from this
 // build, then the same session resumed.
 #[test]
-#[ignore = "runs real Claude calls on Haiku under KELPIE_TOOLS' sandbox, after `cargo build`; about 1 min"]
+#[ignore = "runs real Claude calls on Haiku under the sandbox, after `cargo build`; about 1 min"]
 fn a_live_worker_turn_runs_inside_the_sandbox_and_resumes() {
     use std::sync::Arc;
 
@@ -266,7 +262,6 @@ fn a_live_worker_turn_runs_inside_the_sandbox_and_resumes() {
     use crate::ports::Agents;
     use crate::test::git;
 
-    let tools = KelpieTools::at(std::env::var_os("KELPIE_TOOLS").expect(NEEDS).into());
     let exe = std::env::current_exe().unwrap();
     let kelpie = exe.parent().unwrap().parent().unwrap().join("shep-kelpie");
     assert!(
@@ -319,7 +314,7 @@ fn a_live_worker_turn_runs_inside_the_sandbox_and_resumes() {
     };
     let home = std::env::var_os("HOME").map(PathBuf::from).unwrap();
     let cli = ClaudeCli::on(
-        &Base::default().sandboxed(Arc::new(SandboxRuntime::under_test(tools)), home.clone()),
+        &Base::default().sandboxed(Arc::new(SandboxRuntime::under_test()), home.clone()),
     );
     let id = crate::work_item::new_session_id().unwrap();
     let mut call = AgentCall {
@@ -393,7 +388,7 @@ fn a_403_to_the_connect_is_the_proxys_refusal_and_a_failed_connect_is_not() {
 
 #[cfg(unix)]
 #[test]
-#[ignore = "needs kelpie's tools: KELPIE_TOOLS=<dir> from `shep kelpie tools install`"]
+#[ignore = "runs the real sandbox, after `cargo build`"]
 fn a_host_not_allowed_and_a_socket_not_listed_are_refused() {
     let w = World::new();
     let out = w.try_to("curl -sS -m 20 -o /dev/null -w '%{http_connect}' https://example.com/");
@@ -418,7 +413,7 @@ fn a_host_not_allowed_and_a_socket_not_listed_are_refused() {
 // On macOS the same policy reaches it.
 #[cfg(target_os = "linux")]
 #[test]
-#[ignore = "needs kelpie's tools: KELPIE_TOOLS=<dir> from `shep kelpie tools install`"]
+#[ignore = "runs the real sandbox, after `cargo build`"]
 fn a_socket_the_policy_lists_is_still_refused_on_linux() {
     let w = World::new();
     let door = w.path("dog/lease.sock");

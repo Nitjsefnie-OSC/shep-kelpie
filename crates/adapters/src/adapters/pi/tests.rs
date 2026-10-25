@@ -10,7 +10,6 @@ use crate::ports::{Browser, CodeGraph, Role};
 use crate::profile::WorkerProfile;
 use crate::settings::{ContextSize, Effort, EndpointUrl, ModelHost};
 use crate::test::OpenSandbox;
-use crate::tools::Tools as KelpieTools;
 
 // Recorded from pi 1.1.0 on qwen3.8:27b through the paddock, by the ignored test
 // below, with the temporary folder renamed: a new session asked to say ok...
@@ -921,8 +920,7 @@ impl World {
     }
 }
 
-const NEEDS: &str = "needs KELPIE_TOOLS=<dir> from `shep kelpie tools install`, \
-                     KELPIE_PI_URL=<server>/v1 running qwen3.8:27b, KELPIE_BIN=<kelpie>, \
+const NEEDS: &str = "needs KELPIE_PI_URL=<server>/v1 running qwen3.8:27b, KELPIE_BIN=<kelpie>, \
                      and KELPIE_PI_RECORD=<dir> for what it prints. Run it under \
                      `kelpie lease run gpu --model <model>`";
 
@@ -940,9 +938,8 @@ fn env(name: &str) -> String {
 fn record_a_turn_a_resumed_turn_and_two_refusals() {
     let (url, kelpie) = (env("KELPIE_PI_URL"), PathBuf::from(env("KELPIE_BIN")));
     let record = PathBuf::from(env("KELPIE_PI_RECORD"));
-    let tools = KelpieTools::at(env("KELPIE_TOOLS").into());
     let pi = PiCli::on(&Base::default().sandboxed(
-        Arc::new(SandboxRuntime::under_test(tools)),
+        Arc::new(SandboxRuntime::under_test()),
         std::env::var_os("HOME").unwrap().into(),
     ));
     let world = World::new();

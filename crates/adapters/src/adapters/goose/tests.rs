@@ -10,7 +10,6 @@ use crate::ports::{SessionId, Usage};
 use crate::profile::WorkerProfile;
 use crate::settings::{ContextSize, Effort, EndpointUrl, GatewayKind, GuardHook, HookEvent};
 use crate::test::{OpenSandbox, StandInEndpoint};
-use crate::tools::Tools as KelpieTools;
 
 // Written by hand from the event types in goose's source, because the builder
 // had no model to record. #798 replaces them with recordings.
@@ -691,8 +690,7 @@ impl World {
     }
 }
 
-const NEEDS: &str = "needs KELPIE_TOOLS=<dir> from `shep kelpie tools install`, \
-                     KELPIE_GOOSE_URL=<server>/v1 running qwen3.8:27b, \
+const NEEDS: &str = "needs KELPIE_GOOSE_URL=<server>/v1 running qwen3.8:27b, \
                      KELPIE_GOOSE_RECORD=<dir> for what it prints, and KELPIE_BIN=<path> \
                      (a fenced worker's recording only). Run it under \
                      `kelpie lease run gpu --model <model>`";
@@ -710,9 +708,8 @@ fn env(name: &str) -> String {
 fn record_a_turn_a_resumed_turn_and_an_unreachable_server() {
     let url = env("KELPIE_GOOSE_URL");
     let record = PathBuf::from(env("KELPIE_GOOSE_RECORD"));
-    let tools = KelpieTools::at(env("KELPIE_TOOLS").into());
     let goose = GooseCli::on(&Base::default().sandboxed(
-        Arc::new(SandboxRuntime::under_test(tools)),
+        Arc::new(SandboxRuntime::under_test()),
         std::env::var_os("HOME").unwrap().into(),
     ));
     let world = World::new();
@@ -762,9 +759,8 @@ fn record_a_turn_a_resumed_turn_and_an_unreachable_server() {
 fn record_a_worker_whose_write_and_shell_the_fence_refuses() {
     let url = env("KELPIE_GOOSE_URL");
     let record = PathBuf::from(env("KELPIE_GOOSE_RECORD"));
-    let tools = KelpieTools::at(env("KELPIE_TOOLS").into());
     let goose = GooseCli::on(&Base::default().sandboxed(
-        Arc::new(SandboxRuntime::under_test(tools)),
+        Arc::new(SandboxRuntime::under_test()),
         std::env::var_os("HOME").unwrap().into(),
     ));
     let world = World::new();
