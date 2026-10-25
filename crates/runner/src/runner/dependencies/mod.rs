@@ -1,26 +1,13 @@
 //! Merging the bumps bots open, and closing the ones that break
-//!
 //! Under `dependencies.pick = "on"`, once a [`BOARD_POLL`](super::BOARD_POLL)
-//! the runner records each open pull request whose author is one of
-//! `dependencies.bots`, with the head it first saw, and drops the record of one
-//! that left the board. A bump behind `main` is asked to rebase, once for each
-//! head, when its head conflicts with `main` or when the repo's rules require a
-//! pull request's branch to be up to date with it. A bump that is only behind,
-//! under a rule that does not require it, is proved on its head as it stands.
-//!
-//! A head proved is proved by its checks, trusted once they have had
-//! [`CHECKS_SETTLE`](super::CHECKS_SETTLE) to register as at the gate, and,
-//! when it changes a `dependencies.web` path, by an e2e run through the dog
-//! ([`flight::proving`](super::flight)). A proved bump is merged with a merge
-//! commit. No review, ruling or slot is involved, since a bot's change to a
-//! lockfile holds nothing to read that CI does not.
-//!
-//! A bump is red when a check failed, when the e2e run failed, or when its
-//! checks are still pending or never started after `dependencies.wait_hours`.
-//! Under `on_red = "close"` the comment naming what failed, the close and the
-//! issue are three steps, each saved before the next, so a restart repeats
-//! none. Under `"leave"` it is logged and left open until the bot pushes
-//! again.
+//! the runner records each open pull request from a listed bot, dropping one
+//! that left the board. A bump behind `main` is asked to rebase, once per head,
+//! only when it conflicts or the repo's rules require up to date; one only
+//! behind is proved as it stands. A proved head waits
+//! [`CHECKS_SETTLE`](super::CHECKS_SETTLE), is proved by its checks and, for a
+//! `dependencies.web` path, by an e2e run ([`flight::proving`](super::flight)),
+//! then merges with a merge commit. It is red when a check or the run failed,
+//! or no check reported after `dependencies.wait_hours`; `on_red` closes or leaves it.
 
 use super::Runner;
 use super::dev_server::Browsed;
