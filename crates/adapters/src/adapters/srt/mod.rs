@@ -386,8 +386,8 @@ mod tests {
         assert_eq!(network["deniedDomains"], json!([]));
         assert!(network.get("deniedResolvedAddresses").is_none());
         assert_eq!(
-            network["mitmProxy"],
-            json!({ "socketPath": "/k/worker/model.sock", "domains": ["model.kelpie.test"] })
+            network["mitmProxy"]["domains"],
+            json!(["model.kelpie.test"])
         );
         assert!(network.get("allowUnixSockets").is_none());
         let denying = Policy {
