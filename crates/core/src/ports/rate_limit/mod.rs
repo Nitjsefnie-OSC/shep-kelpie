@@ -318,6 +318,12 @@ impl Forge for RateHeld {
         self.call(Kind::DefaultBranch, |f| f.default_branch(repo))
     }
 
+    fn requires_up_to_date(&self, repo: &ForgeSlug, base: &str) -> Result<bool, ForgeError> {
+        self.call(Kind::RequiresUpToDate, |f| {
+            f.requires_up_to_date(repo, base)
+        })
+    }
+
     fn branch_exists(&self, repo: &ForgeSlug, branch: &str) -> Result<bool, ForgeError> {
         self.call(Kind::BranchExists, |f| f.branch_exists(repo, branch))
     }
