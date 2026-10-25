@@ -18,3 +18,5 @@ ADR 0005 reopens this ADR's claim that shep's stop ladder already stops a projec
 ADR 0006 removes the judge, so the lambs a runner labels are its workers, reviewers and project manager.
 
 ADR 0013 reopens this ADR's "channel metrics up on the bus": runners send their running totals up as notes, which shep's metrics dog never reads.
+
+ADR 0017 reopens this ADR's "triggers down" for kelpie's own verbs: a runner also answers a typed protocol on a socket of its own, and `shep trigger` stays.

@@ -20,6 +20,7 @@ Each ADR below is one decision that is hard to reverse. A later ADR can reopen p
 - 0014 [Tickets come from a source, and the board stays in kelpie](0014-tickets-come-from-a-source-the-board-stays-in-kelpie.md): each project names one ticket source, GitHub issues by default or a local store, read and written through a `Tickets` port by opaque id, while the order, holds, picks and overlap check stay kelpie's.
 - 0015 [Crates use only what is below them](0015-crates-use-only-what-is-below-them.md): the code is a Cargo workspace where a crate uses only what is below or beside it, so a module that reaches the wrong way fails to build, with five leaf crates and a dev-only `test_support` first.
 - 0016 [Kelpie takes any shepherd from its pinned shep on](0016-kelpie-takes-any-shepherd-from-its-pinned-shep-on.md): kelpie refuses only a shepherd on an earlier shep than it is built with, and leaves wire compatibility to shep's protocol handshake.
+- 0017 [The runner answers on a socket of its own](0017-the-runner-answers-on-a-socket-of-its-own.md): each runner answers a typed, versioned protocol and pushes its status stream on a local socket under kelpie's home, and the verbs use `shep trigger` for one release when no runner answers.
 
 ## Decided against
 
@@ -70,6 +71,12 @@ Check this list before proposing an option. Where a later ADR reopened the decis
 - keep kelpie on its pinned shep minor line (0016, reopening 0003)
 - refuse another shep major only (0016)
 - refuse a shepherd on a newer protocol than kelpie's (0016)
+- the runner's socket in the project's folder (0017)
+- a TCP listener on the runner (0017)
+- the runner's typed protocol or status stream as a shep feature (0017)
+- keep `shep trigger` as the verbs' only path to a runner (0017)
+- status events as diffs from the first release (0017)
+- refuse a runner's start over a too-long socket path (0017)
 
 ### Decided against without an ADR
 
