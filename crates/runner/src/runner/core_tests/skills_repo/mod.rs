@@ -70,6 +70,18 @@ fn land_link(rig: &Rig, file: &str, target: &str) {
     git(&other, &["push", "--quiet", "origin", "main"]);
 }
 
+// Lands `file` holding `bytes` on the default branch, as `Rig::land` does for text, for a file no
+// harness reads as text
+fn land_bytes(rig: &Rig, file: &str, bytes: &[u8]) {
+    let other = rig.home.path().join("other");
+    let at = other.join(file);
+    fs::create_dir_all(at.parent().unwrap()).unwrap();
+    fs::write(&at, bytes).unwrap();
+    git(&other, &["add", file]);
+    git(&other, &["commit", "--quiet", "-m", "landed elsewhere"]);
+    git(&other, &["push", "--quiet", "origin", "main"]);
+}
+
 // What a runner's checkout learns of the default branch when anything fetches it
 fn fetch(rig: &Rig) {
     git(&rig.repo(), &["fetch", "--quiet", "origin", "main"]);

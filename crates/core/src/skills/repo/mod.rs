@@ -836,8 +836,17 @@ fn fill_in_skills(dir: &Path, root: &str) -> std::io::Result<()> {
         if kind.is_dir() {
             fill_in_skills(&path, root)?;
         } else if kind.is_file() && entry.file_name() == "SKILL.md" {
-            let text = fs::read_to_string(&path)?;
-            let filled = mcp::fill_in(&text, root);
+            // A file that is not text is left as `copy_plain` wrote it. Filling
+            // in is a convenience, and a failed install skips the whole plugin:
+            // one skill file no harness reads cannot take its siblings' skills,
+            // agents, hooks and MCP servers with it.
+            let Ok(bytes) = fs::read(&path) else {
+                continue;
+            };
+            let Ok(text) = std::str::from_utf8(&bytes) else {
+                continue;
+            };
+            let filled = mcp::fill_in(text, root);
             if filled != text {
                 fs::write(&path, filled)?;
             }
