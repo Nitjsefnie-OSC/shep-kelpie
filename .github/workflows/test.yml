@@ -179,21 +179,20 @@ jobs:
             choco install llvm -y --no-progress
           }
           'C:\Program Files\LLVM\bin' | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
-      # `core` and the crates below it compile for Windows, tests included: keep them so.
-      - run: cargo check --all-targets --locked -p shep-kelpie-core -p shep-kelpie-process -p shep-kelpie-test-support -p shep-kelpie-facts -p shep-kelpie-panel -p shep-kelpie-worker-folder -p shep-kelpie-trim
+      # `dog`, `core` and the crates below them compile for Windows, tests included: keep them so.
+      - run: cargo check --all-targets --locked -p shep-kelpie-core -p shep-kelpie-dog -p shep-kelpie-process -p shep-kelpie-test-support -p shep-kelpie-facts -p shep-kelpie-panel -p shep-kelpie-worker-folder -p shep-kelpie-trim
       - id: check
         continue-on-error: true
         run: cargo check --workspace --all-targets --locked --keep-going
       - if: steps.check.outcome == 'failure'
         run: |
           echo "::warning title=windows::cargo check fails on Windows until #241 is done. The check step's log names each crate."
-      # The lease door's, the pipe's and the bridge's tests. They run once `dog`
-      # compiles for Windows, which the check above says it does not yet
-      # (`dog`'s e2e delivery uses `std::os::fd` and `rustix::fs`, #1274), and
-      # stay non-gating as it is.
+      # The lease door's, the pipe's and the bridge's tests. `dog` compiles for
+      # Windows now (#1274), and this step stays non-gating until a run of it
+      # passes there.
       - id: door
         continue-on-error: true
         run: 'cargo test --locked -p shep-kelpie-core -p shep-kelpie-dog --lib -- ipc:: bridge lease:: door'
       - if: steps.door.outcome == 'failure'
         run: |
-          echo "::warning title=windows::the lease door's tests do not pass on Windows yet. Until dog compiles there, the step's log shows its compile errors, not a test."
+          echo "::warning title=windows::the lease door's tests do not pass on Windows yet. The step's log names each failing test."
