@@ -293,15 +293,19 @@ fn a_commit_from_a_folder_in_the_worktree_reads_its_repo() {
 // The hook runs outside the sandbox: git run in a repo the worker made
 // would start the program its config names.
 #[test]
+#[cfg_attr(windows, ignore = "the repo's program runs by its Unix executable bit")]
 fn a_repo_the_worker_made_is_refused_and_never_read() {
     let tree = WorkerTree::new();
     let evil = tree.path().join("evil");
     let ran = tree.0.path().join("ran");
     let program = tree.0.path().join("fsmonitor.sh");
     fs::write(&program, format!("#!/bin/sh\ntouch '{}'\n", ran.display())).unwrap();
-    let mut mode = fs::metadata(&program).unwrap().permissions();
-    std::os::unix::fs::PermissionsExt::set_mode(&mut mode, 0o755);
-    fs::set_permissions(&program, mode).unwrap();
+    #[cfg(unix)]
+    {
+        let mut mode = fs::metadata(&program).unwrap().permissions();
+        std::os::unix::fs::PermissionsExt::set_mode(&mut mode, 0o755);
+        fs::set_permissions(&program, mode).unwrap();
+    }
     fs::create_dir(&evil).unwrap();
     git(&evil, &["init", "--quiet"]);
     fs::write(evil.join("a.md"), "a\n").unwrap();
