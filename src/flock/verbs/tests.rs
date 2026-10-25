@@ -391,6 +391,7 @@ async fn status_prints_a_plain_block_without_the_flag() {
     let block = [
         "koji",
         "  run: running",
+        "  build: not recorded",
         "  work items: none",
         "  rulings waiting: none",
         "  pacer: on",
