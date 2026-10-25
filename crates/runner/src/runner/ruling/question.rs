@@ -128,6 +128,15 @@ pub(in crate::runner) fn question(
                     short(head)
                 );
             }
+            Stuck::NoChecks { head, .. } => {
+                // A no has no worker to send a note to.
+                return format!(
+                    "No check has appeared on {about} at {} in the `ci.queued_minutes` kelpie \
+                     waits, though a workflow runs on pull requests. {yes} passes this head as \
+                     skipped and kelpie goes on, and {no} waits another `ci.queued_minutes`.",
+                    short(head)
+                );
+            }
             Stuck::MergeRefused { head, why } => format!(
                 "Kelpie could not merge {about} at {} after catching it up: {why}. \
                  {yes} has kelpie look again and merge once every gate passes",
