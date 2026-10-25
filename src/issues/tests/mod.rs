@@ -172,11 +172,25 @@ fn a_request_runs_one_session_that_files_and_kelpie_prints_what_it_filed() {
     for path in ["~/.ssh/**", "~/.zsh_history", "~/.bash_history"] {
         assert!(denied.contains(&format!("\"{path}\"")), "{path}: {denied}");
     }
-    let kelpie_home = format!("\"{}/**\"", s.paths.kelpie_home.display());
-    assert!(
-        denied.contains(&kelpie_home)
-            || denied.contains(&format!("\"{}/**\"", s.paths.shep_home.display()))
-    );
+    // The home is denied whole, and that is how kelpie's own homes are hidden:
+    // the rules name the outermost folder only, and the `allowRead` below
+    // carves back none of them.
+    let globs: Vec<&str> = files["denyRead"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|glob| glob.as_str().unwrap())
+        .collect();
+    let whole = format!("{}/**", s.rig.home.path().display());
+    assert!(globs.contains(&whole.as_str()), "the home whole: {denied}");
+    for nested in [&s.paths.shep_home, &s.paths.kelpie_home] {
+        assert!(
+            globs
+                .iter()
+                .any(|glob| nested.starts_with(glob.trim_end_matches("/**"))),
+            "{nested:?} under no denied folder: {denied}"
+        );
+    }
     let mut read = vec![json!(call.cwd), json!(Rig::KELPIE)];
     read.extend(
         crate::dep_sources::DepSources::discover(
