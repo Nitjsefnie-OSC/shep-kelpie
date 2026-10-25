@@ -83,10 +83,6 @@ impl Record {
         by: Answerer,
     ) -> Self {
         let chose = crate::runner::voice::chosen(&ruling.kind, answer);
-        let (brief, _) = crate::runner::voice::brief(ruling);
-        // What it asks, less the table of options.
-        let asked = brief.split("\n\n| | Option").next().unwrap_or_default();
-        let asked = asked.trim_start_matches('#').trim();
         let answer = match answer {
             Answer::Yes => "yes".to_owned(),
             Answer::No(note) => format!("no: {note}"),
@@ -101,7 +97,7 @@ impl Record {
             raised: ruling.raised,
             issue: ruling.issue,
             pull_request: ruling.pull_request,
-            asked: crate::runner::panel::folders::clip(asked, QUESTION),
+            asked: asked_of(ruling),
             answer: crate::runner::panel::folders::clip(&answer, QUESTION),
             by_pm: by == Answerer::Pm,
             by_panel: by == Answerer::Panel,
@@ -112,6 +108,11 @@ impl Record {
             skipped: ruling.skipped,
             overtaken: Vec::new(),
         }
+    }
+
+    /// Whether the panel decided this ruling, with the question `ruling` asks
+    pub(super) fn decided_by_panel(&self, ruling: &Ruling) -> bool {
+        self.by_panel && self.id == ruling.id && self.asked == asked_of(ruling)
     }
 
     /// Who answered it
@@ -142,6 +143,13 @@ impl Record {
             .and_then(|mut f| writeln!(f, "{line}"));
         opened.map_err(|e| format!("cannot add to {}: {}", file.display(), e.kind()))
     }
+}
+
+// What `ruling` asks, less the table of options, as `rulings.jsonl` keeps it.
+fn asked_of(ruling: &Ruling) -> String {
+    let (brief, _) = crate::runner::voice::brief(ruling);
+    let asked = brief.split("\n\n| | Option").next().unwrap_or_default();
+    crate::runner::panel::folders::clip(asked.trim_start_matches('#').trim(), QUESTION)
 }
 
 /// Sets `fields` on ruling `id`'s line in the file at `file`, leaving every

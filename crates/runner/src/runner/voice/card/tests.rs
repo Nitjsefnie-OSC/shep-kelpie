@@ -543,3 +543,17 @@ fn a_no_edits_ruling_card_offers_leave_it_open_or_close_and_names_both_causes() 
     assert!(card.contains("or has been deleted"), "{card}");
     assert!(!card.contains("  "), "no run of spaces: {card}");
 }
+
+#[test]
+fn an_option_that_begins_you_is_the_maintainers_to_carry_out() {
+    for mine in [
+        "You remove `ready-for-agent` from #124",
+        "`you close its work item`",
+        "Ask the maintainer",
+    ] {
+        assert!(is_the_maintainers(mine), "{mine}");
+    }
+    for the_workers in ["Use `--check`", "Your flag", "Youthful"] {
+        assert!(!is_the_maintainers(the_workers), "{the_workers}");
+    }
+}

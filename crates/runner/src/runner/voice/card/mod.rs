@@ -648,6 +648,17 @@ pub(in crate::runner) fn asks_the_maintainer(option: &str) -> bool {
     option.eq_ignore_ascii_case(ASK_THE_MAINTAINER)
 }
 
+/// Whether `option` is one only the maintainer can carry out, which is the
+/// candidate that leaves a question to them, or one that begins "You"
+pub(in crate::runner) fn is_the_maintainers(option: &str) -> bool {
+    let first = option
+        .trim()
+        .trim_start_matches('`')
+        .split_whitespace()
+        .next();
+    asks_the_maintainer(option) || first.is_some_and(|w| w.eq_ignore_ascii_case("you"))
+}
+
 // Whether answering with `choice` sends the worker nothing.
 fn leaves_it(choice: &Choice) -> bool {
     asks_the_maintainer(&choice.name)
