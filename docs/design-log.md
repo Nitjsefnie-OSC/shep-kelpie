@@ -421,7 +421,7 @@ So kelpie moves the control room's rules (gates, locks, rate windows) into code,
   - The answer is the session id, the final text, the tokens the call used, and the session's cost only where the harness reports one. A call with no cost leaves the work item's record of that session unchanged.
 - What each role needs from a harness. The worker: a session it can resume by id across turns, instructions appended to the system prompt, skills a prompt can invoke, MCP servers, no permission prompts, a fence that confines its writes and hosts and fails closed, a check kelpie runs before every command and every file write, a turn the adapter can kill at its ceiling, and each call's tokens. A reviewer's session: a fresh session each time that reads and searches the worktree, runs no command, starts no crew, and answers in kelpie's finding format. Any harness that can do those fills the role; one that cannot fence the worker cannot be the worker.
 - Every agent call runs whole inside kelpie's OS sandbox (shep-pm/shep-kelpie#128): the harness, its tools, its hooks and the MCP servers it starts, not only its commands.
-  - The sandbox is a port, `Sandbox`, with Anthropic's sandbox runtime (`srt`, pinned at 0.0.77 under `<kelpie home>/tools`) behind it, so a later build, a compiled single binary or a Rust port, changes no caller. `kelpie tools install` installs it, and nothing else.
+  - The sandbox is a port, `Sandbox`. Node `srt` (Anthropic's sandbox runtime, pinned under `<kelpie home>/tools`) stands behind it, and on macOS and Linux the port runs crabpot, the Rust port, linked into kelpie's own binary instead (#1181, #1199; see Fence), so node `srt` is chosen only on Windows (#1150). `kelpie tools install` installs it, and nothing else.
   - The policy is the call's fence plus what the harness itself needs, which its adapter knows: for Claude Code, its transcript folder, a scratch folder and `api.anthropic.com`. A call without a fence, such as a reviewer's session, writes nothing but those and reads no credential path. A missing runtime fails the call and stops a runner at start.
   - Claude Code's own sandbox is off under it, since on macOS a sandbox cannot start inside another (Facts); its deny rules and kelpie's hooks stay on as the second layer.
   - The model's endpoint is open to the whole process, since the harness itself calls it, so the worker's commands reach it too: an agent CLI started from them (`claude`, `codex`, `pi`) would run a session with none of kelpie's hooks or deny rules, and `kelpie guard` refuses one wherever it reads a program. The list is each harness's `program` in the fence's own table, so a new harness cannot be left off it.
@@ -1221,6 +1221,7 @@ What was built and later changed or removed, one line each. Where a section abov
 - 2026-10-17: a worker's turn carried through a handover names a hook that is not kelpie's in the note the image that began it would have written, since the series hold no label that could carry the command (#968, `docs/design/log-lines.md`)
 - 2026-10-19: the dashboard counts tool errors by kind and role over its own time range, and `KelpieToolErrorTakesOver` alerts when one kind other than `other` passes 0.5 of a role's calls in 6h, over at least 4 of them so one call cannot fire it. The share and the floor are the two sibling alerts' (`KelpieMcpServerFailing` and `KelpieCallsFailing`). `tests/metrics_assets.rs` reads the two asset files, which nothing tested before: the alert and the panel are there, every alert is named in the guide, every series either file reads is one the guide lists, every panel type is in `__requires`, and no two panels hold the same grid squares (#969, `docs/facts/tool-errors.md`)
 - 2026-10-22: the shell-outs find Git for Windows' `sh` and `env`, and stand-in commands run on Windows (#1149, see Windows)
+- 2026-10-25: Linux workers run under crabpot in kelpie's own binary, the same wrap as macOS: the machine needs `bwrap` alone, no `socat` and no node `srt`, which stays installed for Windows (#1199, #1181, see Fence)
 
 ## Lift list
 
@@ -1248,7 +1249,7 @@ Not built and not decided: where the maintainer wants kelpie to go after the MVP
 
 The measured facts are in `docs/facts/`, one file per topic, listed in `docs/facts/README.md`. "(Facts)" in this log points there.
 
-What differs on Linux (shep-pm/shep-kelpie#488), where `srt` 0.0.77 runs on bubblewrap:
+What differs on Linux (shep-pm/shep-kelpie#488), where the sandbox runs on bubblewrap (`srt` 0.0.77 then, crabpot from #1199):
 
 - It skips every glob in `denyWrite`. The fence lists the harness folders already below the worktree as paths when a call starts, found by a bounded walk, and a folder a worker makes during the call is caught by the check against `main` after it.
 - It turns every Unix socket off whatever `allowUnixSockets` lists, so a worker cannot reach the dog's door and `cargo-test` runs unleased. `allowAllUnixSockets` stays off, since it would also open shep's control socket.
