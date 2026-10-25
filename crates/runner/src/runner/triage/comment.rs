@@ -299,7 +299,7 @@ impl Runner {
             true => found.clone(),
             false => Found {
                 open: (found.open.iter())
-                    .filter(|q| !settled.iter().any(|s| same_text(s, &q.question)))
+                    .filter(|q| !settled.iter().any(|s| s == &ask::question_key(&q.question)))
                     .cloned()
                     .collect(),
                 ..found.clone()
@@ -631,16 +631,17 @@ impl Runner {
         let mut seen = (self.triage_tries.get(&issue))
             .and_then(|t| t.seen.clone())
             .unwrap_or_default();
-        // Where the comment opens a wait, the labels the issue carries now join
-        // the ones the pass began with: the listing they came from may predate
-        // the record. A pass that opens no wait keeps what its pass began with,
-        // so a label the maintainer put on while it ran still stands (#1304).
-        if asked && let Ok(now) = self.triage_labels_now(issue) {
-            for label in now {
-                if !seen.iter().any(|s| s == &label) {
-                    seen.push(label);
-                }
-            }
+        // Where the comment opens a wait, the queue label joins the labels the
+        // pass began with: the listing they came from may predate the record. No
+        // label that says what to do with the issue is joined, so one put on by
+        // hand during the pass stands, and ends the wait.
+        if asked
+            && !(seen.iter()).any(|s| s == TRIAGE)
+            && self
+                .triage_labels_now(issue)
+                .is_ok_and(|now| (now.iter()).any(|l| l.as_str() == TRIAGE))
+        {
+            seen.push(TRIAGE.to_owned());
         }
         let stood = (self.triage_tries.get(&issue)).is_some_and(|t| t.stood.is_some());
         // The wait goes into the record with the comment, measured from when
@@ -938,10 +939,4 @@ fn facts(
         }
     }
     facts
-}
-
-// Whether what the triager asks again is what an earlier round asked: the same
-// question text, edges trimmed, case aside
-fn same_text(a: &str, b: &str) -> bool {
-    a.trim().eq_ignore_ascii_case(b.trim())
 }

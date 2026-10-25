@@ -518,21 +518,23 @@ fn says_ok(line: &str) -> bool {
         .eq_ignore_ascii_case("ok")
 }
 
-// Whether the author's reply answers question `n` of the round it follows: a
-// line that takes `ok` takes every question of the round, a `Qn: ...` line takes
-// that one. A reply in neither form answers no question kelpie can name, whatever
-// the second pass makes of it.
+// Whether the author's reply answers question `n` of the round it follows, read
+// the way [`confirmed`] reads it: a line that is only `ok` takes every question
+// of the round, a `Qn: ...` line takes that one. A reply in neither form answers
+// no question kelpie can name, whatever the second pass makes of it.
 pub(super) fn answers_one(reply: &str, n: usize) -> bool {
-    (reply.lines()).any(|line| takes_ok(line) || numbered(line).is_some_and(|(m, _)| m == n))
+    (reply.lines()).any(|line| says_ok(line) || numbered(line).is_some_and(|(m, _)| m == n))
 }
 
-// A line whose first word is `ok`. [`confirmed`] expands `ok` alone into every
-// recommended answer; an author who writes `ok to all four` means the same, and
-// the settled filter need only know that they took them.
-fn takes_ok(line: &str) -> bool {
-    (line.split_whitespace().next())
-        .map(|head| head.trim_end_matches(['.', '!', ',']))
-        .is_some_and(|head| head.eq_ignore_ascii_case("ok") || head.eq_ignore_ascii_case("okay"))
+// The text a question is compared by: as [`questions_block`] writes it, its first
+// line only, in one case. Both sides of the settled filter go through it, so what
+// was read back off a comment equals what the triager named.
+pub(super) fn question_key(text: &str) -> String {
+    let shaped = unfenced(text);
+    (shaped.lines().next())
+        .unwrap_or_default()
+        .trim()
+        .to_lowercase()
 }
 
 fn unfenced(text: &str) -> String {

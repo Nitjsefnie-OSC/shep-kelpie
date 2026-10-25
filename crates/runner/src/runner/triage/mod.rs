@@ -352,21 +352,28 @@ impl Runner {
             .map(|c| format!("{} wrote:\n\n{}", c.author, c.body.trim()))
             .collect::<Vec<_>>()
             .join("\n\n---\n\n");
-        // A question is settled when its author answered the comment that asked
-        // it: a line that takes `ok` settles every question of that round, a
-        // `Qn: ...` line settles that one. A reply in neither form settles none
-        // that kelpie can name, and the triager is the one that reads it.
+        // What each round's author settled, from their replies to that round
+        // alone: a line that is only `ok` settles the round, a `Qn: ...` line
+        // settles that one, and a reply in neither form settles none that code can
+        // name. Their replies end where the next round went up.
         let mut settled: Vec<String> = Vec::new();
-        for asked in ours.iter().filter(|c| ask::holds_questions(&c.body)) {
+        let rounds: Vec<&ThreadComment> = (ours.iter())
+            .filter(|c| plain_login(&c.author) == app && ask::holds_questions(&c.body))
+            .copied()
+            .collect();
+        for (at, asked) in rounds.iter().enumerate() {
+            let until = rounds.get(at + 1).map(|c| (c.created, c.id));
             let replies: Vec<&ThreadComment> = (ours.iter())
                 .filter(|c| {
-                    plain_login(&c.author) == mine && (c.created, c.id) > (asked.created, asked.id)
+                    plain_login(&c.author) == mine
+                        && (c.created, c.id) > (asked.created, asked.id)
+                        && until.is_none_or(|next| (c.created, c.id) < next)
                 })
                 .copied()
                 .collect();
             for (n, question) in asked_in(&asked.body).iter().enumerate() {
                 if (replies.iter()).any(|c| ask::answers_one(&c.body, n + 1)) {
-                    settled.push(question.to_lowercase());
+                    settled.push(ask::question_key(question));
                 }
             }
         }

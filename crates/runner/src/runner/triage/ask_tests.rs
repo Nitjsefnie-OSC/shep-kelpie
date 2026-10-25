@@ -12,7 +12,7 @@ use super::research_tests::{APP, calls, crashed_with, moves, reply, restart, tri
 use crate::github::ApiError;
 use crate::ports::{Clock, Role};
 use crate::runner::{Runner, step};
-use crate::test::{Rig, Scripted};
+use crate::test::{CALL_PATIENCE, Hold, Rig, Scripted};
 
 // What the representative says for the triage comment that asks, and for the one that reads the answers
 pub(super) const ASK_WORDS: &str =
@@ -75,6 +75,27 @@ pub(super) fn asked_as(most: usize) -> Value {
         .map(|n| json!({ "question": format!("Which one, {n}?"), "recommended": format!("the {n}th") }))
         .collect();
     json!({ "type": "bug", "priority": "P2", "open": open })
+}
+
+// What the triager found with one named open question
+pub(super) fn asked_one(question: &str, recommended: &str) -> Value {
+    json!({
+        "type": "bug",
+        "priority": "P2",
+        "open": [{ "question": question, "recommended": recommended }],
+    })
+}
+
+// What the triager found with `question` first and a plain question second
+pub(super) fn asked_second(question: &str, recommended: &str) -> Value {
+    json!({
+        "type": "bug",
+        "priority": "P2",
+        "open": [
+            { "question": question, "recommended": recommended },
+            { "question": "Which one, 2?", "recommended": "the 2nd" },
+        ],
+    })
 }
 
 // What the second pass found: everything settled, with what is settled as its body
@@ -633,6 +654,188 @@ fn a_reask_asks_again_the_question_its_author_left_unanswered() {
         !again.contains("Which one, 2?"),
         "the one it answered is not: {again}"
     );
+}
+
+// #1304 round 2: the author's reply to a later round answers that round alone.
+// The questions an earlier round asked and never heard an answer to are still
+// open, and the next pass asks them.
+#[test]
+fn a_reask_does_not_take_a_later_round_s_answer_for_an_earlier_one() {
+    let (rig, runner) = filed("pick = \"maintainer\"", MAINTAINER, asked_as(2));
+    assert_eq!(step(&runner).unwrap(), None);
+    rig.ask(&runner, "triage", Some("30"));
+    rig.claude.script_for(
+        Role::Triager,
+        [reply(asked_one("Which display server?", "X11"))],
+    );
+    rig.claude
+        .script_for(Role::Representative, [Scripted::Say(ASK_WORDS)]);
+    rig.next_look();
+    assert_eq!(step(&runner).unwrap(), None);
+    wrote(&rig, MAINTAINER, "Q1: X11, on Wayland.");
+    rig.claude.script_for(Role::Triager, [reply(asked_as(1))]);
+    rig.claude
+        .script_for(Role::Representative, [Scripted::Say(A_WORDS)]);
+    rig.next_look();
+    assert_eq!(step(&runner).unwrap(), None);
+    rig.ask(&runner, "triage", Some("30"));
+    rig.claude.script_for(Role::Triager, [reply(asked_as(2))]);
+    rig.claude
+        .script_for(Role::Representative, [Scripted::Say(ASK_WORDS)]);
+    rig.next_look();
+    assert_eq!(step(&runner).unwrap(), None);
+    let again = posted(&rig).last().expect("a comment").clone();
+    for n in 1..=2 {
+        assert!(
+            again.contains(&format!("Which one, {n}?")),
+            "the question no round heard an answer to is asked again: {again}"
+        );
+    }
+    assert!(
+        !again.contains("Which display server?"),
+        "the question its author answered to that round is not: {again}"
+    );
+}
+
+// #1304 round 2: only the form the questions comment asked for settles a round.
+// An author whose sentence starts like `ok` answered no question kelpie can
+// name, and reading what they meant is the triager's job, not the filter's.
+#[test]
+fn an_author_s_words_that_are_not_an_ok_settle_nothing() {
+    let (rig, runner) = filed("pick = \"maintainer\"", MAINTAINER, asked());
+    assert_eq!(step(&runner).unwrap(), None);
+    wrote(&rig, MAINTAINER, "Okay, any update on this?");
+    rig.claude.script_for(Role::Triager, [reply(asked_as(1))]);
+    rig.claude
+        .script_for(Role::Representative, [Scripted::Say(A_WORDS)]);
+    rig.next_look();
+    assert_eq!(step(&runner).unwrap(), None);
+    rig.ask(&runner, "triage", Some("30"));
+    rig.claude.script_for(Role::Triager, [reply(asked())]);
+    rig.claude
+        .script_for(Role::Representative, [Scripted::Say(ASK_WORDS)]);
+    rig.next_look();
+    assert_eq!(step(&runner).unwrap(), None);
+    let again = posted(&rig).last().expect("a comment").clone();
+    assert!(
+        again.contains("Which OS crashes?"),
+        "the question its sentence answered nothing for is asked again: {again}"
+    );
+}
+
+// #1304 round 2: the settled questions are compared in one case, so a question
+// holding a letter outside ASCII is known for the one its author answered.
+#[test]
+fn a_settled_question_holding_a_letter_outside_ascii_is_not_asked_again() {
+    let (rig, runner) = filed(
+        "pick = \"maintainer\"",
+        MAINTAINER,
+        asked_second("\u{00c7}a plante sous Wayland ?", "Oui"),
+    );
+    assert_eq!(step(&runner).unwrap(), None);
+    wrote(&rig, MAINTAINER, "Q1: Oui, sous Wayland.");
+    rig.claude.script_for(Role::Triager, [reply(asked_as(1))]);
+    rig.claude
+        .script_for(Role::Representative, [Scripted::Say(A_WORDS)]);
+    rig.next_look();
+    assert_eq!(step(&runner).unwrap(), None);
+    rig.ask(&runner, "triage", Some("30"));
+    rig.claude.script_for(
+        Role::Triager,
+        [reply(asked_second(
+            "\u{00c7}a plante sous Wayland ?",
+            "Oui",
+        ))],
+    );
+    rig.claude
+        .script_for(Role::Representative, [Scripted::Say(ASK_WORDS)]);
+    rig.next_look();
+    assert_eq!(step(&runner).unwrap(), None);
+    let again = posted(&rig).last().expect("a comment").clone();
+    assert!(
+        again.contains("Which one, 2?"),
+        "the unanswered one is asked again: {again}"
+    );
+    assert!(
+        !again.contains("plante sous Wayland"),
+        "the question its author answered is not asked again: {again}"
+    );
+}
+
+// #1304 round 2: a question is compared as the questions block wrote it, so the
+// marks it took out and the line it broke at do not hide what was settled.
+#[test]
+fn a_settled_question_the_questions_block_rewrote_is_not_asked_again() {
+    let (rig, runner) = filed(
+        "pick = \"maintainer\"",
+        MAINTAINER,
+        asked_second("Does ```kelpie``` crash on start?", "No"),
+    );
+    assert_eq!(step(&runner).unwrap(), None);
+    wrote(&rig, MAINTAINER, "Q1: No, only under Wayland.");
+    rig.claude.script_for(Role::Triager, [reply(asked_as(1))]);
+    rig.claude
+        .script_for(Role::Representative, [Scripted::Say(A_WORDS)]);
+    rig.next_look();
+    assert_eq!(step(&runner).unwrap(), None);
+    rig.ask(&runner, "triage", Some("30"));
+    rig.claude.script_for(
+        Role::Triager,
+        [reply(asked_second(
+            "Does ```kelpie``` crash on start?",
+            "No",
+        ))],
+    );
+    rig.claude
+        .script_for(Role::Representative, [Scripted::Say(ASK_WORDS)]);
+    rig.next_look();
+    assert_eq!(step(&runner).unwrap(), None);
+    let again = posted(&rig).last().expect("a comment").clone();
+    assert!(
+        again.contains("Which one, 2?"),
+        "the unanswered one is asked again: {again}"
+    );
+    assert!(
+        !again.contains("Does kelpie crash on start?"),
+        "the question its author answered is not asked again: {again}"
+    );
+}
+
+// #1304 round 2: a label that says what to do with the issue, put on while the
+// questions comment was being worded, is the maintainer's own. It ends the wait
+// and nothing is heard from the author after it.
+#[test]
+fn a_needs_info_put_on_while_the_questions_comment_is_worded_ends_the_wait() {
+    let hold = Hold::default();
+    let (rig, runner) = filed_before("pick = \"maintainer\"", MAINTAINER, asked(), |rig| {
+        rig.claude.script_for(
+            Role::Representative,
+            [Scripted::HoldThenSay(hold.clone(), ASK_WORDS)],
+        );
+    });
+    std::thread::scope(|scope| {
+        let posting = scope.spawn(|| step(&runner).unwrap());
+        assert!(hold.entered(CALL_PATIENCE), "the comment was never worded");
+        rig.forge.label(30, "needs-info");
+        hold.release();
+        posting.join().unwrap();
+    });
+    assert_eq!(taken(&rig), 1, "the questions went up");
+    let mut labelled = issue(&rig, 30, MAINTAINER, 5);
+    labelled.title = "Crash on start".to_owned();
+    labelled.body = "It crashes when I run it.".to_owned();
+    labelled.labels = vec!["needs-info".to_owned()];
+    list(&rig, labelled);
+    wrote(&rig, MAINTAINER, "ok");
+    for _ in 0..3 {
+        rig.next_look();
+        assert_eq!(step(&runner).unwrap(), None);
+    }
+    assert_eq!(taken(&rig), 1, "no answers comment");
+    assert_eq!(calls(&rig, Role::Triager).len(), 1, "no second pass");
+    let held = record(&rig, &runner);
+    assert_eq!(held["step"], "done", "{held}");
+    assert!(held["questions"].is_null(), "no wait left: {held}");
 }
 
 // #1194 and #1144: a `shep kelpie triage` pass asked again, the author answered
