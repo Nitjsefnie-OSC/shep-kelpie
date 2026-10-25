@@ -582,7 +582,7 @@ impl Rig {
 
     /// Steps a bot's round from the review it covers the head with: the
     /// step that sees the review reads its threads, and the one
-    /// [`SETTLE_LEAST`] on reads them again and lands the round
+    /// `SETTLE_LEAST` on reads them again and lands the round
     pub fn threads_read(&self, runner: &Mutex<Runner>) -> Option<StepReport> {
         assert_eq!(step(runner).unwrap(), None, "the threads read once");
         self.clock.advance(SETTLE_LEAST);

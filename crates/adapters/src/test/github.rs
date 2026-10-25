@@ -92,7 +92,7 @@ pub struct SentReview {
 /// What GitHub answers a review: the shape its documentation gives
 pub const REVIEW_ANSWER: &str = include_str!("../../../../fixtures/github-app-review.json");
 
-/// The id [`REVIEW_ANSWER`] holds
+/// The id `REVIEW_ANSWER` holds
 pub const REVIEW_ID: u64 = 2_718_281_828;
 
 // Who reached a held mint and who lets it go
