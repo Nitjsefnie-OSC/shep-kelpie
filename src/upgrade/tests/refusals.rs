@@ -332,6 +332,7 @@ fn a_release_must_hold_the_kelpie_it_names() {
         kelpie: "0.3.0".into(),
         shep: "0.16.1".into(),
         protocol: None,
+        commit: None,
     };
     check_release("0.3.0", &build).unwrap();
     check_release("v0.3.0", &build).unwrap();

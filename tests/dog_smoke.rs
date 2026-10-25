@@ -655,5 +655,17 @@ fn kelpie_s_version_answer_asks_for_the_shepherd_channel() {
     let answer = String::from_utf8(out.stdout).unwrap();
     let parsed = shep_client::shep_core::dogs::parse_version_answer(&answer).unwrap();
     assert!(parsed.channel, "{answer}");
-    assert_eq!(parsed.version, env!("CARGO_PKG_VERSION"));
+    // The version only names the build, which is what shep uses it for, so it
+    // carries this build's commit after the `+`. Read from the same build
+    // script run that built the binary under test, so the answer is checked
+    // against the build it came from rather than a commit written here.
+    assert_eq!(
+        parsed.version,
+        shep_kelpie::home::probe_version(),
+        "{answer}"
+    );
+    assert!(
+        parsed.version.starts_with(env!("CARGO_PKG_VERSION")),
+        "the version must still name the package's: {answer}"
+    );
 }

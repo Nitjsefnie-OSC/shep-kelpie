@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 mod build;
 mod paths;
 mod stamp;
-pub use build::{Build, BuildError};
+pub use build::{Build, BuildError, COMMIT, probe_version, version_with_commit};
 pub use paths::{ProjectName, ProjectNameError, ProjectPaths, work_branch};
 pub use stamp::{running, stamp_of};
 
