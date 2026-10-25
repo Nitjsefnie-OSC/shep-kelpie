@@ -16,6 +16,26 @@ pub enum SessionIds {
     Cli,
 }
 
+/// How the researcher gets the web on a harness
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ResearcherWeb {
+    /// The CLI has a web tool of its own
+    Builtin,
+    /// The `pi-web-access` package, loaded as an extension
+    PiPackage,
+    /// The `duckduckgo-websearch` package, run as the stdio MCP server `kelpie-web`
+    GoosePackage,
+}
+
+/// What `shep kelpie doctor` checks of a harness that is installed and logged in
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DoctorProbe {
+    /// That `pi` runs, and that its tools are there
+    Pi,
+    /// That `goose` runs
+    Goose,
+}
+
 /// What is true of one harness
 #[derive(Debug, Clone, Copy)]
 pub struct HarnessFacts {
@@ -59,6 +79,13 @@ pub struct HarnessFacts {
     /// Why a handover waits while a session on it is open in the maintainer's
     /// terminal, if it does
     pub holds_handover_at_attach: Option<&'static str>,
+    /// What `status` calls a session of it open in the maintainer's terminal,
+    /// if a drain waits for one
+    pub attached_role: Option<&'static str>,
+    /// How the researcher gets the web on it
+    pub researcher_web: ResearcherWeb,
+    /// What `doctor` checks of it when a role runs on it, if it checks any
+    pub doctor_probe: Option<DoctorProbe>,
 }
 
 impl Harness {
@@ -126,6 +153,9 @@ const CLAUDE_CODE: HarnessFacts = HarnessFacts {
     counts_calls: true,
     runs_claude_roles: true,
     holds_handover_at_attach: None,
+    attached_role: None,
+    researcher_web: ResearcherWeb::Builtin,
+    doctor_probe: None,
 };
 
 const PI: HarnessFacts = HarnessFacts {
@@ -147,6 +177,9 @@ const PI: HarnessFacts = HarnessFacts {
     counts_calls: true,
     runs_claude_roles: false,
     holds_handover_at_attach: Some(FORWARDER),
+    attached_role: Some("pi_session"),
+    researcher_web: ResearcherWeb::PiPackage,
+    doctor_probe: Some(DoctorProbe::Pi),
 };
 
 const CODEX: HarnessFacts = HarnessFacts {
@@ -168,6 +201,9 @@ const CODEX: HarnessFacts = HarnessFacts {
     counts_calls: false,
     runs_claude_roles: false,
     holds_handover_at_attach: Some(TRUST),
+    attached_role: Some("codex_session"),
+    researcher_web: ResearcherWeb::Builtin,
+    doctor_probe: None,
 };
 
 // The watch reads goose's stdout file, which each call empties, so no file
@@ -194,6 +230,9 @@ const GOOSE: HarnessFacts = HarnessFacts {
     counts_calls: false,
     runs_claude_roles: false,
     holds_handover_at_attach: Some(FORWARDER),
+    attached_role: Some("goose_session"),
+    researcher_web: ResearcherWeb::GoosePackage,
+    doctor_probe: Some(DoctorProbe::Goose),
 };
 
 #[cfg(any(test, feature = "test-support"))]
@@ -216,4 +255,7 @@ const STAND_IN: HarnessFacts = HarnessFacts {
     counts_calls: false,
     runs_claude_roles: false,
     holds_handover_at_attach: None,
+    attached_role: None,
+    researcher_web: ResearcherWeb::Builtin,
+    doctor_probe: None,
 };

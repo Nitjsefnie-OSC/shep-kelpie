@@ -60,8 +60,7 @@ pub struct CallRunning {
 }
 
 /// Whose call is in flight
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CallRole {
     /// A worker's turn
     Worker,
@@ -81,24 +80,36 @@ pub enum CallRole {
     Retro,
     /// The e2e run of a dependency bump's head, on the project's e2e host
     E2e,
-    /// A pi session in the maintainer's terminal, whose forwarder a restart
-    /// would take with it
-    PiSession,
-    /// A goose session in the maintainer's terminal, whose forwarder a restart
-    /// would take with it
-    GooseSession,
-    /// A Codex session in the maintainer's terminal, whose trusted folder
-    /// only this image's record of the session removes
-    CodexSession,
+    /// A session in the maintainer's terminal, as its harness's facts name it
+    ///
+    /// A restart would take with it a forwarder or a trusted folder that only
+    /// this image holds.
+    Attached(&'static str),
 }
 
-// The role a session open in the maintainer's terminal runs as, for each
-// harness whose facts have a handover wait for it.
-const ATTACHED: [(Harness, CallRole); 3] = [
-    (Harness::Pi, CallRole::PiSession),
-    (Harness::Goose, CallRole::GooseSession),
-    (Harness::Codex, CallRole::CodexSession),
-];
+impl CallRole {
+    // The name `status` shows.
+    fn name(self) -> &'static str {
+        match self {
+            Self::Worker => "worker",
+            Self::Reviewer => "reviewer",
+            Self::Pm => "pm",
+            Self::IssueWriter => "issue_writer",
+            Self::Security => "security",
+            Self::Triager => "triager",
+            Self::Panel => "panel",
+            Self::Retro => "retro",
+            Self::E2e => "e2e",
+            Self::Attached(name) => name,
+        }
+    }
+}
+
+impl Serialize for CallRole {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.name())
+    }
+}
 
 impl Runner {
     /// Starts no new call from now until a restart or [`Runner::undrain`]
@@ -239,10 +250,13 @@ impl Runner {
             .max(triaging.unwrap_or(0))
             .max(retro.unwrap_or(0))
             .max(panel.unwrap_or(0));
-        let attached = ATTACHED.into_iter().flat_map(|(harness, role)| {
-            (self.sessions_attached_on(harness).into_iter()).map(move |issue| CallRunning {
-                issue: Some(issue),
-                role,
+        let attached = Harness::ALL.into_iter().flat_map(|harness| {
+            let role = harness.facts().attached_role.map(CallRole::Attached);
+            (role.into_iter()).flat_map(move |role| {
+                (self.sessions_attached_on(harness).into_iter()).map(move |issue| CallRunning {
+                    issue: Some(issue),
+                    role,
+                })
             })
         });
         let at_tool = (self.state.work_items.iter())
