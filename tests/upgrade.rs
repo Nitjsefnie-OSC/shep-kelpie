@@ -238,6 +238,34 @@ async fn a_build_answers_version_json_with_its_kelpie_and_its_shep() {
     assert_eq!(json["shep"], shep_kelpie::shepherd::SHEP_VERSION);
 }
 
+#[tokio::test]
+async fn a_build_names_the_commit_it_was_made_from() {
+    let scene = Scene::new();
+
+    let probe = scene.kelpie(&["--version"]).await;
+    let answer = scene.kelpie(&["version", "--json"]).await;
+
+    assert!(probe.status.success(), "{}", stderr(&probe));
+    let json: serde_json::Value = serde_json::from_slice(&answer.stdout).unwrap();
+    let commit = json["commit"].as_str().unwrap_or_default();
+    // Seven characters of the commit, with `-dirty` on the end when the tree
+    // it was made from held changes that commit does not.
+    let sha = commit.strip_suffix("-dirty").unwrap_or(commit);
+    assert!(
+        sha.len() >= 7 && sha.chars().all(|c| c.is_ascii_hexdigit()),
+        "{commit}"
+    );
+    let line = String::from_utf8_lossy(&probe.stdout);
+    let version = line
+        .lines()
+        .next()
+        .unwrap_or_default()
+        .split_whitespace()
+        .nth(1)
+        .unwrap_or_default();
+    assert_eq!(version, format!("{}+{commit}", env!("CARGO_PKG_VERSION")));
+}
+
 // Real sockets and real child processes, so a real clock.
 #[tokio::test]
 async fn an_upgrade_installs_and_restarts_and_a_rollback_puts_the_build_back() {

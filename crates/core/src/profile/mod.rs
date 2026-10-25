@@ -234,6 +234,9 @@ pub struct WorkerProfile<'a> {
     pub kelpie_pushes: bool,
     /// The kelpie binary, which runs kelpie's own checks
     pub kelpie: &'a Path,
+    /// The project's skills folder, which holds the plugins every call of the
+    /// project is given, and which a skill names a file from
+    pub skills: &'a Path,
     /// Kelpie's home, whose path the guard keeps off the forge
     pub kelpie_home: &'a Path,
     /// The project's checkout, whose path the guard keeps off the forge
@@ -300,10 +303,10 @@ impl WorkerProfile<'_> {
             .chain(homes)
             .collect();
         // What the call reads back inside the denied home: the folders it works
-        // in, the git its commits run through, the toolchain its build runs, and
-        // the config its `git` and `gh` start with. A credential named beside
+        // in, the git and toolchain its build runs, the plugins its skills name,
+        // and the config its `git` and `gh` start with. A credential named beside
         // them stays in `no_read`, which the sandbox applies after every allow.
-        let read = [self.worktree, self.build, self.kelpie, self.git_common_dir]
+        let read = [self.worktree, self.build, self.kelpie, self.git_common_dir, self.skills]
             .into_iter()
             .map(Path::to_owned)
             .chain(dep_sources::toolchain_homes(self.home, &ProcessEnv))

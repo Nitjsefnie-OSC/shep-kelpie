@@ -703,6 +703,7 @@ impl World {
             base: "main",
             kelpie_pushes: false,
             kelpie,
+            skills: &self.path("kelpie/skills"),
             kelpie_home: &self.path("kelpie"),
             repo: &self.path("repo"),
             guard_hooks: &[],

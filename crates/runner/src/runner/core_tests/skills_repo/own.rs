@@ -108,3 +108,26 @@ fn a_launch_file_the_default_branch_gains_turns_the_dev_server_gauge_on_when_it_
     runner.lock().unwrap().reread_plugins();
     assert_eq!(gauge(), Some(1.0));
 }
+
+#[test]
+fn a_skill_of_the_repo_names_the_copy_where_it_names_the_plugin_root() {
+    let rig = Rig::new("shep");
+    rig.land(
+        ".claude/skills/house/SKILL.md",
+        "---\nname: house\n---\nRead `${CLAUDE_PLUGIN_ROOT}/skills/house/rules.md`.\n",
+    );
+    rig.land(".claude/skills/house/rules.md", "one file per rule\n");
+    rig.open().unwrap();
+    let plugin = rig.paths().skills.join("repo/kelpie-repo");
+    let skill = fs::read_to_string(plugin.join("skills/house/SKILL.md")).unwrap();
+    assert!(!skill.contains("${CLAUDE_PLUGIN_ROOT}"), "{skill}");
+    let named = skill
+        .split('`')
+        .nth(1)
+        .unwrap_or_else(|| panic!("the skill names no path: {skill}"));
+    assert_eq!(
+        named,
+        plugin.join("skills/house/rules.md").display().to_string()
+    );
+    assert!(plugin.join("skills/house/rules.md").is_file());
+}

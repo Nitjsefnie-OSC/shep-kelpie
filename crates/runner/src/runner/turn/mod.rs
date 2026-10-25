@@ -684,6 +684,7 @@ impl Runner {
             // the login that reaches it is kelpie's alone: it pushes there.
             kelpie_pushes: !item.remote.is_origin(),
             kelpie: &self.kelpie,
+            skills: &self.paths.skills,
             guard_hooks: &self.settings.worker.guard_hooks,
             kelpie_home: &self.paths.kelpie_home,
             repo: &self.settings.git.checkout,

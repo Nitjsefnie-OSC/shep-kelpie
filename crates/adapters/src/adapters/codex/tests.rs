@@ -705,6 +705,7 @@ fn worker_in(wt: &Path, build: &Path, kelpie: &Path, root: &Path, call: AgentCal
         base: "main",
         kelpie_pushes: false,
         kelpie,
+        skills: &root.join("kelpie/skills"),
         kelpie_home: &root.join("kelpie"),
         repo: &root.join("repo"),
         guard_hooks: &[],

@@ -97,6 +97,11 @@ pub struct FakeForge {
     watched: Arc<Mutex<Option<PathBuf>>>,
     saved_at_comment: Arc<Mutex<Vec<serde_json::Value>>>,
     default_branch: Arc<Mutex<String>>,
+    // Whether the repo requires a pull request's branch to be up to date with its base,
+    // and whether reading that rule fails
+    up_to_date_required: Arc<AtomicBool>,
+    up_to_date_read_down: Arc<AtomicBool>,
+    up_to_date_reads: Arc<AtomicUsize>,
     // Branches the forge has besides the default branch and those pushed to origin
     branches: Arc<Mutex<Vec<String>>>,
     // The files of the repos a test filled, by lowercase slug and then path
@@ -196,6 +201,9 @@ impl FakeForge {
             watched: Arc::default(),
             saved_at_comment: Arc::default(),
             default_branch: Arc::new(Mutex::new("main".to_owned())),
+            up_to_date_required: Arc::new(AtomicBool::new(true)),
+            up_to_date_read_down: Arc::new(AtomicBool::new(false)),
+            up_to_date_reads: Arc::default(),
             branches: Arc::new(Mutex::new(Vec::new())),
             files: Arc::default(),
             repo_labels: Arc::default(),
@@ -400,6 +408,10 @@ impl Forge for FakeForge {
     fn default_branch(&self, _repo: &ForgeSlug) -> Result<String, ForgeError> {
         self.ask()?;
         Ok(self.default_branch.lock().unwrap().clone())
+    }
+
+    fn requires_up_to_date(&self, repo: &ForgeSlug, base: &str) -> Result<bool, ForgeError> {
+        self.up_to_date_rule(repo, base)
     }
 
     fn branch_exists(&self, _repo: &ForgeSlug, branch: &str) -> Result<bool, ForgeError> {
@@ -857,5 +869,6 @@ mod pulls;
 mod queue;
 mod reads;
 mod repo;
+mod rules;
 mod thread;
 mod tickets;
