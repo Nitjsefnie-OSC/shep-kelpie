@@ -619,6 +619,7 @@ impl Check {
                 Some(Queued {
                     name: name.clone(),
                     run: details_url.as_deref().and_then(run_of),
+                    running: status == "IN_PROGRESS",
                 })
             }
             _ => None,

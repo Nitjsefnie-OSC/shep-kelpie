@@ -9,7 +9,9 @@
 //! head, and the cap starts again from the rerun. The forge refuses a rerun
 //! of a run still going, which is how a running one is told: each run is
 //! tried in turn, and a refused one waits another cap. Still stuck past it,
-//! the item is parked on a `check-queued` ruling. The rerun is kept in
+//! the item is parked on a `check-queued` ruling, unless every check left is
+//! running: a rerun may be running for real, so that waits for a job's own
+//! timeout (`JOB_TIMEOUT`, six hours) from the rerun. The rerun is kept in
 //! memory, like `held_up`: a restart can cost one more, which is harmless.
 
 use std::collections::HashMap;
@@ -20,6 +22,9 @@ use crate::runner::report::{Begin, StepReport};
 use crate::state::{StateError, Stuck};
 use crate::ticket::TicketId;
 use crate::work_item::{Phase, Review};
+
+/// How long GitHub lets a hosted job run, in seconds
+const JOB_TIMEOUT: u64 = 6 * 60 * 60;
 
 /// The runs rerun for each work item's queued checks, and the head they were
 /// rerun at
@@ -79,6 +84,12 @@ impl Runner {
             }
         }
         if runs.is_empty() {
+            // A rerun run's job that is running ends at its own timeout, so
+            // it is ruled on only past the longest a hosted job runs.
+            let running = queued.iter().all(|check| check.running);
+            if running && now.0.saturating_sub(since.0) < JOB_TIMEOUT {
+                return Ok(None);
+            }
             let url = format!(
                 "https://github.com/{}/actions/runs/{first}",
                 self.remote.as_str()

@@ -627,6 +627,9 @@ pub struct Queued {
     pub name: String,
     /// The workflow run it belongs to, when its link names one
     pub run: Option<u64>,
+    /// It started and has not finished, so it ends at its own timeout. A
+    /// queued one waits for a runner that may never come.
+    pub running: bool,
 }
 
 /// What `rerun_run` starts again of a workflow run
