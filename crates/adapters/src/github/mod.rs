@@ -2,15 +2,13 @@
 //! [`Apps`] keeps it in kelpie's home, [`GithubApp`] mints its tokens and
 //! [`AppVoice`] writes with them
 
-use std::fs::{self, OpenOptions};
-use std::io::{self, Write};
-use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
+use std::fs;
+use std::io;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
 use crate::settings::ForgeSlug;
-use crate::totp::private_dir;
 
 pub mod api;
 pub mod setup;
@@ -190,16 +188,7 @@ impl Apps {
             client_id: conversion.client_id.clone(),
             owner: conversion.owner.clone(),
         };
-        let folder = self.owned(&owner);
-        private_dir(&folder).map_err(|e| unusable(&folder, &e))?;
-        for path in [&self.folder, &folder] {
-            let meta = fs::symlink_metadata(path).map_err(|e| unusable(path, &e))?;
-            if meta.file_type().is_symlink() || meta.uid() != rustix::process::getuid().as_raw() {
-                return Err(StoreError::Exposed(path.clone()));
-            }
-            fs::set_permissions(path, fs::Permissions::from_mode(0o700))
-                .map_err(|e| unusable(path, &e))?;
-        }
+        make_private(&self.folder, &self.owned(&owner))?;
         let record = serde_json::to_string_pretty(&app).expect("an App serializes");
         put(&self.key(&owner), conversion.pem.expose().as_bytes())?;
         put(&self.record(&owner), record.as_bytes())?;
@@ -228,8 +217,30 @@ fn not_a_file(path: &Path) -> StoreError {
     ))
 }
 
+// Makes `outer` and `inner` the maintainer's alone, refusing a link or someone else's.
+#[cfg(unix)]
+fn make_private(outer: &Path, inner: &Path) -> Result<(), StoreError> {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+    use crate::totp::private_dir;
+
+    private_dir(inner).map_err(|e| unusable(inner, &e))?;
+    for path in [outer, inner] {
+        let meta = fs::symlink_metadata(path).map_err(|e| unusable(path, &e))?;
+        if meta.file_type().is_symlink() || meta.uid() != rustix::process::getuid().as_raw() {
+            return Err(StoreError::Exposed(path.to_owned()));
+        }
+        fs::set_permissions(path, fs::Permissions::from_mode(0o700))
+            .map_err(|e| unusable(path, &e))?;
+    }
+    Ok(())
+}
+
 // Refuses `path` when it is a link, someone else's, or open to others.
+#[cfg(unix)]
 fn private(path: &Path) -> Result<(), StoreError> {
+    use std::os::unix::fs::MetadataExt;
+
     let meta = fs::symlink_metadata(path).map_err(|e| unusable(path, &e))?;
     let theirs = meta.uid() != rustix::process::getuid().as_raw();
     if meta.file_type().is_symlink() || theirs || meta.mode() & 0o077 != 0 {
@@ -240,10 +251,14 @@ fn private(path: &Path) -> Result<(), StoreError> {
 
 // Writes `bytes` beside `path`, readable by its owner alone, syncs it and
 // renames it over `path`.
+#[cfg(unix)]
 fn put(path: &Path, bytes: &[u8]) -> Result<(), StoreError> {
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+
     let fresh = path.with_extension(format!("new.{}", std::process::id()));
     let _ = fs::remove_file(&fresh);
-    let written = OpenOptions::new()
+    let written = fs::OpenOptions::new()
         .write(true)
         .create_new(true)
         .mode(0o600)
@@ -252,6 +267,33 @@ fn put(path: &Path, bytes: &[u8]) -> Result<(), StoreError> {
         .and_then(|()| fs::rename(&fresh, path));
     let _ = fs::remove_file(&fresh);
     written.map_err(|e| unusable(path, &e))
+}
+
+// Windows keeps a file to its owner by an ACL, which kelpie does not set yet
+// (#1264), so it keeps no key rather than one others may read.
+#[cfg(windows)]
+fn refused() -> StoreError {
+    StoreError::Unusable(
+        "the App's key needs a file only its owner can read, which kelpie cannot make on \
+         Windows yet (#1264)"
+            .to_owned(),
+    )
+}
+
+#[cfg(windows)]
+fn make_private(_outer: &Path, _inner: &Path) -> Result<(), StoreError> {
+    Err(refused())
+}
+
+// A key or folder already in place is not trusted, since its ACL is not checked yet.
+#[cfg(windows)]
+fn private(_path: &Path) -> Result<(), StoreError> {
+    Err(refused())
+}
+
+#[cfg(windows)]
+fn put(_path: &Path, _bytes: &[u8]) -> Result<(), StoreError> {
+    Err(refused())
 }
 
 #[cfg(test)]

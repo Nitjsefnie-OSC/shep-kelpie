@@ -575,6 +575,7 @@ mod tests {
         assert!(!w.path("ran").exists(), "claude ran with no login");
     }
 
+    #[cfg(unix)]
     #[test]
     fn the_scratch_folder_is_emptied_and_a_link_there_is_not_followed() {
         let w = World::new();

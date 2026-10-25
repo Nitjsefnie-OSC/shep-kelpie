@@ -119,7 +119,7 @@ pub(super) fn link(call: &AgentCall, files: &Files) -> Result<(), AgentError> {
             continue;
         }
         let link = folder.join(&name);
-        match std::os::unix::fs::symlink(&skill, &link) {
+        match crate::adapters::files::link(&skill, &link) {
             // A file system that folds case already holds this name.
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
             result => result.map_err(|e| setup(&link, e))?,
