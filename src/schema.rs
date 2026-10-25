@@ -15,7 +15,8 @@ use crate::webhook::KelpieSettings;
 /// The first line of `main`, before anything opens a socket. The version
 /// answer asks for the shepherd channel, which the lease dog serves.
 pub fn probe() {
-    Probe::new(env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"))
+    let version = crate::home::probe_version();
+    Probe::new(env!("CARGO_PKG_NAME"), &version)
         .ask_for_channel()
         .answer_with_sheep::<KelpieSettings, Settings>();
 }

@@ -9,14 +9,21 @@ use crate::ports::Probability;
 use crate::state::TriageHeld;
 
 /// `sheep`'s block from `status`, the runner's answer, under a header that
-/// carries `marks`
-pub(super) fn block(sheep: &str, marks: &[String], status: &Value) -> Vec<String> {
+/// carries `marks`, beside the build the installed kelpie names (`installed`)
+/// when it can be asked
+pub(super) fn block(
+    sheep: &str,
+    marks: &[String],
+    status: &Value,
+    installed: Option<&str>,
+) -> Vec<String> {
     let mut lines = vec![match marks {
         [] => sheep.to_owned(),
         marks => format!("{sheep} ({})", marks.join(", ")),
     }];
     let run = status["run"].as_str().unwrap_or("running");
     lines.push(format!("  run: {run}"));
+    build(status, installed, &mut lines);
     refused(status, &mut lines);
     items(status, &mut lines);
     adopting(status, &mut lines);
@@ -141,6 +148,26 @@ fn draining(sheep: &str, draining: &Value) -> String {
         "{sheep} is draining: no new call starts; still running: {}",
         running.join(", ")
     )
+}
+
+// The build this runner runs, and the installed one when it is not that, so a
+// runner an upgrade left behind shows up. The names are compared as they
+// stand: a build made from changes on top of the installed commit carries
+// `-dirty`, and is a different binary from it.
+
+// A name carries nothing beyond the commit, so two builds made from two
+// uncommitted trees of one commit carry the same name.
+fn build(status: &Value, installed: Option<&str>, lines: &mut Vec<String>) {
+    let mine = status["commit"].as_str();
+    let other = installed.filter(|&other| mine.is_none_or(|mine| mine != other));
+    lines.push(match (mine, other) {
+        (Some(mine), Some(other)) => format!("  build: {mine}, not the installed {other}"),
+        (Some(mine), None) => format!("  build: {mine}"),
+        (None, Some(other)) => {
+            format!("  build: not recorded, the installed build is {other}")
+        }
+        (None, None) => "  build: not recorded".to_owned(),
+    });
 }
 
 // A settings change the runner refused, which stands until a reread holds.
