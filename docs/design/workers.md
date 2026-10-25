@@ -1,6 +1,6 @@
 # Workers
 
-Runner loop, worker turns, agents and harnesses. The fence is in fence.md. Skills and plugins are in skills.md.
+Runner loop, worker turns, agents, harnesses. The fence is in fence.md, skills in skills.md, plugins in plugins.md.
 
 ## Runner and turns
 

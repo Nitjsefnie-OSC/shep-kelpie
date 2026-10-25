@@ -27,6 +27,10 @@ fn with_parts(keys: &str) -> (Rig, Mutex<Runner>) {
         "---\nname: checker\n---\nCheck.\n",
     );
     rig.land(&format!("{PLUGIN}/commands/lint.md"), "Lint it.\n");
+    rig.land(
+        &format!("{PLUGIN}/docs/rules.md"),
+        "IR-47: one file per rule.\n",
+    );
     let hooks = json!({ "hooks": { "PreToolUse": [{
         "matcher": "Bash",
         "hooks": [{
@@ -142,6 +146,17 @@ fn parts_skills_copies_only_the_skills() {
     }
     let status = rig.ask(&runner, "status", None);
     assert_eq!(status["plugins"][0]["skills"], json!(["style"]));
+}
+
+#[test]
+fn parts_narrows_the_part_folders_and_keeps_the_rest_of_the_plugin() {
+    let (rig, _runner) = with_parts("parts = [\"skills\"]");
+    let plugin = rig.paths().skills.join("repo/style");
+    assert!(plugin.join("skills/style/SKILL.md").is_file());
+    assert!(plugin.join("docs/rules.md").is_file());
+    for left_out in ["agents", "commands", "hooks"] {
+        assert!(!plugin.join(left_out).exists(), "{left_out}");
+    }
 }
 
 #[test]
