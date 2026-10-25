@@ -6,6 +6,30 @@ The command that registers the App is step 5 of [Getting started](../../README.m
 
 App names are shared by all of GitHub, so if yours is taken, stop with Ctrl-C and run again with `--name <another name>`. Run it once for each owner: an App you register yourself installs only on the account that owns it. Running it again for an owner that has one says so and changes nothing, unless you give `--replace`. Before replacing, delete the old App on GitHub (its owner's settings, Developer settings, GitHub Apps), since its name is still taken while it exists, or give the new one `--name`. `shep kelpie github setup --help` lists the flags.
 
+A new App is registered with these repository permissions, so none needs setting by hand afterwards:
+
+| Permission | Access |
+|---|---|
+| Actions | Read and write |
+| Checks | Read and write |
+| Contents | Read and write |
+| Deployments | Read-only |
+| Environments | Read-only |
+| Issues | Read and write |
+| Merge queues | Read and write |
+| Metadata | Read-only |
+| Packages | Read-only |
+| Pages | Read-only |
+| Pull requests | Read and write |
+| Repository webhooks | Read-only |
+| Commit statuses | Read and write |
+| Dependabot alerts | Read and write |
+| Workflows | Read and write |
+
+This is what the App is allowed. Each token kelpie mints still asks for only what its call needs.
+
+GitHub's manifest has no logo field and no API uploads one, so the App starts with the default avatar. After the registration `setup` prints the App's settings page, `https://github.com/organizations/<owner>/settings/apps/<slug>` for an organization or `https://github.com/settings/apps/<slug>` for a user. Open it and, under Display information, upload [`assets/kelpie-logo.png`](https://raw.githubusercontent.com/shep-pm/shep-kelpie/main/assets/kelpie-logo.png) (download it first, since GitHub takes a file, not a link).
+
 shep-kelpie keeps the App's private key in its home, `$SHEP_HOME/kelpie` or the folder `KELPIE_HOME` names, under `github/<owner>`, readable by you alone, and no worker can read it. Kelpie's own token holds issues and pull requests alone, so it cannot push, change code or merge: merging stays on your own `gh` login, and so do a review bot's summons and the labels on a pull request, since a bot answers a person.
 
 On a repo the App covers, a worker never holds your `gh` login. Each of its calls gets a token minted for that repo alone with the permission to push, contents, and where the App holds it the permission to change workflow files, and nothing that can comment, review, approve or merge. Its `gh` and git use that token alone, never your `~/.config/gh` or the login `gh` keeps in the macOS keychain, and it may not read those or run `security`. Kelpie opens and edits the worker's pull request for it, from a file the worker writes. The token can push any branch of the repo, so protect `main` on GitHub with a branch protection rule or a ruleset: that is what stops a push to it. An App you registered before this needs the permission added: in its settings on GitHub, set Repository permissions, Contents, to Read and write, then accept the change on the installation; `doctor` names it as missing until you do. The `workflows` permission also lets a worker push a change to `.github/workflows`, so it can change CI, which runs with the repo's secrets: review a workflow change as you would any change to what runs with your secrets. An App without `workflows` gives workers a token that cannot push a workflow file, and `doctor` says which your workers have; to add it to an App you registered earlier, set Repository permissions, Workflows, to Read and write, then accept the change on the installation. On a repo no App covers, workers hold your `gh` login as before, and `doctor` says so.
