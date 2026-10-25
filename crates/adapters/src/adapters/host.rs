@@ -3,14 +3,16 @@
 //! What doctor asks of the machine itself, beyond the runner's ports.
 
 use std::env;
-use std::ffi::OsStr;
+use std::ffi::{OsStr, OsString};
 use std::fmt;
 use std::io::Read;
-use std::os::unix::fs::PermissionsExt;
+#[cfg(windows)]
+use std::iter;
 use std::path::Path;
 use std::process::Stdio;
 use std::time::{Duration, Instant};
 
+use crate::adapters::files::is_executable;
 use crate::adapters::{LOGIN_VAR, LoginToken};
 
 // How long `--version` has to answer, and how long output left in the pipe is
@@ -268,9 +270,29 @@ fn on_path(program: &str) -> bool {
         return false;
     };
     env::split_paths(&path).any(|folder| {
-        std::fs::metadata(Path::new(&folder).join(program))
-            .is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+        program_names(program).iter().any(|name| {
+            std::fs::metadata(Path::new(&folder).join(name))
+                .is_ok_and(|m| m.is_file() && is_executable(&m))
+        })
     })
+}
+
+// The names `program` is looked for by in a folder.
+#[cfg(unix)]
+fn program_names(program: &str) -> Vec<OsString> {
+    vec![program.into()]
+}
+
+// The name as given, then with each extension of `PATHEXT`, as Windows runs a
+// program by its name alone.
+#[cfg(windows)]
+fn program_names(program: &str) -> Vec<OsString> {
+    let extensions = env::var("PATHEXT").unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".to_owned());
+    let with = extensions
+        .split(';')
+        .filter(|extension| !extension.is_empty())
+        .map(|extension| format!("{program}{extension}").into());
+    iter::once(program.into()).chain(with).collect()
 }
 
 #[cfg(test)]

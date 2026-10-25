@@ -40,7 +40,8 @@ pub(crate) fn fence_the_graph(policy: &mut Policy, call: &AgentCall) {
     }
 }
 
-#[cfg(test)]
+// The server binds a Unix socket, and the socket check names a uid.
+#[cfg(all(test, unix))]
 mod live;
 
 #[cfg(test)]
