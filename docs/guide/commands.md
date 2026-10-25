@@ -25,7 +25,7 @@ shep kelpie get git.merging        # one setting of the project's table, or all 
 shep kelpie set git.merging auto   # changes one setting
 shep kelpie get -p '*' git.merging   # one line per project whose name matches the quoted glob
 shep kelpie set -p 'shep*' git.merging auto   # the same in every one of them, or in none if one refuses
-shep kelpie version    # this build and the shep it is made with, or --json for one line
+shep kelpie version    # this build, the commit it was made from and the shep it is made with, or --json for one line
 ```
 
 The verbs with flags of their own:
@@ -37,12 +37,13 @@ The verbs with flags of their own:
 - `ticket` alone lists these forms. `ticket new "<title>" [--body <text>] [--label <label>]... [--parent <id>] [--blocked-by <id>]...` files a local ticket and prints its id. `ticket list [--all]` and `ticket show <id>` read them, `ticket edit <id> [--title <text>] [--body <text>] [--label <label>]... [--unlabel <label>]... [--parent <id>] [--no-parent] [--blocked-by <id>]... [--unblock <id>]...` changes one and `ticket close <id> [--not-planned] [--duplicate]` closes it: see [Local tickets](tickets.md)
 - `get [<key>]` and `set <key> <value>` read and change the project's settings: see [Settings](settings.md)
 
-`status` prints a short block per project: its run state, each work item with its phase, turn and pull request, the rulings waiting, and the pacer.
+`status` prints a short block per project: its run state, the build its runner runs, each work item with its phase, turn and pull request, the rulings waiting, and the pacer.
 
 ```text
 $ shep kelpie status
 koji (finishing)
   run: finishing
+  build: 1f2e3a4
   work items:
     #7 Add a thing: phase ruling, turn ended, PR #71
     #9 Fix the other: phase implement, turn running, no PR
@@ -52,6 +53,8 @@ koji (finishing)
     claude: session 3%, week 15%, 15% of the week spent today of 14.3% allowed
     claude holding (allowance): today's allowance is spent
 ```
+
+The `build:` line is the commit that runner's own build was made from, which is not the build on disk: a runner an upgrade left behind keeps naming the one it runs, and the line then reads `build: 1f2e3a4, not the installed 9c8b7a6`. A build made from a tree with uncommitted changes ends in `-dirty`, and is the same build as the clean commit under it. A runner on a build from before a build named its own says `build: not recorded`.
 
 `status --json`, before or after `-p`, prints each runner's whole object on one line, which the rest of this README names its fields from (`work_items`, `pacer`, `forge_held_until` and the others). `lock` is the longest time the runner's lock was held since it started, in seconds, by the source line that took it; it is left out until a hold is recorded. Read it with `shep kelpie status -p koji --json | jq .pacer`, or `shep trigger koji status`. Without `-p`, a project that is not running, or still starting, is one line either way.
 
