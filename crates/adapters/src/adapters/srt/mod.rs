@@ -16,7 +16,6 @@ use serde_json::{Value, json};
 
 use crate::adapters::host::WindowsInstall;
 use crate::ports::{Policy, Sandbox, SandboxError};
-use crate::tools::Tools;
 
 // The Mach services a command asks the keychain through, which a covered call may not look up
 const KEYCHAIN_SERVICES: [&str; 2] = ["com.apple.securityd.xpc", "com.apple.SecurityServer"];
@@ -66,12 +65,7 @@ pub struct SandboxRuntime {
 
 impl SandboxRuntime {
     /// The runtime on this machine
-    ///
-    /// `tools` is no longer read: crabpot is in kelpie, so no node runtime is
-    /// installed for the sandbox (shep-pm/shep-kelpie#1217). The argument goes
-    /// in shep-pm/shep-kelpie#1218.
-    pub fn new(tools: Tools) -> Self {
-        let _ = tools;
+    pub fn new() -> Self {
         Self {
             platform: Platform::here(),
             kelpie: None,
@@ -109,8 +103,8 @@ impl SandboxRuntime {
     /// the built `shep-kelpie`, and a panic when there is none, since a test
     /// binary would refuse `--crabpot` and the test would prove nothing
     #[cfg(test)]
-    pub(crate) fn under_test(tools: Tools) -> Self {
-        let srt = Self::new(tools);
+    pub(crate) fn under_test() -> Self {
+        let srt = Self::new();
         match built_kelpie() {
             Ok(kelpie) => srt.run_by(kelpie),
             Err(why) => panic!("no kelpie to run: {why}"),
@@ -160,6 +154,12 @@ impl SandboxRuntime {
         let mut crabpot = crate::spawn::command(self.crabpot_exe()?);
         crabpot.arg("--crabpot");
         Ok(crabpot)
+    }
+}
+
+impl Default for SandboxRuntime {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -328,7 +328,7 @@ mod tests {
     #[test]
     fn a_windows_machine_with_no_install_refuses_to_run_anything() {
         let dir = tempfile::tempdir().unwrap();
-        let srt = SandboxRuntime::new(Tools::at(dir.path().to_owned()))
+        let srt = SandboxRuntime::new()
             .on(Platform::Windows)
             .with_install(WindowsInstall {
                 provisioned: false,
@@ -532,7 +532,7 @@ mod tests {
         // Nothing is installed: crabpot is in kelpie, so no node `srt` is needed.
         let dir = tempfile::tempdir().unwrap();
         let settings = dir.path().join("worker").join("call.srt.json");
-        let wrapped = SandboxRuntime::new(Tools::at(dir.path().to_owned()))
+        let wrapped = SandboxRuntime::new()
             .on(Platform::Macos)
             .wrap(&policy(), &settings, &inner())
             .unwrap();
@@ -565,7 +565,7 @@ mod tests {
     #[test]
     fn no_platform_needs_a_node_runtime_and_windows_needs_its_install() {
         let dir = tempfile::tempdir().unwrap();
-        let srt = SandboxRuntime::new(Tools::at(dir.path().to_owned()));
+        let srt = SandboxRuntime::new();
         srt.clone().on(Platform::Macos).check().unwrap();
         srt.clone().on(Platform::Linux).check().unwrap();
         srt.clone()
@@ -618,7 +618,7 @@ mod tests {
     fn on_linux_the_wrapped_command_is_current_exe_crabpot_too() {
         let dir = tempfile::tempdir().unwrap();
         let settings = dir.path().join("worker").join("call.srt.json");
-        let wrapped = SandboxRuntime::new(Tools::at(dir.path().to_owned()))
+        let wrapped = SandboxRuntime::new()
             .on(Platform::Linux)
             .wrap(&policy(), &settings, &inner())
             .unwrap();
@@ -653,7 +653,7 @@ mod tests {
     fn on_windows_the_wrapped_command_is_current_exe_crabpot_too() {
         let dir = tempfile::tempdir().unwrap();
         let settings = dir.path().join("worker").join("call.srt.json");
-        let srt = SandboxRuntime::new(Tools::at(dir.path().to_owned()))
+        let srt = SandboxRuntime::new()
             .on(Platform::Windows)
             .with_install(WindowsInstall::provisioned(true));
         let wrapped = srt.wrap(&policy(), &settings, &inner()).unwrap();
@@ -686,7 +686,7 @@ mod tests {
     #[test]
     fn a_listening_policy_on_a_closed_install_is_refused_with_the_doctors_hint() {
         let dir = tempfile::tempdir().unwrap();
-        let srt = SandboxRuntime::new(Tools::at(dir.path().to_owned()))
+        let srt = SandboxRuntime::new()
             .on(Platform::Windows)
             .with_install(WindowsInstall::provisioned(false));
         let listening = Policy {
