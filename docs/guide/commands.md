@@ -54,7 +54,7 @@ koji (finishing)
     claude holding (allowance): today's allowance is spent
 ```
 
-The `build:` line is the commit that runner's own build was made from, which is not the build on disk: a runner an upgrade left behind keeps naming the one it runs, and the line then reads `build: 1f2e3a4, not the installed 9c8b7a6`. A build made from a tree with uncommitted changes ends in `-dirty`, and is the same build as the clean commit under it. A runner on a build from before a build named its own says `build: not recorded`.
+The `build:` line is the commit that runner's own build was made from, which is not the build on disk: a runner an upgrade left behind keeps naming the one it runs, and the line then reads `build: 1f2e3a4, not the installed 9c8b7a6`. A build made from a tree with uncommitted changes names `1f2e3a4-dirty`, and is the same build as the clean commit under it. A runner on a build from before a build named its own says `build: not recorded`.
 
 `status --json`, before or after `-p`, prints each runner's whole object on one line, which the rest of this README names its fields from (`work_items`, `pacer`, `forge_held_until` and the others). `lock` is the longest time the runner's lock was held since it started, in seconds, by the source line that took it; it is left out until a hold is recorded. Read it with `shep kelpie status -p koji --json | jq .pacer`, or `shep trigger koji status`. Without `-p`, a project that is not running, or still starting, is one line either way.
 
