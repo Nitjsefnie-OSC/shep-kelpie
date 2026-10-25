@@ -135,7 +135,7 @@ pub(super) fn standing(
         };
         stand.whatif.insert(policy.name().to_owned(), score);
     }
-    for skip in [Skip::Draining, Skip::Posted] {
+    for skip in [Skip::Draining, Skip::Posted, Skip::Repeated] {
         stand.skipped.insert(skip.name().to_owned(), 0);
     }
     for skip in records.iter().filter_map(|r| r.skipped) {

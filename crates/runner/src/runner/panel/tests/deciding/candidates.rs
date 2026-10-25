@@ -2,12 +2,13 @@
 //! answers from the project manager, which the panel votes on
 
 use std::sync::Mutex;
+use std::time::Instant;
 
-use super::{PANEL, SHADOW, asked, comments, leak, pending, script, voted};
+use super::{PANEL, SHADOW, asked, comments, decided_comment, leak, pending, script, voted};
 use crate::ports::Role;
 use crate::runner::{Runner, StepReport, step};
 use crate::test::ticket;
-use crate::test::{Rig, Scripted};
+use crate::test::{CALL_PATIENCE, Rig, Scripted};
 
 const NO_OPTIONS: &str = "Done so far.\n\n<kelpie-question>\nShould the flag be `--dry-run` or \
                           `--check`?\n\nBoth appear in the docs.\n</kelpie-question>\n";
@@ -19,6 +20,14 @@ fn drafts(candidates: &str) -> &'static str {
     leak(format!(
         "{{\"answer\": {{\"item\": 7, \"escalate\": true, \"candidates\": {candidates}, \
          \"why\": \"the docs name both\"}}}}"
+    ))
+}
+
+/// [`drafts`], rewording the problem the card shows as `problem`
+fn drafts_saying(candidates: &str, problem: &str) -> &'static str {
+    leak(format!(
+        "{{\"answer\": {{\"item\": 7, \"escalate\": true, \"candidates\": {candidates}, \
+         \"problem\": \"{problem}\", \"why\": \"the docs name both\"}}}}"
     ))
 }
 
@@ -233,4 +242,76 @@ fn a_full_list_still_offers_asking_the_maintainer_in_place_of_the_last_candidate
         assert!(comment.contains(kept), "{kept}: {comment}");
     }
     assert!(!comment.contains("Use B"), "{comment}");
+}
+
+const YOU: &str = "[\"Use `--check`\", \"You remove `ready-for-agent` from #7, or close its work \
+                   item\", \"Ask the maintainer\"]";
+
+#[test]
+fn a_panel_pick_that_only_the_maintainer_can_carry_out_is_held_for_them() {
+    let (rig, runner) = asking("cand-you", NO_OPTIONS, PANEL);
+    rig.claude
+        .script_for(Role::Pm, [Scripted::Say(drafts(YOU))]);
+    script(&rig, ["B", "B", "B", "B"]);
+
+    voted(&rig, &runner);
+
+    assert!(pending(&rig), "nothing was sent to the worker");
+    assert_eq!(decided_comment(&rig), None);
+    let comment = question_comment(&rig).expect("the maintainer is asked");
+    assert!(
+        comment.contains("You remove `ready-for-agent`"),
+        "{comment}"
+    );
+    let notes = runner.lock().unwrap().take_notes().join("\n");
+    assert!(
+        notes.contains("ruling 71: the panel's pick is for the maintainer to carry out"),
+        "{notes}"
+    );
+}
+
+/// Round one: the panel decides on `--check` and the worker is resumed, and
+/// asks the same question again. Round two, scripted too, is the question's
+/// second time.
+fn asked_twice(project: &str, problems: [&str; 2]) -> (Rig, Mutex<Runner>) {
+    let (rig, runner) = asking(project, NO_OPTIONS, PANEL);
+    let pm = |problem| Scripted::Say(drafts_saying(THREE, problem));
+    rig.claude.script_for(Role::Pm, [pm(problems[0])]);
+    script(&rig, ["B", "B", "B", "B"]);
+    rig.claude.script([Scripted::Say(NO_OPTIONS)]);
+    voted(&rig, &runner);
+    assert!(decided_comment(&rig).is_some(), "round one was decided");
+    rig.claude.script_for(Role::Pm, [pm(problems[1])]);
+    script(&rig, ["B", "B", "B", "B"]);
+    (rig, runner)
+}
+
+#[test]
+fn the_same_question_coming_back_after_a_panel_decision_is_asked_of_the_maintainer() {
+    let (rig, runner) = asked_twice(
+        "cand-repeat",
+        ["The flag is unsettled.", "Two flags appear in the docs."],
+    );
+    // The card opens with the project manager's problem, so it is told by its
+    // tick boxes.
+    let asks = |rig: &Rig| {
+        comments(rig)
+            .iter()
+            .filter(|c| c.contains("Tick one"))
+            .count()
+    };
+
+    let deadline = Instant::now() + CALL_PATIENCE;
+    while Instant::now() < deadline && asks(&rig) == 0 {
+        step(&runner).unwrap();
+        std::thread::yield_now();
+    }
+
+    assert!(pending(&rig), "the panel did not decide it again");
+    assert_eq!(asks(&rig), 1);
+    let posted = comments(&rig);
+    assert_eq!(posted.iter().filter(|c| c.contains("**Decided")).count(), 1);
+    for role in [Role::Advisor, Role::Researcher] {
+        assert_eq!(asked(&rig, role), 1, "{role:?} voted on round one only");
+    }
 }

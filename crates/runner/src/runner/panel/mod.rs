@@ -253,7 +253,8 @@ impl Runner {
     // it within its last wake (a drain does not undo that), and its comment is
     // still to be posted, since one posted without the votes is not edited to
     // hold them and a restart must not ask the experts again for a vote nobody
-    // would see.
+    // would see. A question the panel decided that is asked again is the
+    // maintainer's, since the worker did not act on the decision.
     fn panel_wants(&self, ruling: &Ruling) -> bool {
         let posted = ruling.alerted || self.state.heard.contains_key(&ruling.id);
         !ruling.kind.is_contribution()
@@ -264,6 +265,13 @@ impl Runner {
             && !self.panel.open.contains_key(&ruling.id)
             && !self.pm_has_asked(ruling.id)
             && super::voice::brief(ruling).1 >= 2
+            && !self.panel_decided_before(ruling)
+    }
+
+    // Whether the panel already decided a question like `ruling`'s.
+    fn panel_decided_before(&self, ruling: &Ruling) -> bool {
+        matches!(ruling.kind, RulingKind::Question { .. })
+            && (history::records(&self.paths.rulings).iter()).any(|r| r.decided_by_panel(ruling))
     }
 
     // Drops what the panel keeps of a ruling that is answered or gone.
@@ -397,8 +405,14 @@ impl Runner {
         };
         let voted = ruling.panel.is_some() || ruling.skipped.is_some();
         let posted = ruling.alerted || self.state.heard.contains_key(&id);
-        if self.panel_enabled() && !voted && posted && super::voice::brief(ruling).1 >= 2 {
-            self.panel_skipped(id, Skip::Posted);
+        if self.panel_enabled() && !voted && super::voice::brief(ruling).1 >= 2 {
+            let skip = match self.panel_decided_before(ruling) {
+                true => Skip::Repeated,
+                false => Skip::Posted,
+            };
+            if posted || skip == Skip::Repeated {
+                self.panel_skipped(id, skip);
+            }
         }
     }
 

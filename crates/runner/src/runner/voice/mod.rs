@@ -413,7 +413,7 @@ mod card;
 
 pub(super) use self::card::{
     ASK_THE_MAINTAINER, BOARD, PROBLEM, answer_for, asks_the_maintainer, brief, chosen, effect_of,
-    named, phrases, settled_comment, thumbs, ticked,
+    is_the_maintainers, named, phrases, question_stem, settled_comment, thumbs, ticked,
 };
 
 #[cfg(test)]

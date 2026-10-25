@@ -63,6 +63,8 @@ pub enum Skip {
     /// Its comment or alert had gone out before the panel took it up, and one
     /// posted without the votes is not edited to hold them
     Posted,
+    /// The panel already decided this question, and the worker asked it again
+    Repeated,
 }
 
 impl Skip {
@@ -71,6 +73,7 @@ impl Skip {
         match self {
             Self::Draining => "draining",
             Self::Posted => "posted",
+            Self::Repeated => "repeated",
         }
     }
 
@@ -79,6 +82,7 @@ impl Skip {
         match self {
             Self::Draining => "the runner drained and no expert could be asked",
             Self::Posted => "its comment had gone out before the panel took it up",
+            Self::Repeated => "the panel already decided this question, and it was asked again",
         }
     }
 }
