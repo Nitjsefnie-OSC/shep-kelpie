@@ -12,8 +12,12 @@ pub mod github;
 // The modules of `shep-kelpie-core` the adapters use, each kept under the name it had here
 use shep_kelpie_core::{
     board, bridge, browse, confine, fence, forwarder, guard, home, hooks, ipc, lease, metrics,
-    ports, profile, review_bot, settings, skills, ticket, totp, webhook,
+    ports, profile, review_bot, settings, skills, ticket, webhook,
 };
+
+// What only Unix uses, since Windows keeps no App until #1264
+#[cfg(unix)]
+use shep_kelpie_core::totp;
 
 // What only the adapters' tests use of core
 #[cfg(test)]

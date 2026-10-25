@@ -10,10 +10,10 @@ mod command;
 mod endpoint;
 
 use std::ffi::OsString;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
+use super::files::is_executable;
 use super::paddock;
 use super::process::Processes;
 use crate::forwarder::Upstream;
@@ -162,7 +162,7 @@ fn check_command(command: &Path) -> Result<(), String> {
     if !meta.is_file() {
         return Err(cannot("not a file"));
     }
-    if meta.permissions().mode() & 0o111 == 0 {
+    if !is_executable(&meta) {
         return Err(cannot("not executable"));
     }
     Ok(())
