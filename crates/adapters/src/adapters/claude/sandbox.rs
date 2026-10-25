@@ -11,6 +11,7 @@ use std::process::Command;
 
 use super::{Claude, LOGIN_VAR};
 use crate::adapters::harness::{bind_in_scratch, call_policy, program_folder, prompt_file};
+use crate::dep_sources::ProcessEnv;
 use crate::fence;
 use crate::ports::{AgentCall, AgentError, Policy};
 
@@ -91,7 +92,7 @@ pub(crate) fn policy(
         home.join(".claude"),
     ]
     .into_iter()
-    .chain(program_folder(program))
+    .chain(program_folder(program, &ProcessEnv))
     .chain([call.settings.clone(), scratch(call)]);
     policy.no_read.push("~/.claude/projects/**".to_owned());
     policy.read.extend(

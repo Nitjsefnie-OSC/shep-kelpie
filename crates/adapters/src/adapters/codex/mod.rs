@@ -27,6 +27,7 @@ use super::harness::{
 };
 use super::process::record::CallFiles;
 use super::unreachable::reaches_no_host;
+use crate::dep_sources::ProcessEnv;
 use crate::fence;
 use crate::forwarder::Upstream;
 use crate::guard::{AFTER_FLAG, FOLDER_FLAG, PIN_FLAG};
@@ -782,7 +783,7 @@ fn policy(
     policy.read.extend(
         [login.join(AUTH), files.home.clone(), files.scratch.clone()]
             .into_iter()
-            .chain(program_folder(program))
+            .chain(program_folder(program, &ProcessEnv))
             .chain(call.instructions.iter().cloned())
             .chain(call.plugin_dirs.iter().cloned())
             .chain(call.reach.read.iter().cloned()),

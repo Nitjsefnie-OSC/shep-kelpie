@@ -4,6 +4,7 @@ use std::env;
 use std::net::{IpAddr, ToSocketAddrs};
 use std::path::{Path, PathBuf};
 
+use crate::dep_sources::Env;
 use crate::forwarder::{Upstream, WORKER_HOST};
 use crate::ports::{AgentCall, Fence, Forward, Policy, Tools};
 use crate::profile::CREDENTIALS;
@@ -60,19 +61,23 @@ pub(crate) fn call_policy(call: &AgentCall, unfenced: &[String]) -> Policy {
 /// it starts, which may sit under it: a bare name is looked up on `PATH`, and a
 /// link is followed to what it runs, since the sandbox judges the real file but
 /// the shell still has to read the link it ran.
-pub(crate) fn program_folder(program: &Path) -> Vec<PathBuf> {
+pub(crate) fn program_folder(program: &Path, env: &dyn Env) -> Vec<PathBuf> {
     let on_path = || {
-        env::var_os("PATH")
+        env.get("PATH")
             .iter()
             .flat_map(|paths| env::split_paths(paths))
             .map(|folder| folder.join(program))
             .find(|candidate| candidate.is_file())
     };
-    let Some(found) = (match program.parent() {
-        // A name with no folder is the shell's to find, and kelpie finds it the
-        // same way, so the call starts what its sandbox is told to let through.
-        None => on_path(),
-        Some(_) => program.is_file().then(|| program.to_owned()),
+    // `Path::parent` answers an empty folder for a bare name rather than none,
+    // and an empty folder is no folder: the name is the shell's to find.
+    let bare = program
+        .parent()
+        .is_none_or(|parent| parent.as_os_str().is_empty());
+    let Some(found) = (if bare {
+        on_path()
+    } else {
+        program.is_file().then(|| program.to_owned())
     }) else {
         return Vec::new();
     };
@@ -129,5 +134,58 @@ pub(crate) fn deny_the_server(policy: &mut Policy, upstream: &Upstream) {
         if !policy.denied_addresses.contains(&address) {
             policy.denied_addresses.push(address);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::program_folder;
+    use crate::dep_sources::Env;
+    use crate::test::{NO_PROGRAM, write_script};
+    use std::path::{Path, PathBuf};
+
+    // The environment a test names: `PATH` alone, which is all the lookup reads
+    struct Fixed(Option<String>);
+
+    impl Env for Fixed {
+        fn get(&self, name: &str) -> Option<String> {
+            (name == "PATH").then(|| self.0.clone()).flatten()
+        }
+    }
+
+    // A folder on the `PATH` that holds a `claude` of its own
+    fn on_path() -> (tempfile::TempDir, PathBuf) {
+        let dir = tempfile::tempdir().unwrap();
+        let bin = dir.path().join("bin");
+        std::fs::create_dir(&bin).unwrap();
+        let program = bin.join("claude");
+        write_script(&program, "#!/bin/sh\nexit 0\n");
+        (dir, program)
+    }
+
+    #[test]
+    fn a_bare_program_name_is_found_on_the_path_that_holds_it() {
+        let (_dir, program) = on_path();
+        let env = Fixed(Some(program.parent().unwrap().display().to_string()));
+        let grant = program_folder(Path::new("claude"), &env);
+        assert!(grant.contains(&program), "{grant:?}");
+    }
+
+    #[test]
+    fn a_bare_name_no_path_holds_gets_no_grant() {
+        let env = Fixed(Some("/nowhere/bin".to_owned()));
+        assert!(program_folder(Path::new("claude"), &env).is_empty());
+    }
+
+    #[test]
+    fn a_program_that_is_no_file_gets_no_grant() {
+        assert!(program_folder(&NO_PROGRAM, &Fixed(None)).is_empty());
+    }
+
+    #[test]
+    fn a_folder_named_as_the_program_gets_no_grant() {
+        let (_dir, program) = on_path();
+        let folder = program.parent().unwrap();
+        assert!(program_folder(folder, &Fixed(None)).is_empty());
     }
 }

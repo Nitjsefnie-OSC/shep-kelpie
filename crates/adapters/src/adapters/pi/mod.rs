@@ -28,6 +28,7 @@ use super::harness::{
 };
 use super::process::record::CallFiles;
 use super::unreachable::reaches_no_host;
+use crate::dep_sources::ProcessEnv;
 use crate::fence;
 use crate::forwarder::Upstream;
 use crate::guard::{AFTER_FLAG, FOLDER_FLAG, Pause};
@@ -585,7 +586,7 @@ fn fenced(call: &AgentCall, files: &Files, program: &Path, unfenced: &[String]) 
             files.scratch.clone(),
         ]
         .into_iter()
-        .chain(program_folder(program))
+        .chain(program_folder(program, &ProcessEnv))
         .chain(call.compact_window.map(|_| files.prompt()))
         .chain([outputs.stdout, outputs.stderr])
         .chain(call.instructions.iter().cloned())
