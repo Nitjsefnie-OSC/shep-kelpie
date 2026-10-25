@@ -3,16 +3,17 @@
 //! Under `dependencies.pick = "on"`, once a [`BOARD_POLL`](super::BOARD_POLL)
 //! the runner records each open pull request whose author is one of
 //! `dependencies.bots`, with the head it first saw, and drops the record of one
-//! that left the board. A bump behind `main`, or conflicting with it, gets
-//! one `@dependabot rebase` for each head, and nothing is proved on a head
-//! that is not on the latest `main`.
+//! that left the board. A bump behind `main` is asked to rebase, once for each
+//! head, when its head conflicts with `main` or when the repo's rules require a
+//! pull request's branch to be up to date with it. A bump that is only behind,
+//! under a rule that does not require it, is proved on its head as it stands.
 //!
-//! A head on the latest `main` is proved by its checks, trusted once they have
-//! had [`CHECKS_SETTLE`](super::CHECKS_SETTLE) to register as at the gate,
-//! and, when it changes a `dependencies.web` path, by an e2e run through the
-//! dog ([`flight::proving`](super::flight)). A proved bump is merged with a
-//! merge commit. No review, ruling or slot is involved, since a bot's change
-//! to a lockfile holds nothing to read that CI does not.
+//! A head proved is proved by its checks, trusted once they have had
+//! [`CHECKS_SETTLE`](super::CHECKS_SETTLE) to register as at the gate, and,
+//! when it changes a `dependencies.web` path, by an e2e run through the dog
+//! ([`flight::proving`](super::flight)). A proved bump is merged with a merge
+//! commit. No review, ruling or slot is involved, since a bot's change to a
+//! lockfile holds nothing to read that CI does not.
 //!
 //! A bump is red when a check failed, when the e2e run failed, or when its
 //! checks are still pending or never started after `dependencies.wait_hours`.
@@ -31,7 +32,7 @@ use crate::ports::{Checks, E2eOutcome, ForgeError, NewLabel, PullRequestState, T
 use crate::settings::{Dependencies, OnRed};
 use crate::state::{Bump, E2eResult, E2eState, Red, RedStep, StateError};
 use crate::worktree::Base;
-use read::Reads;
+use read::{Proof, Reads};
 
 /// Made on a repo that lacks it before the first issue for a red bump
 const DEPENDENCIES_LABEL: NewLabel<'static> = NewLabel {
@@ -46,14 +47,80 @@ const UNREAD: &str = "waiting for the next poll to read it";
 // What `status` says of a web bump the dog has no host for
 const NO_HOST: &str = "a web bump, and the project has no e2e host, so it is not merged";
 
+// What `status` and the log say of a bump behind `main` that its rule lets through as it stands
+const BEHIND_ALLOWED: &str = "behind main, which does not require it to be up to date";
+
+// Why a bump behind `main` is asked to rebase
+enum Why {
+    /// Its head conflicts with `main`, whatever its rules say
+    Conflict,
+    /// `main`'s rules require a pull request's branch to be up to date
+    Strict,
+    /// Those rules could not be read, so kelpie asks as it always did
+    Unknown(String),
+}
+
+impl Why {
+    fn standing(&self) -> String {
+        match self {
+            Self::Conflict => "behind main and conflicts with it".into(),
+            Self::Strict => "behind main, which requires it to be up to date".into(),
+            Self::Unknown(why) => format!("behind main, and cannot tell its rule ({why})"),
+        }
+    }
+
+    fn note(&self) -> String {
+        match self {
+            Self::Conflict => "it conflicts with main".into(),
+            Self::Strict => "main requires it to be up to date".into(),
+            Self::Unknown(why) => format!("its rule cannot be read: {why}"),
+        }
+    }
+}
+
 // Where one poll left a bump
 enum Next {
     // Not yet: this is why
     Waiting(String),
-    // Proved
-    Merge,
+    // Proved: merge it. `behind` names the rule that let a behind bump through,
+    // which the merge's log line says
+    Merge { behind: Option<&'static str> },
     // Broken: this is what failed
     Red(Vec<String>),
+}
+
+// What to do with a bump behind `main`: ask it to rebase, for this reason, or
+// prove it on its head as it stands
+enum Behind {
+    Ask(Why),
+    Prove,
+}
+
+fn behind_rule(read: &Proof, up_to_date: Option<Result<bool, String>>) -> Behind {
+    match &read.conflicts {
+        Some(Ok(true)) => return Behind::Ask(Why::Conflict),
+        Some(Err(why)) => {
+            return Behind::Ask(Why::Unknown(format!(
+                "git cannot say whether it conflicts: {why}"
+            )));
+        }
+        Some(Ok(false)) => {}
+        None => return Behind::Ask(Why::Unknown("git has not said whether it conflicts".into())),
+    }
+    match up_to_date {
+        Some(Ok(false)) => Behind::Prove,
+        Some(Ok(true)) => Behind::Ask(Why::Strict),
+        Some(Err(why)) => Behind::Ask(Why::Unknown(why)),
+        None => Behind::Ask(Why::Unknown("the repo's rule has not been read".into())),
+    }
+}
+
+// Says which rule let a behind bump through in the line it waits on
+fn stood(behind: Option<&'static str>, next: Next) -> Next {
+    match (behind, next) {
+        (Some(rule), Next::Waiting(why)) => Next::Waiting(format!("{rule}: {why}")),
+        (_, next) => next,
+    }
 }
 
 impl Runner {
@@ -140,8 +207,8 @@ impl Runner {
         match self.prove(&bump, pr, now, reads) {
             Next::Waiting(why) => self.stand(number, why, false),
             Next::Red(why) => self.go_red(number, &bump.head, why),
-            Next::Merge => {
-                self.merge_bump(&bump)?;
+            Next::Merge { behind } => {
+                self.merge_bump(&bump, behind)?;
                 if self.bump(number).is_none() {
                     reads.moved_on();
                 }
@@ -227,16 +294,22 @@ impl Runner {
         let Some(read) = reads.proofs.remove(&bump.pull_request) else {
             return Next::Waiting(UNREAD.into());
         };
-        match read.base {
+        let behind = match read.base {
             Err(e) => return Next::Waiting(format!("cannot tell where it stands on main: {e}")),
             Ok(Base::Lagging) => {
                 return Next::Waiting("waiting for its branch to match the forge's head".into());
             }
-            Ok(Base::Behind) => return self.ask_rebase(bump),
-            Ok(Base::Current) => {}
-        }
+            Ok(Base::Current) => None,
+            Ok(Base::Behind) => match behind_rule(&read, reads.up_to_date.clone()) {
+                Behind::Ask(why) => return self.ask_rebase(bump, &why),
+                Behind::Prove => Some(BEHIND_ALLOWED),
+            },
+        };
         if !settled(bump.seen, now) {
-            return Next::Waiting("waiting for its checks to register".into());
+            return stood(
+                behind,
+                Next::Waiting("waiting for its checks to register".into()),
+            );
         }
         let hours = self.settings.dependencies.wait_hours.get();
         let overdue = now.0.saturating_sub(bump.seen.0) >= u64::from(hours) * 3600;
@@ -258,44 +331,58 @@ impl Runner {
                 return Next::Red(vec![format!("no check reported on it after {hours} hours")]);
             }
             Checks::None | Checks::Pending(_) => {
-                return Next::Waiting("waiting for its checks to finish".into());
+                return stood(
+                    behind,
+                    Next::Waiting("waiting for its checks to finish".into()),
+                );
             }
             Checks::Passed | Checks::Skipped => {}
         }
-        self.prove_web(bump, read.web)
+        stood(behind, self.prove_web(bump, read.web, behind))
     }
 
-    // A bump behind `main` is asked to rebase once for each head.
-    fn ask_rebase(&mut self, bump: &Bump) -> Next {
+    // A bump behind `main` is asked to rebase once for each head, for the
+    // reason `why` gives: it conflicts, `main` requires it, or the rule that
+    // might not require it could not be read.
+    fn ask_rebase(&mut self, bump: &Bump, why: &Why) -> Next {
+        let standing = why.standing();
         if bump.rebase_asked.as_deref() == Some(&bump.head) {
-            return Next::Waiting("behind main: asked to rebase, and has not pushed yet".into());
+            return Next::Waiting(format!(
+                "{standing}: asked to rebase, and has not pushed yet"
+            ));
         }
-        let ask = format!("@{} rebase", Dependencies::mention(&bump.author));
-        if let Err(e) = self.comment_as_gh(bump.pull_request, &ask) {
-            return Next::Waiting(format!("behind main, and cannot ask for a rebase: {e}"));
+        let mention = format!("@{} rebase", Dependencies::mention(&bump.author));
+        if let Err(e) = self.comment_as_gh(bump.pull_request, &mention) {
+            return Next::Waiting(format!("{standing}, and cannot ask for a rebase: {e}"));
         }
         self.notes.push(format!(
-            "bump #{}: asked {} to rebase it onto main, at {}",
+            "bump #{}: asked {} to rebase it onto main, at {}: {}",
             bump.pull_request,
             bump.author,
             short(&bump.head),
+            why.note(),
         ));
         let head = bump.head.clone();
         match self.amend(bump.pull_request, |b| b.rebase_asked = Some(head)) {
-            Ok(()) => Next::Waiting("behind main: asked to rebase".into()),
+            Ok(()) => Next::Waiting(format!("{standing}: asked to rebase")),
             Err(e) => Next::Waiting(format!("asked to rebase, but cannot save that: {e}")),
         }
     }
 
     // A web bump also needs its proof on this head: its routes opened in the local
     // browser where the project has one, and a passing e2e run where it has a host.
-    fn prove_web(&mut self, bump: &Bump, web: Option<Result<bool, String>>) -> Next {
+    fn prove_web(
+        &mut self,
+        bump: &Bump,
+        web: Option<Result<bool, String>>,
+        behind: Option<&'static str>,
+    ) -> Next {
         let number = bump.pull_request;
         if bump.e2e_failure().is_some() {
             return Next::Red(vec!["its e2e run failed".into()]);
         }
         if bump.e2e_passed() {
-            return Next::Merge;
+            return Next::Merge { behind };
         }
         if self.flights.proving(number, &bump.head) {
             return Next::Waiting("proving it: running the browser and e2e tests".into());
@@ -304,7 +391,7 @@ impl Runner {
             return Next::Waiting(why.to_owned());
         }
         if self.settings.dependencies.web.is_empty() {
-            return Next::Merge;
+            return Next::Merge { behind };
         }
         let web = match web {
             Some(Ok(web)) => web,
@@ -312,7 +399,7 @@ impl Runner {
             None => return Next::Waiting(UNREAD.into()),
         };
         if !web {
-            return Next::Merge;
+            return Next::Merge { behind };
         }
         if self.draining() {
             return Next::Waiting("a web bump, waiting for the runner to stop draining".into());
@@ -396,13 +483,16 @@ impl Runner {
         self.amend(number, |bump| bump.e2e = Some(E2eResult { head, state }))
     }
 
-    fn merge_bump(&mut self, bump: &Bump) -> Result<(), StateError> {
+    fn merge_bump(&mut self, bump: &Bump, behind: Option<&'static str>) -> Result<(), StateError> {
         let number = bump.pull_request;
         if let Err(e) = self.ports.forge.merge(&self.remote, number, &bump.head) {
             return self.stand(number, format!("cannot merge it: {e}"), true);
         }
-        self.notes
-            .push(format!("bump #{number}: merged at {}", short(&bump.head)));
+        let at = short(&bump.head);
+        self.notes.push(match behind {
+            None => format!("bump #{number}: merged at {at}"),
+            Some(rule) => format!("bump #{number}: merged at {at}, {rule}"),
+        });
         self.drop_bump(number)
     }
 
