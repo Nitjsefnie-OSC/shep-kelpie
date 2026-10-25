@@ -193,6 +193,7 @@ fn resolve(path: &Path) -> Option<PathBuf> {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(unix)]
     use std::os::unix::fs::symlink;
 
     use serde_json::json;
@@ -313,6 +314,7 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_symlink_out_of_the_worktree_is_followed_and_refused() {
         let w = world();
@@ -323,6 +325,7 @@ mod tests {
 
     // A pi reviewer's `write`, as pi's guard hands it to `confine`: the tests
     // folder twice, and the file's absolute path.
+    #[cfg(unix)]
     #[test]
     fn a_write_through_a_link_in_the_tests_folder_to_the_worktree_is_refused() {
         let w = world();
@@ -410,6 +413,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_link_to_or_from_claudes_own_folder_is_refused() {
         let w = world();

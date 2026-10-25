@@ -65,6 +65,7 @@ fn every_encoding_of_a_local_path_is_refused_in_a_comment() {
     }
 }
 
+#[cfg(unix)]
 #[test]
 fn a_symlinked_home_is_refused_in_its_canonical_form() {
     let dir = tempfile::tempdir().unwrap();

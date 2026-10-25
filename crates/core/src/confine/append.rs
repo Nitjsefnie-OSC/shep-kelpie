@@ -165,7 +165,7 @@ mod tests {
     }
 
     #[test]
-    fn notes_that_are_a_symlink_or_a_write_past_the_cap_are_refused() {
+    fn notes_written_past_the_cap_are_refused() {
         let w = world("- kept\n");
         let long = format!("- kept\n{}", "x".repeat(MOST + 1));
         let Verdict::Refuse(why) =
@@ -174,7 +174,12 @@ mod tests {
             panic!("a write past the cap went ahead");
         };
         assert!(why.starts_with("one write may add at most 64 KiB"), "{why}");
+    }
 
+    #[cfg(unix)]
+    #[test]
+    fn notes_that_are_a_symlink_are_refused() {
+        let w = world("- kept\n");
         let elsewhere = w.notes.with_file_name("elsewhere.md");
         std::fs::write(&elsewhere, "").unwrap();
         std::fs::remove_file(&w.notes).unwrap();
