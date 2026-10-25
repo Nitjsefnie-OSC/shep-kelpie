@@ -8,10 +8,10 @@
 //! changes moves the same way. An issue that closes or loses the label leaves
 //! it. An issue that already
 //! has an open pull request or an assignee is someone's work in progress, and
-//! is skipped. So is one whose `agent:` label names no implementer the
-//! project lists, since kelpie would not know which agent to run it on. An
-//! issue waits while any issue it is blocked by is open, even one with a pull
-//! request. An issue the runner picks but cannot take, because the forge
+//! is skipped. So is one whose `agent:` label names no implementer kelpie
+//! has an agent file for, since kelpie would not know which agent to run it
+//! on. An issue waits while any issue it is blocked by is open, even one with
+//! a pull request. An issue the runner picks but cannot take, because the forge
 //! cannot show it or its `agent:` label fails when `add` reads it, is skipped
 //! too, so it cannot stall the issues behind it. An issue with sub-issues is
 //! never worked itself: its sub-issues are.
@@ -22,7 +22,7 @@ use std::fmt;
 use serde::Serialize;
 
 use crate::ports::{Forge, ForgeError, NewLabel, Timestamp};
-use crate::settings::{AgentName, Dependencies, ForgeSlug, RoleAgents};
+use crate::settings::{AgentName, Dependencies, ForgeSlug};
 use crate::ticket::TicketId;
 
 pub mod briefing;
@@ -183,7 +183,7 @@ pub enum Skip {
         #[serde(skip_serializing_if = "is_zero")]
         unlisted: u64,
     },
-    /// Its `agent:` label names no listed implementer
+    /// Its `agent:` label names no implementer kelpie has an agent file for
     Label {
         /// The ticket
         issue: TicketId,
@@ -475,8 +475,8 @@ fn priority_rank(labels: &[String]) -> usize {
         .unwrap_or(PRIORITIES.len())
 }
 
-// Why the board cannot take an issue with `labels`, given the project's
-// implementers, before anything is spent on it.
+// Why the board cannot take an issue with `labels`, given the implementers
+// kelpie can run a work item on, before anything is spent on it.
 fn label_error(labels: &[String], implementers: &[AgentName]) -> Option<LabelError> {
     agent_label(labels, implementers).err()
 }
@@ -485,6 +485,8 @@ fn label_error(labels: &[String], implementers: &[AgentName]) -> Option<LabelErr
 ///
 /// The prefix is read in any case, so `Agent:opus-high` is a label too, and
 /// a `!` at its end, which pins the work item to it, is not the name's.
+/// `implementers` names every agent kelpie can run a work item on: the ones
+/// the project lists, and every agent file whose role is `implementer`.
 ///
 /// # Errors
 ///
@@ -509,9 +511,9 @@ pub fn agent_label(
     let value = value.strip_suffix(PIN).unwrap_or(value);
     match implementers.iter().find(|name| name.as_str() == value) {
         Some(name) => Ok(Some(name.clone())),
-        None => Err(LabelError::NotListed {
+        None => Err(LabelError::NoAgent {
             label: label.clone(),
-            listed: implementers.iter().map(AgentName::to_string).collect(),
+            agents: implementers.iter().map(AgentName::to_string).collect(),
         }),
     }
 }
@@ -540,12 +542,12 @@ pub fn old_worker_label(labels: &[String]) -> Option<&str> {
 pub enum LabelError {
     /// The issue has more than one `agent:` label
     Several,
-    /// The label names no agent the project lists in `agents.implementers`
-    NotListed {
+    /// The label names no agent kelpie has an implementer file for
+    NoAgent {
         /// The label
         label: String,
-        /// The agents the project lists
-        listed: Vec<String>,
+        /// The agents kelpie can run a work item on
+        agents: Vec<String>,
     },
 }
 
@@ -553,11 +555,11 @@ impl fmt::Display for LabelError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Several => f.write_str("the issue has more than one `agent:` label"),
-            Self::NotListed { label, listed } => write!(
+            Self::NoAgent { label, agents } => write!(
                 f,
-                "label `{label}` names no agent the project lists in `agents.implementers`, \
-                 which are {}",
-                listed.join(", ")
+                "label `{label}` names no implementer: kelpie's agent files with \
+                 `role: implementer` are {}",
+                agents.join(", ")
             ),
         }
     }
@@ -596,13 +598,9 @@ impl AgentLabel {
     }
 }
 
-/// The `agent:` label of each implementer `agents` lists
-pub fn agent_labels(agents: &RoleAgents) -> Vec<AgentLabel> {
-    agents
-        .implementers
-        .iter()
-        .map(|i| AgentLabel::of(&i.name))
-        .collect()
+/// The `agent:` label of each implementer named in `names`
+pub fn agent_labels(names: &[AgentName]) -> Vec<AgentLabel> {
+    names.iter().map(AgentLabel::of).collect()
 }
 
 /// Makes each of `wanted` that `repo` lacks, in any case, with `create`, such as through

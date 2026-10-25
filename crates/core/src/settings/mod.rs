@@ -45,8 +45,8 @@ mod triage;
 
 pub use agents::{
     Account, AgentHarness, AgentName, DoctorProbe, ExpertAgent, Harness, HarnessFacts, Implementer,
-    Limit, ModelServer, PmAgent, ResearcherWeb, RoleAgentNames, RoleAgents, SessionIds,
-    UsageReader,
+    ImplementerChoice, Limit, ModelServer, PmAgent, ResearcherWeb, RoleAgentNames, RoleAgents,
+    SessionIds, UsageReader,
 };
 pub use browser::Browser;
 pub use budget::{Budget, PerItemUsd};

@@ -1,16 +1,17 @@
 //! Pacing: each account's usage is read before a call on it starts
 //!
 //! A new work item is paced on every account its roles spend, its turns on
-//! the worker's, and a review round on its reviewer's. Each account keeps
-//! its own day and its own holds. An agent limited by a lease is never paced.
+//! the worker's, and a review round on its reviewer's, each open item's own
+//! agent included, listed or not. Each account keeps its own day and its own
+//! holds. An agent limited by a lease is never paced.
 //!
 //! A reading that finds a hold is trusted for [`RECHECK_SECS`] or until the
-//! hold ends, whichever comes first, so a project held for hours reads
-//! usage a few times an hour rather than on every look at the board. A
-//! reading that finds no hold is never reused.
+//! hold ends, whichever comes first, so a project held for hours reads usage
+//! a few times an hour rather than on every look at the board. A reading
+//! that finds no hold is never reused.
 //!
-//! With `pacing.enabled` off the reading still runs, so `status` shows the
-//! numbers, but neither limit holds anything.
+//! With `pacing.enabled` off the reading still runs for `status`, and neither
+//! limit holds anything.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -152,11 +153,23 @@ impl Runner {
         self.pace(Scope::Dispatch, &claude)
     }
 
-    // Each implementer's limit, then each listed reviewer's that runs sessions.
+    // Each implementer's limit, each listed reviewer's that runs sessions, and
+    // each open work item's own agent's, listed or not.
     fn spent_limits(&self) -> impl Iterator<Item = &Limit> {
         let sessions = self.lineup.iter().filter_map(|r| r.runs.session());
         let implementers = self.agents.implementers.iter().map(|i| &i.limit);
-        implementers.chain(sessions.map(|(_, limit)| limit))
+        let items = self.item_runs().filter_map(|runs| runs.session());
+        implementers
+            .chain(sessions.map(|(_, limit)| limit))
+            .chain(items.map(|(_, limit)| limit))
+    }
+
+    // What each open work item's worker runs on, from its agent file, which
+    // the project may not list.
+    fn item_runs(&self) -> impl Iterator<Item = &Runs> {
+        (self.state.work_items.iter())
+            .filter_map(|item| self.book.get(&item.agent))
+            .map(|agent| &agent.runs)
     }
 
     // The accounts the project's calls spend, each once.
@@ -211,6 +224,7 @@ impl Runner {
         };
         let implementers = self.agents.implementers.iter().map(|i| &i.model);
         let sessions = self.lineup.iter().filter_map(|r| r.runs.session());
+        let items = self.item_runs().filter_map(|runs| runs.session());
         let endpoints = self.lineup.iter().filter_map(|r| match &r.runs {
             Runs::Endpoint(endpoint) => match &endpoint.host {
                 ModelHost::Gateway(name) => {
@@ -222,6 +236,7 @@ impl Runner {
         });
         let sessions = implementers
             .chain(sessions.map(|(model, _)| model))
+            .chain(items.map(|(model, _)| model))
             .filter_map(|m| behind(&m.harness, m.model.as_str()));
         sessions.chain(endpoints).collect()
     }

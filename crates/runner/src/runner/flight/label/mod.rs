@@ -1,12 +1,15 @@
 //! The issue writer labelling an issue the board would open unlabelled
 //!
-//! With more than one implementer listed, the board asks the issue writer
-//! which should build a ready issue with no `agent:` label, before it opens
-//! a work item. One such call runs at a time, in flight like a turn, in the
-//! project's checkout with read tools only. Its reply names an implementer,
-//! which kelpie puts on the issue, and the board's next poll reads it
-//! labelled. A failed call, or a reply naming no listed implementer, raises
-//! a ruling on the issue, which the board passes over until it is answered.
+//! With more than one implementer listed and `agents.implementer_choice` at
+//! its default `issue-writer`, the board asks the issue writer which should
+//! build a ready issue with no `agent:` label, before it opens a work item.
+//! One such call runs at a time, in flight like a turn, in the project's
+//! checkout with read tools only. Its reply names an implementer, which
+//! kelpie puts on the issue, and the board's next poll reads it labelled. A
+//! failed call, or a reply naming no listed implementer, raises a ruling on
+//! the issue, which the board passes over until it is answered. With
+//! `agents.implementer_choice = "order"` the board asks nothing: an
+//! unlabelled issue opens on the first implementer listed.
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
@@ -22,7 +25,7 @@ use super::{End, News};
 use crate::agents::Writer;
 use crate::board::{AGENT_LABEL, ReadyIssue, agent_label};
 use crate::ports::{AgentError, AgentReply, Ending, Role, Timestamp, Tools};
-use crate::settings::AgentName;
+use crate::settings::{AgentName, ImplementerChoice};
 use crate::state::{Ruling, RulingKind, StateError, Stuck};
 use crate::ticket::TicketId;
 use crate::usage::{CallKind, Draft};
@@ -61,10 +64,14 @@ struct Picked {
 
 impl Runner {
     /// Whether the board asks the issue writer to label `issue` before it
-    /// opens it: it has no `agent:` label, and more than one implementer is listed
+    /// opens it: `agents.implementer_choice` is `issue-writer`, the issue has
+    /// no `agent:` label, and more than one implementer is listed
     pub(in crate::runner) fn needs_label(&self, issue: &ReadyIssue) -> bool {
+        if self.settings.agents.implementer_choice == ImplementerChoice::Order {
+            return false;
+        }
         let listed = self.agents.implementer_names();
-        listed.len() > 1 && agent_label(&issue.labels, &listed) == Ok(None)
+        listed.len() > 1 && agent_label(&issue.labels, &self.implementer_files()) == Ok(None)
     }
 
     /// The ruling an unlabelled `ticket` waits on, while one does
