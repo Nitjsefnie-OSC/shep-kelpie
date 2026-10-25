@@ -23,6 +23,14 @@ fn drafts(candidates: &str) -> &'static str {
     ))
 }
 
+/// [`drafts`], rewording the problem the card shows as `problem`
+fn drafts_saying(candidates: &str, problem: &str) -> &'static str {
+    leak(format!(
+        "{{\"answer\": {{\"item\": 7, \"escalate\": true, \"candidates\": {candidates}, \
+         \"problem\": \"{problem}\", \"why\": \"the docs name both\"}}}}"
+    ))
+}
+
 /// A worker asking `question` on the turn that opens pull request 71, in a
 /// project with a panel under `rulings`
 fn asking(project: &str, question: &'static str, rulings: &str) -> (Rig, Mutex<Runner>) {
@@ -265,33 +273,43 @@ fn a_panel_pick_that_only_the_maintainer_can_carry_out_is_held_for_them() {
 /// Round one: the panel decides on `--check` and the worker is resumed, and
 /// asks the same question again. Round two, scripted too, is the question's
 /// second time.
-fn asked_twice(project: &str) -> (Rig, Mutex<Runner>) {
+fn asked_twice(project: &str, problems: [&str; 2]) -> (Rig, Mutex<Runner>) {
     let (rig, runner) = asking(project, NO_OPTIONS, PANEL);
-    rig.claude
-        .script_for(Role::Pm, [Scripted::Say(drafts(THREE))]);
+    let pm = |problem| Scripted::Say(drafts_saying(THREE, problem));
+    rig.claude.script_for(Role::Pm, [pm(problems[0])]);
     script(&rig, ["B", "B", "B", "B"]);
     rig.claude.script([Scripted::Say(NO_OPTIONS)]);
     voted(&rig, &runner);
     assert!(decided_comment(&rig).is_some(), "round one was decided");
-    rig.claude
-        .script_for(Role::Pm, [Scripted::Say(drafts(THREE))]);
+    rig.claude.script_for(Role::Pm, [pm(problems[1])]);
     script(&rig, ["B", "B", "B", "B"]);
     (rig, runner)
 }
 
 #[test]
 fn the_same_question_coming_back_after_a_panel_decision_is_asked_of_the_maintainer() {
-    let (rig, runner) = asked_twice("cand-repeat");
+    let (rig, runner) = asked_twice(
+        "cand-repeat",
+        ["The flag is unsettled.", "Two flags appear in the docs."],
+    );
+    // The card opens with the project manager's problem, so it is told by its
+    // tick boxes.
+    let asks = |rig: &Rig| {
+        comments(rig)
+            .iter()
+            .filter(|c| c.contains("Tick one"))
+            .count()
+    };
 
     let deadline = Instant::now() + CALL_PATIENCE;
-    while Instant::now() < deadline && question_comment(&rig).is_none() {
+    while Instant::now() < deadline && asks(&rig) == 0 {
         step(&runner).unwrap();
         std::thread::yield_now();
     }
 
     assert!(pending(&rig), "the panel did not decide it again");
+    assert_eq!(asks(&rig), 1);
     let posted = comments(&rig);
-    assert_eq!(posted.iter().filter(|c| c.starts_with("### ")).count(), 1);
     assert_eq!(posted.iter().filter(|c| c.contains("**Decided")).count(), 1);
     for role in [Role::Advisor, Role::Researcher] {
         assert_eq!(asked(&rig, role), 1, "{role:?} voted on round one only");

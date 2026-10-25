@@ -664,6 +664,22 @@ fn leaves_it(choice: &Choice) -> bool {
     asks_the_maintainer(&choice.name)
 }
 
+/// What a worker's question says, as the worker asked it: less the project
+/// manager's lines, the options it lists and the spacing. None for a ruling
+/// that is not a question.
+pub(in crate::runner) fn question_stem(kind: &RulingKind) -> Option<String> {
+    let RulingKind::Question { asked, .. } = kind else {
+        return None;
+    };
+    Some(
+        split_question(asked)
+            .stem
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" "),
+    )
+}
+
 // A worker's question without the project manager's lines, split into what it
 // says and the options it lists, one `- ` line each at its end
 fn split_question(asked: &str) -> Asking {

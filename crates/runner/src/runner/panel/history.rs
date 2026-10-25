@@ -48,6 +48,10 @@ pub(in crate::runner) struct Record {
     pull_request: Option<u64>,
     asked: String,
     pub(in crate::runner) answer: String,
+    // What a worker's question says as it asked it, which the project manager's
+    // rewording of the card leaves as it is
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    stem: Option<String>,
     // Whether the project manager answered for the maintainer
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     by_pm: bool,
@@ -98,6 +102,7 @@ impl Record {
             issue: ruling.issue,
             pull_request: ruling.pull_request,
             asked: asked_of(ruling),
+            stem: stem_of(ruling),
             answer: crate::runner::panel::folders::clip(&answer, QUESTION),
             by_pm: by == Answerer::Pm,
             by_panel: by == Answerer::Panel,
@@ -110,9 +115,15 @@ impl Record {
         }
     }
 
-    /// Whether the panel decided this ruling, with the question `ruling` asks
+    /// Whether the panel decided the same question as `ruling` asks, for the
+    /// same work item: its pull request's number names a ruling once there is
+    /// one, so the ticket is what stays the same
     pub(super) fn decided_by_panel(&self, ruling: &Ruling) -> bool {
-        self.by_panel && self.id == ruling.id && self.asked == asked_of(ruling)
+        let item = match (self.issue, ruling.issue) {
+            (Some(was), Some(is)) => was == is,
+            _ => self.id == ruling.id,
+        };
+        self.by_panel && item && self.stem.is_some() && self.stem == stem_of(ruling)
     }
 
     /// Who answered it
@@ -143,6 +154,12 @@ impl Record {
             .and_then(|mut f| writeln!(f, "{line}"));
         opened.map_err(|e| format!("cannot add to {}: {}", file.display(), e.kind()))
     }
+}
+
+// What a worker asked in `ruling`, as `rulings.jsonl` keeps it.
+fn stem_of(ruling: &Ruling) -> Option<String> {
+    let stem = crate::runner::voice::question_stem(&ruling.kind)?;
+    Some(crate::runner::panel::folders::clip(&stem, QUESTION))
 }
 
 // What `ruling` asks, less the table of options, as `rulings.jsonl` keeps it.
@@ -277,5 +294,36 @@ mod tests {
         assert_eq!(records.len(), 1);
         assert_eq!(records[0].id, ticket(3));
         assert!(read(&file).contains("yes"));
+    }
+
+    fn asking(id: u64, pull_request: Option<u64>, asked: &str) -> Ruling {
+        let kind = crate::state::RulingKind::Question {
+            asked: asked.into(),
+            resume: crate::state::Resume::Nothing,
+        };
+        Ruling {
+            issue: Some(ticket(7)),
+            pull_request,
+            ..Ruling::new(ticket(id), asked, kind)
+        }
+    }
+
+    fn decided(ruling: &Ruling) -> Record {
+        Record::of(
+            ruling,
+            &Answer::Text("A".into()),
+            Timestamp(1),
+            Answerer::Panel,
+        )
+    }
+
+    // The ruling's id is its pull request's number once there is one, so a
+    // question asked again after the pull request opened is the same question.
+    #[test]
+    fn a_question_asked_again_under_a_pull_request_is_the_one_the_panel_decided() {
+        let before = decided(&asking(7, None, "Which flag?\n- `--a`\n- `--b`"));
+
+        assert!(before.decided_by_panel(&asking(71, Some(71), "Which flag?\n- `--a`\n- `--b`")));
+        assert!(!before.decided_by_panel(&asking(71, Some(71), "Which command?")));
     }
 }
