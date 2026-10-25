@@ -11,7 +11,6 @@ use crate::ports::{Browser, CodeGraph, Role, Unreadable};
 use crate::profile::WorkerProfile;
 use crate::settings::Effort;
 use crate::test::OpenSandbox;
-use crate::tools::Tools as KelpieTools;
 
 pub(super) const WORKER_ID: &str = "5a2e9d40-1c7b-4b38-8e6f-2d4a9c1b7e53";
 const REVIEW_ID: &str = "7c41b2e8-0d3a-4f6e-9b15-3e8a2c6d4f90";
@@ -803,8 +802,7 @@ fn worker_in(wt: &Path, build: &Path, kelpie: &Path, root: &Path, call: AgentCal
     }
 }
 
-const NEEDS: &str = "needs KELPIE_TOOLS=<dir> from `shep kelpie tools install`, \
-                     KELPIE_BIN=<this branch's kelpie>, KELPIE_CODEX_MODEL=<model>, \
+const NEEDS: &str = "needs KELPIE_BIN=<this branch's kelpie>, KELPIE_CODEX_MODEL=<model>, \
                      and KELPIE_CODEX_RECORD=<dir> for what it prints; kelpie's \
                      own Codex login is read from ~/.kelpie/codex";
 
@@ -815,11 +813,10 @@ fn env(name: &str) -> String {
 // The real Codex on kelpie's own login, under the real sandbox, the way
 // the runner wraps it.
 fn live() -> CodexCli {
-    let tools = KelpieTools::at(env("KELPIE_TOOLS").into());
     let home = PathBuf::from(std::env::var_os("HOME").unwrap());
     let login = home.join(".kelpie/codex");
     let sandbox = Unreadable::new(
-        Arc::new(SandboxRuntime::under_test(tools)),
+        Arc::new(SandboxRuntime::under_test()),
         vec![format!("{}/**", login.display())],
     );
     CodexCli::on(&Base::default().sandboxed(Arc::new(sandbox), home), login)
@@ -970,11 +967,9 @@ fn measure_a_claude_code_worker_on_the_same_issue() {
         PathBuf::from(env("KELPIE_BIN")),
         PathBuf::from(env("KELPIE_ISSUE_REPO")),
     );
-    let tools = KelpieTools::at(env("KELPIE_TOOLS").into());
     let home = PathBuf::from(std::env::var_os("HOME").unwrap());
-    let claude = ClaudeCli::on(
-        &Base::default().sandboxed(Arc::new(SandboxRuntime::under_test(tools)), home),
-    );
+    let claude =
+        ClaudeCli::on(&Base::default().sandboxed(Arc::new(SandboxRuntime::under_test()), home));
     let world = World::new();
     let mut call = worker_in(
         &repo,

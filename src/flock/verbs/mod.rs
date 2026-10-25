@@ -18,7 +18,6 @@ use crate::settings::source;
 use crate::shepherd::{self, Connection, Dial, Socket};
 use crate::state::Projects;
 use crate::ticket::TicketId;
-use crate::tools::Tools;
 use crate::upgrade::restart::{Interrupt, Patience};
 
 /// The verbs [`main`] runs: every trigger a runner takes, `add`, which also
@@ -449,14 +448,11 @@ async fn issue(here: Here<'_>, name: &ProjectName, args: &[&str]) -> Result<Vec<
             (Err(e), false) => Err(format!("claude ended with {status}\n{e}")),
         };
     }
-    let tools = Tools::under(here.kelpie_home);
-    SandboxRuntime::new(tools.clone())
-        .check()
-        .map_err(|e| e.to_string())?;
+    SandboxRuntime::new().check().map_err(|e| e.to_string())?;
     let codex_home =
         (loaded.kelpie.codex_home(here.home, here.kelpie_home)).map_err(|e| e.to_string())?;
     let secret_vars = loaded.kelpie.gateways().key_vars();
-    let base = Base::default().in_runtime(tools, here.home.to_owned(), &codex_home, secret_vars);
+    let base = Base::default().in_runtime(here.home.to_owned(), &codex_home, secret_vars);
     let claude = ClaudeCli::on(&base).with_login(LoginToken::take());
     let gh = Gh::default();
     // What it filed is read back from the project's own ticket source.

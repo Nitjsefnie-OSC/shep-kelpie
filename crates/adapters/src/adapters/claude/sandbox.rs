@@ -151,7 +151,6 @@ mod tests {
     use crate::profile::WorkerProfile;
     use crate::settings::Effort;
     use crate::test::OpenSandbox;
-    use crate::tools::Tools as KelpieTools;
 
     const RESULT: &str = include_str!("../../../../../fixtures/claude-p-result.json");
 
@@ -281,7 +280,7 @@ mod tests {
         let w = World::new();
         // A Windows machine with no `crabpot windows-install` has no sandbox
         // to run a call in.
-        let none = SandboxRuntime::new(KelpieTools::at(w.path("no-tools")))
+        let none = SandboxRuntime::new()
             .on(crate::adapters::srt::Platform::Windows)
             .with_install(crate::adapters::host::WindowsInstall {
                 provisioned: false,
