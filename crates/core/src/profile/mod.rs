@@ -2,13 +2,12 @@
 //!
 //! The worker runs with no one to ask, so its sandbox is its whole fence.
 //! Writes go to its worktree, its build folder and what a commit and a push
-//! need, and never to agents' own files in the worktree. Reads go to the same
+//! need, and never to agents' own files in the worktree. Reads go to those
 //! folders, the git its commits run through, the toolchain its build runs and
-//! what its call is granted: the rest of the home folder, other repos and
-//! their `.env` files included, is denied, and credential paths are unreadable
-//! wherever they sit. Hosts are GitHub's and the project's, and what only
-//! the project manager does is a command it may not run. Each harness's
-//! adapter enforces the fence its own way.
+//! what its call is granted; the rest of the home, other repos and their
+//! `.env` files included, is denied, and credential paths are unreadable
+//! wherever they sit. Hosts are GitHub's and the project's, and a command only
+//! the project manager does is one it may not run, each adapter enforcing it.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};

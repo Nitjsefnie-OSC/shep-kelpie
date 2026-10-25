@@ -83,9 +83,8 @@ pub(crate) fn policy(
     policy.write.extend([transcripts.clone(), scratch(call)]);
     // A fence denies the home folder whole, so what Claude Code reads to run is
     // named beside the call's own files: its login and state, the settings,
-    // skills and shell snapshots under its home, and the program it is,
-    // wherever they sit. Another project's transcripts stay denied: they hold
-    // what those sessions read, and this call writes none of its own there.
+    // skills and shell snapshots under its home, and the program it is. Other
+    // projects' transcripts stay denied: they hold what those sessions read.
     let own = [
         transcripts.clone(),
         home.join(".claude.json"),
