@@ -334,11 +334,10 @@ fn on_disk(worktree: &Path) -> Result<BTreeMap<String, Disk>, WorktreeError> {
     }
     while let Some(path) = pending.pop() {
         let meta = fs::symlink_metadata(&path).map_err(|e| folder(&path, &e))?;
-        let relative = path
-            .strip_prefix(worktree)
-            .expect("found under the worktree")
-            .to_string_lossy()
-            .into_owned();
+        let relative = git_path(
+            path.strip_prefix(worktree)
+                .expect("found under the worktree"),
+        );
         let kind = meta.file_type();
         if kind.is_dir() {
             pending.extend(read_dir(&path)?.map(|entry| entry.path()));
@@ -356,6 +355,16 @@ fn on_disk(worktree: &Path) -> Result<BTreeMap<String, Disk>, WorktreeError> {
         found.insert(relative, disk);
     }
     Ok(found)
+}
+
+// `relative` spelled as git spells a path, with `/` between its parts on
+// every platform, so a file on disk finds the same file in a commit.
+fn git_path(relative: &Path) -> String {
+    let parts: Vec<_> = relative
+        .components()
+        .map(|part| part.as_os_str().to_string_lossy())
+        .collect();
+    parts.join("/")
 }
 
 // Whether a file on disk is executable, as git records it.
@@ -831,6 +840,13 @@ mod tests {
         let path = w.wt().join(SETTINGS);
         fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
         assert_eq!(w.differ(None), [SETTINGS]);
+    }
+
+    #[test]
+    fn a_path_on_disk_is_spelled_with_slashes_as_git_spells_it() {
+        let nested = Path::new(".claude").join("hooks").join("a.sh");
+        assert_eq!(git_path(&nested), ".claude/hooks/a.sh");
+        assert_eq!(git_path(Path::new(".mcp.json")), ".mcp.json");
     }
 
     // Windows keeps no mode on a file, so the disk names none: see `executable_bit`.
