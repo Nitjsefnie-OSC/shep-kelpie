@@ -266,9 +266,9 @@ pub(super) fn gh(forge: &dyn Forge) -> Line {
 /// macOS and Linux run crabpot, linked into kelpie, and need nothing
 /// installed beyond `sandbox_needs`. Windows fences with the WFP filter engine,
 /// which needs a one-time `crabpot windows-install`: the install fixes the
-/// loopback mode of every session after it, so `listen` says whether a
-/// configured project runs a dev server that binds a local port, and only then
-/// does the fix name `--allow-loopback`.
+/// loopback mode of every session after it, so `listen` says whether a project
+/// this run of doctor covers plans a dev server that binds a local port, and
+/// only then does the fix name `--allow-loopback`.
 pub(super) fn sandbox(host: &dyn Host, listen: bool) -> Line {
     if host.os() == "windows" {
         return windows_sandbox(host, listen);

@@ -167,6 +167,21 @@ impl Scene {
         self.shepherd.holds(launch.runner(&name, table), false);
     }
 
+    /// Puts `.claude/launch.json` with one configuration on `origin/main` of
+    /// the checkout of `name`, which is what plans a dev server for its turns
+    fn launches(&self, name: &str) {
+        let repo = self.home.join(name);
+        std::fs::create_dir_all(repo.join(".claude")).unwrap();
+        std::fs::write(
+            repo.join(".claude/launch.json"),
+            r#"{"configurations": [{"name": "web", "runtimeExecutable": "bun", "runtimeArgs": ["run", "dev"], "port": 5173}]}"#,
+        )
+        .unwrap();
+        git(&repo, &["add", "--all"]);
+        git(&repo, &["commit", "-q", "-m", "launch"]);
+        git(&repo, &["update-ref", "refs/remotes/origin/main", "HEAD"]);
+    }
+
     async fn check(&self, ask: Ask<'_>) -> Report {
         let dial = self.shepherd.dial();
         let probes = Probes {

@@ -126,14 +126,15 @@ async fn a_windows_machine_with_seclogon_off_or_in_session_0_is_told_its_fix() {
     assert_eq!(fix, "run `crabpot windows-install`");
 }
 
-// A project with the browser on runs a dev server that binds a local port,
-// and only an `--allow-loopback` install can hold it. The fix says what
-// opening loopback allows.
+// A project with the browser on and a launch file on `main` gets a dev server
+// that binds a local port, and only an `--allow-loopback` install can hold it.
+// The fix says what opening loopback allows.
 #[tokio::test]
 async fn a_listening_project_on_a_closed_windows_install_is_told_the_widening() {
     let mut scene = Scene::new().await;
     scene.host.os = "windows";
     scene.runs("golbat", |t| t["browser"] = json!({ "enabled": true }));
+    scene.launches("golbat");
     let report = scene.report().await;
     let (what, fix) = missing(&report, "sandbox");
     assert!(what.contains("dev server"), "{what}");
@@ -167,4 +168,79 @@ async fn a_listening_project_on_a_closed_windows_install_is_told_the_widening() 
     }));
     let (_, fix) = missing(&scene.report().await, "sandbox");
     assert_eq!(fix, "run `crabpot windows-install --allow-loopback`");
+}
+
+// The runner plans a dev server only when the base branch has a launch file
+// with a configuration, so a browser project without one listens on nothing,
+// and a closed install is not a gap for it.
+#[tokio::test]
+async fn a_browser_project_with_no_launch_file_does_not_ask_to_open_loopback() {
+    let mut scene = Scene::new().await;
+    scene.host.os = "windows";
+    scene.runs("golbat", |t| t["browser"] = json!({ "enabled": true }));
+    let report = scene.report().await;
+    assert_eq!(
+        ok(&report, "sandbox"),
+        "the crabpot install can run, loopback closed",
+        "{:#?}",
+        report.render()
+    );
+
+    // A launch file on `main` with no configuration starts no server either.
+    scene.launches("golbat");
+    std::fs::write(
+        scene.home.join("golbat/.claude/launch.json"),
+        r#"{"configurations": []}"#,
+    )
+    .unwrap();
+    git(&scene.home.join("golbat"), &["add", "--all"]);
+    git(&scene.home.join("golbat"), &["commit", "-q", "-m", "empty"]);
+    git(
+        &scene.home.join("golbat"),
+        &["update-ref", "refs/remotes/origin/main", "HEAD"],
+    );
+    let report = scene.report().await;
+    assert_eq!(
+        ok(&report, "sandbox"),
+        "the crabpot install can run, loopback closed",
+        "{:#?}",
+        report.render()
+    );
+}
+
+// Asked about one project, the sandbox line is fitted to that project's plan,
+// not to any other project's.
+#[tokio::test]
+async fn the_loopback_advice_follows_the_project_doctor_was_asked_about() {
+    let mut scene = Scene::new().await;
+    scene.host.os = "windows";
+    scene.runs("golbat", |t| t["browser"] = json!({ "enabled": true }));
+    scene.launches("golbat");
+
+    let koji = ProjectName::try_from("koji").unwrap();
+    let report = scene
+        .check(Ask {
+            project: Some(&koji),
+            test_alert: false,
+        })
+        .await;
+    assert_eq!(
+        ok(&report, "sandbox"),
+        "the crabpot install can run, loopback closed",
+        "{:#?}",
+        report.render()
+    );
+
+    let golbat = ProjectName::try_from("golbat").unwrap();
+    let report = scene
+        .check(Ask {
+            project: Some(&golbat),
+            test_alert: false,
+        })
+        .await;
+    let (_, fix) = missing(&report, "sandbox");
+    assert!(
+        fix.contains("crabpot windows-install --allow-loopback"),
+        "{fix}"
+    );
 }
