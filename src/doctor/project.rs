@@ -146,6 +146,10 @@ pub(super) fn checks(
         ));
     }
     lines.extend(super::ci::drafts(at("ci on drafts"), &settings));
+    lines.extend(super::ci::pull_requests(
+        at("ci on pull requests"),
+        &settings,
+    ));
     if settings.worker.instructions_file.is_some() {
         lines.push(instructions(at("instructions"), &settings));
     }
