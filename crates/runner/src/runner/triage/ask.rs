@@ -468,11 +468,7 @@ fn confirmed(answers: &str, recommended: &BTreeMap<usize, String>) -> String {
     let mut rest: Vec<&str> = Vec::new();
     let mut under: Option<usize> = None;
     for line in answers.lines() {
-        if line
-            .trim()
-            .trim_end_matches(['.', '!'])
-            .eq_ignore_ascii_case("ok")
-        {
+        if says_ok(line) {
             ok = true;
             under = None;
         } else if let Some((n, text)) = numbered(line) {
@@ -512,6 +508,31 @@ fn numbered(line: &str) -> Option<(usize, &str)> {
     let (head, text) = line.trim_start().split_once(':')?;
     let n = head.strip_prefix(['Q', 'q'])?;
     Some((n.parse().ok()?, text.trim()))
+}
+
+// A line that takes every recommended answer: `ok` alone, any case, a trailing
+// `.` or `!` allowed
+fn says_ok(line: &str) -> bool {
+    line.trim()
+        .trim_end_matches(['.', '!'])
+        .eq_ignore_ascii_case("ok")
+}
+
+// Whether the author's reply answers question `n` of the round it follows: a
+// line that takes `ok` takes every question of the round, a `Qn: ...` line takes
+// that one. A reply in neither form answers no question kelpie can name, whatever
+// the second pass makes of it.
+pub(super) fn answers_one(reply: &str, n: usize) -> bool {
+    (reply.lines()).any(|line| takes_ok(line) || numbered(line).is_some_and(|(m, _)| m == n))
+}
+
+// A line whose first word is `ok`. [`confirmed`] expands `ok` alone into every
+// recommended answer; an author who writes `ok to all four` means the same, and
+// the settled filter need only know that they took them.
+fn takes_ok(line: &str) -> bool {
+    (line.split_whitespace().next())
+        .map(|head| head.trim_end_matches(['.', '!', ',']))
+        .is_some_and(|head| head.eq_ignore_ascii_case("ok") || head.eq_ignore_ascii_case("okay"))
 }
 
 fn unfenced(text: &str) -> String {

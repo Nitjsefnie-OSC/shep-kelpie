@@ -352,19 +352,22 @@ impl Runner {
             .map(|c| format!("{} wrote:\n\n{}", c.author, c.body.trim()))
             .collect::<Vec<_>>()
             .join("\n\n---\n\n");
-        // A question is settled when its author wrote a comment after the
-        // comment that asked it.
+        // A question is settled when its author answered the comment that asked
+        // it: a line that takes `ok` settles every question of that round, a
+        // `Qn: ...` line settles that one. A reply in neither form settles none
+        // that kelpie can name, and the triager is the one that reads it.
         let mut settled: Vec<String> = Vec::new();
         for asked in ours.iter().filter(|c| ask::holds_questions(&c.body)) {
-            let answered = (ours.iter()).any(|c| {
-                plain_login(&c.author) == mine && (c.created, c.id) > (asked.created, asked.id)
-            });
-            if answered {
-                settled.extend(
-                    (asked_in(&asked.body))
-                        .into_iter()
-                        .map(|q| q.to_lowercase()),
-                );
+            let replies: Vec<&ThreadComment> = (ours.iter())
+                .filter(|c| {
+                    plain_login(&c.author) == mine && (c.created, c.id) > (asked.created, asked.id)
+                })
+                .copied()
+                .collect();
+            for (n, question) in asked_in(&asked.body).iter().enumerate() {
+                if (replies.iter()).any(|c| ask::answers_one(&c.body, n + 1)) {
+                    settled.push(question.to_lowercase());
+                }
             }
         }
         Ok(Some((text, settled)))

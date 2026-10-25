@@ -606,6 +606,35 @@ fn a_pass_asked_again_over_a_triaged_issue_reads_the_rounds_it_ran() {
     assert!(!again.contains("Q1 - "), "no questions block: {again}");
 }
 
+// #1304: only what the author answered is settled. The first round asked two
+// questions and the author answered one, so the re-ask puts the other back.
+#[test]
+fn a_reask_asks_again_the_question_its_author_left_unanswered() {
+    let (rig, runner) = filed("pick = \"maintainer\"", MAINTAINER, asked_as(2));
+    assert_eq!(step(&runner).unwrap(), None);
+    wrote(&rig, MAINTAINER, "Q2: the second one");
+    rig.claude.script_for(Role::Triager, [reply(asked_as(1))]);
+    rig.claude
+        .script_for(Role::Representative, [Scripted::Say(A_WORDS)]);
+    rig.next_look();
+    assert_eq!(step(&runner).unwrap(), None);
+    rig.ask(&runner, "triage", Some("30"));
+    rig.claude.script_for(Role::Triager, [reply(asked_as(2))]);
+    rig.claude
+        .script_for(Role::Representative, [Scripted::Say(ASK_WORDS)]);
+    rig.next_look();
+    assert_eq!(step(&runner).unwrap(), None);
+    let again = posted(&rig).last().expect("a comment").clone();
+    assert!(
+        again.contains("Which one, 1?"),
+        "the question its author left unanswered is asked again: {again}"
+    );
+    assert!(
+        !again.contains("Which one, 2?"),
+        "the one it answered is not: {again}"
+    );
+}
+
 // #1194 and #1144: a `shep kelpie triage` pass asked again, the author answered
 // within a minute, and no answers pass ran. The re-ask was recorded from the
 // marker read at a later poll, and the wait was measured from that later time,

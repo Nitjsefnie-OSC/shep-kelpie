@@ -631,11 +631,11 @@ impl Runner {
         let mut seen = (self.triage_tries.get(&issue))
             .and_then(|t| t.seen.clone())
             .unwrap_or_default();
-        // The labels the issue carries now join the ones the pass began with:
-        // the listing they came from may predate the record, and a label put on
-        // before the questions went up must not be read at the next poll as one
-        // that came during the wait. A reading that fails leaves what it had.
-        if let Ok(now) = self.triage_labels_now(issue) {
+        // Where the comment opens a wait, the labels the issue carries now join
+        // the ones the pass began with: the listing they came from may predate
+        // the record. A pass that opens no wait keeps what its pass began with,
+        // so a label the maintainer put on while it ran still stands (#1304).
+        if asked && let Ok(now) = self.triage_labels_now(issue) {
             for label in now {
                 if !seen.iter().any(|s| s == &label) {
                     seen.push(label);
