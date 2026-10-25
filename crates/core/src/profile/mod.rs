@@ -296,11 +296,16 @@ impl WorkerProfile<'_> {
         // it. Kelpie's home is the shepherd's too unless `KELPIE_HOME` puts it
         // elsewhere, and either may sit outside the machine's home.
         let homes = home_denials([self.home, self.shep_home, self.kelpie_home]);
+        // A tool home is read back whole, so each cargo home's own credential
+        // files are named with it: `CREDENTIALS` spells the default home alone,
+        // and `CARGO_HOME` may point anywhere the maintainer keeps it.
+        let tools = dep_sources::toolchain_homes(self.home, &ProcessEnv);
         let no_read = CREDENTIALS
             .iter()
             .chain(self.token.iter().flat_map(|_| &MAINTAINERS_LOGIN))
             .map(|&p| p.to_owned())
             .chain(homes)
+            .chain(dep_sources::cargo_credentials(&tools))
             .collect();
         // What the call reads back inside the denied home: the folders it works
         // in, the git and toolchain its build runs, the plugins its skills name,
@@ -315,7 +320,7 @@ impl WorkerProfile<'_> {
         ]
         .into_iter()
         .map(Path::to_owned)
-        .chain(dep_sources::toolchain_homes(self.home, &ProcessEnv))
+        .chain(tools)
         .chain(self.login_carve_outs())
         .collect();
         let no_commands = PM_ONLY

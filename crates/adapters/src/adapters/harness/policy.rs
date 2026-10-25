@@ -39,9 +39,8 @@ pub fn fence_policy(fence: &Fence) -> Policy {
 /// policy, or with no fence the credentials and `unfenced` unread
 ///
 /// Every harness starts here, so a call with no fence is denied `unfenced`
-/// whichever one runs it. What that call reads back inside those homes is in
-/// `unfenced_reads`, since a worktree, its git dir and the tools it runs all sit
-/// under them.
+/// whichever one runs it. What that call reads back inside those homes, and what
+/// stays denied under them, is in `unfenced_reads`.
 pub(crate) fn call_policy(call: &AgentCall, unfenced: &[String]) -> Policy {
     match &call.reach.fence {
         Some(fence) => fence_policy(fence),
@@ -52,18 +51,27 @@ pub(crate) fn call_policy(call: &AgentCall, unfenced: &[String]) -> Policy {
                 ..Policy::default()
             };
             if !unfenced.is_empty() {
-                policy.read = unfenced_reads(call, unfenced, &ProcessEnv);
+                let carve = unfenced_reads(call, unfenced, &ProcessEnv);
+                policy.no_read.extend(carve.no_read);
+                policy.read = carve.read;
             }
             policy
         }
     }
 }
 
-// What a call with no fence reads back inside the homes `unfenced` denies: its
-// own folder, the git its `git` runs through, the toolchain it runs, and the
-// config `git` starts on. A tool cannot exec under a deny of its own folder, and
-// a linked worktree's `.git` file names a gitdir outside the worktree.
-fn unfenced_reads(call: &AgentCall, unfenced: &[String], env: &dyn Env) -> Vec<PathBuf> {
+// What a call with no fence is carved back inside the homes it is denied, and
+// what stays denied under that carve-back
+struct Carve {
+    read: Vec<PathBuf>,
+    no_read: Vec<String>,
+}
+
+// Its own folder, the git its `git` runs through, the toolchain it runs, and the
+// config `git` starts on: a tool cannot exec under a deny of its own folder, and
+// a linked worktree's `.git` file names a gitdir outside the worktree. A cargo
+// home read back whole keeps its own credential files denied.
+fn unfenced_reads(call: &AgentCall, unfenced: &[String], env: &dyn Env) -> Carve {
     let homes: Vec<PathBuf> = unfenced
         .iter()
         .filter_map(|rule| rule.strip_suffix("/**"))
@@ -75,17 +83,22 @@ fn unfenced_reads(call: &AgentCall, unfenced: &[String], env: &dyn Env) -> Vec<P
     )
     .ok()
     .map(PathBuf::from);
-    let tools = homes.iter().flat_map(|home| {
-        let config = home.join(".gitconfig");
-        dep_sources::toolchain_homes(home, env)
-            .into_iter()
-            .chain(config.is_file().then_some(config))
+    let tools: Vec<PathBuf> = homes
+        .iter()
+        .flat_map(|home| dep_sources::toolchain_homes(home, env))
+        .collect();
+    let config = homes.iter().filter_map(|home| {
+        let own = home.join(".gitconfig");
+        own.is_file().then_some(own)
     });
-    [call.cwd.clone()]
-        .into_iter()
-        .chain(common)
-        .chain(tools)
-        .collect()
+    Carve {
+        read: (std::iter::once(call.cwd.clone()))
+            .chain(common)
+            .chain(tools.iter().cloned())
+            .chain(config)
+            .collect(),
+        no_read: dep_sources::cargo_credentials(&tools),
+    }
 }
 
 /// Where `program` runs, as the files and folders the sandbox must let through
@@ -416,10 +429,31 @@ mod tests {
                 dir.path().join(".rustup").display().to_string(),
             ),
         ]);
-        let read = unfenced_reads(&unfenced_call(dir.path()), &[glob(dir.path())], &env);
+        let carve = unfenced_reads(&unfenced_call(dir.path()), &[glob(dir.path())], &env);
         for folder in [".cargo", ".rustup", ".gitconfig"] {
             let own = dir.path().join(folder);
-            assert!(read.contains(&own), "{own:?} in {read:?}");
+            assert!(carve.read.contains(&own), "{own:?} in {:?}", carve.read);
+        }
+        // Each is read back whole, so its own registry token stays denied by name.
+        for name in ["credentials", "credentials.toml"] {
+            let own = format!("{}/{}", dir.path().join(".cargo").display(), name);
+            assert!(carve.no_read.contains(&own), "{own}: {:?}", carve.no_read);
+        }
+    }
+
+    // The wiring and not only the rule: `call_policy` is where every harness
+    // starts, and the default cargo home needs no variable to be found.
+    #[test]
+    fn an_unfenced_call_denies_the_credentials_of_a_cargo_home_it_reads_back() {
+        let dir = tempfile::tempdir().unwrap();
+        let cargo = dir.path().join(".cargo");
+        std::fs::create_dir_all(cargo.join("registry/src")).unwrap();
+        std::fs::write(cargo.join("credentials.toml"), "token\n").unwrap();
+        let policy = call_policy(&unfenced_call(&dir.path().join("wt")), &[glob(dir.path())]);
+        assert!(policy.read.contains(&cargo), "{:?}", policy.read);
+        for name in ["credentials", "credentials.toml"] {
+            let own = format!("{}/{}", cargo.display(), name);
+            assert!(policy.no_read.contains(&own), "{own}: {:?}", policy.no_read);
         }
     }
 
@@ -428,12 +462,18 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let worktree = dir.path().join("elsewhere/wt");
         std::fs::create_dir_all(&worktree).unwrap();
-        let read = unfenced_reads(
+        let carve = unfenced_reads(
             &unfenced_call(&worktree),
             &[glob(Path::new("/Users/me"))],
             &Fixed(vec![]),
         );
-        assert_eq!(read, vec![worktree]);
+        assert!(carve.read.contains(&worktree), "{:?}", carve.read);
+        assert!(
+            carve.read.iter().all(|own| !own.starts_with("/Users/me")),
+            "{:?}",
+            carve.read
+        );
+        assert!(carve.no_read.is_empty(), "{:?}", carve.no_read);
     }
 
     #[test]

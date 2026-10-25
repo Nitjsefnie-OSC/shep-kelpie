@@ -324,7 +324,17 @@ fn a_worker_reads_its_own_toolchain_and_no_other_repo_of_the_home() {
             "a readable file is under a denied rule: {folder} in {deny:?}"
         );
     }
-    // A credential beside a readable toolchain stays denied by name.
+    // A credential beside a readable toolchain stays denied by name, in the
+    // spelling of each home the fence reads back whole and not only `~`'s.
+    for name in ["credentials", "credentials.toml"] {
+        let secret = home.join(".cargo").join(name);
+        let spelled = secret.to_str().unwrap();
+        assert!(denied.contains(&spelled), "{spelled}: {denied:?}");
+        assert!(
+            deny.iter().any(|r| covers(r, spelled)),
+            "its tools read {spelled}: {deny:?}"
+        );
+    }
     for secret in ["~/.cargo/credentials.toml", "~/.cargo/credentials"] {
         assert!(denied.contains(&secret), "{secret}: {denied:?}");
         assert!(
