@@ -44,15 +44,16 @@ Kelpie: dog of the maintainer's shepherd; one runner per project takes ready iss
 | local-review.md | local reviewers, lock, kept rounds | `runner/review/keep.rs`, `core/settings/local_rounds.rs`, `core/settings/local.rs`, `adapters/local/` |
 | merge.md | CI, catching up, merge, after it | `runner/gate/`, `runner/merge/`, `runner/close_merged.rs`, `runner/main_ci/` |
 | local-tickets.md | the local ticket store, `ticket` verbs, closing on merge | `core/local_tickets/`, `src/flock/ticket.rs`, `runner/close_merged.rs` |
-| github-app.md | App tokens, posting, answers, ruling panel | `runner/voice/`, `runner/panel/`, `crates/panel/`, `core/guard/gh.rs`, `crates/worker_folder/` |
-| contributions.md | others' pull requests: `contributions` settings, detection | `core/settings/contributions.rs`, `core/settings/reviewers/`, `runner/contributions/`, `core/state/contributions.rs` |
+| github-app.md | App tokens, posting, answers | `runner/voice/`, `core/guard/gh.rs`, `crates/worker_folder/` |
+| ruling-panel.md | panel votes | `runner/panel/`, `crates/panel/` |
+| contributions.md | others' pull requests: settings, detection | `core/settings/contributions.rs`, `core/settings/reviewers/`, `runner/contributions/`, `core/state/contributions.rs` |
 | contribution-security.md | a contribution's security review | `runner/contributions/`, `runner/flight/security.rs`, `crates/process/src/worktree/` |
 | contribution-pass.md | reviewers' pass over a green head | `runner/contributions/pass.rs`, `crates/process/src/worktree/` |
 | contribution-talk.md | what contributors say, answers, quiet clock | `runner/contributions/{heard,clock}.rs`, `runner/thread_replies/` |
 | contribution-push.md | a fork worker's push; the red-CI comment | `runner/contributions/{push,after}.rs` |
 | contribution-release.md | asking for a release: yes, thumbs up, silence, ruling | `runner/contributions/{release,ruling}.rs` |
 | contribution-merge.md | a contribution's merge ruling: yes, thanks, no | `runner/contributions/{merge,ruling}.rs`, `core/settings/rulings.rs` |
-| representative.md | its agent file, `agents.representative`, the post's wording | `runner/representative/`, `core/agents/front/`, `core/settings/agents/`, `agents/representative.md` |
+| representative.md | agent file, `agents.representative`, post wording | `runner/representative/`, `core/agents/front/`, `core/settings/agents/`, `agents/representative.md` |
 | dependencies.md | bot bumps: rebase, proof, merge, red | `core/settings/dependencies.rs`, `runner/dependencies/`, `runner/flight/proving.rs`, `runner/dev_server/bump/`, `core/state/bumps.rs`, `adapters/e2e_runner.rs`, `adapters/pages.rs`, `adapters/bridge/client/` |
 | triage.md | settings, triager, pick rule, `since`, the verb, `status` | `core/settings/triage.rs`, `runner/triage/`, `runner/open_checks.rs`, `core/ports/issue.rs` |
 | triage-limits.md | the limits | `runner/triage/limits.rs` |
