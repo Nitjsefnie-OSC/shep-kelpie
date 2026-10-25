@@ -1,6 +1,5 @@
 use std::collections::BTreeMap;
 use std::net::TcpListener;
-use std::path::PathBuf;
 use std::process::Command;
 use std::time::Instant;
 
@@ -179,7 +178,9 @@ fn a_sandbox_that_refuses_starts_nothing() {
             _: &Path,
             _: &Command,
         ) -> Result<Command, crate::ports::SandboxError> {
-            Err(crate::ports::SandboxError::Missing(PathBuf::from("/srt")))
+            Err(crate::ports::SandboxError::Install(
+                "there is no sandbox".into(),
+            ))
         }
     }
     let dir = short_tempdir();
@@ -193,7 +194,7 @@ fn a_sandbox_that_refuses_starts_nothing() {
         sandbox: Arc::new(Refusing),
     };
     let why = servers.start(&run).unwrap_err();
-    assert!(why.contains("sandbox runtime is missing"), "{why}");
+    assert!(why.contains("crabpot sandbox cannot run"), "{why}");
     assert!(!dir.path().join("ran").exists());
 }
 

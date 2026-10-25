@@ -11,8 +11,6 @@ use crate::test::OpenSandbox;
 fn a_runners_calls_on_every_harness_leave_kelpies_codex_login_unread() {
     let dir = tempfile::tempdir().unwrap();
     let tools = crate::tools::Tools::at(dir.path().join("tools"));
-    std::fs::create_dir_all(tools.sandbox().parent().unwrap()).unwrap();
-    std::fs::write(tools.sandbox(), "").unwrap();
     let login = dir.path().join("codex");
     let claude = ClaudeCli::on(&Base::default().in_runtime(
         tools,

@@ -48,7 +48,7 @@ You need these on your machine:
 - macOS or Linux
 - [shep](https://github.com/shep-pm/shep) 0.13, from 0.13.0, and Rust 1.88 or later, to build shep-kelpie
 - Claude Code, signed in
-- `node` and `npm`: `tools install` runs them, and Windows runs each agent's sandbox through them
+- `node` and `npm`: `tools install` runs them
 - on Linux, `bwrap`, which the sandbox needs. There the sandbox fences a nested `.claude` or `.codex` folder only if it exists when a call starts (a new one is caught after the call), and a worker cannot reach the dog's lease door, so its `cargo-test` runs unleased. `shep kelpie doctor` says so
 - `git`, and `gh` signed in to the account that opens the pull requests
 - `curl` and `openssl`, which reach GitHub as kelpie's App and sign its tokens
@@ -98,7 +98,7 @@ Adopt it once and leave it enabled. It is the dog that holds the leases every pr
 
 ### 3. Install the tools
 
-Every project needs them. Each agent runs inside the sandbox runtime they bring, and a runner won't start without it.
+Every project needs them. The sandbox every agent runs in is crabpot, linked into kelpie's own binary, so it needs no install on macOS or Linux; the install brings the browser, the code graph server and the packages the harnesses load.
 
 ```sh
 shep kelpie tools install

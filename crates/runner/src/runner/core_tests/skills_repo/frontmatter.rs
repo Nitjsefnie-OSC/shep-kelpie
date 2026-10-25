@@ -56,7 +56,11 @@ fn a_frontmatter_that_never_closes_is_told_too() {
         "markets/house/plugins/style/skills/bad/SKILL.md",
         "---\nname: bad\ndescription: a rule\n",
     );
-    land_settings(&rig, &[("style@house", true)], &[("house", directory(&dir))]);
+    land_settings(
+        &rig,
+        &[("style@house", true)],
+        &[("house", directory(&dir))],
+    );
     let runner = rig.open().unwrap();
     let told: Vec<String> = runner
         .lock()

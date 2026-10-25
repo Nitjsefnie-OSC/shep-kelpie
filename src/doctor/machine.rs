@@ -9,7 +9,6 @@ use crate::adapters::host::{Host, at_least};
 use crate::adapters::{GOOSE_MINIMUM, LOGIN_FIX, LOGIN_VAR, PI_MINIMUM};
 use crate::ports::{Clock, Forge, ForgeError, Meter, MeterError};
 use crate::shepherd::{ConnectRefused, Connection};
-use crate::tools::Tools;
 
 // A tool's own message can run to a page, and the first line says what went wrong.
 fn first_line(text: &str) -> &str {
@@ -261,8 +260,19 @@ pub(super) fn gh(forge: &dyn Forge) -> Line {
     }
 }
 
-/// The sandbox runtime in `tools`, with what it needs, which every agent runs in
-pub(super) fn sandbox(host: &dyn Host, tools: &Tools) -> Line {
+/// The sandbox runtime every agent runs in, with what this machine needs for
+/// it to run
+///
+/// macOS and Linux run crabpot, linked into kelpie, and need nothing
+/// installed beyond `sandbox_needs`. Windows fences with the WFP filter engine,
+/// which needs a one-time `crabpot windows-install`: the install fixes the
+/// loopback mode of every session after it, so `listen` says whether a project
+/// this run of doctor covers plans a dev server that binds a local port, and
+/// only then does the fix name `--allow-loopback`.
+pub(super) fn sandbox(host: &dyn Host, listen: bool) -> Line {
+    if host.os() == "windows" {
+        return windows_sandbox(host, listen);
+    }
     let gaps = host.sandbox_gaps();
     if !gaps.is_empty() {
         let list = gaps.join(" and ");
@@ -282,18 +292,76 @@ pub(super) fn sandbox(host: &dyn Host, tools: &Tools) -> Line {
             fix,
         );
     }
-    // macOS and Linux run crabpot, linked into kelpie, so no node `srt` is needed there.
-    if !matches!(host.os(), "macos" | "linux") && !tools.sandbox().is_file() {
+    // crabpot is in kelpie, so there is no node `srt` to miss.
+    Line::ok("sandbox", "the sandbox runtime can run")
+}
+
+// The Windows line, naming each state of the crabpot install that stops a
+// worker: no install or another setup version, the Secondary Logon service
+// off, session 0, and a closed fence a listening policy cannot run on.
+fn windows_sandbox(host: &dyn Host, listen: bool) -> Line {
+    // Opening loopback is the widening it is: a sandboxed worker reaches every
+    // service on the machine's own address (`docs/facts/the-second-harness.md`).
+    let install = |allow_loopback: bool| {
+        format!(
+            "run `crabpot windows-install{}`",
+            if allow_loopback {
+                " --allow-loopback"
+            } else {
+                ""
+            }
+        )
+    };
+    let status = match host.windows_status() {
+        Ok(status) => status,
+        Err(why) => {
+            return Line::missing(
+                "sandbox",
+                format!("the crabpot install cannot be read: {why}, so no runner starts"),
+                install(listen),
+            );
+        }
+    };
+    if !status.provisioned {
+        let what = match status.setup_installed {
+            Some(found) => format!(
+                "the crabpot install is setup version {found}, this build wants {}, so no runner starts",
+                status.setup_expected
+            ),
+            None => "there is no crabpot install, so no runner starts".to_owned(),
+        };
+        return Line::missing("sandbox", what, install(listen));
+    }
+    if !status.seclogon_runs {
         return Line::missing(
             "sandbox",
-            format!(
-                "the sandbox runtime is not at {}, so no runner starts",
-                tools.sandbox().display()
-            ),
-            "run `shep kelpie tools install`",
+            "the Secondary Logon service is off, so the sandbox user cannot be launched",
+            "start the Secondary Logon service (`seclogon`), then run `crabpot windows-install`",
         );
     }
-    Line::ok("sandbox", "the sandbox runtime can run")
+    if !status.desktop_session {
+        return Line::missing(
+            "sandbox",
+            "kelpie runs in session 0, the services' session, where crabpot refuses to start a sandbox",
+            "run kelpie in the desktop session",
+        );
+    }
+    if listen && !status.loopback_open {
+        return Line::missing(
+            "sandbox",
+            "a configured project runs a dev server that binds a local port, and this crabpot install closes loopback, so its workers cannot run",
+            format!(
+                "{}; opening loopback lets every sandboxed worker on this machine reach every service on its own loopback address",
+                install(true)
+            ),
+        );
+    }
+    let mode = if status.loopback_open {
+        "loopback open"
+    } else {
+        "loopback closed"
+    };
+    Line::ok("sandbox", format!("the crabpot install can run, {mode}"))
 }
 
 /// What the sandbox cannot do on this machine, when it is Linux
