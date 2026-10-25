@@ -145,7 +145,8 @@ fn head_of(rig: &Rig) -> String {
 #[test]
 fn a_check_that_started_is_never_rerun_for_being_slow() {
     let (rig, runner, head) = Rig::with_pull_request("shep");
-    // A check run that started is in the rollup but not in the queued list.
+    // A pending check that is neither queued nor in progress, such as a commit
+    // status, is in the rollup but not in the list.
     rig.forge.set_checks(&head, Checks::Pending(Vec::new()));
     rig.verdict(&runner);
 
@@ -219,4 +220,57 @@ fn each_queued_run_is_rerun_once_before_a_ruling_is_raised() {
     rig.clock.advance(CAP);
     let (_, question) = ruling_report(step(&runner).unwrap());
     assert!(question.starts_with("docs stayed queued"), "{question}");
+}
+
+const OTHER: u64 = 39_697_679_104;
+
+fn docs_in_progress() -> Queued {
+    Queued {
+        name: "docs".to_owned(),
+        run: Some(OTHER),
+    }
+}
+
+#[test]
+fn a_check_in_progress_on_a_run_still_going_stays_pending_and_is_never_ruled_on() {
+    let (rig, runner, head) = Rig::with_pull_request("shep");
+    rig.forge
+        .set_checks(&head, Checks::Pending(vec![docs_in_progress()]));
+    rig.forge.set_run_in_progress(OTHER);
+    rig.verdict(&runner);
+
+    for _ in 0..3 {
+        rig.clock.advance(CAP);
+        let report = step(&runner).unwrap();
+        assert!(
+            matches!(report, Some(StepReport::GateFailed { .. })),
+            "{report:?}"
+        );
+    }
+
+    assert_eq!(rig.forge.whole_run_reruns(), Vec::<u64>::new());
+}
+
+#[test]
+fn a_run_still_going_does_not_hold_up_the_stuck_run_beside_it() {
+    let (rig, runner, head) = Rig::with_pull_request("shep");
+    let both = Checks::Pending(vec![
+        docs_in_progress(),
+        Queued {
+            name: "windows-gnu".to_owned(),
+            run: Some(RUN),
+        },
+    ]);
+    rig.forge.set_checks(&head, both);
+    rig.forge.set_run_in_progress(OTHER);
+    rig.verdict(&runner);
+    rig.clock.advance(CAP);
+
+    let report = step(&runner).unwrap();
+
+    assert_eq!(rig.forge.whole_run_reruns(), [RUN]);
+    match report {
+        Some(StepReport::CiRerun { checks, .. }) => assert_eq!(checks, ["windows-gnu"]),
+        other => panic!("{other:?}"),
+    }
 }

@@ -620,7 +620,7 @@ pub enum Checks {
     Failed(Vec<String>),
 }
 
-/// A check run that has not started, as the pull request's rollup lists it
+/// A check run still queued or in progress, as the pull request's rollup lists it
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Queued {
     /// The check's name

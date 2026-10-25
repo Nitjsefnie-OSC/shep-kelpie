@@ -1,13 +1,16 @@
-//! A check stuck at queued on a finished run
+//! A check stuck at queued or in progress on a finished run
 //!
 //! GitHub sometimes leaves one job of a finished workflow run queued: the
 //! run reads completed, the job never starts, and its check never
-//! concludes. A check that started ends at its own timeout, so only a
-//! queued one is waited on past `ci.queued_minutes`, counted from the wait's
-//! own `since`. Past it, the run is rerun whole, once per head, and the cap
-//! starts again from the rerun. Still queued past it, the item is parked on a
-//! `check-queued` ruling. The rerun is kept in memory, like `held_up`: a
-//! restart can cost one more, which is harmless.
+//! concludes. It leaves others `IN_PROGRESS` with no conclusion. A check
+//! that is running ends at its own timeout, but the rollup cannot tell one
+//! from a stuck one, so both are waited on past `ci.queued_minutes`, counted
+//! from the wait's own `since`. Past it, the run is rerun whole, once per
+//! head, and the cap starts again from the rerun. The forge refuses a rerun
+//! of a run still going, which is how a running one is told: each run is
+//! tried in turn, and a refused one waits another cap. Still stuck past it,
+//! the item is parked on a `check-queued` ruling. The rerun is kept in
+//! memory, like `held_up`: a restart can cost one more, which is harmless.
 
 use std::collections::HashMap;
 
@@ -69,8 +72,13 @@ impl Runner {
             return Ok(None);
         };
         let issue = self.current().expect("CI runs on a work item").issue;
-        let runs = queued.iter().filter_map(|check| check.run);
-        let Some(run) = { runs }.find(|run| !self.queued_reruns.done(issue, head, *run)) else {
+        let mut runs = Vec::new();
+        for run in queued.iter().filter_map(|check| check.run) {
+            if !runs.contains(&run) && !self.queued_reruns.done(issue, head, run) {
+                runs.push(run);
+            }
+        }
+        if runs.is_empty() {
             let url = format!(
                 "https://github.com/{}/actions/runs/{first}",
                 self.remote.as_str()
@@ -83,8 +91,22 @@ impl Runner {
                 review: review.cloned(),
             };
             return self.raise(number, stuck.into()).map(Some);
-        };
-        let rerun = self.ports.forge.rerun_run(&self.remote, run, Rerun::All);
+        }
+        // The forge refuses a run still going, so each run is tried in turn:
+        // one that is not stuck must not hold up one that is.
+        let mut refused = None;
+        let mut started = None;
+        for run in runs {
+            match self.ports.forge.rerun_run(&self.remote, run, Rerun::All) {
+                Ok(()) => {
+                    started = Some(run);
+                    break;
+                }
+                Err(e) => {
+                    refused.get_or_insert((run, e));
+                }
+            }
+        }
         self.update(|item| match &mut item.phase {
             Phase::Ci { since, .. } => *since = now,
             Phase::Review(review) => {
@@ -94,11 +116,12 @@ impl Runner {
             }
             _ => {}
         })?;
-        if let Err(e) = rerun {
+        let Some(run) = started else {
+            let (run, e) = refused.expect("a run was tried");
             return Ok(Some(
                 self.gate_failed(format!("cannot rerun run {run}: {e}")),
             ));
-        }
+        };
         self.queued_reruns.record(issue, head, run);
         Ok(Some(Begin::Report(StepReport::CiRerun {
             issue,
