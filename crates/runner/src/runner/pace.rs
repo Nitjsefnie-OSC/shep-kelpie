@@ -7,8 +7,7 @@
 //!
 //! A reading that finds a hold is trusted for [`RECHECK_SECS`] or until the
 //! hold ends, whichever comes first, so a project held for hours reads usage
-//! a few times an hour rather than on every look at the board. A reading
-//! that finds no hold is never reused.
+//! a few times an hour. A reading that finds no hold is never reused.
 //!
 //! With `pacing.enabled` off the reading still runs for `status`, and neither
 //! limit holds anything.

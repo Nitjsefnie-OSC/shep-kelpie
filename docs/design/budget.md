@@ -52,7 +52,7 @@ Pacing, leases, forge limits, time, usage, settings.
 - `git`: `checkout`, `remote` (`origin`'s GitHub repo when absent), `merging`, `issues`. `settings/git.rs`
 - `ci`: `block`, `fix_attempts` (-1); `concurrency`: `active_items` (1), `pending_rulings` (2). `settings/ci.rs`
 - `budget.per_item_usd` ($10); `pacing.enabled` (on), `pacing.kickoff_hours` (8, display only). `settings/budget.rs`
-- `agents`: implementers, reviewers, pm, issue writer, advisor, researcher, `fallback_after`. `settings/agents/`
+- `agents`: implementers, `implementer_choice`, reviewers, pm, issue writer, advisor, researcher, `fallback_after`. `settings/agents/`
 - `rulings`: `decide` (`shadow`; `panel`; `always` = full panel decides every ruling it votes on by most votes, tie to PM else first option, never merges on a tie, `design` ignored, off unless set, `pm_alone`/`full_panel_paths` unused). `settings/rulings.rs`
 - `worker`: `allowed_domains`, `guard_hooks`, `instructions_file`, `turn_timeout` (60), `compact_window` (200000; pi a reserve, goose a threshold: compaction.md). `runner/turn/`
 - `skills`: per-step overrides; `retro` off (the PM's batch retro when named); `triage`, `spec`, `reset` driven by no step yet. `crates/core/src/skills/mod.rs`

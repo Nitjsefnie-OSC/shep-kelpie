@@ -19,10 +19,9 @@
 //!
 //! Each agent file with `role: implementer` gets its `agent:` label made on
 //! the repo the first time the issue writer needs it, since the forge refuses
-//! a label the repo lacks. A project whose tickets are the local store makes
-//! none, and its writer files with `shep kelpie ticket new` into the
-//! project's `tickets/` folder, which its sandbox may write and read, in
-//! place of `gh issue create`.
+//! a label the repo lacks. A project on the local ticket store makes none, and
+//! its writer files with `shep kelpie ticket new` into the project's
+//! `tickets/` folder, which its sandbox may write and read.
 
 use std::collections::BTreeMap;
 use std::ffi::OsStr;

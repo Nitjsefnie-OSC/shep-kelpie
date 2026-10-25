@@ -3,13 +3,11 @@
 //! With more than one implementer listed and `agents.implementer_choice` at
 //! its default `issue-writer`, the board asks the issue writer which should
 //! build a ready issue with no `agent:` label, before it opens a work item.
-//! One such call runs at a time, in flight like a turn, in the project's
-//! checkout with read tools only. Its reply names an implementer, which
-//! kelpie puts on the issue, and the board's next poll reads it labelled. A
-//! failed call, or a reply naming no listed implementer, raises a ruling on
-//! the issue, which the board passes over until it is answered. With
-//! `agents.implementer_choice = "order"` the board asks nothing: an
-//! unlabelled issue opens on the first implementer listed.
+//! One such call runs at a time, in flight like a turn, with read tools only.
+//! Its reply names an implementer, which kelpie puts on the issue, and the
+//! next poll reads the issue labelled. A failed call or a reply naming no
+//! listed implementer raises a ruling the board passes over until answered.
+//! With `implementer_choice = "order"` the first listed takes it, no call.
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;

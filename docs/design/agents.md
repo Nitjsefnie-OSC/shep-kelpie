@@ -2,7 +2,7 @@
 
 Harnesses and gateways, and the agent settings. The agent file itself is in agent-files.md. The runner loop is in workers.md, the fence in fence.md, skills in skills.md, repo plugins in plugins.md, waits and spend by role in waits-and-spend.md.
 
-- `agents.implementers` (default `["sonnet-high"]`, first is default), `reviewers`, `pm`, `issue_writer`, `representative` (default `representative`, checked only when `contributions.pick` is not `off`, representative.md); missing or wrong-role file stops runner. `crates/core/src/settings/agents/mod.rs`
+- `agents.implementers` (default `["sonnet-high"]`, first is default), `reviewers`, `pm`, `issue_writer`, `representative`; `agents.implementer_choice` (default `issue-writer`; `order` opens an unlabelled issue on the first listed with no issue writer call, and an `agent:` label names any implementer-role file, listed or not) (default `representative`, checked only when `contributions.pick` is not `off`, representative.md); missing or wrong-role file stops runner. `crates/core/src/settings/agents/mod.rs`
 - A new CLI is a folder `adapters/<cli>/` with an `impl Cli` (required: `write_config`, `command`, `policy`, `parse`, `parse_adopted`; the rest default), a `HarnessFacts` row in `core/settings/agents/facts.rs`, and one entry in `Routed::new` (`src/sheep/mod.rs`). `CliAdapter` does the rest. cli-adapter.md
 - One agent interface for every role, harness details in adapters; harness that can't fence can't be worker. ADR 0006
 - Harness parity: pi gets every capability Claude Code has, in the same PR or an open issue; Codex follows pi, blocked by its issue (maintainer, 2026-10-13: pi is in everyday use, Codex is not). A refusing default is a tracked gap. #752, #753, `CODING_STANDARDS.md`
