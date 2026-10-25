@@ -427,11 +427,26 @@ async fn gh_missing_or_logged_out_is_told_its_fix() {
 #[tokio::test]
 async fn a_sandbox_the_machine_lacks_names_what_it_lacks() {
     let mut scene = Scene::new().await;
+    scene.host.os = "linux";
     scene.host.gaps = vec!["bwrap"];
     let report = scene.report().await;
     let (what, fix) = missing(&report, "sandbox");
     assert!(what.contains("bwrap"), "{what}");
+    assert!(fix.contains("install bwrap"), "{fix}");
     assert!(fix.contains("sudo apt-get install bubblewrap"), "{fix}");
+    assert!(!report.passed());
+
+    // The macOS gap is `sandbox-exec`, which ships with macOS: no apt line there.
+    scene.host.os = "macos";
+    scene.host.gaps = vec!["sandbox-exec"];
+    let report = scene.report().await;
+    let (what, fix) = missing(&report, "sandbox");
+    assert!(what.contains("sandbox-exec"), "{what}");
+    assert!(
+        fix.contains("ships with macOS at /usr/bin/sandbox-exec"),
+        "{fix}"
+    );
+    assert!(!fix.contains("apt-get"), "{fix}");
     assert!(!report.passed());
 }
 

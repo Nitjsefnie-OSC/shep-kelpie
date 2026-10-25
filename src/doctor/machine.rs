@@ -266,12 +266,20 @@ pub(super) fn sandbox(host: &dyn Host, tools: &Tools) -> Line {
     let gaps = host.sandbox_gaps();
     if !gaps.is_empty() {
         let list = gaps.join(" and ");
+        // The fix names what is missing, and the example fits the machine:
+        // `sandbox-exec` ships with macOS, and Debian calls `bwrap` `bubblewrap`.
+        let fix = match host.os() {
+            "macos" => format!("{list} ships with macOS at /usr/bin/sandbox-exec, so restore it"),
+            _ => format!(
+                "install {list} with your package manager, such as `sudo apt-get install bubblewrap` on Debian"
+            ),
+        };
         return Line::missing(
             "sandbox",
             format!(
                 "the sandbox runtime needs {list}, which this machine lacks, so no agent can run"
             ),
-            "install bubblewrap with your package manager, such as `sudo apt-get install bubblewrap` on Debian",
+            fix,
         );
     }
     // macOS and Linux run crabpot, linked into kelpie, so no node `srt` is needed there.
