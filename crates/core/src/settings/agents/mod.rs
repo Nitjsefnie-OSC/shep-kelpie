@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 
 mod facts;
 
-pub use facts::{HarnessFacts, SessionIds};
+pub use facts::{DoctorProbe, HarnessFacts, ResearcherWeb, SessionIds};
 
 use super::gateway::ModelHost;
 use super::local::ContextSize;
