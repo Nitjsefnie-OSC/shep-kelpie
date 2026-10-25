@@ -1,6 +1,6 @@
 //! The commit this build was made from, baked in as `KELPIE_COMMIT`
 //!
-//! `src/home/build.rs` reads it with `option_env!`, so a build made where git
+//! `home::build` reads it with `option_env!`, so a build made where git
 //! cannot answer, outside a git checkout or with no git on the `PATH`, names
 //! no commit at all, and every reader says so instead of guessing one.
 
