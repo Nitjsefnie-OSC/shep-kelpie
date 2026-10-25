@@ -65,6 +65,7 @@ fn e2e_holders(desk: &Mutex<Kept>, host: &str) -> usize {
 }
 
 #[tokio::test]
+#[cfg_attr(windows, ignore = "the stand-in ssh and rsync are sh scripts (#1302)")]
 async fn a_second_e2e_ask_on_the_same_host_waits_for_the_first() {
     let stand = StandIn::new();
     let script = format!("mkdir -p test-results; {}", stand.wait_at_gate());
@@ -86,6 +87,7 @@ async fn a_second_e2e_ask_on_the_same_host_waits_for_the_first() {
 }
 
 #[tokio::test]
+#[cfg_attr(windows, ignore = "the stand-in ssh and rsync are sh scripts (#1302)")]
 async fn two_hosts_do_not_wait_on_each_other() {
     let stand = StandIn::new();
     let script = format!("mkdir -p test-results; {}", stand.wait_at_gate());
@@ -106,6 +108,7 @@ async fn two_hosts_do_not_wait_on_each_other() {
 }
 
 #[tokio::test]
+#[cfg_attr(windows, ignore = "the stand-in ssh and rsync are sh scripts (#1302)")]
 async fn an_ask_cannot_name_a_host_or_a_command() {
     let stand = StandIn::new();
     let worktree = stand.project("koji", TABLE, 7, "mkdir -p test-results");
@@ -146,6 +149,7 @@ async fn an_ask_cannot_name_a_host_or_a_command() {
 }
 
 #[tokio::test(start_paused = true)]
+#[cfg_attr(windows, ignore = "the stand-in ssh and rsync are sh scripts (#1302)")]
 async fn a_worker_that_hangs_up_ends_the_run_and_gives_the_host_back() {
     let stand = StandIn::new();
     let script = format!("mkdir -p test-results; {}", stand.wait_at_gate());
@@ -169,6 +173,7 @@ async fn a_worker_that_hangs_up_ends_the_run_and_gives_the_host_back() {
 }
 
 #[tokio::test(start_paused = true)]
+#[cfg_attr(windows, ignore = "the stand-in ssh and rsync are sh scripts (#1302)")]
 async fn a_run_past_its_ceiling_is_ended() {
     let stand = StandIn::new();
     let script = format!("mkdir -p test-results; {}", stand.wait_at_gate());
