@@ -60,7 +60,8 @@ impl From<BuildError> for String {
     }
 }
 
-/// What `version --json` prints: the build's version and the shep version it was made with
+/// What `version --json` prints: the build's version, the shep version it was
+/// made with, and the commit it was made from
 ///
 /// Other keys in the answer are ignored, so a later build may add some.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -72,6 +73,51 @@ pub struct Build {
     /// The shep protocol kelpie speaks, absent from a build from before it said
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub protocol: Option<u32>,
+    /// The commit the build was made from, absent from a build made where git
+    /// could not answer, and ending in `-dirty` when the tree it was made from
+    /// held changes that commit does not
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub commit: Option<String>,
+}
+
+/// The commit this build was made from, in seven characters, with `-dirty`
+/// when the tree held changes that commit does not
+///
+/// `build.rs` bakes it in from git. `None` for a build made outside a git
+/// checkout, or where git could not run: such a build says nothing of its
+/// commit rather than guessing one.
+pub const COMMIT: Option<&str> = option_env!("KELPIE_COMMIT");
+
+/// The version `--version` answers with: this build's, with its commit as
+/// semver build metadata when it names one
+#[must_use]
+pub fn probe_version() -> String {
+    version_with_commit(env!("CARGO_PKG_VERSION"), COMMIT)
+}
+
+/// `version` with `commit` behind it as semver build metadata, and `version`
+/// alone when it names none
+#[must_use]
+pub fn version_with_commit(version: &str, commit: Option<&str>) -> String {
+    commit.map_or_else(
+        || version.to_owned(),
+        |commit| format!("{version}+{commit}"),
+    )
+}
+
+/// Whether two builds name the same commit, reading past the `-dirty` a build
+/// made from a tree with uncommitted changes carries
+///
+/// The `-dirty` is said on the line itself, and is no reason to call a runner
+/// behind a build that is the same commit with changes on top of it.
+#[must_use]
+pub fn same_commit(one: &str, other: &str) -> bool {
+    bare(one) == bare(other)
+}
+
+// A commit on its own, without the `-dirty` its tree's uncommitted changes add.
+fn bare(commit: &str) -> &str {
+    commit.strip_suffix("-dirty").unwrap_or(commit)
 }
 
 impl Build {
@@ -81,6 +127,7 @@ impl Build {
             kelpie: env!("CARGO_PKG_VERSION").to_owned(),
             shep: SHEP_VERSION.to_owned(),
             protocol: Some(PROTOCOL_VERSION),
+            commit: COMMIT.map(str::to_owned),
         }
     }
 
@@ -196,6 +243,27 @@ mod tests {
     }
 
     #[test]
+    fn the_version_answer_carries_the_commit_as_build_metadata() {
+        assert_eq!(version_with_commit("0.3.0", None), "0.3.0");
+        assert_eq!(
+            version_with_commit("0.3.0", Some("1f2e3a4")),
+            "0.3.0+1f2e3a4"
+        );
+        assert_eq!(
+            version_with_commit("0.3.0", Some("1f2e3a4-dirty")),
+            "0.3.0+1f2e3a4-dirty"
+        );
+    }
+
+    #[test]
+    fn a_dirty_build_names_the_commit_the_clean_one_does() {
+        assert!(same_commit("1f2e3a4-dirty", "1f2e3a4"));
+        assert!(same_commit("1f2e3a4", "1f2e3a4-dirty"));
+        assert!(!same_commit("1f2e3a4-dirty", "9c8b7a6"));
+        assert!(!same_commit("1f2e3a4", "9c8b7a6"));
+    }
+
+    #[test]
     fn a_build_that_hangs_is_given_up_on() {
         let dir = tempfile::tempdir().unwrap();
         let hang = crate::test::write_fake(dir.path(), "hang", &Fake::new().sleeps(30));
@@ -217,9 +285,41 @@ mod tests {
     }
 
     #[test]
+    fn a_build_names_the_commit_it_was_made_from() {
+        let dir = tempfile::tempdir().unwrap();
+        let said = r#"{"kelpie":"0.3.0","shep":"0.16.1","commit":"1f2e3a4-dirty"}"#;
+        let named = crate::test::write_fake(dir.path(), "named", &Fake::new().prints(said));
+
+        let build = Build::of(&named).unwrap();
+
+        assert_eq!(build.commit.as_deref(), Some("1f2e3a4-dirty"));
+    }
+
+    #[test]
+    fn a_build_from_before_commits_were_recorded_names_none() {
+        let dir = tempfile::tempdir().unwrap();
+        let said = r#"{"kelpie":"0.3.0","shep":"0.16.1"}"#;
+        let old = crate::test::write_fake(dir.path(), "old", &Fake::new().prints(said));
+
+        let build = Build::of(&old).unwrap();
+
+        assert_eq!(build.commit, None);
+    }
+
+    #[test]
+    fn this_build_names_the_commit_it_was_made_from() {
+        let commit = Build::this()
+            .commit
+            .expect("this build was made from a commit");
+        let sha = commit.strip_suffix("-dirty").unwrap_or(&commit);
+        assert!(sha.len() >= 7, "{commit}");
+        assert!(sha.chars().all(|c| c.is_ascii_hexdigit()), "{commit}");
+    }
+
+    #[test]
     fn an_answer_with_more_keys_still_reads() {
         let build: Build =
-            serde_json::from_str(r#"{ "kelpie": "0.3.0", "shep": "0.11.0", "commit": "abc" }"#)
+            serde_json::from_str(r#"{ "kelpie": "0.3.0", "shep": "0.11.0", "extra": "abc" }"#)
                 .unwrap();
         assert_eq!(
             (build.kelpie.as_str(), build.shep.as_str()),
