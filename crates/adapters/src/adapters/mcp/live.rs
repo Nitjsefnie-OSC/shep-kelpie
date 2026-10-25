@@ -133,7 +133,7 @@ fn the_server_answers_a_code_search_in_a_sandbox_that_denies_the_folder_above_it
         server.env(name, value.as_str().unwrap());
     }
     server.current_dir(&worktree);
-    let mut child = SandboxRuntime::new(tools)
+    let mut child = SandboxRuntime::new()
         .run_by(crate::adapters::srt::built_kelpie().unwrap())
         .wrap(&policy, &root.join("srt.json"), &server)
         .unwrap()
@@ -188,7 +188,7 @@ fn the_server_answers_a_code_search_in_a_sandbox_that_denies_the_folder_above_it
             &format!("ls {h}; cat {h}/secret; mkdir {daemon}", h = home.display()),
         ])
         .current_dir(&worktree);
-    let probe = SandboxRuntime::new(installed().unwrap())
+    let probe = SandboxRuntime::new()
         .run_by(crate::adapters::srt::built_kelpie().unwrap())
         .wrap(&policy, &root.join("srt.json"), &shell)
         .unwrap()
