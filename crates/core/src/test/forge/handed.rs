@@ -32,6 +32,8 @@ pub struct CiRuns {
     reruns: Vec<String>,
     rerun_error: Option<String>,
     run_reruns: Vec<(u64, Rerun)>,
+    // The runs still in progress, which the forge refuses to rerun
+    running: Vec<u64>,
     // The latest run of each workflow, by branch
     branch_runs: HashMap<String, Vec<BranchRun>>,
     // The workflow names any scripted runs carried, in the order they came
@@ -80,6 +82,7 @@ impl CiRuns {
     pub fn rerun_of_run(&mut self, run: u64, rerun: Rerun) -> Result<(), String> {
         match &self.rerun_error {
             Some(error) => Err(error.clone()),
+            None if self.running.contains(&run) => Err(format!("run {run} is still in progress")),
             None => {
                 self.run_reruns.push((run, rerun));
                 Ok(())
@@ -105,6 +108,11 @@ impl FakeForge {
             .filter(|(_, rerun)| *rerun == Rerun::All)
             .map(|(run, _)| run)
             .collect()
+    }
+
+    /// Makes the forge refuse to rerun run `run`, as it does a run still in progress
+    pub fn set_run_in_progress(&self, run: u64) {
+        self.ci.lock().unwrap().running.push(run);
     }
 
     /// Makes the failed CI runs' logs say `log`
