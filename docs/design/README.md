@@ -7,7 +7,7 @@ Kelpie: dog of the maintainer's shepherd; one runner per project takes ready iss
 - Gates, locks, rate windows live in code; Claude only for work and judgement. ADR 0001
 - Kelpie controls each agent's context growth. `runner/turn/`
 - Naming: dog = adopted `kelpie` (lease dog); project = sheep; agent calls = lambs. One kelpie for all projects (bot windows, pacer are machine/account-wide). ADR 0001 to 0004
-- Binary is the dog with no args + `SHEP_DOG_NAME` and `SHEP_NAME` set; needs the `shep adopt` channel; names itself in the handshake, so never `silent`. `src/sheep/mod.rs`, shep-pm/shep#656
+- Binary is the dog with no args + `SHEP_DOG_NAME` and `SHEP_NAME` set; needs the `shep adopt` channel; names itself in the handshake, so never `silent`. `src/sheep/mod.rs`
 - Needs shep 0.16.1+ (ADR 0016); `upgrade` refuses builds it would. shep-pm/shep#688, #319, #656, #914
 - Home: `$SHEP_HOME/kelpie` (`KELPIE_HOME`), shep plugin, folder per project; dog files stay in `$SHEP_HOME`. #253
 - The shepherd is reached through the `Dial` port (`core/shepherd/connection.rs`): `Socket` is the real one; tests dial `FakeShepherd`. #587
@@ -20,7 +20,7 @@ Kelpie: dog of the maintainer's shepherd; one runner per project takes ready iss
 
 ## Files
 
-| file | covers | read when you touch (`core/` is `crates/core/src/`, `dog/` is `crates/dog/src/dog/`, `adapters/` is `crates/adapters/src/`, `runner/` is `crates/runner/src/runner/`, in every area file) |
+| file | covers | touch (`core/` is `crates/core/src/`, `dog/` is `crates/dog/src/dog/`, `adapters/` is `crates/adapters/src/`, `runner/` is `crates/runner/src/runner/`, in every area file) |
 |---|---|---|
 | work.md | projects, slots, issues | `src/issues/mod.rs`, `runner/slots.rs`, `src/flock/verbs.rs`, `core/guard/issues/` |
 | board.md | board, items, adoption | `core/board/`, `runner/dispatch/`, `runner/adopt/` |
@@ -43,9 +43,10 @@ Kelpie: dog of the maintainer's shepherd; one runner per project takes ready iss
 | review-outcomes.md | fix turn findings' outcomes | `runner/review/outcomes/` |
 | local-review.md | local reviewers, lock, kept rounds | `runner/review/keep.rs`, `core/settings/local_rounds.rs`, `core/settings/local.rs`, `adapters/local/` |
 | merge.md | CI, catching up, merge, after it | `runner/gate/`, `runner/merge/`, `runner/close_merged.rs`, `runner/main_ci/` |
+| stuck-checks.md | checks stuck on a finished run | `runner/gate/queued/` |
 | local-tickets.md | the local ticket store, `ticket` verbs, closing on merge | `core/local_tickets/`, `src/flock/ticket.rs`, `runner/close_merged.rs` |
 | github-app.md | App tokens, posting, answers, ruling panel | `runner/voice/`, `runner/panel/`, `crates/panel/`, `core/guard/gh.rs`, `crates/worker_folder/` |
-| contributions.md | others' pull requests: `contributions` settings, detection | `core/settings/contributions.rs`, `core/settings/reviewers/`, `runner/contributions/`, `core/state/contributions.rs` |
+| contributions.md | others' pull requests: settings, detection | `core/settings/contributions.rs`, `core/settings/reviewers/`, `runner/contributions/`, `core/state/contributions.rs` |
 | contribution-security.md | a contribution's security review | `runner/contributions/`, `runner/flight/security.rs`, `crates/process/src/worktree/` |
 | contribution-pass.md | reviewers' pass over a green head | `runner/contributions/pass.rs`, `crates/process/src/worktree/` |
 | contribution-talk.md | what contributors say, answers, quiet clock | `runner/contributions/{heard,clock}.rs`, `runner/thread_replies/` |
@@ -63,12 +64,12 @@ Kelpie: dog of the maintainer's shepherd; one runner per project takes ready iss
 | triage-spam.md | the spam check: `triage.spam`, `possible-spam` | `runner/triage/spam.rs` |
 | triage-hand.md | `hand_ready` take-back | `runner/triage/hand.rs` |
 | log-lines.md | runner and dog log lines | `runner/drain/`, `runner/skip_log.rs`, `runner/review_bot/lease_wait.rs`, `runner/claim.rs`, `dog/desk.rs`, `dog/door/` |
-| metrics.md | kelpie's series on shep's metrics endpoint, alerts, dashboard | `core/metrics/`, `core/ports/metrics.rs`, `assets/prometheus/`, `assets/grafana/` |
+| metrics.md | kelpie's series, alerts, dashboard | `core/metrics/`, `core/ports/metrics.rs`, `assets/prometheus/`, `assets/grafana/` |
 | metrics-work-items.md | work-item series, `finished` line | `core/usage/finished.rs`, `runner/ci_failure.rs` |
 | metrics-dog.md | leases, summons, forge hold/calls/rate | `core/metrics/{dog,forge}.rs`, `dog/watch/` |
 | metrics-transcripts.md | series from a call's transcript: MCP, tools, `usage` | `crates/facts/`, `runner/transcript_count/`, `core/usage/` |
 | budget.md | pacing, dog + leases, time, usage, settings | `runner/pace.rs`, `dog/`, `core/usage/`, `core/settings/`, `src/sheep/mod.rs` |
 
-Each file stays under 8 KB; over it, split in two with a new row here (`scripts/design-size.sh`). A changed decision updates its bullet in its PR.
+Each file stays under 8 KB; over it, split in two with a new row here (`scripts/design-size.sh`). A changed decision updates its bullet.
 
 Elsewhere: `docs/design-log.md` (record, history, old file formats), `docs/facts/`, `docs/adr/`, `GLOSSARY.md`.
