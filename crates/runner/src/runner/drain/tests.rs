@@ -346,3 +346,13 @@ fn status_names_each_role_as_it_always_has() {
         assert_eq!(serde_json::to_value(role).unwrap(), name);
     }
 }
+
+#[test]
+fn attached_sessions_are_listed_pi_then_goose_then_codex() {
+    let roles: Vec<_> = crate::settings::Harness::ALL
+        .into_iter()
+        .filter_map(|h| h.facts().attached_role)
+        .collect();
+
+    assert_eq!(roles, ["pi_session", "goose_session", "codex_session"]);
+}

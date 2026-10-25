@@ -90,7 +90,7 @@ pub struct HarnessFacts {
 
 impl Harness {
     /// Every harness a project can name
-    pub const ALL: [Self; 4] = [Self::ClaudeCode, Self::Pi, Self::Codex, Self::Goose];
+    pub const ALL: [Self; 4] = [Self::ClaudeCode, Self::Pi, Self::Goose, Self::Codex];
 
     /// What is true of it
     pub fn facts(self) -> &'static HarnessFacts {
