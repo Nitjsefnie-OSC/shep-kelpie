@@ -231,6 +231,9 @@ pub struct WorkerProfile<'a> {
     pub kelpie_pushes: bool,
     /// The kelpie binary, which runs kelpie's own checks
     pub kelpie: &'a Path,
+    /// The project's skills folder, which holds the plugins every call of the
+    /// project is given, and which a skill names a file from
+    pub skills: &'a Path,
     /// Kelpie's home, whose path the guard keeps off the forge
     pub kelpie_home: &'a Path,
     /// The project's checkout, whose path the guard keeps off the forge
@@ -295,7 +298,9 @@ impl WorkerProfile<'_> {
             .map(|&p| p.to_owned())
             .chain(homes)
             .collect();
-        let read = [self.worktree, self.build, self.kelpie]
+        // A skill names a file under its plugin's folder, and every plugin of
+        // the project sits under its skills folder, so the worker reads there.
+        let read = [self.worktree, self.build, self.kelpie, self.skills]
             .into_iter()
             .map(Path::to_owned)
             .collect();

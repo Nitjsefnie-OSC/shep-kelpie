@@ -18,7 +18,7 @@
 use super::ask;
 use crate::ports::{AgentCall, Reach, Role, Session, Tools};
 use crate::runner::Runner;
-use crate::settings::{AgentHarness, ExpertAgent};
+use crate::settings::{AgentHarness, ExpertAgent, ResearcherWeb};
 use crate::state::Ruling;
 use crate::tools::{GOOSE_WEB, GOOSE_WEB_FILE, GOOSE_WEB_SERVER, PI_WEB_ACCESS};
 use crate::work_item::new_session_id;
@@ -103,10 +103,10 @@ impl Runner {
     // and a note says so.
     fn with_web(&self, harness: &AgentHarness, reach: &mut Reach) {
         // parity: harness.web-research
-        match harness {
-            AgentHarness::Pi(_) => self.with_pi_web(reach),
-            AgentHarness::Goose(_) => self.with_goose_web(reach),
-            _ => {}
+        match harness.harness().facts().researcher_web {
+            ResearcherWeb::Builtin => {}
+            ResearcherWeb::PiPackage => self.with_pi_web(reach),
+            ResearcherWeb::GoosePackage => self.with_goose_web(reach),
         }
     }
 

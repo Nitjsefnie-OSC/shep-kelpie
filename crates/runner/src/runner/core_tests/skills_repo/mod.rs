@@ -7,9 +7,11 @@ use crate::ports::{AgentCall, Role};
 use crate::runner::step;
 use crate::test::{Rig, Scripted, Synced, git};
 
+mod frontmatter;
 mod narrow;
 mod own;
 mod parts;
+mod rest;
 
 // The files of a marketplace named `market` holding each of `plugins` with one skill, by path
 // from the marketplace
@@ -65,6 +67,18 @@ fn land_link(rig: &Rig, file: &str, target: &str) {
     std::os::unix::fs::symlink(target, &at).unwrap();
     git(&other, &["add", file]);
     git(&other, &["commit", "--quiet", "-m", "a link"]);
+    git(&other, &["push", "--quiet", "origin", "main"]);
+}
+
+// Lands `file` holding `bytes` on the default branch, as `Rig::land` does for text, for a file no
+// harness reads as text
+fn land_bytes(rig: &Rig, file: &str, bytes: &[u8]) {
+    let other = rig.home.path().join("other");
+    let at = other.join(file);
+    fs::create_dir_all(at.parent().unwrap()).unwrap();
+    fs::write(&at, bytes).unwrap();
+    git(&other, &["add", file]);
+    git(&other, &["commit", "--quiet", "-m", "landed elsewhere"]);
     git(&other, &["push", "--quiet", "origin", "main"]);
 }
 

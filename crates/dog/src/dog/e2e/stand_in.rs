@@ -8,7 +8,6 @@
 //! what the flag would have kept back. Both log every start with their
 //! parent's process, which is the dog's when it starts them directly.
 
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
 use super::Remote;
@@ -69,7 +68,7 @@ impl StandIn {
             let path = base.join(name);
             let text = text.replace("@DIR@", &base.display().to_string());
             std::fs::write(&path, text).unwrap();
-            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+            executable(&path);
             path
         };
         let remote = Remote {
@@ -109,7 +108,7 @@ impl StandIn {
         std::fs::create_dir_all(command.parent().unwrap()).unwrap();
         std::fs::write(folder.join("e2e.json"), table).unwrap();
         std::fs::write(&command, format!("#!/bin/sh\n{script}\n")).unwrap();
-        std::fs::set_permissions(&command, std::fs::Permissions::from_mode(0o755)).unwrap();
+        executable(&command);
         std::fs::write(worktree.join(".git"), "gitdir: /elsewhere\n").unwrap();
         worktree
     }
@@ -142,8 +141,27 @@ impl StandIn {
     }
 }
 
+/// Makes the script at `path` something the dog can start
+#[cfg(unix)]
+fn executable(path: &Path) {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+}
+
+// A file on Windows has no mode to set. The scripts are `sh` ones that Windows
+// cannot start, so every test that runs them is ignored there until #1302.
+#[cfg(windows)]
+fn executable(_path: &Path) {}
+
 /// Whether process `pid` is gone, reaped by the dog that started it
+#[cfg(unix)]
 pub fn ended(pid: u32) -> bool {
     let pid = rustix::process::Pid::from_raw(pid.try_into().unwrap()).unwrap();
     rustix::process::test_kill_process(pid) == Err(rustix::io::Errno::SRCH)
+}
+
+// Placeholder: the tests that call it are ignored on Windows until #1302.
+#[cfg(windows)]
+pub fn ended(_pid: u32) -> bool {
+    unimplemented!("asking Windows whether a process is gone waits on #1302")
 }

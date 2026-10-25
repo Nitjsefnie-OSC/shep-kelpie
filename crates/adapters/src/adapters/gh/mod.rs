@@ -13,6 +13,7 @@ mod queue;
 mod rate_limit;
 mod review;
 pub mod review_bot;
+mod rules;
 mod runs;
 mod suites;
 mod talk;
@@ -72,6 +73,10 @@ impl Forge for Gh {
             "--json",
             "defaultBranchRef",
         ])?)
+    }
+
+    fn requires_up_to_date(&self, repo: &ForgeSlug, base: &str) -> Result<bool, ForgeError> {
+        rules::requires_up_to_date(repo, base)
     }
 
     fn branch_exists(&self, repo: &ForgeSlug, branch: &str) -> Result<bool, ForgeError> {

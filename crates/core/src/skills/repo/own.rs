@@ -1,14 +1,14 @@
 //! The repo's own `.claude` files, which load with no plugin
 //!
-//! A repo sets Claude Code up for everyone who works in it without a plugin
-//! too: skills in `.claude/skills/`, sub-agents in `.claude/agents/`, commands
-//! in `.claude/commands/` and hooks in `.claude/settings.json`. A call that runs in
-//! a worktree loads them from there, but the project manager, the advisor,
-//! the researcher and the issue writer run in folders of their own. So kelpie
-//! reads them from `origin`'s default branch, never a worker's branch, and
-//! writes them as one more plugin, `kelpie-repo`, which a repo's plugin cannot
-//! be named. The hooks go to the plugin's `hooks/hooks.json`, where they run
-//! beside the hooks of the call's settings file and cannot replace them.
+//! A repo sets Claude Code up without a plugin too: skills in
+//! `.claude/skills/`, sub-agents in `.claude/agents/`, commands in
+//! `.claude/commands/` and hooks in `.claude/settings.json`. A call in a
+//! worktree loads them from there, but the project manager, the advisor, the
+//! researcher and the issue writer run in folders of their own. So kelpie reads
+//! them from `origin`'s default branch, never a worker's branch, and writes
+//! them as one more plugin, `kelpie-repo`. Its hooks go to `hooks/hooks.json`,
+//! where they run beside the call's own and cannot replace them, and its
+//! skills name this copy where they name `${CLAUDE_PLUGIN_ROOT}`.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -26,7 +26,7 @@ pub(super) const NAME: &str = "kelpie-repo";
 const ID: &str = ".claude";
 
 /// The repo's MCP servers, at its root
-const MCP_JSON: &str = ".mcp.json";
+const MCP_JSON: &str = mcp::CONFIG_FILE;
 
 /// The folders of `.claude` that are one part each
 const FOLDERS: [Part; 3] = [Part::Skills, Part::Agents, Part::Commands];
@@ -69,6 +69,7 @@ pub(super) fn plan(
         skills,
         skipped: None,
         stale: None,
+        unreadable: Vec::new(),
         dir: Some(into.join(NAME)),
         found: None,
         digest: 0,
@@ -202,6 +203,10 @@ pub(super) fn install(own: &Own, dir: &Path) -> Result<(), String> {
                 json!({ "hooks": hooks }).to_string(),
             )?;
         }
+        // A skill's text reaches the harness as it was written, so the variable
+        // kelpie answers for a repo plugin's skill is answered here too, with
+        // this copy's own folder.
+        super::fill_in_skills(&dir.join(Part::Skills.as_str()), &dir.display().to_string())?;
         Ok(())
     })();
     written.map_err(|e| format!("cannot write it into {}: {e}", dir.display()))

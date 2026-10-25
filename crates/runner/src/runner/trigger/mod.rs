@@ -152,6 +152,11 @@ pub struct Status<'a> {
     /// out when the file cannot be read
     #[serde(skip_serializing_if = "Option::is_none")]
     pub build: Option<&'static str>,
+    /// The commit the build this runner runs was made from, with `-dirty`
+    /// when that build's tree held changes that commit does not; left out for
+    /// a build made where git could not answer
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub commit: Option<&'static str>,
     /// The calls still running, while `drain` holds back new ones
     #[serde(skip_serializing_if = "Option::is_none")]
     pub draining: Option<super::Draining>,

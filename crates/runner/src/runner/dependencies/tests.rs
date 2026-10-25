@@ -169,6 +169,13 @@ fn a_bump_behind_main_is_asked_to_rebase_once_for_each_head() {
     );
     let listed = bumps(&rig, &runner);
     assert!(listed[0]["standing"].as_str().unwrap().contains("behind"));
+    assert!(
+        listed[0]["standing"]
+            .as_str()
+            .unwrap()
+            .contains("requires it to be up to date"),
+        "the standing names the rule that asked it"
+    );
 
     let fresh = commit_on(&rig, 40, "origin/main", |h| write(h, "Cargo.lock", "b\n"));
     rig.land("main_again.txt", "and again\n");
