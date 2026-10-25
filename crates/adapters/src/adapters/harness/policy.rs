@@ -430,7 +430,7 @@ mod tests {
         std::fs::create_dir_all(&worktree).unwrap();
         let read = unfenced_reads(
             &unfenced_call(&worktree),
-            &[glob(Path::new("/Users/other"))],
+            &[glob(Path::new("/Users/me"))],
             &Fixed(vec![]),
         );
         assert_eq!(read, vec![worktree]);
