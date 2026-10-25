@@ -263,7 +263,7 @@ fn gate_refuses_anything_but_an_ended_turn_with_a_known_pull_request() {
     );
 }
 
-// Sends `action` the way shep's reader thread does while a pass holds the
+// Sends `action` the way a shep-channel handler thread does while a pass holds the
 // runner's lock, and returns its reply. A reply that waits for the lock fails
 // the test instead of hanging it.
 fn asked_during_a_pass(runner: &Arc<Mutex<Runner>>, action: &str, params: Option<&str>) -> Value {
@@ -282,6 +282,42 @@ fn asked_during_a_pass(runner: &Arc<Mutex<Runner>>, action: &str, params: Option
         .recv_timeout(Duration::from_secs(5))
         .expect("the trigger waited for the pass's lock");
     serde_json::from_str(&reply).expect("a JSON reply")
+}
+
+#[test]
+fn status_sent_after_a_trigger_that_waits_for_the_pass_is_answered_at_once() {
+    let rig = Rig::new("koji");
+    let (runner, postings) = posted(&rig, rig.open().unwrap());
+    let pass = runner.lock().unwrap();
+    let ask = |action: &'static str| {
+        let (runner, postings) = (Arc::clone(&runner), Arc::clone(&postings));
+        let (sent, reply) = mpsc::channel();
+        let handler = std::thread::spawn(move || {
+            let _ = sent.send(answer(&runner, &postings, action, None));
+        });
+        (handler, reply)
+    };
+
+    let (finish, finished) = ask("finish");
+    assert!(
+        finished.recv_timeout(Duration::from_millis(100)).is_err(),
+        "`finish` waits for the pass's lock"
+    );
+    let (status, statused) = ask("status");
+    let status_reply = statused
+        .recv_timeout(Duration::from_secs(5))
+        .expect("`status` waited behind `finish`");
+    assert_eq!(
+        serde_json::from_str::<Value>(&status_reply).unwrap()["project"],
+        "koji"
+    );
+
+    drop(pass);
+    finished
+        .recv_timeout(Duration::from_secs(5))
+        .expect("`finish` is answered once the pass lets go");
+    finish.join().unwrap();
+    status.join().unwrap();
 }
 
 // A runner whose loop has posted its status, as it has by its first pass
