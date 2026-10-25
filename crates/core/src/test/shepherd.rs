@@ -287,6 +287,7 @@ fn info(id: usize, sheep: &Sheep) -> ProcessInfo {
             .dog(Some(DogSource::Adopted {
                 path: sheep.config.script.clone(),
                 channel,
+                grants: None,
             }))
             .handshook(Some(sheep.heard == Heard::Named))
             .dog_stale(Some(sheep.heard == Heard::GivenUp));

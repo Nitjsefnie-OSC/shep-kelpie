@@ -21,6 +21,10 @@ use crate::ports::Forge;
 /// The App's homepage
 const HOMEPAGE: &str = "https://github.com/shep-pm/shep-kelpie";
 
+/// The kelpie logo on `main`, which an installed binary has no checkout to point at
+const LOGO: &str =
+    "https://raw.githubusercontent.com/shep-pm/shep-kelpie/main/assets/kelpie-logo.png";
+
 /// The path GitHub sends the browser back to
 const CALLBACK: &str = "/callback";
 
@@ -65,25 +69,51 @@ impl Flow<'_> {
             "public": false,
             "hook_attributes": { "url": HOMEPAGE, "active": false },
             "default_permissions": {
+                "actions": "write",
+                "checks": "write",
                 "contents": "write",
-                "workflows": "write",
+                "deployments": "read",
+                "environments": "read",
                 "issues": "write",
-                "pull_requests": "write",
-                "checks": "read",
-                "statuses": "read",
+                "merge_queues": "write",
                 "metadata": "read",
+                "packages": "read",
+                "pages": "read",
+                "pull_requests": "write",
+                "repository_hooks": "read",
+                "statuses": "write",
+                "vulnerability_alerts": "write",
+                "workflows": "write",
             },
         })
         .to_string()
     }
 
+    /// The two lines that send the maintainer to the App `slug`'s settings page to
+    /// upload the logo, which a manifest cannot set
+    pub fn logo_step(&self, slug: &str) -> String {
+        format!(
+            "Settings page of the App: https://github.com/{}/apps/{slug}\n\
+             Under Display information, upload assets/kelpie-logo.png, from {LOGO}",
+            self.settings()
+        )
+    }
+
     /// GitHub's new-App page the manifest is posted to
     pub fn new_app_url(&self) -> String {
-        let at = match self.org {
+        format!(
+            "https://github.com/{}/apps/new?state={}",
+            self.settings(),
+            self.state
+        )
+    }
+
+    // The path of the owner's settings, where its Apps are.
+    fn settings(&self) -> String {
+        match self.org {
             true => format!("organizations/{}/settings", self.owner),
             false => "settings".to_owned(),
-        };
-        format!("https://github.com/{at}/apps/new?state={}", self.state)
+        }
     }
 
     fn page(&self, port: u16) -> String {
@@ -337,6 +367,7 @@ fn run(org: Option<Owner>, name: Option<String>, replace: bool) -> Result<(), St
         app.owner,
         app.install_url()
     );
+    println!("{}", flow.logo_step(&app.slug));
     open(&app.install_url());
     Ok(())
 }
@@ -417,5 +448,32 @@ mod tests {
             assert_eq!(read_args(&args(bad)), Err(BadArgs), "{bad}");
         }
         assert!(HELP.contains("--org") && HELP.contains("--name") && HELP.contains("--replace"));
+    }
+
+    #[test]
+    fn the_logo_step_names_the_apps_settings_page_and_links_the_file() {
+        let logo =
+            "https://raw.githubusercontent.com/shep-pm/shep-kelpie/main/assets/kelpie-logo.png";
+        let owner = Owner::try_from("shep-pm").unwrap();
+        for (org, page) in [
+            (
+                true,
+                "https://github.com/organizations/shep-pm/settings/apps/kelpie-shep-pm",
+            ),
+            (false, "https://github.com/settings/apps/kelpie-shep-pm"),
+        ] {
+            let flow = Flow {
+                name: "kelpie-shep-pm",
+                owner: &owner,
+                org,
+                state: "s",
+            };
+            let step = flow.logo_step("kelpie-shep-pm");
+            assert!(step.contains(page), "{step}");
+            assert!(step.contains("assets/kelpie-logo.png"), "{step}");
+            assert!(step.contains("Display information"), "{step}");
+            assert!(step.contains(logo), "{step}");
+            assert_eq!(step.lines().count(), 2, "{step}");
+        }
     }
 }

@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::sync::{Arc, mpsc};
@@ -8,11 +9,11 @@ use std::time::Duration;
 
 use serde_json::json;
 
-use super::setup::{Flow, may_register, serve};
+use super::setup::{Flow, serve};
 use super::tokens::{Jwt, base64url, signing_input};
 use super::*;
 use crate::ports::{Cooldown, InstallationToken, Timestamp};
-use crate::test::{Asked, CALL_PATIENCE, FakeClock, FakeGithub, FakeSigner, PEM};
+use crate::test::{Asked, CALL_PATIENCE, FakeClock, FakeGithub, FakeSigner};
 
 const STATE: &str = "0123456789abcdef0123456789abcdef";
 
@@ -24,6 +25,7 @@ fn slug(s: &str) -> ForgeSlug {
     ForgeSlug::try_from(s.to_owned()).unwrap()
 }
 
+#[cfg(unix)]
 fn mode(path: &Path) -> u32 {
     std::fs::metadata(path).unwrap().permissions().mode() & 0o777
 }
@@ -65,8 +67,11 @@ fn serving(home: &Path, github: &FakeGithub) -> (u16, mpsc::Receiver<std::io::Re
     (port, ended)
 }
 
+#[cfg(unix)]
 #[test]
 fn a_callback_with_another_state_or_host_is_refused_and_the_right_one_keeps_the_app() {
+    use crate::test::PEM;
+
     let home = tempfile::tempdir().unwrap();
     let github = FakeGithub::new(FakeClock::at(1_000), "Maintainer");
     let (port, ended) = serving(home.path(), &github);
@@ -156,6 +161,7 @@ fn a_failed_conversion_or_another_owners_app_keeps_nothing_and_the_flow_waits_on
     assert_eq!(github.asked().len(), 3);
 }
 
+#[cfg(unix)]
 #[test]
 fn saving_makes_the_folders_private_and_refuses_a_link() {
     let home = tempfile::tempdir().unwrap();
@@ -184,6 +190,32 @@ fn saving_makes_the_folders_private_and_refuses_a_link() {
     assert_eq!(std::fs::read_dir(elsewhere.path()).unwrap().count(), 0);
 }
 
+// Until #1264, no key is kept or read on Windows, rather than one others may read.
+#[cfg(windows)]
+#[test]
+fn no_app_is_kept_or_read_without_an_owner_only_acl() {
+    let home = tempfile::tempdir().unwrap();
+    let github = FakeGithub::new(FakeClock::at(0), "shep-pm");
+    let apps = Apps::under(home.path());
+    let owner = Owner::try_from("shep-pm").unwrap();
+    assert_eq!(apps.get(&owner), Ok(None));
+
+    let StoreError::Unusable(why) = apps.save(&github.conversion()).unwrap_err() else {
+        panic!("a refusal is not an exposed folder");
+    };
+    assert!(why.contains("#1264"), "{why}");
+    assert!(!apps.key(&owner).exists());
+    assert_eq!(apps.get(&owner), Ok(None));
+
+    let folder = home.path().join("github/shep-pm");
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(folder.join("app.json"), "{}").unwrap();
+    let StoreError::Unusable(why) = apps.get(&owner).unwrap_err() else {
+        panic!("a refusal is not an exposed folder");
+    };
+    assert!(why.contains("#1264"), "{why}");
+}
+
 #[test]
 fn an_org_s_manifest_goes_to_the_org_s_new_app_page() {
     let org = Owner::try_from("shep-pm").unwrap();
@@ -207,20 +239,31 @@ fn an_org_s_manifest_goes_to_the_org_s_new_app_page() {
             "public": false,
             "hook_attributes": { "url": "https://github.com/shep-pm/shep-kelpie", "active": false },
             "default_permissions": {
+                "actions": "write",
+                "checks": "write",
                 "contents": "write",
-                "workflows": "write",
+                "deployments": "read",
+                "environments": "read",
                 "issues": "write",
-                "pull_requests": "write",
-                "checks": "read",
-                "statuses": "read",
+                "merge_queues": "write",
                 "metadata": "read",
+                "packages": "read",
+                "pages": "read",
+                "pull_requests": "write",
+                "repository_hooks": "read",
+                "statuses": "write",
+                "vulnerability_alerts": "write",
+                "workflows": "write",
             },
         })
     );
 }
 
+#[cfg(unix)]
 #[test]
 fn setup_again_for_an_owner_with_an_app_stops_unless_replacing() {
+    use super::setup::may_register;
+
     let home = tempfile::tempdir().unwrap();
     let apps = Apps::under(home.path());
     let owner = Owner::try_from("shep-pm").unwrap();
@@ -523,6 +566,7 @@ fn no_app_or_no_install_says_which() {
     tokens.token(&slug("Shep-PM/Koji")).unwrap();
 }
 
+#[cfg(unix)]
 #[test]
 fn a_key_others_may_read_is_refused() {
     let home = tempfile::tempdir().unwrap();

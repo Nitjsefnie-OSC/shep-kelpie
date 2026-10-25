@@ -265,6 +265,7 @@ fn locate(kelpie_home: &Path, worktree: &Path) -> Option<(ProjectName, PathBuf)>
 
 #[cfg(test)]
 mod tests {
+    #[cfg(unix)]
     use std::os::unix::fs::symlink;
     use std::path::PathBuf;
 
@@ -310,7 +311,12 @@ mod tests {
         );
         let (_, root) = locate(&home, &home.join("koji/worktrees/7/src")).unwrap();
         assert_eq!(root, home.join("koji/worktrees/7"));
-        // A link to a worktree is resolved first.
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn a_link_to_a_worktree_is_resolved_first() {
+        let (_dir, home, _outside) = home();
         let link = home.join("golbat/here");
         symlink(home.join("koji/worktrees/8"), &link).unwrap();
         assert_eq!(locate(&home, &link).unwrap().0.as_str(), "koji");
@@ -322,13 +328,9 @@ mod tests {
         let worktree = home.join("koji/worktrees/7");
         let rises = worktree.join("../../../agents");
         let sideways = worktree.join("../../../golbat/worktrees/../state.json");
-        symlink(&outside, worktree.join("out")).unwrap();
-        symlink(&outside, home.join("koji/worktrees/escape")).unwrap();
         let none = [
             rises,
             sideways,
-            worktree.join("out"),
-            home.join("koji/worktrees/escape"),
             home.join("koji/worktrees"),
             home.join("koji"),
             home.join("agents"),
@@ -339,6 +341,17 @@ mod tests {
             PathBuf::new(),
         ];
         for path in none {
+            assert_eq!(locate(&home, &path), None, "{}", path.display());
+        }
+    }
+    #[test]
+    #[cfg(unix)]
+    fn a_link_out_of_every_worktrees_folder_names_none() {
+        let (_dir, home, outside) = home();
+        let worktree = home.join("koji/worktrees/7");
+        symlink(&outside, worktree.join("out")).unwrap();
+        symlink(&outside, home.join("koji/worktrees/escape")).unwrap();
+        for path in [worktree.join("out"), home.join("koji/worktrees/escape")] {
             assert_eq!(locate(&home, &path), None, "{}", path.display());
         }
     }

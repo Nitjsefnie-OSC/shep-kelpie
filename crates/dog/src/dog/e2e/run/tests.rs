@@ -31,6 +31,7 @@ async fn go(stand: &StandIn, worktree: &Path) -> (Result<i32, String>, Vec<Strin
 }
 
 #[tokio::test]
+#[cfg_attr(windows, ignore = "the stand-in ssh and rsync are sh scripts (#1302)")]
 async fn a_run_copies_the_worktree_runs_the_command_and_copies_the_results_back() {
     let stand = StandIn::new();
     let script =
@@ -58,6 +59,7 @@ async fn a_run_copies_the_worktree_runs_the_command_and_copies_the_results_back(
 }
 
 #[tokio::test]
+#[cfg_attr(windows, ignore = "the stand-in ssh and rsync are sh scripts (#1302)")]
 async fn the_commands_output_reaches_the_worker_line_by_line_and_its_exit_code_is_the_answer() {
     let stand = StandIn::new();
     let script = format!(
@@ -88,6 +90,7 @@ async fn the_commands_output_reaches_the_worker_line_by_line_and_its_exit_code_i
 }
 
 #[tokio::test]
+#[cfg_attr(windows, ignore = "the stand-in ssh and rsync are sh scripts (#1302)")]
 async fn results_come_back_when_the_command_fails() {
     let stand = StandIn::new();
     let script = "mkdir -p test-results; echo 'not ok' > test-results/report.txt; exit 3";
@@ -102,6 +105,7 @@ async fn results_come_back_when_the_command_fails() {
 }
 
 #[tokio::test]
+#[cfg_attr(windows, ignore = "the stand-in ssh and rsync are sh scripts (#1302)")]
 async fn only_the_results_folder_comes_back_and_a_link_on_the_host_is_not_followed() {
     let stand = StandIn::new();
     let sibling = stand.outside();
@@ -134,6 +138,7 @@ async fn only_the_results_folder_comes_back_and_a_link_on_the_host_is_not_follow
 }
 
 #[tokio::test]
+#[cfg(unix)]
 async fn a_results_folder_that_is_a_link_in_the_worktree_is_refused() {
     let stand = StandIn::new();
     let script = "mkdir -p test-results out/results; echo r > test-results/r.txt; echo r > out/results/r.txt";
@@ -169,6 +174,7 @@ async fn a_results_folder_that_is_a_link_in_the_worktree_is_refused() {
 }
 
 #[tokio::test]
+#[cfg(unix)]
 async fn a_link_inside_the_results_folder_is_not_written_through() {
     let stand = StandIn::new();
     let script = "mkdir -p test-results/sub; echo new > test-results/report.txt; \
@@ -200,6 +206,7 @@ async fn a_link_inside_the_results_folder_is_not_written_through() {
 }
 
 #[tokio::test]
+#[cfg_attr(windows, ignore = "the stand-in ssh and rsync are sh scripts (#1302)")]
 async fn a_hard_link_in_the_results_folder_is_replaced_not_written_through() {
     let stand = StandIn::new();
     let worktree = stand.project(
@@ -272,6 +279,7 @@ async fn a_fifo_in_the_results_folder_does_not_hold_the_run() {
 }
 
 #[tokio::test]
+#[cfg_attr(windows, ignore = "the stand-in ssh and rsync are sh scripts (#1302)")]
 async fn the_local_side_starts_only_ssh_and_rsync() {
     let stand = StandIn::new();
     let worktree = stand.project("koji", TABLE, 7, "mkdir -p test-results");
@@ -302,6 +310,7 @@ async fn the_local_side_starts_only_ssh_and_rsync() {
 }
 
 #[tokio::test]
+#[cfg_attr(windows, ignore = "the stand-in ssh and rsync are sh scripts (#1302)")]
 async fn a_copy_that_cannot_start_is_an_error_and_nothing_runs() {
     let stand = StandIn::new();
     let worktree = stand.project("koji", TABLE, 7, "echo ran");

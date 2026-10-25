@@ -154,7 +154,7 @@ shep kelpie doctor
 ok       claude: installed and logged in
 ok       gh: logged in as <you>
 ok       sandbox: the sandbox runtime can run
-ok       shepherd: shep 0.16.1 at /path/to/.shep
+ok       shepherd: shep 0.17.0 at /path/to/.shep
 ok       dog: kelpie's dog is running and has named itself
 ok       scratch: checkout: /path/to/checkout is a git checkout with an origin
 ok       scratch: implementers: an issue with no `agent:` label runs on sonnet-high

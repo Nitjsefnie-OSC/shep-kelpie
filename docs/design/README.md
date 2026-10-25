@@ -8,7 +8,7 @@ Kelpie: dog of the maintainer's shepherd; one runner per project takes ready iss
 - Kelpie controls each agent's context growth. `runner/turn/`
 - Naming: dog = adopted `kelpie` (lease dog); project = sheep; agent calls = lambs. One kelpie for all projects. ADR 0001 to 0004
 - Binary is the dog with no args + `SHEP_DOG_NAME` and `SHEP_NAME` set; needs the `shep adopt` channel; names itself in the handshake, so never `silent`. `src/sheep/mod.rs`
-- Needs shep 0.16.1+ (ADR 0016); `upgrade` refuses builds it would. shep-pm/shep#688, #319, #656, #914
+- Needs shep 0.17.0+ (ADR 0016); `upgrade` refuses builds it would. shep-pm/shep#688, #319, #656, #914
 - Home: `$SHEP_HOME/kelpie` (`KELPIE_HOME`), shep plugin, folder per project; the dog's files stay under `$SHEP_HOME`. #253
 - The shepherd is reached through the `Dial` port (`core/shepherd/connection.rs`): `Socket` is the real one; tests dial `FakeShepherd`. #587
 - Socket path over 103 bytes: runner refuses to start. #1147
@@ -20,7 +20,7 @@ Kelpie: dog of the maintainer's shepherd; one runner per project takes ready iss
 
 ## Files
 
-| file | covers | touch (`core/` is `crates/core/src/`, `dog/` is `crates/dog/src/dog/`, `adapters/` is `crates/adapters/src/`, `runner/` is `crates/runner/src/runner/`, in every area file) |
+| file | covers | touch (`core/` is `crates/core/src/`, `dog/` is `crates/dog/src/dog/`, `adapters/` is `crates/adapters/src/`, `runner/` is `crates/runner/src/runner/`) |
 |---|---|---|
 | work.md | projects, slots, issues | `src/issues/mod.rs`, `runner/slots.rs`, `src/flock/verbs.rs`, `core/guard/issues/` |
 | board.md | board, items, adoption | `core/board/`, `runner/{dispatch,adopt}/` |
@@ -28,6 +28,7 @@ Kelpie: dog of the maintainer's shepherd; one runner per project takes ready iss
 | workers.md | runner loop, turns | `runner/{turn,flight}/` |
 | runner-lock.md | the runner's lock, hold metric | `runner/{lock_hold,off_lock}.rs`, `runner/trigger/` |
 | runner-lock-worktrees.md | worktree jobs | `runner/worktree_jobs.rs` |
+| runner-lock-threads.md | handler threads | `runner/trigger/` |
 | fence.md | sandbox, guard, hooks, reads | `core/{profile,guard,hooks}/`, `core/dep_sources.rs`, `runner/turn/dep_reads.rs` |
 | browser.md | a worker's browser: bridge, filter, tools | `core/{bridge,browse}.rs`, `adapters/bridge/`, `runner/browser.rs`, `core/settings/browser.rs`, `process/tools/` |
 | browser-proxy.md | the browser's proxy: origins, addresses, limits | `adapters/bridge/proxy/`, `adapters/forwarder/http.rs` |
