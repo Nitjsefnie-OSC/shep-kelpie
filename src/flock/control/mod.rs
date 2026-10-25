@@ -16,7 +16,7 @@ use std::process::Stdio;
 use std::time::Duration;
 
 use shep_client::TRIGGER_DEADLINE;
-use shep_client::shep_core::protocol::request::{ActionOutcome, ProcessInfo, Response};
+use shep_client::shep_core::protocol::request::{ActionOutcome, DogSource, ProcessInfo, Response};
 use shep_client::shep_core::protocol::{Request, SelectorSpec};
 use shep_client::shep_core::status::ProcStatus;
 
@@ -35,6 +35,9 @@ const STARTING: Duration = Duration::from_secs(30);
 
 /// How often it asks while it waits
 const ASK_AGAIN: Duration = Duration::from_millis(500);
+
+/// How long the installed kelpie has to say which build it is, for `status`
+const BUILD_LIMIT: Duration = Duration::from_secs(10);
 
 /// The project whose repo holds `folder`: its checkout, or a worktree of it
 ///
@@ -639,12 +642,36 @@ pub fn json_status(sheep: &str, body: &str) -> String {
     }
 }
 
-/// `sheep`'s runner's answer `body` to `status` as its short block of lines
-pub fn plain_status(sheep: &str, body: &str) -> Vec<String> {
+/// `sheep`'s runner's answer `body` to `status` as its short block of lines,
+/// beside the commit `installed` names when the installed kelpie could be asked
+pub fn plain_status(sheep: &str, body: &str, installed: Option<&str>) -> Vec<String> {
     match serde_json::from_str(body) {
-        Ok(object) => plain::block(sheep, &marks(body), &object),
+        Ok(object) => plain::block(sheep, &marks(body), &object, installed),
         Err(_) => vec![json_status(sheep, body)],
     }
+}
+
+/// The commit the installed kelpie names, read from the program the adopted dog
+/// runs, which is the file `upgrade` installs onto
+///
+/// `None` when the flock has no adopted kelpie, when its build cannot be asked
+/// in [`BUILD_LIMIT`], or when that build names no commit. Nothing a maintainer
+/// is asked to fix: `status` says nothing of the installed build then.
+pub(crate) async fn installed_build(client: &dyn Connection) -> Option<String> {
+    let program = match flock(client)
+        .await
+        .ok()?
+        .iter()
+        .find(|row| row.name == crate::dog::NAME)?
+        .dog
+        .as_ref()?
+    {
+        DogSource::Adopted { path, .. } => path.clone(),
+        _ => return None,
+    };
+    crate::home::Build::within(Path::new(&program), BUILD_LIMIT)
+        .ok()?
+        .commit
 }
 
 /// `sheep`'s runner's answer `body` to `action` with `params` as the plain
@@ -673,11 +700,15 @@ pub enum Format {
 ///
 /// A message when the shepherd cannot list the projects.
 pub async fn status(client: &dyn Connection, format: Format) -> Result<Vec<String>, String> {
+    let installed = match format {
+        Format::Plain => installed_build(client).await,
+        Format::Json => None,
+    };
     let mut lines = Vec::new();
     for sheep in tables(client).await?.into_keys() {
         match trigger(client, &sheep, "status", None).await? {
             Answered::Runner(body) => match format {
-                Format::Plain => lines.extend(plain_status(&sheep, &body)),
+                Format::Plain => lines.extend(plain_status(&sheep, &body, installed.as_deref())),
                 Format::Json => lines.push(json_status(&sheep, &body)),
             },
             Answered::Starting => lines.push(format!("{sheep}: starting")),

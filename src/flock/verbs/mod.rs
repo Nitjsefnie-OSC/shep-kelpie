@@ -324,7 +324,11 @@ async fn run(
         ("status", []) => {
             let answer = send("status", None).await?;
             Ok(match (json, answer.as_slice()) {
-                (false, [body]) => control::plain_status(project().await?.as_str(), body),
+                (false, [body]) => {
+                    let name = project().await?;
+                    let installed = control::installed_build(&client).await;
+                    control::plain_status(name.as_str(), body, installed.as_deref())
+                }
                 _ => answer,
             })
         }
