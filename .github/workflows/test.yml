@@ -102,8 +102,6 @@ jobs:
   sandbox:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    env:
-      KELPIE_TOOLS: ${{ github.workspace }}/.kelpie-tools
     steps:
       - uses: actions/checkout@v7
       - run: rustup toolchain install stable --profile minimal
@@ -114,7 +112,7 @@ jobs:
       - name: Allow unprivileged user namespaces
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       # crabpot is in kelpie's own binary, so the sandbox needs no installed
-      # runtime here; `KELPIE_TOOLS` is what the ignored tests ask for by name.
+      # runtime here.
       - run: cargo test --locked --no-run
       # A filter that matches nothing passes, and so does one that matches
       # only some tests, so the run must show each test below as passed. A
