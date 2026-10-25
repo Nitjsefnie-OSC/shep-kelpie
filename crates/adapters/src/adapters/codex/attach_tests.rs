@@ -152,7 +152,9 @@ fn a_terminal_that_cannot_be_set_up_leaves_no_trust_behind() {
             _: &Path,
             _: &Command,
         ) -> Result<Command, crate::ports::SandboxError> {
-            Err(crate::ports::SandboxError::Missing(PathBuf::from("/srt")))
+            Err(crate::ports::SandboxError::Install(
+                "there is no sandbox".into(),
+            ))
         }
     }
     let w = World::new();

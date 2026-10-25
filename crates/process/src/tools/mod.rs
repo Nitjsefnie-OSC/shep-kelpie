@@ -1,11 +1,11 @@
 //! Kelpie's own tools, under `<kelpie home>/tools`
 //!
-//! `shep kelpie tools install` fills the folder with the sandbox runtime every
-//! agent runs in, at the version [`PACKAGE`] pins. It also fetches the code
-//! graph server, at the release [`graph::RELEASE`] pins, and Chromium for the
-//! Playwright MCP server a worker's browser runs. The packages pi loads
-//! as extensions, and the MCP server a researcher on goose has its web from, come with the
-//! runtime, from the same `package.json`.
+//! `shep kelpie tools install` fills the folder with the browser a worker's
+//! browser runs through, at the version [`PACKAGE`] pins, and the code graph
+//! server, at the release [`graph::RELEASE`] pins. The packages pi loads as
+//! extensions, and the MCP server a researcher on goose has its web from, come
+//! with the same `package.json`. The sandbox runtime is no longer among them:
+//! crabpot is in kelpie's own binary (shep-pm/shep-kelpie#1217).
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -24,7 +24,7 @@ pub use pi_packages::WEB_ACCESS as PI_WEB_ACCESS;
 /// The name goose loads the web package's server under, which its tools are prefixed with
 pub const GOOSE_WEB_SERVER: &str = "kelpie-web";
 
-/// Kelpie's own copy of the sandbox runtime, under `<kelpie home>/tools`
+/// Kelpie's own tools, under `<kelpie home>/tools`
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Tools(PathBuf);
 
@@ -48,18 +48,10 @@ impl Tools {
         &self.0
     }
 
-    /// The sandbox runtime's command line, `srt`
-    pub fn sandbox(&self) -> PathBuf {
-        self.package(PACKAGE_NAME).join(CLI)
-    }
-
     fn package(&self, name: &str) -> PathBuf {
         self.0.join("node_modules").join(name)
     }
 }
-
-const PACKAGE_NAME: &str = "@anthropic-ai/sandbox-runtime";
-const CLI: &str = "dist/cli.js";
 
 // Runs `command` with its output passed through, as an install shows progress.
 fn run(command: &mut Command) -> Result<(), String> {
@@ -100,8 +92,13 @@ mod tests {
         let text = std::fs::read_to_string(tools.dir().join("package.json")).unwrap();
         let json: serde_json::Value = serde_json::from_str(&text).unwrap();
         assert_eq!(json["dependencies"][PI_WEB_ACCESS], "0.40.0", "{text}");
-        assert_eq!(json["dependencies"][PACKAGE_NAME], "0.0.81", "{text}");
         assert_eq!(json["dependencies"]["@playwright/mcp"], "0.0.82", "{text}");
+        assert!(
+            json["dependencies"]
+                .get("@anthropic-ai/sandbox-runtime")
+                .is_none(),
+            "the sandbox runtime is in kelpie: {text}"
+        );
     }
 
     // The web server a goose researcher runs is a third party's, so the install is of the

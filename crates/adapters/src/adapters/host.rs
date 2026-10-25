@@ -30,6 +30,10 @@ pub trait Host: Send + Sync + fmt::Debug {
     /// This machine's operating system, as `std::env::consts::OS` names it
     fn os(&self) -> &'static str;
 
+    /// What this machine's crabpot install says about itself, read from
+    /// `crabpot::windows_status`, which only a Windows machine answers
+    fn windows_status(&self) -> Result<WindowsInstall, String>;
+
     /// Whether this shell's environment holds the login token `claude setup-token` makes
     fn login_token(&self) -> bool;
 
@@ -76,6 +80,96 @@ pub const fn sandbox_needs(os: &str) -> &'static [&'static str] {
     }
 }
 
+/// What a Windows machine's crabpot install says about itself, as far as
+/// kelpie reads it: the sandbox user, the setup version, the fence's loopback
+/// mode, the Secondary Logon service and the session this process runs in.
+///
+/// The real one is read from `crabpot::windows_status`, which runs this
+/// binary again as srt-win for its queries. None of them needs elevation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WindowsInstall {
+    /// The sandbox user exists, its credential is stored, and the install's
+    /// setup version is this build's. A setup version mismatch reads as not
+    /// provisioned, since srt-win refuses a launch for it the way it does for
+    /// no install.
+    pub provisioned: bool,
+    /// What the install recorded as its setup version, None when there is no
+    /// install.
+    pub setup_installed: Option<u32>,
+    /// The setup version this build wants.
+    pub setup_expected: u32,
+    /// Whether the install's fence leaves loopback open, which is the mode the
+    /// install fixed for every session: srt-win refuses a session that asks
+    /// for the other.
+    pub loopback_open: bool,
+    /// Whether the Secondary Logon service can launch the sandbox user.
+    pub seclogon_runs: bool,
+    /// Whether this process runs in the desktop session, and not in session 0,
+    /// the services' session, where crabpot refuses to start a sandbox.
+    pub desktop_session: bool,
+}
+
+impl WindowsInstall {
+    /// An install that can run a session, with `loopback_open` as the fence
+    /// left it, which a test names instead of reading this machine
+    pub fn provisioned(loopback_open: bool) -> Self {
+        Self {
+            provisioned: true,
+            setup_installed: Some(1),
+            setup_expected: 1,
+            loopback_open,
+            seclogon_runs: true,
+            desktop_session: true,
+        }
+    }
+
+    /// Why no session can be opened under this status, in a sentence that
+    /// names the fix, or None when one can
+    #[must_use]
+    pub fn refusal(&self) -> Option<String> {
+        if !self.provisioned {
+            Some(match self.setup_installed {
+                Some(found) => format!(
+                    "the crabpot install is setup version {found}, this build wants {}, so run `crabpot windows-install`",
+                    self.setup_expected
+                ),
+                None => "there is no crabpot install, so run `crabpot windows-install`".to_owned(),
+            })
+        } else if !self.seclogon_runs {
+            Some(
+                "the Secondary Logon service is off, so the sandbox user cannot be launched"
+                    .to_owned(),
+            )
+        } else if !self.desktop_session {
+            Some(
+                "kelpie runs in session 0, the services' session, where crabpot refuses to start a sandbox"
+                    .to_owned(),
+            )
+        } else {
+            None
+        }
+    }
+}
+
+/// What this machine's crabpot install says about itself, read through
+/// `crabpot::windows_status`, which answers only on Windows
+///
+/// # Errors
+///
+/// A message when the queries cannot run, fail, or print what cannot be read.
+pub fn read_windows_status() -> Result<WindowsInstall, String> {
+    crabpot::windows_status()
+        .map(|status| WindowsInstall {
+            provisioned: status.user == crabpot::UserState::Provisioned,
+            setup_installed: status.setup_version.installed,
+            setup_expected: status.setup_version.expected,
+            loopback_open: status.loopback == crabpot::LoopbackMode::Open,
+            seclogon_runs: status.seclogon_runs,
+            desktop_session: status.in_desktop_session,
+        })
+        .map_err(|e| e.to_string())
+}
+
 /// The programs in `needs` that `on_path` does not find
 pub fn gaps(needs: &[&'static str], on_path: impl Fn(&str) -> bool) -> Vec<&'static str> {
     needs
@@ -100,6 +194,10 @@ impl Host for SystemHost {
 
     fn os(&self) -> &'static str {
         env::consts::OS
+    }
+
+    fn windows_status(&self) -> Result<WindowsInstall, String> {
+        read_windows_status()
     }
 
     fn login_token(&self) -> bool {
@@ -218,6 +316,44 @@ mod tests {
         let needs = sandbox_needs("linux");
         assert_eq!(gaps(needs, |_| true), Vec::<&str>::new());
         assert_eq!(gaps(needs, |_| false), ["bwrap"]);
+    }
+
+    #[test]
+    fn an_install_that_cannot_open_a_session_names_its_state_and_its_fix() {
+        let ready = WindowsInstall::provisioned(false);
+        assert_eq!(ready.refusal(), None);
+        let none = WindowsInstall {
+            provisioned: false,
+            setup_installed: None,
+            setup_expected: 1,
+            ..ready.clone()
+        };
+        let why = none.refusal().unwrap();
+        assert!(
+            why.contains("no crabpot install") && why.contains("crabpot windows-install"),
+            "{why}"
+        );
+        let outdated = WindowsInstall {
+            provisioned: false,
+            setup_installed: Some(3),
+            setup_expected: 4,
+            ..ready.clone()
+        };
+        let why = outdated.refusal().unwrap();
+        assert!(
+            why.contains("setup version 3") && why.contains("wants 4") && why.contains("install"),
+            "{why}"
+        );
+        let no_service = WindowsInstall {
+            seclogon_runs: false,
+            ..ready.clone()
+        };
+        assert!(no_service.refusal().unwrap().contains("Secondary Logon"));
+        let services_only = WindowsInstall {
+            desktop_session: false,
+            ..ready
+        };
+        assert!(services_only.refusal().unwrap().contains("session 0"));
     }
 
     #[test]
