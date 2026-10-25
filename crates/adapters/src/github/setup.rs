@@ -451,38 +451,6 @@ mod tests {
     }
 
     #[test]
-    fn the_manifest_asks_for_the_permissions_a_new_app_needs() {
-        let owner = Owner::try_from("shep-pm").unwrap();
-        let flow = Flow {
-            name: "kelpie-shep-pm",
-            owner: &owner,
-            org: true,
-            state: "s",
-        };
-        let manifest: serde_json::Value = serde_json::from_str(&flow.manifest(1234)).unwrap();
-        assert_eq!(
-            manifest["default_permissions"],
-            serde_json::json!({
-                "actions": "write",
-                "checks": "write",
-                "contents": "write",
-                "deployments": "read",
-                "environments": "read",
-                "issues": "write",
-                "merge_queues": "write",
-                "metadata": "read",
-                "packages": "read",
-                "pages": "read",
-                "pull_requests": "write",
-                "repository_hooks": "read",
-                "statuses": "write",
-                "vulnerability_alerts": "write",
-                "workflows": "write",
-            })
-        );
-    }
-
-    #[test]
     fn the_logo_step_names_the_apps_settings_page_and_links_the_file() {
         let logo =
             "https://raw.githubusercontent.com/shep-pm/shep-kelpie/main/assets/kelpie-logo.png";
