@@ -10,6 +10,7 @@
 use std::collections::BTreeMap;
 use std::ffi::OsStr;
 use std::fs;
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Component, Path, PathBuf};
 
@@ -307,7 +308,11 @@ fn hashed(
 
 // A fenced entry in the worktree, never followed if it is a link.
 enum Disk {
-    File { path: PathBuf, executable: bool },
+    // `executable` is `None` where the file system keeps no mode: see `executable_bit`.
+    File {
+        path: PathBuf,
+        executable: Option<bool>,
+    },
     Link(String),
     Other,
 }
@@ -329,11 +334,10 @@ fn on_disk(worktree: &Path) -> Result<BTreeMap<String, Disk>, WorktreeError> {
     }
     while let Some(path) = pending.pop() {
         let meta = fs::symlink_metadata(&path).map_err(|e| folder(&path, &e))?;
-        let relative = path
-            .strip_prefix(worktree)
-            .expect("found under the worktree")
-            .to_string_lossy()
-            .into_owned();
+        let relative = git_path(
+            path.strip_prefix(worktree)
+                .expect("found under the worktree"),
+        );
         let kind = meta.file_type();
         if kind.is_dir() {
             pending.extend(read_dir(&path)?.map(|entry| entry.path()));
@@ -343,7 +347,7 @@ fn on_disk(worktree: &Path) -> Result<BTreeMap<String, Disk>, WorktreeError> {
             let target = fs::read_link(&path).map_err(|e| folder(&path, &e))?;
             Disk::Link(target.to_string_lossy().into_owned())
         } else if kind.is_file() {
-            let executable = meta.permissions().mode() & 0o111 != 0;
+            let executable = executable_bit(&meta);
             Disk::File { path, executable }
         } else {
             Disk::Other
@@ -351,6 +355,30 @@ fn on_disk(worktree: &Path) -> Result<BTreeMap<String, Disk>, WorktreeError> {
         found.insert(relative, disk);
     }
     Ok(found)
+}
+
+// `relative` spelled as git spells a path, with `/` between its parts on
+// every platform, so a file on disk finds the same file in a commit.
+fn git_path(relative: &Path) -> String {
+    let parts: Vec<_> = relative
+        .components()
+        .map(|part| part.as_os_str().to_string_lossy())
+        .collect();
+    parts.join("/")
+}
+
+// Whether a file on disk is executable, as git records it.
+#[cfg(unix)]
+fn executable_bit(meta: &fs::Metadata) -> Option<bool> {
+    Some(meta.permissions().mode() & 0o111 != 0)
+}
+
+// Windows keeps no executable bit on a file, and git there sets
+// `core.fileMode` off, so the disk cannot say. A worker cannot set the bit
+// through the file system either, so the commit's regular mode stands.
+#[cfg(windows)]
+fn executable_bit(_: &fs::Metadata) -> Option<bool> {
+    None
 }
 
 // Each fenced file in `commit`, by path with its root folder named as
@@ -413,8 +441,12 @@ fn compare(
     for (path, entry) in disk {
         let same = match (entry, trusted.get(path)) {
             (Disk::File { path, executable }, Some((mode, blob))) => {
-                let want = if *executable { "100755" } else { "100644" };
-                mode == want && hashes.get(path) == Some(blob)
+                let same_mode = match executable {
+                    Some(true) => mode == "100755",
+                    Some(false) => mode == "100644",
+                    None => mode == "100644" || mode == "100755",
+                };
+                same_mode && hashes.get(path) == Some(blob)
             }
             (Disk::Link(target), Some((mode, blob))) if mode == "120000" => {
                 git(repo, ["cat-file", "blob", blob])? == *target
@@ -444,6 +476,7 @@ fn folder(path: &Path, e: &std::io::Error) -> WorktreeError {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(unix)]
     use std::os::unix::fs::symlink;
 
     use super::*;
@@ -696,6 +729,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[test]
     fn deny_write_lists_existing_nested_harness_folders_on_linux() {
         let dir = tempfile::tempdir().unwrap();
@@ -795,6 +829,7 @@ mod tests {
         assert_eq!(w.differ(None), [SETTINGS]);
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_link_or_a_new_exec_bit_differs() {
         let w = World::new();
@@ -805,6 +840,38 @@ mod tests {
         let path = w.wt().join(SETTINGS);
         fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
         assert_eq!(w.differ(None), [SETTINGS]);
+    }
+
+    #[test]
+    fn a_path_on_disk_is_spelled_with_slashes_as_git_spells_it() {
+        let nested = Path::new(".claude").join("hooks").join("a.sh");
+        assert_eq!(git_path(&nested), ".claude/hooks/a.sh");
+        assert_eq!(git_path(Path::new(".mcp.json")), ".mcp.json");
+    }
+
+    // Windows keeps no mode on a file, so the disk names none: see `executable_bit`.
+    #[test]
+    fn a_file_with_no_mode_on_disk_matches_either_regular_mode_and_nothing_else() {
+        let on_disk = |text: &str| {
+            let path = PathBuf::from("/wt").join(text);
+            let disk = BTreeMap::from([(
+                text.to_owned(),
+                Disk::File {
+                    path: path.clone(),
+                    executable: None,
+                },
+            )]);
+            (disk, BTreeMap::from([(path, "blob".to_owned())]))
+        };
+        let differ = |mode: &str, blob: &str| {
+            let (disk, hashes) = on_disk("f");
+            let trusted = BTreeMap::from([("f".to_owned(), (mode.to_owned(), blob.to_owned()))]);
+            compare(Path::new("."), &disk, &hashes, &trusted).unwrap()
+        };
+        assert_eq!(differ("100644", "blob"), Vec::<String>::new());
+        assert_eq!(differ("100755", "blob"), Vec::<String>::new());
+        assert_eq!(differ("120000", "blob"), ["f"], "main has a link there");
+        assert_eq!(differ("100644", "other"), ["f"], "other contents");
     }
 
     #[test]

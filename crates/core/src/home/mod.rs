@@ -353,6 +353,7 @@ mod tests {
     }
 
     // A move left `.moved-to`, and links or copies of the shared files.
+    #[cfg(unix)]
     #[test]
     fn a_moved_old_home_lets_a_runner_start_unless_its_project_stayed() {
         let root = tempfile::tempdir().unwrap();
