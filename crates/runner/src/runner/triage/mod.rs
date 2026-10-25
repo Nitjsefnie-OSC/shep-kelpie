@@ -27,12 +27,15 @@ use super::Runner;
 use super::report::Begin;
 use super::review::calls::build_call;
 use crate::board::TRIAGE;
-use crate::ports::{AgentCall, AuthorAssociation, ForgeError, OpenIssue, Role, Timestamp, Tools};
+use crate::ports::{
+    AgentCall, AuthorAssociation, ForgeError, OpenIssue, Role, ThreadComment, Timestamp, Tools,
+};
 use crate::settings::{ExpertAgent, Settings};
 use crate::state::{ProjectState, StateError, TriageState, TriageStep, Triaged};
 use crate::ticket::TicketId;
 use research::{Listed, ListedPull};
 
+use super::thread_replies::plain_login;
 use ask::Purpose;
 
 pub(super) mod addressed;
@@ -43,6 +46,7 @@ pub(super) mod heard;
 pub(super) mod images;
 pub(super) mod limits;
 pub(super) mod local;
+pub(super) mod marker;
 pub(super) mod poll_read;
 pub(super) mod ready;
 pub(super) mod research;
@@ -292,7 +296,13 @@ impl Runner {
         let before = self.triage_record(issue).map(|t| t.comment);
         match self.marked_by_app(issue, before) {
             Ok(Some(marked)) => {
-                self.record_triage(issue, marked.comment, marked.duplicate_of)?;
+                self.record_triage(
+                    issue,
+                    marked.comment,
+                    marked.created,
+                    marked.duplicate_of,
+                    marked.asked,
+                )?;
                 match marked.duplicate_of {
                     Some(of) => self.close_duplicate(issue, of)?,
                     None => self.finish_triage(issue)?,
@@ -311,6 +321,55 @@ impl Runner {
         }
     }
 
+    // What a pass asked again over an issue kelpie already triaged is shown:
+    // the App's triage comments on it and their author's replies as one text,
+    // oldest first, with the questions those rounds asked and their author
+    // answered after them. `None` when the issue holds no triage comment.
+    fn earlier_rounds(
+        &self,
+        issue: u64,
+        author: &str,
+    ) -> Result<Option<(String, Vec<String>)>, ForgeError> {
+        let comments = self
+            .ports
+            .tickets
+            .issue_comments(&self.remote, ticket(issue)?)?;
+        let Some(app) = self.app_login().map(|app| plain_login(&app)) else {
+            return Ok(None);
+        };
+        let mine = plain_login(author);
+        let mut ours: Vec<&ThreadComment> = (comments.iter())
+            .filter(|c| {
+                (plain_login(&c.author) == app && c.body.contains(marker::MARKER))
+                    || plain_login(&c.author) == mine
+            })
+            .collect();
+        if ours.iter().all(|c| plain_login(&c.author) != app) {
+            return Ok(None);
+        }
+        ours.sort_by_key(|c| (c.created, c.id));
+        let text = (ours.iter())
+            .map(|c| format!("{} wrote:\n\n{}", c.author, c.body.trim()))
+            .collect::<Vec<_>>()
+            .join("\n\n---\n\n");
+        // A question is settled when its author wrote a comment after the
+        // comment that asked it.
+        let mut settled: Vec<String> = Vec::new();
+        for asked in ours.iter().filter(|c| ask::holds_questions(&c.body)) {
+            let answered = (ours.iter()).any(|c| {
+                plain_login(&c.author) == mine && (c.created, c.id) > (asked.created, asked.id)
+            });
+            if answered {
+                settled.extend(
+                    (asked_in(&asked.body))
+                        .into_iter()
+                        .map(|q| q.to_lowercase()),
+                );
+            }
+        }
+        Ok(Some((text, settled)))
+    }
+
     // Everything the research on `issue` needs, or `None` when it cannot be
     // had: the issue is no longer open, or what it needs cannot be read or built.
     fn triage_job(&mut self, issue: u64, purpose: Purpose, limited: bool) -> Option<Job> {
@@ -325,6 +384,23 @@ impl Runner {
         // The labels the issue carries when its pass begins, kept once so a
         // triage label that comes by later is the maintainer's own.
         let taken = self.taken_seen(issue);
+        // A pass asked again over an issue kelpie already triaged reads the
+        // rounds it ran: its own triage comments on the issue and their
+        // author's replies go into the prompt, and the questions those rounds
+        // settled are kept from the new pass.
+        let earlier = match (matches!(purpose, Purpose::First)
+            && self.triage_record(issue).is_some_and(|t| t.comment != 0))
+        {
+            true => match self.earlier_rounds(issue, &this.author) {
+                Ok(earlier) => earlier,
+                Err(e) => {
+                    let why = format!("cannot read its earlier triage rounds: {e}");
+                    self.triage_failed(issue, &why, !forge_is_busy(&e));
+                    return None;
+                }
+            },
+            false => None,
+        };
         let tries = self.triage_tries.entry(issue).or_default();
         tries.role = Some(role);
         if tries.seen.is_none() {
@@ -335,6 +411,10 @@ impl Runner {
         if tries.author.is_none() {
             tries.author = Some(this.author.clone());
         }
+        tries.settled = earlier
+            .as_ref()
+            .map(|(_, settled)| settled.clone())
+            .unwrap_or_default();
         // The classifier, after the limits and before the call. The maintainer's
         // own issues and one the verb asked for skip it, as they skip the limits.
         if matches!(purpose, Purpose::First) && limited {
@@ -408,7 +488,14 @@ impl Runner {
             association: this.author_association,
             role,
         };
-        let prompt = research::prompt(&subject, &listed, &listed_pulls, most, settling.as_ref());
+        let prompt = research::prompt(
+            &subject,
+            &listed,
+            &listed_pulls,
+            most,
+            settling.as_ref(),
+            earlier.as_ref().map(|(rounds, _)| rounds.as_str()),
+        );
         let Some(ticket) = TicketId::from_issue(issue) else {
             self.triage_failed(issue, "no forge numbers an issue zero", true);
             return None;
@@ -573,6 +660,19 @@ fn untouched(issue: &OpenIssue, since: Timestamp, pruned_through: u64, only: Opt
         && !issue.author_is_bot
         && issue.created > since
         && only.is_none_or(|login| issue.author.eq_ignore_ascii_case(login))
+}
+
+// The question texts a questions block asks: the lines `questions_block`
+// headed with its mark and a number, each held as the block wrote it
+fn asked_in(body: &str) -> Vec<String> {
+    (body.lines())
+        .filter_map(|line| {
+            let rest = (line.trim_start().strip_prefix('\u{2753}'))?.trim_start();
+            let rest = (rest.strip_prefix('Q'))?.trim_start();
+            let (_, question) = rest.split_once(" - ")?;
+            (!question.trim().is_empty()).then(|| question.trim().to_owned())
+        })
+        .collect()
 }
 
 #[cfg(test)]

@@ -8,7 +8,7 @@ use serde_json::{Value, json};
 use super::ask_tests::{
     A_WORDS, asked, asked_as, filed, filed_before, posted, record, settled, settled_ready, wrote,
 };
-use super::comment::MARKER;
+use super::marker::MARKER;
 use super::pick_tests::{MAINTAINER, issue, list};
 use super::research_tests::{calls, crashed_with, moves, nothing, pump, reply, restart};
 use crate::ports::Role;

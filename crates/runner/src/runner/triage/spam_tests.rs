@@ -20,8 +20,8 @@ use std::sync::Mutex;
 
 use serde_json::{Value, json};
 
-use super::comment::MARKER;
 use super::limits::DAY;
+use super::marker::MARKER;
 use super::pick_tests::{MAINTAINER, due, issue, list, rig_with};
 use super::research_tests::crashed_with;
 use super::research_tests::{WORDS, calls, crash, moves, reply, restart, triage};

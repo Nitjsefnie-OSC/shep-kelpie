@@ -6,9 +6,10 @@ use std::sync::Mutex;
 use serde_json::{Value, json};
 
 use super::ask::REPLY_HINT;
-use super::comment::MARKER;
+use super::marker::MARKER;
 use super::pick_tests::{MAINTAINER, issue, list, rig_with};
-use super::research_tests::{calls, crashed_with, moves, reply, restart, triage};
+use super::research_tests::{APP, calls, crashed_with, moves, reply, restart, triage};
+use crate::github::ApiError;
 use crate::ports::{Clock, Role};
 use crate::runner::{Runner, step};
 use crate::test::{Rig, Scripted};
@@ -415,4 +416,265 @@ fn a_wait_saved_on_the_old_ask_takes_the_authors_comment_as_the_answers() {
     let prompt = calls(&rig, Role::Triager).remove(1).call.prompt;
     assert!(prompt.contains("Linux, on start."), "{prompt}");
     assert!(prompt.contains(ONE_QUESTION), "{prompt}");
+}
+
+// The two ways #1142 and #1144 lost the maintainer's answers, and the answer
+// that came while a post was read back (#1194, #1144), each held by a test.
+
+// The questions comment went up and the forge's answer to the post was lost;
+// a restart comes before the marker is read again. The record made from the
+// comment found on the issue owes the wait its questions opened, measured from
+// when the comment went up.
+#[test]
+fn a_questions_comment_found_on_the_issue_after_a_restart_saves_the_wait() {
+    let (rig, runner) = filed("pick = \"maintainer\"", MAINTAINER, asked());
+    // The post is refused here, but the forge really took it.
+    rig.github.refuse_comments(ApiError::Refused(502));
+    assert_eq!(step(&runner).unwrap(), None);
+    let went_up = rig.clock.now();
+    let posted = format!(
+        "{ASK_WORDS}\n\n{ONE_QUESTION}\n\n{REPLY_HINT}\n\n<details>...\n</details>\n\n{MARKER}"
+    );
+    rig.forge.threads.write(30, APP, &posted, went_up);
+    rig.github.accept_comments();
+    // A restart before the next poll.
+    let runner = restart(&rig, runner);
+    rig.next_look();
+    assert_eq!(step(&runner).unwrap(), None);
+    let held = record(&rig, &runner);
+    assert_eq!(held["step"], "commented", "{held}");
+    assert_eq!(
+        held["questions"]["at"],
+        serde_json::to_value(went_up).unwrap(),
+        "the wait is saved, from when the comment went up: {held}"
+    );
+}
+
+// The same, on an issue that carried a `needs-triage` the maintainer put on by
+// hand before the pass: the label that was there before the questions went up
+// does not end the wait at the next poll.
+#[test]
+fn a_questions_comment_found_on_the_issue_waits_under_a_hand_needs_triage() {
+    let (rig, runner) = filed("pick = \"maintainer\"", MAINTAINER, asked());
+    let mut by_hand = issue(&rig, 30, MAINTAINER, 5);
+    by_hand.title = "Crash on start".to_owned();
+    by_hand.body = "It crashes when I run it.".to_owned();
+    by_hand.labels = vec!["needs-triage".to_owned()];
+    list(&rig, by_hand);
+    rig.forge.label(30, "needs-triage");
+    rig.github.refuse_comments(ApiError::Refused(502));
+    assert_eq!(step(&runner).unwrap(), None);
+    let posted = format!(
+        "{ASK_WORDS}\n\n{ONE_QUESTION}\n\n{REPLY_HINT}\n\n<details>...\n</details>\n\n{MARKER}"
+    );
+    rig.forge.threads.write(30, APP, &posted, rig.clock.now());
+    rig.github.accept_comments();
+    let runner = restart(&rig, runner);
+    rig.next_look();
+    assert_eq!(step(&runner).unwrap(), None);
+    let held = record(&rig, &runner);
+    assert!(held["questions"]["at"].is_number(), "{held}");
+    // The next poll reads the label that was already there and lets the wait
+    // stand on.
+    rig.next_look();
+    assert_eq!(step(&runner).unwrap(), None);
+    let held = record(&rig, &runner);
+    assert!(
+        held["questions"]["at"].is_number(),
+        "the wait survived: {held}"
+    );
+    assert_eq!(held["step"], "commented", "{held}");
+}
+
+// The comment was worded while the listing still lacked the `needs-triage` the
+// maintainer put on, and the forge was busy, so it is posted at the next poll.
+// The label was on the issue before the comment went up, so it does not end
+// the wait.
+#[test]
+fn a_hand_needs_triage_that_landed_before_the_post_does_not_end_the_wait() {
+    let (rig, runner) = filed("pick = \"maintainer\"", MAINTAINER, asked());
+    // The forge is busy: the comment is kept for the next poll.
+    rig.github.refuse_comments(ApiError::Refused(502));
+    assert_eq!(step(&runner).unwrap(), None);
+    rig.github.accept_comments();
+    // The maintainer puts `needs-triage` on before the comment goes up.
+    let mut by_hand = issue(&rig, 30, MAINTAINER, 5);
+    by_hand.title = "Crash on start".to_owned();
+    by_hand.body = "It crashes when I run it.".to_owned();
+    by_hand.labels = vec!["needs-triage".to_owned()];
+    list(&rig, by_hand);
+    rig.forge.label(30, "needs-triage");
+    rig.next_look();
+    assert_eq!(step(&runner).unwrap(), None);
+    let held = record(&rig, &runner);
+    assert!(held["questions"]["at"].is_number(), "{held}");
+    // The next poll reads the label as one that was there before the questions
+    // went up, and the wait stands on.
+    rig.next_look();
+    assert_eq!(step(&runner).unwrap(), None);
+    let held = record(&rig, &runner);
+    assert!(
+        held["questions"]["at"].is_number(),
+        "the wait survived: {held}"
+    );
+    assert_eq!(held["step"], "commented", "{held}");
+}
+
+// The author answers while the questions post is still being read back: the
+// reply is written after the comment went up and before kelpie recorded it.
+// The wait is measured from the comment, so the answer is heard.
+#[test]
+fn an_answer_written_while_the_questions_post_is_read_back_is_heard() {
+    let (rig, runner) = filed("pick = \"maintainer\"", MAINTAINER, asked());
+    // The forge takes the post, but its answer is lost: the marker is read at
+    // the next poll.
+    rig.github.refuse_comments(ApiError::Refused(502));
+    assert_eq!(step(&runner).unwrap(), None);
+    let went_up = rig.clock.now();
+    let posted = format!(
+        "{ASK_WORDS}\n\n{ONE_QUESTION}\n\n{REPLY_HINT}\n\n<details>...\n</details>\n\n{MARKER}"
+    );
+    rig.forge.threads.write(30, APP, &posted, went_up);
+    rig.github.accept_comments();
+    // The author answers a minute after the comment went up.
+    rig.clock.advance(60);
+    rig.forge
+        .threads
+        .write(30, MAINTAINER, "ok", rig.clock.now());
+    rig.claude.script_for(Role::Triager, [reply(settled())]);
+    rig.claude
+        .script_for(Role::Representative, [Scripted::Say(A_WORDS)]);
+    for _ in 0..3 {
+        rig.next_look();
+        step(&runner).unwrap();
+    }
+    assert_eq!(calls(&rig, Role::Triager).len(), 2, "the answers pass ran");
+    let held = record(&rig, &runner);
+    assert!(
+        held["step"] == "done" || held["step"] == "ready",
+        "the round closed: {held}"
+    );
+}
+
+// #1194: `shep kelpie triage` over an issue kelpie already triaged asked the
+// settled questions again. The pass is now given the earlier triage comments
+// and their author's replies, and a question the author answered is not asked
+// again.
+#[test]
+fn a_pass_asked_again_over_a_triaged_issue_reads_the_rounds_it_ran() {
+    let (rig, runner) = filed("pick = \"maintainer\"", MAINTAINER, asked());
+    assert_eq!(step(&runner).unwrap(), None);
+    wrote(&rig, MAINTAINER, "ok");
+    rig.claude.script_for(Role::Triager, [reply(settled())]);
+    rig.claude
+        .script_for(Role::Representative, [Scripted::Say(A_WORDS)]);
+    rig.next_look();
+    assert_eq!(step(&runner).unwrap(), None);
+    assert_eq!(record(&rig, &runner)["step"], "done");
+
+    // The verb asks again, and the triager answers with the same open question
+    // and a recommendation against what the author took.
+    rig.ask(&runner, "triage", Some("30"));
+    rig.claude.script_for(Role::Triager, [reply(asked())]);
+    rig.claude
+        .script_for(Role::Representative, [Scripted::Say(ASK_WORDS)]);
+    rig.next_look();
+    assert_eq!(step(&runner).unwrap(), None);
+    let prompts: Vec<String> = (calls(&rig, Role::Triager))
+        .into_iter()
+        .map(|seen| seen.call.prompt)
+        .collect();
+    let last = prompts.last().unwrap();
+    assert!(
+        last.contains("Which OS crashes?"),
+        "the earlier questions reach the triager: {last}"
+    );
+    assert!(
+        last.contains(&format!("{MAINTAINER} wrote:")),
+        "the author's reply reaches the triager: {last}"
+    );
+    assert!(
+        last.contains("Do not ask again in `open` what those rounds settled"),
+        "{last}"
+    );
+    let comments = posted(&rig);
+    let again = comments.last().unwrap();
+    assert!(
+        !again.contains("Which OS crashes?"),
+        "the settled question is not posted again: {again}"
+    );
+    assert!(!again.contains("Q1 - "), "no questions block: {again}");
+}
+
+// #1194 and #1144: a `shep kelpie triage` pass asked again, the author answered
+// within a minute, and no answers pass ran. The re-ask was recorded from the
+// marker read at a later poll, and the wait was measured from that later time,
+// so a reply written between the comment and the record fell outside for good.
+#[test]
+fn a_reask_whose_post_is_recorded_from_the_marker_hears_an_answer_written_early() {
+    let (rig, runner) = filed("pick = \"maintainer\"", MAINTAINER, asked());
+    assert_eq!(step(&runner).unwrap(), None);
+    wrote(&rig, MAINTAINER, "Q1: Linux, on start.");
+    rig.claude.script_for(Role::Triager, [reply(settled())]);
+    rig.claude
+        .script_for(Role::Representative, [Scripted::Say(A_WORDS)]);
+    rig.next_look();
+    assert_eq!(step(&runner).unwrap(), None);
+    assert_eq!(record(&rig, &runner)["step"], "done");
+
+    // The verb asks again, and the new questions post is taken by the forge
+    // while its answer is lost.
+    rig.ask(&runner, "triage", Some("30"));
+    rig.claude.script_for(
+        Role::Triager,
+        [reply(json!({
+            "type": "bug",
+            "priority": "P2",
+            "open": [{ "question": "Which display server?", "recommended": "X11" }],
+        }))],
+    );
+    rig.claude
+        .script_for(Role::Representative, [Scripted::Say(ASK_WORDS)]);
+    rig.github.refuse_comments(ApiError::Refused(502));
+    rig.next_look();
+    assert_eq!(step(&runner).unwrap(), None);
+    let went_up = rig.clock.now();
+    let landed = format!(
+        "{ASK_WORDS}\n\n❓ Q1 - Which display server?\n\n➡️ X11\n\n{REPLY_HINT}\n\n<details>...\n</details>\n\n{MARKER}"
+    );
+    rig.forge.threads.write(30, APP, &landed, went_up);
+    rig.github.accept_comments();
+
+    // The author answers a minute after the comment went up, well before the
+    // poll that reads the marker back.
+    rig.clock.advance(60);
+    rig.forge
+        .threads
+        .write(30, MAINTAINER, "ok", rig.clock.now());
+    rig.claude
+        .script_for(Role::Triager, [reply(settled_ready())]);
+    rig.claude
+        .script_for(Role::Representative, [Scripted::Say(A_WORDS)]);
+    for _ in 0..4 {
+        rig.next_look();
+        step(&runner).unwrap();
+    }
+    // The reply landed a minute after the comment and before the poll that read
+    // the marker back. Measured from the comment, it is inside the wait; measured
+    // from the record, it is outside it for good and no second call is made.
+    let held = record(&rig, &runner);
+    assert_eq!(
+        held["step"], "ready",
+        "the re-ask's round ran to the end: {held}"
+    );
+    assert_eq!(
+        calls(&rig, Role::Triager).len(),
+        4,
+        "the first pass, its round, the re-ask, and the re-ask's round"
+    );
+    assert_eq!(
+        posted(&rig).last().unwrap(),
+        &format!("{A_WORDS}\n\n{MARKER}"),
+        "the re-ask's answers comment went up"
+    );
 }
