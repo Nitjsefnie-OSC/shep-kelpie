@@ -91,8 +91,7 @@ fn runtime() -> Result<SandboxRuntime, String> {
     if !cfg!(target_os = "macos") {
         return Err("there is no keychain off macOS".into());
     }
-    // Nothing is read from the tools folder on macOS.
-    Ok(SandboxRuntime::new(Tools::at(PathBuf::new())).run_by(built_kelpie()?))
+    Ok(SandboxRuntime::new().run_by(built_kelpie()?))
 }
 
 fn online() -> bool {
