@@ -39,12 +39,16 @@ fn commit() -> Option<String> {
 // What a rebuild has to look at, which is what the dirty check looks at:
 // every entry git tracks at the top of the checkout, cargo scanning a listed
 // directory for any change inside it, and the refs that say where `HEAD`
-// stands. A build script is rerun only for the paths it lists, so listing
-// this crate's own files alone would leave a build made from a tree with
-// edits, or one made after the edits were undone, holding the answer the
-// build before it baked in. A branch whose ref is packed into `packed-refs`
-// has no loose file to watch, and cargo then runs this again for every build,
-// which costs two git calls and stays correct.
+// stands.
+
+// A build script is rerun only for the paths it lists. Listing this crate's
+// own files alone would leave a build made from a tree with edits, or one
+// made after the edits were undone, holding the answer the build before it
+// baked in.
+
+// A branch whose ref is packed into `packed-refs` has no loose file to watch,
+// and cargo then runs this again for every build, which costs two git calls
+// and stays correct.
 fn watched() -> Vec<String> {
     let mut paths = head_refs();
     let Some(root) = ask(&["rev-parse", "--show-toplevel"]) else {

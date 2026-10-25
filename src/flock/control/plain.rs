@@ -151,11 +151,12 @@ fn draining(sheep: &str, draining: &Value) -> String {
 }
 
 // The build this runner runs, and the installed one when it is not that, so a
-// runner an upgrade left behind shows up. The two names are compared as they
-// stand: a build made from a tree with uncommitted changes carries `-dirty`,
-// which says so on the line, and it is a different binary from the clean
-// commit it was made on top of. Two builds made from two uncommitted trees of
-// one commit carry the same name, and no name carries more than the commit.
+// runner an upgrade left behind shows up. The names are compared as they
+// stand: a build made from changes on top of the installed commit carries
+// `-dirty`, and is a different binary from it.
+
+// A name carries nothing beyond the commit, so two builds made from two
+// uncommitted trees of one commit carry the same name.
 fn build(status: &Value, installed: Option<&str>, lines: &mut Vec<String>) {
     let mine = status["commit"].as_str();
     let other = installed.filter(|&other| mine.is_none_or(|mine| mine != other));

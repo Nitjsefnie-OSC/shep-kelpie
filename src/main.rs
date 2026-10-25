@@ -27,9 +27,8 @@
 //! or drained first, so no call is cut short, unless `--now` is given. Run as
 //! `shep kelpie upgrade ...`.
 //!
-//! `kelpie version [--json]`: the build's version, the commit it was made
-//! from and the shep version it is made with, which `upgrade` reads from a
-//! build before it installs it.
+//! `kelpie version [--json]`: the build's version, its commit and the shep
+//! version it is made with, which `upgrade` reads from a build first.
 //!
 //! `kelpie confine <folder>... [--hooks=<json>]`: the hook that holds a worker's
 //! file tools to its folders, and runs the project's `write` hooks. Claude Code
