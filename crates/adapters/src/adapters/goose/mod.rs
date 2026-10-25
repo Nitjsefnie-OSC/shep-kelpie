@@ -627,7 +627,7 @@ fn fenced(call: &AgentCall, files: &Files, program: &Path, unfenced: &[String]) 
     policy.read.extend(
         [files.root.clone(), files.scratch.clone()]
             .into_iter()
-            .chain(program_folder(program, &ProcessEnv))
+            .chain(program_folder(program, &ProcessEnv, &files.root))
             .chain([outputs.stdout, outputs.stderr])
             .chain(call.instructions.iter().cloned())
             .chain(call.plugin_dirs.iter().cloned())

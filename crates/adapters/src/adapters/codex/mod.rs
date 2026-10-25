@@ -783,7 +783,7 @@ fn policy(
     policy.read.extend(
         [login.join(AUTH), files.home.clone(), files.scratch.clone()]
             .into_iter()
-            .chain(program_folder(program, &ProcessEnv))
+            .chain(program_folder(program, &ProcessEnv, login))
             .chain(call.instructions.iter().cloned())
             .chain(call.plugin_dirs.iter().cloned())
             .chain(call.reach.read.iter().cloned()),

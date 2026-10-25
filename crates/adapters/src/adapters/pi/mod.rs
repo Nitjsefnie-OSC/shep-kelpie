@@ -586,7 +586,7 @@ fn fenced(call: &AgentCall, files: &Files, program: &Path, unfenced: &[String]) 
             files.scratch.clone(),
         ]
         .into_iter()
-        .chain(program_folder(program, &ProcessEnv))
+        .chain(program_folder(program, &ProcessEnv, &files.home))
         .chain(call.compact_window.map(|_| files.prompt()))
         .chain([outputs.stdout, outputs.stderr])
         .chain(call.instructions.iter().cloned())

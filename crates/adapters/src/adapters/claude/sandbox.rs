@@ -91,7 +91,7 @@ pub(crate) fn policy(
         home.join(".claude"),
     ]
     .into_iter()
-    .chain(program_folder(program, &ProcessEnv))
+    .chain(program_folder(program, &ProcessEnv, home))
     .chain([call.settings.clone(), scratch(call)]);
     policy.no_read.push("~/.claude/projects/**".to_owned());
     policy.read.extend(
@@ -290,6 +290,27 @@ mod tests {
             "{:?}",
             open.no_read
         );
+    }
+
+    // A linked worktree's `.git` file names a gitdir outside it, under the home
+    // the deny covers, so a review that runs `git` needs it read back.
+    #[test]
+    fn an_unfenced_review_reads_the_git_dir_its_worktree_points_to() {
+        let w = World::new();
+        let (repo, worktree) = crate::test::linked_worktree(&w.path("home"));
+        let sandbox = OpenSandbox::default();
+        let cli = w.cli(Arc::new(sandbox.clone()));
+        let call = AgentCall {
+            cwd: worktree,
+            ..w.call(Role::Reviewer)
+        };
+        cli.prepare(&call).unwrap();
+        cli.run(&call, &Ending::default()).unwrap();
+        let wrapped = sandbox.wrapped();
+        let [(open, _)] = wrapped.as_slice() else {
+            panic!("wrapped once, not {wrapped:?}")
+        };
+        assert!(open.read.contains(&repo.join(".git")), "{:?}", open.read);
     }
 
     #[test]
