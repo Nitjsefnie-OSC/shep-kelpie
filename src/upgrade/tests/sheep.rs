@@ -179,6 +179,29 @@ async fn a_runner_that_never_answers_after_its_restart_is_named_once_the_others_
 }
 
 #[tokio::test]
+async fn a_failure_after_a_slow_runner_still_names_the_slow_runner() {
+    let mut rig = Rig::new().await;
+    slow_aria(&rig, &[None]);
+    // `koji` is idle at the dog's look and its drain, then merges for good.
+    rig.shepherd.says("koji", &[IDLE, IDLE, MERGING]);
+    let new = rig.build("new", "0.3.0", "0.16.1");
+    let patience = Patience {
+        merge: Duration::from_millis(100),
+        ..TWO_LOOKS
+    };
+    let action = Action::Install(Source::Binary(new));
+    let err = rig.upgrade_within(action, patience).await.0.unwrap_err();
+
+    assert!(err.contains("`koji` is merging #7"), "{err}");
+    assert!(
+        err.contains("Not asked again: `aria` did not answer"),
+        "{err}"
+    );
+    assert!(err.contains("shep bleats aria"), "{err}");
+    assert_eq!(rig.restarts(), ["kelpie", "aria"]);
+}
+
+#[tokio::test]
 async fn a_slow_runner_that_stopped_before_it_was_asked_again_is_named() {
     let mut rig = Rig::new().await;
     slow_aria(&rig, &[None, Some(IDLE)]);

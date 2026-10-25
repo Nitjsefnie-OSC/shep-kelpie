@@ -268,39 +268,53 @@ pub async fn restart_all(
         false => None,
     };
     let mut slow = Vec::new();
-    for name in names {
-        let Some(installed) = &installed else {
-            wait_out_merges(client, &[name], patience, Purpose::Upgrade, say).await?;
-            if let Bounced::Silent = bounce_if_running(client, name, patience, say).await? {
-                slow.push(name);
+    let restarted = async {
+        for name in names {
+            let Some(installed) = &installed else {
+                wait_out_merges(client, &[name], patience, Purpose::Upgrade, say).await?;
+                if let Bounced::Silent = bounce_if_running(client, name, patience, say).await? {
+                    slow.push(name);
+                }
+                continue;
+            };
+            let handed = tokio::select! {
+                handed = hand_over(client, name, installed, patience, say) => handed?,
+                by = &mut stop => return Err(format!("stopped by {by} while `{name}` was handing over")),
+            };
+            match handed {
+                Handed::Over => continue,
+                Handed::Stays(why) => say(why),
             }
-            continue;
-        };
-        let handed = tokio::select! {
-            handed = hand_over(client, name, installed, patience, say) => handed?,
-            by = &mut stop => return Err(format!("stopped by {by} while `{name}` was handing over")),
-        };
-        match handed {
-            Handed::Over => continue,
-            Handed::Stays(why) => say(why),
-        }
-        let restarted = async {
-            drain::drain(client, name, patience, Purpose::Upgrade, say).await?;
-            wait_out_merges(client, &[name], patience, Purpose::Upgrade, say).await?;
-            bounce_if_running(client, name, patience, say).await
-        };
-        let restarted = tokio::select! {
-            restarted = restarted => restarted,
-            by = &mut stop => Err(format!("stopped by {by} while `{name}` was draining")),
-        };
-        match restarted {
-            Ok(Bounced::Answered) => {}
-            Ok(Bounced::Silent) => slow.push(name),
-            Err(e) => {
-                let undrained = drain::undrain(client, name, Purpose::Upgrade).await;
-                return Err(format!("{e}{undrained}"));
+            let restarted = async {
+                drain::drain(client, name, patience, Purpose::Upgrade, say).await?;
+                wait_out_merges(client, &[name], patience, Purpose::Upgrade, say).await?;
+                bounce_if_running(client, name, patience, say).await
+            };
+            let restarted = tokio::select! {
+                restarted = restarted => restarted,
+                by = &mut stop => Err(format!("stopped by {by} while `{name}` was draining")),
+            };
+            match restarted {
+                Ok(Bounced::Answered) => {}
+                Ok(Bounced::Silent) => slow.push(name),
+                Err(e) => {
+                    let undrained = drain::undrain(client, name, Purpose::Upgrade).await;
+                    return Err(format!("{e}{undrained}"));
+                }
             }
         }
+        Ok::<(), String>(())
+    }
+    .await;
+    if let Err(e) = restarted {
+        let unasked: Vec<String> = slow
+            .iter()
+            .map(|name| silent(name, patience.start))
+            .collect();
+        return Err(match unasked.is_empty() {
+            true => e,
+            false => format!("{e}\nNot asked again: {}", unasked.join("; ")),
+        });
     }
     tokio::select! {
         asked = ask_again(client, slow, patience, say) => asked,
@@ -324,7 +338,8 @@ fn silent(name: &str, wait: Duration) -> String {
 
 // Asks each of `names`, restarted and silent, for its `status` again until all
 // have answered or `patience.start` runs out. One that stopped meanwhile is
-// not waited on.
+// not waited on. A shepherd failure ends the asking, and is reported with the
+// runners found down and those not heard from by then.
 async fn ask_again(
     client: &dyn Connection,
     names: Vec<&str>,
@@ -333,10 +348,31 @@ async fn ask_again(
 ) -> Result<(), String> {
     let mut pending = names;
     let mut failed = Vec::new();
+    if let Err(e) = settle(client, &mut pending, &mut failed, patience, say).await {
+        failed.push(e);
+    }
+    failed.extend(pending.into_iter().map(|name| {
+        format!("`{name}` never answered after its restart: `shep bleats {name}` says why")
+    }));
+    match failed.is_empty() {
+        true => Ok(()),
+        false => Err(failed.join("; ")),
+    }
+}
+
+// Leaves in `pending` the runners that never answered, and in `failed` those
+// found not running.
+async fn settle(
+    client: &dyn Connection,
+    pending: &mut Vec<&str>,
+    failed: &mut Vec<String>,
+    patience: Patience,
+    say: &mut dyn FnMut(String),
+) -> Result<(), String> {
     let waited = Instant::now();
     while !pending.is_empty() {
-        let mut still = Vec::new();
-        for name in pending {
+        let mut at = 0;
+        while let Some(&name) = pending.get(at) {
             // Each look ends with the shared wait, so a few silent runners
             // cannot stretch it to a trigger's own deadline apiece.
             let left = patience.start.saturating_sub(waited.elapsed());
@@ -347,15 +383,16 @@ async fn ask_again(
             .await;
             if let Answered::Runner(_) = looked.unwrap_or(Ok(Answered::TimedOut))? {
                 say(format!("restarted `{name}`"));
+                pending.remove(at);
             } else if is_running(client, name).await? {
-                still.push(name);
+                at += 1;
             } else {
                 failed.push(format!(
                     "`{name}` is not running after its restart: `shep bleats {name}` says why"
                 ));
+                pending.remove(at);
             }
         }
-        pending = still;
         if waited.elapsed() >= patience.start {
             break;
         }
@@ -363,13 +400,7 @@ async fn ask_again(
             tokio::time::sleep(patience.poll).await;
         }
     }
-    failed.extend(pending.into_iter().map(|name| {
-        format!("`{name}` never answered after its restart: `shep bleats {name}` says why")
-    }));
-    match failed.is_empty() {
-        true => Ok(()),
-        false => Err(failed.join("; ")),
-    }
+    Ok(())
 }
 
 async fn is_running(client: &dyn Connection, name: &str) -> Result<bool, String> {
