@@ -20,11 +20,6 @@
 //! `shep kelpie doctor [<project>] [--test-alert]`: checks what the projects need
 //! on this machine, and changes nothing. Run as `shep kelpie doctor`.
 //!
-//! `shep kelpie agents new <role> --harness <harness> --model <model> --effort <effort>`,
-//! `shep kelpie agents list`: binds a role's baseline to a harness and model by
-//! writing its agent file, and lists the agents, the files that bind nothing and
-//! the baselines no file stands for. Run as `shep kelpie agents ...`.
-//!
 //! `shep kelpie upgrade --ref <git ref> | --release <version> | --binary <path>`,
 //! `shep kelpie upgrade --rollback`: installs a new kelpie over the one the
 //! adopted dog runs and restarts the dog and each runner onto it, between

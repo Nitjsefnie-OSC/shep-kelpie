@@ -50,7 +50,7 @@ crates/adapters/src/adapters/pi/web.rs	12	//! The web a researcher on pi has: `p
 crates/adapters/src/adapters/process/mod.rs	10,10	/// Runs `call`'s `command` with its stdout and stderr written to the
 crates/adapters/src/adapters/process/mod.rs	7,7	/// Like `output_within`, with `input` written to the child's stdin, the
 crates/adapters/src/github/tokens.rs	5	// A token of kelpie's kept until it nears its end. A worker's and a
-crates/core/src/agents/mod.rs	17	//! Agent definition files
+crates/core/src/agents/mod.rs	16	//! Agent definition files
 crates/core/src/board/mod.rs	17	//! The board: which ready issue becomes the next work item
 crates/core/src/board/mod.rs	15,15	/// Picks the ready issue that nobody is working on, first in `order`
 crates/core/src/board/mod.rs	10,10	/// The order and the ranks on record after a read of the board that listed

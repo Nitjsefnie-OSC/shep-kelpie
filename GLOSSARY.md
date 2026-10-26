@@ -96,12 +96,33 @@ goose call is not paused this way, and runs to its end.
 
 **Agent**:
 A definition file, `<kelpie home>/agents/<name>.md`, naming what it is for
-(its **role**: `implementer`, `reviewer`, `issue-writer` or `pm`), its
-harness, the model and effort it runs on, and its prompt as the body.
-Kelpie ships defaults and `add` writes them out. A project names its
-implementers, its reviewers and its PM by agent.
+(its **role**: `implementer`, `reviewer`, `issue-writer`, `pm` and the
+others), its harness, the model and effort it runs on, and its prompt as the
+body. A file is a **baseline** plus a **binding**, or says both itself.
+Kelpie ships whole agents and baselines, and `add` writes the whole ones
+out. A project names its implementers, its reviewers and its PM by agent.
 _Avoid_: model (one part of an agent), bot (a review bot is one kind of
 reviewer)
+
+**Baseline**:
+A shipped agent file that says what a role does: its `role` and a body, and
+none of the binding keys. `extends: kelpie:<name>` reaches it. A role may
+have several (`reviewer` has `defect-hunter`, `standards`, `spec` and
+`security-reviewer`), and `implementer` has none. A file that extends one and
+binds nothing is unbound: the book leaves it out and `shep kelpie agents new`
+binds it.
+_Avoid_: default, template
+
+**Binding**:
+The keys that say what runs an agent: `harness`, `model` and `effort`, and
+`second_look`, `usage`, `url`, `gateway`, `context` and `tools` around them.
+The operator's file carries them, so kelpie's files need not choose the
+operator's model.
+
+**Lineup**:
+The agents a project lists for a role, such as `agents.implementers` or
+`agents.reviewers`, in order.
+_Avoid_: roster, pool
 
 **Harness**:
 What runs an agent's session: Claude Code (`claude-code`), Codex (`codex`),

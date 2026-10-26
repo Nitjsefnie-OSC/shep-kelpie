@@ -2,21 +2,18 @@
 //!
 //! Each agent is `<name>.md` in the `agents` folder of kelpie's home: YAML
 //! frontmatter naming what it is for and what runs it, then a Markdown body.
-//! An implementer's body is added to kelpie's own instructions, and a
-//! reviewer's, the issue writer's, the project manager's, the advisor's, the
-//! researcher's, the representative's or the triager's is its prompt.
+//! An implementer's body is added to kelpie's own instructions, and every
+//! other role's is its prompt.
 //! Kelpie embeds its own whole agents, and a file of the same name replaces
 //! one. `shep kelpie add` writes a stub for each that is missing,
-//! `extends: kelpie:<name>` and nothing else, and kelpie writes each shipped
-//! file whole and read-only to `.defaults/` to be read and diffed, which
-//! nothing loads. A file with `extends: <name>` builds on the file of that
-//! name, and one with `extends: kelpie:<name>` on a shipped file, setting only
-//! the keys it changes. A baseline says what a role does and binds nothing, so
-//! a file whose merged keys name no `harness` is unbound: the book leaves it
-//! out and lists it in [`Agents::unbound`]. A file that cannot be read or used stops the runner, naming the
-//! file and what is wrong with it. A `.md` file whose name is no agent's,
-//! such as a `README.md`, is skipped and named in the log. A review bot's
-//! file is named for its bot, since the bot's window is its account's.
+//! `extends: kelpie:<name>` and nothing else, and kelpie writes every shipped
+//! file whole and read-only to `.defaults/`, which nothing loads. A file with
+//! `extends: <name>` builds on that file, and one with `extends:
+//! kelpie:<name>` on a shipped one, a whole agent or a baseline. A file whose
+//! merged keys name no `harness` is unbound: the book leaves it out and
+//! [`Agents::unbound`] lists it. A file that cannot be read stops the runner,
+//! naming it. A `.md` file whose name is no agent's, such as a `README.md`,
+//! is skipped and named in the log. A review bot's file is named for its bot.
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -513,7 +510,6 @@ impl Agents {
 /// Writes a stub for each of kelpie's own whole agents that `folder` lacks,
 /// never over a file, and refreshes the shipped files in `folder`'s `.defaults`
 ///
-/// No baseline gets a stub: `shep kelpie agents new` writes one with a binding.
 /// A stub is `extends: kelpie:<name>` and nothing else. The `qwen` reviewer
 /// is written only where the maintainer's qwen-review script is installed
 /// under `home`. Returns the names written, in order.
