@@ -325,7 +325,7 @@ impl OnClaude {
         (who, why): (&str, &str),
     ) -> Result<Agent, String> {
         // parity: harness.issue-writer, harness.pm
-        if !self.harness.facts().runs_claude_roles {
+        if !self.harness.facts().claude_hooks {
             let name = self.harness.as_str();
             return Err(at_key(
                 yaml,

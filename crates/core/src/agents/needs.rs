@@ -3,6 +3,7 @@
 use serde::Deserialize;
 
 use super::Role;
+use crate::settings::Harness;
 
 /// A capability an agent requires from its harness
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -27,5 +28,32 @@ impl Role {
             Self::IssueWriter | Self::Pm => &[Need::ClaudeHooks],
             Self::Representative => &[],
         }
+    }
+}
+
+impl Need {
+    pub(crate) fn met_by(self, harness: Harness) -> bool {
+        let facts = harness.facts();
+        match self {
+            Self::Edits => facts.edits,
+            Self::ResumableSession => facts.resumable_session,
+            Self::RepoReads => facts.repo_reads,
+            Self::ClaudeHooks => facts.claude_hooks,
+        }
+    }
+}
+
+impl Harness {
+    /// Whether it provides every capability the role implies
+    pub fn serves(self, role: Role) -> bool {
+        role.needs().iter().all(|need| need.met_by(self))
+    }
+
+    /// The harnesses providing every capability the role implies, in `ALL` order
+    pub fn serving(role: Role) -> Vec<Self> {
+        Self::ALL
+            .into_iter()
+            .filter(|harness| harness.serves(role))
+            .collect()
     }
 }
