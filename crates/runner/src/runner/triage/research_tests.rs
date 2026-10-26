@@ -771,6 +771,32 @@ fn a_restart_at_commented_still_puts_on_the_type_and_priority_the_comment_named(
     assert!(triaged["issues"][0].get("labels").is_none(), "{triaged}");
 }
 
+// The maintainer's `ready-for-agent` lands after the type and priority went on
+// and before `needs-triage` would: the check made before the labels had passed.
+#[test]
+fn a_triage_label_put_on_by_hand_after_the_priority_stands_and_needs_triage_is_not_put_on() {
+    let (rig, runner) = untouched();
+    drop(runner);
+    let record = json!({
+        "issue": 30, "comment": 101, "step": "commented", "labels": ["bug", "P2"],
+    });
+    crashed_with(&rig, record);
+    let runner = rig.open().unwrap();
+    rig.forge.label(30, "ready-for-agent");
+
+    assert_eq!(step(&runner).unwrap(), None);
+
+    assert_eq!(moves(&rig), ["label bug", "label P2"]);
+    assert_eq!(rig.forge.issue_labels(30), ["ready-for-agent"]);
+    assert_eq!(triage(&rig, &runner)["issues"][0]["step"], "done");
+    let told: Vec<String> = runner.lock().unwrap().take_notes();
+    assert!(
+        told.iter()
+            .any(|n| n.contains("ready-for-agent") && n.contains("stands")),
+        "{told:?}"
+    );
+}
+
 #[test]
 fn a_research_on_an_issue_with_a_turn_in_flight_keeps_both_lines_on_the_ledger() {
     let rig = rig_with("pick = \"maintainer\"");
