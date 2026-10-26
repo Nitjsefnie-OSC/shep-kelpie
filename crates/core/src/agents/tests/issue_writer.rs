@@ -63,3 +63,13 @@ fn an_issue_writer_runs_on_claude_code_with_a_prompt_and_no_other_roles_keys() {
         assert!(err.contains(why), "{err}\nwanted: {why}");
     }
 }
+
+#[test]
+fn the_issue_writers_harness_refusal_keeps_its_message() {
+    let text = WRITER.replace("claude-code", "pi");
+    assert_eq!(
+        crate::agents::baseline::check("writer", &text).unwrap_err(),
+        "`harness`: the issue writer runs on claude-code, not pi: \
+         `--interactive` starts `claude`, and its guard is a Claude Code hook at line 3"
+    );
+}

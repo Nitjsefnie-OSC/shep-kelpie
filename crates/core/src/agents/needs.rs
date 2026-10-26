@@ -32,6 +32,15 @@ impl Role {
 }
 
 impl Need {
+    pub(crate) fn description(self) -> &'static str {
+        match self {
+            Self::Edits => "fenced edits",
+            Self::ResumableSession => "a resumable session",
+            Self::RepoReads => "repository reads",
+            Self::ClaudeHooks => "a Claude Code hook",
+        }
+    }
+
     pub(crate) fn met_by(self, harness: Harness) -> bool {
         let facts = harness.facts();
         match self {

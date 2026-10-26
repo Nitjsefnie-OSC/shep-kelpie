@@ -12,7 +12,7 @@ use std::path::PathBuf;
 use serde::Deserialize;
 use serde::de::IgnoredAny;
 
-use super::{Agent, Role, Runs};
+use super::{Agent, Need, Role, Runs};
 use crate::forwarder::Upstream;
 use crate::review_bot::Bot;
 
@@ -51,6 +51,8 @@ struct Tag {
 struct Implementer {
     #[serde(rename = "role")]
     _role: Role,
+    #[serde(default)]
+    needs: Option<Vec<Need>>,
     harness: Harness,
     model: NonBlank,
     effort: Effort,
@@ -75,6 +77,8 @@ struct Implementer {
 struct OnClaude {
     #[serde(rename = "role")]
     _role: Role,
+    #[serde(default)]
+    needs: Option<Vec<Need>>,
     harness: Harness,
     model: NonBlank,
     effort: Effort,
@@ -88,6 +92,8 @@ struct OnClaude {
 struct Expert {
     #[serde(rename = "role")]
     _role: Role,
+    #[serde(default)]
+    needs: Option<Vec<Need>>,
     harness: Harness,
     model: NonBlank,
     effort: Effort,
@@ -125,6 +131,8 @@ enum ReviewerHarness {
 struct Reviewer {
     #[serde(rename = "role")]
     _role: Role,
+    #[serde(default)]
+    needs: Option<Vec<Need>>,
     harness: ReviewerHarness,
     #[serde(default)]
     model: Option<NonBlank>,
@@ -234,21 +242,29 @@ pub(super) fn parse(text: &str) -> Result<Agent, String> {
     let body = body.trim();
     let prompt = (!body.is_empty()).then(|| body.to_owned());
     let agent = match front {
-        Front::Implementer(keys) => Ok(Agent {
-            role: Role::Implementer,
-            runs: session(&SessionKeys {
-                harness: keys.harness,
-                model: &keys.model,
-                effort: keys.effort,
-                usage: keys.usage,
-                host: host(keys.url.as_ref(), keys.gateway.as_ref())?,
-                context: keys.context,
-                tools: keys.tools.as_ref(),
-            })?,
-            prompt,
-            paths: Vec::new(),
-            second_look: false,
-        }),
+        Front::Implementer(keys) => {
+            check_needs(
+                Role::Implementer,
+                keys.harness,
+                keys.needs.as_deref(),
+                &yaml,
+            )?;
+            Ok(Agent {
+                role: Role::Implementer,
+                runs: session(&SessionKeys {
+                    harness: keys.harness,
+                    model: &keys.model,
+                    effort: keys.effort,
+                    usage: keys.usage,
+                    host: host(keys.url.as_ref(), keys.gateway.as_ref())?,
+                    context: keys.context,
+                    tools: keys.tools.as_ref(),
+                })?,
+                prompt,
+                paths: Vec::new(),
+                second_look: false,
+            })
+        }
         Front::Reviewer(keys) => {
             let runs = keys.runs(prompt.as_deref(), &yaml)?;
             Ok(Agent {
@@ -259,30 +275,16 @@ pub(super) fn parse(text: &str) -> Result<Agent, String> {
                 second_look: keys.second_look,
             })
         }
-        Front::IssueWriter(keys) => keys.agent(
-            Role::IssueWriter,
-            prompt,
-            &yaml,
-            (
-                "the issue writer",
-                "`--interactive` starts `claude`, and its guard is a Claude Code hook",
-            ),
-        ),
-        Front::Pm(keys) => keys.agent(
-            Role::Pm,
-            prompt,
-            &yaml,
-            (
-                "the project manager",
-                "a Claude Code hook is what holds its writes to its notes",
-            ),
-        ),
-        Front::Advisor(keys) => keys.agent(Role::Advisor, prompt, "the advisor"),
-        Front::Researcher(keys) => keys.agent(Role::Researcher, prompt, "the researcher"),
-        Front::Representative(keys) => {
-            keys.agent(Role::Representative, prompt, "the representative")
+        Front::IssueWriter(keys) => {
+            keys.agent(Role::IssueWriter, prompt, &yaml, "the issue writer")
         }
-        Front::Triager(keys) => keys.agent(Role::Triager, prompt, "the triager"),
+        Front::Pm(keys) => keys.agent(Role::Pm, prompt, &yaml, "the project manager"),
+        Front::Advisor(keys) => keys.agent(Role::Advisor, prompt, &yaml, "the advisor"),
+        Front::Researcher(keys) => keys.agent(Role::Researcher, prompt, &yaml, "the researcher"),
+        Front::Representative(keys) => {
+            keys.agent(Role::Representative, prompt, &yaml, "the representative")
+        }
+        Front::Triager(keys) => keys.agent(Role::Triager, prompt, &yaml, "the triager"),
     }?;
     Ok(agent)
 }
@@ -290,7 +292,14 @@ pub(super) fn parse(text: &str) -> Result<Agent, String> {
 impl Expert {
     /// The agent of `role` these keys and `prompt` make, or why not: `who`
     /// names it
-    fn agent(&self, role: Role, prompt: Option<String>, who: &str) -> Result<Agent, String> {
+    fn agent(
+        &self,
+        role: Role,
+        prompt: Option<String>,
+        yaml: &str,
+        who: &str,
+    ) -> Result<Agent, String> {
+        check_needs(role, self.harness, self.needs.as_deref(), yaml)?;
         if prompt.is_none() {
             return Err(format!(
                 "{who}'s prompt is the file's body: write it below the closing `---`"
@@ -314,6 +323,45 @@ impl Expert {
     }
 }
 
+// Session capabilities are independent of a role's model and prompt keys.
+fn check_needs(
+    role: Role,
+    harness: Harness,
+    explicit: Option<&[Need]>,
+    yaml: &str,
+) -> Result<(), String> {
+    let needs = explicit.unwrap_or_else(|| role.needs());
+    // parity: harness.issue-writer, harness.pm
+    let Some(need) = needs.iter().find(|need| !need.met_by(harness)) else {
+        return Ok(());
+    };
+    let name = harness.as_str();
+    let message = match (role, need) {
+        (Role::IssueWriter, Need::ClaudeHooks) => format!(
+            "the issue writer runs on claude-code, not {name}: \
+             `--interactive` starts `claude`, and its guard is a Claude Code hook"
+        ),
+        (Role::Pm, Need::ClaudeHooks) => format!(
+            "the project manager runs on claude-code, not {name}: \
+             a Claude Code hook is what holds its writes to its notes"
+        ),
+        _ => {
+            let serving = Harness::ALL
+                .into_iter()
+                .filter(|harness| needs.iter().all(|need| need.met_by(*harness)))
+                .map(Harness::as_str)
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!(
+                "`{}` needs {}, which {name} lacks: harnesses that can serve it: {serving}",
+                role.as_str(),
+                need.description()
+            )
+        }
+    };
+    Err(at_key(yaml, "harness", &message))
+}
+
 impl OnClaude {
     /// The agent of `role` these keys and `prompt` make, or why not: `who`
     /// names it and why it runs on Claude Code alone
@@ -322,17 +370,9 @@ impl OnClaude {
         role: Role,
         prompt: Option<String>,
         yaml: &str,
-        (who, why): (&str, &str),
+        who: &str,
     ) -> Result<Agent, String> {
-        // parity: harness.issue-writer, harness.pm
-        if !self.harness.facts().claude_hooks {
-            let name = self.harness.as_str();
-            return Err(at_key(
-                yaml,
-                "harness",
-                &format!("{who} runs on claude-code, not {name}: {why}"),
-            ));
-        }
+        check_needs(role, self.harness, self.needs.as_deref(), yaml)?;
         if prompt.is_none() {
             return Err(format!(
                 "{who}'s prompt is the file's body: write it below the closing `---`"
@@ -383,6 +423,7 @@ impl Reviewer {
                     .map_err(|m| at_key(yaml, key, &m));
             }
         };
+        check_needs(Role::Reviewer, harness, self.needs.as_deref(), yaml)?;
         let name = harness.as_str();
         self.no_bot_keys(name, yaml)?;
         if self.command.is_some() {
