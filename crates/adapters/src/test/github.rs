@@ -407,8 +407,7 @@ impl FakeGithub {
     }
 
     /// Each issue label the App took off, in order, as the issue it came off
-    /// and the label's name. A name that needs no path encoding, which every
-    /// label this runner writes does, comes back as it was written.
+    /// and the label's name, with the path's percent-encoding undone.
     pub fn label_takes(&self) -> Vec<(u64, String)> {
         (self.writes().into_iter())
             .filter(|(_, call)| call.verb == Verb::Delete)
@@ -418,7 +417,7 @@ impl FakeGithub {
                 if parts.next() != Some("labels") {
                     return None;
                 }
-                Some((parts.next()?.parse().ok()?, name.to_owned()))
+                Some((parts.next()?.parse().ok()?, unescaped(name)))
             })
             .collect()
     }
@@ -729,4 +728,25 @@ impl Signer for FakeSigner {
     fn sign(&self, _key: &Path, _input: &[u8]) -> Result<Vec<u8>, String> {
         Ok(Self::SIGNATURE.to_vec())
     }
+}
+
+// A path segment with its percent-escapes undone
+fn unescaped(segment: &str) -> String {
+    let bytes = segment.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut at = 0;
+    while let Some(&byte) = bytes.get(at) {
+        let hex = segment.get(at + 1..at + 3);
+        match (byte, hex.and_then(|h| u8::from_str_radix(h, 16).ok())) {
+            (b'%', Some(decoded)) => {
+                out.push(decoded);
+                at += 3;
+            }
+            _ => {
+                out.push(byte);
+                at += 1;
+            }
+        }
+    }
+    String::from_utf8_lossy(&out).into_owned()
 }

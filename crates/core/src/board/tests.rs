@@ -246,6 +246,24 @@ fn a_p0_issue_is_picked_before_an_older_unlabelled_one() {
 }
 
 #[test]
+fn a_priority_label_is_the_boards_name_or_the_bare_one_and_nothing_else() {
+    for label in ["priority: P2", "P2", "p4", "Priority: P0"] {
+        assert!(is_priority_label(label), "{label}");
+    }
+    for label in ["priority: P5", "P", "priority:P2", "bug", "ready-for-agent"] {
+        assert!(!is_priority_label(label), "{label}");
+    }
+}
+
+#[test]
+fn two_priority_labels_are_the_same_priority_whichever_form_each_is_in() {
+    assert!(same_priority("P1", "priority: P1"));
+    assert!(same_priority("priority: p1", "P1"));
+    assert!(!same_priority("P1", "priority: P2"));
+    assert!(!same_priority("bug", "bug"));
+}
+
+#[test]
 fn priorities_order_the_board_p0_to_p3_then_unlabelled_oldest_first_within_each() {
     let mut order = Vec::new();
     let mut issues = vec![
