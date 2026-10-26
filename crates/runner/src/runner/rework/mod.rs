@@ -12,6 +12,7 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 
 use super::Runner;
+use super::pace::{Passed, Started};
 use super::report::{Begin, ReworkBy, StepReport};
 use super::trigger::{self, issue_list};
 use super::turn;
@@ -22,6 +23,16 @@ use crate::state::StateError;
 use crate::ticket::TicketId;
 use crate::work_item::{Known, Phase, Review, WorkItem, new_session_id};
 use crate::worktree::{self, Remote};
+
+// A pull request that can be reworked, and the agent its issue runs it on
+struct Target {
+    pr: Reviewed,
+    ticket: TicketId,
+    review: MaintainerReview,
+    title: String,
+    agent: AgentName,
+    note: Option<String>,
+}
 
 /// The file in the build folder that carries the review
 const REVIEW_FILE: &str = "maintainer-review.md";
@@ -158,10 +169,7 @@ impl Runner {
     // returns each pull request that asked but could not start this poll. A
     // refusal that asking again would not change takes the label off,
     // records the review and goes to the pull request as a comment.
-    pub(super) fn rework_asked(
-        &mut self,
-        open: &[OpenPullRequest],
-    ) -> Result<(Option<Begin>, Vec<Skip>), StateError> {
+    pub(super) fn rework_asked(&mut self, open: &[OpenPullRequest]) -> Result<Passed, StateError> {
         let mut skipped = Vec::new();
         // A second ask waits for the work item in flight on its issue to end.
         let mut ours: Vec<(u64, TicketId)> = open
@@ -180,6 +188,8 @@ impl Runner {
             error: error.to_string(),
         };
         self.snapshot.keep_only(open);
+        // A pull request whose agent's account holds waits, and the ones after it still start.
+        let mut first_hold = None;
         for (number, ticket) in ours {
             // A rework is kelpie's own `kelpie/<issue>` branch, whose name holds
             // a GitHub issue number, which is how `ours` read it above.
@@ -227,11 +237,15 @@ impl Runner {
                 }
             }
             if let Some(held) = self.pace_dispatch()?.holds() {
-                return Ok((Some(held), skipped));
+                return Ok((Some(held), skipped, None));
             }
             let review = pr.review.as_ref().map(|r| r.id.clone());
-            let begin = match self.start_rework(number, pr) {
-                Ok(agent) => Begin::Report(StepReport::Reworked {
+            let begin = match self.start_rework_paced(number, pr) {
+                Ok(Started::Held(held)) => {
+                    first_hold.get_or_insert(*held);
+                    continue;
+                }
+                Ok(Started::Opened(agent)) => Begin::Report(StepReport::Reworked {
                     issue: ticket,
                     pull_request: number,
                     agent,
@@ -250,9 +264,9 @@ impl Runner {
                     continue;
                 }
             };
-            return Ok((Some(begin), skipped));
+            return Ok((Some(begin), skipped, None));
         }
-        Ok((None, skipped))
+        Ok((None, skipped, first_hold))
     }
 
     // The outer error is a save that failed; the inner, a label that would
@@ -325,6 +339,27 @@ impl Runner {
     // Checks `pr` can be reworked, then writes its review for the worker,
     // takes the triage labels off and saves the work item, in that order.
     fn start_rework(&mut self, number: u64, pr: Reviewed) -> Result<AgentName, ReworkError> {
+        let target = self.rework_target(number, pr)?;
+        self.open_rework(number, target)
+    }
+
+    // As `start_rework`, unless the pacer holds the account of the agent the
+    // issue's label names, which no listed role may spend. Nothing changes then.
+    fn start_rework_paced(
+        &mut self,
+        number: u64,
+        pr: Reviewed,
+    ) -> Result<Started<AgentName>, ReworkError> {
+        let target = self.rework_target(number, pr)?;
+        let pace = self.pace_agent(&target.agent);
+        if let Some(held) = pace.map_err(ReworkError::State)?.holds() {
+            return Ok(Started::Held(Box::new(held)));
+        }
+        self.open_rework(number, target).map(Started::Opened)
+    }
+
+    // Checks `pr` can be reworked, and reads the issue for the agent it runs on.
+    fn rework_target(&mut self, number: u64, mut pr: Reviewed) -> Result<Target, ReworkError> {
         match pr.state {
             PullRequestState::Open => {}
             PullRequestState::Merged => return Err(ReworkError::NotOpen(number, "merged")),
@@ -347,6 +382,7 @@ impl Runner {
         }
         let review = pr
             .review
+            .take()
             .filter(|r| !r.body.trim().is_empty() || !r.comments.is_empty())
             .ok_or(ReworkError::NothingToRework(number))?;
         let found = self
@@ -357,12 +393,34 @@ impl Runner {
         let (agent, note) = self
             .labelled_agent(ticket, &found.labels)
             .map_err(ReworkError::Label)?;
+        Ok(Target {
+            pr,
+            ticket,
+            review,
+            title: found.title,
+            agent,
+            note,
+        })
+    }
+
+    // Writes the review for the worker, takes the triage labels off and saves
+    // the work item, in that order.
+    fn open_rework(&mut self, number: u64, target: Target) -> Result<AgentName, ReworkError> {
+        let Target {
+            pr,
+            ticket,
+            review,
+            title,
+            agent,
+            note,
+        } = target;
+        let repo = &self.remote;
         let session = new_session_id().map_err(|e| ReworkError::Session(e.to_string()))?;
         // The pull request merges into the branch it was opened against, whatever
         // `git.base` says now.
         let fresh = WorkItem {
             base: Some(pr.base.clone()),
-            ..self.fresh(ticket, found.title, agent.clone(), session)
+            ..self.fresh(ticket, title, agent.clone(), session)
         };
         // A rework stays on its pull request, so a listed bot's `rounds`
         // counts the reviews it gave it before. As an adoption does, it

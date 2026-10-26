@@ -15,9 +15,10 @@ use serde::Serialize;
 use super::Runner;
 use super::report::{Begin, StepReport};
 use crate::agents::Runs;
+use crate::board::Skip;
 use crate::pacer::{Assessment, Hold, RECHECK_SECS, Reading, Scope, assess, named};
 use crate::ports::{PaddockHolder, Timestamp};
-use crate::settings::{Account, AgentHarness, GatewayName, Limit, ModelHost};
+use crate::settings::{Account, AgentHarness, AgentName, GatewayName, Limit, ModelHost};
 use crate::state::StateError;
 
 /// What `status` shows of the pacer
@@ -46,6 +47,17 @@ pub(super) enum Pace {
     /// A hold from an earlier reading still stands
     StillHeld(Hold),
 }
+
+/// How a start the pacer may hold back ended
+pub(super) enum Started<T> {
+    Opened(T),
+    /// What the runner does instead of starting
+    Held(Box<Begin>),
+}
+
+/// What a pass over the pull requests that ask to start found: the step it
+/// begins, each that could not start, and the first the pacer held
+pub(super) type Passed = (Option<Begin>, Vec<Skip>, Option<Begin>);
 
 impl Pace {
     /// The pacer's reading of the hold, or `None` when nothing holds
@@ -154,6 +166,25 @@ impl Runner {
             return Ok(Pace::Clear);
         }
         self.pace(Scope::Dispatch, &claude)
+    }
+
+    /// Paces a new work item on `agent`'s own account, one the project may not
+    /// list, when no listed role spends it and so [`Runner::pace_dispatch`] has
+    /// not read it
+    ///
+    /// The account is paced for this pick alone, so an issue labelled for it
+    /// holds no pick that is not.
+    pub(super) fn pace_agent(&mut self, agent: &AgentName) -> Result<Pace, StateError> {
+        let session = (self.book.get(agent)).and_then(|agent| agent.runs.session());
+        let Some((_, limit)) = session.map(|(model, limit)| (model, limit.clone())) else {
+            return Ok(Pace::Clear);
+        };
+        if let Limit::Account(account) = limit
+            && self.spent_accounts().contains(&account)
+        {
+            return Ok(Pace::Clear);
+        }
+        self.pace(Scope::Dispatch, &limit)
     }
 
     // Each implementer's limit, each listed reviewer's that runs sessions, and

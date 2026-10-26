@@ -13,6 +13,7 @@ use std::path::{Path, PathBuf};
 
 use super::Runner;
 
+use super::pace::{Passed, Started};
 use super::report::{Begin, StepReport};
 use super::rework::review_text;
 use super::trigger;
@@ -213,14 +214,11 @@ impl Runner {
         self.state.adopted.iter().any(|w| w.pull_request == number)
     }
 
-    // Queues each open pull request labelled `ready-for-agent` whose branch
-    // isn't `kelpie/N`. Starts the oldest that can. A refusal takes the label
-    // off and is posted on the pull request. One merged or closed while it
-    // waited just leaves. Returns each that could not start.
-    pub(super) fn adopt_waiting(
-        &mut self,
-        open: &[OpenPullRequest],
-    ) -> Result<(Option<Begin>, Vec<Skip>), StateError> {
+    // Queues each open pull request labelled `ready-for-agent` whose branch isn't
+    // `kelpie/N`. Starts the oldest that can. A refusal takes the label off and
+    // posts on the pull request. Returns each that could not start, and the
+    // first the pacer held.
+    pub(super) fn adopt_waiting(&mut self, open: &[OpenPullRequest]) -> Result<Passed, StateError> {
         let mut skipped = Vec::new();
         // A queue saved before the project moved to the local store is let go,
         // since an adopted pull request closes a GitHub issue.
@@ -234,7 +232,7 @@ impl Runner {
             {
                 self.let_go(waiting)?;
             }
-            return Ok((None, skipped));
+            return Ok((None, skipped, None));
         }
         if let Some(mut labelled) = self.labelled_for_adoption(open) {
             labelled.sort_unstable();
@@ -255,12 +253,19 @@ impl Runner {
         }
         let waiting: Vec<u64> = self.state.adopted.iter().map(|w| w.pull_request).collect();
         self.forget_unwaiting(&waiting)?;
+        // A pull request whose agent's account holds waits in the queue, and the ones
+        // behind it still start.
+        let mut first_hold = None;
         for number in waiting {
             if let Some(held) = self.pace_dispatch()?.holds() {
-                return Ok((Some(held), skipped));
+                return Ok((Some(held), skipped, None));
             }
             let begin = match self.start_adoption(number) {
-                Ok((issue, agent)) => {
+                Ok(Started::Held(held)) => {
+                    first_hold.get_or_insert(*held);
+                    continue;
+                }
+                Ok(Started::Opened((issue, agent))) => {
                     self.adopt_failing.remove(&number);
                     Begin::Report(StepReport::Adopted {
                         issue,
@@ -287,9 +292,9 @@ impl Runner {
                     continue;
                 }
             };
-            return Ok((Some(begin), skipped));
+            return Ok((Some(begin), skipped, None));
         }
-        Ok((None, skipped))
+        Ok((None, skipped, first_hold))
     }
 
     // Notes that adopted pull request `number` could not start this pass, and
@@ -508,7 +513,10 @@ impl Runner {
     // Checks the pull request can be adopted, then prepares its worktree,
     // writes what the worker needs, takes the triage and summon labels off
     // and saves the work item, in that order.
-    fn start_adoption(&mut self, number: u64) -> Result<(TicketId, AgentName), AdoptError> {
+    fn start_adoption(
+        &mut self,
+        number: u64,
+    ) -> Result<Started<(TicketId, AgentName)>, AdoptError> {
         let repo = self.remote.clone();
         let pr = self
             .ports
@@ -533,6 +541,10 @@ impl Runner {
         let (agent, note) = self
             .labelled_agent(ticket, &found.labels)
             .map_err(AdoptError::Label)?;
+        // The account of an agent the project does not list has not been paced yet.
+        if let Some(held) = self.pace_agent(&agent).map_err(AdoptError::State)?.holds() {
+            return Ok(Started::Held(Box::new(held)));
+        }
         let session = new_session_id().map_err(|e| AdoptError::Session(e.to_string()))?;
         let fresh = self.fresh(ticket, found.title.clone(), agent.clone(), session);
         // A start that failed part way leaves a worktree on a head `origin`
@@ -672,7 +684,7 @@ impl Runner {
         self.save(next).map_err(AdoptError::State)?;
         self.mark_held(ticket, true);
         self.notes.extend(note);
-        Ok((ticket, agent))
+        Ok(Started::Opened((ticket, agent)))
     }
 }
 

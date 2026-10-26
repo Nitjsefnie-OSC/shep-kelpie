@@ -79,11 +79,11 @@ impl Runner {
         self.steps.append(report);
         let ran_on = |report: &StepReport| match report {
             StepReport::Dispatched { agent, .. } => {
-                let implementer = self.agents.implementer(agent)?;
+                let (model, _) = self.book.get(agent)?.runs.session()?;
                 Some(format!(
                     "{} ({})",
-                    implementer.model.model.as_str(),
-                    implementer.model.effort.as_str()
+                    model.model.as_str(),
+                    model.effort.as_str()
                 ))
             }
             _ => None,
@@ -93,8 +93,8 @@ impl Runner {
 }
 
 // The step as one line of words: its work item, its name, and its fields.
-// A dispatch names the model and effort its agent runs on, when the project
-// still lists the agent.
+// A dispatch names the model and effort its agent runs on, when its agent
+// file is still there.
 fn plain(report: &StepReport, ran_on: Option<String>) -> String {
     let Ok(Value::Object(mut fields)) = serde_json::to_value(report) else {
         return String::new();

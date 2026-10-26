@@ -10,8 +10,7 @@ use crate::settings::AgentHarness;
 use crate::test::ticket;
 use crate::test::{Hold, Rig, Scripted, StandInEndpoint};
 
-const CODEX: &str = "---\nrole: implementer\nharness: stand-in\nmodel: gpt-5-codex\n\
-                     effort: medium\nusage: codex\n---\n";
+const CODEX: &str = Rig::CODEX_IMPLEMENTER;
 const QWEN: &str = "---\nrole: implementer\nharness: stand-in\nmodel: qwen3-coder\n\
                     effort: low\nusage: none\n---\n";
 
@@ -97,6 +96,63 @@ fn an_item_on_an_unlisted_implementer_paces_on_its_account_too() {
         pacer.get("claude").is_some(),
         "the listed implementer's account is read too: {pacer}"
     );
+}
+
+// The `named("shep", "")` rig, reopened on a Codex day that began with `used` percent of
+// its week spent, with a ready issue 7 labelled for `codex`, which the project does not list.
+fn codex_day_began(used: u32) -> (Rig, Mutex<Runner>) {
+    let (rig, runner) = named("shep", "");
+    let runner = reopened(&rig, runner, || rig.codex_day_began(used));
+    rig.forge.list_ready(7, false);
+    rig.forge.label(7, "agent:codex");
+    (rig, runner)
+}
+
+#[test]
+fn a_ready_issue_on_an_unlisted_labelled_implementer_is_held_by_its_account() {
+    let (rig, runner) = codex_day_began(0);
+    // 15% of Codex's week since the day began, past its allowance of 100 / 7.
+    rig.codex_meter.set(Rig::utilization(15, 0));
+
+    let (kind, reason) = held(step(&runner).unwrap());
+    assert_eq!(kind, HoldKind::Allowance);
+    assert!(
+        reason.starts_with("today's Codex allowance of 14.3% of the week is spent (15%"),
+        "{reason}"
+    );
+    // The listed implementer's account is read as ever, and the labelled one's once.
+    assert_eq!((rig.meter.reads(), rig.codex_meter.reads()), (1, 1));
+    let status = rig.ask(&runner, "status", None);
+    assert_eq!(status["work_items"], json!([]));
+    let hold = json!([{ "reason": "paced", "issue": "7", "hold": reason }]);
+    assert_eq!(status["skipped"], hold);
+}
+
+#[test]
+fn a_ready_issue_on_an_unlisted_labelled_implementer_dispatches_when_its_account_is_clear() {
+    let (rig, runner) = codex_day_began(0);
+    rig.codex_meter.set(Rig::utilization(5, 0));
+
+    assert!(dispatched(&step(&runner).unwrap()));
+    assert_eq!((rig.meter.reads(), rig.codex_meter.reads()), (1, 1));
+    let status = rig.ask(&runner, "status", None);
+    assert_eq!(status["work_item"]["agent"], "codex");
+}
+
+#[test]
+fn an_issue_held_by_its_labelled_account_never_holds_a_ready_issue_behind_it() {
+    let (rig, runner) = codex_day_began(0);
+    rig.codex_meter.set(Rig::utilization(15, 0));
+    rig.forge.list_ready(8, false);
+
+    let report = step(&runner).unwrap();
+    assert!(
+        matches!(report, Some(StepReport::Dispatched { issue, .. }) if issue == ticket(8)),
+        "{report:?}"
+    );
+    let skipped = rig.ask(&runner, "status", None)["skipped"].clone();
+    assert_eq!(skipped[0]["reason"], "paced");
+    assert_eq!(skipped[0]["issue"], "7");
 }
 
 #[test]
