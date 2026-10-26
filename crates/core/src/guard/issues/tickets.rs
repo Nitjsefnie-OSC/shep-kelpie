@@ -127,7 +127,7 @@ fn new(args: &[String], gh: &Gh<'_>) -> Result<(), String> {
     parented(&flags, gh)?;
     linked(&flags, "--blocked-by")?;
     let labels = whole_labels(flags.all("--label"));
-    check_filed(title, &body, &labels, gh.rules, gh.home)
+    check_filed(title, &body, &labels, gh)
 }
 
 fn edit(args: &[String], gh: &Gh<'_>) -> Result<(), String> {

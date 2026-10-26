@@ -1,5 +1,7 @@
 //! The issue writer's `gh` commands: filing, labelling, reading and linking issues
 
+use std::path::Path;
+
 use super::ledger::Ledger;
 use super::{IssueRules, ONLY, PLAIN, heredoc_body, is_heredoc, plain};
 use crate::board::AGENT_LABEL;
@@ -27,6 +29,9 @@ pub(super) struct Gh<'a> {
     pub(super) rules: &'a IssueRules,
     pub(super) home: &'a Home,
     pub(super) ledger: &'a Ledger,
+    /// The checkout of `main` the session reads, whose files an issue's paths are
+    /// checked against
+    pub(super) checkout: &'a Path,
 }
 
 impl Gh<'_> {
@@ -38,9 +43,7 @@ impl Gh<'_> {
                  ticket new`, which the issue writer may run."
                     .into(),
             ),
-            (Some("issue"), Some("create" | "new")) => {
-                create(&args[2..], self.heredocs, self.rules, self.home)
-            }
+            (Some("issue"), Some("create" | "new")) => create(&args[2..], self),
             (Some("issue"), Some("edit")) => edit(&args[2..], self.rules, self.ledger),
             (Some("issue"), Some("view")) => view(&args[2..]),
             (Some("issue"), Some("list")) => list(&args[2..]),
@@ -120,12 +123,8 @@ pub(super) fn flags_of(
     Ok(flags)
 }
 
-fn create(
-    args: &[String],
-    heredocs: &[String],
-    rules: &IssueRules,
-    home: &Home,
-) -> Result<(), String> {
+fn create(args: &[String], gh: &Gh<'_>) -> Result<(), String> {
+    let heredocs = gh.heredocs;
     let flags = flags(
         args,
         &[
@@ -157,19 +156,20 @@ fn create(
         _ => return Err(format!("{PLAIN}.")),
     };
     let labels = labels(flags.all("--label"))?;
-    check_filed(title, &body, &labels, rules, home)
+    check_filed(title, &body, &labels, gh)
 }
 
 // What a ticket the issue writer files carries, however it files it: a plain
 // title, one status label and at most one listed `agent:` label, acceptance
-// criteria, and nothing that names this machine or the project's hooks refuse.
+// criteria, and nothing that names this machine or the project's hooks refuse. Last, a
+// path in its body that is on no file of `main` goes back once.
 pub(super) fn check_filed(
     title: &str,
     body: &str,
     labels: &[String],
-    rules: &IssueRules,
-    home: &Home,
+    gh: &Gh<'_>,
 ) -> Result<(), String> {
+    let (rules, home) = (gh.rules, gh.home);
     if !plain(title) {
         return Err(format!("{PLAIN}."));
     }
@@ -204,7 +204,7 @@ pub(super) fn check_filed(
             return Err(why);
         }
     }
-    Ok(())
+    super::named::check(body, gh)
 }
 
 fn edit(args: &[String], rules: &IssueRules, ledger: &Ledger) -> Result<(), String> {
