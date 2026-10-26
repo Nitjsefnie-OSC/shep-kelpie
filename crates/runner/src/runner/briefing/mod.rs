@@ -26,7 +26,7 @@ use crate::ticket::TicketId;
 use crate::work_item::{Phase, ReviewStage, Seat, Turn, WorkItem};
 
 mod events;
-mod git;
+pub(in crate::runner) mod git;
 pub(in crate::runner) mod patch;
 
 #[cfg(test)]

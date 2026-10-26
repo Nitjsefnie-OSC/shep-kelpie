@@ -151,8 +151,7 @@ impl Git {
     /// Every file on `main`
     fn tree(&mut self, repo: &Path, main: &str) -> &[String] {
         if self.tree.as_ref().is_none_or(|(at, _)| at != main) {
-            let files = read(repo, &["ls-tree", "-r", "--name-only", "-z", main]);
-            self.tree = Some((main.to_owned(), files.map(names).unwrap_or_default()));
+            self.tree = Some((main.to_owned(), files_at(repo, main)));
         }
         self.tree.as_ref().map_or(&[], |(_, files)| files)
     }
@@ -236,6 +235,17 @@ impl Git {
         self.patches.insert(key, diff.clone());
         Ok(diff)
     }
+}
+
+/// Every file on `origin/<base>` as last fetched, none where git cannot say
+pub(in crate::runner) fn files_on(repo: &Path, base: &str) -> Vec<String> {
+    Git::main(repo, base).map_or_else(Vec::new, |main| files_at(repo, &main))
+}
+
+// Every file at commit `at`.
+fn files_at(repo: &Path, at: &str) -> Vec<String> {
+    let files = read(repo, &["ls-tree", "-r", "--name-only", "-z", at]);
+    files.map(names).unwrap_or_default()
 }
 
 fn read(repo: &Path, args: &[&str]) -> Option<String> {
