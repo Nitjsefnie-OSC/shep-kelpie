@@ -1,5 +1,12 @@
+use std::collections::BTreeMap;
+use std::sync::Mutex;
+
 use super::*;
-use crate::settings::{AgentName, Harness};
+use crate::adapters::host::{Host, WindowsInstall};
+use crate::settings::{
+    AgentName, EndpointUrl, Gateway, GatewayKind, GatewayName, Gateways, Harness, KeyVar,
+};
+use crate::test::StandInEndpoint;
 
 const UNBOUND_PM: &str = "---\nrole: pm\n---\nYou keep the project's notes.\n";
 
@@ -472,4 +479,440 @@ fn new_reports_a_missing_server_without_a_default_role_harness_hint() {
          and its context size as `context`"
     );
     assert_eq!(file(dir.path(), "mine"), stub);
+}
+
+// The models file kelpie ships, which `agents init` reads.
+const MODELS: &str = crate::agents::init::MODELS;
+
+// A machine whose `PATH` holds exactly `programs`, which records each program
+// it was asked about.
+#[derive(Debug, Default)]
+struct Machine {
+    programs: Vec<&'static str>,
+    asked: Mutex<Vec<String>>,
+}
+
+impl Machine {
+    fn asked(&self) -> Vec<String> {
+        self.asked.lock().unwrap().clone()
+    }
+}
+
+impl Host for Machine {
+    fn on_path(&self, program: &str) -> bool {
+        self.asked.lock().unwrap().push(program.to_owned());
+        self.programs.contains(&program)
+    }
+
+    fn sandbox_gaps(&self) -> Vec<&'static str> {
+        Vec::new()
+    }
+
+    fn has_keychain(&self) -> bool {
+        false
+    }
+
+    fn os(&self) -> &'static str {
+        "macos"
+    }
+
+    fn windows_status(&self) -> Result<WindowsInstall, String> {
+        Ok(WindowsInstall::provisioned(false))
+    }
+
+    fn login_token(&self) -> bool {
+        false
+    }
+
+    fn program_version(&self, program: &str) -> Result<String, String> {
+        Err(format!("`{program}` is asked for by nothing here"))
+    }
+}
+
+// `shep kelpie agents init <line>` on `folder`, reading `models` on `host` with
+// these gateways.
+fn init_on(
+    folder: &Path,
+    line: &str,
+    models: &str,
+    host: &dyn Host,
+    gateways: Gateways,
+) -> Result<Vec<String>, String> {
+    let args: Vec<String> = line.split_whitespace().map(str::to_owned).collect();
+    init::run(
+        folder,
+        &args,
+        &init::Setup {
+            models,
+            host,
+            gateways,
+        },
+    )
+}
+
+// A models file with rows for claude-code, pi and codex, in `order`: the
+// implementer, one reviewer baseline, the PM and the advisor on claude-code, the
+// implementer and the reviewer on pi, and the advisor on codex.
+fn lineup(order: &[&str], pi_model: &str) -> String {
+    format!(
+        "order = {order:?}\n\n\
+         [claude-code.implementer]\nmodel = \"claude-sonnet-5-5\"\neffort = \"high\"\n\n\
+         [claude-code.reviewer.defect-hunter]\nmodel = \"claude-opus-5-5\"\neffort = \"high\"\n\
+         second_look = true\n\n\
+         [claude-code.pm]\nmodel = \"claude-opus-5-5\"\neffort = \"medium\"\n\n\
+         [claude-code.advisor]\nmodel = \"claude-opus-5-5\"\neffort = \"high\"\n\n\
+         [pi.implementer]\nmodel = \"{pi_model}\"\neffort = \"high\"\ncontext = 65536\n\n\
+         [pi.reviewer.defect-hunter]\nmodel = \"{pi_model}\"\neffort = \"high\"\n\
+         second_look = true\ncontext = 65536\n\n\
+         [codex.advisor]\nmodel = \"gpt-6.1-sol\"\neffort = \"medium\"\n"
+    )
+}
+
+// Kelpie's settings holding one paddock gateway at `url`, with no key set here.
+fn paddock(url: &str) -> Gateways {
+    let gateway = Gateway {
+        kind: GatewayKind::Paddock,
+        url: EndpointUrl::try_from(url.to_owned()).unwrap(),
+        key_env: KeyVar::try_from("PADDOCK_KEY".to_owned()).unwrap(),
+    };
+    Gateways::reading(
+        BTreeMap::from([(
+            GatewayName::try_from("paddock".to_owned()).unwrap(),
+            gateway,
+        )]),
+        |_| None,
+    )
+}
+
+const PI_IMPLEMENTER: &str = "---\nrole: implementer\nharness: pi\nmodel: qwen3.8:27b\n\
+                             effort: high\ngateway: paddock\ncontext: 65536\n---\n";
+
+#[test]
+fn init_claude_code_binds_every_role_it_serves_and_the_files_load() {
+    let dir = tempfile::tempdir().unwrap();
+
+    let said = init_on(
+        dir.path(),
+        "claude-code",
+        MODELS,
+        &Machine::default(),
+        Gateways::default(),
+    )
+    .unwrap();
+
+    assert_eq!(
+        files(dir.path()),
+        [
+            "advisor.md",
+            "defect-hunter.md",
+            "implementer.md",
+            "issue-writer.md",
+            "pm.md",
+            "representative.md",
+            "researcher.md",
+            "security-reviewer.md",
+            "spec.md",
+            "standards.md",
+            "triager.md",
+        ],
+        "the implementer and every baseline of every role claude-code serves"
+    );
+    let has = |line: &str| assert!(said.iter().any(|l| l == line), "{line} in {said:#?}");
+    has("implementer: wrote claude-code claude-sonnet-5-5 at high");
+    has("defect-hunter: wrote claude-code claude-opus-5-5 at high");
+    has("pm: wrote claude-code claude-opus-5-5 at medium");
+    has("shep kelpie set agents.implementers '[\"implementer\"]'");
+    has(
+        "shep kelpie set agents.reviewers '[\"defect-hunter\", \"security-reviewer\", \"spec\", \"standards\"]'",
+    );
+    assert!(
+        file(dir.path(), "implementer")
+            .starts_with("---\nrole: implementer\nharness: claude-code\n"),
+        "an implementer has no baseline, so its file names its role"
+    );
+    assert!(file(dir.path(), "pm").starts_with("---\nextends: kelpie:pm\nharness: claude-code\n"));
+    assert!(file(dir.path(), "defect-hunter").contains("second_look: true"));
+
+    let book = Agents::load(dir.path()).unwrap();
+    assert_eq!(book.skipped().count(), 0);
+    assert!(book.unbound().is_empty());
+    for (role, file) in [
+        ("implementer", "implementer"),
+        ("reviewer", "defect-hunter"),
+        ("reviewer", "standards"),
+        ("reviewer", "spec"),
+        ("reviewer", "security-reviewer"),
+        ("pm", "pm"),
+        ("issue-writer", "issue-writer"),
+        ("advisor", "advisor"),
+        ("researcher", "researcher"),
+        ("representative", "representative"),
+        ("triager", "triager"),
+    ] {
+        let agent = book
+            .get(&name(file))
+            .unwrap_or_else(|| panic!("`{file}.md` is not in the book"));
+        assert_eq!(agent.role.as_str(), role, "{file}");
+    }
+    assert!(book.get(&name("defect-hunter")).unwrap().second_look);
+    assert!(!book.get(&name("standards")).unwrap().second_look);
+}
+
+#[test]
+fn init_keeps_a_file_that_exists_and_names_it() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("pm.md"), UNBOUND_PM).unwrap();
+    let before = file(dir.path(), "pm");
+
+    let said = init_on(
+        dir.path(),
+        "claude-code",
+        MODELS,
+        &Machine::default(),
+        Gateways::default(),
+    )
+    .unwrap();
+
+    assert!(
+        said.iter().any(|l| l == "pm: kept, it is already there"),
+        "{said:#?}"
+    );
+    assert!(
+        !said.iter().any(|l| l.starts_with("pm: wrote")),
+        "{said:#?}"
+    );
+    assert_eq!(file(dir.path(), "pm"), before, "never over a file");
+    assert!(
+        dir.path().join("advisor.md").is_file(),
+        "the rest of the lineup is still written"
+    );
+}
+
+#[test]
+fn init_on_a_harness_with_no_rows_is_refused_naming_the_data_file() {
+    let dir = tempfile::tempdir().unwrap();
+
+    let err = init_on(
+        dir.path(),
+        "codex",
+        MODELS,
+        &Machine::default(),
+        Gateways::default(),
+    )
+    .unwrap_err();
+
+    assert!(err.contains("agents/models.toml"), "{err}");
+    assert!(err.contains("codex"), "{err}");
+    assert_eq!(files(dir.path()), Vec::<String>::new());
+}
+
+#[test]
+fn init_pi_without_a_gateway_is_refused_naming_the_flag() {
+    let dir = tempfile::tempdir().unwrap();
+    let models = lineup(&["pi"], "qwen3.8:27b");
+
+    let err = init_on(
+        dir.path(),
+        "pi",
+        &models,
+        &Machine::default(),
+        Gateways::default(),
+    )
+    .unwrap_err();
+
+    assert!(err.contains("--gateway"), "{err}");
+    assert!(err.contains("--url"), "{err}");
+    assert_eq!(files(dir.path()), Vec::<String>::new());
+
+    init_on(
+        dir.path(),
+        "pi --gateway paddock",
+        &models,
+        &Machine::default(),
+        Gateways::default(),
+    )
+    .unwrap();
+    assert_eq!(file(dir.path(), "implementer"), PI_IMPLEMENTER);
+    assert!(file(dir.path(), "defect-hunter").contains("gateway: paddock"));
+
+    let both = init_on(
+        dir.path(),
+        "pi --gateway paddock --url http://box:11434/v1",
+        &models,
+        &Machine::default(),
+        Gateways::default(),
+    )
+    .unwrap_err();
+    assert!(both.contains("--gateway"), "{both}");
+    assert_eq!(file(dir.path(), "implementer"), PI_IMPLEMENTER);
+
+    let named = tempfile::tempdir().unwrap();
+    init_on(
+        named.path(),
+        "pi --url http://box:11434/v1",
+        &models,
+        &Machine::default(),
+        Gateways::default(),
+    )
+    .unwrap();
+    assert!(
+        file(named.path(), "implementer").contains("url: http://box:11434/v1\ncontext: 65536\n"),
+        "{}",
+        file(named.path(), "implementer")
+    );
+    let claude = init_on(
+        named.path(),
+        "claude-code --gateway paddock",
+        &models,
+        &Machine::default(),
+        Gateways::default(),
+    )
+    .unwrap_err();
+    assert!(claude.contains("--gateway"), "{claude}");
+}
+
+#[test]
+fn detect_reads_the_path_and_configured_gateways_and_nothing_else() {
+    let listed = StandInEndpoint::start([]).like_paddock("pk-right", &["qwen3.8:27b"]);
+    let unconfigured = StandInEndpoint::start([]);
+    let dir = tempfile::tempdir().unwrap();
+    let host = Machine {
+        programs: vec!["claude", "pi"],
+        ..Machine::default()
+    };
+
+    let said = init_on(
+        dir.path(),
+        "--detect",
+        &lineup(&["claude-code", "pi"], "qwen3.8:27b"),
+        &host,
+        paddock(listed.host()),
+    )
+    .unwrap();
+
+    assert_eq!(
+        host.asked(),
+        ["claude", "pi", "goose", "codex"],
+        "every CLI kelpie runs is looked for"
+    );
+    assert_eq!(
+        listed.seen(),
+        ["GET /v1/models HTTP/1.1"],
+        "a configured gateway is asked only for its model list"
+    );
+    assert_eq!(
+        unconfigured.seen(),
+        Vec::<String>::new(),
+        "nothing goes to an address kelpie's settings do not name"
+    );
+    let has = |line: &str| assert!(said.iter().any(|l| l == line), "{line} in {said:#?}");
+    has("claude: on the PATH");
+    has("pi: on the PATH");
+    has("goose: not on the PATH");
+    has("codex: not on the PATH");
+    has("gateway paddock: lists 1 models");
+}
+
+#[test]
+fn detect_binds_pi_only_where_a_gateway_lists_the_rows_model() {
+    let listed = StandInEndpoint::start([]).like_paddock("pk-right", &["qwen3.8:27b"]);
+    let other = StandInEndpoint::start([]).like_paddock("pk-right", &["llama"]);
+    let models = lineup(&["pi", "claude-code"], "qwen3.8:27b");
+    let host = Machine {
+        programs: vec!["claude", "pi"],
+        ..Machine::default()
+    };
+    let on = tempfile::tempdir().unwrap();
+    let off = tempfile::tempdir().unwrap();
+
+    init_on(
+        on.path(),
+        "--detect",
+        &models,
+        &host,
+        paddock(listed.host()),
+    )
+    .unwrap();
+    init_on(
+        off.path(),
+        "--detect",
+        &models,
+        &host,
+        paddock(other.host()),
+    )
+    .unwrap();
+
+    assert_eq!(file(on.path(), "implementer"), PI_IMPLEMENTER);
+    assert_eq!(
+        file(off.path(), "implementer"),
+        "---\nrole: implementer\nharness: claude-code\nmodel: claude-sonnet-5-5\neffort: high\n---\n",
+        "no gateway lists qwen3.8:27b, so claude-code gets the role"
+    );
+    assert!(
+        file(on.path(), "defect-hunter").contains("harness: pi"),
+        "the reviewer row is listed too"
+    );
+}
+
+#[test]
+fn detect_gives_each_role_the_first_harness_in_order_that_serves_it() {
+    let listed = StandInEndpoint::start([]).like_paddock("pk-right", &["qwen3.8:27b"]);
+    let dir = tempfile::tempdir().unwrap();
+    let host = Machine {
+        programs: vec!["claude", "pi", "codex"],
+        ..Machine::default()
+    };
+
+    let said = init_on(
+        dir.path(),
+        "--detect",
+        &lineup(&["pi", "codex", "claude-code"], "qwen3.8:27b"),
+        &host,
+        paddock(listed.host()),
+    )
+    .unwrap();
+
+    let bound = |which: &str, harness: &str| {
+        assert!(
+            file(dir.path(), which).contains(&format!("harness: {harness}\n")),
+            "{which} is not on {harness}: {said:#?}"
+        );
+    };
+    bound("implementer", "pi");
+    bound("defect-hunter", "pi");
+    bound("advisor", "codex");
+    bound("pm", "claude-code");
+    assert!(
+        said.iter()
+            .any(|l| l
+                .starts_with("issue-writer: none: pi lacks kelpie's PM and issue-writer guards")),
+        "{said:#?}"
+    );
+    assert!(
+        said.iter()
+            .any(|l| l.starts_with("researcher: none: pi has no row in agents/models.toml")),
+        "{said:#?}"
+    );
+}
+
+#[test]
+fn detect_with_nothing_found_writes_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+
+    let said = init_on(
+        dir.path(),
+        "--detect",
+        MODELS,
+        &Machine::default(),
+        Gateways::default(),
+    )
+    .unwrap();
+
+    assert_eq!(
+        said,
+        [
+            "nothing found: no harness kelpie runs is on the PATH, and kelpie's settings hold no gateway"
+        ]
+    );
+    assert_eq!(files(dir.path()), Vec::<String>::new());
 }

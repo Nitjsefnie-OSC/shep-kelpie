@@ -29,6 +29,7 @@ use crate::settings::{
 pub mod baseline;
 mod extends;
 mod front;
+pub mod init;
 pub mod legacy;
 mod needs;
 
@@ -164,6 +165,18 @@ pub enum Role {
 }
 
 impl Role {
+    /// Every role an agent file can name, in the order `agents init` writes them
+    pub const ALL: [Self; 8] = [
+        Self::Implementer,
+        Self::Reviewer,
+        Self::IssueWriter,
+        Self::Pm,
+        Self::Advisor,
+        Self::Researcher,
+        Self::Representative,
+        Self::Triager,
+    ];
+
     /// The role's name, as an agent file writes it
     pub fn as_str(self) -> &'static str {
         match self {
@@ -180,18 +193,7 @@ impl Role {
 
     /// The role an agent file calls `name`, if there is one
     pub fn named(name: &str) -> Option<Self> {
-        [
-            Self::Implementer,
-            Self::Reviewer,
-            Self::IssueWriter,
-            Self::Pm,
-            Self::Advisor,
-            Self::Researcher,
-            Self::Representative,
-            Self::Triager,
-        ]
-        .into_iter()
-        .find(|role| role.as_str() == name)
+        Self::ALL.into_iter().find(|role| role.as_str() == name)
     }
 }
 

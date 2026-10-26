@@ -13,6 +13,7 @@ mod debug;
 mod experts;
 mod extends;
 mod goose;
+mod init;
 mod issue_writer;
 mod legacy;
 mod needs;

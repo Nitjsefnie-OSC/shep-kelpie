@@ -1,8 +1,10 @@
-//! `shep kelpie agents new`, `list` and `migrate`: bind a role's baseline, and show what is bound
+//! `shep kelpie agents new`, `init`, `list` and `migrate`: bind a role's
+//! baseline or a whole lineup, and show what is bound
 //!
 //! `new` writes the agent file that binds a baseline to a harness, model and
-//! effort, after the loader has read the text. `list` shows every agent, then
-//! each baseline no file stands for. `migrate` writes into each stub the
+//! effort, after the loader has read the text. `init` writes one for every role
+//! a harness serves, from kelpie's own models file. `list` shows every agent,
+//! then each baseline no file stands for. `migrate` writes into each stub the
 //! binding its baseline shipped with.
 
 use std::fs::{self, OpenOptions};
@@ -11,23 +13,32 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use crate::agents::baseline::{self, Baseline};
+use crate::agents::init::quoted;
 use crate::agents::legacy;
 use crate::agents::{Agents, Role, Runs};
 use crate::settings::AgentName;
 use crate::shep_home;
 
+mod init;
+
 #[cfg(test)]
 mod tests;
 
 /// What `shep kelpie agents` takes
-pub const USAGE: &str = "usage: shep kelpie agents new <role> --harness <harness> --model <model> --effort <effort> [--baseline <name>] [--name <file name>] [--second-look] [--gateway <name> | --url <url>] [--context <tokens>]\n       shep kelpie agents list\n       shep kelpie agents migrate";
+pub const USAGE: &str = "usage: shep kelpie agents new <role> --harness <harness> --model <model> --effort <effort> [--baseline <name>] [--name <file name>] [--second-look] [--gateway <name> | --url <url>] [--context <tokens>]\n       shep kelpie agents init <harness> [--gateway <name> | --url <url>]\n       shep kelpie agents init --detect\n       shep kelpie agents list\n       shep kelpie agents migrate";
 
 /// Runs `shep kelpie agents ...`
 pub fn main(args: &[String]) -> ExitCode {
     let ran = (|| {
         let shep_home = shep_home::required(shep_home::FLOCK_FIX)?;
         let folder = crate::home::kelpie_home_of(&shep_home).join(crate::agents::FOLDER);
-        run(&folder, args)
+        match args.first().map(String::as_str) {
+            Some("init") => {
+                let rest = &args[1..];
+                init::run(&folder, rest, &init::setup(rest, &shep_home)?)
+            }
+            _ => run(&folder, args),
+        }
     })();
     match ran {
         Ok(lines) => {
@@ -264,19 +275,6 @@ impl Old {
             blocks,
             body: body.to_owned(),
         }
-    }
-}
-
-// `value` as a YAML string: as it stands when that reads back the same, else in quotes.
-fn quoted(value: &str) -> String {
-    let plain = value.starts_with(|c: char| c.is_ascii_alphabetic())
-        && value
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || "._-/:".contains(c))
-        && !matches!(value, "true" | "false" | "null" | "yes" | "no");
-    match plain {
-        true => value.to_owned(),
-        false => serde_json::to_string(value).unwrap_or_default(),
     }
 }
 
