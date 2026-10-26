@@ -26,5 +26,6 @@ rustix.workspace = true
 windows-sys.workspace = true
 
 [dev-dependencies]
+shep-kelpie-test-support.workspace = true
 # Only for throwaway folders in tests
 tempfile.workspace = true

@@ -9,19 +9,18 @@
 
 use std::fmt;
 use std::fs;
-#[cfg(unix)]
-use std::fs::{DirBuilder, OpenOptions};
-#[cfg(unix)]
-use std::io::Write;
-use std::io::{self, Read};
-#[cfg(unix)]
-use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
+use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 
 use hmac::{Hmac, KeyInit, Mac};
 use sha1::Sha1;
 
+use crate::owner_only;
 use crate::ports::Timestamp;
+
+/// Makes `folder` and any folder above it, the new ones usable by their
+/// owner alone
+pub use crate::owner_only::private_dir;
 
 pub mod answers;
 
@@ -56,9 +55,6 @@ pub enum SecretError {
     /// Someone other than its owner may read or write the file's folder,
     /// and so put a secret of their own there
     FolderExposed(PathBuf),
-    /// The file system cannot be told to keep the file to its owner: on
-    /// Windows until #1264 gives it an owner-only ACL
-    Unsupported,
 }
 
 impl fmt::Display for SecretError {
@@ -72,25 +68,38 @@ impl fmt::Display for SecretError {
             ),
             Self::Exposed(path) => write!(
                 f,
-                "{} may be read by others: `chmod 600` it, or run `shep kelpie totp --rotate` \
+                "{} may be read by others: {}, or run `shep kelpie totp --rotate` \
                  if someone else may have read it",
-                path.display()
+                path.display(),
+                narrow(path, false)
             ),
             Self::FolderExposed(folder) => write!(
                 f,
-                "{} may be used by others: `chmod 700` it, and run `shep kelpie totp --rotate` \
+                "{} may be used by others: {}, and run `shep kelpie totp --rotate` \
                  if someone else may have read or replaced the secret in it",
-                folder.display()
-            ),
-            Self::Unsupported => f.write_str(
-                "the authenticator secret needs a file only its owner can read, which kelpie \
-                 cannot make on Windows yet (#1264)",
+                folder.display(),
+                narrow(folder, true)
             ),
         }
     }
 }
 
 impl core::error::Error for SecretError {}
+
+// What a message tells the maintainer to do to keep `path` to its owner
+#[cfg(unix)]
+fn narrow(_path: &Path, folder: bool) -> String {
+    format!("`chmod {}` it", if folder { 700 } else { 600 })
+}
+
+#[cfg(windows)]
+fn narrow(path: &Path, folder: bool) -> String {
+    let grant = if folder { "(OI)(CI)F" } else { "F" };
+    format!(
+        "run `icacls {} /inheritance:r /grant:r %USERNAME%:{grant}`",
+        path.display()
+    )
+}
 
 impl Secret {
     /// The secret in `path`, or `None` when there is no file
@@ -106,7 +115,7 @@ impl Secret {
             Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
             Err(e) => return Err(io(e)),
         };
-        owner_only(path, &file)?;
+        check_owner_only(path)?;
         let mut text = String::new();
         file.read_to_string(&mut text).map_err(io)?;
         decode(text.trim())
@@ -114,7 +123,7 @@ impl Secret {
             .ok_or_else(|| SecretError::Malformed(path.to_owned()))
     }
 
-    /// The secret in `path`, drawing one from `/dev/urandom` and writing it
+    /// The secret in `path`, drawing one from the system's random source and writing it
     /// there, readable by its owner alone, when there is none
     ///
     /// # Errors
@@ -146,18 +155,20 @@ impl Secret {
     // synced, then renamed over the old one when `replace`, else linked into
     // place, which fails when a secret is already there. The folder is synced
     // after, so a crash cannot bring the old secret back.
-    #[cfg(unix)]
     fn write(path: &Path, replace: bool) -> Result<Self, SecretError> {
         let io = |e: io::Error| SecretError::Io(path.to_owned(), e.kind());
         let mut bytes = [0u8; 20];
-        fs::File::open("/dev/urandom")
-            .and_then(|mut random| random.read_exact(&mut bytes))
-            .map_err(|e| SecretError::Io(PathBuf::from("/dev/urandom"), e.kind()))?;
+        getrandom::fill(&mut bytes).map_err(|e| {
+            SecretError::Io(
+                PathBuf::from("the system's random source"),
+                io::Error::from(e).kind(),
+            )
+        })?;
         let folder = path.parent().unwrap_or(Path::new("."));
         private_dir(folder).map_err(io)?;
         let fresh = folder.join(format!(".secret.{}", std::process::id()));
         let _ = fs::remove_file(&fresh);
-        let mut file = create_private(&fresh).map_err(io)?;
+        let mut file = owner_only::create_private(&fresh).map_err(io)?;
         let placed = writeln!(file, "{}", encode(&bytes))
             .and_then(|()| file.sync_all())
             .and_then(|()| {
@@ -168,17 +179,8 @@ impl Secret {
                 }
             });
         let _ = fs::remove_file(&fresh);
-        placed
-            .and_then(|()| fs::File::open(folder)?.sync_all())
-            .map_err(io)?;
+        placed.and_then(|()| sync_dir(folder)).map_err(io)?;
         Ok(Self(bytes))
-    }
-
-    // Windows keeps a file to its owner by an ACL, which kelpie does not set
-    // yet (#1264), so it makes no secret rather than one others may read.
-    #[cfg(windows)]
-    fn write(_path: &Path, _replace: bool) -> Result<Self, SecretError> {
-        Err(SecretError::Unsupported)
     }
 
     /// The `otpauth://` URI an authenticator app scans
@@ -319,66 +321,32 @@ fn same(a: u32, b: u32) -> bool {
     (a ^ b) == 0
 }
 
-/// Makes `folder` and any folder above it, the new ones readable by their
-/// owner alone
-#[cfg(unix)]
-pub fn private_dir(folder: &Path) -> io::Result<()> {
-    DirBuilder::new().recursive(true).mode(0o700).create(folder)
-}
-
-/// Makes `folder` and any folder above it
-///
-/// On Windows the new ones take the ACL they inherit, which #1264 narrows to
-/// the owner. It does not refuse, since the runner calls it to mint the App's
-/// token.
-#[cfg(windows)]
-pub fn private_dir(folder: &Path) -> io::Result<()> {
-    fs::create_dir_all(folder)
-}
-
-/// Makes the file `path`, which must not exist, writable and readable by
-/// its owner alone
-#[cfg(unix)]
-pub(crate) fn create_private(path: &Path) -> io::Result<fs::File> {
-    OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
-        .open(path)
-}
-
-/// Refuses to make a file for its owner alone, since Windows keeps one by an
-/// ACL that kelpie does not set yet (#1264)
-#[cfg(windows)]
-pub(crate) fn create_private(_path: &Path) -> io::Result<fs::File> {
-    Err(io::Error::new(
-        io::ErrorKind::Unsupported,
-        "a file only its owner can read is not made on Windows yet (#1264)",
-    ))
-}
-
-// Whether `file`, which is `path`, and its folder are the owner's alone.
-#[cfg(unix)]
-fn owner_only(path: &Path, file: &fs::File) -> Result<(), SecretError> {
+// Refuses a file or folder that anyone but the owner may use.
+fn check_owner_only(path: &Path) -> Result<(), SecretError> {
     let io = |e: io::Error| SecretError::Io(path.to_owned(), e.kind());
-    if file.metadata().map_err(io)?.mode() & 0o077 != 0 {
+    if !owner_only::is_owner_only(path).map_err(io)? {
         return Err(SecretError::Exposed(path.to_owned()));
     }
     // Someone who can write the folder can put their own secret in it.
     let folder = path.parent().unwrap_or(Path::new("."));
-    let folder_mode = fs::metadata(folder)
-        .map_err(|e| SecretError::Io(folder.to_owned(), e.kind()))?
-        .mode();
-    if folder_mode & 0o077 != 0 {
+    let owned = owner_only::is_owner_only(folder)
+        .map_err(|e| SecretError::Io(folder.to_owned(), e.kind()))?;
+    if !owned {
         return Err(SecretError::FolderExposed(folder.to_owned()));
     }
     Ok(())
 }
 
-// A secret already in place is not read, since its ACL is not checked yet (#1264).
-#[cfg(windows)]
-fn owner_only(_path: &Path, _file: &fs::File) -> Result<(), SecretError> {
-    Err(SecretError::Unsupported)
+/// Syncs `folder`, so a rename or link in it survives a crash
+///
+/// NTFS journals both, and Windows cannot open a folder to sync it, so there
+/// it does nothing.
+pub(crate) fn sync_dir(folder: &Path) -> io::Result<()> {
+    #[cfg(unix)]
+    fs::File::open(folder)?.sync_all()?;
+    #[cfg(windows)]
+    let _ = folder;
+    Ok(())
 }
 
 fn encode(bytes: &[u8]) -> String {
@@ -414,7 +382,19 @@ fn decode(text: &str) -> Option<[u8; 20]> {
 
 #[cfg(test)]
 mod tests {
+    use shep_kelpie_test_support::open_to_others;
+
     use super::*;
+
+    // What each message tells the maintainer to run
+    #[cfg(unix)]
+    const FIX_FILE: &str = "`chmod 600` it";
+    #[cfg(unix)]
+    const FIX_FOLDER: &str = "`chmod 700` it";
+    #[cfg(windows)]
+    const FIX_FILE: &str = "/grant:r %USERNAME%:F";
+    #[cfg(windows)]
+    const FIX_FOLDER: &str = "(OI)(CI)F";
 
     // RFC 6238's SHA-1 key
     const RFC: Secret = Secret(*b"12345678901234567890");
@@ -449,10 +429,8 @@ mod tests {
         }
     }
 
-    #[cfg(unix)]
     #[test]
     fn the_secret_is_written_once_for_its_owner_and_read_back() {
-        use std::os::unix::fs::PermissionsExt;
         let home = tempfile::tempdir().unwrap();
         let path = home.path().join("totp/secret");
         assert_eq!(Secret::load(&path), Ok(None));
@@ -462,9 +440,8 @@ mod tests {
             made,
             "never redrawn"
         );
-        let mode = |p: &Path| fs::metadata(p).unwrap().permissions().mode() & 0o777;
-        assert_eq!(mode(&path), 0o600);
-        assert_eq!(mode(path.parent().unwrap()), 0o700);
+        assert!(owner_only::is_owner_only(&path).unwrap());
+        assert!(owner_only::is_owner_only(path.parent().unwrap()).unwrap());
         let uri = made.uri();
         let text = fs::read_to_string(&path).unwrap();
         assert!(uri.contains(&format!("secret={}&", text.trim())), "{uri}");
@@ -478,42 +455,28 @@ mod tests {
         assert!(!err.to_string().contains("not base32"), "{err}");
     }
 
-    #[cfg(unix)]
     #[test]
     fn a_secret_others_may_read_is_refused() {
-        use std::os::unix::fs::PermissionsExt;
         let home = tempfile::tempdir().unwrap();
         let path = home.path().join("totp/secret");
         Secret::load_or_create(&path).unwrap();
-        for mode in [0o640, 0o604, 0o620] {
-            fs::set_permissions(&path, fs::Permissions::from_mode(mode)).unwrap();
-            assert_eq!(
-                Secret::load(&path),
-                Err(SecretError::Exposed(path.clone())),
-                "{mode:o}"
-            );
-        }
+        open_to_others(&path);
+        let err = Secret::load(&path).unwrap_err();
+        assert_eq!(err, SecretError::Exposed(path.clone()));
+        assert!(err.to_string().contains(FIX_FILE), "{err}");
     }
 
-    #[cfg(unix)]
     #[test]
     fn a_folder_others_may_use_is_refused() {
-        use std::os::unix::fs::PermissionsExt;
         let home = tempfile::tempdir().unwrap();
         let path = home.path().join("totp/secret");
         Secret::load_or_create(&path).unwrap();
         let folder = path.parent().unwrap();
-        for mode in [0o750, 0o705, 0o770, 0o707] {
-            fs::set_permissions(folder, fs::Permissions::from_mode(mode)).unwrap();
-            let err = Secret::load(&path).unwrap_err();
-            assert_eq!(
-                err,
-                SecretError::FolderExposed(folder.to_owned()),
-                "{mode:o}"
-            );
-            assert!(err.to_string().contains("`chmod 700` it"), "{err}");
-            assert!(!err.to_string().contains("chmod 600"), "{err}");
-        }
+        open_to_others(folder);
+        let err = Secret::load(&path).unwrap_err();
+        assert_eq!(err, SecretError::FolderExposed(folder.to_owned()));
+        assert!(err.to_string().contains(FIX_FOLDER), "{err}");
+        assert!(!err.to_string().contains(FIX_FILE), "{err}");
     }
 
     #[test]
@@ -523,28 +486,10 @@ mod tests {
         private_dir(&folder).unwrap();
         private_dir(&folder).unwrap();
         assert!(folder.is_dir());
-    }
-
-    // Until #1264, no secret is made or read on Windows, rather than one others may read.
-    #[cfg(windows)]
-    #[test]
-    fn no_secret_is_made_or_read_without_an_owner_only_acl() {
-        let home = tempfile::tempdir().unwrap();
-        let path = home.path().join("totp/secret");
-        assert_eq!(Secret::load(&path), Ok(None));
-        let err = Secret::load_or_create(&path).unwrap_err();
-        assert_eq!(err, SecretError::Unsupported);
-        assert!(err.to_string().contains("#1264"), "{err}");
-        assert_eq!(Secret::rotate(&path), Err(SecretError::Unsupported));
-        assert!(!path.exists());
-
-        fs::create_dir_all(path.parent().unwrap()).unwrap();
-        fs::write(&path, "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ\n").unwrap();
-        assert_eq!(Secret::load(&path), Err(SecretError::Unsupported));
+        assert!(owner_only::is_owner_only(&folder).unwrap());
     }
 
     #[test]
-    #[cfg_attr(windows, ignore = "the secret waits on an owner-only ACL, #1264")]
     fn two_first_runs_at_once_keep_one_secret() {
         let home = tempfile::tempdir().unwrap();
         let path = home.path().join("totp/secret");
@@ -561,7 +506,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(windows, ignore = "the secret waits on an owner-only ACL, #1264")]
     fn a_rotated_secret_replaces_the_old_one_whole() {
         let home = tempfile::tempdir().unwrap();
         let path = home.path().join("totp/secret");
@@ -569,12 +513,12 @@ mod tests {
         let new = Secret::rotate(&path).unwrap();
         assert_ne!(old, new);
         assert_eq!(Secret::load(&path), Ok(Some(new)));
+        assert!(owner_only::is_owner_only(&path).unwrap());
         let left: Vec<_> = fs::read_dir(path.parent().unwrap()).unwrap().collect();
         assert_eq!(left.len(), 1, "no stray file beside it");
     }
 
     #[test]
-    #[cfg_attr(windows, ignore = "the secret waits on an owner-only ACL, #1264")]
     fn show_prints_the_uri_and_a_qr_code_of_one_secret() {
         let home = tempfile::tempdir().unwrap();
         let path = home.path().join("totp/secret");

@@ -17,11 +17,13 @@ test-support = ["dep:tempfile", "tokio/test-util", "shep-client/test-support"]
 
 [dependencies]
 shep-kelpie-facts.workspace = true
+shep-kelpie-owner-only.workspace = true
 shep-kelpie-panel.workspace = true
 shep-kelpie-process.workspace = true
 shep-kelpie-tree.workspace = true
 shep-kelpie-trim.workspace = true
 shep-kelpie-worker-folder.workspace = true
+getrandom.workspace = true
 hmac.workspace = true
 jiff.workspace = true
 rustix.workspace = true

@@ -1,32 +1,8 @@
+use shep_kelpie_test_support::open_to_others as widen;
 use std::fs;
 use std::io;
-use std::path::Path;
 
 use super::*;
-
-// Lets everyone read `path`: a mode on Unix, an ACE for Everyone on Windows.
-fn widen(path: &Path) {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mode = if path.is_dir() { 0o755 } else { 0o644 };
-        fs::set_permissions(path, fs::Permissions::from_mode(mode)).unwrap();
-    }
-    #[cfg(windows)]
-    {
-        let grant = if path.is_dir() {
-            "*S-1-1-0:(OI)(CI)R"
-        } else {
-            "*S-1-1-0:R"
-        };
-        let granted = std::process::Command::new("icacls")
-            .arg(path)
-            .args(["/grant", grant])
-            .output()
-            .unwrap();
-        assert!(granted.status.success(), "{granted:?}");
-    }
-}
 
 #[test]
 fn a_new_folder_is_owner_only_and_the_ones_that_were_there_are_left_alone() {
@@ -131,12 +107,7 @@ fn a_grant_to_administrators_makes_a_file_exposed() {
     drop(create_private(&path).unwrap());
     assert!(is_owner_only(&path).unwrap());
 
-    let granted = std::process::Command::new("icacls")
-        .arg(&path)
-        .args(["/grant", "*S-1-5-32-544:R"])
-        .output()
-        .unwrap();
-    assert!(granted.status.success(), "{granted:?}");
+    shep_kelpie_test_support::open_to_administrators(&path);
 
     assert!(!is_owner_only(&path).unwrap());
     assert!(is_owner(&path).unwrap());
