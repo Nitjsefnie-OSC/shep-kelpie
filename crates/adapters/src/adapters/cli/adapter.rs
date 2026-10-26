@@ -218,6 +218,7 @@ impl<C: Cli> CliAdapter<C> {
                 server: kept_server(&server.host),
                 session: call.session.id().clone(),
                 lease: lease.map(str::to_owned),
+                model: Some(call.model.clone()),
             },
         )))
     }

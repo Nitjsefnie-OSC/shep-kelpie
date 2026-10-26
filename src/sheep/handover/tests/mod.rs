@@ -574,6 +574,7 @@ fn a_carry_holding_a_goose_turn() -> Carry {
             server: KeptServer::Gateway("paddock".into()),
             session: SessionId("goose-7".into()),
             lease: Some("lease-1".into()),
+            model: Some("qwen3.8:27b".into()),
         }),
         session: Some(SessionId("goose-7".into())),
     };

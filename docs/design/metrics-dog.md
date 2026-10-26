@@ -24,4 +24,5 @@ The calls waiting for, and holding, a lease on a gateway's model, by `model`. Th
 
 - `kelpie_model_lease_waiting{model}`, `kelpie_model_lease_held{model}`: gauges set from the calls in flight at each told wait, each begin and each pass, so a call that ends sets its model's gauge down. A model once seen is set to 0 rather than left at its last count
 - `kelpie_model_lease_wait_seconds_total{model}`, `kelpie_model_lease_grants_total{model}`: counted at each begin, the wait from when the call first said it waited. A model on a URL host and a round that runs a command have no `Watched.lease`, so are not counted
+- A call carried through a handover keeps its gateway lease, so the new image counts it held from `Kept.model` (`crates/core/src/ports/agent.rs`) and `Kept.lease`; one carried by an image that did not note the model counts on none until it ends
 - Four series a model, so 20 for five models, which the budget test counts against `SERIES_CAP`
