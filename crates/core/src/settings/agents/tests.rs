@@ -455,6 +455,27 @@ fn naming_an_unbound_agent_is_refused_with_the_command_that_binds_it() {
     );
 }
 
+#[test]
+fn naming_an_agent_whose_file_cannot_be_used_is_refused_and_never_given_kelpies_own() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("sonnet-high.md");
+    std::fs::write(&file, "role: implementer\n").unwrap();
+    let agents = Agents::load(dir.path()).unwrap();
+    let err = project("implementers = [\"sonnet-high\"]\n")
+        .role_agents(&agents)
+        .unwrap_err()
+        .to_string();
+    assert_eq!(
+        err,
+        format!(
+            "setting `agents`: `agents.implementers` names sonnet-high, whose agent file {}: \
+             must start with a `---` line, then the YAML frontmatter, then a `---` line of \
+             its own",
+            file.display()
+        )
+    );
+}
+
 // Baselines that bind nothing, as the shipped ones are once their keys move to bindings.
 const BARE: [Baseline; 2] = [
     Baseline {

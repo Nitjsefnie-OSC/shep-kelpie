@@ -744,6 +744,12 @@ impl Runner {
     pub(super) fn worker_agent(&self, item: &WorkItem) -> Result<WorkerAgent, String> {
         let name = &item.agent;
         let Some(agent) = self.book.get(name) else {
+            if let Some(error) = self.book.broken(name) {
+                return Err(format!(
+                    "issue #{} runs on agent {name}, whose {error}",
+                    item.issue
+                ));
+            }
             return Err(format!(
                 "issue #{} runs on agent {name}, which has no agent file now: write \
                  `agents/{name}.md` in kelpie's home again, or drop and add the issue",

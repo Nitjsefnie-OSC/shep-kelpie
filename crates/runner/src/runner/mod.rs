@@ -573,6 +573,7 @@ impl Runner {
         check_coderabbit(&remote, &lineup, &ports)?;
         check_local(&lineup, &ports)?;
         let mut state = store.load()?.unwrap_or_default();
+        book.hold_for(state.work_items.iter().map(|item| &item.agent))?;
         // An item saved before it recorded its base was cut for the one this start reads.
         if fresh::record_bases(&mut state, settings.git.base()) {
             store.save(&state)?;

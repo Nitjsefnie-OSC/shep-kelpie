@@ -12,8 +12,8 @@
 //! kelpie:<name>` on a shipped one, a whole agent or a baseline. A file whose
 //! merged keys name no `harness` is unbound: the book leaves it out and
 //! [`Agents::unbound`] lists it. A file that cannot be read stops the runner,
-//! naming it. A `.md` file whose name is no agent's, such as a `README.md`,
-//! is skipped and named in the log. A review bot's file is named for its bot.
+//! one that cannot be used is left out, and one whose name is no agent's is
+//! skipped, each named in the log. A review bot's file is named for its bot.
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -285,6 +285,7 @@ pub struct Agent {
 pub struct Agents {
     agents: BTreeMap<AgentName, Agent>,
     skipped: Vec<PathBuf>,
+    broken: BTreeMap<AgentName, AgentsError>,
     unbound: Vec<Unbound>,
     bare: Vec<Baseline>,
 }
@@ -327,6 +328,7 @@ impl fmt::Debug for Agents {
                     .collect::<BTreeMap<_, _>>(),
             )
             .field("skipped", &self.skipped)
+            .field("broken", &self.broken)
             .field("unbound", &self.unbound)
             .field(
                 "bare",
@@ -370,6 +372,7 @@ impl Agents {
         Self {
             agents,
             skipped: Vec::new(),
+            broken: BTreeMap::new(),
             unbound: Vec::new(),
             bare,
         }
@@ -379,12 +382,12 @@ impl Agents {
     ///
     /// A folder that is not there holds no files, and a `.md` file whose
     /// name is no agent's is skipped. A file that binds nothing is left out
-    /// of the book and listed by [`Agents::unbound`].
+    /// of the book and listed by [`Agents::unbound`], and one that cannot be
+    /// used is left out with its error in [`Agents::broken`].
     ///
     /// # Errors
     ///
-    /// [`AgentsError`] naming the folder or the first file, by name, that
-    /// cannot be read or used.
+    /// [`AgentsError`] naming the folder or the first file that cannot be read.
     pub fn load(folder: &Path) -> Result<Self, AgentsError> {
         Self::load_with(folder, &baseline::ALL)
     }
@@ -447,7 +450,13 @@ impl Agents {
                 path: path.clone(),
                 message,
             };
-            let merged = extends::merged(name.as_str(), text, &parent).map_err(file_error)?;
+            let merged = match extends::merged(name.as_str(), text, &parent) {
+                Ok(merged) => merged,
+                Err(message) => {
+                    agents.leave_out(name, file_error(message));
+                    continue;
+                }
+            };
             if let Some(role) = front::unbound_role(&merged.text) {
                 let shipped = extends::shipped_parent(text);
                 agents
@@ -456,11 +465,41 @@ impl Agents {
                 agents.agents.remove(name);
                 continue;
             }
-            let agent = front::parse_named(name.as_str(), &merged.text)
-                .map_err(|message| file_error(merged.place(message)))?;
-            agents.agents.insert(name.clone(), agent);
+            match front::parse_named(name.as_str(), &merged.text) {
+                Ok(agent) => {
+                    agents.agents.insert(name.clone(), agent);
+                }
+                Err(message) => agents.leave_out(name, file_error(merged.place(message))),
+            }
         }
         Ok(agents)
+    }
+
+    // Leaves `name` out of the book for `error`, over any shipped agent of
+    // that name, so a setting naming it is refused rather than given that one.
+    fn leave_out(&mut self, name: &AgentName, error: AgentsError) {
+        self.agents.remove(name);
+        self.broken.insert(name.clone(), error);
+    }
+
+    /// What is wrong with the file of `name`, if that left it out of the book
+    pub fn broken(&self, name: &AgentName) -> Option<&AgentsError> {
+        self.broken.get(name)
+    }
+
+    /// Whether none of `names` is an agent whose file is left out
+    ///
+    /// # Errors
+    ///
+    /// The first such file's [`AgentsError`].
+    pub fn hold_for<'a>(
+        &self,
+        names: impl IntoIterator<Item = &'a AgentName>,
+    ) -> Result<(), AgentsError> {
+        match names.into_iter().find_map(|name| self.broken(name)) {
+            Some(error) => Err(error.clone()),
+            None => Ok(()),
+        }
     }
 
     /// The agent `name`, if kelpie has one
@@ -512,15 +551,19 @@ impl Agents {
         ))
     }
 
-    /// A line for each `.md` file skipped because its name is no agent's
+    /// A line for each `.md` file skipped because its name is no agent's, and
+    /// each left out because it cannot be used
     pub fn skipped(&self) -> impl Iterator<Item = String> + '_ {
-        self.skipped.iter().map(|path| {
+        let unnamed = self.skipped.iter().map(|path| {
             format!(
                 "agent file {} is skipped: an agent's name is lowercase letters, digits \
                  and `-`",
                 path.display()
             )
-        })
+        });
+        let broken = (self.broken.values())
+            .map(|error| format!("{error}: it is left out, and a setting naming it is refused"));
+        unnamed.chain(broken)
     }
 
     /// `name` defined by `text`, over any agent of that name, for a test
@@ -808,14 +851,15 @@ impl Writer {
     ///
     /// A message when `agents` has no `name`, or its file is another role's.
     pub fn of(agents: &Agents, name: &AgentName) -> Result<Self, String> {
-        let agent = agents
-            .get(name)
-            .ok_or_else(|| match agents.unbound_command(name) {
-                Some(command) => format!("`{name}` is unbound: run `{command}`"),
-                None => {
+        let agent = agents.get(name).ok_or_else(|| {
+            match (agents.broken(name), agents.unbound_command(name)) {
+                (Some(error), _) => error.to_string(),
+                (None, Some(command)) => format!("`{name}` is unbound: run `{command}`"),
+                (None, None) => {
                     format!("there is no `{name}` agent: write `agents/{name}.md` in kelpie's home")
                 }
-            })?;
+            }
+        })?;
         let (Role::IssueWriter, Runs::Session { model, .. }, Some(prompt)) =
             (agent.role, &agent.runs, &agent.prompt)
         else {
