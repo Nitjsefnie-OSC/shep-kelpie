@@ -1,0 +1,30 @@
+[package]
+name = "shep-kelpie-owner-only"
+description = "Folders and files only their owner can use, and the check that one is. Uses no other member"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+# The workspace forbids unsafe code. This crate alone denies it instead, and
+# allows it in the one module that calls the Windows security API.
+[lints.rust]
+missing_docs = "deny"
+missing_debug_implementations = "deny"
+unsafe_code = "deny"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+self_named_module_files = "deny"
+
+[target.'cfg(unix)'.dependencies]
+rustix.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-sys.workspace = true
+
+[dev-dependencies]
+# Only for throwaway folders in tests
+tempfile.workspace = true

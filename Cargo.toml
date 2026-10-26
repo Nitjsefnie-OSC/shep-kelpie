@@ -8,6 +8,7 @@ default-members = [
     "crates/core",
     "crates/dog",
     "crates/facts",
+    "crates/owner_only",
     "crates/panel",
     "crates/process",
     "crates/runner",
@@ -40,6 +41,7 @@ shep-kelpie-adapters = { path = "crates/adapters" }
 shep-kelpie-core = { path = "crates/core" }
 shep-kelpie-dog = { path = "crates/dog" }
 shep-kelpie-facts = { path = "crates/facts" }
+shep-kelpie-owner-only = { path = "crates/owner_only" }
 shep-kelpie-panel = { path = "crates/panel" }
 shep-kelpie-process = { path = "crates/process" }
 shep-kelpie-runner = { path = "crates/runner" }
@@ -51,6 +53,8 @@ shep-kelpie-worker-folder = { path = "crates/worker_folder" }
 # binary is its wrapper (`crabpot::run_from_args`), so no node `srt` is on
 # that path. The library only, without the `crabpot` binary.
 crabpot = { version = "0.2", default-features = false }
+# The secret's random bytes, from the system's source on every platform
+getrandom = { version = "0.4", default-features = false, features = ["std"] }
 # The authenticator codes that answer a ruling from ntfy (RFC 6238 TOTP)
 hmac = { version = "0.13", default-features = false }
 # Zone-aware dates, for the reset times `/usage` prints in the maintainer's zone
@@ -78,9 +82,9 @@ shep-handover = "=0.17.0"
 tempfile = { version = "3", default-features = false }
 tokio = { version = "1", default-features = false }
 toml = { version = "1.1", default-features = false, features = ["std", "parse", "display", "serde"] }
-# A Windows job object holds a turn's process tree, which closes with it. The
-# 0.61 line the lockfile already holds.
-windows-sys = { version = "0.61", default-features = false, features = ["Win32_Foundation", "Win32_Security", "Win32_System_JobObjects", "Win32_System_Threading"] }
+# A Windows job object holds a turn's process tree, which closes with it, and
+# an ACL keeps a file to its owner. The 0.61 line the lockfile already holds.
+windows-sys = { version = "0.61", default-features = false, features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_System_JobObjects", "Win32_System_Threading"] }
 
 [package]
 name = "shep-kelpie"

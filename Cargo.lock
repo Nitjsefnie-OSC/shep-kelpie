@@ -1429,6 +1429,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "shep-kelpie-owner-only"
+version = "0.0.0"
+dependencies = [
+ "rustix",
+ "tempfile",
+ "windows-sys",
+]
+
+[[package]]
 name = "shep-kelpie-panel"
 version = "0.0.0"
 dependencies = [
