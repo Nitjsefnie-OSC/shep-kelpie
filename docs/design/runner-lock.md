@@ -31,7 +31,7 @@ Calls that left the lock in #1306, each made with it let go and applied on it af
 
 - `read_rate_limit` (`timings/mod.rs`): the login's rate limits are read in `one_pass`, and the note and the dog's copy are applied after.
 - Main's CI reruns and failed-log reads (`main_ci/read.rs`): the plan of which workflows are rerun or read is made on the lock, the calls off it (`Acts`), and `act_on_reds` applies the answers. A workflow with no answer waits for the next read.
-- The held rulings' comments (`pm/mod.rs`, `ruling/post.rs`): `post_released` takes the posts as `PostJob`s, sends them off the lock and keeps each comment's id after. A failed post is told in the notes.
+- The held rulings' comments (`pm/mod.rs`, `ruling/post.rs`): `post_released` takes the posts as `PostJob`s, sends them off the lock and keeps each comment's id after. A ruling settled while its post is in flight has its comment edited once it is up. A failed post is told in the notes.
 - The bumps' writes (`dependencies/acts.rs`): rebase, merge, comment, close and filing the red bump's issue are `Act`s that `work_bump` returns, `Act::run` makes off the lock and `apply_act` records. `record_proof` still settles its acts in place.
 - A turn's end (`turn/end_reads.rs`): for a worker on `origin`, `hear_news` reads the branch's head, the worktree's head, its uncommitted files and the open pull requests as one `EndJob`, and `end_turn` takes each where it asked. A fork worker pushes before it reads, so its end reads in place.
 

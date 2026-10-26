@@ -51,6 +51,8 @@ pub(in crate::runner) struct Sent {
     comment: Option<(u64, u64)>,
     /// The login `gh` acts as, where the forge was asked
     viewer: Option<String>,
+    /// The ruling an App's comment is of
+    ruling: Option<Ruling>,
     /// Where an App's comment is kept
     placed: Option<Placed>,
     /// Why an App's comment went up without a mention
@@ -71,6 +73,7 @@ impl PostJob {
             failed: None,
             comment: None,
             viewer: None,
+            ruling: None,
             placed: None,
             unasked: None,
         };
@@ -98,6 +101,7 @@ impl PostJob {
                 };
                 let app = post_app_ruling(&*self.voice, &self.remote, *thread, ruling, mention);
                 sent.thread = Some(*thread);
+                sent.ruling = Some(Ruling::clone(ruling));
                 sent.failed = app.failed;
                 sent.placed = app.placed;
                 sent.unasked = app.unasked;
@@ -187,9 +191,11 @@ impl Runner {
             mut failed,
             comment,
             viewer,
+            ruling,
             placed,
             unasked,
         } = sent;
+        let owed = self.posting_ends(id);
         if let Some(login) = viewer {
             let _ = self.gh_login.set(login);
         }
@@ -197,12 +203,20 @@ impl Runner {
             self.keep_comment_id(number, comment);
         }
         if let Some(placed) = placed {
-            let mut next = self.state.clone();
-            placed.keep(&mut next, id);
-            if let Err(e) = self.save(next) {
-                self.notes.push(format!(
-                    "cannot save where ruling {id} is answered in its thread: {e}"
-                ));
+            let gone = !self.state.rulings.iter().any(|r| r.id == id);
+            let comment = placed.comment();
+            // A ruling settled while its comment went up has no place to keep, but a comment to
+            // edit.
+            if let (true, true, Some(line), Some(ruling)) = (gone, comment != 0, &owed, &ruling) {
+                self.edit_settled(id, ruling, comment, line);
+            } else {
+                let mut next = self.state.clone();
+                placed.keep(&mut next, id);
+                if let Err(e) = self.save(next) {
+                    self.notes.push(format!(
+                        "cannot save where ruling {id} is answered in its thread: {e}"
+                    ));
+                }
             }
         }
         if let (Some(why), Some(thread)) = (unasked, thread) {

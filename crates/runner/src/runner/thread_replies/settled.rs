@@ -186,23 +186,48 @@ impl Runner {
         let number = (self.threads.ended.get(&id)).map_or(id, |ended| ended.ruling.number());
         self.threads.told.insert(id, (number, outcome.told));
         let Some(ended) = self.threads.ended.remove(&id) else {
+            // A comment still being posted is edited once it is up.
+            if let (Some(line), Some(owed)) = (outcome.line, self.threads.posting.get_mut(&id)) {
+                *owed = Some(line);
+            }
             return;
         };
-        let Some(line) = outcome.line else {
-            return;
-        };
+        if let Some(line) = outcome.line {
+            self.edit_settled(id, &ended.ruling, ended.comment, &line);
+        }
+    }
+
+    /// Notes that ruling `id`'s comment is being posted
+    pub(in crate::runner) fn posting_begins(&mut self, id: TicketId) {
+        self.threads.posting.insert(id, None);
+    }
+
+    /// Notes that the post of ruling `id`'s comment is over, and returns the first line of the
+    /// edit it is owed, if the ruling was settled while it was in flight
+    pub(in crate::runner) fn posting_ends(&mut self, id: TicketId) -> Option<String> {
+        self.threads.posting.remove(&id).flatten()
+    }
+
+    /// Edits comment `comment` of `ruling` to say, in `line`, that ruling `id` is settled
+    pub(in crate::runner) fn edit_settled(
+        &mut self,
+        id: TicketId,
+        ruling: &Ruling,
+        comment: u64,
+        line: &str,
+    ) {
         if !self.app_covers() {
             return;
         }
-        let body = settled_comment(&ended.ruling, &line);
-        if let Err(e) = (self.ports.voice).edit_comment(&self.remote, ended.comment, &body) {
+        let body = settled_comment(ruling, line);
+        if let Err(e) = (self.ports.voice).edit_comment(&self.remote, comment, &body) {
             self.notes.push(format!(
                 "cannot edit the comment of ruling {id} to say it is settled, and will try \
                  again for a while: {e}"
             ));
             let now = self.ports.clock.now();
             let until = Timestamp(now.0.saturating_add(LATE));
-            let failed = Unedited::failed(ended.comment, body, until, 1, now);
+            let failed = Unedited::failed(comment, body, until, 1, now);
             self.threads.unedited.insert(id, failed);
         }
     }

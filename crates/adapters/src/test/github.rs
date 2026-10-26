@@ -65,6 +65,8 @@ struct Hub {
     workers_refused: Option<ApiError>,
     // A worker's token mint held open, with who reached it and who lets it go
     worker_hold: Option<Gate>,
+    // The next comment the App posts, held open the same way
+    comment_hold: Option<Gate>,
     // A permission GitHub grants a worker's token beyond the one asked for
     extra_grant: Option<(String, String)>,
     // Permissions the App was never given: a token asking for one is refused
@@ -102,11 +104,11 @@ struct Gate {
     release: Receiver<()>,
 }
 
-/// A GitHub that holds its next worker token mint open until this is dropped
+/// A GitHub that holds its next worker token mint or comment open until this is dropped
 ///
 /// Preparing a worker turn mints its token with the runner's lock held, so a
 /// mint held here is a pass that holds the lock. A test takes one to ask a
-/// trigger of a runner in the middle of preparing a turn.
+/// trigger of a runner in the middle of preparing a turn, or of posting a comment.
 #[derive(Debug)]
 pub struct HeldToken {
     entered: Receiver<()>,
@@ -115,6 +117,20 @@ pub struct HeldToken {
 }
 
 impl HeldToken {
+    fn gate() -> (Gate, Self) {
+        let (entered, heard) = mpsc::channel();
+        let (release, waited) = mpsc::channel();
+        let gate = Gate {
+            entered,
+            release: waited,
+        };
+        let held = Self {
+            entered: heard,
+            release: Some(release),
+        };
+        (gate, held)
+    }
+
     /// Whether the mint reached GitHub and waits here, within `within`
     pub fn waiting(&self, within: Duration) -> bool {
         self.entered.recv_timeout(within).is_ok()
@@ -268,16 +284,17 @@ impl FakeGithub {
     /// Holds the next worker token mint open, so a test can ask a trigger of a
     /// runner whose pass is in the middle of preparing the turn it mints for
     pub fn hold_next_worker_token(&self) -> HeldToken {
-        let (entered, heard) = mpsc::channel();
-        let (release, waited) = mpsc::channel();
-        self.hub.lock().unwrap().worker_hold = Some(Gate {
-            entered,
-            release: waited,
-        });
-        HeldToken {
-            entered: heard,
-            release: Some(release),
-        }
+        let (gate, held) = HeldToken::gate();
+        self.hub.lock().unwrap().worker_hold = Some(gate);
+        held
+    }
+
+    /// Holds the next comment the App posts open, so a test can ask a trigger
+    /// of a runner whose comment is in flight
+    pub fn hold_next_comment(&self) -> HeldToken {
+        let (gate, held) = HeldToken::gate();
+        self.hub.lock().unwrap().comment_hold = Some(gate);
+        held
     }
 
     /// Makes GitHub grant every worker's token `permission` at `level` besides
@@ -587,6 +604,16 @@ impl GithubApi for FakeGithub {
         let mut hub = self.hub.lock().unwrap();
         hub.asked
             .push(Asked::Write(token.expose().to_owned(), call.clone()));
+        let held = (call.verb == Verb::Post && call.path.ends_with("/comments"))
+            .then(|| hub.comment_hold.take())
+            .flatten();
+        if let Some(gate) = held {
+            // The hub is let go while it waits, so nothing else is held up behind it.
+            drop(hub);
+            let _ = gate.entered.send(());
+            let _ = gate.release.recv();
+            hub = self.hub.lock().unwrap();
+        }
         if let Some(error) = hub.failures.pop_front() {
             return Err(error);
         }

@@ -691,7 +691,11 @@ impl Runner {
             else {
                 continue;
             };
-            posts.extend(self.ruling_post(number, id));
+            let post = self.ruling_post(number, id);
+            if post.is_some() {
+                self.posting_begins(id);
+            }
+            posts.extend(post);
         }
         posts
     }

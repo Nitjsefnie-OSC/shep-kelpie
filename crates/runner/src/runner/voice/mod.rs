@@ -30,6 +30,14 @@ pub(super) enum Placed {
 }
 
 impl Placed {
+    /// The id of the comment, none where it is not known
+    pub(super) fn comment(&self) -> u64 {
+        match self {
+            Self::Heard(heard) => heard.ruling_comment,
+            Self::Unmentioned(comment) => *comment,
+        }
+    }
+
     /// Keeps it in `state` for ruling `id`
     pub(super) fn keep(self, state: &mut ProjectState, id: TicketId) {
         match self {
