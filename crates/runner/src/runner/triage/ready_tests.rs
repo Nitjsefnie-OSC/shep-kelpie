@@ -446,6 +446,11 @@ fn a_triage_label_put_on_while_the_call_ran_stands_and_the_body_is_kept() {
     let said = facts(&rig);
     assert!(!said.contains("ready-for-agent"), "{said}");
     assert!(said.contains("as \"you\""), "{said}");
+    assert!(
+        said.contains("stands, so kelpie labels it no further"),
+        "{said}"
+    );
+    assert!(!said.contains("ends at `needs-triage`"), "{said}");
     assert_eq!(moves(&rig), ["comment"], "nothing more is labelled");
     assert_eq!(rig.forge.issue_labels(30), ["needs-info"]);
     assert_eq!(triage(&rig, &runner)["issues"][0]["step"], "done");

@@ -32,6 +32,8 @@ pub(super) struct Wording {
     pub(super) local: bool,
     /// The pass writes the settled answers under the author's text
     pub(super) settled: bool,
+    /// A triage label put on by hand stands, so kelpie labels nothing
+    pub(super) stood: bool,
 }
 
 // What the representative words the comment of a duplicate from: the other
@@ -143,6 +145,7 @@ fn closing(found: &Found, wording: Wording, reader: Reader) -> String {
         ask,
         answers,
         local,
+        stood,
         ..
     } = wording;
     let next = match (ask, answers || local) {
@@ -160,8 +163,7 @@ fn closing(found: &Found, wording: Wording, reader: Reader) -> String {
         (false, false) => "\nThe maintainer triages it next.\n",
     };
     match reader {
-        Reader::Maintainer if !ask => maintainers(found),
-        Reader::Maintainer => format!("{next}{}", maintainers(found)),
+        Reader::Maintainer => maintainers(found, ask, stood),
         Reader::Mentioned => format!(
             "{next}Kelpie adds a line under your words that mentions the maintainer, so they are \
              notified. Promise nothing else of them.\n"
@@ -173,7 +175,7 @@ fn closing(found: &Found, wording: Wording, reader: Reader) -> String {
 // What the representative is told of a pass that is not sure, on the
 // maintainer's own issue: it speaks to them, says what is theirs to settle,
 // and recommends a priority
-fn maintainers(found: &Found) -> String {
+fn maintainers(found: &Found, ask: bool, stood: bool) -> String {
     let mut theirs = Vec::new();
     if !found.open.is_empty() {
         theirs.push("the questions above");
@@ -187,10 +189,21 @@ fn maintainers(found: &Found) -> String {
     if !found.body.as_deref().is_some_and(is_issue_body) {
         theirs.push("an agent-ready body that names `Touches:` and has acceptance criteria");
     }
-    let mut said = String::from(
+    let ending = match (ask, stood) {
+        (true, _) => {
+            "Kelpie posts the questions under your words, each with the answer the research \
+             recommends, and a collapsed prompt for an agent session of their own, and labels \
+             nothing yet: their answers decide where it goes, and with no reply it ends at \
+             `needs-triage`, waiting on them."
+        }
+        (false, true) => {
+            "A triage label they put on by hand stands, so kelpie labels it no further."
+        }
+        (false, false) => "It ends at `needs-triage`, waiting on them.",
+    };
+    let mut said = format!(
         "\nThe author is the maintainer: speak to them as \"you\". Kelpie did not make it ready \
-         for the board, so never call it ready or ready to be assigned: it ends at \
-         `needs-triage`, waiting on them.",
+         for the board, so never call it ready or ready to be assigned. {ending}"
     );
     if !theirs.is_empty() {
         said.push_str(&format!(

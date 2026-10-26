@@ -71,6 +71,24 @@ fn a_maintainer_pass_that_is_not_sure_lists_what_it_could_not_settle() {
 }
 
 #[test]
+fn a_maintainer_pass_that_asks_does_not_say_where_the_issue_ends() {
+    let (rig, runner) = filed("pick = \"maintainer\"", MAINTAINER, asked());
+
+    assert_eq!(step(&runner).unwrap(), None);
+
+    let said = facts(&rig);
+    assert!(said.contains("as \"you\""), "{said}");
+    assert!(said.contains("labels nothing yet"), "{said}");
+    assert!(said.contains("their answers decide"), "{said}");
+    assert!(!said.contains("The maintainer triages"), "{said}");
+    assert!(
+        !said.contains("what is still open goes to the maintainer"),
+        "{said}"
+    );
+    assert_eq!(mentions(&posted(&rig)[0]), 0);
+}
+
+#[test]
 fn a_first_pass_on_an_outside_issue_that_asks_nothing_mentions_the_maintainer() {
     let (rig, runner) = untouched();
     rig.claude.script_for(Role::Triager, [reply(json!({}))]);

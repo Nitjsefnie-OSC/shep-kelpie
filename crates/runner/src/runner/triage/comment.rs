@@ -444,6 +444,7 @@ impl Runner {
             answers,
             local,
             settled: answers_body.is_some(),
+            stood: stood.is_some(),
         };
         let mut facts = facts(found, &labels, wording, reader);
         if plain {
