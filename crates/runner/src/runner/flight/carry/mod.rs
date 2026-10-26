@@ -5,10 +5,8 @@
 //! incoming one needs to finish the turn as it would have: the call's record
 //! on disk, its line in the usage ledger as it started, and when it started.
 //! Anything else in flight is not carried, and the handover is refused while
-//! it runs.
-//!
-//! A call whose record is gone has just ended, and the loop has not yet heard
-//! it. The handover waits for that pass, for at most [`CARRY_WAIT`].
+//! it runs. A call whose record is gone has just ended unheard, so the
+//! handover waits [`CARRY_WAIT`] for the pass that hears it.
 
 use std::fmt;
 use std::panic::{AssertUnwindSafe, catch_unwind};
