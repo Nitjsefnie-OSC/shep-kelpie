@@ -780,5 +780,6 @@ mod main_fetch;
 mod off_lock;
 mod pause_log;
 mod question;
+mod registries;
 mod script_cli;
 mod unfinished;

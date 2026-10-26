@@ -200,6 +200,17 @@ kickoff_hours = 8
 allowed_domains = ["crates.io", "index.crates.io", "static.crates.io"]
 build_env = {}
 
+# While on, a call that works an item also reaches the registries of the
+# package managers its worktree keeps a lockfile or manifest for, in its root
+# or a folder directly under it, so `allowed_domains` names hosts beyond them:
+# npm, pnpm and bun (`registry.npmjs.org`), yarn (`registry.yarnpkg.com` and
+# `registry.npmjs.org`), cargo (`crates.io`, `index.crates.io`,
+# `static.crates.io`), go (`proxy.golang.org`, `sum.golang.org`), and uv and
+# pip (`pypi.org`, `files.pythonhosted.org`). On when absent; off, only
+# `allowed_domains` adds hosts. `doctor` names each manager it finds and how
+# its registry is reached.
+package_registries = true
+
 # A file of extra worker instructions, appended to kelpie's own: rules the
 # repo's docs don't carry. `~/` is the home folder, and a relative path is
 # taken from the project's folder in kelpie's home,
