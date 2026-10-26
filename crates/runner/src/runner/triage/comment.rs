@@ -10,7 +10,7 @@
 //! and five failures give the issue up until kelpie restarts.
 
 use super::super::Runner;
-use super::super::contributions::post::{forge_is_busy, refused_text};
+use super::super::contributions::post::forge_is_busy;
 use super::super::representative::IssuePost;
 use super::addressed::Cover;
 use super::ask::{self, Purpose};
@@ -19,6 +19,7 @@ use super::marker::{MARKER, duplicate_marker};
 use super::ready;
 use super::research::{Addressed, Found, Question};
 use crate::board::{self, TRIAGE};
+use crate::local_paths::Leak;
 use crate::ports::{NewLabel, Timestamp};
 use crate::settings::AuthorRole;
 use crate::state::{StateError, TriageLocal, TriageQuestions, TriageStep, Triaged};
@@ -108,6 +109,9 @@ pub(in crate::runner) struct Tries {
     pub(super) waiting: Option<Waiting>,
     // The comment as worded, kept until the forge takes it
     pub(super) body: Option<String>,
+    // The next wording call gets the guard's reason.
+    pub(super) refused: Option<Leak>,
+    pub(super) refused_bodies: Vec<String>,
     // The labels the research asked for that the repo has, put on after the
     // comment; the record keeps them from there
     labels: Vec<String>,
@@ -224,6 +228,7 @@ impl Runner {
         found: &Found,
         purpose: Purpose,
     ) -> Result<(), StateError> {
+        let found = self.scrub_triage(issue, found);
         let tries = self.triage_tries.entry(issue).or_default();
         tries.shown = shown.to_owned();
         tries.purpose = purpose;
@@ -515,12 +520,8 @@ impl Runner {
             author,
             said,
         };
-        let words = match self.represent_issue(issue, &post) {
-            Ok(words) => words,
-            Err(e) => {
-                self.triage_failed(issue, &e.to_string(), true);
-                return Ok(());
-            }
+        let Some(words) = self.word_triage(issue, &post) else {
+            return Ok(());
         };
         // The comment that asks lists the questions under the words and holds the
         // prompt for the author's own terminal, collapsed.
@@ -594,12 +595,8 @@ impl Runner {
             author,
             said,
         };
-        let words = match self.represent_issue(issue, &post) {
-            Ok(words) => words,
-            Err(e) => {
-                self.triage_failed(issue, &e.to_string(), true);
-                return Ok(());
-            }
+        let Some(words) = self.word_triage(issue, &post) else {
+            return Ok(());
         };
         let tries = self.triage_tries.entry(issue).or_default();
         tries.body = Some(format!("{words}\n\n{}", duplicate_marker(named.number)));
@@ -617,6 +614,9 @@ impl Runner {
         // The same read again for a pass that was worded but could not be
         // posted: the body it was worded on may not be the one the issue holds.
         if self.local_read_stale(issue)? {
+            return Ok(());
+        }
+        if self.repeats_refused_triage(issue, &body) {
             return Ok(());
         }
         // The wording call can run for minutes, so a duplicate's cover is read
@@ -669,12 +669,7 @@ impl Runner {
             Err(e) => {
                 let why = format!("cannot post the comment: {e}");
                 self.triage_failed(issue, &why, !forge_is_busy(&e));
-                // The guard may have refused the wording, so it is worded again.
-                if refused_text(&e)
-                    && let Some(tries) = self.triage_tries.get_mut(&issue)
-                {
-                    tries.body = None;
-                }
+                self.keep_triage_refusal(issue, &e, body);
                 Ok(())
             }
         }
