@@ -808,6 +808,27 @@ impl Runner {
                     return Ok(());
                 }
                 TriageStep::Labelled => {
+                    // The labels before this one took time, so a triage label
+                    // put on by hand since the pass began stands, and
+                    // `needs-triage` goes on nothing over it. One already
+                    // there is this step's own, from a lost answer.
+                    match self.triage_labelled_by_hand_but(issue, TRIAGE) {
+                        Ok(Some(label)) => {
+                            self.notes.push(format!(
+                                "triage #{issue}: `{label}` went on by hand while its labels \
+                                 went on, so that stands: kelpie adds no `{TRIAGE}`"
+                            ));
+                            self.triage_stepped(issue, TriageStep::Done)?;
+                            self.triage_tries.remove(&issue);
+                            return Ok(());
+                        }
+                        Ok(None) => {}
+                        Err(e) => {
+                            let why = format!("cannot read its labels: {e}");
+                            self.triage_failed(issue, &why, !forge_is_busy(&e));
+                            return Ok(());
+                        }
+                    }
                     if let Err(why) = self.make_missing_labels([NEEDS_TRIAGE]) {
                         self.triage_failed(issue, &format!("cannot make `{TRIAGE}`: {why}"), true);
                         return Ok(());
