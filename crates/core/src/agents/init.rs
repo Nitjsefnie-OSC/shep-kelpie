@@ -7,7 +7,7 @@
 //! names each one, and its file is named for it. [`read`] parses it and refuses
 //! a name that is no harness, no role, or no baseline of that role.
 //! [`File::bind`] gives each role the first harness in `order` that was found
-//! and serves it. [`write`] writes a bound file for each, never over one.
+//! and serves it. [`write()`] writes a bound file for each, never over one.
 
 use std::fmt;
 use std::fs;
