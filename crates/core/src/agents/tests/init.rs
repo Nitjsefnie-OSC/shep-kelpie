@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use super::name;
 use crate::agents::init::{self, MODELS};
 use crate::agents::{Agents, Role, baseline, legacy};
-use crate::settings::{EndpointUrl, Harness, ModelHost};
+use crate::settings::{EndpointUrl, GatewayName, Harness, ModelHost};
 
 // Every baseline `harness` has a row for, as (file name, model, effort, second
 // look). The implementer is left out: it has no baseline, so no table of them.
@@ -119,6 +119,45 @@ fn a_row_that_names_no_baseline_of_its_role_is_refused_naming_the_file() {
     );
     let err = init::read(&key).unwrap_err();
     assert!(err.contains("`second_look` is a reviewer's"), "{err}");
+}
+
+// A row for a harness that runs its model on a server writes a file the loader
+// reads, with the gateway its model runs behind.
+#[test]
+fn a_server_row_writes_a_file_the_loader_accepts() {
+    let read = init::read(
+        "order = [\"pi\"]\n\n[pi.implementer]\nmodel = \"qwen3.8:27b\"\neffort = \"high\"\n\
+         context = 65536\n\n[pi.reviewer.defect-hunter]\nmodel = \"qwen3.8:27b\"\n\
+         effort = \"high\"\nsecond_look = true\ncontext = 65536\n",
+    )
+    .unwrap();
+    let gateway = GatewayName::try_from("paddock".to_owned()).unwrap();
+    let choices: Vec<init::Choice> = read
+        .rows_for(Harness::Pi)
+        .into_iter()
+        .map(|row| init::Choice {
+            row: row.clone(),
+            server: Some(ModelHost::Gateway(gateway.clone())),
+        })
+        .collect();
+    let dir = tempfile::tempdir().unwrap();
+
+    let report = init::write(dir.path(), &choices).unwrap();
+
+    assert_eq!(report.wrote.len(), 2, "the implementer and the reviewer");
+    let book = Agents::load(dir.path()).unwrap();
+    assert_eq!(book.skipped().count(), 0, "the loader reads both files");
+    assert!(book.unbound().is_empty(), "every file binds a harness");
+    for (file, role) in [
+        ("implementer", Role::Implementer),
+        ("defect-hunter", Role::Reviewer),
+    ] {
+        let agent = book
+            .get(&name(file))
+            .unwrap_or_else(|| panic!("`{file}.md` is not in the book"));
+        assert_eq!(agent.role, role, "{file}");
+    }
+    assert!(book.get(&name("defect-hunter")).unwrap().second_look);
 }
 
 #[test]

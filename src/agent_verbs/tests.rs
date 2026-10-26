@@ -797,8 +797,8 @@ fn detect_reads_the_path_and_configured_gateways_and_nothing_else() {
     );
     assert_eq!(
         listed.seen(),
-        ["GET /v1/models HTTP/1.1"],
-        "a configured gateway is asked only for its model list"
+        ["GET /v1/models HTTP/1.0"],
+        "a configured gateway is asked only for its model list, as `paddock::request` writes it"
     );
     assert_eq!(
         unconfigured.seen(),
