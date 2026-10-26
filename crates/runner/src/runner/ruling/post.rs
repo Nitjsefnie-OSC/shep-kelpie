@@ -118,14 +118,12 @@ impl Runner {
         self.ruling_posted(sent)
     }
 
-    // The comment of a saved ruling on its pull request, if it has one and has anything to say
-    // there. The pull request carries no question: the webhook does.
-    //
-    // Where an App covers the repo, the ruling is posted through it on the pull request, or on
-    // the issue while there is none, whatever its kind, and mentions the maintainer.
-    //
-    // A ruling that went up through the App with a mention is saved with where it is answered in
-    // its thread: the login it mentions, and the comment's own id and time as GitHub gave them.
+    /// The comment of a saved ruling on its pull request, if it has one and has anything to say
+    ///
+    /// The pull request carries no question: the webhook does. Where an App covers the repo, the
+    /// ruling is posted through it on the pull request, or on the issue while there is none,
+    /// and mentions the maintainer. Its answer is saved with the login it mentions and the
+    /// comment's own id and time as GitHub gave them.
     pub(in crate::runner) fn ruling_post(
         &mut self,
         number: Option<u64>,

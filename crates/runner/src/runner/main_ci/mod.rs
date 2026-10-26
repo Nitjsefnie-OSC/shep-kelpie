@@ -39,14 +39,10 @@ pub struct RedStatus {
 }
 
 impl Runner {
-    // What to do about the workflows this read found red, and the notices it
-    // leaves to post. A workflow in `failing` has the failed jobs of each new
-    // red head rerun once, and is told once for the stretch when red again
-    // after a rerun, or at once where the forge refuses one. A red-again head
-    // is the project manager's to fix or ask about. A limit that is used up
-    // waits for the next read. Each of `cleared` that was told is told green.
-    // The forge was asked with the lock let go: `done` holds its answers, and a
-    // workflow it has none for waits for the next read.
+    // What to do about the workflows this read found red, and the notices to post. A new
+    // red head is rerun once, then told once when red again or where the forge refuses a
+    // rerun, and each of `cleared` that was told is told green. `done` holds the forge's
+    // answers, and a workflow with none waits for the next read.
     fn act_on_reds(
         failing: &[String],
         red: &mut [RedWorkflow],

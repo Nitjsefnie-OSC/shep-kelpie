@@ -176,7 +176,6 @@ crates/runner/src/runner/gate/queued/mod.rs	15	//! A check stuck at queued or in
 crates/runner/src/runner/gate/queued/mod.rs	7,7	/// What the step does about `queued`, the checks still queued on `head`
 crates/runner/src/runner/gate/rerun/mod.rs	12	//! A red run whose log names no file the branch changed is rerun once
 crates/runner/src/runner/looks/mod.rs	12	//! How often a pass reads the forge
-crates/runner/src/runner/main_ci/mod.rs	6	// What to do about the workflows this read found red, and the notices it
 crates/runner/src/runner/main_ci/mod.rs	6	// `red` after `runs`, the latest completed run of each workflow and event: a
 crates/runner/src/runner/merge/mod.rs	7,11	/// Ends a work item without merging it, the one `ticket` names or the
 crates/runner/src/runner/merge/tests.rs	9	// A review call runs outside the runner's lock, the
@@ -216,7 +215,6 @@ crates/runner/src/runner/reread/mod.rs	12	//! A settings change reaching a runni
 crates/runner/src/runner/retro/digest/tests.rs	5	// Worker turns 100 + 50 units and $1.50 + $0.50, the reviewer's 30 and
 crates/runner/src/runner/retro/mod.rs	17	//! The project manager's retro over a batch of finished work items
 crates/runner/src/runner/retro/mod.rs	7,7	/// Starts the batch retro if one is due and the project manager can run
-crates/runner/src/runner/ruling/mod.rs	11	// Posts a saved ruling on its pull request, if it has one and has
 crates/runner/src/runner/slots.rs	18	//! Slots: how many work items call models at once, and how many wait on rulings
 crates/runner/src/runner/slots.rs	7	// The ready issues passed over against parked items' branches: one
 crates/runner/src/runner/snapshot/mod.rs	14	//! The open pull requests, listed once for all the steps of a pass
