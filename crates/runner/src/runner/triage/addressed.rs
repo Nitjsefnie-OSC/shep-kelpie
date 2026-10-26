@@ -1,16 +1,13 @@
 //! Closing an issue another open issue or pull request already covers
 //!
 //! The research can name the other item. Kelpie keeps the name only when the
-//! forge still agrees to it: the item is open, it is the kind the reply gave
-//! it as, and it is not the issue itself. Anything else is dropped, told in
-//! the log, and the issue is triaged as any other.
-//!
-//! What is kept ends the pass: the representative words a short comment
-//! naming the other item, the comment goes up, the record's `closed` step is
-//! saved, and only then is the issue closed as a duplicate. A restart goes on
-//! from that step, closing what it already commented on and posting nothing
-//! again. No label goes on a closed duplicate, and an author who reopens one
-//! is not triaged again on kelpie's own: `shep kelpie triage` is asked.
+//! forge agrees: the item is open, is the kind the reply gave, and is not the
+//! issue itself. Anything else is dropped, logged, and the issue triaged as usual.
+//! What is kept ends the pass: the representative words a short comment naming
+//! the other item, the record's `closed` step is saved, and only then is the issue
+//! closed as a duplicate. A restart goes on from that step and posts nothing again.
+//! No label goes on a closed duplicate, and a reopened one is not triaged again
+//! unless `shep kelpie triage` is asked.
 
 use super::super::Runner;
 use super::super::contributions::post::forge_is_busy;

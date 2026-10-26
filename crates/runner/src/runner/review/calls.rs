@@ -14,14 +14,12 @@ use crate::settings::{CLAUDE_REVIEW_TOOLS, RoleModel};
 use crate::ticket::TicketId;
 use crate::work_item::new_session_id;
 
-/// A fresh session of a reviewer on `model` over `ticket`'s work item's
-/// `worktree`, asked `prompt`, its settings in `worker_folder`
+/// A fresh session of a reviewer on `model` over `ticket`'s `worktree`
 ///
-/// With `tests`, the fenced reach of a reviewer that may write a failing test
-/// for a finding, it also has `Write` on Claude Code, and on pi `write` and on
-/// Codex `apply_patch` by the reach alone, which holds each to that folder.
-/// A Codex or goose reviewer with no tests to write gets a reach with no write
-/// folder, which gives it a shell that only reads.
+/// With `tests`, the fenced reach of a reviewer that may write a failing test,
+/// it also has `Write` on Claude Code, `write` on pi and `apply_patch` on Codex,
+/// each held to that folder. A Codex or goose reviewer with no tests gets a reach
+/// with no write folder, which gives it a shell that only reads.
 pub(super) fn reviewer_call(
     ticket: TicketId,
     worktree: &Path,

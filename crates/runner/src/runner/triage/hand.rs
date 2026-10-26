@@ -1,15 +1,13 @@
 //! A maintainer's hand-labelled `ready-for-agent` issue taken back for triage
 //!
-//! With `triage.hand_ready` on, the pick rule's listing finds each open issue
-//! the maintainer opened after `triage.since` that carries `ready-for-agent`
-//! and no other triage label but `needs-triage`, has no record, no work item and
-//! no open pull request, and is above `pruned_through`, since below it the
-//! record of an issue kelpie itself made ready may be the one a prune dropped.
-//! The record is saved at [`TriageStep::Taken`] first, so a restart finds the
-//! swap owed. Then `ready-for-agent` comes off and `needs-triage` goes on, and the
-//! poll's listing is changed to match, so the issue is untouched in the same poll
-//! and its research starts ahead of the board's pick. The comment its pass posts
-//! replaces the record, and the ready path puts `ready-for-agent` back.
+//! With `triage.hand_ready` on, the pick rule's listing finds each open issue the
+//! maintainer opened after `triage.since` that carries `ready-for-agent` and no
+//! other triage label but `needs-triage`, has no record, work item or open pull
+//! request, and is above `pruned_through` (below it a prune may have dropped the
+//! record of an issue kelpie made ready). The record is saved at
+//! [`TriageStep::Taken`] first, so a restart finds the swap owed. Then
+//! `ready-for-agent` comes off, `needs-triage` goes on, and the poll's listing is
+//! changed to match, so its research starts ahead of the board's pick.
 
 use super::super::Runner;
 use super::super::contributions::post::forge_is_busy;

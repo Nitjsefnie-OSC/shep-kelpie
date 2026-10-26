@@ -1,29 +1,13 @@
 //! Following the pull requests other people open
 //!
-//! A pull request from someone else is a contribution when it is open, not a
-//! draft, and its author is not the maintainer, not the account kelpie acts
-//! as, and not a bot. Under `contributions.pick = "label"` it also carries
-//! `ready-for-agent`, under `"all"` it needs no label, and under `"off"`
-//! nothing is one. The author and the pull request's own state decide, never
-//! its branch's name: a fork can name its branch `kelpie/5`.
-//!
-//! Once a board poll, whether or not a slot is free,
-//! the runner records each contribution it sees, with its head, and drops
-//! the record of one that was closed, merged, made a draft again, or, under
-//! `"label"`, lost the label. A new head updates the record, and each head no
-//! security review has read is read ([`security`]) before anything of the
-//! contributor's can run ([`ruling`] raises one for a flagged head). A head
-//! that passed, and whose CI is green, is then read by the reviewers
-//! ([`pass`]). A quiet clock runs while the head's results wait on the contributor
-//! ([`clock`]). A local reviewer's pass is posted ([`post`]); nothing of the
-//! contributor's runs here.
-//!
-//! A contribution holds no slot while it waits on its contributor. A call on
-//! it takes one for as long as it runs, starts only where a slot is free, and
-//! goes ahead of the board's next issue ([`Runner::contribution_due`], asked by
-//! `dispatch`). Its priced cost adds to the contribution's `spend`, and past
-//! `budget.per_item_usd` no call starts until a ruling is answered
-//! ([`budget`]).
+//! A contribution is an open, non-draft pull request whose author is not the
+//! maintainer, kelpie's account or a bot; `contributions.pick` may also ask for
+//! the `ready-for-agent` label. Its branch's name never decides.
+//! Once a board poll, slot free or not, the runner records each contribution
+//! with its head, reads each unread head for security ([`security`], [`ruling`]),
+//! has the reviewers read a green one ([`pass`]), runs the quiet clock ([`clock`])
+//! and posts a local pass ([`post`]). A call takes a slot while it runs, spends
+//! against [`budget`] and goes ahead of the board ([`Runner::contribution_due`]).
 
 mod adopt;
 mod after;

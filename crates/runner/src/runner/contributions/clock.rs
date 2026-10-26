@@ -1,19 +1,13 @@
 //! The quiet clock of a contribution
 //!
-//! Kelpie waits on the contributor once the current head's results are in
-//! and ask something of them: findings were recorded, a bot's threads are
-//! open, or CI went red. The clock runs from then, in
-//! [`Contribution::waiting_since`]. The contributor's comment, review reply
-//! or push starts it over, and so does a thumbs down on the release ask, which
-//! is read as a no; no other reaction is read, and the maintainer's comment is
-//! no one's word to hear. A head with green CI, no findings and no open bot
-//! thread leaves kelpie waiting on the maintainer, which clears the clock, and
-//! so does a new head.
+//! Kelpie waits on the contributor once the current head's results ask something
+//! of them: findings, open bot threads or red CI. The clock runs from then, in
+//! [`Contribution::waiting_since`]. The contributor's comment, review reply or push
+//! restarts it, as does a thumbs down on the release ask. Green CI with nothing
+//! open leaves kelpie waiting on the maintainer, which clears the clock, as does
+//! a new head.
 //!
-//! [`Clock::due`] says when `contributions.nudge_days` and `quiet_days` have
-//! passed. The release stage (`release.rs`) acts on it: it asks at
-//! the nudge and counts silence at the quiet. Red CI before a release gets no
-//! comment of its own.
+//! [`Clock::due`] says when `nudge_days` and `quiet_days` have passed (`release.rs`).
 
 use serde::Serialize;
 

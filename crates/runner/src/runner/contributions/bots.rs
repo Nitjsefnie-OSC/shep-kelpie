@@ -1,18 +1,12 @@
 //! A review bot's turn in the pass over a contribution's head
 //!
-//! A bot in `contributions.reviewers` answers on its own clock, so its turn
-//! is no call: the runner steps it once a poll, with no slot held, and the
-//! walk waits in the contribution's record ([`Walking`]) until the bot has
-//! answered or been passed over. The turn is the work item's round, on the
-//! same stages and the same profile: it takes the dog's lease, summons the
-//! bot by its label or its comment, waits for the review, and reads the
-//! bot's threads until two reads agree.
-//!
-//! A bot whose window opens far on, one that declines, one that does not
-//! review in its `review_wait`, and one that cannot be summoned in that long
-//! are passed over, and the next reviewer reads. A bot's review of the head ends
-//! the pass. Its open threads above a nit are the contribution's findings,
-//! its nits kept apart, and kelpie posts nothing for it: the bot's own
+//! A bot in `contributions.reviewers` answers on its own clock, so its turn is
+//! no call: the runner steps it once a poll, with no slot held, and the walk
+//! waits in the record ([`Walking`]). The turn is the work item's round: lease,
+//! summon by label or comment, wait, read threads until two reads agree.
+//! A bot that declines, misses its `review_wait`, cannot be summoned or whose
+//! window opens far on is passed over. A bot's review of the head ends the pass.
+//! Its open threads above a nit are the findings, its nits kept apart; its own
 //! comments are the post.
 
 use super::super::Runner;
@@ -666,10 +660,9 @@ impl Runner {
     }
 
     // Takes the label off each pull request whose walk is about to be cleared
-    // while its bot is summoned, because the contribution is no longer
-    // followed or has a new head. A push with the label on would summon the
-    // bot outside its lease. Returns the bots whose turns were still waiting
-    // to summon, which may have asked for the lease.
+    // while its bot is summoned: a push with the label on would summon outside
+    // the lease. Returns the bots whose turns still waited to summon, which may
+    // have asked for the lease.
     #[must_use]
     pub(super) fn abandon_turns(&self, followed: &[Contribution]) -> Vec<Bot> {
         let mut asked = Vec::new();

@@ -1,14 +1,11 @@
-//! The triager's research call on an issue: what it is asked, and how its
-//! reply is read
+//! The triager's research call on an issue: its prompt and how its reply is read
 //!
-//! The call has no network, so the prompt carries what it needs of the
-//! forge: the issue, the open issues' numbers and titles, and the open pull
-//! requests with the issues each body says it closes, so the triager can
-//! tell one that already covers this issue. All of it is text from outside
-//! and goes in fenced as data. The reply is one JSON object, and kelpie's
-//! code keeps only what it can check: a related number the listing holds,
-//! a file the view holds, and an `addressed_by` the forge still agrees to
-//! ([`super::addressed`]).
+//! The call has no network, so the prompt carries what it needs of the forge:
+//! the issue, the open issues' numbers and titles, and the open pull requests
+//! with the issues each body says it closes. All of it is outside text and goes in
+//! fenced as data. The reply is one JSON object, and kelpie's code keeps only
+//! what it can check: a related number the listing holds, a file the view holds,
+//! and an `addressed_by` the forge still agrees to ([`super::addressed`]).
 
 use std::collections::BTreeSet;
 use std::path::{Component, Path};
