@@ -1,0 +1,107 @@
+# The models kelpie binds each role to on each harness, for `shep kelpie agents init`.
+#
+# Kelpie reads this from its own build. It is never written to your `agents`
+# folder, and `shep kelpie upgrade` brings a new one with the new build.
+#
+# A row is a harness, then a role, then the `model` and `effort` it runs. A role
+# with several baselines names each baseline, and its file is named for it.
+# `second_look` is a reviewer's, and `context` is the tokens the model gives, for
+# a harness that runs its model on a server.
+#
+# `order` is the harnesses `--detect` prefers, first to last: each role goes to
+# the first harness in it that is installed, serves the role, and has a row here.
+# A harness with no rows binds nothing, and `init` on one says so.
+#
+# Only the claude-code rows are shipped. Add the rows for the harness you run.
+# A pi or goose row names a model a gateway in kelpie's settings lists, and
+# `--detect` binds it only where a configured gateway lists that model.
+
+order = ["claude-code", "pi", "codex", "goose"]
+
+[claude-code.implementer]
+model = "claude-sonnet-5-5"
+effort = "high"
+
+[claude-code.reviewer.defect-hunter]
+model = "claude-opus-5-5"
+effort = "high"
+second_look = true
+
+[claude-code.reviewer.standards]
+model = "claude-opus-5-5"
+effort = "high"
+
+[claude-code.reviewer.spec]
+model = "claude-opus-5-5"
+effort = "high"
+
+[claude-code.reviewer.security-reviewer]
+model = "claude-opus-5-5"
+effort = "high"
+
+[claude-code.pm]
+model = "claude-opus-5-5"
+effort = "medium"
+
+[claude-code.triager]
+model = "claude-opus-5-5"
+effort = "medium"
+
+[claude-code.issue-writer]
+model = "claude-opus-5-5"
+effort = "medium"
+
+[claude-code.advisor]
+model = "claude-opus-5-5"
+effort = "high"
+
+[claude-code.researcher]
+model = "claude-sonnet-5-5"
+effort = "high"
+
+[claude-code.representative]
+model = "claude-opus-5-5"
+effort = "low"
+
+# A pi row names a model a gateway in kelpie's settings lists. `init pi` needs
+# `--gateway <name>` or `--url <url>`, and `--detect` binds a pi row only where a
+# configured gateway lists its model.
+#
+# [pi.implementer]
+# model = "qwen3.8:27b"
+# effort = "high"
+# context = 65536
+#
+# [pi.reviewer.defect-hunter]
+# model = "qwen3.8:27b"
+# effort = "high"
+# second_look = true
+# context = 65536
+#
+# [pi.advisor]
+# model = "qwen3.8:27b"
+# effort = "high"
+# context = 65536
+
+# A codex row names a model of the ChatGPT plan kelpie's Codex login is on, which
+# `codex debug models` lists. `init codex` needs no `--gateway` or `--url`.
+#
+# [codex.implementer]
+# model = "gpt-6.1-sol"
+# effort = "medium"
+#
+# [codex.reviewer.standards]
+# model = "gpt-6.1-sol"
+# effort = "medium"
+
+# A goose row is a pi row on goose, which runs the same kind of server.
+#
+# [goose.implementer]
+# model = "qwen3.8:27b"
+# effort = "high"
+# context = 65536
+#
+# [goose.reviewer.standards]
+# model = "qwen3.8:27b"
+# effort = "high"
+# context = 65536

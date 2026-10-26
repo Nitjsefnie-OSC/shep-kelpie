@@ -34,8 +34,9 @@ use shep_client::shep_core::protocol::{Request, SelectorSpec};
 use shep_client::shep_core::status::ProcStatus;
 
 use crate::home::ProjectName;
-use crate::settings::{ForgeSlug, forge_of};
+use crate::settings::{ForgeSlug, Gateways, forge_of};
 use crate::shepherd::{Connection, DOG};
+use crate::webhook::KelpieSettings;
 
 /// A git checkout, and the forge repo its `origin` remote names
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -297,6 +298,24 @@ pub(crate) async fn tables(
         Ok(other) => Err(format!("the sheep's tables came back as {other:?}")),
         Err(e) => Err(format!("cannot read the sheep's tables: {e}")),
     }
+}
+
+/// Kelpie's own gateways, as its section of the shepherd's settings holds them.
+/// A section that does not parse holds none: the runner reports it when it starts.
+///
+/// `add` needs them to pick a project's default reviewers, and `agents init
+/// --detect` to ask each one for the models it serves.
+///
+/// # Errors
+///
+/// A message naming why the shepherd could not be asked for the section.
+pub(crate) async fn gateways(client: &dyn Connection) -> Result<Gateways, String> {
+    let section = crate::shepherd::read_section(client).await?;
+    let read = match section.trim().is_empty() {
+        true => Ok(KelpieSettings::default()),
+        false => KelpieSettings::from_section(&section),
+    };
+    Ok(read.map(|kelpie| kelpie.gateways()).unwrap_or_default())
 }
 
 /// Sends `request`, which names one sheep, and refuses any other answer than `expect`
