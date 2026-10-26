@@ -50,6 +50,9 @@ mod adopt_tests;
 mod attach_tests;
 
 #[cfg(test)]
+mod certificates_tests;
+
+#[cfg(test)]
 mod context_tests;
 
 #[cfg(test)]
@@ -84,6 +87,14 @@ const HARNESS: &str = "Codex";
 /// saved would be lost. The Codex usage read runs outside the sandbox
 /// before each dispatch, on kelpie's own login, and refreshes it there.
 const MODEL_HOST: &str = "chatgpt.com";
+
+/// macOS's bundle of trusted certificates, which a call that blocks the
+/// keychain verifies its model's certificate against
+///
+/// Codex is built on `native-tls`, which asks the keychain services the
+/// sandbox then blocks, so without it every request fails as "workspace
+/// routing discovery failed" (`docs/facts/codex-as-an-agent.md`).
+const SYSTEM_CERTIFICATES: &str = "/etc/ssl/cert.pem";
 
 /// The maintainer's own Codex home, which no call reads
 const MAINTAINERS_HOME: &str = "~/.codex/**";
@@ -259,6 +270,10 @@ impl Cli for Codex {
             .env("TMPDIR", &files.scratch)
             // zsh ignores `TMPDIR` for a heredoc and writes under this prefix.
             .env("TMPPREFIX", files.scratch.join("zsh"));
+        // Codex checks certificates through the keychain on macOS.
+        if cfg!(target_os = "macos") && call.reach.block_keychain {
+            command.env("CODEX_CA_CERTIFICATE", SYSTEM_CERTIFICATES);
+        }
         if let Some(fence) = &call.reach.fence {
             command.envs(&fence.env);
         }
