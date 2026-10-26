@@ -1,6 +1,6 @@
 # Requests in a call's transcript
 
-What Claude Code and pi write down of each request a call made to its model, which `kelpie_request_context_tokens` and `kelpie_cache_write_tokens_total` are read from (#924). `crates/facts/src/request_use/mod.rs`
+What Claude Code, pi and Codex write down of each request a call made to its model, which `kelpie_request_context_tokens` and `kelpie_cache_write_tokens_total` are read from (#924). `crates/facts/src/request_use/mod.rs`
 
 ## Claude Code (2.1.300 and 2.1.301, 2026-10-15)
 
@@ -10,6 +10,13 @@ What Claude Code and pi write down of each request a call made to its model, whi
 - A reply Claude Code makes itself, with `model` `<synthetic>`, holds zero in every usage field. 15 of 29,825 assistant lines in 400 of the maintainer's transcripts. None of the 29,825 was a sidechain (`isSidechain` true), and kelpie skips one if it meets it, since its context is not the session's.
 - A resumed call appends to the session's file. The request before a resumed call's first one is in the same file, from the call before, so a gap between calls reads as a gap: `fixtures/claude-transcript-mcp-failed.jsonl` is three calls an hour or more apart, whose requests wrote 13,152, 63,745 and 70,796 tokens, the second and third after a gap.
 - `fixtures/claude-transcript-request-sizes.jsonl` is 12 lines of 6 requests from a kelpie worker's session on Claude Code 2.1.301, with the content of every block and every field but the request's own left out.
+
+## Codex (0.159.3, 2026-10-21)
+
+- A request is one `token_usage_record` line, whose `payload.usage` holds its tokens and whose `payload.response_id` is the request's. `fixtures/codex-rollout-compacted.jsonl` holds five: three before a compaction, the compaction's own, and one after it. The `event_msg` `token_count` lines are not read, since the compaction's request has none of its own (#1128).
+- The context is `input_tokens`, which holds the cached tokens already, and the cache write is `cache_write_input_tokens`. This is the reading `Spent::since` uses (`crates/adapters/src/adapters/codex/mod.rs`). Every record in the fixture wrote 0, so that `cache_write_input_tokens` is a cache write is assumed until a recording shows one above 0.
+- The cache is assumed to keep a Codex write for 5 minutes, as pi's is, so a request over 5 minutes after one that wrote is a gap. This is assumed and not measured, as is the write.
+- A line's `timestamp` is ISO 8601, as Claude Code's is. A resumed call appends to the same rollout.
 
 ## pi (1.1.0, 2026-10-15)
 

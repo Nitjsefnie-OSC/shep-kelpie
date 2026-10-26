@@ -6,7 +6,8 @@
 //! call and why: Claude Code's error code, or that pi's session left none of
 //! the server's tools in it as it ended. The note stands until a later call
 //! finds the server connected. A call that wrote nothing to its transcript
-//! reached no model, and counts nothing.
+//! reached no model, and counts nothing. A Codex rollout is read for the
+//! requests alone: its MCP and tool calls wait on #1279.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
