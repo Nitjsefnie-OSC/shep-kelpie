@@ -391,50 +391,85 @@ fn new_implementer_on_each_serving_harness_writes_a_file_that_loads() {
 #[test]
 fn new_checks_the_needs_kept_in_an_unbound_file_before_writing() {
     let dir = tempfile::tempdir().unwrap();
-    let stub = "---\nrole: implementer\nneeds: [claude-hooks]\n---\nMy instructions.\n";
+    let stub = "---\nrole: implementer\nneeds: [role-guard]\n---\nMy instructions.\n";
     std::fs::write(dir.path().join("mine.md"), stub).unwrap();
     let codex = "new implementer --name mine --harness codex --model m --effort high";
 
     let err = agents(dir.path(), codex).unwrap_err();
 
-    assert!(err.contains("Claude Code hook"), "{err}");
+    assert!(err.contains("PM and issue-writer guards"), "{err}");
     assert!(err.contains("claude-code"), "{err}");
     assert_eq!(file(dir.path(), "mine"), stub);
     agents(dir.path(), &codex.replace("codex", "claude-code")).unwrap();
     let book = Agents::load(dir.path()).unwrap();
     assert!(book.get(&name("mine")).is_some());
-    assert!(file(dir.path(), "mine").contains("needs: [claude-hooks]"));
+    assert!(file(dir.path(), "mine").contains("needs: [role-guard]"));
 }
 
 #[test]
 fn new_honors_fewer_needs_when_binding_an_unbound_file() {
     let dir = tempfile::tempdir().unwrap();
-    let stub = "---\nrole: pm\nneeds: []\n---\nMy notes.\n";
-    std::fs::write(dir.path().join("pm.md"), stub).unwrap();
+    let stub = "---\nrole: implementer\nneeds: []\n---\nMy instructions.\n";
+    std::fs::write(dir.path().join("mine.md"), stub).unwrap();
 
-    agents(dir.path(), "new pm --harness codex --model m --effort high").unwrap();
+    agents(
+        dir.path(),
+        "new implementer --name mine --harness codex --model m --effort high",
+    )
+    .unwrap();
 
     let book = Agents::load(dir.path()).unwrap();
-    let agent = book.get(&name("pm")).unwrap();
+    let agent = book.get(&name("mine")).unwrap();
     assert_eq!(
         agent.runs.session().unwrap().0.harness.harness(),
         Harness::Codex
     );
-    assert!(file(dir.path(), "pm").contains("needs: []"));
+    assert!(file(dir.path(), "mine").contains("needs: []"));
+}
+
+#[test]
+fn new_refuses_to_bind_pm_and_issue_writer_without_role_guards_even_with_fewer_needs() {
+    for role in ["pm", "issue-writer"] {
+        for needs in ["[]", "[repo-reads]"] {
+            let dir = tempfile::tempdir().unwrap();
+            let stub = format!("---\nrole: {role}\nneeds: {needs}\n---\nMy instructions.\n");
+            std::fs::write(dir.path().join(format!("{role}.md")), &stub).unwrap();
+            for harness in ["codex", "pi", "goose"] {
+                let err = agents(
+                    dir.path(),
+                    &format!("new {role} --harness {harness} --model m --effort high"),
+                )
+                .unwrap_err();
+                assert!(err.contains("runs on claude-code"), "{err}");
+                assert!(err.contains(&format!("not {harness}")), "{err}");
+                assert_eq!(file(dir.path(), role), stub);
+            }
+            agents(
+                dir.path(),
+                &format!("new {role} --harness claude-code --model m --effort high"),
+            )
+            .unwrap();
+            assert!(Agents::load(dir.path()).unwrap().get(&name(role)).is_some());
+        }
+    }
 }
 
 #[test]
 fn new_reports_a_missing_server_without_a_default_role_harness_hint() {
     let dir = tempfile::tempdir().unwrap();
-    let stub = "---\nrole: pm\nneeds: []\n---\nMy notes.\n";
-    std::fs::write(dir.path().join("pm.md"), stub).unwrap();
+    let stub = "---\nrole: implementer\nneeds: []\n---\nMy instructions.\n";
+    std::fs::write(dir.path().join("mine.md"), stub).unwrap();
 
-    let err = agents(dir.path(), "new pm --harness goose --model m --effort high").unwrap_err();
+    let err = agents(
+        dir.path(),
+        "new implementer --name mine --harness goose --model m --effort high",
+    )
+    .unwrap_err();
 
     assert_eq!(
         err,
         "runs on goose, which needs the model's server as `url` or a `gateway`, \
          and its context size as `context`"
     );
-    assert_eq!(file(dir.path(), "pm"), stub);
+    assert_eq!(file(dir.path(), "mine"), stub);
 }
