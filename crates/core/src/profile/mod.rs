@@ -242,6 +242,9 @@ pub struct WorkerProfile<'a> {
     pub guard_hooks: &'a [GuardHook],
     /// The domains the project's settings add to GitHub's
     pub allowed_domains: &'a [NonBlank],
+    /// The registries of the package managers the worktree keeps files for, which
+    /// `worker.package_registries` adds to the domains; none while it is off
+    pub registries: &'a [&'static str],
     /// Variables the project's settings point into the build folder
     pub build_env: &'a BTreeMap<EnvName, BuildDir>,
     /// The shepherd's home, whose `dogs.toml` holds the webhook's URL. The
@@ -319,10 +322,14 @@ impl WorkerProfile<'_> {
                     .map(str::to_owned),
             )
             .collect();
+        // A registry the project lists itself is not named twice.
+        let registries = (self.registries.iter().copied())
+            .filter(|host| self.allowed_domains.iter().all(|d| d.as_str() != *host));
         let hosts = GITHUB
             .into_iter()
             .chain(GITHUB_DOWNLOADS)
             .chain(self.allowed_domains.iter().map(NonBlank::as_str))
+            .chain(registries)
             .map(str::to_owned)
             .collect();
         let fence = Fence {

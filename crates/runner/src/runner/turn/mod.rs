@@ -677,6 +677,7 @@ impl Runner {
             profile::write_login(&item.build, token)
                 .map_err(|e| format!("cannot write the worker's GitHub login: {e}"))?;
         }
+        let registries = self.registries(&item.worktree);
         let profile = WorkerProfile {
             worktree: &item.worktree,
             build: &item.build,
@@ -693,6 +694,7 @@ impl Runner {
             kelpie_home: &self.paths.kelpie_home,
             repo: &self.settings.git.checkout,
             allowed_domains: &self.settings.worker.allowed_domains,
+            registries: &registries,
             build_env: &self.settings.worker.build_env,
             shep_home: &self.paths.shep_home,
             door: &self.paths.door,
@@ -705,6 +707,15 @@ impl Runner {
             fence.guard.hooks = self.hooks.get().as_ref().clone().in_folder(&item.worktree);
         }
         Ok(reach)
+    }
+
+    /// The registries of the package managers `worktree` keeps files for, none while
+    /// `worker.package_registries` is off
+    fn registries(&self, worktree: &Path) -> Vec<&'static str> {
+        if !self.settings.worker.package_registries {
+            return Vec::new();
+        }
+        crate::package_managers::registries(&crate::package_managers::found_in(worktree))
     }
 
     /// The agent `item`'s worker runs on: the one it opened on, as that
