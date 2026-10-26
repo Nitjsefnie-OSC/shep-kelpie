@@ -44,7 +44,7 @@ fn a_bot_passed_over_is_journaled_with_its_reason_for_the_retro() {
     rig.clock.advance(1);
     assert_eq!(
         step(&runner).unwrap(),
-        skipped("it could not be summoned in the two hours after its round began")
+        skipped("it could not be summoned in the wait its agent file allows after its round began")
     );
 
     let passed_over: Vec<serde_json::Value> =
@@ -58,7 +58,7 @@ fn a_bot_passed_over_is_journaled_with_its_reason_for_the_retro() {
         json!([{
             "entry": "reviewer-skipped", "issue": "7", "round": 3,
             "reviewer": "coderabbit",
-            "reason": "it could not be summoned in the two hours after its round began",
+            "reason": "it could not be summoned in the wait its agent file allows after its round began",
         }]),
         "{passed_over:#?}"
     );
