@@ -1,6 +1,7 @@
 //! What the board reads from git: heads, each branch's files, the
-//! conflicts of each branch with `main` and between two that merge cleanly
-//! with it, the files on `main`, and for a project manager each branch's diff
+//! conflicts of each branch with `main` and between two, less the files
+//! `main` clashes in, the files on `main`, and for a project manager each
+//! branch's diff
 //!
 //! A board write takes its questions out of the runner as a [`GitJob`] and
 //! runs them with the runner's lock let go. Every answer is kept by the
@@ -89,29 +90,32 @@ impl GitJob {
             }
         }
         // A branch still at `main` has nothing to merge. One that conflicts
-        // with `main` is behind it, and is left out of the pairs: it clashes
-        // with any branch that holds `main`'s change, which is `main`'s clash.
+        // with `main` is behind it, and the files it conflicts in are `main`'s
+        // clash: they are left out of its pairs, since it clashes there with
+        // any branch that holds `main`'s change. Its other clashes stay.
+        let moved: Vec<&(TicketId, String)> = heads
+            .iter()
+            .filter(|(_, head)| Some(head) != main.as_ref())
+            .collect();
         let mut behind = BTreeMap::new();
-        let mut moved: Vec<&(TicketId, String)> = Vec::new();
-        for pair in &heads {
-            let (ticket, head) = pair;
-            if Some(head) == main.as_ref() {
-                continue;
-            }
-            let against_main = main.as_deref().and_then(|m| git.conflicts(&repo, m, head));
-            match against_main {
-                Some(found) if !found.is_empty() => {
-                    behind.insert(*ticket, found);
-                }
-                _ => moved.push(pair),
+        for (ticket, head) in &moved {
+            let found = main.as_deref().and_then(|m| git.conflicts(&repo, m, head));
+            if let Some(found) = found.filter(|found| !found.is_empty()) {
+                behind.insert(*ticket, found);
             }
         }
+        let mains_clash = |ticket: &TicketId| behind.get(ticket).map_or(&[][..], Vec::as_slice);
         let mut merges = BTreeMap::new();
         for (i, (a, head_a)) in moved.iter().map(|p| (p.0, &p.1)).enumerate() {
             for (b, head_b) in moved[i + 1..].iter().map(|p| (p.0, &p.1)) {
                 let merge = match git.conflicts(&repo, head_a, head_b) {
-                    Some(found) if found.is_empty() => continue,
-                    Some(found) => Merge::Conflicts(found),
+                    Some(mut found) => {
+                        found.retain(|file| ![a, b].iter().any(|t| mains_clash(t).contains(file)));
+                        if found.is_empty() {
+                            continue;
+                        }
+                        Merge::Conflicts(found)
+                    }
                     None => Merge::Unknown,
                 };
                 merges.insert((a.min(b), a.max(b)), merge);

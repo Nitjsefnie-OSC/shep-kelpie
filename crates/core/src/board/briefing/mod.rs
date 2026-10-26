@@ -81,8 +81,8 @@ pub struct Briefing<'a> {
     pub behind: BTreeMap<TicketId, Vec<String>>,
     /// What `git merge-tree` finds merging two open work items' branches,
     /// by their tickets, the lower first. A pair not listed merges cleanly,
-    /// and a branch in `behind` is in no pair: its conflict with a branch
-    /// that holds `main`'s change is `main`'s.
+    /// and the files a branch in `behind` conflicts with `main` in are in no
+    /// pair: a clash there with a branch that holds `main`'s change is `main`'s.
     pub conflicts: BTreeMap<(TicketId, TicketId), Merge>,
 }
 
