@@ -32,7 +32,8 @@ fn labels(names: &[&str]) -> Vec<String> {
     names.iter().map(|&n| n.to_owned()).collect()
 }
 
-// A project listing `sonnet-high` then `opus-high`.
+// The implementers kelpie can run a work item on: `sonnet-high` and
+// `opus-high`, each with an agent file of `role: implementer`.
 fn listed() -> Vec<AgentName> {
     ["sonnet-high", "opus-high"]
         .map(|n| AgentName::try_from(n.to_owned()).unwrap())
@@ -456,7 +457,7 @@ fn a_board_where_every_issue_is_taken_picks_nothing_and_says_why() {
 }
 
 #[test]
-fn an_issue_labelled_for_an_agent_the_project_does_not_list_is_passed_over() {
+fn an_issue_labelled_for_an_agent_kelpie_has_no_file_for_is_passed_over() {
     let mut odd = ready(ticket(1));
     odd.labels.push("agent:haiku-low".into());
     let pick = pick(&[odd, ready(ticket(2))], &[], &[], &[], &listed(), &[]);
@@ -465,9 +466,9 @@ fn an_issue_labelled_for_an_agent_the_project_does_not_list_is_passed_over() {
         pick.skipped,
         [Skip::Label {
             issue: ticket(1),
-            error: LabelError::NotListed {
+            error: LabelError::NoAgent {
                 label: "agent:haiku-low".into(),
-                listed: vec!["sonnet-high".into(), "opus-high".into()],
+                agents: vec!["sonnet-high".into(), "opus-high".into()],
             }
         }]
     );
@@ -476,8 +477,8 @@ fn an_issue_labelled_for_an_agent_the_project_does_not_list_is_passed_over() {
     };
     assert_eq!(
         error.to_string(),
-        "label `agent:haiku-low` names no agent the project lists in \
-         `agents.implementers`, which are sonnet-high, opus-high"
+        "label `agent:haiku-low` names no implementer: kelpie's agent files with \
+         `role: implementer` are sonnet-high, opus-high"
     );
 }
 
@@ -575,7 +576,7 @@ fn blockers_the_forge_did_not_list_count_as_open() {
 }
 
 #[test]
-fn an_agent_label_names_a_listed_implementer() {
+fn an_agent_label_names_an_implementer_kelpie_has_a_file_for() {
     let opus = AgentName::try_from("opus-high".to_owned()).unwrap();
     assert_eq!(
         agent_label(&labels(&[READY, "agent:opus-high"]), &listed()),
@@ -603,7 +604,7 @@ fn an_agent_label_names_a_listed_implementer() {
         assert!(
             matches!(
                 agent_label(&labels(&[bad]), &listed()),
-                Err(LabelError::NotListed { label, .. }) if label == bad
+                Err(LabelError::NoAgent { label, .. }) if label == bad
             ),
             "{bad}"
         );
