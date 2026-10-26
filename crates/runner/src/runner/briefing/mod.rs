@@ -446,6 +446,7 @@ impl Runner {
             events,
             woken_before: self.state.pm_seen.is_some(),
             dropped,
+            behind: answers.behind,
             conflicts: answers.merges,
         }
     }

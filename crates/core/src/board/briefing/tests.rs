@@ -84,6 +84,7 @@ fn a_board_with_an_idle_worker_a_review_call_and_a_ruling_reads_whole() {
         events: events.to_vec(),
         woken_before: true,
         dropped: true,
+        behind: BTreeMap::new(),
         conflicts: BTreeMap::new(),
     };
     assert_eq!(
@@ -194,6 +195,7 @@ fn briefing(items: Vec<Item>) -> Briefing<'static> {
         events: Vec::new(),
         woken_before: false,
         dropped: false,
+        behind: BTreeMap::new(),
         conflicts: BTreeMap::new(),
     }
 }
@@ -325,6 +327,7 @@ fn quoting(body: &str) -> String {
         events: Vec::new(),
         woken_before: false,
         dropped: false,
+        behind: BTreeMap::new(),
         conflicts: BTreeMap::from([((ticket(7), ticket(8)), Merge::Unknown)]),
     };
     render(&board)
