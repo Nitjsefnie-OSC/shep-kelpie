@@ -1,8 +1,9 @@
-//! `shep kelpie agents new` and `agents list`: bind a role's baseline, and show what is bound
+//! `shep kelpie agents new`, `list` and `migrate`: bind a role's baseline, and show what is bound
 //!
 //! `new` writes the agent file that binds a baseline to a harness, model and
 //! effort, after the loader has read the text. `list` shows every agent, then
-//! each baseline no file stands for.
+//! each baseline no file stands for. `migrate` writes into each stub the
+//! binding its baseline shipped with.
 
 use std::fs::{self, OpenOptions};
 use std::io::Write as _;
@@ -10,6 +11,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use crate::agents::baseline::{self, Baseline};
+use crate::agents::legacy;
 use crate::agents::{Agents, Role, Runs};
 use crate::settings::AgentName;
 use crate::shep_home;
@@ -18,7 +20,7 @@ use crate::shep_home;
 mod tests;
 
 /// What `shep kelpie agents` takes
-pub const USAGE: &str = "usage: shep kelpie agents new <role> --harness <harness> --model <model> --effort <effort> [--baseline <name>] [--name <file name>] [--second-look] [--gateway <name> | --url <url>] [--context <tokens>]\n       shep kelpie agents list";
+pub const USAGE: &str = "usage: shep kelpie agents new <role> --harness <harness> --model <model> --effort <effort> [--baseline <name>] [--name <file name>] [--second-look] [--gateway <name> | --url <url>] [--context <tokens>]\n       shep kelpie agents list\n       shep kelpie agents migrate";
 
 /// Runs `shep kelpie agents ...`
 pub fn main(args: &[String]) -> ExitCode {
@@ -46,6 +48,7 @@ fn run(folder: &Path, args: &[String]) -> Result<Vec<String>, String> {
     match args {
         [verb, rest @ ..] if verb == "new" => new(folder, rest),
         [verb] if verb == "list" => list(folder),
+        [verb] if verb == "migrate" => migrate(folder),
         _ => Err(USAGE.to_owned()),
     }
 }
@@ -331,6 +334,22 @@ fn is_unbound(folder: &Path, path: &PathBuf) -> Result<bool, String> {
         true => Ok(true),
         false => Err(already(name)),
     }
+}
+
+/// What `agents migrate` prints for the stubs in `folder`: a line for each file written, then
+/// each skipped, else `nothing to migrate`
+///
+/// # Errors
+///
+/// A message naming the folder or file that could not be read or written.
+pub fn migrate(folder: &Path) -> Result<Vec<String>, String> {
+    let report = legacy::migrate(folder).map_err(|e| e.to_string())?;
+    let lines = report.lines();
+    Ok(if lines.is_empty() {
+        vec!["nothing to migrate".to_owned()]
+    } else {
+        lines
+    })
 }
 
 fn list(folder: &Path) -> Result<Vec<String>, String> {

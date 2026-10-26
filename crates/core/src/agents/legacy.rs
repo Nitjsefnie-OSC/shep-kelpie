@@ -106,9 +106,12 @@ pub struct Report {
 }
 
 impl Report {
-    /// Whether it wrote and skipped nothing
-    pub fn is_empty(&self) -> bool {
-        self.wrote.is_empty() && self.skipped.is_empty()
+    /// A line for each file written, then one for each skipped
+    pub fn lines(&self) -> Vec<String> {
+        let wrote = self.wrote.iter().map(ToString::to_string);
+        wrote
+            .chain(self.skipped.iter().map(ToString::to_string))
+            .collect()
     }
 }
 
