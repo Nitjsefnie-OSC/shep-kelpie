@@ -164,8 +164,8 @@ impl Runner {
         match self.swap_labels(ticket, label, &new) {
             Ok(()) => {
                 let event = format!(
-                    "{}: its `{AGENT_LABEL}{labelled}` label moved to `{new}`, since a first \
-                     turn already waits on {labelled}'s model",
+                    "{}: its `{AGENT_LABEL}{labelled}` label moved to `{new}`, since \
+                     {labelled}'s model already has a wait",
                     ticket.shown()
                 );
                 let old = label.clone();
@@ -173,7 +173,7 @@ impl Runner {
             }
             Err(e) => {
                 self.notes.push(format!(
-                    "{}: stays on {labelled}, whose model a work item waits on, since the \
+                    "{}: stays on {labelled}, whose model already has a wait, since the \
                      forge would not move its label to `{new}`: {e}",
                     ticket.shown()
                 ));
