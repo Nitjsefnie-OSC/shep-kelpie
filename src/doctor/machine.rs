@@ -137,17 +137,13 @@ pub(super) fn pi(subject: String, host: &dyn Host) -> Line {
 const PI_TOOLS: [(&str, &str, &[&str]); 2] =
     [("grep", "rg", &["rg"]), ("find", "fd", &["fd", "fdfind"])];
 
-/// `rg` and `fd` on the `PATH`, which pi's own `grep` and `find` tools run,
-/// for `subject`, a project with an agent on pi
+/// `rg` and `fd` on the `PATH` for `subject`, a project with an agent on pi
 ///
-/// pi looks in its own `bin` folder first, which is empty for every kelpie
-/// call since each call gets a pi home of its own, then on `PATH`, then
-/// downloads the program from GitHub, which the sandbox refuses. A tool with
-/// none of those fails in every call (`docs/facts/tool-errors.md`).
-///
+/// pi's `grep` and `find` look in pi's `bin` folder, empty in every kelpie
+/// call, then on `PATH`, then download the program, which the sandbox refuses.
+/// A tool with none of those fails in every call (`docs/facts/tool-errors.md`).
 /// Each line names the program the `PATH` actually has, since pi takes more
-/// than one name for `fd` and an operator looking for `fd` is not told it is
-/// there when what is there is `fdfind`.
+/// than one name for `fd`, such as `fdfind`.
 pub(super) fn pi_tools(subject: String, host: &dyn Host) -> Line {
     let mut found: Vec<(&str, &str)> = Vec::new();
     let mut gone: Vec<(&str, &[&str])> = Vec::new();
@@ -260,15 +256,13 @@ pub(super) fn gh(forge: &dyn Forge) -> Line {
     }
 }
 
-/// The sandbox runtime every agent runs in, with what this machine needs for
-/// it to run
+/// The sandbox runtime every agent runs in, and what this machine needs for it
 ///
-/// macOS and Linux run crabpot, linked into kelpie, and need nothing
-/// installed beyond `sandbox_needs`. Windows fences with the WFP filter engine,
-/// which needs a one-time `crabpot windows-install`: the install fixes the
-/// loopback mode of every session after it, so `listen` says whether a project
-/// this run of doctor covers plans a dev server that binds a local port, and
-/// only then does the fix name `--allow-loopback`.
+/// macOS and Linux run crabpot, linked into kelpie, and need nothing installed
+/// beyond `sandbox_needs`. Windows needs a one-time `crabpot windows-install`
+/// that fixes the loopback mode of every later session, so the fix names
+/// `--allow-loopback` only when `listen` says a project plans a dev server that
+/// binds a local port.
 pub(super) fn sandbox(host: &dyn Host, listen: bool) -> Line {
     if host.os() == "windows" {
         return windows_sandbox(host, listen);

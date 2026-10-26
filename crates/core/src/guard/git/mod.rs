@@ -1,20 +1,13 @@
 //! `git commit`, `git tag` and `git push` in a worker's Bash call
 //!
 //! A `git fetch`, `git pull`, `git remote update` or `git remote prune` in the
-//! work item's own repo is answered before it runs: every worktree shares one
-//! `.git`, a worker may write only its own branch's refs, and each of these
-//! writes every `refs/remotes/origin/*`, so it fails on the others. Kelpie
-//! fetches `origin/main` for the worker. A fetch git is pointed at another
-//! repo, by `--git-dir`, `--work-tree`, `--bare` or a `GIT_` assignment, is
-//! left to git, since the guard cannot tell which repo it names.
+//! work item's own repo is answered before it runs: each writes every
+//! `refs/remotes/origin/*`, which a worker may not, and kelpie fetches
+//! `origin/main` for it. One git is pointed at another repo is left to git.
 //!
-//! Messages are read from the command. What a commit adds and a push sends
-//! is read from the worktree's own git, once a call, through kelpie's
-//! trusted worktree git. A commit or push anywhere else, in a folder the
-//! guard cannot follow, or pointed at another repo or config is refused, as
-//! is any git command, option or push form it does not know: the guard can
-//! only vouch for the worktree as it stands. A push to the base branch is
-//! refused wherever it runs, since only the project manager changes it.
+//! Messages are read from the command, and what a commit adds or a push sends
+//! from the worktree's own git. What the guard cannot vouch for is refused, as
+//! is a push to the base branch.
 
 mod front;
 mod hooks;
@@ -56,9 +49,7 @@ pub(super) struct Git<'a> {
 
 // `words` without the redirections a shell reads: `2>&1`, `>out`, `&>out`, and the
 // target word after a bare `>` or `2>`. A quoted `>` is text. A heredoc's `<<` stays,
-// since `git commit -F -` reads it. The quoting of the words left comes back with them,
-// so the two stay aligned. `quoting` has no entry for a word it does not know, and that
-// word is bare.
+// since `git commit -F -` reads it. The quoting of the words left comes back with them.
 fn without_redirects(words: &[String], quoting: &[Quoting]) -> (Vec<String>, Vec<Quoting>) {
     let mut kept = Vec::with_capacity(words.len());
     let mut kept_quoting = Vec::with_capacity(quoting.len());
@@ -159,12 +150,10 @@ pub(super) fn judge(
         moved(dir.as_deref(), to, home.path())
     });
     let args = &git.words[at + 1..];
-    // A fetch of the shared clone is answered rather than run. In a repo the
-    // worker made inside its worktree its refs are its own to write, so a
-    // fetch there is left to git. So is one git is pointed at another repo by
-    // `--git-dir`, `--work-tree`, `--bare` or a `GIT_` assignment, and one
-    // that follows a repo the same call made: kelpie cannot tell which repo
-    // such a fetch names, and a fetch is no write to the work item's branch.
+    // A fetch of the shared clone is answered rather than run. One in a repo
+    // the worker made, or pointed at another repo by `--git-dir`, `--work-tree`,
+    // `--bare` or a `GIT_` assignment, is left to git: kelpie cannot tell which
+    // repo it names, and it is no write to the work item's branch.
     if runs
         && writes_remote_refs(sub, args)
         && !(front.redirected || git.redirected)

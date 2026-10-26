@@ -1,22 +1,13 @@
 //! What removed features left in a state file saved before they went
 //!
-//! Such a file still loads. The run state goes, so a project saved paused
-//! runs once its runner starts. The relay's, the planning call's, the
-//! whole-issue check's, the review loop's, the deep round's later steps' and
-//! the shots' fields, and a work item's `retro` mark, are dropped before
-//! reading. The check's, the judge's and the deep round's calls count as a
-//! reviewer's session's. Their time, a round's, a GPU wait's and a review bot's all count as review's, and
-//! the shots' and a paused project's as other, so totals still add up. A
-//! review saved mid-loop goes on from the reviewer after the one it last
-//! recorded. The deep round
-//! and the project's own Claude round, `deep` and `claude`, are
-//! `defect-hunter`, and a deep round's two reads are its two looks. A work
-//! item's worker model becomes the agent named for it. A review bot round
-//! becomes a pass of the listed bots. A pending ruling of a kind folded into
-//! `stuck` is a `stuck` ruling with that kind as its reason, and a
-//! `claude-files` ruling is `agent-files`. A pending ruling of a removed kind
-//! has nothing here to answer it, so the file is refused: `local-model-spilled`
-//! is one, since nothing now reads where a local model sits.
+//! Such a file still loads. The run state goes, so a paused project runs once
+//! its runner starts. The fields of the relay, planning call, whole-issue check,
+//! review loop, deep round's later steps and shots, and a work item's `retro`
+//! mark, are dropped. Their calls and time fold into a reviewer's session and
+//! review's or other's time. A review saved mid-loop resumes after the last
+//! reviewer it recorded. `deep` and `claude` are `defect-hunter`, and a review
+//! bot round is a pass of the listed bots. A pending ruling of a folded kind is
+//! a `stuck` one; of a removed kind, the file is refused (`local-model-spilled`).
 
 use serde_json::{Map, Value, json};
 
@@ -47,9 +38,8 @@ const RULINGS: [&str; 7] = [
 
 // The judge and the check each ran as a fresh Claude session reviewing the
 // work, so their time is review's and their calls a reviewer's. A shots run
-// was kelpie's own, between steps, so its time is other. The phases that
-// came before review and other took them in, and a paused project's time
-// is other's.
+// was kelpie's own, between steps, so its time is other. The phases that came
+// before review and other took them in, and a paused project's time is other's.
 const PHASES: [(&str, &str); 10] = [
     ("audit", "review"),
     ("judging", "review"),
@@ -312,9 +302,8 @@ fn drop_loop(value: &mut Value) {
 
 // A deep round saved at a read is `defect-hunter`'s look: the first is a
 // round, and the second its second look. One saved past its two reads has
-// finished reading. Findings not
-// yet sent go to the fix turn as any round's do, a fix under way goes on, and
-// a fix already made ends the round, so the pass goes on.
+// finished reading. Findings not yet sent go to the fix turn as any round's
+// do, a fix under way goes on, and a fix already made ends the round.
 fn finish_deep(review: &mut Map<String, Value>) {
     let Some(stage) = review.get_mut("stage").and_then(Value::as_object_mut) else {
         return;

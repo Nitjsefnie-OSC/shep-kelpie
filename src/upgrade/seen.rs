@@ -1,14 +1,12 @@
 //! The installed file as the last upgrade left it
 //!
 //! `cargo install` replaces the installed kelpie with no copy kept, so a bare
-//! `upgrade` has to tell a file it has restarted onto already from one it has
-//! not. After every upgrade that finishes its restarts it writes the file's
-//! size and modification time to `builds/installed.seen`, and a bare run
-//! restarts only when they differ. The stamp written is the one taken before
-//! the restarts, so a file replaced while they wait reads as changed.
-//!
-//! A runner shows the same stamp of the file it started from in its `status`,
-//! which is how an upgrade tells that a handover reached the new build.
+//! `upgrade` has to tell a file it has restarted onto from one it has not.
+//! After every upgrade that finishes its restarts it writes the file's size
+//! and modification time to `builds/installed.seen`, and a bare run restarts
+//! only when they differ. The stamp is taken before the restarts, so a file
+//! replaced while they wait reads as changed. A runner shows the stamp of the
+//! file it started from in its `status`, which tells a handover reached it.
 
 use std::fs;
 

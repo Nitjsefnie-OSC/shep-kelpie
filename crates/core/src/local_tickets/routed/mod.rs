@@ -17,11 +17,10 @@ pub use source::SharedSource;
 ///
 /// A work item keeps the ticket it was opened on across a change of the
 /// project's `tickets.source`, so a call about one ticket goes to the source
-/// its id names. The board's reads go to the project's source, which a
-/// [`SharedSource`] changes while the port is in use, and so do filing a
-/// ticket and listing the open ones, which tell a finding already filed. `create_issue` and `open_issues` stay
-/// on GitHub, since adoption files a GitHub issue and needs its number, and
-/// triage reads GitHub's.
+/// its id names. The board's reads, filing a ticket and listing the open ones
+/// go to the project's source, which a [`SharedSource`] changes in use.
+/// `create_issue` and `open_issues` stay on GitHub, since adoption files a
+/// GitHub issue and needs its number, and triage reads GitHub's.
 pub struct Routed {
     github: Arc<dyn Tickets>,
     local: LocalTickets,

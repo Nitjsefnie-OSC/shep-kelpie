@@ -1,15 +1,13 @@
 //! The MCP servers a repo's plugins and its `.mcp.json` bring
 //!
-//! Claude Code reads a plugin's servers from its `.mcp.json`, or the
-//! `mcpServers` of its manifest; the repo's own are in its root `.mcp.json`.
-//! Kelpie runs most calls with `--strict-mcp-config`, which drops them all, so
-//! it reads them itself and hands them to the adapter as `mcpServers`.
+//! Claude Code reads a plugin's servers from its `.mcp.json` or manifest, and
+//! the repo's from its root `.mcp.json`. Kelpie runs most calls with
+//! `--strict-mcp-config`, which drops them all, so it hands them to the adapter as `mcpServers`.
 //!
 //! A plugin's server may run a file of it through `${CLAUDE_PLUGIN_ROOT}`, and
 //! `repo_setup.parts` can leave a part folder out of the copy, so the whole
-//! plugin is copied to a folder inside it that Claude Code does not read,
-//! which the variable names. A skill's text gets the copy's own folder, which
-//! holds every folder of the plugin and its own files.
+//! plugin is copied to a folder inside it that Claude Code does not read, which
+//! the variable names. A skill's text gets the copy's own folder.
 
 use std::collections::BTreeMap;
 use std::fs;

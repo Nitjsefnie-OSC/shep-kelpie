@@ -203,12 +203,9 @@ fn windows_in(folder: &std::path::Path) -> Reviewers {
 }
 
 // Kelpie's section, for its leases. One that cannot be read holds them at
-// the default capacities.
-// A section the shepherd refuses, as a `{{secret:...}}` it cannot resolve,
-// stops the dog, as it stops the runners that read the same section.
-// A webhook's `ca_cert` that cannot be read stops the dog, since every
-// ruling's post would fail on it, and so does `trusted` with no `token`,
-// since replies would then be taken on a topic anyone can post to.
+// the default capacities. A section the shepherd refuses stops the dog.
+// So does a webhook `ca_cert` that cannot be read, and `trusted` with no
+// `token`, since replies would then be taken on a topic anyone can post to.
 async fn settings(client: &ReconnectingClient) -> Result<KelpieSettings, String> {
     section_settings(client.dog_config(crate::shepherd::DOG).await)
 }

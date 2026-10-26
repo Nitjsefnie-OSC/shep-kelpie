@@ -174,12 +174,10 @@ fn compacted_turn(w: &World, first: &str, rollout_after: &str) -> AgentReply {
         .unwrap()
 }
 
-// `turn.completed` runs from 67,840 input (38,272 cached) and 229 output to
-// 87,318 (50,048) and 249: the turn's own request alone. The compaction's
-// (29,387 input, 29,056 cached, 220 output) is in the rollout's last
-// `token_usage_record`, whose `thread_token_usage` runs on to 116,705 input
-// (79,104 cached) and 469 output, so the turn reports that record's
-// `turn_token_usage`: 48,865 input of which 40,832 cached, and 240 output.
+// `turn.completed` counts the turn's own request alone: 87,318 input and 249
+// output. The compaction's request is only in the rollout's last
+// `token_usage_record`, so the turn reports that record's `turn_token_usage`:
+// 48,865 input, 40,832 of it cached, and 240 output.
 #[test]
 fn a_turn_that_compacted_reports_its_last_token_usage_records_turn_usage() {
     let w = World::new();

@@ -1,23 +1,13 @@
 //! Agent sessions as text, for the researcher to read
 //!
-//! Each CLI keeps its sessions in its own place and shape. `KEPT` is the
-//! one small table of both: where a harness writes them, how deep under
-//! that place a session file lies, and how a file is told to be its own.
-//! How one is read is [`crate::watch`]'s, which `shep kelpie watch` reads
-//! the same sessions with. The table is meant for #456's harness facts to
-//! absorb.
+//! `KEPT` tells each harness's session files apart. Under the home folder they
+//! lie at `.claude/projects/<folder>/<session>.jsonl` for Claude Code,
+//! `.codex/sessions/<year>/<month>/<day>/rollout-*.jsonl` for Codex and
+//! `.pi/agent/sessions/<folder>/<time>_<session>.jsonl` for pi.
 //!
-//! | Harness | Under the home folder | Depth | A file's first lines |
-//! |---|---|---|---|
-//! | Claude Code | `.claude/projects/<folder>/<session>.jsonl` | 1 | `user`, `assistant`, `summary`, ... |
-//! | Codex | `.codex/sessions/<year>/<month>/<day>/rollout-*.jsonl` | 3 | `session_meta`, `response_item`, ... |
-//! | pi | `.pi/agent/sessions/<folder>/<time>_<session>.jsonl` | 1 | `session`, `message`, ... |
-//!
-//! The maintainer names the folders (`researcher.transcripts`), and a
-//! session in one is read only when the folder it ran in is the project's
-//! checkout or lies under it, so a root that holds every project's sessions
-//! can be named. Sessions are read newest first and cut to a total, so one
-//! ruling never copies a maintainer's whole history.
+//! The maintainer names the folders (`researcher.transcripts`), and a session
+//! is read only when its folder is the project's checkout or under it. They
+//! are read newest first and cut to a total, so no ruling copies a whole history.
 
 mod locate;
 
@@ -57,8 +47,8 @@ pub(crate) struct Kept {
     tells: &'static [&'static str],
 }
 
-/// Every harness whose sessions kelpie reads, with its place in the module
-/// doc's table
+/// Every harness whose sessions kelpie reads, with where its files lie in the module
+/// doc
 pub(crate) const KEPT: [Kept; 3] = [
     Kept {
         harness: "claude-code",

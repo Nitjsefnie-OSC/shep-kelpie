@@ -1,10 +1,8 @@
 //! The gateway's classifier: one POST to its route, and its answer read
 //!
-//! The gateway serves the classifier behind a route the project's settings name
-//! (`triage.spam.path`), and takes the key its `key_env` holds. The request is
-//! one HTTP/1.0 exchange, as every other call to a gateway is: a `state` of the
-//! issue, and the one yes/no question `spam`, which the gateway answers with the
-//! probability that the answer is yes.
+//! The route is the project's `triage.spam.path`, and the key is the one its
+//! `key_env` holds. The request is one HTTP/1.0 exchange: a `state` of the
+//! issue and the yes/no question `spam`, answered with the probability of yes.
 //!
 //! ```text
 //! POST /classify HTTP/1.0
@@ -16,8 +14,7 @@
 //! ```
 //!
 //! The answer is read from `answers` under the question's name, or from the
-//! name at the top level, which is how a gateway that serves one classifier
-//! writes it. A number outside 0 to 1 is no answer at all.
+//! name at the top level. A number outside 0 to 1 is no answer.
 
 use std::time::Duration;
 

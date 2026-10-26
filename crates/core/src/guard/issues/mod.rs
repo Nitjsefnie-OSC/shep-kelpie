@@ -1,20 +1,13 @@
 //! `kelpie guard --issues=<label>`: the issue writer's commands, from a short list
 //!
-//! A worker's guard refuses what it knows to be wrong. The issue writer
-//! only reads the repo and files issues, so its guard runs only what it
-//! knows to be right: `gh issue create`, `gh issue edit` on labels, `gh
-//! issue view` and `list` on this repo, and `gh api` on an issue's id and
-//! its sub-issue and blocked-by links, each as plain words. It runs no git:
-//! the session reads the repo with Read, Grep and Glob. Every issue it
-//! files carries the status label kelpie names, at most one `agent:` label,
-//! naming a listed implementer, and an acceptance criteria section, and no
-//! title or body names this machine. It edits and links only the issues
-//! the session filed, as its ledger records them.
-//!
-//! On a project whose tickets are the local store the writer files with `shep
-//! kelpie ticket new` and reads and edits with `ticket show`, `list` and `edit`
-//! instead, each naming the project with `-p`, under the same rules, and `gh
-//! issue create` is refused: a GitHub issue is not where its tickets live.
+//! A worker's guard refuses what it knows to be wrong. The issue writer's guard
+//! runs only what it knows to be right: `gh issue create`, `gh issue edit` on
+//! labels, `gh issue view` and `list` on this repo, and `gh api` on an issue's
+//! id and links, as plain words, and no git. An issue it files carries the
+//! status label kelpie names, at most one `agent:` label and an acceptance
+//! criteria section; it edits only issues the session filed, per its ledger.
+//! On a local-ticket project it uses `shep kelpie ticket new`, `show`, `list`
+//! and `edit` with `-p` instead, and `gh issue create` is refused.
 
 use std::io::Read;
 use std::path::{Path, PathBuf};

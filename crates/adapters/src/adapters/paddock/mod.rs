@@ -4,12 +4,10 @@
 //!
 //! `GET /v1/models` lists its models and needs no key. `GET /paddock/status`
 //! needs one, so it tells a key paddock takes from one it refuses. A call or
-//! a review round on a model behind it holds a heartbeat lease, so nothing
-//! evicts the model midway: `POST /paddock/leases` waits for the grant, a
-//! `PUT` renews it, and a `DELETE` releases it when the call ends. A take
-//! paddock turns away as busy is asked again until the call gives up. Each
-//! request is one HTTP/1.0 exchange over plain `http://`, as the forwarder's
-//! are.
+//! review round on a model behind it holds a heartbeat lease: `POST
+//! /paddock/leases` waits for the grant, a `PUT` renews it, and a `DELETE`
+//! releases it. A take paddock turns away as busy is asked again until the call
+//! gives up. Each request is one HTTP/1.0 exchange over plain `http://`.
 
 use std::io::{Read, Write};
 use std::net::{Shutdown, TcpStream, ToSocketAddrs};

@@ -423,11 +423,10 @@ mod tests {
         );
     }
 
-    // A fake script whose main round reports one file as skipped for size,
-    // and whose hunk round (given `--files`) reports one real finding
-    // against whatever path it was handed. Proves the hunk's own finding is
-    // folded back in against the ORIGINAL file, whatever the hunk round
-    // named it, and that a real `-U25` diff runs without error.
+    // A fake script whose main round reports one file as skipped for size, and
+    // whose hunk round (given `--files`) reports one finding against whatever
+    // path it was handed. The finding must land on the original file, and a
+    // real `-U25` diff must run without error.
     #[test]
     fn a_skipped_file_is_cut_into_a_hunk_and_its_findings_are_remapped() {
         let home = tempfile::tempdir().unwrap();

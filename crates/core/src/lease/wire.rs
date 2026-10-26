@@ -248,15 +248,13 @@ impl Asker {
         asker
     }
 
-    /// Takes as held each kind this run asks for that the dog's saved `book`
-    /// says it holds, which a `grant` that arrived while the previous image
-    /// handed over would otherwise have left unheard
+    /// Takes as held each kind this run asks for that the dog's saved `book` says it holds
     ///
-    /// The dog saves its book before it delivers a grant, and does not
-    /// retry one, so a runner that is asking again repeats a total the dog
-    /// ignores. A kind is taken only where the book has heard this run's
-    /// latest totals for it: a book that trails may show a hold the dog is
-    /// about to end.
+    /// A `grant` that arrived while the previous image handed over would otherwise
+    /// go unheard. The dog saves its book before it delivers a grant and does not
+    /// retry one, so a runner that asks again repeats a total the dog ignores. A
+    /// kind is taken only where the book has heard this run's latest totals for
+    /// it: a book that trails may show a hold the dog is about to end.
     pub fn reconcile(&mut self, sheep: &str, book: &SavedBook) {
         let Ok(project) = ProjectName::try_from(sheep) else {
             return;

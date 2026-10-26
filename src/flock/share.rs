@@ -85,16 +85,12 @@ pub(crate) fn share_none(
     Ok(())
 }
 
-/// Whether another project runs the checkout or repo `settings` name, asking
-/// the shepherd for the flock and its tables
+/// Whether another project runs the checkout or repo `settings` name
 ///
-/// A project that is stopped runs nothing, so it does not hold the checkout
-/// here, though `add` and `set` leave it to the one who starts it. A copy
-/// that was refused at its start and stayed stopped so cannot take the
-/// original's restart from it.
-///
-/// Settings whose checkout is no git checkout are not taken by anyone: the
-/// start's own checks refuse them.
+/// A stopped project runs nothing, so it does not hold the checkout here,
+/// though `add` and `set` leave it to the one who starts it. A copy refused at
+/// its start cannot take the original's restart from it. A checkout that is no
+/// git checkout is taken by no one: the start's own checks refuse it.
 ///
 /// # Errors
 ///

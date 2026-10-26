@@ -1,17 +1,13 @@
 //! Codex's profile as a review bot
 //!
-//! Codex has no label: a comment summons it. It answers at once with a
-//! comment, "To use Codex here, create an environment for this repo", which
-//! is the sign it heard and not a refusal, and a few minutes on it posts its
-//! review. A review that finds nothing is a conversation comment that names
-//! the commit it read, `**Reviewed commit:**` and its first ten characters.
-//! Each finding is a thread that opens with a priority badge, `P0` to `P3`,
-//! and a bold title. Its refusal is a comment saying the plan's usage limits
-//! for code reviews are reached, which parks it until the weekly allowance
-//! resets. A thumbs up it leaves on the pull request reads as a review that
-//! found nothing. Recorded on shep-pm/shep-kelpie#234 are its notice, its
-//! clean review comment and its thumbs up; a review with findings and its
-//! refusal are written from its documentation.
+//! Codex has no label: a comment summons it. It answers at once with "To use
+//! Codex here, create an environment for this repo", the sign it heard and not
+//! a refusal, and posts its review a few minutes on. A review that finds
+//! nothing is a comment naming the commit it read (`**Reviewed commit:**` and
+//! ten characters) or a thumbs up on the pull request. A finding is a thread
+//! opening with a priority badge, `P0` to `P3`, and a bold title. Its refusal
+//! is a comment that the plan's usage limits are reached, which parks it until
+//! the weekly allowance resets. Recorded: shep-pm/shep-kelpie#234.
 
 use crate::ports::{Finding, Severity, Timestamp};
 use crate::review_bot::{Activity, Bot, CLOCK_SLACK, Login, Profile, Reading, Thread, one_line};
