@@ -353,8 +353,72 @@ fn migrate_takes_no_argument() {
 fn new_pm_on_codex_writes_nothing_and_names_the_harness_that_can_serve_it() {
     let dir = tempfile::tempdir().unwrap();
     let folder = dir.path().join("agents");
-    let err = agents(&folder, "new pm --harness codex --model gpt-5.5 --effort high").unwrap_err();
+    let err = agents(
+        &folder,
+        "new pm --harness codex --model gpt-5.5 --effort high",
+    )
+    .unwrap_err();
     assert!(err.contains("claude-code"), "{err}");
-    assert!(err.contains("harnesses that can serve `pm`: claude-code"), "{err}");
+    assert!(
+        err.contains("harnesses that can serve `pm`: claude-code"),
+        "{err}"
+    );
     assert!(!folder.exists());
+}
+
+#[test]
+fn new_implementer_on_each_serving_harness_writes_a_file_that_loads() {
+    assert_eq!(Harness::serving(Role::Implementer), Harness::ALL);
+    for harness in Harness::serving(Role::Implementer) {
+        let dir = tempfile::tempdir().unwrap();
+        let server = if harness.facts().needs_model_server {
+            " --url http://box:11434/v1 --context 65536"
+        } else {
+            ""
+        };
+        let line = format!(
+            "new implementer --name mine --harness {} --model m --effort high{server}",
+            harness.as_str()
+        );
+        assert_eq!(agents(dir.path(), &line).unwrap(), ["wrote mine.md"]);
+        let book = Agents::load(dir.path()).unwrap();
+        let agent = book.get(&name("mine")).unwrap();
+        assert_eq!(agent.role, Role::Implementer);
+        assert_eq!(agent.runs.session().unwrap().0.harness.harness(), harness);
+    }
+}
+
+#[test]
+fn new_checks_the_needs_kept_in_an_unbound_file_before_writing() {
+    let dir = tempfile::tempdir().unwrap();
+    let stub = "---\nrole: implementer\nneeds: [claude-hooks]\n---\nMy instructions.\n";
+    std::fs::write(dir.path().join("mine.md"), stub).unwrap();
+    let codex = "new implementer --name mine --harness codex --model m --effort high";
+
+    let err = agents(dir.path(), codex).unwrap_err();
+
+    assert!(err.contains("Claude Code hook"), "{err}");
+    assert!(err.contains("claude-code"), "{err}");
+    assert_eq!(file(dir.path(), "mine"), stub);
+    agents(dir.path(), &codex.replace("codex", "claude-code")).unwrap();
+    let book = Agents::load(dir.path()).unwrap();
+    assert!(book.get(&name("mine")).is_some());
+    assert!(file(dir.path(), "mine").contains("needs: [claude-hooks]"));
+}
+
+#[test]
+fn new_honors_fewer_needs_when_binding_an_unbound_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let stub = "---\nrole: pm\nneeds: []\n---\nMy notes.\n";
+    std::fs::write(dir.path().join("pm.md"), stub).unwrap();
+
+    agents(dir.path(), "new pm --harness codex --model m --effort high").unwrap();
+
+    let book = Agents::load(dir.path()).unwrap();
+    let agent = book.get(&name("pm")).unwrap();
+    assert_eq!(
+        agent.runs.session().unwrap().0.harness.harness(),
+        Harness::Codex
+    );
+    assert!(file(dir.path(), "pm").contains("needs: []"));
 }
