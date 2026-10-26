@@ -15,7 +15,8 @@ use super::Runner;
 use super::gate::short;
 use super::ruling::stuck_comment;
 use crate::board::make_missing_with;
-use crate::ports::{Finding, ForgeError, NewLabel, Severity};
+use crate::ports::{Finding, ForgeError, NewLabel, Severity, Voice};
+use crate::settings::ForgeSlug;
 use crate::settings::TicketSource;
 use crate::state::{Heard, MergeNotice, ProjectState, Ruling, RulingKind};
 use crate::ticket::TicketId;
@@ -38,7 +39,85 @@ impl Placed {
     }
 }
 
+/// What posting a ruling's comment through the App came to
+pub(super) struct AppPost {
+    /// Why the post failed, if it did
+    pub failed: Option<String>,
+    /// Where the comment is kept, when it went up
+    pub placed: Option<Placed>,
+    /// Why no one could be named to mention, when the comment went up without a mention
+    pub unasked: Option<ForgeError>,
+}
+
+/// Posts `ruling`'s comment on `thread` as the App, mentioning the login `mention` names
+///
+/// A ruling still goes up when no one can be named to mention, as the record on the thread, but it
+/// notifies no one and only the terminal answers it.
+pub(super) fn post_app_ruling(
+    voice: &dyn Voice,
+    remote: &ForgeSlug,
+    thread: u64,
+    ruling: &Ruling,
+    mention: Result<String, ForgeError>,
+) -> AppPost {
+    let (mention, unasked) = match mention {
+        Ok(login) => (Some(login), None),
+        Err(e) => (None, Some(e)),
+    };
+    let body = ruling_comment(mention.as_deref(), ruling);
+    let posted = match voice.post(remote, thread, &body) {
+        Err(e) => {
+            return AppPost {
+                failed: Some(e.to_string()),
+                placed: None,
+                unasked: None,
+            };
+        }
+        Ok(posted) => posted,
+    };
+    // Its answer is read from the comment's own time and id, the forge's.
+    let placed = Some(match mention {
+        Some(mentions) => Placed::Heard(Heard {
+            mentions,
+            time: posted.created,
+            comment: posted.id,
+            ruling_comment: posted.id,
+        }),
+        // No one is read for an answer, but the comment is still edited
+        // when the ruling is settled.
+        None => Placed::Unmentioned(posted.id),
+    });
+    AppPost {
+        failed: None,
+        placed,
+        unasked,
+    }
+}
+
 impl Runner {
+    /// What a ruling posted without a mention is told as, with the reason said once a run in the log
+    pub(super) fn tell_unmentioned(&self, id: TicketId, thread: u64, why: &ForgeError) -> String {
+        if !self.unmentioned_told.replace(true) {
+            self.notes.push(format!(
+                "ruling {id} is posted on #{thread} without a mention, so it notifies \
+                 no one and only `shep kelpie rule` answers it: {why}; set \
+                 `git.maintainer` to your GitHub login"
+            ));
+        }
+        format!(
+            "posted without mentioning the maintainer, since the login `gh` acts as \
+             could not be read: {why}. Only `shep kelpie rule` answers it"
+        )
+    }
+
+    /// The login a ruling mentions where it is known without asking the forge
+    pub(super) fn known_maintainer(&self) -> Option<String> {
+        match &self.settings.git.maintainer {
+            Some(login) => Some(login.as_str().to_owned()),
+            None => self.gh_login.get().cloned(),
+        }
+    }
+
     /// Whether kelpie's App covers the project's repo
     pub(super) fn app_covers(&self) -> bool {
         self.ports.voice.covers(&self.remote)
@@ -52,66 +131,26 @@ impl Runner {
     /// [`ForgeError`] when the setting is absent and `gh` could not say who
     /// it acts as: who to mention is not known.
     pub(super) fn maintainer(&self) -> Result<String, ForgeError> {
-        if let Some(login) = &self.settings.git.maintainer {
-            return Ok(login.as_str().to_owned());
+        if let Some(login) = self.known_maintainer() {
+            return Ok(login);
         }
         // An answer that failed is asked again at the next ruling.
-        if let Some(login) = self.gh_login.get() {
-            return Ok(login.clone());
-        }
         let login = self.ports.forge.viewer()?;
         let _ = self.gh_login.set(login.clone());
         Ok(login)
     }
 
-    /// Posts ruling `id`'s comment on `thread` as the App, and returns why it
-    /// failed, or went up without a mention of the maintainer, if it did,
-    /// and where its comment is kept
-    pub(super) fn post_app_ruling(
-        &self,
-        thread: u64,
-        ruling: &Ruling,
-    ) -> (Option<String>, Option<Placed>) {
-        let id = ruling.id;
-        // A ruling still goes up when no one can be named to mention, as the
-        // record on the thread, but it notifies no one and only the terminal
-        // answers it, so that is told.
-        let (mention, unasked) = match self.maintainer() {
-            Ok(login) => (Some(login), None),
-            Err(e) => (None, Some(e)),
-        };
-        let body = ruling_comment(mention.as_deref(), ruling);
-        let posted = match self.ports.voice.post(&self.remote, thread, &body) {
-            Err(e) => return (Some(e.to_string()), None),
-            Ok(posted) => posted,
-        };
-        // Its answer is read from the comment's own time and id, the forge's.
-        let placed = Some(match mention {
-            Some(mentions) => Placed::Heard(Heard {
-                mentions,
-                time: posted.created,
-                comment: posted.id,
-                ruling_comment: posted.id,
-            }),
-            // No one is read for an answer, but the comment is still edited
-            // when the ruling is settled.
-            None => Placed::Unmentioned(posted.id),
-        });
-        let told = unasked.map(|why| {
-            // Said in the log once a run, and only for a ruling that went up.
-            if !self.unmentioned_told.replace(true) {
-                self.notes.push(format!(
-                    "ruling {id} is posted on #{thread} without a mention, so it notifies \
-                     no one and only `shep kelpie rule` answers it: {why}; set \
-                     `git.maintainer` to your GitHub login"
-                ));
-            }
-            format!(
-                "posted without mentioning the maintainer, since the login `gh` acts as \
-                 could not be read: {why}. Only `shep kelpie rule` answers it"
-            )
-        });
-        (told, placed)
+    /// Keeps the id of comment `id`, which kelpie posted on `number` as the login `gh` acts as,
+    /// in the state file at once, so a crash does not forget it
+    pub(super) fn keep_comment_id(&self, number: u64, id: u64) {
+        self.posted.borrow_mut().push(id);
+        let mut kept = self.state.clone();
+        kept.note_posted(&self.posted.borrow());
+        if let Err(e) = self.store.save(&kept) {
+            self.notes.push(format!(
+                "cannot save the id of comment {id} on #{number}: {e}"
+            ));
+        }
     }
 
     /// Posts `body` on issue or pull request `number` as the login `gh` acts
@@ -127,14 +166,7 @@ impl Runner {
     /// As [`Self::comment_as_gh`], and returns the comment's id
     pub(super) fn comment_as_gh_id(&self, number: u64, body: &str) -> Result<u64, ForgeError> {
         let id = self.ports.forge.comment(&self.remote, number, body)?;
-        self.posted.borrow_mut().push(id);
-        let mut kept = self.state.clone();
-        kept.note_posted(&self.posted.borrow());
-        if let Err(e) = self.store.save(&kept) {
-            self.notes.push(format!(
-                "cannot save the id of comment {id} on #{number}: {e}"
-            ));
-        }
+        self.keep_comment_id(number, id);
         Ok(id)
     }
 

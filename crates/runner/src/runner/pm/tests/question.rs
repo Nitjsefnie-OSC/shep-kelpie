@@ -432,6 +432,21 @@ fn a_question_whose_wake_fails_is_commented_as_it_stands() {
 }
 
 #[test]
+fn a_trigger_is_answered_while_a_released_questions_comment_is_posted() {
+    let (rig, runner) = asking_on_a_pull_request("togepi");
+    let down = AgentError::Failed(Harness::ClaudeCode, "overloaded".into());
+    rig.claude.script([Scripted::Fail(down)]);
+    step_until(&runner, |r| matches!(r, StepReport::PmFailed { .. }));
+    let comment = rig.forge.hold_next_comment();
+
+    let (reply, pass) = rig.asked_while_held(&runner, comment, "add", Some("9"));
+
+    assert!(reply.is_some(), "the trigger waited for the comment");
+    pass.unwrap();
+    assert_eq!(rig.forge.comments().len(), 1, "the comment went up");
+}
+
+#[test]
 fn a_question_waits_at_most_one_wake_for_its_answer() {
     let (rig, runner) = asking("wartortle", ASKS);
     let hold = Hold::default();

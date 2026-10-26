@@ -611,6 +611,7 @@ impl Forge for FakeForge {
 
     fn comment(&self, _repo: &ForgeSlug, number: u64, body: &str) -> Result<u64, ForgeError> {
         self.ask()?;
+        self.wait_if_held(held::At::Comment);
         if self.comments_down.load(Ordering::SeqCst) {
             return Err(ForgeError::Failed("comments are down".into()));
         }

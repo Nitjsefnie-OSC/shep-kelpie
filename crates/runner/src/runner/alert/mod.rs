@@ -13,6 +13,7 @@ use std::sync::Mutex;
 
 use super::Runner;
 use super::gate::short;
+use super::pm::post_released;
 use super::report::StepReport;
 use super::trigger::lock;
 use crate::board::briefing::elapsed;
@@ -72,6 +73,7 @@ pub(super) fn post_due(
     runner: &Mutex<Runner>,
     alerts: &dyn Alerts,
 ) -> Option<Result<StepReport, StateError>> {
+    post_released(runner);
     let due = lock(runner).alert_due()?;
     let sent = match &due.webhook {
         Some(webhook) => alerts.post(webhook, &due.alert),
@@ -86,7 +88,6 @@ impl Runner {
     ///
     /// With no webhook no ruling is due, and a notice is due to be logged.
     pub(super) fn alert_due(&mut self) -> Option<Due> {
-        self.post_released();
         let now = self.ports.clock.now();
         let waiting = |retry: Option<Retry>, of| retry.is_some_and(|r| r.of == of && now < r.at);
         if self.webhook.is_some()

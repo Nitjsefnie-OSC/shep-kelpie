@@ -24,6 +24,8 @@ use crate::work_item::{Known, Phase, Review, ReviewStage, Turn, WorkItem, foreig
 use crate::worktree::{self};
 
 mod act;
+mod post;
+pub(super) use post::PostJob;
 mod prompts;
 mod question;
 mod queued;
@@ -561,65 +563,6 @@ impl Runner {
             question,
             comment_failed,
         }))
-    }
-
-    // Posts a saved ruling on its pull request, if it has one and has
-    // anything to say there, and returns why the comment failed, if it did.
-    // The pull request carries no question: the webhook does.
-    //
-    // Where an App covers the repo, the ruling is posted through it on the
-    // pull request, or on the issue while there is none, whatever its kind,
-    // and mentions the maintainer.
-    //
-    // A ruling that went up through the App with a mention is saved with
-    // where it is answered in its thread: the login it mentions, and the
-    // comment's own id and time as GitHub gave them.
-    pub(super) fn post_ruling(&mut self, number: Option<u64>, id: TicketId) -> Option<String> {
-        // A contribution's ruling stays off the contributor's pull request.
-        if (self.state.rulings.iter()).any(|r| r.id == id && r.kind.is_contribution()) {
-            return None;
-        }
-        // A question the project manager may answer, or a ruling the panel has
-        // yet to vote on, is not the maintainer's yet, so its comment waits
-        // for the hold to end.
-        if self.panel_enabled() {
-            self.mark_unposted(id, true);
-        }
-        self.panel_open_all();
-        if self.pm_holds_comment(id) {
-            return None;
-        }
-        self.panel_unvoted(id);
-        self.mark_unposted(id, false);
-        let ruling = self.state.rulings.iter().find(|r| r.id == id)?;
-        // Before there is a pull request, a local ticket's ruling goes on the
-        // ticket: a GitHub thread is the repo's, which a local ticket keeps clear.
-        if number.is_none()
-            && let Some(ticket) = ruling.issue.filter(|t| t.github().is_none())
-        {
-            let comment = comment(&ruling.kind)?;
-            let posted = self.comment_on_ticket(ticket, &comment);
-            return posted.err().map(|e| e.to_string());
-        }
-        if self.app_covers() {
-            // Only a GitHub ticket is a thread to comment on.
-            let thread = number.or(ruling.issue.and_then(|ticket| ticket.github()))?;
-            let (failed, placed) = self.post_app_ruling(thread, ruling);
-            if let Some(placed) = placed {
-                let mut next = self.state.clone();
-                placed.keep(&mut next, id);
-                if let Err(e) = self.save(next) {
-                    self.notes.push(format!(
-                        "cannot save where ruling {id} is answered in its thread: {e}"
-                    ));
-                }
-            }
-            return failed;
-        }
-        let number = number?;
-        let comment = comment(&ruling.kind)?;
-        let posted = self.comment_as_gh(number, &comment);
-        posted.err().map(|e| e.to_string())
     }
 
     pub(super) fn update(&mut self, change: impl FnOnce(&mut WorkItem)) -> Result<(), StateError> {

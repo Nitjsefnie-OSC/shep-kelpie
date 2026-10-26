@@ -39,6 +39,8 @@ pub enum At {
     RateLimit,
     // The rerun of a workflow's failed jobs, which a workflow red on `main` is given
     Rerun,
+    // The comment on an issue or a pull request, which a ruling released from its hold is posted as
+    Comment,
 }
 
 // Who reached the forge and who lets it go
@@ -146,6 +148,11 @@ impl FakeForge {
     /// Holds the next rerun of a workflow's failed jobs open, and lets every other call through
     pub fn hold_next_rerun(&self) -> HeldCall {
         self.hold_open(At::Rerun)
+    }
+
+    /// Holds the next comment open, and lets every other call through
+    pub fn hold_next_comment(&self) -> HeldCall {
+        self.hold_open(At::Comment)
     }
 
     fn hold_open(&self, at: At) -> HeldCall {
