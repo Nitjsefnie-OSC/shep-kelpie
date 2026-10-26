@@ -166,6 +166,7 @@ pub(super) fn checks(
     }
     lines.extend(repo_plugins(at("repo plugins"), &settings, here));
     lines.extend(super::mcp::hosts(at("repo mcp servers"), &settings, here));
+    lines.extend(super::registries::line(at("package registries"), &settings));
     let gateways = kelpie.map(KelpieSettings::gateways).unwrap_or_default();
     let (book, line) = implementers(at("implementers"), &settings, &paths);
     lines.push(line);

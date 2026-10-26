@@ -791,6 +791,7 @@ fn worker_in(wt: &Path, build: &Path, kelpie: &Path, root: &Path, call: AgentCal
         repo: &root.join("repo"),
         guard_hooks: &[],
         allowed_domains: &[],
+        registries: &[],
         build_env: &BTreeMap::new(),
         shep_home: &root.join("shep"),
         door: Path::new("/k/dog/lease.sock"),

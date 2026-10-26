@@ -910,6 +910,7 @@ mod e2e;
 mod github;
 mod harnesses;
 mod plugins;
+mod registries;
 mod reviewers;
 mod sandbox;
 mod template;

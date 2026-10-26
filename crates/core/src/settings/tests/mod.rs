@@ -4,6 +4,7 @@ mod builds;
 mod dependencies;
 mod e2e;
 mod gateway_kind;
+mod registries;
 mod repo_setup;
 mod rulings;
 mod test_command;
@@ -59,7 +60,6 @@ fn the_example_holds_the_first_build_defaults() {
     assert_eq!(s.pacing.kickoff_hours.get(), 8);
     assert_eq!(s.worker.turn_timeout.get(), 60);
     assert_eq!(s.worker.compact_window, 200_000);
-    assert!(s.worker.package_registries);
     assert!(
         s.worker.guard_hooks.is_empty(),
         "kelpie's own guard needs none"
@@ -997,13 +997,4 @@ fn a_remote_elsewhere_names_no_repo() {
     ] {
         assert_eq!(forge_of(url), None, "{url}");
     }
-}
-
-#[test]
-fn package_registries_are_on_when_absent_and_off_when_set_off() {
-    let absent = EXAMPLE.replace("package_registries = true\n", "");
-    let off = EXAMPLE.replace("package_registries = true", "package_registries = false");
-
-    assert!(parse(&absent).unwrap().worker.package_registries);
-    assert!(!parse(&off).unwrap().worker.package_registries);
 }
