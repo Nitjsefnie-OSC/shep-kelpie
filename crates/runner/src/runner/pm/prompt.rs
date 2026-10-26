@@ -228,10 +228,8 @@ pub(super) struct Notes {
 /// `board`: in full for a new session, shorter for one resumed
 ///
 /// `lost` is each pick of its own that kelpie dropped since its last wake,
-/// with why.
-///
-/// A board past [`BOARD_INLINE`] is left out of the prompt, which then tells
-/// the project manager to read `board.md`, where kelpie writes the same text.
+/// with why. A board past [`BOARD_INLINE`] is left out of the prompt, which
+/// then tells the project manager to read `board.md`, where kelpie writes it.
 pub(super) fn wake(
     project: &str,
     wakes: &[Wake],

@@ -302,11 +302,9 @@ fn day(at: Timestamp) -> Option<Date> {
 }
 
 // `then` in words against `now`, by the UTC days between them: a past day as
-// "yesterday" or how long ago, today and tomorrow as themselves, the days up
-// to a week ahead as "by <weekday> (in N days)", and further out as "by
-// <weekday> <date>" with no gap, since the writing guide never gives a date
-// and a relative time together. The gap is in days, so a late hour never
-// shifts it. `None` when either moment is past what a date can hold.
+// "yesterday" or how long ago, today and tomorrow as themselves, up to a week
+// ahead as "by <weekday> (in N days)", and further out as "by <weekday>
+// <date>". The gap is in days, so a late hour never shifts it.
 fn moment(then: Timestamp, now: Timestamp) -> Option<String> {
     let (then, today) = (day(then)?, day(now)?);
     let days = i64::from((then - today).get_days());
@@ -364,12 +362,9 @@ fn unremoved(settings: &Path) -> Option<String> {
 }
 
 // `text` with every `@login` that is not `contributor`'s inside backticks.
-// Code the reply already has is left as it is: a fenced block that closes,
-// and an inline span whose closing backticks are on its line. A span is
-// paired within a line, since a list item or a heading ends one in a reader
-// that renders it. Backticks that close nothing are plain text, so a mention
-// after them is still put in code, and so is one in a fence that never
-// closes, which a reader may not see as code.
+// Code the reply already has is left as it is: a closed fence, and an inline
+// span whose closing backticks are on its line. A span is paired within a
+// line, since a list item or a heading ends one in a reader that renders it.
 pub(in crate::runner) fn neutered(text: &str, contributor: &str) -> String {
     let mut out = String::with_capacity(text.len());
     // The open fence's mark and length, and its lines so far

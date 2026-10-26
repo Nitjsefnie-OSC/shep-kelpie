@@ -162,10 +162,9 @@ impl Runner {
             return Some(Begin::Idle);
         }
         // The call is replayed as it was, but its GitHub login was written
-        // when the turn began and may have run out during the wait, so a
-        // fresh one is written now. A token that cannot be had waits as one
-        // does at a turn's start; any other failure goes on with the login
-        // already there, which the refresh renews while the call runs.
+        // when the turn began and may have run out during the wait, so a fresh
+        // one is written now. A token that cannot be had waits as one does at a
+        // turn's start; any other failure goes on with the login already there.
         self.token_wait.begins();
         match self.ports.voice.worker_token(&self.remote) {
             Ok(Some(token)) => {

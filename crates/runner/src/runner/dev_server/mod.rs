@@ -292,10 +292,9 @@ impl Drop for Served {
 /// if it does not answer
 ///
 /// The server stops when the returned [`Started`] is dropped. A server that
-/// cannot be started or never answers leaves the turn running, a note and a
-/// line at the end of the call's instructions saying so. Either counts as a
-/// failed run of the dev server, and a server that answers within
-/// [`READY_WITHIN`] as an `ok` one.
+/// cannot start, or never answers, leaves the turn running. A note and a line
+/// at the end of the call's instructions say so. Either counts as a failed
+/// run, and one that answers within [`READY_WITHIN`] as an `ok` run.
 pub(super) fn started(
     servers: &dyn DevServers,
     run: &DevRun,

@@ -1,43 +1,13 @@
 //! Answering rulings from replies in their thread
 //!
-//! A ruling posted through kelpie's App that mentions someone says to reply
-//! in its thread, the pull request or the issue it is about. Each
-//! board poll the runner asks the forge once for the repo's comments
-//! since the last it read, and reads the new ones on the threads of the
-//! rulings that wait. A reply counts when its author is the login the ruling
-//! mentions and has write access to the repo: anyone else's, any bot's and
-//! any comment kelpie itself posted, which is the maintainer's own login's
-//! when it went through `gh`, is left alone, with no answer and no reaction.
-//! A ruling that mentions no one is answered at the terminal only.
-//!
-//! The reply is read as `shep kelpie rule` reads an answer, with the ruling's
-//! id first (see [`read_answer`]): `99 yes`, `99 no <note>` or `99 rework
-//! <note>`. A bare `yes` answers nothing, so a conversational one never
-//! merges. A worker's question takes any text, with the id first only when
-//! several rulings wait on the thread. Kelpie reacts with a thumbs up to the
-//! reply it took as the answer, and replies once to one it could not read,
-//! saying what to type; the ruling stays open.
-//!
-//! A ruling's own comment is read too, for a reaction or a ticked box (see
-//! [`marked`]). A 👍 or 👎 from the login the ruling mentions answers a yes or
-//! a no; a merge ruling's and a question's options are task-list boxes, and a
-//! tick counts only when every edit of the comment was by that login or by the
-//! App that wrote it, which GraphQL's `userContentEdits` says. The answer is
-//! applied as a reply's is, and the board's events tell the project manager.
-//!
-//! An answer given here and one given at the terminal or on ntfy: the first
-//! wins. A ruling answered elsewhere is watched for a while longer, so a
-//! reply here that names it is told who answered it and with what. Its own
-//! comment is edited to say it is settled (see [`settled`]), unless the
-//! maintainer answered it here.
-//!
-//! The same read serves the contributions: the comments it finds on a followed
-//! pull request, and the review threads read beside it, are recorded by
-//! [`Runner::hear_contributions`] and answer nothing here.
-//!
-//! The forge is asked with the runner's lock let go: [`Runner::thread_job`]
-//! decides a read is due and copies what it needs, [`ThreadJob::run`] reads,
-//! and [`Runner::apply_threads`] acts on what was read.
+//! A ruling posted through kelpie's App that mentions someone says to reply in
+//! its thread. Each board poll reads the repo's new comments once, and a reply
+//! counts when its author is the login the ruling mentions and has write
+//! access. The reply is read as `shep kelpie rule` reads an answer, with the
+//! ruling's id first (see [`read_answer`]): `99 yes`, `99 no <note>` or `99
+//! rework <note>`. A bare `yes` answers nothing, so a conversational one never
+//! merges. A 👍 or 👎 on the ruling's own comment, or a ticked box, answers it
+//! too (see [`marked`]). The first answer from any channel wins.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex};
@@ -339,11 +309,8 @@ impl Runner {
         let floor = Timestamp(read.now.0.saturating_sub(SLACK));
         // Held behind while a contribution's comments were not all heard, so
         // the next read reaches them again. An issue whose triage waits on its
-        // author is held back to when the ask or the questions went up: kelpie
-        // can be longer than the slack from acting on their word, when GitHub is
-        // too busy to take the questions or no slot is free for the second call,
-        // and a reply that fell out of the read would end the wait as silence
-        // against the author's choice.
+        // author is held back to when the ask or the questions went up: a
+        // reply that fell out of the read would end the wait as silence.
         if heard {
             let floor = (self.triage_waits())
                 .into_iter()
@@ -362,9 +329,7 @@ impl Runner {
     // Records what the contributors and the maintainer said, in the comments
     // and the review threads read, and returns whether all of it was: when it
     // was not, the place the comments are read to stays behind. A review read
-    // that failed is told once and read again from where it began, a place
-    // the contribution keeps; one that worked is read again from the slack
-    // behind this read.
+    // that failed is read again from where it began, a place the contribution keeps.
     fn hear_replies(&mut self, read: &ThreadRead) -> Result<bool, StateError> {
         let mut replies = Vec::new();
         let mut done = Vec::new();
@@ -500,8 +465,7 @@ impl Runner {
     // Whether `comment` is the worker's to read: it is neither a number-led
     // reply nor a yes, a no or a rework, and every ruling `aimed` names that
     // still waits is a merge ruling on a pull request, where the maintainer's
-    // plain comment is a `no <note>`. On any other ruling it is told how to
-    // reply, and on an issue no worker reads it.
+    // plain comment is a `no <note>`. On an issue no worker reads it.
     fn is_plain(&self, comment: &ThreadComment, aimed: &[TicketId]) -> bool {
         let waiting: Vec<_> = (self.state.rulings.iter())
             .filter(|r| aimed.contains(&r.id))
@@ -802,11 +766,9 @@ impl Reading {
     }
 
     // The id of a ruling a reply starts with, and the rest of it. The id is
-    // the pull request number or the ticket id of the one ruling in `rulings`
-    // this author may answer, since that is what the card prints, or failing
-    // that the id a ruling was lately named by, waiting or settled, so a late
-    // answer is told so. An id that names no ruling this author may answer, or
-    // the whole of a reply, is its text.
+    // the pull request number or ticket id of the one ruling in `rulings`
+    // this author may answer, or failing that the id a ruling was lately
+    // named by, waiting or settled, so a late answer is told so.
     fn name_of<'a>(
         &self,
         words: &'a str,
@@ -869,9 +831,8 @@ fn aims_at(watch: &Watch, comment: &ThreadComment) -> bool {
 
 // The answer a ruling's comment gives of itself: the thumbs the login it
 // mentions left, else a box ticked in it. A thumbs up with a thumbs down
-// answers nothing. A tick counts only when every edit of the comment was made
-// by that login or by the App that wrote it, since anyone with write access
-// can edit a comment, and the forge does not say which edit ticked the box.
+// answers nothing. A tick counts only when every edit of the comment was by
+// that login or by the App that wrote it.
 fn marked(kind: &RulingKind, maintainer: &str, marks: &CommentMarks) -> Option<Answer> {
     let thumbs = |up: bool| {
         (marks.thumbs.iter())

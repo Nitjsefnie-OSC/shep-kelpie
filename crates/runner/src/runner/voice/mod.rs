@@ -5,10 +5,9 @@
 //! pull request, or on its issue while it has none. A ruling mentions the
 //! maintainer, so GitHub notifies them, and ends with how to answer it. A
 //! ruling the project manager, the terminal or a withdrawal settles has its
-//! comment edited to say so (see [`settled_comment`]). A
-//! failed post is told once in the runner's log and never fails the step it
-//! belongs to. Where no App covers the repo nothing here posts, and the
-//! runner writes as it did before.
+//! comment edited to say so (see [`settled_comment`]). A failed post is told
+//! once in the runner's log and never fails the step it belongs to. Where no
+//! App covers the repo nothing here posts.
 
 use std::sync::Arc;
 

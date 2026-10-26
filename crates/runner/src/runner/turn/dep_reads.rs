@@ -6,10 +6,8 @@
 //! for every harness. They go in the fence's read carve-outs too, so
 //! `read_denials` cuts them out of a home the call may not read. The write
 //! list is untouched, and a credential beside a readable folder stays denied.
-//!
-//! They are found as they are granted, not once when the runner starts. A
-//! machine gains a toolchain and a project gains its first git dependency while
-//! the runner runs, and a call rendered before that was granted neither.
+//! They are found as they are granted, not once when the runner starts: a
+//! machine gains a toolchain and a project gains a git dependency as it runs.
 
 use std::path::{Path, PathBuf};
 
@@ -60,11 +58,9 @@ impl Runner {
             })
         };
         // A build-local folder is made as it is granted. A harness judges its
-        // grants when the call starts, and the call's own tool is what fills the
-        // folder, so a grant left naming an empty folder may be refused, and the
-        // source stays unreadable until the next call. One that cannot be made is
-        // still granted: the tool makes it when it runs, and the call is no worse
-        // off than it was.
+        // grants when the call starts, and the call's own tool fills the
+        // folder, so a grant naming an empty folder may be refused. One that
+        // cannot be made is still granted: the tool makes it when it runs.
         let made = |folders: Vec<PathBuf>| {
             for folder in &folders {
                 let _ = std::fs::create_dir_all(folder);

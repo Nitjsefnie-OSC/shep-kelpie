@@ -1,15 +1,13 @@
 //! A settings change reaching a running runner
 //!
-//! Every setting takes effect live, at the next step or call that reads
-//! it, except `git.checkout`, `git.remote` and kelpie's gateways: a work
-//! item's worktree and pull request belong to the first two, and the
-//! adapters hold the gateways, so those wait for the runner's next start. A
-//! new `git.base` reaches the work items opened after it; each one in flight
-//! keeps the base it was cut for. The agent files are read again with them,
-//! and a change to those alone is a change too, but agents that name a
-//! gateway the runner lacks wait with it, and so does
-//! `contributions.reviewers`. A change is checked as a start checks it, and
-//! one that fails keeps the settings the runner has.
+//! Every setting takes effect live, at the next step or call that reads it,
+//! except `git.checkout`, `git.remote` and kelpie's gateways: a work item's
+//! worktree and pull request belong to the first two, and the adapters hold
+//! the gateways, so those wait for the runner's next start. A new `git.base`
+//! reaches the work items opened after it; each one in flight keeps the base
+//! it was cut for. The agent files are read again with them. A change is
+//! checked as a start checks it, and one that fails keeps the settings the
+//! runner has.
 
 use super::{
     OpenError, Runner, check_bots, check_coderabbit, check_local, instructions, open_checks, triage,

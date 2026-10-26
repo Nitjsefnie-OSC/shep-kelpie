@@ -132,12 +132,9 @@ impl Runner {
     /// in its build folder, and returns its number
     ///
     /// `Ok(None)` when there is no file to open one from, which is told in the
-    /// log. `Err` when the forge refused, whether the guard, a project's hook
-    /// or the forge itself, which is told in the log too: the turn is then
-    /// judged as one that opened no pull request, and the refusal is what the
-    /// worker and the project manager are told. A first line that is not a
-    /// conventional commit subject is refused the same way, since the worker
-    /// can fix it.
+    /// log. `Err` when the guard, a hook or the forge refused, also told in
+    /// the log: the turn is then judged as one that opened no pull request. A
+    /// first line that is not a conventional commit subject is refused too.
     pub(super) fn open_handed_over(
         &self,
         build: &Path,

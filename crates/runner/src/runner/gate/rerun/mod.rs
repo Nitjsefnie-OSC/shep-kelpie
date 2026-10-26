@@ -1,15 +1,12 @@
 //! A red run whose log names no file the branch changed is rerun once
 //!
-//! A flaky test outside the branch fails a run the worker cannot fix, and
-//! its credential cannot rerun a job. Kelpie reads the failed runs' logs as
-//! the login `gh` acts as, and when none names a file the branch changed it
-//! reruns that head's failed jobs itself, once, before it spends a turn. A
-//! head that fails again goes to the worker with the log, saying so. A log
-//! kelpie cannot read, a branch it cannot list, or a forge that refuses the
-//! rerun leaves the red run to the worker.
-//!
-//! A still-red ruling offers the same rerun as an option when the logs name
-//! no changed file, for the maintainer or the panel to choose.
+//! A flaky test outside the branch fails a run the worker cannot fix. Its
+//! credential cannot rerun a job. Kelpie reads the failed runs' logs as the
+//! login `gh` acts as. When none names a file the branch changed, kelpie
+//! reruns its failed jobs, once, before it spends a turn. A head that fails
+//! again goes to the worker with the log, saying so. Anything kelpie cannot
+//! read or rerun leaves the red run to the worker. A still-red ruling offers
+//! the same rerun as an option, for the maintainer or the panel to choose.
 
 use super::super::ci_help::Logs;
 use crate::runner::Runner;

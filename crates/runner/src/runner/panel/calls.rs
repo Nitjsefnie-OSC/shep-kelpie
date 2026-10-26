@@ -1,19 +1,13 @@
 //! The experts' calls: their folders, files and fences
 //!
 //! The advisor and the researcher run a new session each, in a folder of
-//! their own that kelpie wrote what they read into. Of kelpie's and the
-//! shepherd's homes each reads its folder alone, and no secret-shaped file
-//! in the code it reads. Neither writes a file or runs a command: the reply
-//! is the vote. The advisor reads the worktrees and the checkout too, and
-//! reaches no host but the model's. The researcher reads nothing of the
-//! code, and reaches the web, read only, plus the hosts the project names
-//! in `researcher.allowed_domains`. On pi, which has no web tool, the web is
-//! the `pi-web-access` package, which the call's reach names when `tools
-//! install` has put it there. On goose, which has none either, it is the
-//! `duckduckgo-websearch` package, run as the stdio MCP server `kelpie-web`.
-//!
-//! The worker's vote is its own session resumed once, with the tools of a
-//! retro: it reads its worktree and changes nothing.
+//! their own that kelpie wrote what they read into. Each reads only its own
+//! folder of kelpie's home, and no secret-shaped file in the code it reads.
+//! Neither writes a file or runs a command: the reply is the vote. The
+//! advisor reads the worktrees and the checkout, and reaches no host but the
+//! model's. The researcher reads no code, and reaches the web read only,
+//! plus the hosts in `researcher.allowed_domains`. The worker's vote is its
+//! session resumed once, with the tools of a retro.
 
 use super::ask;
 use crate::ports::{AgentCall, Reach, Role, Session, Tools};

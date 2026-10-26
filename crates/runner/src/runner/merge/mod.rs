@@ -74,13 +74,12 @@ impl Runner {
     ///
     /// Its worktree, local branch and build folder go, and its issue is
     /// recorded as finished. Its pull request and branch on the forge stay,
-    /// the pull request labelled `ready-for-human`.
-    /// It works while the runner drains too.
+    /// the pull request labelled `ready-for-human`. It works while draining.
     ///
     /// # Errors
     ///
-    /// [`DropError`] when nothing is in flight, a turn, a review round or a
-    /// merge is under way, or the cleanup fails. The work item stays then.
+    /// [`DropError`] when nothing is in flight, or a turn, review round or
+    /// merge is under way. Or when the cleanup fails. The work item stays then.
     pub fn drop_work_item(&mut self, ticket: Option<TicketId>) -> Result<(), DropError> {
         self.choose(ticket).map_err(DropError::Which)?;
         let item = self.current().expect("the work item chosen");

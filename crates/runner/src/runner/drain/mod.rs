@@ -1,17 +1,13 @@
 //! Draining: a runner that starts no new call until it restarts
 //!
-//! `drain` holds back every call the runner would start next, a worker's
-//! turn, a reviewer's session or local round, and the project manager's
-//! wake, while the calls already in flight run to their end and the rest of
-//! each pass goes on, merges included. A drain that starts with work items
-//! finished since the last retro starts the batch retro over them, the one
-//! call it starts. `status` then lists the calls still
-//! running, so `shep kelpie upgrade` can restart the runner once none is.
-//! Draining is kept in memory only: a restart ends it, as `undrain` does.
-//!
-//! `drain pause`, which `shep kelpie pause` sends, also sets a pause for each
-//! worker turn in flight on a harness that can end it at a tool result: it
-//! resumes at the next start, which `undrain keep` puts off by [`PAUSE_HOLD`].
+//! `drain` holds back every call the runner would start next. A worker's
+//! turn, a reviewer's session or local round, and the project manager's wake.
+//! The calls in flight run to their end; each pass goes on, merges included.
+//! A drain that starts with work items finished since the last retro starts
+//! the batch retro. That is the one call a drain starts. `status` lists the
+//! calls still running, so `shep kelpie upgrade` can restart once none is.
+//! Draining is in memory only: a restart ends it, as `undrain` does. `drain
+//! pause` also ends each turn in flight at its next tool result.
 
 use std::collections::BTreeSet;
 

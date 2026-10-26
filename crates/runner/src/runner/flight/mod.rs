@@ -670,17 +670,11 @@ fn unstarted(harness: Option<Harness>, e: &std::io::Error) -> End {
 
 /// Runs one pass of the runner's loop
 ///
-/// Records the end of a call in flight, ends any call past its turn's
-/// ceiling, posts a ruling or a notice, handles a reply on the webhook's
-/// topic, or begins what is due next for a work item with no call in
-/// flight, starting its call. Each open work item is stepped in turn,
-/// starting after the one that did something last, and one with nothing to
-/// do yields to the next. A report that waits, such as a forge that cannot
-/// be read, is returned only when no other work item did anything. A
-/// ruling answered while the runner was stopped is acted on first. A ruling
-/// is posted, and a reply handled, while the runner drains too. A runner
-/// finishing with no work item left open reports that it finished. The panic
-/// of a call's thread is resumed here, as one in the runner's own would be.
+/// Each open work item is stepped in turn, starting after the one that did
+/// something last. A report that waits, such as an unreadable forge, is
+/// returned only when nothing else did. A ruling answered while the runner
+/// was stopped is acted on first. Rulings and replies go on while it drains.
+/// The panic of a call's thread is resumed here.
 ///
 /// # Errors
 ///

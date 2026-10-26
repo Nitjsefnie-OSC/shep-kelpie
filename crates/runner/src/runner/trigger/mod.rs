@@ -365,32 +365,12 @@ enum Request {
 
 /// Answers one trigger with a JSON body: the status, or `{"error": ...}`
 ///
-/// Blank params count as none. `add` takes a ticket id, `rework` and
-/// `adopt` a pull request number, `triage` an issue number, `rule` takes
-/// `<id> yes`, `<id> no <note>`, `<id> rework <note>` or `<id> answer <text>`,
-/// `gate` and `drop` take the ticket of the work item they are about when more than one is open,
-/// `timings` takes how many finished work items to total (ten when left
-/// out) and answers the totals, not the status, `attach` and `detach` take
-/// a ticket and the attaching process's pid, `attach` then the pid of the
-/// session it started, if it has, and answers
-/// [`Attaching`](super::Attaching) rather than the status, `tell` takes a
-/// note for the project manager, `pm` takes `attach` or `detach` with the
-/// same pids and answers [`PmAttaching`](super::PmAttaching) for `attach`,
-/// `board` takes nothing to list the ready issues in the order the board
-/// takes them, `move <issue> <position>` or `top <issue>` to move one, and
-/// answers [`Board`](super::Board) either way, and every other action takes
-/// nothing. `drain` holds back every new call and answers the status with
-/// the calls still running, `drain pause` also ends each worker turn at its
-/// next tool call, and `undrain` lets calls start again, `undrain keep` not
-/// yet the turns a pause ended. `finish` holds the board back until the open
-/// work items end, `start` lets it pick again, and `pausing`, which `pause`
-/// sends before its stop, clears the saved `finishing` so the runner comes
-/// back picking.
-///
-/// `status`, `drain` and `undrain` are answered from what the loop last posted
-/// whenever a pass holds the runner's lock, which it holds through the pass's
-/// forge calls. A `drain` or `undrain` answered that way sets its flag at once
-/// and leaves the rest for the pass to take up at its next lock.
+/// Blank params count as none. `rule` takes `<id> yes`, `<id> no <note>`,
+/// `<id> rework <note>` or `<id> answer <text>`. `attach` and `detach` take a
+/// ticket and a pid, and answer [`Attaching`](super::Attaching) rather than
+/// the status. `drain` holds back every new call, `drain pause` also ends each
+/// worker turn at its next tool call, and `undrain` lets calls start again.
+/// `status`, `drain` and `undrain` come from what the loop last posted.
 pub fn answer(
     runner: &Mutex<Runner>,
     posted: &Posted,
@@ -499,14 +479,9 @@ pub fn wakes(action: &str) -> bool {
 }
 
 // Answers `request` from what the loop last posted, for a runner whose lock a
-// pass holds.
-//
-// Only the triggers that ask have a posted answer: `status`, `timings` and
-// the `board` listing, which read the copy as it stands. A `drain` or `undrain`
-// answered that way sets its flag here, where every step reads it, and leaves
-// what it asks the runner itself for the pass to take up at its next lock. The
-// verbs that read the forge (`add`, `rework`, `adopt`, `triage` and `rule`)
-// are queued for the pass, and answer the status as it stands.
+// pass holds. Only the triggers that ask have a posted answer: `status`,
+// `timings` and the `board` listing. A `drain` or `undrain` answered that way
+// sets its flag here and leaves the rest for the pass at its next lock.
 fn from_posted(posted: &Posted, request: &Request) -> Option<String> {
     if let Some(verb) = queued_verb(request) {
         let body = posted.body()?;

@@ -1,14 +1,12 @@
 //! Work items whose issue was closed with no change
 //!
-//! A work item with no pull request ends once its issue is closed while its
-//! branch and worktree hold no work: a turn that ends so finishes it with no
-//! nudge and no ruling, and a pass ends a parked one and withdraws its
-//! ruling. Kelpie cannot tell who closed the issue. Work found, or a git
-//! that cannot say, leaves the item to go on as before.
-//!
-//! A parked work item with a pull request reaches no gate to notice it
-//! merged by hand, so a pass ends it the same way. One closed without
-//! merging gets the gate's `closed` ruling in place of its old one.
+//! A work item ends once its issue closes and its branch and worktree hold
+//! no work. A turn that ends so finishes it with no nudge and no ruling. A
+//! pass ends a parked one and withdraws its ruling. Kelpie cannot tell who
+//! closed the issue. Work found, or a git that cannot say, leaves the item
+//! to go on as before. A parked item with a pull request merged by hand
+//! reaches no gate. A pass ends it the same way. One closed without merging
+//! gets the gate's `closed` ruling in place of its old one.
 
 use super::Runner;
 use crate::ports::Alert;

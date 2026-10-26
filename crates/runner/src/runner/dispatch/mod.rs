@@ -1,15 +1,13 @@
 //! Dispatch: the board's next issue opens a work item in a free slot
 //!
-//! A running project with fewer than `concurrency.active_items` working and fewer than
-//! `concurrency.pending_rulings` parked asks the board on its steps, after starting any pull
-//! request it adopted and checking its open pull requests for one asking
-//! for a rework, and before a call a contribution is due goes ahead of any
-//! issue, and the research on an untouched issue after that. A queued issue
-//! waits until a slot is free, an issue, or a pull request, whose work item is
-//! open waits for it to end, and an issue naming a file a parked item's
-//! branch changes waits for that item. With a project manager and two or more
-//! issues the board could take, its pick goes in place of the board rule's, a
-//! list of picks one a step, and a ready issue it holds waits.
+//! A project under `concurrency.active_items` working and under
+//! `concurrency.pending_rulings` parked asks the board on its steps. Adopted
+//! pull requests and the rework check go first. Then a due contribution's
+//! call, then an issue, then research on an untouched one. A queued issue
+//! waits for a free slot. An issue whose work item is open waits for it to
+//! end. One naming a file a parked item's branch changes waits for that item.
+//! With a project manager and two or more issues to take, its pick replaces
+//! the board's.
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};

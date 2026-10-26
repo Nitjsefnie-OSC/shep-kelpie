@@ -1,16 +1,12 @@
 //! Pacing: each account's usage is read before a call on it starts
 //!
-//! A new work item is paced on every account its roles spend, its turns on
-//! the worker's, and a review round on its reviewer's, each open item's own
-//! agent included, listed or not. Each account keeps its own day and its own
-//! holds. An agent limited by a lease is never paced.
-//!
-//! A reading that finds a hold is trusted for [`RECHECK_SECS`] or until the
-//! hold ends, whichever comes first, so a project held for hours reads usage
-//! a few times an hour. A reading that finds no hold is never reused.
-//!
-//! With `pacing.enabled` off the reading still runs for `status`, and neither
-//! limit holds anything.
+//! A new work item is paced on every account its roles spend. Its turns on
+//! the worker's account, a review round on its reviewer's. Each open item's
+//! own agent is included, listed or not. Each account keeps its own day and
+//! its own holds. An agent limited by a lease is never paced. A reading that
+//! finds a hold is trusted for [`RECHECK_SECS`] or until the hold ends. A
+//! reading that finds no hold is never reused. With `pacing.enabled` off the
+//! reading still runs for `status`, and neither limit holds anything.
 
 use std::collections::{BTreeMap, BTreeSet};
 

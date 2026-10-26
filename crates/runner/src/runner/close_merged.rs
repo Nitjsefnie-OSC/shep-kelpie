@@ -37,11 +37,10 @@ impl Runner {
     /// Closes `issue` if the forge still shows it open after `pull_request`
     /// merged, trying the close once
     ///
-    /// The comment goes first, once, as `close_done_parent` does. A close the
-    /// forge refuses returns why, for the step to fail on and run again after
-    /// its backoff, until it has been refused [`TRIES`] times: then it is told
-    /// in the log and the work item goes on. A comment that fails or an issue
-    /// that cannot be read is told in the log and never holds the work item.
+    /// The comment goes first, once. A close the forge refuses returns why, and
+    /// the step retries after its backoff. After [`TRIES`] refusals it is told
+    /// in the log and the work item goes on. A failed comment or unread issue
+    /// is told in the log and holds nothing.
     pub(super) fn close_merged_issue(
         &mut self,
         ticket: TicketId,
@@ -133,10 +132,9 @@ impl Runner {
     /// its sub-issues closed and at least one of them built, never holding the
     /// work item
     ///
-    /// `issue` and each issue the pull request names count as completed while
-    /// the forge still reads them open, since it closes them a moment after the
-    /// merge. Only the parent is closed: a grandparent waits
-    /// for its own next merge. A read or a close that fails is told in the log.
+    /// `issue` and the issues the pull request names count as completed. The
+    /// forge closes them a moment after the merge. Only the parent is closed.
+    /// A read or a close that fails is told in the log.
     pub(super) fn close_done_parent_of(&mut self, ticket: TicketId, pull_request: u64) {
         let parent = match self.ports.tickets.issue(&self.remote, ticket) {
             Ok(read) => read.parent,

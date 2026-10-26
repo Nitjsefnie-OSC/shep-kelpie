@@ -3,15 +3,11 @@
 //!
 //! A wake comes from a free slot with two or more ready issues, two open
 //! branches that conflict, a stuck work item, a worker's question, or the
-//! maintainer's `tell`. A question's ruling is held back from the
-//! maintainer for at most one wake, for the project manager to answer or
-//! pass on with a recommendation, and so is a follow-up ruling, which it
-//! can only pass on.
-//! The reasons gathered since the last wake go in one call, a lamb like any
-//! other, one at a time, which the loop never waits on. Its session is the
-//! project's one, resumed each wake and compacted past [`COMPACT_PAST`].
-//! While it is not set up, down, over its pace, or its answer is dropped,
-//! the board rule picks and stuck items keep the rulings they raised.
+//! maintainer's `tell`. A question's ruling is held back for at most one
+//! wake, and so is a follow-up ruling, which it can only pass on. The reasons
+//! since the last wake go in one call, which the loop never waits on. Its
+//! session is the project's one, resumed and compacted past [`COMPACT_PAST`].
+//! While it is down, the board rule picks and stuck items keep their rulings.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Mutex;
@@ -64,11 +60,10 @@ pub(super) const COMPACT_PAST: u64 = 100_000;
 /// The context, in tokens, past which a worker's session is compacted
 /// before the next turn the runner sends it
 ///
-/// Every turn after the build resumes the session and rereads all of it.
-/// On four work items it ended at 284k to 486k tokens, and its turns after
-/// the build cost as much as the build or more, three quarters of it cache
-/// reads. Set above [`COMPACT_PAST`] since a worker's build alone reads a
-/// good deal of the repo.
+/// Every turn after the build resumes the session and rereads all of it. On
+/// four work items it ended at 284k to 486k tokens, and its turns after the
+/// build cost as much as the build or more, three quarters of it cache reads.
+/// Set above [`COMPACT_PAST`]: a build alone reads a good deal of the repo.
 pub(super) const WORKER_COMPACT_PAST: u64 = 150_000;
 
 /// How long one call may run before it is ended, in seconds. A wake ran
@@ -323,12 +318,9 @@ impl Runner {
     /// Queues `wake` for the project manager's next call, once each
     ///
     /// A stuck item it left alone in the same state is queued again only when
-    /// that state changes or its back-off ends.
-    ///
-    /// The window a held reason waits opens with the first one queued, so it
-    /// runs from what the board saw, not from the next pass that got to it. A
-    /// held reason already queued is replaced by the newer state for the same
-    /// item, so the wake carries what the board shows when its window ends.
+    /// that state changes or its back-off ends. The window a held reason
+    /// waits opens with the first one queued, so it runs from what the board
+    /// saw. A newer state for the same item replaces the queued reason.
     pub(super) fn pm_due(&mut self, wake: Wake) {
         if self.agents.pm.is_none() {
             return;
@@ -339,12 +331,10 @@ impl Runner {
             return;
         }
         if let Some(existing) = self.pm.due.iter_mut().find(|w| w.same(&wake)) {
-            // An item stuck on something new replaces the reason queued for it,
-            // so the wake carries what the board shows when its window ends
-            // rather than the state it was in when the window opened. An item
-            // read idle whose turn then parks on a ruling is the case. The
-            // window still runs from the first reason, and a wake for the same
-            // state keeps the words it was queued with.
+            // An item stuck on something new replaces the reason queued for
+            // it, so the wake carries what the board shows when its window
+            // ends. An item read idle whose turn then parks on a ruling is the
+            // case. The window still runs from the first reason queued.
             let changed = matches!(
                 (&*existing, &wake),
                 (Wake::Stuck { state: was, .. }, Wake::Stuck { state, .. }) if was != state
@@ -501,13 +491,10 @@ impl Runner {
     /// Starts the project manager's call if one is due and it can run,
     /// and says whether it did
     ///
-    /// A compaction owed goes first. One that cannot run gives the
-    /// reasons up: a pick falls to the board rule, and a stuck item keeps
-    /// its ruling. What the maintainer told it waits for the next wake. A
-    /// stuck item it left alone is due once its back-off ends, whether the
-    /// board flipped its idle call again or not. A held reason the board no
-    /// longer shows is dropped before the call starts, however the call came
-    /// to start.
+    /// A compaction owed goes first. One that cannot run gives the reasons up:
+    /// a pick falls to the board rule, and a stuck item keeps its ruling. What
+    /// the maintainer told it waits for the next wake. A stuck item it left
+    /// alone is due once its back-off ends.
     pub(super) fn wake_pm(&mut self) -> bool {
         matches!(self.wake(false), Woke::Did(true))
     }

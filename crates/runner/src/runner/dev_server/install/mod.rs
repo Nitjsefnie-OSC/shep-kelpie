@@ -1,15 +1,13 @@
 //! The packages of a checkout, installed before its dev server starts
 //!
-//! A checkout of a bump's head or a fresh worktree has no `node_modules`, and a
-//! server that needs a package would fetch it into a temp folder its sandbox
-//! refuses. The install is part of the server's command, so it runs in the
-//! server's sandbox, which writes only the checkout and its build folder and
-//! reaches only the hosts listed. It runs only where the lockfile's folder has no
-//! `node_modules`, or an earlier install left its mark and did not finish, so a
-//! worker's own install is never wiped by `ci`. The package manager is the one
-//! whose lockfile the project keeps, run from the lockfile as it stands (`ci`, or
-//! a frozen lockfile) and with no package's install script, since a bump's new
-//! version is code nobody has read yet.
+//! A bump's head or a fresh worktree has no `node_modules`. A server that
+//! needs a package would fetch it into a temp folder its sandbox refuses. The
+//! install is part of the server's command, so it runs in the server's
+//! sandbox. It runs only where `node_modules` is missing or an earlier install
+//! did not finish. A worker's own install is never wiped. The package manager
+//! is the one whose lockfile the project keeps. It runs from the lockfile as
+//! it stands, with no install script. A bump's new version is code nobody has
+//! read yet.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};

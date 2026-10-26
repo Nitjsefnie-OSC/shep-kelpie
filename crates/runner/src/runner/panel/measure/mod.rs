@@ -1,14 +1,12 @@
 //! What the maintainer's answers say of the panel
 //!
 //! Each ruling the maintainer answers is a line in `rulings.jsonl` with the
-//! panel's ballots and what the panel concluded, so `status` can say from it
-//! how the panel stands: the run of rulings its recommendation matched, the
-//! same for the project manager's vote alone by kind of ruling, each expert's
-//! agreement and how often it alone was right (also by kind of ruling), what
-//! each smaller panel would have decided against the answers, and what each
-//! candidate policy for who votes would have done over the rulings answered
-//! under `shadow`. The panel's cost is in the usage ledger, `shep kelpie usage`
-//! reads it there, and so does the cost of a policy.
+//! panel's ballots and what the panel concluded. So `status` can say how the
+//! panel stands: the run of rulings its recommendation matched, the same
+//! for the project manager's vote alone by kind of ruling, each expert's
+//! agreement and how often it alone was right, what each smaller panel would
+//! have decided, and what each candidate voting policy would have done under
+//! `shadow`. The panel's cost is in the usage ledger, which `shep kelpie usage` reads.
 
 use std::collections::BTreeMap;
 

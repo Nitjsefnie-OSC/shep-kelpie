@@ -2,16 +2,12 @@
 //!
 //! The board, the rework check, each work item's CI gate and its merge read
 //! the same pull requests, so a pass lists them in one query the first time
-//! a step asks and every later step in the pass reads that listing. A step
-//! reads a single pull request only when the listing does not hold it, such
-//! as a merged one, or when it runs outside a pass, such as the end of a
-//! worker's turn, which may have just pushed. The merge call itself holds
-//! the head it was asked about, so a head that moved since the listing is
-//! refused by the forge.
-//!
-//! The board's read, which lists them with the runner's lock let go before the
-//! pass begins, hands its listing over: [`Snapshot::preload`] keeps it, and the
-//! pass that begins next starts with it listed.
+//! a step asks and every later step reads that listing. A step reads a single
+//! pull request only when the listing does not hold it, such as a merged one,
+//! or when it runs outside a pass, such as the end of a worker's turn. The
+//! merge call itself holds the head it was asked about, so a head that moved
+//! since the listing is refused by the forge. The board's read hands its
+//! listing over: [`Snapshot::preload`] keeps it for the pass that begins next.
 
 use std::cell::RefCell;
 use std::collections::BTreeMap;

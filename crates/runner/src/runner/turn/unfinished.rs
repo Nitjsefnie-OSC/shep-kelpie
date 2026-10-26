@@ -157,13 +157,10 @@ impl Runner {
         true
     }
 
-    // A turn ended with no pull request kelpie knows of, or on a rework or
-    // an adoption with nothing pushed, and with no question. The forge is
-    // asked again, since the turn's end may have missed one. With none open,
-    // an issue closed with no change, and no open pull request closing it,
-    // ends the work item; otherwise the worker is sent back once, and the
-    // next turn that stops short parks it on a ruling, whose yes sends it
-    // back again. A forge that cannot be asked is tried again next step.
+    // A turn ended with no pull request kelpie knows of, or on a rework or an
+    // adoption with nothing pushed, and with no question. The forge is asked
+    // again, since the turn's end may have missed one. With none open, an
+    // issue closed with no change ends the work item; else the worker is sent back once.
     pub(super) fn stopped_short(&mut self) -> Result<Begin, StateError> {
         let item = self.current().expect("a turn is a work item's");
         let (issue, sent_back) = (item.issue, item.sent_back);
@@ -340,10 +337,9 @@ impl Runner {
 }
 
 // Parks the work item on a turn-ceiling ruling and builds its report. Shared
-// by a call that actually hit `AgentError::TimedOut` and by a restart that
-// finds a turn already past its ceiling with no call spent. The caller sets
-// `item.turn` beforehand: this only raises the ruling. `comment_failed` is
-// filled in afterwards, once the ruling has actually been posted.
+// by a call that hit `AgentError::TimedOut` and by a restart that finds a turn
+// past its ceiling with no call spent. The caller sets `item.turn` beforehand:
+// this only raises the ruling. `comment_failed` is filled in after the post.
 pub(super) fn timed_out(names: Names, next: &mut ProjectState, issue: TicketId) -> StepReport {
     let item = next
         .item_mut(issue)
