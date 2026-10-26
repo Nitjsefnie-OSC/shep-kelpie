@@ -243,8 +243,7 @@ pub fn differ(
 ) -> Result<Vec<String>, WorktreeError> {
     let disk = on_disk(worktree)?;
     let hashes = hashed(repo, &disk)?;
-    let main = commit::main_of(repo, base)?;
-    let head = worktree::head(repo, worktree)?;
+    let (head, main) = commit::head_and_main(repo, worktree, base)?;
     let cut_at = commit::cut_at(repo, &head, &main)?;
     let mut first = None;
     for commit in [Some(main.as_str()), Some(cut_at.as_str()), accepted]

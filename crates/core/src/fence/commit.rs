@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use super::{folds_to, root_names};
-use crate::worktree::{WorktreeError, git};
+use crate::worktree::{self, WorktreeError, git};
 
 /// A fenced file's mode and blob, by its path
 pub(super) type Files = BTreeMap<String, (String, String)>;
@@ -53,14 +53,28 @@ fn is_full_id(commit: &str) -> bool {
 
 /// The commit `origin/<base>` is at now
 pub(super) fn main_of(repo: &Path, base: &str) -> Result<String, WorktreeError> {
-    git(
-        repo,
-        [
-            "rev-parse",
-            "--verify",
-            &format!("origin/{base}^{{commit}}"),
-        ],
-    )
+    git(repo, ["rev-parse", &main_ref(base)])
+}
+
+/// The commits `worktree` is at and `origin/<base>` is at now, from one git call
+pub(super) fn head_and_main(
+    repo: &Path,
+    worktree: &Path,
+    base: &str,
+) -> Result<(String, String), WorktreeError> {
+    let args = ["rev-parse", "HEAD", &main_ref(base)];
+    let ids = worktree::trusted(repo, worktree)?(&args)?;
+    match ids.split_once('\n') {
+        Some((head, main)) => Ok((head.to_owned(), main.to_owned())),
+        None => Err(WorktreeError::Git {
+            args: args.join(" "),
+            stderr: format!("printed {ids:?}, not two commits"),
+        }),
+    }
+}
+
+fn main_ref(base: &str) -> String {
+    format!("origin/{base}^{{commit}}")
 }
 
 /// The commit `head` left `main` at, where `main` is a commit id
