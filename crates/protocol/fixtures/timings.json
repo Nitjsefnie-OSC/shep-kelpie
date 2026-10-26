@@ -1,0 +1,19 @@
+{
+  "issues": [
+    "101",
+    "102",
+    "103"
+  ],
+  "items": 3,
+  "project": "koji",
+  "seconds": {
+    "ci": 0,
+    "merge": 0,
+    "other": 0,
+    "review": 0,
+    "ruling": 0,
+    "worker": 0
+  },
+  "table": "3 work items: #101, #102 and #103\nphase                seconds   duration   share\nworker                     0   0h00m00s    0.0%\nreview                     0   0h00m00s    0.0%\nci                         0   0h00m00s    0.0%\nruling                     0   0h00m00s    0.0%\nmerge                      0   0h00m00s    0.0%\nother                      0   0h00m00s    0.0%\ntotal                   1800   0h30m00s  100.0%",
+  "wall": 1800
+}
