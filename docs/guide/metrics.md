@@ -61,6 +61,9 @@ Every runner series carries `sheep`, the project's name, as well as `id` and `fo
 | `kelpie_forge_rate_reset_timestamp_seconds` | `bucket` | When that limit next resets, in Unix seconds |
 | `kelpie_runner_lock_held_seconds_total` | | Seconds the runner's lock was held, summed over every hold. A pass holds it through its forge calls, so a `rate` near 1 means it is held all the time, and a trigger other than `status`, `drain` and `undrain` waits |
 | `kelpie_runner_lock_holds_total` | `le` | Holds of the runner's lock by length: `le="1"` counts those of at most a second, `+Inf` all of them. `status` shows the longest hold of each source line under `lock` |
+| `kelpie_model_lease_waiting` | `model` | Calls of this runner waiting for a lease on a gateway's model, from asking for it until the grant. A model whose calls have all ended stays at 0 |
+| `kelpie_model_lease_held` | `model` | Calls of this runner holding a lease on a gateway's model |
+| `kelpie_model_lease_wait_seconds_total`, `kelpie_model_lease_grants_total` | `model` | Seconds this runner's calls waited for a lease on a gateway's model, and the leases granted to them. Divide the rates for a mean wait. A model on a URL host, or a round that runs a command, takes no lease and is not counted |
 | `kelpie_leases_held` | `kind` | The dog's leases in use: 0 or 1 for a book lease (the review bot windows), up to the capacity for `cargo-test`, and the busy hosts for `e2e` |
 | `kelpie_lease_waiting` | `kind` | Runners and commands waiting for the lease |
 | `kelpie_lease_grants_total`, `kelpie_lease_wait_seconds_total` | `kind` | Times the lease was granted, and the seconds those grants waited in the queue. Divide the rates for a mean wait. A grant to a command already running under the last dog is not counted |
@@ -68,7 +71,7 @@ Every runner series carries `sheep`, the project's name, as well as `id` and `fo
 | `kelpie_dog_bus_missed_total` | | Events on the shepherd's bus the dog did not read because it fell behind or the shepherd dropped them. Each miss makes the dog read the flock again, so a `rate` that stays above 0 is worth a look |
 | `kelpie_forge_holds_total` | `login_kind` | Times the forge's rate limit began holding every runner's calls. `login_kind` is `login`, the maintainer's `gh` login, which the dog's hold is for |
 | `kelpie_forge_held` | | 1 while that hold stands, 0 when not |
-| `kelpie_series_dropped_total` | | Samples of a series the runner held back, past the 255 it sends |
+| `kelpie_series_dropped_total` | | Samples of a series the runner held back, past the 1023 it sends |
 
 The dog's series are sent from the dog's own tick, so a hold that has ended reads 0 within ten seconds. Its counters start at zero when the dog starts, and every `e2e` host counts as the one `e2e` kind.
 
