@@ -672,6 +672,38 @@ async fn ci_that_skips_drafts_is_missing_where_ci_blocks_and_not_where_it_does_n
 }
 
 #[tokio::test]
+async fn ci_that_never_runs_on_a_pull_request_is_missing_where_ci_blocks() {
+    let scene = Scene::new().await;
+    scene.runs("golbat", |t| {
+        t["ci"]["block"] = json!(false);
+    });
+    let on_main =
+        "on:\n  push:\n    branches: [main]\njobs:\n  test:\n    runs-on: ubuntu-latest\n";
+    for project in ["koji", "golbat"] {
+        let folder = scene.home.join(project).join(".github/workflows");
+        crate::test::write_in(&folder, "release.yml", on_main);
+    }
+    let report = scene.report().await;
+    let (what, fix) = missing(&report, "koji: ci on pull requests");
+    assert!(
+        what.contains("no workflow runs on a pull request"),
+        "{what}"
+    );
+    assert!(!what.contains("  "), "{what}");
+    assert!(fix.contains("`pull_request`"), "{fix}");
+    assert!(fix.contains("set `ci.block` to false"), "{fix}");
+    assert!(!report.passed());
+    assert!(!subjects(&report).contains(&"golbat: ci on pull requests"));
+
+    // One workflow that runs on a pull request, or no workflows folder, is nothing to say.
+    let koji = scene.home.join("koji").join(".github/workflows");
+    crate::test::write_in(&koji, "ci.yml", "on: pull_request\njobs:\n  t:\n");
+    assert!(!subjects(&scene.report().await).contains(&"koji: ci on pull requests"));
+    std::fs::remove_dir_all(scene.home.join("koji").join(".github")).unwrap();
+    assert!(!subjects(&scene.report().await).contains(&"koji: ci on pull requests"));
+}
+
+#[tokio::test]
 async fn a_repo_that_cannot_be_named_skips_only_the_forge_lines() {
     let scene = Scene::new().await;
     scene.runs("golbat", |t| {
