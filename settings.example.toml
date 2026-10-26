@@ -67,7 +67,10 @@ fix_attempts = -1
 # sometimes leaves one job of a finished run queued or in progress for good. A
 # rerun gets one more of these, and a check still waiting after that raises a
 # `check-queued` ruling. The forge refuses a rerun of a run still going, so a
-# check that is really running is not rerun for being slow.
+# check that is really running is not rerun for being slow. A head with no check
+# at all raises a `no-checks` ruling after this long when `origin/main` has a
+# workflow that runs on a pull request, and goes on as skipped at once when it
+# has none.
 queued_minutes = 60
 # A command that runs one failing test a reviewer wrote, which a reviewer on
 # Claude Code is then asked to leave for each finding it can. It must hold

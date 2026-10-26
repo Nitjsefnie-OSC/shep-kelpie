@@ -146,6 +146,11 @@ pub struct WorkItem {
     /// file the branch changed. A head is rerun once.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reran: Option<String>,
+    /// The head a yes to a `no-checks` ruling passed as skipped. While it is
+    /// the head, no check on it reads as `Checks::Skipped`; a push is another
+    /// head.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unchecked: Option<String>,
     /// The head whose failed CI kelpie has already counted in
     /// `kelpie_ci_failures_total`. A head is counted once whatever the gate did
     /// with it after: a fix turn, a rerun, or a still-red ruling a `yes` sent
@@ -477,6 +482,7 @@ impl WorkItem {
             phase: Phase::default(),
             red_head: None,
             reran: None,
+            unchecked: None,
             counted_head: None,
             conflict: None,
             resume: None,

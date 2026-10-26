@@ -14,8 +14,14 @@ fn finding(severity: Severity) -> Finding {
 // The worker's first turn has pushed and opened pull request 71, whose head
 // is returned, with CI on it not yet reported. The review is due.
 fn pushed() -> (Rig, Mutex<Runner>, String) {
+    pushed_set(|_| {})
+}
+
+// [`pushed`], after `setup` changed the rig's settings or repo.
+fn pushed_set(setup: impl FnOnce(&Rig)) -> (Rig, Mutex<Runner>, String) {
     let rig = Rig::new("shep");
     rig.ci_on();
+    setup(&rig);
     let runner = rig.open().unwrap();
     rig.ask(&runner, "add", Some("7"));
     rig.forge.open_pull_request(71, "kelpie/7", &[7]);
@@ -667,4 +673,81 @@ fn status_shows_a_ci_wait_with_no_checks_reported() {
     rig.clock.advance(CHECKS_SETTLE);
     assert_eq!(step(&runner).unwrap(), None);
     assert_eq!(checks(&rig), serde_json::Value::Null, "a check reports");
+}
+
+const CAP: u64 = 60 * 60;
+
+#[test]
+fn a_review_head_with_no_checks_and_no_pull_request_workflow_is_read_at_once() {
+    let (rig, runner, head) = pushed_set(Rig::without_pull_request_ci);
+    rig.forge.set_checks(&head, Checks::None);
+
+    assert_eq!(step(&runner).unwrap(), None, "the checks settle first");
+    rig.clock.advance(CHECKS_SETTLE);
+    step(&runner).unwrap();
+
+    assert_eq!(reads(&rig), 1, "the first reviewer read the head");
+    assert_ne!(state(&rig, &runner), "ruling");
+}
+
+#[test]
+fn a_review_head_with_no_checks_past_the_cap_raises_a_no_checks_ruling() {
+    let (rig, runner, head) = pushed();
+    rig.forge.set_checks(&head, Checks::None);
+    assert_eq!(step(&runner).unwrap(), None);
+    rig.clock.advance(CAP - 1);
+    assert_eq!(step(&runner).unwrap(), None, "within the cap");
+    assert_eq!(reads(&rig), 0);
+
+    rig.clock.advance(1);
+    let report = step(&runner).unwrap();
+
+    assert!(
+        matches!(report, Some(StepReport::Ruling { .. })),
+        "{report:?}"
+    );
+    let status = rig.ask(&runner, "status", None);
+    let kind = &status["rulings"][0]["kind"];
+    assert_eq!(kind["reason"], "no-checks");
+    assert_eq!(kind["head"], head);
+    assert_eq!(kind["review"]["round"], 1, "the round it interrupted");
+    assert_eq!(state(&rig, &runner), "ruling");
+    assert_eq!(reads(&rig), 0);
+}
+
+#[test]
+fn a_yes_on_a_review_no_checks_ruling_reads_the_head_as_skipped() {
+    let (rig, runner, head) = pushed();
+    rig.forge.set_checks(&head, Checks::None);
+    step(&runner).unwrap();
+    rig.clock.advance(CAP);
+    step(&runner).unwrap();
+
+    rig.ask(&runner, "rule", Some("71 yes"));
+    assert_eq!(state(&rig, &runner), "review", "back to the round it left");
+    rig.verdict(&runner);
+
+    assert_eq!(reads(&rig), 1, "the first reviewer read the head");
+}
+
+#[test]
+fn a_no_on_a_review_no_checks_ruling_waits_another_cap() {
+    let (rig, runner, head) = pushed();
+    rig.forge.set_checks(&head, Checks::None);
+    step(&runner).unwrap();
+    rig.clock.advance(CAP);
+    step(&runner).unwrap();
+
+    rig.ask(&runner, "rule", Some("71 no still starting"));
+    assert_eq!(step(&runner).unwrap(), None);
+    rig.clock.advance(CAP - 1);
+    assert_eq!(step(&runner).unwrap(), None, "the cap starts from the no");
+    assert_eq!(reads(&rig), 0);
+
+    rig.clock.advance(1);
+    let report = step(&runner).unwrap();
+    assert!(
+        matches!(report, Some(StepReport::Ruling { .. })),
+        "{report:?}"
+    );
 }

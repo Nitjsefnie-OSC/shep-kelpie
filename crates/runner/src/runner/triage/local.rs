@@ -33,7 +33,7 @@ use super::super::Runner;
 use super::super::contributions::post::forge_is_busy;
 use super::super::report::Begin;
 use super::ask::{Purpose, REPLY_HINT, closed_note, questions_block};
-use super::comment::MARKER;
+use super::marker::MARKER;
 use super::research::{Found, Question};
 use crate::ports::{ForgeError, Issue};
 use crate::state::StateError;

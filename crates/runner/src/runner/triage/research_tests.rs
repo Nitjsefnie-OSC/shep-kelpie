@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 
-use super::comment::MARKER;
+use super::marker::MARKER;
 use super::pick_tests::{issue, list, rig_with, status};
 use crate::github::ApiError;
 use crate::ports::{AgentError, CLEAN, OpenIssue, Role, Timestamp, Tools};
