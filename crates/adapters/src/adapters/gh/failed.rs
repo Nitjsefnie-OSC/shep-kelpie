@@ -16,26 +16,34 @@ pub(super) fn failure(stderr: &str) -> ForgeError {
     let is_traffic = |line: &&str| {
         TRAFFIC.iter().any(|mark| line.starts_with(mark)) || matches!(*line, "<" | ">")
     };
-    if !lines.iter().any(is_traffic) {
-        return limited_or(stderr, stderr, Cooldown::default());
-    }
-    let cooldown = cooldown_of(&lines);
-    let own = |line: &&str| !is_traffic(line);
-    let errors: Vec<&str> = lines.iter().copied().filter(own).collect();
+    let traffic = lines.iter().any(is_traffic);
+    let cooldown = match traffic {
+        true => cooldown_of(&lines),
+        false => Cooldown::default(),
+    };
+    let own: Vec<&str> = lines.iter().copied().filter(|l| !is_traffic(l)).collect();
     // What gh adds after the exchange is its own line; the body is not.
-    let said: Vec<&str> = match errors.iter().any(|line| line.starts_with("gh: ")) {
-        true => errors
-            .iter()
-            .copied()
-            .filter(|l| l.starts_with("gh: "))
-            .collect(),
-        false => errors
-            .iter()
-            .copied()
-            .filter(|l| !l.trim_start().starts_with(['{', '[', '}', ']', '"']))
-            .collect(),
+    let pick =
+        |keep: fn(&str) -> bool| -> Vec<&str> { own.iter().copied().filter(|l| keep(l)).collect() };
+    let (gh, status) = (pick(|l| l.starts_with("gh: ")), pick(is_status));
+    let said = if !gh.is_empty() {
+        gh
+    } else if !status.is_empty() {
+        status
+    } else if traffic {
+        pick(|l| !l.trim_start().starts_with(['{', '[', '}', ']', '"']))
+    } else {
+        return limited_or(stderr, stderr, cooldown);
     };
     limited_or(&said.join("\n"), &said.join("\n"), cooldown)
+}
+
+// gh's line for a call that got an HTTP error, such as `HTTP 504: 504 Gateway
+// Timeout (https://api.github.com/graphql)`, after the page GitHub answered with.
+fn is_status(line: &str) -> bool {
+    line.strip_prefix("HTTP ")
+        .and_then(|rest| rest.split_once(':'))
+        .is_some_and(|(code, _)| code.len() == 3 && code.bytes().all(|b| b.is_ascii_digit()))
 }
 
 // A rate limit is `Limited` with what the answer said of when, anything else
@@ -112,7 +120,7 @@ gh: You have exceeded a secondary rate limit. Please wait a few minutes before y
     #[test]
     fn a_failure_with_no_debug_lines_is_kept_as_gh_said_it() {
         let plain = "gh: Not Found (HTTP 404)\n";
-        assert_eq!(failure(plain), ForgeError::Failed(plain.into()));
+        assert_eq!(failure(plain), ForgeError::Failed(plain.trim_end().into()));
         let limited = failure("gh: API rate limit exceeded for user ID 1. (HTTP 403)\n");
         assert!(
             matches!(limited, ForgeError::Limited { cooldown, .. } if cooldown == Cooldown::default())
@@ -143,6 +151,22 @@ gh: You have exceeded a secondary rate limit. Please wait a few minutes before y
                 "GraphQL: Could not resolve to a node with the global id of 'X'. (node)".into()
             )
         );
+    }
+
+    // A 504 on a GraphQL read, as kept from a runner's log: the query and the
+    // page GitHub answered with, its images cut short, then gh's status line.
+    const PAGE: &str = include_str!("../../../../../fixtures/gh-graphql-504-page.txt");
+
+    #[test]
+    fn a_failure_that_printed_a_page_keeps_only_gh_s_status_line() {
+        assert_eq!(
+            failure(PAGE),
+            ForgeError::Failed(
+                "HTTP 504: 504 Gateway Timeout (https://api.github.com/graphql)".into()
+            )
+        );
+        let exchanged = format!("* Request to https://api.github.com/graphql\n<\n{PAGE}");
+        assert_eq!(failure(&exchanged), failure(PAGE));
     }
 
     #[test]
