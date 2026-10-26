@@ -4,7 +4,8 @@
 //! command runs inside the same sandbox the agents use, held to the worker's
 //! fence and never to the maintainer's reach. The run takes its place in the
 //! dog's `cargo-test` queue first, from this process and through the door, and
-//! gives it back when the command ends. The ceiling counts from the grant.
+//! gives it back when the command ends. The ceiling counts from the grant. A run with no door
+//! takes no place in the queue.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -71,10 +72,18 @@ impl SandboxedTests {
             .enable_all()
             .build()
             .map_err(|e| format!("cannot start the async runtime: {e}"))?;
-        let ask = Ask::new(CARGO_TEST, std::process::id(), run.command.clone());
-        let visit = runtime.block_on(granted(&run.door, &ask))?;
+        // A run with no door holds no lease, as an install does.
+        let visit = match &run.door {
+            Some(door) => {
+                let ask = Ask::new(CARGO_TEST, std::process::id(), run.command.clone());
+                Some(runtime.block_on(granted(door, &ask))?)
+            }
+            None => None,
+        };
         let ran = self.processes.output_within(&mut wrapped, run.ceiling);
-        runtime.block_on(visit.give_back());
+        if let Some(visit) = visit {
+            runtime.block_on(visit.give_back());
+        }
 
         match ran {
             Ok(output) if output.status.success() => Ok(TestOutcome::Passed),

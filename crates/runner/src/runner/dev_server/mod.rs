@@ -9,7 +9,7 @@
 //! shep's stop reaches it (ADR 0005).
 
 mod bump;
-mod install;
+pub(super) mod install;
 mod launch;
 
 pub(super) use bump::{Browsed, BrowserProof};

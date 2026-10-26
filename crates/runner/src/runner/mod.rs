@@ -5,7 +5,7 @@
 //! file, answers the maintainer's triggers, and runs the worker's turns.
 //! Every change is saved before it takes effect in memory.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -325,6 +325,10 @@ pub struct Runner {
     // of a call just started, kept in memory only until `take_started` hands
     // them out
     started: Vec<StepReport>,
+    // The work items whose worktree's packages failed to install, which the worker was told and
+    // this process does not try again: a worker's own install would be wiped by it. Kept in
+    // memory only
+    install_failed: BTreeSet<TicketId>,
     // The calls this process has in flight, kept in memory only
     flights: flight::Flights,
     // The browsers opened for turns about to launch, kept in memory only
@@ -639,6 +643,7 @@ impl Runner {
             last_acted: None,
             notes: told,
             started: Vec::new(),
+            install_failed: BTreeSet::new(),
             flights: flight::Flights::default(),
             opened: browser::Opened::default(),
             planned: dev_server::Planned::default(),
