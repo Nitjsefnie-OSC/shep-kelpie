@@ -933,7 +933,7 @@
       "id": 23,
       "type": "table",
       "title": "Tool errors by kind and role",
-      "description": "Tool calls the harness wrote as failures, counted over the dashboard's time range, by what made them fail and by the role that hit them, one row per project. The worker's are counted by kind. The reviewer's and the project manager's are one row each, with kind any. The row at the top is the friction to fix. other is a command that ran and failed, which is the worker's own work going wrong. Claude Code and pi calls of the worker, the reviewer and the project manager only.",
+      "description": "Tool calls the harness wrote as failures, counted over the dashboard's time range, by what made them fail and by the role that hit them, one row per project. The row at the top is the friction to fix. other is a command that ran and failed, which is the worker's own work going wrong. Claude Code and pi calls of the worker, the reviewer and the project manager only.",
       "gridPos": {
         "h": 8,
         "w": 12,

@@ -365,32 +365,6 @@ fn call_line(role: &str, kind: &str, harness: &str, ended: &str) -> Line {
 }
 
 #[test]
-fn only_the_worker_s_tool_errors_are_counted_by_kind_and_the_others_as_any() {
-    let (recorder, sink) = recorder();
-    for role in ["worker", "reviewer", "pm", "triager"] {
-        recorder.tool_error(role, "edit-miss");
-        recorder.tool_error(role, "timeout");
-    }
-    let series = |role, kind| {
-        sink.value(
-            "kelpie_tool_errors_total",
-            &[("kind", kind), ("role", role)],
-        )
-    };
-    assert_eq!(series("worker", "edit-miss"), Some(1.0));
-    assert_eq!(series("worker", "timeout"), Some(1.0));
-    assert_eq!(series("reviewer", "any"), Some(2.0));
-    assert_eq!(series("pm", "any"), Some(2.0));
-    assert_eq!(series("reviewer", "edit-miss"), None);
-    assert_eq!(series("pm", "timeout"), None);
-    assert_eq!(
-        series("triager", "any"),
-        None,
-        "a role whose are not counted adds none"
-    );
-}
-
-#[test]
 fn a_runner_with_every_role_and_harness_in_use_stays_under_the_cap() {
     let (recorder, sink) = recorder();
     // Each role on a harness it might have, with its kinds of call and two ways each ended. The
@@ -482,13 +456,13 @@ fn a_runner_with_every_role_and_harness_in_use_stays_under_the_cap() {
     });
     // The runner's lock: the seconds it was held, and the holds of at most a second and of all.
     recorder.lock_holds(1.5, 1, 2);
-    // The leases on five gateway models: the four series of each.
-    for model in ["qwen3-coder", "gpt-oss", "glm", "devstral", "gemma"] {
+    // Five gateway models' leases: four series each.
+    for model in ["a", "b", "c", "d", "e"] {
         recorder.model_lease_standing(model, 1, 1);
         recorder.model_lease_granted(model, 5);
     }
     // Every kind for each of the three roles whose tool calls are counted, and one for a role
-    // whose are not, which adds none. The worker's are kept by kind, the others' as `any`.
+    // whose are not, which adds none.
     const KINDS: [&str; 13] = [
         "guard-block",
         "hook-block",
@@ -542,8 +516,8 @@ fn a_runner_with_every_role_and_harness_in_use_stays_under_the_cap() {
     );
     assert_eq!(
         errors,
-        13 + 2,
-        "thirteen kinds for the worker, one `any` for each of the reviewer and the project manager, and none for the rest"
+        13 * 3,
+        "thirteen kinds for each of the three roles whose tool calls are counted, and none for the rest"
     );
     assert!(
         held.len() + not_driven < SERIES_CAP,
