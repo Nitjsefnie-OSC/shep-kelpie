@@ -44,6 +44,7 @@ impl Reviewer {
             window: ReviewWindow { reviews, hours },
             reviews_on_ready,
             rounds: self.rounds,
+            review_wait: self.review_wait,
         })
     }
 
@@ -55,6 +56,7 @@ impl Reviewer {
             ("hours", self.hours.is_some()),
             ("reviews_on_ready", self.reviews_on_ready.is_some()),
             ("rounds", self.rounds.is_some()),
+            ("review_wait", self.review_wait.is_some()),
         ];
         match set.iter().find(|(_, set)| *set) {
             Some((key, _)) => Err(at_key(
@@ -62,7 +64,7 @@ impl Reviewer {
                 key,
                 &format!(
                     "runs on {harness}, which takes no `bot`, `reviews`, `hours`, \
-                     `reviews_on_ready` or `rounds`: those are a review bot's, on \
+                     `reviews_on_ready`, `rounds` or `review_wait`: those are a review bot's, on \
                      `harness: bot`"
                 ),
             )),

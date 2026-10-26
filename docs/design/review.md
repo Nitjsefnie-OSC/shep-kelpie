@@ -32,7 +32,7 @@ Review passes, bots, rulings. CI and the merge are in merge.md.
 - Worker marks each bot thread `fixed` or `declined`; kelpie replies and resolves fixed ones, worker never posts. #367, `crates/core/src/work_item/threads.rs`
 - Merge yes accepts the threads it named. #455
 - Writer comments and review threads (owner, member, collaborator; other Apps ignored and logged) read at round start, green CI and while a merge ruling waits, batched into one noted turn; ambiguous ones become a `question` ruling; replies as #367; a comment while a merge ruling waits withdraws it as `no <note>`; 3 rounds per item then a `question` ruling. #368, `runner/talk/`
-- Bot passed over after far window, 2 silent hours or decline; re-read at green CI and every 5 min while merge ruling waits. #351, #399
+- Bot passed over after far window, its `review_wait` (agent file, minutes, default 45) with no review, or decline; re-read at green CI and every 5 min while merge ruling waits. A bot with no sign of its summon after `ANSWER_WAIT` that has never reviewed on the repo (`Forge::last_bot_review`) is passed over at once as `not-installed`; one with a sign (still reviewing) keeps the wait. `doctor` names each listed bot's last review, `MISSING` when never. #351, #399, #1320
 - Open bot threads above nit block `auto`; nits named apart, never block. #350, #351
 - Unheard summon resent once after 15 min, same lease. #122
 - CodeRabbit gets `full review` on a PR it read or after catch-up (label sees only new commits). Clean catch-up with `main` summons no bot (own diff unchanged; CI checks combined code). #100, #106

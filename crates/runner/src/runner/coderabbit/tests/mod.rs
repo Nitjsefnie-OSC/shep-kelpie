@@ -18,6 +18,7 @@ mod again;
 mod budget;
 mod full;
 mod replies;
+mod review_wait;
 mod skips;
 mod threads;
 
@@ -507,7 +508,7 @@ fn a_summon_nobody_answers_is_counted_spent_and_then_passed_over() {
 
     rig.clock.advance(REVIEW_WAIT - HEARD_WAIT);
     let silent = format!(
-        "it never reviewed {} in the two hours after its summon",
+        "it never reviewed {} in the wait its agent file allows after its summon",
         &head[..7]
     );
     assert_eq!(step(&runner).unwrap(), skipped(&silent));
@@ -552,7 +553,7 @@ fn a_bot_alone_that_never_answers_leaves_the_pass_unreviewed() {
         Some(StepReport::ReviewerSkipped { round: 1, .. })
     ));
     let why = format!(
-        "coderabbit was passed over: it never reviewed {} in the two hours after its summon",
+        "coderabbit was passed over: it never reviewed {} in the wait its agent file allows after its summon",
         &head[..7]
     );
     assert_eq!(

@@ -16,6 +16,9 @@ use crate::ports::{
 use crate::review_bot::{Activity, Login};
 use crate::settings::ForgeSlug;
 
+/// When the fake forge's review bot last reviewed, until a test sets it: 2025-10-09 08:53:20 UTC
+pub const LAST_REVIEWED: u64 = 1_760_000_000;
+
 /// A forge whose repo is public and whose every issue exists, unless a
 /// test says otherwise. Its board is empty until a test lists issues on it.
 #[derive(Debug, Clone)]
@@ -110,7 +113,8 @@ pub struct FakeForge {
     // Each write to the repo's labels or issues, such as `label made: in-progress`
     issue_writes: Arc<Mutex<Vec<String>>>,
     pushes: Arc<AtomicBool>,
-    bot_seen: Arc<AtomicBool>,
+    // When the review bot last reviewed on the repo, which it has until a test says not
+    bot_reviewed: Arc<Mutex<Option<Timestamp>>>,
     viewer_down: Arc<Mutex<Option<ForgeError>>>,
     // Every call made, and the board's reads among them
     asked: Arc<AtomicUsize>,
@@ -209,7 +213,7 @@ impl FakeForge {
             repo_labels: Arc::default(),
             issue_writes: Arc::default(),
             pushes: Arc::new(AtomicBool::new(true)),
-            bot_seen: Arc::new(AtomicBool::new(true)),
+            bot_reviewed: Arc::new(Mutex::new(Some(Timestamp(LAST_REVIEWED)))),
             viewer_down: Arc::default(),
             asked: Arc::default(),
             board_reads: Arc::default(),
@@ -461,9 +465,13 @@ impl Forge for FakeForge {
         Ok(self.pushes.load(Ordering::SeqCst))
     }
 
-    fn review_bot_seen(&self, _repo: &ForgeSlug, _login: Login<'_>) -> Result<bool, ForgeError> {
+    fn last_bot_review(
+        &self,
+        _repo: &ForgeSlug,
+        _login: Login<'_>,
+    ) -> Result<Option<Timestamp>, ForgeError> {
         self.ask()?;
-        Ok(self.bot_seen.load(Ordering::SeqCst))
+        Ok(*self.bot_reviewed.lock().unwrap())
     }
 
     fn open_pull_requests(&self, _repo: &ForgeSlug) -> Result<Vec<OpenPullRequest>, ForgeError> {

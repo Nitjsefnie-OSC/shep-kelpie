@@ -195,8 +195,12 @@ impl Forge for Guarded {
         self.forge.can_push(repo)
     }
 
-    fn review_bot_seen(&self, repo: &ForgeSlug, login: Login<'_>) -> Result<bool, ForgeError> {
-        self.forge.review_bot_seen(repo, login)
+    fn last_bot_review(
+        &self,
+        repo: &ForgeSlug,
+        login: Login<'_>,
+    ) -> Result<Option<Timestamp>, ForgeError> {
+        self.forge.last_bot_review(repo, login)
     }
 
     fn open_pull_requests(&self, repo: &ForgeSlug) -> Result<Vec<OpenPullRequest>, ForgeError> {
