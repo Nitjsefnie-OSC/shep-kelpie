@@ -3,10 +3,11 @@ use std::time::Duration;
 
 use serde_json::json;
 
-use crate::pacer::{HoldKind, RECHECK_SECS};
+use crate::pacer::{DayStart, HoldKind, RECHECK_SECS};
 use crate::ports::{CLEAN, Cost, MeterError, Role, Timestamp, Usage};
 use crate::runner::{Runner, StepReport, step};
 use crate::settings::AgentHarness;
+use crate::state::{ProjectState, StateStore};
 use crate::test::ticket;
 use crate::test::{Hold, Rig, Scripted, StandInEndpoint};
 
@@ -97,6 +98,56 @@ fn an_item_on_an_unlisted_implementer_paces_on_its_account_too() {
         pacer.get("claude").is_some(),
         "the listed implementer's account is read too: {pacer}"
     );
+}
+
+// The `named("shep", "")` rig, reopened on a Codex day that began with `used` percent of
+// its week spent, with a ready issue 7 labelled for `codex`, which the project does not list.
+fn codex_day_began(used: u32) -> (Rig, Mutex<Runner>) {
+    let (rig, runner) = named("shep", "");
+    let runner = reopened(&rig, runner, || {
+        let store = StateStore::new(rig.paths().state);
+        let mut state = store.load().unwrap().unwrap_or_else(ProjectState::new);
+        state.codex_pacing = Some(DayStart {
+            week_resets_at: Timestamp(Rig::EPOCH + 7 * Rig::DAY),
+            day: 0,
+            week_used_pct: used,
+        });
+        store.save(&state).unwrap();
+    });
+    rig.forge.list_ready(7, false);
+    rig.forge.label(7, "agent:codex");
+    (rig, runner)
+}
+
+#[test]
+fn a_ready_issue_on_an_unlisted_labelled_implementer_is_held_by_its_account() {
+    let (rig, runner) = codex_day_began(0);
+    // 15% of Codex's week since the day began, past its allowance of 100 / 7.
+    rig.codex_meter.set(Rig::utilization(15, 0));
+
+    let (kind, reason) = held(step(&runner).unwrap());
+    assert_eq!(kind, HoldKind::Allowance);
+    assert!(
+        reason.starts_with("today's Codex allowance of 14.3% of the week is spent (15%"),
+        "{reason}"
+    );
+    // The listed implementer's account is read as ever, and the labelled one's once.
+    assert_eq!((rig.meter.reads(), rig.codex_meter.reads()), (1, 1));
+    let status = rig.ask(&runner, "status", None);
+    assert_eq!(status["work_items"], json!([]));
+    let hold = json!([{ "reason": "paced", "issue": "7", "hold": reason }]);
+    assert_eq!(status["skipped"], hold);
+}
+
+#[test]
+fn a_ready_issue_on_an_unlisted_labelled_implementer_dispatches_when_its_account_is_clear() {
+    let (rig, runner) = codex_day_began(0);
+    rig.codex_meter.set(Rig::utilization(5, 0));
+
+    assert!(dispatched(&step(&runner).unwrap()));
+    assert_eq!((rig.meter.reads(), rig.codex_meter.reads()), (1, 1));
+    let status = rig.ask(&runner, "status", None);
+    assert_eq!(status["work_item"]["agent"], "codex");
 }
 
 #[test]

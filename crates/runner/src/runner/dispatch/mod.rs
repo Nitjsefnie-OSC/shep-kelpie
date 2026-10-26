@@ -279,6 +279,24 @@ impl Runner {
                 self.set_skipped(skipped);
                 return Ok(Begin::Label(found));
             }
+            // The agent its label names may be one the project does not list, whose
+            // account `pace_dispatch` has not read. A label that fails is `add`'s to refuse.
+            let labelled = (ready.iter().find(|i| i.ticket == ticket))
+                .and_then(|found| self.labelled_agent(ticket, &found.labels).ok());
+            if let Some((agent, _)) = labelled {
+                let pace = self.pace_agent(&agent)?;
+                if let Some(hold) = pace.reason() {
+                    skipped.push(Skip::Paced {
+                        issue: ticket,
+                        hold: hold.to_owned(),
+                    });
+                    skipped.sort_by_key(Skip::issue);
+                }
+                if let Some(held) = pace.holds() {
+                    self.set_skipped(skipped);
+                    return Ok(held);
+                }
+            }
             match self.add(ticket) {
                 Ok(agent) => {
                     self.pm_started(ticket);
