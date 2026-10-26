@@ -734,6 +734,7 @@ impl Forge for FakeForge {
 
     fn rerun_run(&self, _repo: &ForgeSlug, run: u64, rerun: Rerun) -> Result<(), ForgeError> {
         self.ask()?;
+        self.wait_if_held(held::At::Rerun);
         let mut ci = self.ci.lock().unwrap();
         ci.rerun_of_run(run, rerun).map_err(ForgeError::Failed)
     }

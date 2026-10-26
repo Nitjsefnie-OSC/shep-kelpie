@@ -511,6 +511,9 @@ fn a_trigger_is_answered_while_the_rate_limits_are_read() {
 
     let (reply, pass) = rig.asked_while_held(&runner, read, "add", Some("7"));
 
-    assert!(reply.is_some(), "the trigger waited for the rate limit read");
+    assert!(
+        reply.is_some(),
+        "the trigger waited for the rate limit read"
+    );
     pass.unwrap();
 }

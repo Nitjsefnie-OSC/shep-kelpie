@@ -365,3 +365,38 @@ fn a_red_run_older_than_the_one_rerun_is_not_the_rerun_failing() {
     assert_eq!(reports, []);
     assert!(rig.alerts.posts().is_empty());
 }
+
+// A rerun and the read of a log each wait their turn behind the login's pace, so `main`'s reds are
+// acted on with the lock let go: a trigger sent meanwhile is answered.
+#[test]
+fn a_trigger_is_answered_while_a_red_workflow_is_rerun() {
+    let rig = Rig::new("acme");
+    rig.forge
+        .set_branch_runs("main", vec![run("test", 91, "failure", Rig::EPOCH)]);
+    let runner = rig.open().unwrap();
+    let rerun = rig.forge.hold_next_rerun();
+
+    let (reply, pass) = rig.asked_while_held(&runner, rerun, "add", Some("7"));
+
+    assert!(reply.is_some(), "the trigger waited for the rerun");
+    pass.unwrap();
+    assert_eq!(rig.forge.run_reruns(), [91]);
+}
+
+#[test]
+fn a_trigger_is_answered_while_the_log_of_a_workflow_red_again_is_read() {
+    let (rig, runner) = red_test();
+    rig.forge.set_run_log_tail(91, &log_lines(1..=3));
+    rig.forge
+        .set_branch_runs("main", vec![run("test", 91, "failure", Rig::EPOCH)]);
+    rig.clock.advance(MAIN_CI_POLL.as_secs());
+    let read = rig.forge.hold_next_run_log_tail_read();
+
+    let (reply, pass) = rig.asked_while_held(&runner, read, "add", Some("7"));
+
+    assert!(reply.is_some(), "the trigger waited for the log");
+    pass.unwrap();
+    while step(&runner).unwrap().is_some() {}
+    let told = (rig.alerts.posts().into_iter()).any(|(_, alert)| alert.text.ends_with("line 3"));
+    assert!(told, "the notice carries the log the read returned");
+}

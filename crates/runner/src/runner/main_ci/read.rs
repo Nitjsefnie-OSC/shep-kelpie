@@ -1,14 +1,17 @@
-//! Reading `main`'s workflows with the runner's lock let go
+//! Reading `main`'s workflows, and acting on the red ones, with the runner's lock let go
 //!
 //! [`Runner::main_ci_job`] decides a read is due and copies what it needs, [`MainCiJob::run`]
-//! reads, and [`Runner::apply_main_ci`] works the red workflows out again on the state it finds
-//! and acts on them. A read the forge refuses waits as any failed read does and leaves what the
-//! state holds; a state that cannot be saved is read again at the next poll.
+//! reads, [`Runner::plan_acts`] works the red workflows out on the state it finds and lists the
+//! reruns and log reads they need, [`Acts::run`] makes those calls, and [`Runner::finish_main_ci`]
+//! works the red workflows out again and acts on them with the answers. A read the forge refuses
+//! waits as any failed read does and leaves what the state holds; a state that cannot be saved is
+//! read again at the next poll.
 
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use super::{Read, still_red};
-use crate::ports::{BranchRun, Forge, ForgeError, Workflow, WorkflowState};
+use crate::ports::{BranchRun, Forge, ForgeError, Rerun, Workflow, WorkflowState};
 use crate::runner::Runner;
 use crate::runner::trigger::lock;
 use crate::settings::ForgeSlug;
@@ -25,7 +28,75 @@ pub(in crate::runner) fn read_main_ci_off_lock(runner: &Mutex<Runner>) {
         return;
     };
     let read = job.run();
-    lock(runner).apply_main_ci(read);
+    let acts = lock(runner).plan_acts(read);
+    let Some(acts) = acts else {
+        return;
+    };
+    let done = acts.run();
+    lock(runner).finish_main_ci(acts.runs, done);
+}
+
+/// The calls the red workflows of a read need, and what they need them for
+struct Acts {
+    forge: Arc<dyn Forge>,
+    repo: ForgeSlug,
+    runs: Runs,
+    plan: Vec<Step>,
+}
+
+/// What one failing workflow's latest run needs
+struct Step {
+    run: u64,
+    /// Its failed jobs are to be rerun
+    rerun: bool,
+    /// It has not been told, so the end of its log is read where it is to be
+    log: bool,
+}
+
+/// What the forge answered about one run
+#[derive(Default)]
+pub(super) struct Answers {
+    /// The rerun, where one was asked
+    pub rerun: Option<Result<(), ForgeError>>,
+    /// The failed log, where one was read
+    pub log: Option<String>,
+}
+
+/// The answers of a plan, by run
+pub(super) type Done = HashMap<u64, Answers>;
+
+impl Acts {
+    fn run(&self) -> Done {
+        let mut done = Done::new();
+        for step in &self.plan {
+            let mut answers = Answers::default();
+            let mut read_log = step.log;
+            if step.rerun {
+                let rerun = self.forge.rerun_run(&self.repo, step.run, Rerun::Failed);
+                // A rerun that went through, or waits, leaves the log for a later read
+                read_log &= !matches!(
+                    rerun,
+                    Ok(()) | Err(ForgeError::Held(_) | ForgeError::Limited { .. })
+                );
+                answers.rerun = Some(rerun);
+            }
+            if read_log {
+                answers.log = Some(self.log(step.run));
+            }
+            done.insert(step.run, answers);
+        }
+        done
+    }
+
+    // The failed log of run `run`, or none where it cannot be read
+    fn log(&self, run: u64) -> String {
+        self.forge
+            .run_log_tail(&self.repo, run)
+            .unwrap_or_else(|e| {
+                eprintln!("cannot read the log of run {run} on main: {e}");
+                String::new()
+            })
+    }
 }
 
 /// A read of `main`'s runs the runner decided was due, which needs no lock
@@ -73,18 +144,42 @@ impl Runner {
         })
     }
 
-    // Records the read and acts on what it found.
-    fn apply_main_ci(&mut self, runs: Result<Runs, ForgeError>) {
+    // Records the read and lists the calls its red workflows need, none where the read failed
+    fn plan_acts(&mut self, runs: Result<Runs, ForgeError>) -> Option<Acts> {
         let now = self.ports.clock.now();
-        let read = runs.and_then(|runs| self.red_after(runs));
+        let read = runs
+            .as_ref()
+            .map_err(Clone::clone)
+            .and_then(|runs| self.red_after(runs));
         self.looks
             .main_ci_read(now, read.is_ok(), self.forge_hold.until(now));
-        let Ok(read) = read else {
+        let (read, runs) = (read.ok()?, runs.ok()?);
+        let plan = (read.red.iter())
+            .filter(|r| read.failing.contains(&r.workflow))
+            .map(|r| Step {
+                run: r.run,
+                rerun: !r.rerun_done(),
+                log: !r.noticed,
+            })
+            .collect();
+        Some(Acts {
+            forge: Arc::clone(&self.ports.forge),
+            repo: self.remote.clone(),
+            runs,
+            plan,
+        })
+    }
+
+    // Works the red workflows out again on the state as it is now and acts on them with `done`
+    fn finish_main_ci(&mut self, runs: Runs, mut done: Done) {
+        let now = self.ports.clock.now();
+        let Ok(read) = self.red_after(&runs) else {
             return;
         };
         let mut next = self.state.clone();
         next.red = read.red;
-        let notices = self.act_on_reds(&read.failing, &mut next.red, &read.cleared, now);
+        let notices =
+            Runner::act_on_reds(&read.failing, &mut next.red, &read.cleared, &mut done, now);
         next.notices.extend(notices);
         if next.red == self.state.red {
             return;
@@ -97,12 +192,12 @@ impl Runner {
 
     // The red workflows after `runs`, worked out on the state as it is now, which the forge's
     // list of workflows then thins.
-    fn red_after(&self, runs: Runs) -> Result<Read, ForgeError> {
+    fn red_after(&self, runs: &Runs) -> Result<Read, ForgeError> {
         let mut read = still_red(&self.state.red, &runs.runs);
         if read.red.is_empty() {
             return Ok(read);
         }
-        let workflows = runs.workflows.ok_or_else(|| {
+        let workflows = runs.workflows.as_ref().ok_or_else(|| {
             ForgeError::Failed("a workflow went red while the workflows were not read".into())
         })?;
         read.red.retain(|r| {

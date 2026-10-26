@@ -37,6 +37,8 @@ pub enum At {
     IssueComments,
     // The read of the login's rate limits, which a pass makes once a minute
     RateLimit,
+    // The rerun of a workflow's failed jobs, which a workflow red on `main` is given
+    Rerun,
 }
 
 // Who reached the forge and who lets it go
@@ -139,6 +141,11 @@ impl FakeForge {
     /// Holds the next read of the login's rate limits open, and lets every other call through
     pub fn hold_next_rate_limit_read(&self) -> HeldCall {
         self.hold_open(At::RateLimit)
+    }
+
+    /// Holds the next rerun of a workflow's failed jobs open, and lets every other call through
+    pub fn hold_next_rerun(&self) -> HeldCall {
+        self.hold_open(At::Rerun)
     }
 
     fn hold_open(&self, at: At) -> HeldCall {
