@@ -398,6 +398,28 @@ pub fn repo_priority<'a>(repo: &'a [String], value: &str) -> Option<&'a str> {
     repo_label(repo, &format!("{PRIORITY_LABEL}{value}")).or_else(|| repo_label(repo, value))
 }
 
+// The position in [`PRIORITIES`] of the priority `label` names, as the board's
+// `priority: P2` or the bare `P2`, in any case
+fn priority_index(label: &str) -> Option<usize> {
+    PRIORITIES.iter().position(|p| {
+        let bare = p.strip_prefix(PRIORITY_LABEL).unwrap_or(p);
+        label.eq_ignore_ascii_case(p) || label.eq_ignore_ascii_case(bare)
+    })
+}
+
+/// Whether `label` names a priority, as the board's `priority: P2` or the bare
+/// `P2`, in any case
+#[must_use]
+pub fn is_priority_label(label: &str) -> bool {
+    priority_index(label).is_some()
+}
+
+/// Whether `a` and `b` name the same priority, whichever form each is in
+#[must_use]
+pub fn same_priority(a: &str, b: &str) -> bool {
+    priority_index(a).is_some_and(|index| priority_index(b) == Some(index))
+}
+
 /// Sorts `ready` into the board's order: `order` first, then an issue it
 /// omits by the board rule, which is priority, then oldest by id
 pub fn rule_order(ready: &mut [ReadyIssue], order: &[TicketId]) {

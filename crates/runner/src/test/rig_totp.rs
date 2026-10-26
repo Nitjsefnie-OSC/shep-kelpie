@@ -1,5 +1,7 @@
 //! The rig's authenticator secret and the codes it makes
 
+use std::io::Write;
+
 use super::*;
 
 impl Rig {
@@ -11,12 +13,8 @@ impl Rig {
         let folder = self.paths().totp;
         crate::totp::private_dir(&folder).unwrap();
         let secret = folder.join("secret");
-        std::fs::write(&secret, format!("{}\n", Self::TOTP_SECRET)).unwrap();
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&secret, std::fs::Permissions::from_mode(0o600)).unwrap();
-        }
+        let mut file = crate::owner_only::create_private(&secret).unwrap();
+        writeln!(file, "{}", Self::TOTP_SECRET).unwrap();
     }
 
     /// The maintainer's authenticator code at `at`

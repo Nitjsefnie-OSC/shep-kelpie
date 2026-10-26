@@ -1,6 +1,7 @@
 //! What the board reads from git: heads, each branch's files, the
-//! conflicts between two branches, the files on `main`, and for a project
-//! manager each branch's diff
+//! conflicts of each branch with `main` and between two, less the files
+//! `main` clashes in, the files on `main`, and for a project manager each
+//! branch's diff
 //!
 //! A board write takes its questions out of the runner as a [`GitJob`] and
 //! runs them with the runner's lock let go. Every answer is kept by the
@@ -50,7 +51,10 @@ pub(in crate::runner) struct GitAnswers {
     pub(super) main: Option<String>,
     /// The files each work item's branch changes, where git could say
     pub(super) files: BTreeMap<TicketId, Vec<String>>,
-    /// Each pair of work items whose branches do not merge cleanly
+    /// The files each work item's branch conflicts with `main` in
+    pub(super) behind: BTreeMap<TicketId, Vec<String>>,
+    /// Each pair of work items, both clean with `main`, whose branches do not
+    /// merge cleanly
     pub(super) merges: BTreeMap<(TicketId, TicketId), Merge>,
     /// The paths each issue's body names, as files on `main`
     pub(super) named: BTreeMap<TicketId, Vec<String>>,
@@ -85,17 +89,33 @@ impl GitJob {
                 }
             }
         }
-        // A branch still at `main` has nothing to merge.
+        // A branch still at `main` has nothing to merge. One that conflicts
+        // with `main` is behind it, and the files it conflicts in are `main`'s
+        // clash: they are left out of its pairs, since it clashes there with
+        // any branch that holds `main`'s change. Its other clashes stay.
         let moved: Vec<&(TicketId, String)> = heads
             .iter()
             .filter(|(_, head)| Some(head) != main.as_ref())
             .collect();
+        let mut behind = BTreeMap::new();
+        for (ticket, head) in &moved {
+            let found = main.as_deref().and_then(|m| git.conflicts(&repo, m, head));
+            if let Some(found) = found.filter(|found| !found.is_empty()) {
+                behind.insert(*ticket, found);
+            }
+        }
+        let mains_clash = |ticket: &TicketId| behind.get(ticket).map_or(&[][..], Vec::as_slice);
         let mut merges = BTreeMap::new();
         for (i, (a, head_a)) in moved.iter().map(|p| (p.0, &p.1)).enumerate() {
             for (b, head_b) in moved[i + 1..].iter().map(|p| (p.0, &p.1)) {
                 let merge = match git.conflicts(&repo, head_a, head_b) {
-                    Some(found) if found.is_empty() => continue,
-                    Some(found) => Merge::Conflicts(found),
+                    Some(mut found) => {
+                        found.retain(|file| ![a, b].iter().any(|t| mains_clash(t).contains(file)));
+                        if found.is_empty() {
+                            continue;
+                        }
+                        Merge::Conflicts(found)
+                    }
                     None => Merge::Unknown,
                 };
                 merges.insert((a.min(b), a.max(b)), merge);
@@ -127,6 +147,7 @@ impl GitJob {
             git,
             main,
             files,
+            behind,
             merges,
             named,
             bodies,
@@ -151,8 +172,7 @@ impl Git {
     /// Every file on `main`
     fn tree(&mut self, repo: &Path, main: &str) -> &[String] {
         if self.tree.as_ref().is_none_or(|(at, _)| at != main) {
-            let files = read(repo, &["ls-tree", "-r", "--name-only", "-z", main]);
-            self.tree = Some((main.to_owned(), files.map(names).unwrap_or_default()));
+            self.tree = Some((main.to_owned(), files_at(repo, main)));
         }
         self.tree.as_ref().map_or(&[], |(_, files)| files)
     }
@@ -170,8 +190,8 @@ impl Git {
         Some(files)
     }
 
-    /// The files in conflict merging heads `a` and `b`, empty when they
-    /// merge cleanly, and `None` when git cannot say
+    /// The files in conflict merging commits `a` and `b`, two heads or a head
+    /// and `main`, empty when they merge cleanly, and `None` when git cannot say
     pub(super) fn conflicts(&mut self, repo: &Path, a: &str, b: &str) -> Option<Vec<String>> {
         let key = (a.min(b).to_owned(), a.max(b).to_owned());
         if let Some(files) = self.merges.get(&key) {
@@ -208,9 +228,10 @@ impl Git {
     /// Forgets every answer about a commit not in `heads` or not on `main`
     fn keep(&mut self, main: Option<&str>, heads: &BTreeSet<String>) {
         let kept = |h: &String| heads.contains(h);
+        let merged = |h: &String| kept(h) || Some(h.as_str()) == main;
         self.diffs
             .retain(|(at, head), _| Some(at.as_str()) == main && kept(head));
-        self.merges.retain(|(a, b), _| kept(a) && kept(b));
+        self.merges.retain(|(a, b), _| merged(a) && merged(b));
         self.patches
             .retain(|(at, head, _), _| Some(at.as_str()) == main && kept(head));
     }
@@ -236,6 +257,17 @@ impl Git {
         self.patches.insert(key, diff.clone());
         Ok(diff)
     }
+}
+
+/// Every file on `origin/<base>` as last fetched, none where git cannot say
+pub(in crate::runner) fn files_on(repo: &Path, base: &str) -> Vec<String> {
+    Git::main(repo, base).map_or_else(Vec::new, |main| files_at(repo, &main))
+}
+
+// Every file at commit `at`.
+fn files_at(repo: &Path, at: &str) -> Vec<String> {
+    let files = read(repo, &["ls-tree", "-r", "--name-only", "-z", at]);
+    files.map(names).unwrap_or_default()
 }
 
 fn read(repo: &Path, args: &[&str]) -> Option<String> {
@@ -284,5 +316,18 @@ mod tests {
         let other = "89abcdef0123456789abcdef0123456789abcdef";
         assert_eq!(cache.conflicts(dir.path(), missing, other), None);
         assert!(cache.merges.is_empty(), "an unknown merge is not kept");
+    }
+
+    #[test]
+    fn the_answer_for_a_head_against_main_is_kept_while_both_stand() {
+        let mut cache = Git::default();
+        cache
+            .merges
+            .insert(("aaa".into(), "bbb".into()), vec!["README.md".into()]);
+        let heads = BTreeSet::from(["bbb".to_owned()]);
+        cache.keep(Some("aaa"), &heads);
+        assert_eq!(cache.merges.len(), 1, "main and the head stand");
+        cache.keep(Some("ccc"), &heads);
+        assert!(cache.merges.is_empty(), "main moved on");
     }
 }

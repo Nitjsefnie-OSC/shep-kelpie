@@ -1,13 +1,12 @@
 use std::collections::BTreeMap;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
-#[cfg(unix)]
-use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::sync::{Arc, mpsc};
 use std::time::Duration;
 
 use serde_json::json;
+use shep_kelpie_test_support::open_to_others;
 
 use super::setup::{Flow, serve};
 use super::tokens::{Jwt, base64url, signing_input};
@@ -25,9 +24,8 @@ fn slug(s: &str) -> ForgeSlug {
     ForgeSlug::try_from(s.to_owned()).unwrap()
 }
 
-#[cfg(unix)]
-fn mode(path: &Path) -> u32 {
-    std::fs::metadata(path).unwrap().permissions().mode() & 0o777
+fn owner_only(path: &Path) -> bool {
+    crate::owner_only::is_owner_only(path).unwrap()
 }
 
 // One GET of `target` on the local page at `port`: its status and body.
@@ -67,7 +65,6 @@ fn serving(home: &Path, github: &FakeGithub) -> (u16, mpsc::Receiver<std::io::Re
     (port, ended)
 }
 
-#[cfg(unix)]
 #[test]
 fn a_callback_with_another_state_or_host_is_refused_and_the_right_one_keeps_the_app() {
     use crate::test::PEM;
@@ -115,9 +112,9 @@ fn a_callback_with_another_state_or_host_is_refused_and_the_right_one_keeps_the_
 
     let owner = Owner::try_from("maintainer").unwrap();
     let kept = home.path().join("github/maintainer");
-    assert_eq!(mode(&kept.join("key.pem")), 0o600);
-    assert_eq!(mode(&kept), 0o700);
-    assert_eq!(mode(&home.path().join("github")), 0o700);
+    assert!(owner_only(&kept.join("key.pem")));
+    assert!(owner_only(&kept));
+    assert!(owner_only(&home.path().join("github")));
     assert_eq!(std::fs::read_to_string(kept.join("key.pem")).unwrap(), PEM);
     let record = std::fs::read_to_string(kept.join("app.json")).unwrap();
     assert!(!record.contains("s3cr3t"), "{record}");
@@ -161,59 +158,42 @@ fn a_failed_conversion_or_another_owners_app_keeps_nothing_and_the_flow_waits_on
     assert_eq!(github.asked().len(), 3);
 }
 
-#[cfg(unix)]
 #[test]
-fn saving_makes_the_folders_private_and_refuses_a_link() {
+fn saving_makes_the_folders_private() {
     let home = tempfile::tempdir().unwrap();
     let github = FakeGithub::new(FakeClock::at(0), "shep-pm");
     let folder = home.path().join("github/shep-pm");
     std::fs::create_dir_all(&folder).unwrap();
     for open in [home.path().join("github"), folder.clone()] {
-        std::fs::set_permissions(&open, std::fs::Permissions::from_mode(0o755)).unwrap();
+        open_to_others(&open);
+        assert!(!owner_only(&open));
     }
     let apps = Apps::under(home.path());
 
     let app = apps.save(&github.conversion()).unwrap();
 
-    assert_eq!(mode(&folder), 0o700);
-    assert_eq!(mode(&home.path().join("github")), 0o700);
+    assert!(owner_only(&folder));
+    assert!(owner_only(&home.path().join("github")));
+    assert!(owner_only(&apps.key(&Owner::try_from("shep-pm").unwrap())));
     let owner = Owner::try_from("shep-pm").unwrap();
     assert_eq!(apps.get(&owner), Ok(Some(app)));
+}
 
+#[cfg(unix)]
+#[test]
+fn saving_refuses_a_folder_that_is_a_link() {
+    let home = tempfile::tempdir().unwrap();
+    let github = FakeGithub::new(FakeClock::at(0), "shep-pm");
+    let folder = home.path().join("github/shep-pm");
+    std::fs::create_dir_all(home.path().join("github")).unwrap();
     let elsewhere = tempfile::tempdir().unwrap();
-    std::fs::remove_dir_all(&folder).unwrap();
     std::os::unix::fs::symlink(elsewhere.path(), &folder).unwrap();
+
     assert_eq!(
-        apps.save(&github.conversion()),
+        Apps::under(home.path()).save(&github.conversion()),
         Err(StoreError::Exposed(folder))
     );
     assert_eq!(std::fs::read_dir(elsewhere.path()).unwrap().count(), 0);
-}
-
-// Until #1264, no key is kept or read on Windows, rather than one others may read.
-#[cfg(windows)]
-#[test]
-fn no_app_is_kept_or_read_without_an_owner_only_acl() {
-    let home = tempfile::tempdir().unwrap();
-    let github = FakeGithub::new(FakeClock::at(0), "shep-pm");
-    let apps = Apps::under(home.path());
-    let owner = Owner::try_from("shep-pm").unwrap();
-    assert_eq!(apps.get(&owner), Ok(None));
-
-    let StoreError::Unusable(why) = apps.save(&github.conversion()).unwrap_err() else {
-        panic!("a refusal is not an exposed folder");
-    };
-    assert!(why.contains("#1264"), "{why}");
-    assert!(!apps.key(&owner).exists());
-    assert_eq!(apps.get(&owner), Ok(None));
-
-    let folder = home.path().join("github/shep-pm");
-    std::fs::create_dir_all(&folder).unwrap();
-    std::fs::write(folder.join("app.json"), "{}").unwrap();
-    let StoreError::Unusable(why) = apps.get(&owner).unwrap_err() else {
-        panic!("a refusal is not an exposed folder");
-    };
-    assert!(why.contains("#1264"), "{why}");
 }
 
 #[test]
@@ -259,7 +239,6 @@ fn an_org_s_manifest_goes_to_the_org_s_new_app_page() {
     );
 }
 
-#[cfg(unix)]
 #[test]
 fn setup_again_for_an_owner_with_an_app_stops_unless_replacing() {
     use super::setup::may_register;
@@ -282,7 +261,7 @@ fn setup_again_for_an_owner_with_an_app_stops_unless_replacing() {
     assert_eq!(may_register(&apps, &owner, true), Ok(None));
 
     let key = home.path().join("github/shep-pm/key.pem");
-    std::fs::set_permissions(&key, std::fs::Permissions::from_mode(0o644)).unwrap();
+    open_to_others(&key);
     let warning = may_register(&apps, &owner, true).unwrap().unwrap();
     assert!(warning.starts_with("warning: "), "{warning}");
     assert!(
@@ -566,14 +545,13 @@ fn no_app_or_no_install_says_which() {
     tokens.token(&slug("Shep-PM/Koji")).unwrap();
 }
 
-#[cfg(unix)]
 #[test]
 fn a_key_others_may_read_is_refused() {
     let home = tempfile::tempdir().unwrap();
     let github = FakeGithub::new(FakeClock::at(0), "shep-pm");
     github.registered(home.path(), "shep-pm/koji");
     let key = home.path().join("github/shep-pm/key.pem");
-    std::fs::set_permissions(&key, std::fs::Permissions::from_mode(0o644)).unwrap();
+    open_to_others(&key);
 
     let err = github
         .tokens(home.path())
