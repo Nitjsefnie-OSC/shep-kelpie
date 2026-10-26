@@ -42,9 +42,15 @@ fn the_apps_key_never_reaches_a_worker() {
     assert!(fence.env.values().all(|v| !v.contains(key)));
     let shep = rig.home.path().join("shep");
     let denied = seen.sandbox["filesystem"]["denyRead"].as_array().unwrap();
+    // The whole home is denied whole, so the shepherd's home needs no rule of
+    // its own, and the App's key folder is denied around the worker's own.
     assert!(
-        denied.contains(&json!(format!("{}/**", shep.display()))),
+        denied.contains(&json!(format!("{}/**", rig.home.path().display()))),
         "{denied:?}"
+    );
+    assert!(
+        !denied.contains(&json!(format!("{}/**", shep.display()))),
+        "the home already covers it: {denied:?}"
     );
     let allowed = seen.sandbox["filesystem"]["allowRead"].to_string();
     assert!(!allowed.contains("github"), "{allowed}");

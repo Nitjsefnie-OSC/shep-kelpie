@@ -29,6 +29,7 @@ fn the_sandbox_reads_the_dependency_sources_a_call_is_given_and_no_credential_of
         &Files::of(&call),
         &upstream,
         &w.path("forwarder.sock"),
+        Path::new("/nowhere/pi"),
         &[],
     );
     for folder in &sources {

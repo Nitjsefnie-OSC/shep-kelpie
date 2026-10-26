@@ -9,6 +9,8 @@ use crate::settings::{BuildDir, EnvName, GuardHook, NonBlank};
 use std::collections::BTreeMap;
 use std::path::Path;
 
+mod home;
+
 trait Rendered {
     fn settings(&self) -> Value;
 }
@@ -61,6 +63,7 @@ fn profile<'a>(hooks: &'a [GuardHook], domains: &'a [NonBlank]) -> WorkerProfile
         allowed_domains: domains,
         registries: &[],
         build_env: &NO_BUILD_ENV,
+        home: Path::new("/Users/me"),
         shep_home: Path::new("/srv/shep"),
         door: Path::new("/k/dog/lease.sock"),
         token: None,
@@ -146,68 +149,6 @@ fn with_no_app_a_worker_runs_as_the_maintainer_and_its_git_still_skips_housekeep
     );
     assert!(!fence.no_read.iter().any(|p| p.contains(".config/gh")));
     assert!(!fence.no_commands.contains(&"security".to_owned()));
-}
-
-// A `KELPIE_HOME` set outside the shepherd's home holds the TOTP secret
-// and other projects' state just the same.
-#[test]
-fn a_kelpie_home_outside_the_shepherds_is_denied_around_the_workers_own() {
-    let dir = tempfile::tempdir().unwrap();
-    let (kelpie, shep) = (dir.path().join("k"), dir.path().join("shep"));
-    let (worktree, build) = (
-        kelpie.join("koji/worktrees/7"),
-        kelpie.join("koji/builds/7"),
-    );
-    for folder in [
-        &worktree,
-        &build,
-        &kelpie.join("totp"),
-        &kelpie.join("rotom"),
-        &shep,
-    ] {
-        std::fs::create_dir_all(folder).unwrap();
-    }
-    let s = WorkerProfile {
-        worktree: &worktree,
-        build: &build,
-        git_common_dir: Path::new("/r/.git"),
-        git_dir: Path::new("/r/.git/worktrees/7"),
-        branch: "kelpie/7",
-        base: "main",
-        kelpie_pushes: false,
-        kelpie: Path::new("/opt/kelpie"),
-        skills: &kelpie.join("shep/skills"),
-        kelpie_home: &kelpie,
-        repo: Path::new("/r"),
-        guard_hooks: &[],
-        allowed_domains: &[],
-        registries: &[],
-        build_env: &BTreeMap::new(),
-        shep_home: &shep,
-        door: Path::new("/s/kelpie/dog/lease.sock"),
-        token: None,
-    }
-    .settings();
-
-    let files = &s["sandbox"]["filesystem"];
-    let denied = strings(&files["denyRead"]);
-    for home in [&kelpie, &shep] {
-        assert!(
-            denied.contains(&format!("{}/**", home.display()).as_str()),
-            "{denied:?}"
-        );
-    }
-    assert!(strings(&files["allowRead"]).contains(&worktree.to_str().unwrap()));
-    let deny = strings(&s["permissions"]["deny"]);
-    for rule in ["totp/**", "rotom/**"] {
-        let rule = format!("Read(/{}/{rule})", kelpie.display());
-        assert!(deny.contains(&rule.as_str()), "{rule} not in {deny:?}");
-    }
-    let kelpie_rule = format!("Read(/{}/**)", kelpie.display());
-    assert!(
-        !deny.contains(&kelpie_rule.as_str()),
-        "it would hide the worktree"
-    );
 }
 
 fn strings(v: &Value) -> Vec<&str> {
@@ -312,6 +253,7 @@ fn build_env_points_into_the_build_folder_beside_cargo() {
         allowed_domains: &[],
         registries: &[],
         build_env: &build_env,
+        home: Path::new("/Users/me"),
         shep_home: Path::new("/srv/shep"),
         door: Path::new("/k/dog/lease.sock"),
         token: None,
