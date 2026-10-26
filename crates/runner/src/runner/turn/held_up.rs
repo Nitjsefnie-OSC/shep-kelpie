@@ -33,6 +33,8 @@ pub(in crate::runner) enum Reason {
     Token,
     /// The runner is draining
     Draining,
+    /// A pause gave up and kept the turn it ended stopped for a while
+    PauseHeld,
     /// The maintainer's `attach` holds the work item
     Attached,
     /// Its build folder or the disk is still past a `builds` limit after the
@@ -50,6 +52,9 @@ impl Reason {
             Self::Paced(why) => format!("held by the pacer: {why}"),
             Self::Token => "waiting for a GitHub token, which GitHub is not giving just now".into(),
             Self::Draining => "the runner is draining, so no turn starts".into(),
+            Self::PauseHeld => {
+                "a pause gave up, so the turn it ended stays stopped for a while".into()
+            }
             Self::Attached => "attached by the maintainer, so no turn starts".into(),
             Self::Builds(why) => format!("held by the `builds` limits: {why}"),
         }

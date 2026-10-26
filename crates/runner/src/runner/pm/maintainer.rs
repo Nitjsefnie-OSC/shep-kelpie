@@ -135,6 +135,7 @@ impl Runner {
     /// [`PmError`] when the project has no project manager, the note is
     /// blank, or it cannot be saved.
     pub fn tell(&mut self, note: &str) -> Result<(), PmError> {
+        self.looks.poll_reset();
         if self.agents.pm.is_none() {
             return Err(PmError::NotSetUp);
         }

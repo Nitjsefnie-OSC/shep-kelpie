@@ -10,7 +10,7 @@ use crate::runner::{StepReport, step};
 // A dog that never grants, or a book the runner cannot read, holds the pass
 // no longer than a bot that never answers.
 #[test]
-fn a_lease_never_granted_passes_the_bot_over_after_two_hours() {
+fn a_lease_never_granted_passes_the_bot_over_after_its_review_wait() {
     let (rig, runner, _) = reviewed_by_qwen("shep");
     rig.leases.withhold(true);
     let started = now(&rig);
@@ -23,7 +23,7 @@ fn a_lease_never_granted_passes_the_bot_over_after_two_hours() {
     rig.clock.advance(1);
     assert_eq!(
         step(&runner).unwrap(),
-        skipped("it could not be summoned in the two hours after its round began")
+        skipped("it could not be summoned in the wait its agent file allows after its round began")
     );
     assert_eq!(labels(&rig), []);
     let status = rig.ask(&runner, "status", None);
@@ -108,11 +108,11 @@ fn refusals_inside_the_hour_do_not_restart_the_wait_to_summon() {
         Some(StepReport::SummonRefused { .. })
     ));
     rig.clock.advance(REVIEW_WAIT - 31);
-    assert_eq!(step(&runner).unwrap(), None, "still inside the two hours");
+    assert_eq!(step(&runner).unwrap(), None, "still inside the wait");
     rig.clock.advance(1);
     assert_eq!(
         step(&runner).unwrap(),
-        skipped("it could not be summoned in the two hours after its round began")
+        skipped("it could not be summoned in the wait its agent file allows after its round began")
     );
     let skipped = &rig.ask(&runner, "status", None)["work_item"]["bots_skipped"];
     assert_eq!(skipped[0]["since"], json!(started));

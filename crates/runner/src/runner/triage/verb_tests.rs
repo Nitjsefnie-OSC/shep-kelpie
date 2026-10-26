@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use serde_json::{Value, json};
 
-use super::comment::MARKER;
+use super::marker::MARKER;
 use super::pick_tests::{issue, list, rig_with, triaging};
 use crate::github::ApiError;
 use crate::ports::{Role, Timestamp};

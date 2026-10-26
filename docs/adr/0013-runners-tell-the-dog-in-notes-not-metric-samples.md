@@ -9,7 +9,7 @@ shep 0.15.0 has a message for that (shep-pm/shep#913, shipped in shep-pm/shep#91
 The decision:
 
 - Runners send their lease and window totals as notes alone, under the same names and values (`crates/core/src/lease/wire.rs`, `crates/adapters/src/adapters/leases.rs`). Like a sample, a note never blocks and may be dropped under backpressure, so the totals stay running totals.
-- The dog subscribes to `channel.note` and `channel.metric`, and reads both into the same desk (`crates/dog/src/dog/link.rs`, `crates/dog/src/dog/mod.rs`). An upgrade restarts the dog before its runners, so for one release a runner still on the old build keeps being granted. A later release removes the `channel.metric` path.
+- The dog subscribes to `channel.note` and `channel.metric`, and reads both into the same desk (`crates/dog/src/dog/link.rs`, `crates/dog/src/dog/mod.rs`). An upgrade restarts the dog before its runners, so for one release a runner still on the old build keeps being granted. A later release removes the `channel.metric` path. #1334 removed it: the dog subscribes to `channel.note` and `process.*` only, as the metric stream is every runner's every series each minute and made the dog's stream lag.
 - Kelpie requires shep 0.15.0. Its shep version check refuses an older shepherd, which would drop every note as malformed.
 
 ## Considered options
@@ -22,3 +22,5 @@ The decision:
 
 - A dog from a build before this one hears no runner on this build. `shep kelpie upgrade` restarts the dog first, so an upgrade keeps granting, but running a new runner beside an old dog does not.
 - Numbers kelpie sends for the maintainer's graphs stay metric samples. Notes are only for what the dog reads, so they never reach the metrics store.
+
+ADR 0017 adds a socket between a runner and kelpie's own verbs, not the one declined here between a runner and the dog: the dog keeps its notes.

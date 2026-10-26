@@ -1,7 +1,7 @@
 //! A runner's look at its own tables, at start and each time it wakes
 //!
 //! Reading them each wake is how a change made in lookout reaches a running
-//! runner: within a minute when idle, and at the next wake after a step.
+//! runner: within a minute when idle, and within `INTERVAL` while it works.
 //! The agent files are looked at with them, so an edit to one lands the same way.
 //! A read that fails keeps the settings in effect and says so once. So does a
 //! change the runner refuses, a table that fails to load, or a moved

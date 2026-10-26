@@ -178,8 +178,16 @@ impl Runner {
         }
         // A run that marking the draft ready started is waited for; before
         // that, anything but green withdraws the yes.
+        let unchecked = match pr.checks == Checks::None && ci {
+            true => match self.expects_no_checks(&head) {
+                Ok(expected) => expected,
+                Err(begin) => return Ok(*begin),
+            },
+            false => false,
+        };
         let green = match pr.checks {
             _ if !ci => true,
+            Checks::None if unchecked => true,
             Checks::Passed | Checks::Skipped => true,
             Checks::None | Checks::Pending(_) if readied.is_some() => false,
             Checks::None | Checks::Pending(_) | Checks::Failed(_) => {

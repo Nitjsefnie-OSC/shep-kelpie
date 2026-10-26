@@ -31,16 +31,16 @@ pub struct Ci {
     #[serde(default)]
     pub fix_attempts: FixAttempts,
     /// How many minutes a check may sit queued or in progress before kelpie
-    /// reruns its workflow run
+    /// reruns its workflow run, and a head with no check at all waits before a
+    /// ruling
     ///
-    /// GitHub sometimes leaves one job of a finished run queued, and it never
-    /// starts, or in progress, and it never concludes. A work item's check
-    /// still waiting after this long, counted from when kelpie began waiting
-    /// on the head, gets its whole run rerun once, and the count starts again
-    /// from the rerun. Still waiting after that, kelpie raises a
-    /// `check-queued` ruling. The forge refuses a rerun of a run still going,
-    /// so a check that is really running is not rerun for being slow. 60 when
-    /// absent.
+    /// GitHub sometimes leaves one job of a finished run queued or in progress
+    /// for good. A check still waiting after this long, counted from when
+    /// kelpie began waiting on the head, has its whole run rerun once, and
+    /// the count starts again from the rerun; still waiting after that, kelpie
+    /// raises `check-queued`. A head with no check at all raises `no-checks`
+    /// after this long when `origin/main` has a workflow that runs on a pull
+    /// request, and goes on as skipped at once when it has none. 60 when absent.
     #[serde(default = "default_queued_minutes")]
     pub queued_minutes: NonZeroU32,
     /// A command that runs one failing test a reviewer wrote, with the test's

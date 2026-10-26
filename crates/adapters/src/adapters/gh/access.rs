@@ -3,7 +3,7 @@
 use serde::Deserialize;
 
 use super::{gh, unreadable};
-use crate::ports::ForgeError;
+use crate::ports::{ForgeError, Timestamp};
 use crate::review_bot::Login;
 use crate::settings::ForgeSlug;
 
@@ -17,21 +17,29 @@ pub(super) fn can_push(repo: &ForgeSlug) -> Result<bool, ForgeError> {
     ])?)
 }
 
-// GitHub's search finds a bot's comments by its app name, which is the
-// GraphQL login.
-pub(super) fn review_bot_seen(repo: &ForgeSlug, login: Login<'_>) -> Result<bool, ForgeError> {
-    let commenter = format!("app/{}", login.graphql);
-    parse_found(&gh(&[
+// GitHub's search finds a bot's reviews by its app name, which is the
+// GraphQL login. The newest-updated pull request it reviewed stands for its
+// last review: search carries no review's own time.
+pub(super) fn last_bot_review(
+    repo: &ForgeSlug,
+    login: Login<'_>,
+) -> Result<Option<Timestamp>, ForgeError> {
+    let reviewer = format!("app/{}", login.graphql);
+    parse_last_review(&gh(&[
         "search",
         "prs",
         "--repo",
         repo.as_str(),
-        "--commenter",
-        &commenter,
+        "--reviewed-by",
+        &reviewer,
+        "--sort",
+        "updated",
+        "--order",
+        "desc",
         "--limit",
         "1",
         "--json",
-        "number",
+        "number,updatedAt",
     ])?)
 }
 
@@ -49,10 +57,19 @@ fn parse_permission(stdout: &[u8]) -> Result<bool, ForgeError> {
     }
 }
 
-fn parse_found(stdout: &[u8]) -> Result<bool, ForgeError> {
-    let found: Vec<serde_json::Value> =
-        serde_json::from_slice(stdout).map_err(|_| unreadable(stdout))?;
-    Ok(!found.is_empty())
+fn parse_last_review(stdout: &[u8]) -> Result<Option<Timestamp>, ForgeError> {
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Found {
+        updated_at: String,
+    }
+    let found: Vec<Found> = serde_json::from_slice(stdout).map_err(|_| unreadable(stdout))?;
+    let Some(newest) = found.first() else {
+        return Ok(None);
+    };
+    let at: jiff::Timestamp = newest.updated_at.parse().map_err(|_| unreadable(stdout))?;
+    let seconds = u64::try_from(at.as_second()).map_err(|_| unreadable(stdout))?;
+    Ok(Some(Timestamp(seconds)))
 }
 
 #[cfg(test)]
@@ -64,10 +81,11 @@ mod tests {
     const ADMIN: &str = r#"{"viewerPermission":"ADMIN"}"#;
     const READ: &str = r#"{"viewerPermission":"READ"}"#;
 
-    // Recorded from gh 2.96: `gh search prs --repo <repo> --commenter
-    // app/coderabbitai --limit 1 --json number` on shep-pm/shep, which
-    // CodeRabbit reviews, and on cli/cli, which it does not.
-    const REVIEWED: &str = r#"[{"number":649}]"#;
+    // Recorded from gh 2.96: `gh search prs --repo <repo> --reviewed-by
+    // app/coderabbitai --sort updated --order desc --limit 1 --json
+    // number,updatedAt` on shep-pm/shep, which CodeRabbit reviews, and on
+    // cli/cli, which it does not.
+    const REVIEWED: &str = r#"[{"number":918,"updatedAt":"2026-10-16T02:42:33Z"}]"#;
     const UNREVIEWED: &str = "[]";
 
     #[test]
@@ -94,9 +112,20 @@ mod tests {
     }
 
     #[test]
-    fn a_bot_is_seen_when_the_search_finds_a_pull_request() {
-        assert_eq!(parse_found(REVIEWED.as_bytes()), Ok(true));
-        assert_eq!(parse_found(UNREVIEWED.as_bytes()), Ok(false));
-        assert!(matches!(parse_found(b"{}"), Err(ForgeError::Unreadable(_))));
+    fn a_bots_last_review_is_the_update_of_the_pull_request_the_search_finds() {
+        assert_eq!(
+            parse_last_review(REVIEWED.as_bytes()),
+            Ok(Some(Timestamp(1_792_118_553)))
+        );
+        assert_eq!(parse_last_review(UNREVIEWED.as_bytes()), Ok(None));
+        for text in ["{}", r#"[{"number":918}]"#, r#"[{"updatedAt":"soon"}]"#] {
+            assert!(
+                matches!(
+                    parse_last_review(text.as_bytes()),
+                    Err(ForgeError::Unreadable(_))
+                ),
+                "{text}"
+            );
+        }
     }
 }

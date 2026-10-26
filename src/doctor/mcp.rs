@@ -53,7 +53,7 @@ pub(super) fn hosts(subject: String, settings: &Settings, here: Here<'_>) -> Opt
 }
 
 // Whether an allowed domain, such as `*.example.com` or `example.com:443`, covers `host`.
-fn allowed(host: &str, domains: &[NonBlank]) -> bool {
+pub(super) fn allowed(host: &str, domains: &[NonBlank]) -> bool {
     domains.iter().any(|domain| {
         let domain = domain.as_str().trim().to_ascii_lowercase();
         let domain = domain

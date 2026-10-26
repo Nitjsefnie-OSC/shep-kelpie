@@ -92,6 +92,7 @@ impl Runner {
     /// [`StartError::State`] when `finishing` cannot be cleared. Nothing
     /// changes then.
     pub(super) fn cancel_finishing(&mut self) -> Result<(), StartError> {
+        self.looks.poll_reset();
         if self.finish.stopping {
             return Err(StartError::Stopping);
         }

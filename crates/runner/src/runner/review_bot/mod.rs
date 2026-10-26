@@ -6,9 +6,9 @@
 //! its comment, and gives the lease back once the bot answers. A refusal
 //! tells the dog when the window opens, and the round asks again. A window
 //! that opens more than an hour on, by the dog's book or by the refusal,
-//! passes the bot over for the pass, and so do two hours with no review, two
-//! hours unable to summon, a bot the project stopped listing, and CodeRabbit
-//! on a repo that is not public.
+//! passes the bot over for the pass, and so do its `review_wait` with no
+//! review, a silent bot that never reviewed on the repo, a bot the project
+//! stopped listing, and CodeRabbit on a repo that is not public.
 //! Once a review covers the head the label comes off, and once two reads
 //! of the bot's open threads agree they are the round's findings, which go
 //! to one fix turn as any reviewer's do. Kelpie replies on each thread it sent
@@ -29,6 +29,7 @@
 mod answer;
 mod bot_reads;
 mod failed;
+mod installed;
 mod late;
 pub(in crate::runner) use answer::{Answered, is_reply};
 mod lease;
@@ -61,9 +62,9 @@ pub(super) const HEARD_WAIT: u64 = 900;
 // so the lease goes back. A summon with no sign waits for its re-send first.
 pub(super) const ANSWER_WAIT: u64 = 600;
 
-// A full review of a long branch took 24 minutes on shep. Two hours with
-// none passes the bot over for the pass.
-pub(super) const REVIEW_WAIT: u64 = 2 * 3600;
+// How long a bot whose file sets no `review_wait` is given to review.
+#[cfg(test)]
+pub(super) use crate::review_bot::REVIEW_WAIT;
 
 // CodeRabbit posts a review a few seconds before it marks the head done
 // (nine on shep#614), so done with nothing posted is read a minute on.
@@ -220,7 +221,7 @@ impl Runner {
         }
         // A lease the dog never grants, or a book it cannot read, holds the
         // pass no longer than a bot that never answers does.
-        if now.0.saturating_sub(started.0) >= REVIEW_WAIT {
+        if now.0.saturating_sub(started.0) >= self.bot_reviewer(bot).review_wait() {
             self.lease_wait_ends(bot, "refused");
             self.release(bot)?;
             let reviewer = self.round_reviewer(bot);
@@ -502,7 +503,18 @@ impl Runner {
         // A head reviewed before an adoption needs a review of kelpie's own.
         let owed = self.item().summons_owed.contains(&bot);
         let activity = if owed { activity.since(at) } else { activity };
-        match profile.read(&activity, &head, at) {
+        let review_wait = self.bot_reviewer(bot).review_wait();
+        let reading = profile.read(&activity, &head, at);
+        // A bot that gave no sign of the summon and has never reviewed here
+        // may not be installed, and no wait would change that.
+        if reading == Reading::Silent
+            && !heard
+            && (ANSWER_WAIT..review_wait).contains(&waited)
+            && self.never_reviewed(bot)
+        {
+            return self.not_installed(bot, at);
+        }
+        match reading {
             Reading::Reviewed => self.answered(bot, number, &activity, (at, &head)),
             Reading::Completed { at: done } if now.saturating_sub(done.0) < DONE_SETTLE => {
                 self.accepted(bot, at).map(|()| Begin::Idle)
@@ -581,11 +593,11 @@ impl Runner {
             // that drew it is not read as its answer. A bot summoned by
             // marking ready is never asked by comment, so waits like one
             // that is still reading.
-            Reading::Failed if waited < REVIEW_WAIT && !self.bot_reviewer(bot).reviews_on_ready => {
+            Reading::Failed if waited < review_wait && !self.bot_reviewer(bot).reviews_on_ready => {
                 self.failed_review(bot, (started, head), Timestamp(now), full_again)
             }
             Reading::Silent | Reading::Processing | Reading::Failed | Reading::Completed { .. }
-                if waited >= REVIEW_WAIT =>
+                if waited >= review_wait =>
             {
                 self.accepted(bot, at)?;
                 if let Err(reason) = self.label(bot, number, false) {
@@ -785,6 +797,7 @@ impl Runner {
                 window: ReviewWindow::HOURLY,
                 reviews_on_ready: false,
                 rounds: None,
+                review_wait: None,
             })
     }
 

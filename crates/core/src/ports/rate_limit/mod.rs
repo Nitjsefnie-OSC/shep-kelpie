@@ -348,8 +348,12 @@ impl Forge for RateHeld {
         self.call(Kind::CanPush, |f| f.can_push(repo))
     }
 
-    fn review_bot_seen(&self, repo: &ForgeSlug, login: Login<'_>) -> Result<bool, ForgeError> {
-        self.call(Kind::ReviewBotSeen, |f| f.review_bot_seen(repo, login))
+    fn last_bot_review(
+        &self,
+        repo: &ForgeSlug,
+        login: Login<'_>,
+    ) -> Result<Option<Timestamp>, ForgeError> {
+        self.call(Kind::ReviewBotSeen, |f| f.last_bot_review(repo, login))
     }
 
     fn open_pull_requests(&self, repo: &ForgeSlug) -> Result<Vec<OpenPullRequest>, ForgeError> {

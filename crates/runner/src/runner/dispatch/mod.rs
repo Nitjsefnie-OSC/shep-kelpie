@@ -117,7 +117,8 @@ impl Runner {
         };
         // A read that failed leaves no stamp, so it waits its backoff and no poll. Stamped before
         // anything the board does, so a change that does lets the next pass read again.
-        self.looks.reading_board(self.ports.clock.now());
+        let working = !self.state.work_items.is_empty();
+        self.looks.reading_board(self.ports.clock.now(), working);
         self.follow_order(&ready)?;
         self.trim_finished(&read.closed)?;
         self.trim_dropped(&ready)?;

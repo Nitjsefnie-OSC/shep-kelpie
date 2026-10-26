@@ -9,15 +9,15 @@
 //! bot's threads until two reads agree.
 //!
 //! A bot whose window opens far on, one that declines, one that does not
-//! review in two hours, and one that cannot be summoned in two hours are
-//! passed over, and the next reviewer reads. A bot's review of the head ends
+//! review in its `review_wait`, and one that cannot be summoned in that long
+//! are passed over, and the next reviewer reads. A bot's review of the head ends
 //! the pass. Its open threads above a nit are the contribution's findings,
 //! its nits kept apart, and kelpie posts nothing for it: the bot's own
 //! comments are the post.
 
 use super::super::Runner;
 use super::super::review_bot::{
-    ANSWER_WAIT, DONE_SETTLE, FAR, REVIEW_WAIT, lands, open_ids, read_threads, reread_due,
+    ANSWER_WAIT, DONE_SETTLE, FAR, lands, open_ids, read_threads, reread_due,
 };
 use crate::lease::wire::WindowFact;
 use crate::ports::{Finding, Timestamp};
@@ -162,7 +162,7 @@ impl Runner {
             };
             return Ok(Step::Skipped(skipped.why()));
         }
-        if now.0.saturating_sub(started.0) >= REVIEW_WAIT {
+        if now.0.saturating_sub(started.0) >= bot.review_wait() {
             self.release_bot(number, bot.bot)?;
             let since = started;
             let reviewer = reviewer.clone();
@@ -242,7 +242,7 @@ impl Runner {
     }
 
     // Reads what the bot did since the summon made at `at`, and passes the
-    // bot over when it refuses, declines, or stays silent for two hours.
+    // bot over when it refuses, declines, or stays silent for its `review_wait`.
     fn bot_await(
         &mut self,
         number: u64,
@@ -303,7 +303,9 @@ impl Runner {
                 };
                 Ok(Step::Skipped(skipped.why()))
             }
-            Reading::Silent | Reading::Processing | Reading::Failed if waited >= REVIEW_WAIT => {
+            Reading::Silent | Reading::Processing | Reading::Failed
+                if waited >= bot.review_wait() =>
+            {
                 self.accepted_bot(number, bot.bot, at)?;
                 self.label_off(number, bot.bot);
                 let skipped = BotSkipped::Silent {
@@ -397,8 +399,8 @@ impl Runner {
         })
     }
 
-    // A turn whose bot cannot be read waits, until two hours since `since`
-    // have passed, and then goes on without the bot, so a forge that stays
+    // A turn whose bot cannot be read waits, until the bot's `review_wait` since
+    // `since` has passed, and then goes on without the bot, so a forge that stays
     // down cannot hold the pass.
     fn bot_unreadable(
         &mut self,
@@ -408,7 +410,8 @@ impl Runner {
         since: Timestamp,
     ) -> Result<Step, StateError> {
         let now = self.ports.clock.now();
-        if now.0.saturating_sub(since.0) < REVIEW_WAIT {
+        // Each bot has one file, so kelpie's own holds the wait a list names.
+        if now.0.saturating_sub(since.0) < self.bot_reviewer_in(&[], bot).review_wait() {
             return Ok(Step::Waiting);
         }
         self.release_bot(number, bot)?;

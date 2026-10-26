@@ -604,14 +604,21 @@ pub fn summary(text: &str) -> Option<String> {
     (!line.is_empty()).then(|| cut(&line, SUMMARY))
 }
 
-fn cut(text: &str, chars: usize) -> String {
+/// `text` cut at the last whole word within `chars` characters and closed
+/// with ` …`, or `text` as it is when it fits
+///
+/// The result is at most `chars + 2` characters. A single word longer than
+/// `chars` is cut where it stands.
+pub fn cut(text: &str, chars: usize) -> String {
     let Some((end, _)) = text.char_indices().nth(chars) else {
         return text.to_owned();
     };
     let head = &text[..end];
-    let head = head
-        .rsplit_once(char::is_whitespace)
-        .map_or(head, |(h, _)| h);
+    let whole = text[end..].starts_with(char::is_whitespace);
+    let head = match head.rsplit_once(char::is_whitespace) {
+        Some((words, _)) if !whole => words,
+        _ => head,
+    };
     format!("{} …", head.trim_end())
 }
 

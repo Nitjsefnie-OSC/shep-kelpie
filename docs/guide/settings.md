@@ -18,7 +18,7 @@ A key kelpie no longer reads, such as `review.reviewers`, `coderabbit` or `plann
 - `git.checkout` and `git.remote`: the checkout and the GitHub repo its `origin` names
 - `git.base`: the branch `--base` named, or the repo's default branch. A work item records it when it opens. Work items branch from `origin/<base>`, and their pull requests open against and merge into it. Adoption and contributions accept a pull request into the base and refuse one into another branch
 - `git.merging = "ask"` and `git.issues = "ask"`
-- `ci.block` is on when the checkout has `.github/workflows`, and `ci.fix_attempts = -1`. `ci.queued_minutes` is not written and reads 60: how long a check may stay `queued` or `in progress` in the wait for CI before kelpie reruns its workflow run once, and past that asks you with a `check-queued` ruling
+- `ci.block` is on when the checkout has `.github/workflows`, and `ci.fix_attempts = -1`. `ci.queued_minutes` is not written and reads 60: how long a check may stay `queued` or `in progress` in the wait for CI before kelpie reruns its workflow run once, and past that asks you with a `check-queued` ruling. The same number is how long a head with no check at all waits: with a workflow on `origin/main` that runs on a pull request it then asks you with a `no-checks` ruling, and with none it goes on as skipped at once
 - `concurrency.active_items = 1` and `concurrency.pending_rulings = 2`
 - `budget.per_item_usd = 10`
 - `agents.implementers = ["sonnet-high"]`
@@ -32,6 +32,7 @@ A key kelpie no longer reads, such as `review.reviewers`, `coderabbit` or `plann
 - `pacing.enabled = true`
 - no `[app.dogs.kelpie.tickets]` table, which means `tickets.source = "github"`. `local` takes the project's tickets from files, see [Local tickets](tickets.md)
 - `worker.allowed_domains = []`, `worker.turn_timeout = 60` and `worker.compact_window = 200000`
+- `worker.package_registries = true`: a call that works an item also reaches the registries of the package managers its worktree keeps a lockfile or manifest for, in its root or a folder directly under it, so `allowed_domains` only needs hosts beyond them. The hosts are `registry.npmjs.org` (npm, pnpm, bun), `registry.yarnpkg.com` and `registry.npmjs.org` (yarn), `crates.io`, `index.crates.io` and `static.crates.io` (cargo), `proxy.golang.org` and `sum.golang.org` (go), and `pypi.org` and `files.pythonhosted.org` (uv, pip). `false` gives only `allowed_domains`. `doctor` prints a `package registries` line for each project that keeps any, naming each manager and whether `package_registries` or `allowed_domains` reaches it, and `MISSING` with the hosts to add where neither does
 
 The checkout is the project's repo, and shep-kelpie runs `git fetch`, `git worktree` and `git branch` against its `.git`. Its worktrees, build folders and state go under `$SHEP_HOME/kelpie/<project>`, never inside it. Add from a clone you don't work in if you'd rather keep your own checkout out of it.
 

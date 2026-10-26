@@ -14,6 +14,19 @@ fn plan(stand: &StandIn, worktree: &Path) -> Plan {
     Plan::read(&stand.kelpie_home(), Some(worktree)).unwrap()
 }
 
+// A link at `at` to `target`. Windows makes a symlink only with Developer Mode
+// or as an administrator (#1271).
+fn link(target: &Path, at: &Path) {
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(target, at).unwrap();
+    #[cfg(windows)]
+    if target.is_dir() {
+        std::os::windows::fs::symlink_dir(target, at).unwrap();
+    } else {
+        std::os::windows::fs::symlink_file(target, at).unwrap();
+    }
+}
+
 // A run of koji's worktree 7, with every line it sent.
 async fn go(stand: &StandIn, worktree: &Path) -> (Result<i32, String>, Vec<String>) {
     let (tx, mut rx) = mpsc::channel(256);
@@ -31,7 +44,6 @@ async fn go(stand: &StandIn, worktree: &Path) -> (Result<i32, String>, Vec<Strin
 }
 
 #[tokio::test]
-#[cfg_attr(windows, ignore = "the stand-in ssh and rsync are sh scripts (#1302)")]
 async fn a_run_copies_the_worktree_runs_the_command_and_copies_the_results_back() {
     let stand = StandIn::new();
     let script =
@@ -59,7 +71,6 @@ async fn a_run_copies_the_worktree_runs_the_command_and_copies_the_results_back(
 }
 
 #[tokio::test]
-#[cfg_attr(windows, ignore = "the stand-in ssh and rsync are sh scripts (#1302)")]
 async fn the_commands_output_reaches_the_worker_line_by_line_and_its_exit_code_is_the_answer() {
     let stand = StandIn::new();
     let script = format!(
@@ -90,7 +101,6 @@ async fn the_commands_output_reaches_the_worker_line_by_line_and_its_exit_code_i
 }
 
 #[tokio::test]
-#[cfg_attr(windows, ignore = "the stand-in ssh and rsync are sh scripts (#1302)")]
 async fn results_come_back_when_the_command_fails() {
     let stand = StandIn::new();
     let script = "mkdir -p test-results; echo 'not ok' > test-results/report.txt; exit 3";
@@ -105,7 +115,6 @@ async fn results_come_back_when_the_command_fails() {
 }
 
 #[tokio::test]
-#[cfg_attr(windows, ignore = "the stand-in ssh and rsync are sh scripts (#1302)")]
 async fn only_the_results_folder_comes_back_and_a_link_on_the_host_is_not_followed() {
     let stand = StandIn::new();
     let sibling = stand.outside();
@@ -138,7 +147,6 @@ async fn only_the_results_folder_comes_back_and_a_link_on_the_host_is_not_follow
 }
 
 #[tokio::test]
-#[cfg(unix)]
 async fn a_results_folder_that_is_a_link_in_the_worktree_is_refused() {
     let stand = StandIn::new();
     let script = "mkdir -p test-results out/results; echo r > test-results/r.txt; echo r > out/results/r.txt";
@@ -146,7 +154,7 @@ async fn a_results_folder_that_is_a_link_in_the_worktree_is_refused() {
 
     // The results folder itself.
     let worktree = stand.project("koji", TABLE, 7, script);
-    std::os::unix::fs::symlink(&outside, worktree.join("test-results")).unwrap();
+    link(&outside, &worktree.join("test-results"));
     let (result, lines) = go(&stand, &worktree).await;
     assert_eq!(result, Ok(0), "the command's own code stands");
     assert_eq!(lines.len(), 1, "{lines:?}");
@@ -158,7 +166,7 @@ async fn a_results_folder_that_is_a_link_in_the_worktree_is_refused() {
     // A folder above it.
     let nested = r#"{"host":"e2e-box","results":"out/results"}"#;
     let worktree = stand.project("golbat", nested, 3, script);
-    std::os::unix::fs::symlink(&outside, worktree.join("out")).unwrap();
+    link(&outside, &worktree.join("out"));
     let (result, lines) = go(&stand, &worktree).await;
     assert_eq!(result, Ok(0));
     assert!(
@@ -173,8 +181,41 @@ async fn a_results_folder_that_is_a_link_in_the_worktree_is_refused() {
     );
 }
 
+// A junction needs no privilege, and is a reparse point as a symlink is.
 #[tokio::test]
-#[cfg(unix)]
+#[cfg(windows)]
+async fn a_results_folder_that_is_a_junction_in_the_worktree_is_refused() {
+    let stand = StandIn::new();
+    let worktree = stand.project(
+        "koji",
+        TABLE,
+        7,
+        "mkdir -p test-results; echo r > test-results/r.txt",
+    );
+    let outside = stand.outside();
+    let made = std::process::Command::new("cmd")
+        .args(["/c", "mklink", "/J"])
+        .arg(worktree.join("test-results"))
+        .arg(&outside)
+        .output()
+        .unwrap();
+    assert!(made.status.success(), "{made:?}");
+
+    let (result, lines) = go(&stand, &worktree).await;
+
+    assert_eq!(result, Ok(0));
+    assert!(
+        lines[0].contains("test-results in the worktree is a link"),
+        "{lines:?}"
+    );
+    let left: Vec<_> = std::fs::read_dir(&outside).unwrap().collect();
+    assert!(
+        left.is_empty(),
+        "something came back through the junction: {left:?}"
+    );
+}
+
+#[tokio::test]
 async fn a_link_inside_the_results_folder_is_not_written_through() {
     let stand = StandIn::new();
     let script = "mkdir -p test-results/sub; echo new > test-results/report.txt; \
@@ -183,12 +224,11 @@ async fn a_link_inside_the_results_folder_is_not_written_through() {
     let outside = stand.outside();
     std::fs::write(outside.join("target.txt"), "mine\n").unwrap();
     std::fs::create_dir_all(worktree.join("test-results")).unwrap();
-    std::os::unix::fs::symlink(
-        outside.join("target.txt"),
-        worktree.join("test-results/report.txt"),
-    )
-    .unwrap();
-    std::os::unix::fs::symlink(&outside, worktree.join("test-results/sub")).unwrap();
+    link(
+        &outside.join("target.txt"),
+        &worktree.join("test-results/report.txt"),
+    );
+    link(&outside, &worktree.join("test-results/sub"));
 
     let (result, lines) = go(&stand, &worktree).await;
 
@@ -206,7 +246,6 @@ async fn a_link_inside_the_results_folder_is_not_written_through() {
 }
 
 #[tokio::test]
-#[cfg_attr(windows, ignore = "the stand-in ssh and rsync are sh scripts (#1302)")]
 async fn a_hard_link_in_the_results_folder_is_replaced_not_written_through() {
     let stand = StandIn::new();
     let worktree = stand.project(
@@ -279,7 +318,6 @@ async fn a_fifo_in_the_results_folder_does_not_hold_the_run() {
 }
 
 #[tokio::test]
-#[cfg_attr(windows, ignore = "the stand-in ssh and rsync are sh scripts (#1302)")]
 async fn the_local_side_starts_only_ssh_and_rsync() {
     let stand = StandIn::new();
     let worktree = stand.project("koji", TABLE, 7, "mkdir -p test-results");
@@ -287,6 +325,7 @@ async fn the_local_side_starts_only_ssh_and_rsync() {
     let (result, _) = go(&stand, &worktree).await;
 
     assert_eq!(result, Ok(0));
+    #[cfg(unix)]
     let me = std::process::id();
     let started = stand.started();
     let names: Vec<&str> = started
@@ -294,7 +333,9 @@ async fn the_local_side_starts_only_ssh_and_rsync() {
         .map(|s| s.split(' ').next().unwrap())
         .collect();
     assert_eq!(names, ["rsync", "ssh", "rsync"]);
-    // Each started by the dog itself, not by a shell it ran.
+    // Each started by the dog itself, not by a shell it ran. On Windows the
+    // stand-in's parent is the `.cmd` that starts its script, so only Unix says.
+    #[cfg(unix)]
     for line in &started {
         assert_eq!(
             line.split(' ').nth(1),
@@ -310,7 +351,6 @@ async fn the_local_side_starts_only_ssh_and_rsync() {
 }
 
 #[tokio::test]
-#[cfg_attr(windows, ignore = "the stand-in ssh and rsync are sh scripts (#1302)")]
 async fn a_copy_that_cannot_start_is_an_error_and_nothing_runs() {
     let stand = StandIn::new();
     let worktree = stand.project("koji", TABLE, 7, "echo ran");

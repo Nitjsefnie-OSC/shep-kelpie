@@ -445,8 +445,8 @@ fn shown(value: &serde_json::Value) -> Option<String> {
 ///
 /// A message when the project has no kelpie runner, it does not come up
 /// from starting, the wait runs out or `interrupt` comes first, or the
-/// shepherd refuses the stop. The runner is then sent `undrain` and left
-/// running. Once the stop is sent, `interrupt` is no longer heard.
+/// shepherd refuses the stop. The runner is then sent `undrain keep`, which
+/// leaves the turns the pause ended stopped for a while, and left running. Once the stop is sent, `interrupt` is no longer heard.
 pub async fn pause(
     client: &dyn Connection,
     project: &ProjectName,

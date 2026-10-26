@@ -75,6 +75,7 @@ impl Runner {
     /// implementer kelpie has an agent file for, or the change cannot be saved.
     /// Nothing changes then.
     pub fn add(&mut self, ticket: TicketId) -> Result<AgentName, AddError> {
+        self.looks.poll_reset();
         self.add_allowed(ticket)?;
         let found = (self.ports.tickets.issue(&self.remote, ticket)).map_err(AddError::Forge)?;
         self.add_found(ticket, found)

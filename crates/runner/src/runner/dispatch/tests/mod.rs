@@ -926,7 +926,7 @@ fn a_slow_issue_writer_on_the_pick_opens_it_the_pass_after_it_answers() {
 
     passes_until(&runner, "asked the writer", || slow.entered(Duration::ZERO));
     for _ in 0..10 {
-        rig.next_look();
+        rig.next_poll(&runner);
         let pass = advance(&runner).unwrap();
         assert!(
             !matches!(pass, Pass::Report(StepReport::Dispatched { .. })),

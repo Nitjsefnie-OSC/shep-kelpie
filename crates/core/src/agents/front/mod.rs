@@ -157,6 +157,8 @@ struct Reviewer {
     #[serde(default)]
     rounds: Option<NonZeroU32>,
     #[serde(default)]
+    review_wait: Option<NonZeroU32>,
+    #[serde(default)]
     tools: Option<NonBlank>,
 }
 

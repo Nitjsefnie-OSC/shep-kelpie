@@ -40,7 +40,7 @@ pub(in crate::runner) fn bump(rig: &Rig, number: u64, file: &str) -> String {
 }
 
 pub(in crate::runner) fn poll(rig: &Rig, runner: &Mutex<Runner>) {
-    rig.next_look();
+    rig.next_poll(runner);
     assert_eq!(step(runner).unwrap(), None);
 }
 

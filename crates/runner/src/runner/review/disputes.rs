@@ -614,6 +614,7 @@ fn a_finding_disputed_a_second_time_parks_on_fix_not_pushed() {
     assert_eq!(status["rulings"][0]["kind"]["reason"], "fix-not-pushed");
 }
 
+#[cfg(unix)]
 #[test]
 fn a_dispute_file_that_links_to_another_file_is_not_read() {
     let dir = tempfile::tempdir().unwrap();

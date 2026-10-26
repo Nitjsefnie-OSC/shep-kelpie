@@ -27,6 +27,7 @@ mod push;
 mod ref_folders;
 mod remote;
 mod stale_lock;
+mod workflows;
 
 pub use active::touched_since;
 pub use adopt::adopt;
@@ -39,6 +40,7 @@ pub use contribution::{
 };
 pub use push::push_commits;
 pub use remote::Remote;
+pub use workflows::runs_on_pull_requests;
 
 /// Where a new worktree's branch starts
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

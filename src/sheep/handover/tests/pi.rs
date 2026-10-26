@@ -334,23 +334,82 @@ pub(super) fn waits_out_a_relayed_reply() {
     assert!(worker.stop(JOIN_BOUND, || {}));
 }
 
-#[test]
-fn a_pi_turn_whose_record_is_gone_refuses_the_handover_and_the_old_image_keeps_its_call() {
-    let (server, shared) = (paddock(), crate::test::short_tempdir());
-    let folder = shared.path();
+struct PiTurn {
+    rig: Rig,
+    runner: Arc<Mutex<Runner>>,
+    handing: Arc<Handing>,
+    tried: Tried,
+    worker: Worker,
+    wake: Sender<()>,
+}
+
+// A runner with a pi turn running on issue 7, and a handing that refuses at the exec
+// so a test sees whether it was tried.
+fn in_a_pi_turn(shared: &Path, server: &StandInEndpoint) -> PiTurn {
     let rig = Rig::new("shep");
     rig_for(&rig, server.host());
-    pi_script(folder);
-    let (_base, routed) = agents(&rig, folder, server.host());
+    pi_script(shared);
+    let (_base, routed) = agents(&rig, shared, server.host());
     let runner = Arc::new(rig.open_agents(routed).unwrap());
     rig.ask(&runner, "add", Some("7"));
-    let (handing, tried) = refusing("unused", &Arc::default());
+    let (handing, tried) = refusing("stand-in", &Arc::default());
     let (worker, wake) = worker_of(&runner, Arc::clone(&handing));
-    eventually("the turn's child", || folder.join("started").exists());
+    eventually("the turn's child", || shared.join("started").exists());
+    PiTurn {
+        rig,
+        runner,
+        handing,
+        tried,
+        worker,
+        wake,
+    }
+}
+
+// The call's process is over when its record is gone, and the loop has not heard it.
+#[test]
+fn a_pi_turn_whose_record_is_gone_keeps_the_handover_queued_until_its_end_is_heard() {
+    let (server, shared) = (paddock(), crate::test::short_tempdir());
+    let folder = shared.path();
+    let PiTurn {
+        rig,
+        runner,
+        handing,
+        tried,
+        worker,
+        wake,
+    } = in_a_pi_turn(folder, &server);
     std::fs::remove_file(read(folder, "record").trim()).unwrap();
 
     let answer: serde_json::Value = serde_json::from_str(&handing.ask(&wake)).unwrap();
 
+    assert_eq!(answer["handover"], "waiting for the runner's quiet point");
+    assert_eq!(tried.execs.load(Ordering::SeqCst), 0, "it execed anyway");
+    assert!(handing.pending());
+    assert_eq!(turn_of_7(&rig, &runner), "running");
+    write(folder, "go", "");
+    eventually("the handover once the end was heard", || {
+        tried.execs.load(Ordering::SeqCst) == 1
+    });
+    assert!(tried.carried.lock().unwrap().is_empty());
+    assert!(!handing.pending());
+    eventually("the turn's end", || turn_of_7(&rig, &runner) == "ended");
+    assert!(worker.stop(JOIN_BOUND, || {}));
+}
+
+#[test]
+fn a_pi_turn_whose_record_stays_gone_refuses_the_handover_and_the_old_image_keeps_its_call() {
+    let (server, shared) = (paddock(), crate::test::short_tempdir());
+    let folder = shared.path();
+    let PiTurn {
+        rig,
+        runner,
+        handing,
+        tried,
+        worker,
+        wake,
+    } = in_a_pi_turn(folder, &server);
+    std::fs::remove_file(read(folder, "record").trim()).unwrap();
+    let answer = refused_once_the_wait_is_up(&rig, &runner, &handing, wake);
     let error = answer["error"].as_str().unwrap();
     assert!(
         error.starts_with("handover refused: the turn of #7 cannot be carried: the call's record "),
@@ -362,4 +421,37 @@ fn a_pi_turn_whose_record_is_gone_refuses_the_handover_and_the_old_image_keeps_i
     write(folder, "go", "");
     eventually("the turn's end", || turn_of_7(&rig, &runner) == "ended");
     assert!(worker.stop(JOIN_BOUND, || {}));
+}
+
+#[test]
+fn a_pi_turn_whose_record_is_there_and_not_valid_refuses_the_handover_at_once() {
+    let (server, shared) = (paddock(), crate::test::short_tempdir());
+    let folder = shared.path();
+    let PiTurn {
+        rig,
+        runner,
+        handing,
+        tried,
+        worker,
+        wake,
+    } = in_a_pi_turn(folder, &server);
+    write_record(folder, "{ not a record");
+
+    let answer: serde_json::Value = serde_json::from_str(&handing.ask(&wake)).unwrap();
+
+    let error = answer["error"].as_str().unwrap();
+    assert!(
+        error.starts_with("handover refused: the turn of #7 cannot be carried: the call's record "),
+        "{error}"
+    );
+    assert_eq!(tried.execs.load(Ordering::SeqCst), 0, "it execed anyway");
+    assert_eq!(turn_of_7(&rig, &runner), "running");
+    write(folder, "go", "");
+    eventually("the turn's end", || turn_of_7(&rig, &runner) == "ended");
+    assert!(worker.stop(JOIN_BOUND, || {}));
+}
+
+// Replaces the running call's record with `text`.
+fn write_record(folder: &Path, text: &str) {
+    std::fs::write(read(folder, "record").trim(), text).unwrap();
 }

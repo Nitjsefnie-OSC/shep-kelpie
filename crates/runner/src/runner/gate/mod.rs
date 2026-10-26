@@ -129,7 +129,13 @@ impl Runner {
             return Ok(Begin::Idle);
         };
         match pr.checks {
-            Checks::None => Ok(Begin::Idle),
+            Checks::None => match self.without_checks(number, &pr.head, since, None)? {
+                Some(begin) => Ok(begin),
+                None => {
+                    self.ci_settled(issue, number, &pr.head, "skipped", &[]);
+                    self.passed(number, pr.head)
+                }
+            },
             Checks::Pending(queued) => {
                 let rerun = self.check_queued(number, &pr.head, since, &queued, None)?;
                 Ok(rerun.unwrap_or(Begin::Idle))

@@ -161,19 +161,19 @@ fn marking_a_draft_ready_is_codexs_summon_under_its_lease_and_no_comment_follows
 }
 
 // A comment on top would spend a second review, so a summon by marking
-// ready is never sent again: unanswered, it is passed over at two hours.
+// ready is never sent again: unanswered, it is passed over at its review wait.
 #[test]
 fn a_summon_by_marking_ready_is_never_sent_again_by_comment() {
     let rig = on_ready(&["codex"]);
     let (runner, head) = reviewed(&rig);
     assert_eq!(step(&runner).unwrap(), summoned(&head));
-    for _ in 0..4 {
+    for _ in 0..2 {
         rig.clock.advance(HEARD_WAIT);
         assert_eq!(step(&runner).unwrap(), None);
     }
     assert_eq!(comments_of(&rig, SUMMON), 0);
     assert!(!rig.leases.held(&codex()), "counted spent, unanswered");
-    rig.clock.advance(REVIEW_WAIT - 4 * HEARD_WAIT);
+    rig.clock.advance(REVIEW_WAIT - 2 * HEARD_WAIT);
     assert!(matches!(
         step(&runner).unwrap(),
         Some(StepReport::ReviewerSkipped { round: 3, .. })
@@ -216,7 +216,7 @@ fn a_thumbs_up_alone_is_a_review_with_nothing_in_it() {
     assert_eq!(
         rig.threads_read(&runner),
         bot_reviewed(3, "codex", 0),
-        "the round does not wait out two hours"
+        "the round does not wait out the review wait"
     );
 }
 
@@ -241,7 +241,7 @@ fn a_failed_codex_review_is_summoned_once_more() {
     assert_eq!(comments_of(&rig, SUMMON), 2);
     assert!(
         now(&rig) < summon + REVIEW_WAIT,
-        "it did not wait out the two hours"
+        "it did not wait out the review wait"
     );
     assert!(
         rig.leases.held(&codex()),

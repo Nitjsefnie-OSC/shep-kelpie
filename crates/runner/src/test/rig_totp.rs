@@ -8,12 +8,15 @@ impl Rig {
 
     /// Writes [`Self::TOTP_SECRET`] where `shep kelpie totp` would, for its owner alone
     pub fn write_totp_secret(&self) {
-        use std::os::unix::fs::PermissionsExt;
         let folder = self.paths().totp;
         crate::totp::private_dir(&folder).unwrap();
         let secret = folder.join("secret");
         std::fs::write(&secret, format!("{}\n", Self::TOTP_SECRET)).unwrap();
-        std::fs::set_permissions(&secret, std::fs::Permissions::from_mode(0o600)).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&secret, std::fs::Permissions::from_mode(0o600)).unwrap();
+        }
     }
 
     /// The maintainer's authenticator code at `at`

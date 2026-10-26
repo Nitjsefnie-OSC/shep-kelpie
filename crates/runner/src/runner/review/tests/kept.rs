@@ -110,6 +110,7 @@ fn a_kept_round_records_its_pull_request_head_model_and_how_it_ended() {
     );
 }
 
+#[cfg(unix)]
 #[test]
 fn a_round_that_cannot_be_copied_leaves_no_half_kept_round() {
     use std::os::unix::fs::PermissionsExt;
@@ -220,6 +221,7 @@ fn rounds_older_than_keep_days_are_removed_and_zero_keeps_them_all() {
     assert!(kept_rounds(&rig).contains(&"7-r4-20260101T000000Z".to_owned()));
 }
 
+#[cfg(unix)]
 #[test]
 fn a_round_that_cannot_be_removed_does_not_hold_back_the_other_old_rounds() {
     use std::os::unix::fs::PermissionsExt;

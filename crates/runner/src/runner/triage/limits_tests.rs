@@ -17,8 +17,8 @@ use std::sync::Mutex;
 use serde_json::{Value, json};
 
 use super::ask_tests::{A_WORDS, asked as one_question, filed, settled, wrote};
-use super::comment::MARKER;
 use super::limits::DAY;
+use super::marker::MARKER;
 use super::pick_tests::{MAINTAINER, due, issue, list, rig_with, status, triaging};
 use super::research_tests::{WORDS, calls, moves, reply, restart, triage};
 use crate::ports::{AuthorAssociation, Clock, OpenIssue, Role, Timestamp};

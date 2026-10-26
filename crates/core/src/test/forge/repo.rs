@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use std::sync::atomic::Ordering;
 
 use super::FakeForge;
-use crate::ports::{FolderEntry, ForgeError, Visibility};
+use crate::ports::{FolderEntry, ForgeError, Timestamp, Visibility};
 use crate::settings::ForgeSlug;
 
 impl FakeForge {
@@ -25,9 +25,15 @@ impl FakeForge {
         self.pushes.store(pushes, Ordering::SeqCst);
     }
 
-    /// Whether a review bot has ever commented on the repo, which it has until a test says not
-    pub fn set_review_bot_seen(&self, seen: bool) {
-        self.bot_seen.store(seen, Ordering::SeqCst);
+    /// When a review bot last reviewed on the repo, or `None` when it never has; a fixed
+    /// time until a test says
+    pub fn set_last_bot_review(&self, at: Option<Timestamp>) {
+        *self.bot_reviewed.lock().unwrap() = at;
+    }
+
+    /// How many times a review bot's last review was asked for
+    pub fn bot_review_reads(&self) -> usize {
+        self.bot_review_reads.load(Ordering::SeqCst)
     }
 
     /// Makes asking who the account is fail with `error`, as `gh` does when it is logged out

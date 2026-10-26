@@ -187,7 +187,7 @@ fn a_codex_turn_whose_record_is_gone_refuses_the_handover_and_the_old_image_keep
     eventually("the call's record", || Path::new(record.trim()).exists());
     std::fs::remove_file(record.trim()).unwrap();
 
-    let answer: serde_json::Value = serde_json::from_str(&handing.ask(&wake)).unwrap();
+    let answer = refused_once_the_wait_is_up(&rig, &runner, &handing, wake);
 
     let error = answer["error"].as_str().unwrap();
     assert!(

@@ -107,7 +107,7 @@ impl PollJob {
 }
 
 impl Runner {
-    // Decides whether the poll is read now: at most once a [`BOARD_POLL`], while
+    // Decides whether the poll is read now: at most once a board poll, while
     // `triage.pick` is not `off`. Returns the time and what the read needs.
     fn triage_poll_job(&self) -> Option<(Timestamp, PollJob)> {
         let triage = self.state.triage.as_ref()?;

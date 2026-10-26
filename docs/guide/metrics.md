@@ -65,6 +65,7 @@ Every runner series carries `sheep`, the project's name, as well as `id` and `fo
 | `kelpie_lease_waiting` | `kind` | Runners and commands waiting for the lease |
 | `kelpie_lease_grants_total`, `kelpie_lease_wait_seconds_total` | `kind` | Times the lease was granted, and the seconds those grants waited in the queue. Divide the rates for a mean wait. A grant to a command already running under the last dog is not counted |
 | `kelpie_summons_total` | `bot`, `outcome` | Review bot summons runners reported: `accepted`, or `refused` for each new quote of when the window opens. The maintainer's own summons through `shep kelpie lease take` are not counted |
+| `kelpie_dog_bus_missed_total` | | Events on the shepherd's bus the dog did not read because it fell behind or the shepherd dropped them. Each miss makes the dog read the flock again, so a `rate` that stays above 0 is worth a look |
 | `kelpie_forge_holds_total` | `login_kind` | Times the forge's rate limit began holding every runner's calls. `login_kind` is `login`, the maintainer's `gh` login, which the dog's hold is for |
 | `kelpie_forge_held` | | 1 while that hold stands, 0 when not |
 | `kelpie_series_dropped_total` | | Samples of a series the runner held back, past the 255 it sends |
