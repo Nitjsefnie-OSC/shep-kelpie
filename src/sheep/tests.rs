@@ -268,6 +268,21 @@ fn an_idle_runner_whose_board_is_shut_sleeps_rather_than_spins() {
     assert!(passes <= 2, "{passes} passes in a minute");
 }
 
+// Each pass of an idle runner with a quiet board, then the wait it computes
+#[test]
+fn an_idle_runner_with_a_quiet_board_sleeps_longer_between_passes() {
+    let rig = Rig::new("shep");
+    let runner = rig.open().unwrap();
+    let mut waits = Vec::new();
+    for _ in 0..5 {
+        advance(&runner).unwrap();
+        let wait = wait_after_pass(&runner.lock().unwrap());
+        rig.clock.advance(wait.as_secs());
+        waits.push(wait.as_secs());
+    }
+    assert_eq!(waits, [60, 120, 240, 300, 300]);
+}
+
 #[test]
 fn a_wake_reads_the_settings_again_but_a_stop_does_not() {
     let rig = Rig::new("shep");

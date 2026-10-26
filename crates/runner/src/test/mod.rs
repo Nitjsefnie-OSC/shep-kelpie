@@ -578,8 +578,18 @@ impl Rig {
     }
 
     /// Moves the clock on to the board's next read, past the first three
-    /// waits of a step that failed
+    /// waits of a step that failed and the longest poll of an idle board
     pub fn next_look(&self) {
+        self.clock.advance(crate::runner::IDLE_POLL_MAX.as_secs());
+    }
+
+    /// Moves the clock on to the next poll of a board that is not idle
+    ///
+    /// A `tell` to a project with no project manager is refused and changes
+    /// nothing but ends the backoff of an idle board's poll, as any trigger
+    /// that asks for work does.
+    pub fn next_poll(&self, runner: &Mutex<Runner>) {
+        self.ask(runner, "tell", Some("is anyone there?"));
         self.clock.advance(crate::runner::BOARD_POLL.as_secs());
     }
 

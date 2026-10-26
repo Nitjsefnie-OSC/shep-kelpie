@@ -7,7 +7,7 @@
 //! nothing is one. The author and the pull request's own state decide, never
 //! its branch's name: a fork can name its branch `kelpie/5`.
 //!
-//! Once a [`BOARD_POLL`](super::BOARD_POLL), whether or not a slot is free,
+//! Once a board poll, whether or not a slot is free,
 //! the runner records each contribution it sees, with its head, and drops
 //! the record of one that was closed, merged, made a draft again, or, under
 //! `"label"`, lost the label. A new head updates the record, and each head no

@@ -6,7 +6,7 @@ use std::time::Duration;
 use serde_json::{Value, json};
 
 use crate::ports::{CallPacer, Clock, LocalPace, Timestamp};
-use crate::runner::{BOARD_POLL, Pass, StepReport, advance, step};
+use crate::runner::{BOARD_POLL, IDLE_POLL_MAX, Pass, StepReport, advance, step};
 use crate::test::Rig;
 use crate::test::ticket;
 
@@ -43,6 +43,170 @@ fn many_wakes_in_a_minute_read_the_board_once() {
         wake(&runner);
     }
     assert_eq!(rig.forge.board_reads(), before + 2);
+}
+
+// Waits `secs` of the runner's clock, a second short and then the last second,
+// and says whether the board was read in the first stretch and in the last
+fn board_read_by(
+    rig: &Rig,
+    runner: &std::sync::Mutex<crate::runner::Runner>,
+    secs: u64,
+) -> (bool, bool) {
+    let before = rig.forge.board_reads();
+    rig.clock.advance(secs - 1);
+    wake(runner);
+    let early = rig.forge.board_reads() > before;
+    rig.clock.advance(1);
+    wake(runner);
+    (early, rig.forge.board_reads() > before)
+}
+
+#[test]
+fn an_idle_runner_reads_an_unchanged_board_at_60_120_240_then_every_300_seconds() {
+    let rig = Rig::new("acme");
+    let runner = rig.open().unwrap();
+    wake(&runner);
+
+    for gap in [60, 120, 240, 300, 300, 300] {
+        assert_eq!(
+            board_read_by(&rig, &runner, gap),
+            (false, true),
+            "the gap of {gap} s"
+        );
+    }
+}
+
+// How long `status` says the runner goes between two reads of its board
+fn poll_secs(rig: &Rig, runner: &std::sync::Mutex<crate::runner::Runner>) -> u64 {
+    rig.ask(runner, "status", None)["board_poll_secs"]
+        .as_u64()
+        .expect("status shows the board poll")
+}
+
+// Lets an idle runner's board read quiet until it is read every `IDLE_POLL_MAX`
+fn back_off(rig: &Rig, runner: &std::sync::Mutex<crate::runner::Runner>) {
+    wake(runner);
+    for gap in [60, 120, 240] {
+        rig.clock.advance(gap);
+        wake(runner);
+    }
+    assert_eq!(poll_secs(rig, runner), IDLE_POLL_MAX.as_secs());
+}
+
+#[test]
+fn status_shows_the_board_poll_as_it_backs_off() {
+    let rig = Rig::new("acme");
+    let runner = rig.open().unwrap();
+    wake(&runner);
+    assert_eq!(poll_secs(&rig, &runner), 60);
+
+    let mut seen = Vec::new();
+    for gap in [60, 120, 240, 300] {
+        rig.clock.advance(gap);
+        wake(&runner);
+        seen.push(poll_secs(&rig, &runner));
+    }
+
+    assert_eq!(seen, [120, 240, 300, 300]);
+}
+
+#[test]
+fn a_ready_label_added_during_the_backoff_is_seen_within_the_longest_poll() {
+    let rig = Rig::new("acme");
+    let runner = rig.open().unwrap();
+    back_off(&rig, &runner);
+    rig.forge.list_ready(8, false);
+
+    rig.clock.advance(IDLE_POLL_MAX.as_secs());
+    let report = wake(&runner);
+
+    assert!(
+        matches!(report, Some(StepReport::Dispatched { issue, .. }) if issue == ticket(8)),
+        "{report:?}"
+    );
+}
+
+#[test]
+fn a_work_item_opening_ends_the_backoff_and_one_ending_reads_the_board_at_once() {
+    let rig = Rig::new("acme");
+    rig.edit_settings(|s| s.replace("active_items = 1", "active_items = 2"));
+    let runner = rig.open().unwrap();
+    rig.ask(&runner, "drain", None);
+    back_off(&rig, &runner);
+    rig.forge.list_ready(8, false);
+    rig.clock.advance(IDLE_POLL_MAX.as_secs());
+    wake(&runner);
+    assert_eq!(poll_secs(&rig, &runner), BOARD_POLL.as_secs(), "opened");
+
+    rig.forge.list_ready(9, false);
+    rig.ask(&runner, "drop", Some("8"));
+    let before = rig.forge.board_reads();
+    wake(&runner);
+
+    assert_eq!(rig.forge.board_reads(), before + 1, "ended");
+    assert_eq!(poll_secs(&rig, &runner), BOARD_POLL.as_secs());
+}
+
+#[test]
+fn a_runner_with_a_work_item_open_reads_its_board_every_minute() {
+    let rig = Rig::new("acme");
+    rig.edit_settings(|s| s.replace("active_items = 1", "active_items = 2"));
+    let runner = rig.open().unwrap();
+    rig.ask(&runner, "drain", None);
+    rig.ask(&runner, "add", Some("7"));
+    wake(&runner);
+
+    for _ in 0..4 {
+        assert_eq!(board_read_by(&rig, &runner, 60), (false, true));
+        assert_eq!(poll_secs(&rig, &runner), BOARD_POLL.as_secs());
+    }
+}
+
+#[test]
+fn each_trigger_that_asks_for_work_ends_the_backoff() {
+    // None of these changes the board: each is refused or has nothing to do.
+    for (action, params) in [
+        ("add", Some("999")),
+        ("tell", Some("how is it going?")),
+        ("rule", Some("71 yes")),
+        ("start", None),
+    ] {
+        let rig = Rig::new("acme");
+        let runner = rig.open().unwrap();
+        back_off(&rig, &runner);
+
+        rig.ask(&runner, action, params);
+
+        assert_eq!(poll_secs(&rig, &runner), BOARD_POLL.as_secs(), "{action}");
+    }
+}
+
+#[test]
+fn a_trigger_that_only_asks_leaves_the_backoff_be() {
+    let rig = Rig::new("acme");
+    let runner = rig.open().unwrap();
+    back_off(&rig, &runner);
+
+    for action in ["status", "timings", "drain", "undrain"] {
+        rig.ask(&runner, action, None);
+    }
+
+    assert_eq!(poll_secs(&rig, &runner), IDLE_POLL_MAX.as_secs());
+}
+
+#[test]
+fn a_write_of_kelpies_own_ends_the_backoff() {
+    let rig = Rig::new("acme");
+    let runner = rig.open().unwrap();
+    back_off(&rig, &runner);
+    rig.forge.set_down(false);
+    rig.forge
+        .open_issue(71, "Filed by hand", "Nothing to build.");
+
+    assert!(comments(&runner).is_ok());
+    wake(&runner);
+
+    assert_eq!(poll_secs(&rig, &runner), BOARD_POLL.as_secs());
 }
 
 #[test]

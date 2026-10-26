@@ -203,6 +203,7 @@ impl Runner {
     /// it, or the answer cannot be saved. The ruling stays pending then, and
     /// answering again is safe: a worktree already at an accepted head is left.
     pub fn rule(&mut self, id: TicketId, answer: Answer) -> Result<(), RuleError> {
+        self.looks.poll_reset();
         self.rule_by(id, answer, Settler::Terminal)
     }
 
