@@ -3,11 +3,12 @@
 //! [`AppVoice`] writes with them
 
 use std::fs;
-use std::io;
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::owner_only;
 use crate::settings::ForgeSlug;
 
 pub mod api;
@@ -110,14 +111,29 @@ impl std::fmt::Display for StoreError {
         match self {
             Self::Exposed(path) => write!(
                 f,
-                "{} may be used by others: it must be yours, not a link, and `chmod 700` for a \
-                 folder or `chmod 600` for the key; register the App again with `--replace` if \
-                 someone else may have read it",
-                path.display()
+                "{} may be used by others: it must be yours, not a link, and {}; register the \
+                 App again with `--replace` if someone else may have read it",
+                path.display(),
+                narrow(path)
             ),
             Self::Unusable(why) => f.write_str(why),
         }
     }
+}
+
+// What the message tells the maintainer to run to keep a folder or the key to its owner
+#[cfg(unix)]
+fn narrow(_path: &Path) -> String {
+    "`chmod 700` for a folder or `chmod 600` for the key".to_owned()
+}
+
+#[cfg(windows)]
+fn narrow(path: &Path) -> String {
+    let path = path.display();
+    format!(
+        "`icacls {path} /inheritance:r /grant:r %USERNAME%:(OI)(CI)F` for a folder or \
+         `icacls {path} /inheritance:r /grant:r %USERNAME%:F` for the key"
+    )
 }
 
 fn unusable(path: &Path, e: &io::Error) -> StoreError {
@@ -218,32 +234,24 @@ fn not_a_file(path: &Path) -> StoreError {
 }
 
 // Makes `outer` and `inner` the maintainer's alone, refusing a link or someone else's.
-#[cfg(unix)]
 fn make_private(outer: &Path, inner: &Path) -> Result<(), StoreError> {
-    use std::os::unix::fs::{MetadataExt, PermissionsExt};
-
-    use crate::totp::private_dir;
-
-    private_dir(inner).map_err(|e| unusable(inner, &e))?;
+    owner_only::private_dir(inner).map_err(|e| unusable(inner, &e))?;
     for path in [outer, inner] {
         let meta = fs::symlink_metadata(path).map_err(|e| unusable(path, &e))?;
-        if meta.file_type().is_symlink() || meta.uid() != rustix::process::getuid().as_raw() {
+        let mine = owner_only::is_owner(path).map_err(|e| unusable(path, &e))?;
+        if meta.file_type().is_symlink() || !mine {
             return Err(StoreError::Exposed(path.to_owned()));
         }
-        fs::set_permissions(path, fs::Permissions::from_mode(0o700))
-            .map_err(|e| unusable(path, &e))?;
+        owner_only::restrict_dir(path).map_err(|e| unusable(path, &e))?;
     }
     Ok(())
 }
 
 // Refuses `path` when it is a link, someone else's, or open to others.
-#[cfg(unix)]
 fn private(path: &Path) -> Result<(), StoreError> {
-    use std::os::unix::fs::MetadataExt;
-
     let meta = fs::symlink_metadata(path).map_err(|e| unusable(path, &e))?;
-    let theirs = meta.uid() != rustix::process::getuid().as_raw();
-    if meta.file_type().is_symlink() || theirs || meta.mode() & 0o077 != 0 {
+    let alone = owner_only::is_owner_only(path).map_err(|e| unusable(path, &e))?;
+    if meta.file_type().is_symlink() || !alone {
         return Err(StoreError::Exposed(path.to_owned()));
     }
     Ok(())
@@ -251,49 +259,14 @@ fn private(path: &Path) -> Result<(), StoreError> {
 
 // Writes `bytes` beside `path`, readable by its owner alone, syncs it and
 // renames it over `path`.
-#[cfg(unix)]
 fn put(path: &Path, bytes: &[u8]) -> Result<(), StoreError> {
-    use std::io::Write;
-    use std::os::unix::fs::OpenOptionsExt;
-
     let fresh = path.with_extension(format!("new.{}", std::process::id()));
     let _ = fs::remove_file(&fresh);
-    let written = fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
-        .open(&fresh)
+    let written = owner_only::create_private(&fresh)
         .and_then(|mut file| file.write_all(bytes).and_then(|()| file.sync_all()))
         .and_then(|()| fs::rename(&fresh, path));
     let _ = fs::remove_file(&fresh);
     written.map_err(|e| unusable(path, &e))
-}
-
-// Windows keeps a file to its owner by an ACL, which kelpie does not set yet
-// (#1264), so it keeps no key rather than one others may read.
-#[cfg(windows)]
-fn refused() -> StoreError {
-    StoreError::Unusable(
-        "the App's key needs a file only its owner can read, which kelpie cannot make on \
-         Windows yet (#1264)"
-            .to_owned(),
-    )
-}
-
-#[cfg(windows)]
-fn make_private(_outer: &Path, _inner: &Path) -> Result<(), StoreError> {
-    Err(refused())
-}
-
-// A key or folder already in place is not trusted, since its ACL is not checked yet.
-#[cfg(windows)]
-fn private(_path: &Path) -> Result<(), StoreError> {
-    Err(refused())
-}
-
-#[cfg(windows)]
-fn put(_path: &Path, _bytes: &[u8]) -> Result<(), StoreError> {
-    Err(refused())
 }
 
 #[cfg(test)]

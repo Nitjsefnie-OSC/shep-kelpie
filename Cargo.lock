@@ -1368,6 +1368,7 @@ dependencies = [
  "shep-handover",
  "shep-kelpie-core",
  "shep-kelpie-facts",
+ "shep-kelpie-owner-only",
  "shep-kelpie-process",
  "shep-kelpie-test-support",
  "shep-kelpie-tree",

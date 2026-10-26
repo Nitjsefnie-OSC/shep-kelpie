@@ -20,7 +20,7 @@ use shep_kelpie_core::{
 #[cfg(test)]
 use shep_kelpie_core::confine;
 #[cfg(any(test, feature = "test-support"))]
-use shep_kelpie_core::{coderabbit, codex, cubic};
+use shep_kelpie_core::{coderabbit, codex, cubic, owner_only};
 
 // The leaf crates, each module kept under the name it had here
 use shep_kelpie_facts::{mcp_use, request_use, tool_error};
