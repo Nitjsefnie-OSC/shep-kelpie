@@ -13,8 +13,8 @@ use crate::adapters::harness::{
 use crate::adapters::process::RunError;
 use crate::forwarder::Upstream;
 use crate::ports::{
-    Adopted, AgentCall, AgentError, AgentReply, Agents, CallActivity, Ending, Kept, Role,
-    SessionId, Transcript,
+    Adopted, AgentCall, AgentError, AgentReply, Agents, CallActivity, Ending, Kept, NotAdopted,
+    Role, SessionId, Transcript,
 };
 use crate::settings::{Gateways, ModelServer, SessionIds};
 
@@ -277,7 +277,7 @@ impl<C: Cli> Agents for CliAdapter<C> {
         Ok(self.completed(call, reply))
     }
 
-    fn adoption(&self, call: &AgentCall) -> Result<Adopted, String> {
+    fn adoption(&self, call: &AgentCall) -> Result<Adopted, NotAdopted> {
         let facts = C::HARNESS.facts();
         let mut adopted = adoption_of(call, C::HARNESS)?;
         if facts.needs_model_server {

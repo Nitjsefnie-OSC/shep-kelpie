@@ -485,6 +485,36 @@ fn claude_code() -> Harness {
     Harness::ClaudeCode
 }
 
+/// Why a call in flight cannot be handed to another image
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NotAdopted {
+    /// The call's record is gone, as it is once the call has ended, so a call
+    /// whose end is not yet heard shows this
+    RecordGone(String),
+    /// Anything else: the call is not a worker's, its harness cannot be
+    /// handed over, or its record is there and cannot be read
+    Refused(String),
+}
+
+impl fmt::Display for NotAdopted {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let (Self::RecordGone(why) | Self::Refused(why)) = self;
+        f.write_str(why)
+    }
+}
+
+impl From<String> for NotAdopted {
+    fn from(why: String) -> Self {
+        Self::Refused(why)
+    }
+}
+
+impl From<&str> for NotAdopted {
+    fn from(why: &str) -> Self {
+        Self::Refused(why.to_owned())
+    }
+}
+
 /// What a call needs from the old image's memory to go on after a handover
 ///
 /// The new image opens each again from this and from its own settings, and
@@ -535,9 +565,10 @@ pub trait Agents: Send + Sync {
     ///
     /// # Errors
     ///
-    /// Why the call cannot be finished that way: its harness cannot be, or its
-    /// record is missing or unreadable.
-    fn adoption(&self, call: &AgentCall) -> Result<Adopted, String> {
+    /// [`NotAdopted::RecordGone`] when the call's record is missing, and
+    /// [`NotAdopted::Refused`] for any other reason it cannot be finished that
+    /// way: its harness cannot be, or its record is unreadable.
+    fn adoption(&self, call: &AgentCall) -> Result<Adopted, NotAdopted> {
         let _ = call;
         Err("this harness cannot hand a call to another image of the runner".into())
     }

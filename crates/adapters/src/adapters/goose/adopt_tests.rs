@@ -7,7 +7,7 @@ use super::gateway_tests::{KEY, gateways, on_gateway};
 use super::tests::{FRESH, FRESH_ID, URL, World, id};
 use super::*;
 use crate::adapters::process::record::Record;
-use crate::ports::{KeptServer, Role};
+use crate::ports::{KeptServer, NotAdopted, Role};
 use crate::test::{OpenSandbox, StandInEndpoint};
 
 // goose as a script that waits for a `go` file before it prints `FRESH`.
@@ -30,7 +30,7 @@ fn carried_while_running(
     goose: &GooseCli,
     world: &World,
     call: &AgentCall,
-) -> Result<Adopted, String> {
+) -> Result<Adopted, NotAdopted> {
     let carried = std::thread::scope(|scope| {
         let running = scope.spawn(|| goose.run(call, &Ending::default()));
         let until = Instant::now() + Duration::from_secs(10);
@@ -46,8 +46,9 @@ fn carried_while_running(
         carried
     });
     let gone = goose.adoption(call).unwrap_err();
+    assert!(matches!(gone, NotAdopted::RecordGone(_)), "{gone:?}");
     assert!(
-        gone.contains("cannot be read"),
+        gone.to_string().contains("cannot be read"),
         "a call that has ended is carried no more: {gone}"
     );
     carried
@@ -59,7 +60,7 @@ fn a_call_that_is_not_a_workers_refuses_naming_why() {
     let goose = waiting_goose(&w, Gateways::default());
     let call = w.call(URL, Role::Researcher, Session::New(id(FRESH_ID)));
     assert_eq!(
-        goose.adoption(&call).unwrap_err(),
+        goose.adoption(&call).unwrap_err().to_string(),
         "only a worker's call is carried"
     );
 }
@@ -70,6 +71,8 @@ fn a_workers_call_with_no_record_refuses_naming_the_record() {
     let goose = waiting_goose(&w, Gateways::default());
     let call = w.call(URL, Role::Worker, Session::New(id(FRESH_ID)));
     let why = goose.adoption(&call).unwrap_err();
+    assert!(matches!(why, NotAdopted::RecordGone(_)), "{why:?}");
+    let why = why.to_string();
     assert!(
         why.starts_with("the call's record ") && why.contains("cannot be read"),
         "{why}"
@@ -96,7 +99,7 @@ fn a_call_with_no_note_refuses_naming_why() {
     std::fs::write(&files.record, serde_json::to_string(&record).unwrap()).unwrap();
 
     assert_eq!(
-        goose.adoption(&call).unwrap_err(),
+        goose.adoption(&call).unwrap_err().to_string(),
         "this image holds no forwarder for the call"
     );
 }

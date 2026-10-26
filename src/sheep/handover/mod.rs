@@ -32,7 +32,7 @@ use crate::home::Build;
 use crate::lease::Epoch;
 use crate::lease::saved::BookFile;
 use crate::lease::wire::{Asker, AskerCarry};
-use crate::runner::{CarriedTurn, Runner};
+use crate::runner::{CarriedTurn, NotCarried, Runner};
 
 /// The trigger that asks for a handover
 pub const ACTION: &str = "handover";
@@ -284,7 +284,7 @@ impl Handing {
             return self.refuse("a call has just ended and is being read".into());
         };
         // Held through the exec, so nothing changes what was carried.
-        let held = runner.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut held = runner.lock().unwrap_or_else(PoisonError::into_inner);
         // A notice hook runs on a thread the new image would not have, and
         // the notices queued behind it would be dropped.
         if held.notices_running() {
@@ -297,13 +297,20 @@ impl Handing {
         if !postings.close_queue() {
             return;
         }
+        // A call just ended and the loop has not heard it: the request stays
+        // queued, untouched, for the pass that does, until `CARRY_WAIT` is up.
+        let carried = held.carry_calls();
+        if let Err(NotCarried::Waiting(_)) = carried {
+            postings.open_queue();
+            return;
+        }
         // Taken before the exec, so one withdrawn by now is not made, and
         // none is seen waiting while the exec runs.
         let Some(tell) = self.slot().take() else {
             postings.open_queue();
             return;
         };
-        let why = match held.carry_calls() {
+        let why = match carried {
             Ok(turns) => {
                 let leases = held.carry_leases();
                 let build = Some(Build::this().kelpie);
@@ -313,7 +320,7 @@ impl Handing {
                     build,
                 })
             }
-            Err(why) => why,
+            Err(why) => why.to_string(),
         };
         postings.open_queue();
         refused(&tell, why);
