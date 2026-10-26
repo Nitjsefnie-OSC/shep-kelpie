@@ -61,6 +61,9 @@ Every runner series carries `sheep`, the project's name, as well as `id` and `fo
 | `kelpie_forge_rate_reset_timestamp_seconds` | `bucket` | When that limit next resets, in Unix seconds |
 | `kelpie_runner_lock_held_seconds_total` | | Seconds the runner's lock was held, summed over every hold. A pass holds it through its forge calls, so a `rate` near 1 means it is held all the time, and a trigger other than `status`, `drain` and `undrain` waits |
 | `kelpie_runner_lock_holds_total` | `le` | Holds of the runner's lock by length: `le="1"` counts those of at most a second, `+Inf` all of them. `status` shows the longest hold of each source line under `lock` |
+| `kelpie_model_lease_waiting` | `model` | Calls of this runner waiting for a lease on a gateway's model, from asking for it until the grant. A model whose calls have all ended stays at 0 |
+| `kelpie_model_lease_held` | `model` | Calls of this runner holding a lease on a gateway's model |
+| `kelpie_model_lease_wait_seconds_total`, `kelpie_model_lease_grants_total` | `model` | Seconds this runner's calls waited for a lease on a gateway's model, and the leases granted to them. Divide the rates for a mean wait. A model on a URL host, or a round that runs a command, takes no lease and is not counted |
 | `kelpie_leases_held` | `kind` | The dog's leases in use: 0 or 1 for a book lease (the review bot windows), up to the capacity for `cargo-test`, and the busy hosts for `e2e` |
 | `kelpie_lease_waiting` | `kind` | Runners and commands waiting for the lease |
 | `kelpie_lease_grants_total`, `kelpie_lease_wait_seconds_total` | `kind` | Times the lease was granted, and the seconds those grants waited in the queue. Divide the rates for a mean wait. A grant to a command already running under the last dog is not counted |

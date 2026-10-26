@@ -971,6 +971,49 @@
           }
         ]
       }
+    },
+    {
+      "id": 24,
+      "type": "timeseries",
+      "title": "Model leases held and waiting",
+      "description": "Calls of each project waiting for, and holding, a lease on a gateway's model, summed over the projects the filter selects. A call waits from asking for the lease until the grant, so a waiting line above zero for long is a queue on that model.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 88
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "sum by (model) (kelpie_model_lease_held{sheep=~\"$sheep\"})",
+          "legendFormat": "{{model}} held"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "sum by (model) (kelpie_model_lease_waiting{sheep=~\"$sheep\"})",
+          "legendFormat": "{{model}} waiting"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {}
     }
   ],
   "refresh": "30s",

@@ -444,3 +444,105 @@ fn a_later_turn_restarted_on_a_new_session_never_falls_back() {
        Some(StepReport::Ended { issue, .. }) if issue == ticket(7)
     ));
 }
+
+// An implementer on a model behind a gateway, whose calls take a lease on it
+const BEHIND_PADDOCK: &str = "---\nrole: implementer\nharness: pi\nmodel: coder\neffort: low\n\
+                              gateway: paddock\ncontext: 65536\n---\n";
+
+const CODER_MODEL: [(&str, &str); 1] = [("model", "coder")];
+
+// A rig whose `mine` implementer is behind a gateway nothing listens at, with `items` slots
+fn behind_gateway(items: u32) -> Rig {
+    let rig = Rig::new("acme");
+    rig.write_agent("mine", BEHIND_PADDOCK);
+    rig.implementers(&["sonnet-high", "mine"]);
+    rig.edit_settings(|s| s.replace("active_items = 1", &format!("active_items = {items}")));
+    let settings = std::fs::read_to_string(rig.kelpie_settings_file()).unwrap();
+    let gateway =
+        "[gateways.paddock]\nurl = \"http://127.0.0.1:9\"\nkey_env = \"CARGO_PKG_NAME\"\n";
+    rig.set_kelpie_settings(&format!("{settings}{gateway}"));
+    rig
+}
+
+#[test]
+fn a_call_waiting_for_its_model_s_lease_is_counted_waiting_then_held_from_the_grant() {
+    let rig = behind_gateway(1);
+    rig.forge.label(7, "agent:mine");
+    let runner = rig.open().unwrap();
+    rig.ask(&runner, "add", Some("7"));
+    let hold = Hold::default();
+    let queue = queued(&rig, Scripted::Hold(hold.clone()));
+    let driven = Driven::new(&runner);
+    driven.started();
+    assert_eq!(driven.heard(), None);
+    assert_eq!(
+        rig.samples
+            .value("kelpie_model_lease_waiting", &CODER_MODEL),
+        Some(1.0)
+    );
+    assert_eq!(
+        rig.samples.value("kelpie_model_lease_held", &CODER_MODEL),
+        Some(0.0)
+    );
+
+    queue.release();
+    assert_eq!(driven.heard(), None);
+    assert_eq!(
+        rig.samples
+            .value("kelpie_model_lease_waiting", &CODER_MODEL),
+        Some(0.0)
+    );
+    assert_eq!(
+        rig.samples.value("kelpie_model_lease_held", &CODER_MODEL),
+        Some(1.0)
+    );
+
+    hold.release();
+    assert!(driven.landed().is_some());
+    driven.pass();
+    assert_eq!(
+        rig.samples.value("kelpie_model_lease_held", &CODER_MODEL),
+        Some(0.0)
+    );
+}
+
+#[test]
+fn lease_wait_seconds_and_grants_add_up_per_model_across_calls() {
+    let rig = behind_gateway(2);
+    rig.forge.label(7, "agent:mine");
+    rig.forge.label(8, "agent:mine");
+    let runner = rig.open().unwrap();
+    rig.ask(&runner, "add", Some("7"));
+    rig.ask(&runner, "add", Some("8"));
+    let queues = [
+        queued(&rig, Scripted::Say("done")),
+        queued(&rig, Scripted::Say("done")),
+    ];
+    let driven = Driven::new(&runner);
+    driven.started();
+    assert_eq!(driven.heard(), None);
+    driven.started();
+    assert_eq!(driven.heard(), None);
+    assert_eq!(
+        rig.samples
+            .value("kelpie_model_lease_waiting", &CODER_MODEL),
+        Some(2.0)
+    );
+
+    rig.clock.advance(120);
+    queues[0].release();
+    driven.landed();
+    rig.clock.advance(30);
+    queues[1].release();
+    driven.landed();
+
+    let seconds = rig
+        .samples
+        .value("kelpie_model_lease_wait_seconds_total", &CODER_MODEL);
+    assert_eq!(seconds, Some(120.0 + 150.0));
+    assert_eq!(
+        rig.samples
+            .value("kelpie_model_lease_grants_total", &CODER_MODEL),
+        Some(2.0)
+    );
+}

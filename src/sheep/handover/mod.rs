@@ -28,7 +28,7 @@ use serde::{Deserialize, Serialize};
 use shep_handover::{Handover, State, Verdict};
 
 use crate::adapters::{Base, ShepLeases};
-use crate::home::Build;
+use crate::home::probe_version;
 use crate::lease::Epoch;
 use crate::lease::saved::BookFile;
 use crate::lease::wire::{Asker, AskerCarry};
@@ -103,7 +103,7 @@ impl Carry {
             "took over: {}, from {from} to kelpie {}, {} turns carried, {} work items open, \
              {} rulings waiting",
             status.project,
-            Build::this().kelpie,
+            probe_version(),
             self.turns.len(),
             status.work_items.len(),
             status.rulings.len()
@@ -313,7 +313,7 @@ impl Handing {
         let why = match carried {
             Ok(turns) => {
                 let leases = held.carry_leases();
-                let build = Some(Build::this().kelpie);
+                let build = Some(probe_version());
                 (self.exec)(&Carry {
                     turns,
                     leases,

@@ -15,6 +15,7 @@ mod errors;
 mod forge;
 mod lock;
 mod mcp;
+mod model_lease;
 mod plan;
 mod requests;
 mod series;

@@ -29,6 +29,12 @@ Plan limits: gauges the pacer sets whenever it reads an account's usage (`Runner
 
 - The runner's lock: `kelpie_runner_lock_held_seconds_total` and `kelpie_runner_lock_holds_total{le}` (`1`, `+Inf`), three series. `runner-lock.md`, `crates/core/src/metrics/lock.rs`
 
+Model leases: the calls waiting for, and holding, a lease on a gateway's model, by `model`. The adapters take the lease and have no `Recorder`, so the runner counts where it hears the call say it waits (`Runner::told`) and begins (`Runner::began`), with the model from the watched call (`Watched.lease`). `crates/core/src/metrics/model_lease.rs`, `crates/runner/src/runner/flight/waiting/mod.rs`
+
+- `kelpie_model_lease_waiting{model}`, `kelpie_model_lease_held{model}`: gauges set from the calls in flight at each told wait, each begin and each pass, so a call that ends sets its model's gauge down. A model once seen is set to 0 rather than left at its last count
+- `kelpie_model_lease_wait_seconds_total{model}`, `kelpie_model_lease_grants_total{model}`: counted at each begin, the wait from when the call first said it waited. A model on a URL host and a round that runs a command have no `Watched.lease`, so are not counted
+- Four series a model: the budget test does not count them yet (see the cap above)
+
 Work items (phases, how they ended, review rounds, findings, red CI heads) are in `metrics-work-items.md`.
 
 Features: whether what a project turned on runs.

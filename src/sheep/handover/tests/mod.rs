@@ -604,18 +604,22 @@ fn the_new_image_says_it_took_over_from_a_handover_with_both_builds() {
     let rig = Rig::new("shep");
     let runner = rig.open().unwrap();
     let carry: Carry = serde_json::from_value(serde_json::json!({
-        "turns": [], "build": "0.3.1",
+        "turns": [], "build": "0.3.1+1f2e3a4",
     }))
     .unwrap();
 
     let line = carry.took_over_line(&runner.lock().unwrap());
 
+    // The commit this test binary was built from, when it was built in a checkout
+    let this = match crate::home::COMMIT {
+        Some(commit) => format!("{}+{commit}", env!("CARGO_PKG_VERSION")),
+        None => env!("CARGO_PKG_VERSION").to_owned(),
+    };
     assert_eq!(
         line,
         format!(
-            "took over: shep, from kelpie 0.3.1 to kelpie {}, 0 turns carried, \
-             0 work items open, 0 rulings waiting",
-            env!("CARGO_PKG_VERSION")
+            "took over: shep, from kelpie 0.3.1+1f2e3a4 to kelpie {this}, 0 turns carried, \
+             0 work items open, 0 rulings waiting"
         )
     );
 }
