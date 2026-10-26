@@ -35,6 +35,36 @@ fn a_lease_never_granted_passes_the_bot_over_after_two_hours() {
 }
 
 #[test]
+fn a_bot_passed_over_is_journaled_with_its_reason_for_the_retro() {
+    let (rig, runner, _) = reviewed_by_qwen("shep");
+    rig.leases.withhold(true);
+    step(&runner).unwrap(); // the draft is marked ready
+    rig.clock.advance(REVIEW_WAIT - 1);
+    assert_eq!(step(&runner).unwrap(), None, "still asking");
+    rig.clock.advance(1);
+    assert_eq!(
+        step(&runner).unwrap(),
+        skipped("it could not be summoned in the two hours after its round began")
+    );
+
+    let passed_over: Vec<serde_json::Value> =
+        crate::runner::retro::journal::read(&rig.paths().journal)
+            .iter()
+            .filter_map(|s| serde_json::to_value(&s.entry).ok())
+            .filter(|e| e["entry"] == "reviewer-skipped")
+            .collect();
+    assert_eq!(
+        json!(passed_over),
+        json!([{
+            "entry": "reviewer-skipped", "issue": "7", "round": 3,
+            "reviewer": "coderabbit",
+            "reason": "it could not be summoned in the two hours after its round began",
+        }]),
+        "{passed_over:#?}"
+    );
+}
+
+#[test]
 fn a_bot_the_list_drops_mid_round_is_never_summoned_again() {
     let (rig, runner, _) = summoned("koji");
     rig.edit_settings(|s| {

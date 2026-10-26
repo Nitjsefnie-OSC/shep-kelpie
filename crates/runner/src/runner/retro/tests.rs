@@ -661,7 +661,40 @@ fn friction(rig: &Rig, issue: u64, text: &str) {
         issue: ticket(issue),
         text: text.to_owned(),
     };
-    journal::append(&journal, Timestamp(Rig::EPOCH - 1500), entry).unwrap();
+    journal::append(&journal, Timestamp(Rig::EPOCH - 1400), entry).unwrap();
+}
+
+// Work item `issue`'s round `round`, read by `reviewer` with `findings`
+fn round(rig: &Rig, issue: u64, round: u32, reviewer: &str, findings: usize) {
+    written(
+        rig,
+        journal::Entry::Round {
+            issue: ticket(issue),
+            round,
+            reviewer: reviewer.to_owned(),
+            findings,
+        },
+    );
+}
+
+// Work item `issue`'s round `round`, with `reviewer` passed over for `reason`
+fn passed_over(rig: &Rig, issue: u64, round: u32, reviewer: &str, reason: &str) {
+    written(
+        rig,
+        journal::Entry::ReviewerSkipped {
+            issue: ticket(issue),
+            round,
+            reviewer: reviewer.to_owned(),
+            reason: reason.to_owned(),
+        },
+    );
+}
+
+// Adds `entry` to the project's journal, in the seeded work items' own span
+fn written(rig: &Rig, entry: journal::Entry) {
+    let journal = rig.paths().journal;
+    fs::create_dir_all(journal.parent().unwrap()).unwrap();
+    journal::append(&journal, Timestamp(Rig::EPOCH - 1400), entry).unwrap();
 }
 
 #[test]
@@ -716,4 +749,30 @@ fn an_open_known_gap_is_listed_and_one_that_recurs_is_counted_not_described_agai
         "{prompt}"
     );
     assert!(!prompt.contains("tests need a port"), "{prompt}");
+}
+
+#[test]
+fn the_digest_lists_a_clean_round_and_a_reviewer_passed_over_numbered() {
+    let (rig, runner) = parked_after_set(9, |rig| {
+        passed_over(
+            rig,
+            101,
+            1,
+            "codex",
+            "its window opens more than an hour on",
+        );
+        round(rig, 101, 2, "claude", 0);
+    });
+    rig.claude.script_for(Role::Pm, [Scripted::Say(REPORT)]);
+    merge(&rig, &runner);
+
+    let [retro] = retros(&rig).try_into().unwrap();
+    let prompt = &retro.call.prompt;
+    for expected in [
+        "- Review rounds: 1 read, 1 passed over, the latest numbered 2",
+        "  - #101 round 1 by codex: passed over, its window opens more than an hour on",
+        "  - #101 round 2 by claude: 0 findings",
+    ] {
+        assert!(prompt.contains(expected), "{expected}: {prompt}");
+    }
 }

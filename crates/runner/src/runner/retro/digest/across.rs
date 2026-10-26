@@ -56,10 +56,17 @@ fn conflicts(out: &mut String, items: &[(TicketId, Vec<&Stamped>)]) {
 fn rounds(out: &mut String, items: &[(TicketId, Vec<&Stamped>)]) {
     let _ = writeln!(out, "- Review rounds per work item:");
     for (issue, mine) in items {
-        let count = (mine.iter())
+        let read = (mine.iter())
             .filter(|s| matches!(s.entry, Entry::Round { .. }))
             .count();
-        let _ = writeln!(out, "  - {}: {count}", issue.shown());
+        let passed_over = (mine.iter())
+            .filter(|s| matches!(s.entry, Entry::ReviewerSkipped { .. }))
+            .count();
+        let _ = writeln!(
+            out,
+            "  - {}: {read} read, {passed_over} passed over",
+            issue.shown()
+        );
     }
 }
 

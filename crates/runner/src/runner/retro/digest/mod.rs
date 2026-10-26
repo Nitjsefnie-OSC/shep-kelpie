@@ -10,12 +10,12 @@ use std::fmt::Write;
 
 use serde::Serialize;
 
-use super::journal::{Entry, Stamped};
+use super::journal::{self, Entry, Stamped};
 use crate::panel::work_of;
 use crate::runner::panel::{Answerer, Record};
 use crate::state::Finished;
 use crate::ticket::TicketId;
-use crate::usage::{CallKind, CallLine, FinishedLine, Line};
+use crate::usage::{CallKind, CallLine, Ended, FinishedLine, Line, RoleLine};
 
 mod across;
 
@@ -40,6 +40,145 @@ pub(super) struct Records<'a> {
     pub since: u64,
     /// The retro's own earlier findings still open, by theme
     pub gaps: &'a [String],
+}
+
+/// What a digest is for, as a line names it
+fn shown(finished: &Finished) -> String {
+    finished.issue.shown()
+}
+
+/// How far before its creation a work item's own window reaches
+///
+/// The wake that picked the item, and the dispatch it led to, sit seconds
+/// before its first charge. The slack keeps them in the item's own section,
+/// and stays far short of the gap between two runs of one issue.
+const BEFORE_CREATION: u64 = 300;
+
+// When the work item's own run began: its finish, less the wall time that
+// runs from its creation, less [`BEFORE_CREATION`]
+fn start_of(finished: &Finished) -> u64 {
+    finished
+        .at
+        .0
+        .saturating_sub(finished.wall.saturating_add(BEFORE_CREATION))
+}
+
+// The window the batch's totals cover: since the last retro, or with no
+// earlier retro, from the batch's first work item's own start
+fn window(records: &Records<'_>) -> (u64, u64) {
+    let until = (records.batch.iter())
+        .map(|f| f.at.0)
+        .max()
+        .unwrap_or_default();
+    let first = (records.batch.iter())
+        .map(start_of)
+        .min()
+        .unwrap_or_default();
+    (records.since.max(first), until)
+}
+
+// Each work item's run in the batch, numbered where one issue ran twice
+fn runs(batch: &[Finished]) -> Vec<(usize, usize)> {
+    let mut total: BTreeMap<TicketId, usize> = BTreeMap::new();
+    for finished in batch {
+        *total.entry(finished.issue).or_default() += 1;
+    }
+    let mut seen: BTreeMap<TicketId, usize> = BTreeMap::new();
+    batch
+        .iter()
+        .map(|finished| {
+            let run = seen.entry(finished.issue).or_default();
+            *run += 1;
+            (*run, total[&finished.issue])
+        })
+        .collect()
+}
+
+/// What a set of calls cost, and what the ledger left unpriced or unread
+#[derive(Debug, Clone, Default)]
+struct Spend {
+    calls: u32,
+    units: u64,
+    cost: f64,
+    priced: u32,
+    unpriced: u32,
+    timed_out: u32,
+}
+
+impl Spend {
+    fn add(&mut self, call: &CallLine) {
+        self.calls += 1;
+        self.units += call.units;
+        if call.ended == Ended::TimedOut {
+            // A turn ended at its ceiling read no usage, so what it cost is
+            // unknown rather than nothing
+            self.timed_out += 1;
+        } else if call.cost_usd.is_some() && !call.unpriced {
+            self.priced += 1;
+            self.cost += call.cost_usd.unwrap_or_default();
+        } else {
+            self.unpriced += 1;
+        }
+    }
+
+    fn add_all(&mut self, other: &Self) {
+        self.calls += other.calls;
+        self.units += other.units;
+        self.cost += other.cost;
+        self.priced += other.priced;
+        self.unpriced += other.unpriced;
+        self.timed_out += other.timed_out;
+    }
+
+    // A role's own totals, from the finished line where the ledger names the
+    // work item no call of it
+    fn of_role(role: &RoleLine) -> Self {
+        Self {
+            calls: role.calls,
+            units: role.units,
+            cost: role.cost_usd,
+            priced: role.calls.saturating_sub(role.unpriced_calls),
+            unpriced: role.unpriced_calls,
+            timed_out: 0,
+        }
+    }
+
+    // What the calls cost, naming those the ledger could not price
+    fn note(&self) -> String {
+        let mut parts = Vec::new();
+        if self.priced > 0 {
+            parts.push(format!("${:.2}", self.cost));
+        }
+        if self.unpriced > 0 {
+            parts.push(each(
+                self.unpriced,
+                self.calls,
+                "local, unpriced",
+                "unpriced",
+            ));
+        }
+        if self.timed_out > 0 {
+            parts.push(each(
+                self.timed_out,
+                self.calls,
+                "timed out, usage not read",
+                "timed out, usage not read",
+            ));
+        }
+        match parts.is_empty() {
+            true => "$0.00".to_owned(),
+            false => parts.join("; "),
+        }
+    }
+}
+
+// `{whole}`, where every one of the `of` calls is one, and `{n} {part}`
+// where only `n` of them are
+fn each(n: u32, of: u32, whole: &str, part: &str) -> String {
+    match n == of {
+        true => whole.to_owned(),
+        false => format!("{n} {part}"),
+    }
 }
 
 /// A span of seconds as `1h05m`, `5m10s` or `42s`
@@ -68,9 +207,9 @@ pub(super) fn build(records: &Records<'_>) -> String {
         records.batch.len(),
         issues.join(", ")
     );
-    for finished in records.batch {
+    for (finished, run) in records.batch.iter().zip(runs(records.batch)) {
         out.push('\n');
-        item(&mut out, records, finished);
+        item(&mut out, records, finished, run);
     }
     out.push('\n');
     across::section(&mut out, records);
@@ -78,14 +217,18 @@ pub(super) fn build(records: &Records<'_>) -> String {
     out
 }
 
-// The work item as a digest line names it
-fn shown(finished: &Finished) -> String {
-    finished.issue.shown()
-}
-
-fn item(out: &mut String, records: &Records<'_>, finished: &Finished) {
+fn item(out: &mut String, records: &Records<'_>, finished: &Finished, run: (usize, usize)) {
     let work = work_of(Some(&finished.title)).kind;
-    let _ = writeln!(out, "## {}: {} ({work})", shown(finished), finished.title);
+    let revival = match run.1 > 1 {
+        true => format!(", run {} of {}", run.0, run.1),
+        false => String::new(),
+    };
+    let _ = writeln!(
+        out,
+        "## {}: {} ({work}){revival}",
+        shown(finished),
+        finished.title
+    );
     let end = match (finished.merged, finished.closed) {
         (true, _) => "merged",
         (_, true) => "closed with no change",
@@ -100,16 +243,17 @@ fn item(out: &mut String, records: &Records<'_>, finished: &Finished) {
         span(finished.wall)
     );
     if let Some(line) = ledger_line(records.ledger, finished) {
+        let spend = item_spend(records, finished, line);
         let _ = writeln!(
             out,
-            "- Ledger: {} units, ${:.2}; worker {} calls ${:.2}; reviewer {} calls ${:.2}; \
+            "- Ledger: {} units, {}; worker {} calls {}; reviewer {} calls {}; \
              {} review rounds, {} fix turns, {} rulings",
             line.units,
-            line.cost_usd,
+            spend.total.note(),
             line.worker.calls,
-            line.worker.cost_usd,
+            spend.worker.note(),
             line.reviewer.calls,
-            line.reviewer.cost_usd,
+            spend.reviewer.note(),
             line.review_rounds,
             line.fix_turns,
             line.rulings
@@ -128,11 +272,56 @@ fn item(out: &mut String, records: &Records<'_>, finished: &Finished) {
     }
 }
 
-// The journal's entries about the work item, up to its finish
+// The journal's entries about the work item, from its own run's start to its
+// finish, so a revived issue keeps each run's entries to itself
 fn mine<'a>(records: &Records<'a>, finished: &Finished) -> Vec<&'a Stamped> {
+    let (from, until) = (start_of(finished), finished.at.0);
     (records.journal.iter())
-        .filter(|s| s.at <= finished.at && s.entry.names(finished.issue))
+        .filter(|s| s.at.0 >= from && s.at.0 <= until && s.entry.names(finished.issue))
         .collect()
+}
+
+// What the work item's own calls cost, by role, from the ledger's lines for
+// them, or from its finished line where the ledger names it none
+fn item_spend(records: &Records<'_>, finished: &Finished, line: &FinishedLine) -> ItemSpend {
+    let (from, until) = (start_of(finished), finished.at.0);
+    let mut worker = Spend::default();
+    let mut reviewer = Spend::default();
+    for call in records.ledger.iter().filter_map(|l| match l {
+        Line::Call(c) => Some(c),
+        Line::Finished(_) => None,
+    }) {
+        if call.issue != Some(finished.issue) || call.at.0 < from || call.at.0 > until {
+            continue;
+        }
+        match name(&call.role).as_str() {
+            "worker" => worker.add(call),
+            "reviewer" => reviewer.add(call),
+            _ => {}
+        }
+    }
+    let worker = match worker.calls {
+        0 => Spend::of_role(&line.worker),
+        _ => worker,
+    };
+    let reviewer = match reviewer.calls {
+        0 => Spend::of_role(&line.reviewer),
+        _ => reviewer,
+    };
+    let mut total = worker.clone();
+    total.add_all(&reviewer);
+    ItemSpend {
+        total,
+        worker,
+        reviewer,
+    }
+}
+
+// What a work item's worker, reviewer and both together cost
+struct ItemSpend {
+    total: Spend,
+    worker: Spend,
+    reviewer: Spend,
 }
 
 // The item's line in the ledger: the last written at its finish
@@ -155,7 +344,7 @@ fn wakes(out: &mut String, mine: &[&Stamped]) {
         else {
             continue;
         };
-        let did = match acted.is_empty() {
+        let did = match journal::changed_nothing(acted) {
             true => "changed nothing".to_owned(),
             false => acted.join("; "),
         };
@@ -210,36 +399,62 @@ fn rulings(out: &mut String, records: &Records<'_>, finished: &Finished) {
 fn reviews(out: &mut String, mine: &[&Stamped]) {
     let rounds: Vec<&Entry> = (mine.iter())
         .map(|s| &s.entry)
-        .filter(|e| matches!(e, Entry::Round { .. }))
+        .filter(|e| matches!(e, Entry::Round { .. } | Entry::ReviewerSkipped { .. }))
         .collect();
+    let read = (rounds.iter())
+        .filter(|e| matches!(e, Entry::Round { .. }))
+        .count();
+    let passed_over = rounds.len() - read;
     let latest = (rounds.iter())
         .filter_map(|e| match e {
-            Entry::Round { round, .. } => Some(*round),
+            Entry::Round { round, .. } | Entry::ReviewerSkipped { round, .. } => Some(*round),
             _ => None,
         })
         .max();
     let latest = latest.map_or(String::new(), |n| format!(", the latest numbered {n}"));
-    let _ = writeln!(out, "- Review rounds reported: {}{latest}", rounds.len());
+    let _ = writeln!(
+        out,
+        "- Review rounds: {read} read, {passed_over} passed over{latest}"
+    );
     for entry in rounds {
-        let Entry::Round {
-            issue,
-            round,
-            reviewer,
-            findings,
-        } = entry
-        else {
-            continue;
-        };
-        let sent = mine.iter().find_map(|s| match &s.entry {
-            Entry::FindingsSent { round: r, held, .. } if r == round => Some(*held),
-            _ => None,
-        });
-        let sent = sent.map_or(String::new(), |held| format!(", {held} sent to the worker"));
-        let _ = writeln!(
-            out,
-            "  - {} round {round} by {reviewer}: {findings} findings{sent}",
-            issue.shown()
-        );
+        match entry {
+            Entry::Round {
+                issue,
+                round,
+                reviewer,
+                findings,
+            } => {
+                let sent = mine.iter().find_map(|s| match &s.entry {
+                    Entry::FindingsSent { round: r, held, .. } if r == round => Some(*held),
+                    _ => None,
+                });
+                // A round that found nothing sent nothing, which its own line
+                // already says
+                let sent = match (*findings, sent) {
+                    (_, None) | (0, Some(0)) => String::new(),
+                    (_, Some(held)) => format!(", {held} sent to the worker"),
+                };
+                let _ = writeln!(
+                    out,
+                    "  - {} round {round} by {reviewer}: {findings} findings{sent}",
+                    issue.shown()
+                );
+            }
+            Entry::ReviewerSkipped {
+                issue,
+                round,
+                reviewer,
+                reason,
+            } => {
+                let _ = writeln!(
+                    out,
+                    "  - {} round {round} by {reviewer}: passed over, {}",
+                    issue.shown(),
+                    one_line(reason)
+                );
+            }
+            _ => {}
+        }
     }
 }
 
@@ -317,14 +532,9 @@ fn fixes(out: &mut String, mine: &[&Stamped]) {
 fn totals(out: &mut String, records: &Records<'_>) {
     let _ = writeln!(out, "## Batch totals");
     let batch: Vec<TicketId> = records.batch.iter().map(|f| f.issue).collect();
-    let until = records
-        .batch
-        .iter()
-        .map(|f| f.at.0)
-        .max()
-        .unwrap_or_default();
-    // The batch's own calls, and the project manager's between the last
-    // retro and the batch's end; the retro's calls are not the batch's.
+    let (from, until) = window(records);
+    // The batch's own calls, and the project manager's over the batch's own
+    // span; the retro's calls are not the batch's.
     let calls: Vec<&CallLine> = (records.ledger.iter())
         .filter_map(|line| match line {
             Line::Call(call) => Some(call),
@@ -333,31 +543,34 @@ fn totals(out: &mut String, records: &Records<'_>) {
         .filter(|call| call.kind != CallKind::Retro)
         .filter(|call| match call.issue {
             Some(issue) => batch.contains(&issue),
-            None => call.at.0 > records.since && call.at.0 <= until,
+            None => call.at.0 > from && call.at.0 <= until,
         })
         .collect();
-    let mut spend: BTreeMap<(String, String), (u32, u64, f64)> = BTreeMap::new();
+    let mut spend: BTreeMap<(String, String), Spend> = BTreeMap::new();
     for call in &calls {
-        let sum = spend
+        spend
             .entry((name(&call.role), name(&call.kind)))
-            .or_default();
-        sum.0 += 1;
-        sum.1 += call.units;
-        sum.2 += call.cost_usd.unwrap_or_default();
+            .or_default()
+            .add(call);
     }
     let _ = writeln!(out, "- Spend by role and kind:");
-    for ((role, kind), (count, units, cost)) in &spend {
+    for ((role, kind), group) in &spend {
         let _ = writeln!(
             out,
-            "  - {role} {kind}: {count} calls, {units} units, ${cost:.2}"
+            "  - {role} {kind}: {} calls, {} units, {}",
+            group.calls,
+            group.units,
+            group.note()
         );
     }
     let wakes: Vec<&Stamped> = (records.journal.iter())
-        .filter(|s| s.at.0 > records.since && s.at.0 <= until)
+        .filter(|s| s.at.0 > from && s.at.0 <= until)
         .filter(|s| matches!(s.entry, Entry::Wake { .. }))
         .collect();
     let idle = (wakes.iter())
-        .filter(|s| matches!(&s.entry, Entry::Wake { acted, .. } if acted.is_empty()))
+        .filter(
+            |s| matches!(&s.entry, Entry::Wake { acted, .. } if journal::changed_nothing(acted)),
+        )
         .count();
     let _ = writeln!(
         out,

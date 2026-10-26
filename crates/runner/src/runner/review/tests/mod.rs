@@ -53,6 +53,28 @@ fn each_reviewer_runs_once_in_order_and_the_last_goes_to_ci() {
 }
 
 #[test]
+fn a_round_that_found_nothing_is_journaled_as_a_round_that_read() {
+    let (rig, runner) = at_round_1("shep");
+    rig.claude.script([Scripted::Text(CLEAN)]);
+    step(&runner).unwrap(); // round 1, qwen: clean by default
+    step(&runner).unwrap(); // round 2, claude: clean
+
+    let rounds: Vec<serde_json::Value> = crate::runner::retro::journal::read(&rig.paths().journal)
+        .iter()
+        .filter_map(|s| serde_json::to_value(&s.entry).ok())
+        .filter(|e| e["entry"] == "round")
+        .collect();
+    assert_eq!(
+        json!(rounds),
+        json!([
+            {"entry": "round", "issue": "7", "round": 1, "reviewer": "qwen", "findings": 0},
+            {"entry": "round", "issue": "7", "round": 2, "reviewer": "claude", "findings": 0},
+        ]),
+        "{rounds:#?}"
+    );
+}
+
+#[test]
 fn a_review_saved_mid_loop_goes_on_from_the_reviewer_after_the_one_it_recorded() {
     let (rig, runner) = at_round_1("shep");
     drop(runner);

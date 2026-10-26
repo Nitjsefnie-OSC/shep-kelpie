@@ -915,6 +915,16 @@ impl Runner {
             }
         };
         self.save(next)?;
+        // A round that read the pull request and found nothing reports no
+        // `ReviewRound`, so the journal keeps it here, with 0 findings.
+        if matches!(report, StepReport::ReviewFindingsSent { held: 0, .. }) {
+            self.journal(Entry::Round {
+                issue,
+                round,
+                reviewer: reviewer_name.clone(),
+                findings: 0,
+            });
+        }
         if let Some((how, reason, findings)) = finished {
             self.keep_round(&keep::Finished {
                 reviewer: &kept_reviewer,

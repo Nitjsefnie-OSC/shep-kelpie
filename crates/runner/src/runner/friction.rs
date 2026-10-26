@@ -13,7 +13,17 @@ use crate::work_item::WorkItem;
 /// The most of a section kept, in characters
 const LONGEST: usize = 600;
 
-/// The text under the `Friction` heading of `body`, to the next heading
+/// What a section cut short ends with
+const CUT: &str = " (cut)";
+
+/// The line a harness puts at the end of a body, which is no friction
+fn trailer(line: &str) -> bool {
+    let line = line.trim_start();
+    line.starts_with("\u{1f916} Generated with") || line.starts_with("Generated with")
+}
+
+/// The text under the `Friction` heading of `body`, to the next heading or
+/// the harness's own trailer
 ///
 /// `None` with no such heading, or nothing under it.
 pub(super) fn section(body: &str) -> Option<String> {
@@ -32,12 +42,29 @@ pub(super) fn section(body: &str) -> Option<String> {
         line.starts_with("resolves #") || line.starts_with("closes #")
     };
     let text: Vec<&str> = (lines.by_ref())
-        .take_while(|line| !heading(line))
+        .take_while(|line| !heading(line) && !trailer(line))
         .filter(|line| !closes(line))
         .collect();
     let text = text.join("\n");
     let text = text.trim();
-    (!text.is_empty()).then(|| text.chars().take(LONGEST).collect())
+    (!text.is_empty()).then(|| kept(text))
+}
+
+// `text` kept to [`LONGEST`], ending at a sentence where the window holds
+// one, at a word where it holds none, and marked when anything went
+// unkept
+fn kept(text: &str) -> String {
+    let all: Vec<char> = text.chars().collect();
+    if all.len() <= LONGEST {
+        return text.to_owned();
+    }
+    let window = &all[..LONGEST];
+    let cut = (window.iter())
+        .rposition(|c| matches!(c, '.' | '!' | '?'))
+        .or_else(|| window.iter().rposition(|c| c.is_whitespace()))
+        .unwrap_or(LONGEST - 1);
+    let kept: String = window[..=cut].iter().collect();
+    format!("{}{CUT}", kept.trim_end())
 }
 
 impl Runner {
@@ -91,5 +118,38 @@ mod tests {
         assert_eq!(section("Resolves #7\n"), None);
         assert_eq!(section("## Friction\n\n## Next\n"), None);
         assert_eq!(section("A friction in prose, not a heading.\n"), None);
+    }
+
+    #[test]
+    fn the_generated_with_trailer_ends_the_section() {
+        let body = "## Friction\n\nSlow build.\n\n\u{1f916} Generated with \
+                    [Claude Code](https://claude.com/claude-code)\n";
+        assert_eq!(section(body).as_deref(), Some("Slow build."));
+    }
+
+    #[test]
+    fn a_cut_section_ends_at_its_last_sentence_and_says_it_is_cut() {
+        let said = "The lockfile fought me.".repeat(40);
+        let kept = section(&format!("## Friction\n\n{said}\nAnd a tail.\n")).unwrap();
+        assert!(kept.ends_with(". (cut)"), "{kept}");
+        assert!(kept.chars().count() <= 607, "{kept}");
+        assert!(!kept.contains("tail"), "{kept}");
+    }
+
+    #[test]
+    fn a_cut_section_with_no_sentence_end_ends_at_a_whole_word() {
+        let said = "word ".repeat(200);
+        let kept = section(&format!("## Friction\n\n{said}\n")).unwrap();
+        assert!(kept.ends_with("word (cut)"), "{kept}");
+        assert!(kept.chars().count() <= 607, "{kept}");
+    }
+
+    #[test]
+    fn a_section_that_fits_is_kept_whole_and_unmarked() {
+        let said = "x".repeat(600);
+        assert_eq!(
+            section(&format!("## Friction\n\n{said}\n")).as_deref(),
+            Some(&*said)
+        );
     }
 }

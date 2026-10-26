@@ -37,6 +37,24 @@ fn line(value: Value) -> Line {
     serde_json::from_value(value).unwrap()
 }
 
+// A call whose harness reported no cost, as a local model's does
+fn unpriced(at: u64, issue: Option<u64>, role: &str, kind: &str, units: u64) -> Line {
+    line(json!({
+        "line": "call", "at": at, "issue": issue, "role": role, "kind": kind,
+        "usage": {"input": 0, "cache_write": 0, "cache_read": 0, "output": 0},
+        "units": units, "unpriced": true, "ended": "answered",
+    }))
+}
+
+// A call ended at its ceiling, which read no usage
+fn timed_out(at: u64, issue: Option<u64>, role: &str, kind: &str) -> Line {
+    line(json!({
+        "line": "call", "at": at, "issue": issue, "role": role, "kind": kind,
+        "usage": {"input": 0, "cache_write": 0, "cache_read": 0, "output": 0},
+        "units": 0, "unpriced": true, "ended": "timed-out",
+    }))
+}
+
 fn role(calls: u32, units: u64, cost: f64) -> Value {
     json!({
         "calls": calls, "units": units, "cost_usd": cost,
@@ -63,17 +81,26 @@ fn wake(for_: &str, acted: &[&str]) -> Entry {
     }
 }
 
+// The wake whose answer started nothing
+fn picked_none(for_: &str) -> Entry {
+    Entry::Wake {
+        woke_for: vec![for_.to_owned()],
+        acted: vec!["starts nothing now".to_owned(), "holds #12".to_owned()],
+        dropped: Vec::new(),
+    }
+}
+
 // Two work items finished after a retro that began at 1000: #11 merged
 // with a pull request, #12 closed with no change.
 fn digest() -> String {
     let batch = [
-        finished(11, "fix(retro): the digest", Some(71), 2000, 3725),
+        finished(11, "fix(retro): the digest", Some(71), 2000, 1500),
         finished(12, "Already done upstream", None, 3000, 42),
     ];
     let journal = [
         stamped(500, wake("#11 CI failed", &[])),
         stamped(1200, wake("#11 CI failed", &["marked #11 ready"])),
-        stamped(1300, wake("#12 labels", &[])),
+        stamped(2990, wake("#12 labels", &[])),
         stamped(1400, wake("#11 conflict, #110 too", &[])),
         stamped(
             1450,
@@ -171,6 +198,37 @@ fn section<'a>(digest: &'a str, heading: &str) -> &'a str {
     &rest[..to]
 }
 
+// Every section with `heading`, in the order the digest lists them
+fn sections<'a>(digest: &'a str, heading: &str) -> Vec<&'a str> {
+    let mut found = Vec::new();
+    let mut rest = digest;
+    while let Some(at) = rest.find(heading) {
+        let part = section(rest, heading);
+        found.push(part);
+        rest = &rest[at + heading.len()..];
+    }
+    found
+}
+
+// A digest of `batch` over `journal` and `ledger`, with the last retro at `since`
+fn built(
+    batch: &[Finished],
+    journal: &[Stamped],
+    ledger: &[Line],
+    since: u64,
+    gaps: &[String],
+) -> String {
+    build(&Records {
+        project: "koji",
+        batch,
+        journal,
+        rulings: &[],
+        ledger,
+        since,
+        gaps,
+    })
+}
+
 #[test]
 fn the_header_names_the_project_and_the_batchs_issues() {
     let digest = digest();
@@ -189,7 +247,7 @@ fn an_item_carries_its_title_type_and_ledger_line() {
         "{item}"
     );
     assert!(
-        item.contains("- Ended: merged, pull request #71; wall time 1h02m"),
+        item.contains("- Ended: merged, pull request #71; wall time 25m00s"),
         "{item}"
     );
     assert!(
@@ -256,7 +314,7 @@ fn an_item_carries_its_review_rounds_ci_fixes_merges_and_friction() {
     let digest = digest();
     let item = section(&digest, "## #11:");
     for expected in [
-        "- Review rounds reported: 1, the latest numbered 1",
+        "- Review rounds: 1 read, 0 passed over, the latest numbered 1",
         "  - #11 round 1 by claude: 3 findings, 2 sent to the worker",
         "- Fix turns after a failed check: 1",
         "  - failed: test",
@@ -328,6 +386,15 @@ fn round(issue: u64, round: u32, findings: usize) -> Entry {
     }
 }
 
+fn passed_over(issue: u64, round: u32, reviewer: &str, reason: &str) -> Entry {
+    Entry::ReviewerSkipped {
+        issue: ticket(issue),
+        round,
+        reviewer: reviewer.to_owned(),
+        reason: reason.to_owned(),
+    }
+}
+
 fn held(severity: Severity, file: &str, line: u32, what: &str) -> Held {
     Held {
         severity,
@@ -341,9 +408,9 @@ fn held(severity: Severity, file: &str, line: u32, what: &str) -> Held {
 // Three merged work items, all finished after the last retro
 fn across(journal: &[Stamped], gaps: &[String]) -> String {
     let batch = [
-        finished(11, "fix(a): one", Some(71), 2000, 60),
-        finished(12, "fix(b): two", Some(72), 2100, 60),
-        finished(13, "fix(c): three", Some(73), 2200, 60),
+        finished(11, "fix(a): one", Some(71), 2000, 1200),
+        finished(12, "fix(b): two", Some(72), 2100, 1200),
+        finished(13, "fix(c): three", Some(73), 2200, 1200),
     ];
     build(&Records {
         project: "koji",
@@ -427,11 +494,14 @@ fn rounds_per_item_and_each_findings_round_are_given() {
     let digest = across(&journal, &[]);
 
     let table = section(&digest, "## Across the batch");
-    let expected = "- Review rounds per work item:\n  - #11: 2\n  - #12: 0\n  - #13: 3\n";
+    let expected = "- Review rounds per work item:\n  \
+        - #11: 2 read, 0 passed over\n  \
+        - #12: 0 read, 0 passed over\n  \
+        - #13: 3 read, 0 passed over\n";
     assert!(table.contains(expected), "{expected}: {table}");
     let item = section(&digest, "## #11:");
     for expected in [
-        "- Review rounds reported: 2, the latest numbered 2",
+        "- Review rounds: 2 read, 0 passed over, the latest numbered 2",
         "- Findings sent to the worker:\n  \
          - round 1 by claude, low, src/a.rs:4: a nit\n  \
          - round 1 by claude, medium, src/b.rs: wrong wording\n",
@@ -442,6 +512,43 @@ fn rounds_per_item_and_each_findings_round_are_given() {
     assert!(
         late.contains("  - round 3 (late) by claude, high, src/gate.rs:88: the design leaks"),
         "{late}"
+    );
+}
+
+#[test]
+fn a_clean_round_and_a_passed_over_reviewer_each_show_numbered() {
+    let journal = [
+        stamped(
+            1100,
+            passed_over(11, 1, "codex", "its window opens more than an hour on"),
+        ),
+        stamped(1200, round(11, 2, 0)),
+        stamped(1300, round(11, 3, 2)),
+        stamped(
+            1301,
+            Entry::FindingsSent {
+                issue: ticket(11),
+                round: 3,
+                held: 2,
+            },
+        ),
+    ];
+
+    let digest = across(&journal, &[]);
+
+    let item = section(&digest, "## #11:");
+    for expected in [
+        "- Review rounds: 2 read, 1 passed over, the latest numbered 3",
+        "  - #11 round 1 by codex: passed over, its window opens more than an hour on",
+        "  - #11 round 2 by claude: 0 findings",
+        "  - #11 round 3 by claude: 2 findings, 2 sent to the worker",
+    ] {
+        assert!(item.contains(expected), "{expected}: {item}");
+    }
+    let table = section(&digest, "## Across the batch");
+    assert!(
+        table.contains("- Review rounds per work item:\n  - #11: 2 read, 1 passed over\n"),
+        "{table}"
     );
 }
 
@@ -532,4 +639,200 @@ fn a_known_gap_is_counted_by_the_items_that_name_it_and_not_described_again() {
         "{table}"
     );
     assert!(!table.contains("stale lockfile"), "{table}");
+}
+
+#[test]
+fn a_wake_that_only_holds_an_item_back_counts_none_of_that_wake() {
+    let journal = [stamped(
+        1100,
+        wake("#11 CI failed", &["holds #12, #13", "marked #11 ready"]),
+    )];
+
+    let digest = across(&journal, &[]);
+
+    for (issue, wakes) in [(11, 1), (12, 0), (13, 0)] {
+        let item = section(&digest, &format!("## #{issue}:"));
+        let expected = format!("- Project manager wakes that named it: {wakes}");
+        assert!(item.contains(&expected), "{expected}: {item}");
+    }
+}
+
+#[test]
+fn a_pick_of_none_counts_as_a_wake_that_changed_nothing() {
+    let journal = [
+        stamped(1100, picked_none("#11 stalled")),
+        stamped(1200, wake("#12 CI failed", &["picked #13"])),
+    ];
+
+    let digest = across(&journal, &[]);
+
+    let item = section(&digest, "## #11:");
+    assert!(
+        item.contains("  - woke for #11 stalled: changed nothing"),
+        "{item}"
+    );
+    let totals = section(&digest, "## Batch totals");
+    assert!(
+        totals.contains("- Project manager wakes: 2, of which 1 changed nothing"),
+        "{totals}"
+    );
+}
+
+#[test]
+fn a_first_retro_counts_only_the_calls_from_its_batchs_first_work_item_on() {
+    // #11 began at 1400 and #12 at 1500. The wake at 1000 is before the
+    // batch's first work item, so a project's first retro leaves it out.
+    let batch = [
+        finished(11, "fix(a): one", Some(71), 2000, 600),
+        finished(12, "fix(b): two", Some(72), 2100, 600),
+    ];
+    let ledger = [
+        call(1000, None, "pm", "wake", 500, 5.00),
+        call(1500, None, "pm", "wake", 20, 0.10),
+        call(1900, None, "pm", "wake", 30, 0.30),
+    ];
+
+    let digest = built(&batch, &[], &ledger, 0, &[]);
+
+    let totals = section(&digest, "## Batch totals");
+    assert!(
+        totals.contains("- pm wake: 2 calls, 50 units, $0.40"),
+        "{totals}"
+    );
+    assert!(!totals.contains("550 units"), "{totals}");
+}
+
+#[test]
+fn a_work_item_that_ran_twice_shows_as_two_runs_each_with_its_own_entries() {
+    // #11 ran from 1400 to 2000 and again, revived, from 2400 to 3000
+    let batch = [
+        finished(11, "fix(a): one", Some(71), 2000, 600),
+        finished(11, "fix(a): one", Some(72), 3000, 600),
+    ];
+    let journal = [
+        stamped(1500, wake("#11 CI failed", &["marked #11 ready"])),
+        stamped(2050, wake("#11 reopened", &[])),
+        stamped(2500, wake("#11 conflict", &[])),
+    ];
+
+    let digest = built(&batch, &journal, &[], 1000, &[]);
+
+    let runs = sections(&digest, "## #11:");
+    let [first, second] = runs.as_slice() else {
+        panic!("one section per run: {runs:#?}");
+    };
+    assert!(first.contains("run 1 of 2"), "{first}");
+    assert!(second.contains("run 2 of 2"), "{second}");
+    assert!(
+        first.contains("- Project manager wakes that named it: 1"),
+        "{first}"
+    );
+    assert!(
+        second.contains("- Project manager wakes that named it: 1"),
+        "{second}"
+    );
+    assert!(
+        second.contains("  - woke for #11 conflict: changed nothing"),
+        "{second}"
+    );
+    assert!(!first.contains("#11 conflict"), "{first}");
+    assert!(!second.contains("marked #11 ready"), "{second}");
+    // A wake between the two runs belongs to neither
+    assert!(!digest.contains("#11 reopened"), "{digest}");
+}
+
+#[test]
+fn an_item_keeps_the_wake_that_picked_it_just_before_its_creation() {
+    // #11 was created at 1000, and the wake that picked it ran a minute on
+    let batch = [finished(11, "fix(a): one", Some(71), 2000, 1000)];
+    let journal = [
+        stamped(940, wake("#11 is ready", &["picked #11"])),
+        stamped(2010, wake("#11 CI failed", &["marked #11 ready"])),
+    ];
+
+    let digest = built(&batch, &journal, &[], 0, &[]);
+
+    let item = section(&digest, "## #11:");
+    assert!(
+        item.contains("- Project manager wakes that named it: 1"),
+        "{item}"
+    );
+    assert!(
+        item.contains("  - woke for #11 is ready: picked #11"),
+        "{item}"
+    );
+    // A wake after the finish is another run's
+    assert!(!item.contains("marked #11 ready"), "{item}");
+}
+
+#[test]
+fn an_unpriced_call_and_a_timed_out_turn_never_show_zero_dollars() {
+    let batch = [finished(11, "fix(a): one", Some(71), 2000, 600)];
+    let ledger = [
+        unpriced(1500, Some(11), "worker", "turn", 1_200_000),
+        timed_out(1600, Some(11), "worker", "turn"),
+        line(json!({
+            "line": "finished", "at": 2000, "issue": 11, "title": "fix(a): one",
+            "pull_request": 71, "merged": true, "wall": 600, "units": 1200000, "cost_usd": 0.0,
+            "worker": {"calls": 2, "units": 1200000, "cost_usd": 0.0, "unpriced_calls": 2,
+                       "tokens": {"input": 0, "cache_write": 0, "cache_read": 0, "output": 0}},
+            "reviewer": role(0, 0, 0.0),
+            "qwen": {"rounds": 0, "seconds": 0},
+            "review_rounds": 0, "fix_turns": 0, "rulings": 0,
+        })),
+    ];
+
+    let digest = built(&batch, &[], &ledger, 1000, &[]);
+
+    let item = section(&digest, "## #11:");
+    assert!(
+        item.contains(
+            "- Ledger: 1200000 units, 1 unpriced; 1 timed out, usage not read; \
+             worker 2 calls 1 unpriced; 1 timed out, usage not read; \
+             reviewer 0 calls $0.00; 0 review rounds, 0 fix turns, 0 rulings"
+        ),
+        "{item}"
+    );
+    let totals = section(&digest, "## Batch totals");
+    assert!(
+        totals.contains(
+            "- worker turn: 2 calls, 1200000 units, 1 unpriced; 1 timed out, usage not read"
+        ),
+        "{totals}"
+    );
+    assert!(!totals.contains("units, $0.00"), "{totals}");
+}
+
+#[test]
+fn a_local_models_calls_show_as_local_unpriced_and_never_zero_dollars() {
+    let batch = [finished(11, "fix(a): one", Some(71), 2000, 600)];
+    let ledger = [
+        unpriced(1500, Some(11), "worker", "turn", 600_000),
+        unpriced(1600, Some(11), "worker", "turn", 600_000),
+    ];
+
+    let digest = built(&batch, &[], &ledger, 1000, &[]);
+
+    let totals = section(&digest, "## Batch totals");
+    assert!(
+        totals.contains("- worker turn: 2 calls, 1200000 units, local, unpriced"),
+        "{totals}"
+    );
+}
+
+#[test]
+fn a_priced_call_shows_its_dollars_and_names_the_one_that_is_unpriced() {
+    let batch = [finished(11, "fix(a): one", Some(71), 2000, 600)];
+    let ledger = [
+        call(1500, Some(11), "worker", "turn", 100, 1.50),
+        unpriced(1600, Some(11), "worker", "turn", 40),
+    ];
+
+    let digest = built(&batch, &[], &ledger, 1000, &[]);
+
+    let totals = section(&digest, "## Batch totals");
+    assert!(
+        totals.contains("- worker turn: 2 calls, 140 units, $1.50; 1 unpriced"),
+        "{totals}"
+    );
 }
