@@ -23,4 +23,11 @@ pub trait LocalLeases: Send + Sync {
     /// Who holds a lease on `model` at `gateway`, or `None` when it is free
     /// or the gateway cannot be asked
     fn paddock_holder(&self, gateway: &Upstream, model: &str) -> Option<PaddockHolder>;
+
+    /// Whether all lease turns are held and a waiter queues on `model`
+    ///
+    /// An unreadable status or a model with no turn limit counts as free.
+    fn paddock_queued(&self, _gateway: &Upstream, _model: &str) -> bool {
+        false
+    }
 }

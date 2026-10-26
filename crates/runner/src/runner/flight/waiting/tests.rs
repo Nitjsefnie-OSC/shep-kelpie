@@ -15,6 +15,9 @@ use crate::test::ticket;
 use crate::test::{CALL_PATIENCE, Hold, Rig, Scripted};
 use crate::ticket::TicketId;
 
+#[path = "opening_tests.rs"]
+mod opening;
+
 /// The time of day `at` is, as the board writes it
 fn clock(at: u64) -> String {
     let seconds = at % 86_400;
