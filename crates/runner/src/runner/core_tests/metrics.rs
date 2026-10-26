@@ -520,8 +520,6 @@ fn a_runner_with_every_role_and_harness_in_use_stays_under_the_cap() {
         13 * 3,
         "thirteen kinds for each of the three roles whose tool calls are counted, and none for the rest"
     );
-    // Over the cap by 14 until ruling 1345 moves the reviewer's and project manager's tool errors
-    // to one series each, which frees 24.
     assert!(
         held.len() + not_driven < SERIES_CAP,
         "{}",

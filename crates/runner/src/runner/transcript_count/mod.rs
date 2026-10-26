@@ -59,7 +59,7 @@ impl Format {
     // pi names no server that failed to connect: what its session leaves
     // available and what it answers say which connected, and its tool calls are
     // counted as Claude Code's are. Codex's rollout is read for its requests alone, and for a
-    // worker's calls alone, to keep a Codex reviewer's and project manager's series off the dog's cap.
+    // worker's calls alone, as ruling 1356 chose.
     fn of(call: &AgentCall) -> Option<Self> {
         let harness = call.harness.harness();
         match Self::of_harness(harness) {
