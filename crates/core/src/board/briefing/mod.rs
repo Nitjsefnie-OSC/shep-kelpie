@@ -75,8 +75,14 @@ pub struct Briefing<'a> {
     pub woken_before: bool,
     /// Whether unread events were dropped for being old
     pub dropped: bool,
+    /// The files each open work item's branch conflicts with `main` in,
+    /// which kelpie catches it up for. A branch not listed merges cleanly
+    /// with `main`.
+    pub behind: BTreeMap<TicketId, Vec<String>>,
     /// What `git merge-tree` finds merging two open work items' branches,
-    /// by their tickets, the lower first. A pair not listed merges cleanly.
+    /// by their tickets, the lower first. A pair not listed merges cleanly,
+    /// and a branch in `behind` is in no pair: its conflict with a branch
+    /// that holds `main`'s change is `main`'s.
     pub conflicts: BTreeMap<(TicketId, TicketId), Merge>,
 }
 
@@ -309,6 +315,14 @@ fn open_work(out: &mut String, board: &Briefing<'_>) {
         }
         if let Some(summary) = &item.summary {
             let _ = writeln!(out, "  - Last turn: \"{summary}\"");
+        }
+        if let Some(files) = board.behind.get(&item.ticket) {
+            let _ = writeln!(
+                out,
+                "  - Behind main: conflicts with it in {}; kelpie catches it up at the gate, so \
+                 this is no conflict between work items",
+                files.join(", ")
+            );
         }
     }
     out.push('\n');
