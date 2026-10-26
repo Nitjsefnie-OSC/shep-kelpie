@@ -1,18 +1,13 @@
 //! The triage poll's reads, made with the runner's lock let go
 //!
 //! A poll lists the open issues, reads each issue whose triage waits on the
-//! author's own session, and, where the pass may need them, lists the open pull
-//! requests. [`read_triage`] asks the forge for all of it before the pass takes the
-//! lock, so a trigger sent meanwhile is answered: [`Runner::triage_poll_job`] decides a
-//! poll is due and copies what the reads need, [`PollJob::run`] reads, and
-//! [`Runner::apply_poll`] acts on what was read, on the state it finds then.
-//!
-//! The pull requests are read only where one is used: to take back a
-//! hand-labelled `ready-for-agent` issue ([`super::hand`]), which needs a listed
-//! issue that carries the label or a recorded one that was taken back, or to
-//! tell the triager what is open, which needs an issue it may start on. The
-//! listing and the pull requests stay as the poll's snapshot, which the triager's
-//! call is made from until the next poll.
+//! author's own session, and where the pass may need them lists the open pull
+//! requests. [`read_triage`] asks the forge for all of it before the pass takes
+//! the lock, so a trigger sent meanwhile is answered: [`Runner::triage_poll_job`]
+//! decides a poll is due, [`PollJob::run`] reads, and [`Runner::apply_poll`] acts
+//! on what was read, on the state it finds then. The pull requests are read only
+//! to take back a hand-labelled issue ([`super::hand`]) or to tell the triager
+//! what is open. The listing and pull requests stay as the poll's snapshot.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex};
@@ -144,11 +139,8 @@ impl Runner {
 
     // Acts on what the poll read, on the state as it stands now. A listing that
     // could not be read, or that the verb outdated, leaves the look due, so the
-    // next pass tries again, and the triager is started from no listing until
-    // one is read.
-    //
-    // The same poll lets an issue that failed be tried again, and finishes the
-    // triage a restart cut short.
+    // next pass tries again and no triager starts from no listing. The same poll
+    // retries a failed issue and finishes the triage a restart cut short.
     fn apply_poll(
         &mut self,
         now: Timestamp,

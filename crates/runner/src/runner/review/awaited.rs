@@ -1,16 +1,13 @@
 //! CI on the head a reviewer is about to read
 //!
-//! A red run is a sure defect that costs no model's read and no bot's window,
-//! so no reviewer reads a head until it is pushed and green (ADR 0008). The
-//! round that is about to start a reviewer, or summon a bot, first waits for
-//! the run on the head it would read: the same two minutes for the checks to
-//! register, then pending waits, green goes on, and red is the worker's CI fix
-//! turn, counted toward `ci.fix_attempts`, which comes back to this round.
-//! A head already green stays so for the rest of the pass, and with
-//! `ci.block` off the round starts at once. GitHub runs nothing on a branch
-//! that conflicts with `main`, so checks still none once they settle on a head
-//! behind `main` are the gate's catch-up, run from here, which comes back to
-//! this round.
+//! A red run is a sure defect that costs no model's read, so no reviewer reads
+//! a head until it is pushed and green (ADR 0008). A round about to start a
+//! reviewer or summon a bot first waits for the run on that head: two minutes
+//! for checks to register, then pending waits, green goes on, and red is the
+//! worker's CI fix turn, counted toward `ci.fix_attempts`. A head green stays so
+//! for the pass; with `ci.block` off the round starts at once. Checks still none
+//! once settled on a head behind `main` are the gate's catch-up, run from here.
+//! Both the fix turn and the catch-up come back to this round.
 
 use super::super::Runner;
 use super::super::gate::settled;

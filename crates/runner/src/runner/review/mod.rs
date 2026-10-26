@@ -1,17 +1,12 @@
 //! The review: one pass down the project's reviewers, each run once, in order
 //!
 //! A round with no findings goes straight to the next reviewer. One with any,
-//! nits (LOW) included, sends the worker all of them but a size-skipped
-//! file's notice, at the reviewer's own severity, for one fix turn, and the
-//! next reviewer reads the fix. A fix turn sent only nits starts nothing
-//! new: the pass goes on as after any fix turn, one that pushes nothing
-//! declines the nits, and the worker's own head it pushes is kept, so a bot
-//! that read the pull request before has its nits on that head left open
-//! rather than sent again. A
-//! reviewer with a second look reads twice first, the second time shown what
-//! it found, and both lists go to that one fix turn. A review bot's round is
-//! [`super::review_bot`]'s, and its open threads are its findings. After the
-//! last reviewer the work item goes on to [`super::gate`].
+//! nits (LOW) included, sends the worker all of them, at the reviewer's own
+//! severity, for one fix turn (a size-skipped file's notice is only reported),
+//! and the next reviewer reads the fix. A reviewer with a second look reads
+//! twice, the second time shown what it found, and both lists go to one fix turn.
+//! A review bot's round is [`super::review_bot`]'s, and its open threads are its
+//! findings. After the last reviewer the work item goes on to [`super::gate`].
 
 mod again;
 mod attached;
@@ -312,11 +307,10 @@ impl Runner {
         }
     }
 
-    // A fix turn that pushed nothing fixed nothing, whatever it says: the
-    // findings sent still stand, so the next reviewer does not run yet,
-    // unless the worker deferred every one of them as out of scope, or they
-    // were all nits, which the worker may decline: a ruling over nits would
-    // ask the maintainer about what never holds a merge.
+    // A fix turn that pushed nothing fixed nothing, so the findings sent still
+    // stand and the next reviewer waits. Unless the worker deferred every one as
+    // out of scope, or they were all nits, which it may decline: a ruling over
+    // nits would ask about what never holds a merge.
     fn fix_ended(
         &mut self,
         number: u64,
@@ -569,12 +563,10 @@ impl Runner {
         })
     }
 
-    // Every finding goes, at the reviewer's own severity, nits included, and
-    // a bot's threads sent with them are kept, in the findings' order, to
-    // reply on and resolve by the worker's lines once its fix turn ends. A
-    // file the script skipped for its size is reported with the round but
-    // never sent, since no fix of the worker's reviews it. A round left with
-    // nothing to send goes on to the next reviewer.
+    // Every finding goes, nits included, at the reviewer's own severity; a bot's
+    // threads sent with them are kept to reply on and resolve once the fix turn
+    // ends. A file skipped for its size is reported but never sent, since no fix
+    // reviews it. A round with nothing to send goes on to the next reviewer.
     fn send_findings(
         &mut self,
         review: Review,
@@ -701,11 +693,9 @@ impl Runner {
             .filter(|_| matches!(&result, ReviewResult::Findings(Ok(_))))
             .filter(|head| self.still_at(head));
         let mut next = self.state.clone();
-        // Tolerated the same way `end_turn` tolerates a turn's result
-        // arriving with nothing (or something else) to apply it to: the
-        // guard on `drop` keeps this from happening today, but a result
-        // for a work item that is no longer this one, or gone outright,
-        // is silently discarded rather than panicking the runner.
+        // Tolerated as `end_turn` tolerates a result with nothing to apply it to: the
+        // guard on `drop` prevents it today, but a result for a work item no longer
+        // this one is discarded rather than panicking the runner.
         let Some(item) = self.current_in(&mut next) else {
             return Ok(None);
         };

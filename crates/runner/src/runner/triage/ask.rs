@@ -1,30 +1,13 @@
 //! The author's round: the questions, the answers
 //!
-//! An open question goes to the issue's author before it goes to the
-//! maintainer. The first triage comment lists the questions with the answer the
-//! research recommends, and holds a prompt for the author's own terminal in a
-//! collapsed section ([`super::local`]). Whatever the author writes next is
-//! their answers: kelpie reads no word in it. No reply `triage.wait_days` after
-//! the comment, and the maintainer triages the issue as it stands. Nothing is
-//! asked of an author kelpie does not ask: only the maintainer's own issue, and
-//! any issue under `pick = "all"` ([`Runner::askable`]).
-//!
-//! While the triage waits on the author, no status label goes on:
-//! [`Runner::finish_triage`] returns at a record whose `asked`, `questions` or
-//! `local` are open, and the labels the pass owed wait in its record. The wait
-//! holds no slot and no call. What the author writes is heard by
-//! [`super::heard`], which keeps only their own comments on that issue after
-//! the triage comment.
-//!
-//! The paths each field takes. `questions` and `local` are set together by
-//! [`Runner::record_triage`] when the triage comment that asks is recorded.
-//! Both are cleared by [`Runner::triage_none`] when the wait ends as `none`, by
-//! [`Runner::triage_wait_stood`] when a triage label the maintainer put on by
-//! hand or a closed issue ends it, and by [`Runner::record_triage`], whose
-//! record carries neither once the answers round's comment is up. `asked` is
-//! only read: a file saved by a kelpie that asked for a word holds one, and
-//! [`answers_wait`] takes the comment it was saved with as the questions. What
-//! the body hash of `local` is measured against is in [`super::local`].
+//! An open question goes to the issue's author before the maintainer. The first
+//! triage comment lists the questions with the answer the research recommends,
+//! and holds a prompt for the author's terminal in a collapsed section
+//! ([`super::local`]). Whatever the author writes next is their answers; kelpie
+//! reads no word in it. No reply `triage.wait_days` on, and the maintainer
+//! triages the issue as it stands. Only the maintainer's issues, and any under
+//! `pick = "all"`, are asked ([`Runner::askable`]). While the wait is open no
+//! status label goes on ([`Runner::finish_triage`]); [`super::heard`] hears the author.
 
 use std::collections::BTreeMap;
 
@@ -408,11 +391,9 @@ pub(super) fn answers_wait(record: &Triaged) -> Option<(u64, Timestamp)> {
 }
 
 // The questions as the grilling skill shapes a round, without its bold: each
-// numbered, each with the answer the research recommends, each apart from the
-// next. Code writes them; the representative words only the lead-in. A fence
-// in a question, backtick or tilde, is dropped, as it would swallow the
-// collapsed prompt after it. So are the marks [`recommended_in`] reads the
-// block back by, so a question's own text cannot pass for another's heading.
+// numbered, with the answer the research recommends. Code writes them; the
+// representative words only the lead-in. A fence in a question is dropped, as
+// it would swallow the collapsed prompt, and so are the marks [`recommended_in`] reads by.
 pub(super) fn questions_block(questions: &[Question]) -> String {
     let round: Vec<String> = questions
         .iter()
@@ -457,11 +438,9 @@ fn recommended_in(asked: &str) -> BTreeMap<usize, String> {
 }
 
 // The author's answers with a reply of `ok` expanded: a line that is only `ok`
-// takes the recommended answer of every question, and a `Qn: ...` line, with the
-// lines under it, changes question `n` alone. Without an `ok` line the answers
-// are as written, so a question they leave out stays unanswered for the second
-// pass to ask again, and so are they when no question has a recommended answer
-// to expand `ok` into. Any other line is kept after the expanded answers.
+// takes every question's recommended answer, and a `Qn: ...` line changes
+// question `n` alone. Without an `ok` line the answers are as written. Any
+// other line is kept after the expanded answers.
 fn confirmed(answers: &str, recommended: &BTreeMap<usize, String>) -> String {
     let mut ok = false;
     let mut changed: BTreeMap<usize, String> = BTreeMap::new();

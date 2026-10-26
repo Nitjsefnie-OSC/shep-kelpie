@@ -156,29 +156,6 @@ crates/runner/src/runner/close_merged.rs	7,7	/// Closes `issue` if the forge sti
 crates/runner/src/runner/close_merged.rs	7,7	/// Closes the parent of `issue` if `pull_request`'s merge left every one of
 crates/runner/src/runner/closed/mod.rs	11	//! Work items whose issue was closed with no change
 crates/runner/src/runner/code_graph/mod.rs	5	// The reviewers and the triager read the code. The worker's turns do only when the project names
-crates/runner/src/runner/contributions/adopt.rs	28	//! Taking a released contribution over
-crates/runner/src/runner/contributions/adopt.rs	5	// The issue its work item hangs on: the one an earlier poll filed for
-crates/runner/src/runner/contributions/after.rs	13	//! Telling a contributor what kelpie does to their branch once it is kelpie's
-crates/runner/src/runner/contributions/answer.rs	20	//! Answering what a contributor asks
-crates/runner/src/runner/contributions/bots.rs	16	//! A review bot's turn in the pass over a contribution's head
-crates/runner/src/runner/contributions/bots.rs	5	// Takes the label off each pull request whose walk is about to be cleared
-crates/runner/src/runner/contributions/ci.rs	13	//! Approving a trusted head's held CI runs and following them
-crates/runner/src/runner/contributions/clock.rs	16	//! The quiet clock of a contribution
-crates/runner/src/runner/contributions/heard.rs	13	//! What a contributor says on their pull request
-crates/runner/src/runner/contributions/heard.rs	10	// Records what `comments`, the repo's comments since the last read, and
-crates/runner/src/runner/contributions/merge.rs	38	//! The maintainer's ruling on merging a contribution
-crates/runner/src/runner/contributions/merge.rs	10	// Has kelpie take the pull request over, as the maintainer's `rework`
-crates/runner/src/runner/contributions/mod.rs	26	//! Following the pull requests other people open
-crates/runner/src/runner/contributions/pass.rs	23	//! The pass of the reviewers over a contribution's green head
-crates/runner/src/runner/contributions/pass.rs	6	// The pass over the current head of one contribution that has passed the
-crates/runner/src/runner/contributions/post.rs	15	//! Posting a local reviewer's pass to the contributor
-crates/runner/src/runner/contributions/push.rs	15	//! Pushing a fork worker's commits to the contributor's branch
-crates/runner/src/runner/contributions/release.rs	31	//! Asking the contributor for a release
-crates/runner/src/runner/contributions/ruling.rs	14	//! The ruling a flagged head raises, and what answering it does
-crates/runner/src/runner/contributions/ruling.rs	9,13	/// Carries the maintainer's answer to the ruling for a contributor who said
-crates/runner/src/runner/contributions/ruling.rs	7,11	/// Records the head a yes to `ruling` trusts, in `next`, so that it counts as
-crates/runner/src/runner/contributions/security.rs	18	//! Reading a contribution's head for security before anything of theirs runs
-crates/runner/src/runner/contributions/security.rs	7	// The read of the current head of one contribution no review has read, as
 crates/runner/src/runner/dev_server/bump/mod.rs	12	//! The browser proof of a web bump: its dev server, and its routes opened in the local browser
 crates/runner/src/runner/dev_server/install/mod.rs	12	//! The packages of a checkout, installed before its dev server starts
 crates/runner/src/runner/dev_server/mod.rs	7,7	/// Starts `run` on the call's thread, and says what the worker should know
@@ -239,27 +216,6 @@ crates/runner/src/runner/reread/mod.rs	12	//! A settings change reaching a runni
 crates/runner/src/runner/retro/digest/tests.rs	5	// Worker turns 100 + 50 units and $1.50 + $0.50, the reviewer's 30 and
 crates/runner/src/runner/retro/mod.rs	17	//! The project manager's retro over a batch of finished work items
 crates/runner/src/runner/retro/mod.rs	7,7	/// Starts the batch retro if one is due and the project manager can run
-crates/runner/src/runner/review/attached.rs	11,14	/// Readies the folders for a session round, and gives a reviewer asked for
-crates/runner/src/runner/review/awaited.rs	13	//! CI on the head a reviewer is about to read
-crates/runner/src/runner/review/calls.rs	7,7	/// A fresh session of a reviewer on `model` over `ticket`'s work item's
-crates/runner/src/runner/review/checks/mod.rs	13	//! A reviewer's test, run before the fix and after it
-crates/runner/src/runner/review/checks/mod.rs	5	// `text` at `rel` below `root`, with `record` written first.
-crates/runner/src/runner/review/mod.rs	14	//! The review: one pass down the project's reviewers, each run once, in order
-crates/runner/src/runner/review/mod.rs	5	// A fix turn that pushed nothing fixed nothing, whatever it says: the
-crates/runner/src/runner/review/mod.rs	6	// Every finding goes, at the reviewer's own severity, nits included, and
-crates/runner/src/runner/review/mod.rs	5	// Tolerated the same way `end_turn` tolerates a turn's result
-crates/runner/src/runner/review/outcomes/mod.rs	7,9	/// Journals what each finding `sent` came to in the fix turn that has
-crates/runner/src/runner/review_bot/answer.rs	14,14	/// Replies on each bot thread sent to the worker, with what its reply
-crates/runner/src/runner/review_bot/answer.rs	5	// The guard refuses the same text every time, so a reason that
-crates/runner/src/runner/review_bot/failed.rs	11,11	/// Asks `bot` for its review once more after the first failure, and
-crates/runner/src/runner/review_bot/late.rs	11	//! A review bot the pass went on without, read again later
-crates/runner/src/runner/review_bot/mod.rs	27	//! A review bot's round, in its place in the review pass
-crates/runner/src/runner/review_bot/mod.rs	6	// No summon without the lease, and none for a head already reviewed:
-crates/runner/src/runner/review_bot/mod.rs	5	// Whether a summon asks for a full review by comment: when it was told
-crates/runner/src/runner/review_bot/mod.rs	6	// Sends the summon, under the lease, in whichever form `full` says.
-crates/runner/src/runner/review_bot/mod.rs	6	// A draft is marked ready once, and the round then waits out the settle
-crates/runner/src/runner/review_bot/mod.rs	6	// A review that failed is asked for once more, and the pass goes
-crates/runner/src/runner/review_bot/mod.rs	5	// The bot read the head, which also reads whatever a catch-up with
 crates/runner/src/runner/ruling/mod.rs	11	// Posts a saved ruling on its pull request, if it has one and has
 crates/runner/src/runner/slots.rs	18	//! Slots: how many work items call models at once, and how many wait on rulings
 crates/runner/src/runner/slots.rs	7	// The ready issues passed over against parked items' branches: one
@@ -271,44 +227,6 @@ crates/runner/src/runner/thread_replies/mod.rs	6	// Records what the contributor
 crates/runner/src/runner/thread_replies/mod.rs	5	// Whether `comment` is the worker's to read: it is neither a number-led
 crates/runner/src/runner/thread_replies/mod.rs	6	// The id of a ruling a reply starts with, and the rest of it. The id is
 crates/runner/src/runner/thread_replies/mod.rs	5	// The answer a ruling's comment gives of itself: the thumbs the login it
-crates/runner/src/runner/triage/addressed.rs	13	//! Closing an issue another open issue or pull request already covers
-crates/runner/src/runner/triage/ask.rs	27	//! The author's round: the questions, the answers
-crates/runner/src/runner/triage/ask.rs	6	// The questions as the grilling skill shapes a round, without its bold: each
-crates/runner/src/runner/triage/ask.rs	6	// The author's answers with a reply of `ok` expanded: a line that is only `ok`
-crates/runner/src/runner/triage/comment.rs	14	//! The comment that says what the research found, and the labels after it
-crates/runner/src/runner/triage/comment.rs	6	// The reply names a type `bug` and a priority `P2`. The board ranks by
-crates/runner/src/runner/triage/comment.rs	6	// Does what `issue`'s record says is left: the close of a duplicate, the
-crates/runner/src/runner/triage/hand.rs	12	//! A maintainer's hand-labelled `ready-for-agent` issue taken back for triage
-crates/runner/src/runner/triage/heard.rs	21	//! Hearing the author's answers while a triage waits on them
-crates/runner/src/runner/triage/images.rs	11	//! The images in an issue's text, downloaded for the triager to read
-crates/runner/src/runner/triage/limits.rs	21	//! The limits kelpie puts on triage, checked before an issue's research call
-crates/runner/src/runner/triage/limits.rs	5	// A record made before the caps existed names no author, and neither does one
-crates/runner/src/runner/triage/limits.rs	6	// The day's triage calls, and the oldest of them: every call saved in the
-crates/runner/src/runner/triage/limits.rs	6	// Records that a triager call on `issue` ran, at the moment it ended. An
-crates/runner/src/runner/triage/limits.rs	5	// Whether a call of the author's round waits for a free place: the day's cap
-crates/runner/src/runner/triage/limits.rs	5	// Labels `issue` `needs-triage` with no call and no comment, and records
-crates/runner/src/runner/triage/limits_tests.rs	13	//! The limits kelpie puts on triage, checked before an issue's research call,
-crates/runner/src/runner/triage/local.rs	28	//! The author's own session: the prompt in the first comment, and the body it writes back
-crates/runner/src/runner/triage/local.rs	6	// The first comment that asks the author: the representative's words, the
-crates/runner/src/runner/triage/local.rs	6	// Reads each issue whose triage waits on a local session. Its body is what
-crates/runner/src/runner/triage/local.rs	7	// The day's cap reaches the round as it reaches the first pass, and
-crates/runner/src/runner/triage/local.rs	6	// The prompt an author pastes into their own session: the issue, how to read it
-crates/runner/src/runner/triage/mod.rs	19	//! Which issues other people opened are due for triage
-crates/runner/src/runner/triage/mod.rs	7	// The research call to start, if one is due: the issue the verb queued, then
-crates/runner/src/runner/triage/mod.rs	5	// The second pass reads the questions it asked and the author's answers
-crates/runner/src/runner/triage/mod.rs	11	// Queues issue `issue` ahead of the untouched ones, for `shep kelpie triage`
-crates/runner/src/runner/triage/mod.rs	8	// Asking for an issue kelpie's classifier read as spam is the maintainer's
-crates/runner/src/runner/triage/mod.rs	6	// Whether `issue` is untouched, opened after `since`, and by `only` when one is named
-crates/runner/src/runner/triage/poll_read.rs	15	//! The triage poll's reads, made with the runner's lock let go
-crates/runner/src/runner/triage/poll_read.rs	7	// Acts on what the poll read, on the state as it stands now. A listing that
-crates/runner/src/runner/triage/ready.rs	22	//! The maintainer's own issue the pass is sure of becomes agent-ready
-crates/runner/src/runner/triage/ready.rs	5	// The triage label `issue` carries now that it did not when the pass
-crates/runner/src/runner/triage/ready.rs	6	// Puts on the labels the reply gave and then `ready-for-agent`, the last
-crates/runner/src/runner/triage/ready.rs	5	// `ready-for-agent` is the label this step writes, so on the issue at
-crates/runner/src/runner/triage/research.rs	11	//! The triager's research call on an issue: what it is asked, and how its
-crates/runner/src/runner/triage/spam.rs	26	//! The spam check an issue goes through after the limits and before its call
-crates/runner/src/runner/triage/spam.rs	5	// The calls the issue already made join the record: the ones its own
-crates/runner/src/runner/triage/spam_tests.rs	15	//! The spam check an issue goes through after the limits and before its research
 crates/runner/src/runner/trigger/mod.rs	26,26	/// Answers one trigger with a JSON body: the status, or `{"error": ...}`
 crates/runner/src/runner/trigger/mod.rs	9	// Answers `request` from what the loop last posted, for a runner whose lock a
 crates/runner/src/runner/turn/dep_reads.rs	12	//! The installed sources and docs of dependencies and toolchains, which every

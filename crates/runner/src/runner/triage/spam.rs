@@ -1,29 +1,13 @@
 //! The spam check an issue goes through after the limits and before its call
 //!
-//! One yes/no question to a text classifier the project's gateway serves: is
-//! this issue spam, an advertisement, or text unrelated to the project? The
-//! answer is the probability that it is. At or above `triage.spam.threshold` the
-//! issue gets `possible-spam` and nothing else: no comment, no research call, no
-//! close, no lock and no hide. The maintainer decides. Below it the pass goes on
-//! as it did.
-//!
-//! The check is off while `triage.spam.gateway` is absent. It sits after the
-//! four limits, so an issue a limit held costs no classifier call, and the
-//! maintainer's own issues and one `shep kelpie triage` asked for skip it as they
-//! skip the limits.
-//!
-//! A gateway that cannot be reached, one that refuses the request, or one kelpie
-//! cannot build a request to at all, is told once and turns the check off for the
-//! rest of the run: an outage that left a question on every issue would spend a
-//! connection timeout on each. An answer kelpie cannot read is a different thing,
-//! and is told once without turning the check off, so one malformed reply does not
-//! stop the check for every later issue. The pass goes on without the answer, and
-//! the limits still apply, so it opens no flood.
-//!
-//! Each check that got an answer is a ledger line of its own, role `triager` and
-//! kind `spam-check`, with the issue, no tokens and no cost. It is a call the
-//! project made, and it is not one of the triager calls the caps count, which
-//! count research calls.
+//! One yes/no question to a text classifier the project's gateway serves: is this
+//! issue spam, an advertisement, or unrelated to the project? At or above
+//! `triage.spam.threshold` the issue gets `possible-spam` and nothing else; the
+//! maintainer decides. The check is off while `triage.spam.gateway` is absent, and
+//! skipped for the maintainer's issues and `shep kelpie triage`. A gateway that
+//! cannot be reached or refuses is told once and turns the check off for the run
+//! (an outage would cost a timeout per issue); an unreadable answer leaves it on.
+//! Each answered check is a ledger line of kind `spam-check`, no cap counts it.
 
 use crate::ports::{ClassifierError, NewLabel, OpenIssue, Role, SpamState, Timestamp, Usage};
 use crate::settings::ModelHost;
@@ -107,11 +91,10 @@ impl Runner {
         }
         let mut next = self.state.clone();
         if let Some(triage) = next.triage.as_mut() {
-            // The calls the issue already made join the record: the ones its own
-            // record kept, and the ones saved against it while it had none, as a
-            // research call that came to nothing leaves them. A saved call stops
-            // being counted once the issue has a record, so a record made here with
-            // none of its own would drop the place an earlier pass spent.
+            // The calls the issue already made join the record: its own record's, and
+            // those saved against it while it had none. A saved call stops being counted
+            // once the issue has a record, so a record made here with none of its own
+            // would drop the place an earlier pass spent.
             let kept = triage
                 .issues
                 .iter()
