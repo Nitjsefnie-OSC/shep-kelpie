@@ -297,13 +297,20 @@ impl Handing {
         if !postings.close_queue() {
             return;
         }
+        // A call just ended and the loop has not heard it: the request stays
+        // queued, untouched, for the pass that does, until `CARRY_WAIT` is up.
+        let carried = held.carry_calls();
+        if let Err(NotCarried::Waiting(_)) = carried {
+            postings.open_queue();
+            return;
+        }
         // Taken before the exec, so one withdrawn by now is not made, and
         // none is seen waiting while the exec runs.
         let Some(tell) = self.slot().take() else {
             postings.open_queue();
             return;
         };
-        let why = match held.carry_calls() {
+        let why = match carried {
             Ok(turns) => {
                 let leases = held.carry_leases();
                 let build = Some(Build::this().kelpie);
@@ -312,13 +319,6 @@ impl Handing {
                     leases,
                     build,
                 })
-            }
-            // A call just ended and the loop has not heard it: the request
-            // stays queued for the pass that does, until `CARRY_WAIT` is up.
-            Err(NotCarried::Waiting(_)) => {
-                postings.open_queue();
-                self.slot().get_or_insert(tell);
-                return;
             }
             Err(why) => why.to_string(),
         };

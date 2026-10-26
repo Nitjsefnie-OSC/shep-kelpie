@@ -91,10 +91,10 @@ impl Runner {
     /// # Errors
     ///
     /// [`NotCarried::Refused`] for a call in flight that is not a worker's
-    /// turn, a turn whose process has not started, one that holds a browser,
-    /// or one a handover already carried. [`NotCarried::Waiting`] for a turn
-    /// whose record is gone, until [`CARRY_WAIT`] has passed since it was
-    /// first seen so.
+    /// turn, one that holds a browser, one a handover already carried, or one
+    /// whose record is there and cannot be read. [`NotCarried::Waiting`] for
+    /// a turn with no record, which has just ended or has not yet written
+    /// one, until [`CARRY_WAIT`] has passed since it was first seen so.
     pub fn carry_calls(&mut self) -> Result<Vec<CarriedTurn>, NotCarried> {
         let now = self.ports.clock.now();
         let flights = &self.flights;
@@ -121,12 +121,9 @@ impl Runner {
             }
         }
         let flights = &mut self.flights;
-        flights
-            .record_gone
-            .retain(|ticket, _| flights.flying.contains_key(ticket));
         let mut turns = Vec::new();
         let mut waiting = None;
-        for (&ticket, flight) in &flights.flying {
+        for (&ticket, flight) in &mut flights.flying {
             if flight.browser.is_some() {
                 return Err(format!(
                     "#{ticket}'s turn drives a browser, whose socket this image holds, \
@@ -143,11 +140,11 @@ impl Runner {
             };
             let adopted = match self.ports.agents.adoption(call) {
                 Ok(adopted) => {
-                    flights.record_gone.remove(&ticket);
+                    flight.record_gone = None;
                     adopted
                 }
                 Err(NotAdopted::RecordGone(why)) => {
-                    let since = *flights.record_gone.entry(ticket).or_insert(now);
+                    let since = *flight.record_gone.get_or_insert(now);
                     let why = format!("the turn of #{ticket} cannot be carried: {why}");
                     if now.0.saturating_sub(since.0) >= CARRY_WAIT.as_secs() {
                         return Err(NotCarried::Refused(why));
@@ -271,6 +268,7 @@ impl Runner {
                 fallback: waiting::Fallback::Stays,
                 browser: None,
                 requests: None,
+                record_gone: None,
             },
         );
         self.board_changed();

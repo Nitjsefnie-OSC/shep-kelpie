@@ -239,6 +239,25 @@ fn a_handover_waits_for_the_end_of_a_call_whose_record_is_gone_and_goes_once_it_
 }
 
 #[test]
+fn a_handover_waiting_for_a_gone_record_can_be_withdrawn_and_stays_withdrawn() {
+    let (_rig, runner, handing, tried, _asked) = with_an_unheard_end();
+    handing.attempt(&runner);
+    assert!(handing.pending(), "the request did not wait");
+
+    let answer: serde_json::Value = serde_json::from_str(&handing.withdraw()).unwrap();
+
+    assert_eq!(answer["handover"], "withdrawn");
+    crate::runner::step(&runner).unwrap();
+    handing.attempt(&runner);
+    assert_eq!(
+        tried.execs.load(Ordering::SeqCst),
+        0,
+        "a withdrawn handover was made"
+    );
+    assert!(!handing.pending());
+}
+
+#[test]
 fn a_handover_is_refused_once_a_gone_record_has_been_waited_for_as_long_as_the_wait_allows() {
     let (rig, runner, handing, tried, asked) = with_an_unheard_end();
     handing.attempt(&runner);

@@ -360,3 +360,23 @@ fn a_turn_whose_record_is_there_and_unreadable_is_refused_at_once() {
     );
     hold.release();
 }
+
+// The wait is a flight's own: a turn that follows one seen with its record gone starts its wait afresh.
+#[test]
+fn a_gone_record_is_waited_for_afresh_by_the_turn_after_one_that_was_seen_gone() {
+    let rig = Rig::new("rotom");
+    let (runner, first) = in_a_held_turn(&rig);
+    let second = Hold::default();
+    rig.claude.script([Scripted::Hold(second.clone())]);
+    ended_unheard(&runner, &first);
+    rig.clock.advance(CARRY_WAIT.as_secs() * 2);
+
+    // One pass hears the first end, and the next starts the next turn of #7.
+    assert!(matches!(advance(&runner).unwrap(), Pass::Report(_)));
+    assert!(matches!(advance(&runner).unwrap(), Pass::Started));
+    assert!(second.entered(CALL_PATIENCE), "the next turn never began");
+
+    ended_unheard(&runner, &second);
+    let waits = runner.lock().unwrap().carry_calls().unwrap_err();
+    assert!(matches!(waits, NotCarried::Waiting(_)), "{waits:?}");
+}

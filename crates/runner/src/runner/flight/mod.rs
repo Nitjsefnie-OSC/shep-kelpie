@@ -52,8 +52,6 @@ pub enum Pass {
 #[derive(Debug)]
 pub(super) struct Flights {
     flying: BTreeMap<TicketId, Flight>,
-    // When a handover first found each flying call's record gone
-    record_gone: BTreeMap<TicketId, Timestamp>,
     // The project manager's call, its ceiling and its hold
     pm: Option<(Timestamp, Ending)>,
     // The issue writer's call labelling an issue
@@ -86,7 +84,6 @@ impl Default for Flights {
         let (send, news) = mpsc::channel();
         Self {
             flying: BTreeMap::new(),
-            record_gone: BTreeMap::new(),
             pm: None,
             labelling: None,
             securing: None,
@@ -212,6 +209,8 @@ struct Flight {
     browser: Option<Box<dyn OpenBridge>>,
     // Where the turn's transcript stood as it began, for a handover to carry
     requests: Option<Mark>,
+    // When a handover first found the call's record gone, which ends with the flight
+    record_gone: Option<Timestamp>,
 }
 
 impl Flight {
@@ -539,6 +538,7 @@ impl Runner {
                 Launch::Turn { call, .. } => Mark::of(self.ports.agents.as_ref(), call),
                 Launch::Review(_) => None,
             },
+            record_gone: None,
         };
         // Only a turn has a ceiling to carry, for its record on disk.
         if flight.deadline.is_some() {
