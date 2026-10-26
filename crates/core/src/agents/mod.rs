@@ -30,6 +30,9 @@ pub mod baseline;
 mod extends;
 mod front;
 pub mod legacy;
+mod needs;
+
+pub use needs::Need;
 
 /// The folder in kelpie's home that holds the agent files
 pub const FOLDER: &str = "agents";
