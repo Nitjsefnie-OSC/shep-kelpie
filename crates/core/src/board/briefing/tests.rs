@@ -231,6 +231,14 @@ fn an_excerpt_closes_up_blank_runs_and_cuts_at_a_word() {
     assert!(cut.chars().count() <= EXCERPT + 4, "{cut}");
 }
 
+#[test]
+fn a_cut_keeps_the_last_word_that_fits_and_drops_one_that_does_not() {
+    assert_eq!(cut("one two three", 7), "one two …");
+    assert_eq!(cut("one two three", 8), "one two …");
+    assert_eq!(cut("one two three", 13), "one two three");
+    assert_eq!(cut("abcdefghij", 4), "abcd …");
+}
+
 // A ready issue with `body`, and one work item whose branch touches `a|b.rs`
 // and could not be merged with another's
 fn quoting(body: &str) -> String {
