@@ -86,6 +86,39 @@ fn answers_on_an_outside_issue_go_under_the_authors_text_and_end_needs_triage() 
 }
 
 #[test]
+fn the_priority_the_answers_pass_ranks_replaces_the_one_the_issue_was_filed_with() {
+    let (rig, runner) = filed_before("pick = \"all\"", "newcomer", asked(), |rig| {
+        let mut filed = issue(rig, 30, "newcomer", 5);
+        filed.title = "Crash on start".to_owned();
+        filed.body = "It crashes when I run it.".to_owned();
+        filed.labels = vec!["P2".to_owned()];
+        list(rig, filed);
+        rig.forge.label(30, "P2");
+    });
+    assert_eq!(step(&runner).unwrap(), None);
+
+    wrote(&rig, "newcomer", "Q1: Linux, on start.");
+    let found = json!({ "type": "bug", "priority": "P1", "body": "## Settled\n\n- Linux.\n" });
+    rig.claude.script_for(Role::Triager, [reply(found)]);
+    rig.claude
+        .script_for(Role::Representative, [Scripted::Say(A_WORDS)]);
+    rig.next_look();
+    assert_eq!(step(&runner).unwrap(), None);
+
+    assert_eq!(
+        moves(&rig),
+        [
+            "comment",
+            "comment",
+            "label bug",
+            "label P1",
+            "label needs-triage"
+        ]
+    );
+    assert_eq!(rig.github.label_takes(), [(30, "P2".to_owned())]);
+}
+
+#[test]
 fn a_question_still_open_after_the_answers_ends_needs_triage_with_no_second_round() {
     let (rig, runner) = filed("pick = \"maintainer\"", MAINTAINER, asked());
     assert_eq!(step(&runner).unwrap(), None);
