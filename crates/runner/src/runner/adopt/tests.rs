@@ -117,6 +117,32 @@ fn adopt_starts_at_ci_and_the_first_turn_names_the_file_ahead_of_the_red_run() {
 }
 
 #[test]
+fn a_waiting_pull_request_on_an_unlisted_labelled_implementer_is_held_by_its_account() {
+    let rig = Rig::new("shep");
+    rig.ci_on();
+    opened_80(&rig);
+    rig.write_codex_implementer();
+    rig.forge.label(5, "agent:codex");
+    rig.codex_day_began(0);
+    // 15% of Codex's week since the day began, past its allowance of 100 / 7.
+    rig.codex_meter.set(Rig::utilization(15, 0));
+    let runner = running(&rig);
+    rig.ask(&runner, "adopt", Some("80"));
+
+    let Some(StepReport::Held { kind, reason, .. }) = step(&runner).unwrap() else {
+        panic!("expected a hold");
+    };
+    assert_eq!(kind, crate::pacer::HoldKind::Allowance);
+    assert!(reason.starts_with("today's Codex allowance"), "{reason}");
+    assert_eq!(rig.codex_meter.reads(), 1);
+    let status = rig.ask(&runner, "status", None);
+    assert_eq!(status["adopted"], waiting(&[80], false), "still queued");
+    assert_eq!(status["work_item"], json!(null));
+    assert_eq!(status["rulings"], json!([]), "a hold is no `adopt-failed`");
+    assert_eq!(status["skipped"], json!([]));
+}
+
+#[test]
 fn ready_for_agent_on_a_branch_not_kelpies_adopts_it_on_the_next_poll() {
     let rig = Rig::new("koji");
     opened_80(&rig);

@@ -271,6 +271,22 @@ fn a_runner_logs_no_json_object_at_its_start_or_a_dispatch() {
     assert!(lines[1].ends_with(')'), "the model's effort: {}", lines[1]);
 }
 
+#[test]
+fn a_dispatch_on_an_unlisted_implementer_logs_the_model_and_effort_it_runs_on() {
+    let rig = Rig::new("koji");
+    rig.write_agent(
+        "gpt",
+        "---\nrole: implementer\nharness: stand-in\nmodel: gpt-5-codex\neffort: medium\n\
+         usage: none\n---\n",
+    );
+    let runner = rig.open().unwrap();
+    rig.forge.list_ready(7, false);
+    rig.forge.label(7, "agent:gpt");
+    let report = step(&runner).unwrap().unwrap();
+    let line = runner.lock().unwrap().log_step(&report);
+    assert_eq!(line, "#7 dispatched to gpt-5-codex (medium)");
+}
+
 // A GitHub ticket's line keeps the `#` it has always had. A local ticket has
 // no issue number to show, so its id stands on its own in both logs.
 #[test]

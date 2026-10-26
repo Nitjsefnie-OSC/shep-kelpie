@@ -47,6 +47,13 @@ pub(super) enum Pace {
     StillHeld(Hold),
 }
 
+/// How a start the pacer may hold back ended
+pub(super) enum Started<T> {
+    Opened(T),
+    /// What the runner does instead of starting
+    Held(Box<Begin>),
+}
+
 impl Pace {
     /// The pacer's reading of the hold, or `None` when nothing holds
     pub(super) fn reason(&self) -> Option<&str> {

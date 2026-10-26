@@ -8,9 +8,11 @@ use super::{
     LeaseReads, NO_RETRO, RETRO_ON, RIG_REVIEWERS, RIG_REVIEWERS_AND_CODERABBIT, Rig,
     project_table, write_in,
 };
-use crate::ports::LocalLeases;
+use crate::pacer::DayStart;
+use crate::ports::{LocalLeases, Timestamp};
 use crate::runner::Runner;
 use crate::settings::{Settings, SettingsError};
+use crate::state::StateStore;
 
 impl Rig {
     /// Registers kelpie's App for the project's repo owner and installs it on
@@ -188,6 +190,29 @@ impl Rig {
     /// Writes kelpie's agent file `name.md` holding `text`, read when a runner next opens
     pub fn write_agent(&self, name: &str, text: &str) {
         write_in(&self.paths().agents, &format!("{name}.md"), text);
+    }
+
+    /// An implementer file on the Codex account, which the project does not list
+    /// until a test adds it to [`Self::implementers`]
+    pub const CODEX_IMPLEMENTER: &str = "---\nrole: implementer\nharness: stand-in\n\
+                                         model: gpt-5-codex\neffort: medium\nusage: codex\n---\n";
+
+    /// Writes the `codex` implementer file, which no project lists
+    pub fn write_codex_implementer(&self) {
+        self.write_agent("codex", Self::CODEX_IMPLEMENTER);
+    }
+
+    /// Saves a state in which Codex's day began with `used` percent of its week
+    /// spent, read when a runner next opens
+    pub fn codex_day_began(&self, used: u32) {
+        let store = StateStore::new(self.paths().state);
+        let mut state = store.load().unwrap().unwrap_or_default();
+        state.codex_pacing = Some(DayStart {
+            week_resets_at: Timestamp(Self::EPOCH + 7 * Self::DAY),
+            day: 0,
+            week_used_pct: used,
+        });
+        store.save(&state).unwrap();
     }
 
     /// Lists `names` as the project's implementers, read when a runner next opens

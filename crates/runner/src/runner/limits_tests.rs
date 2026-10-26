@@ -3,16 +3,14 @@ use std::time::Duration;
 
 use serde_json::json;
 
-use crate::pacer::{DayStart, HoldKind, RECHECK_SECS};
+use crate::pacer::{HoldKind, RECHECK_SECS};
 use crate::ports::{CLEAN, Cost, MeterError, Role, Timestamp, Usage};
 use crate::runner::{Runner, StepReport, step};
 use crate::settings::AgentHarness;
-use crate::state::{ProjectState, StateStore};
 use crate::test::ticket;
 use crate::test::{Hold, Rig, Scripted, StandInEndpoint};
 
-const CODEX: &str = "---\nrole: implementer\nharness: stand-in\nmodel: gpt-5-codex\n\
-                     effort: medium\nusage: codex\n---\n";
+const CODEX: &str = Rig::CODEX_IMPLEMENTER;
 const QWEN: &str = "---\nrole: implementer\nharness: stand-in\nmodel: qwen3-coder\n\
                     effort: low\nusage: none\n---\n";
 
@@ -104,16 +102,7 @@ fn an_item_on_an_unlisted_implementer_paces_on_its_account_too() {
 // its week spent, with a ready issue 7 labelled for `codex`, which the project does not list.
 fn codex_day_began(used: u32) -> (Rig, Mutex<Runner>) {
     let (rig, runner) = named("shep", "");
-    let runner = reopened(&rig, runner, || {
-        let store = StateStore::new(rig.paths().state);
-        let mut state = store.load().unwrap().unwrap_or_else(ProjectState::new);
-        state.codex_pacing = Some(DayStart {
-            week_resets_at: Timestamp(Rig::EPOCH + 7 * Rig::DAY),
-            day: 0,
-            week_used_pct: used,
-        });
-        store.save(&state).unwrap();
-    });
+    let runner = reopened(&rig, runner, || rig.codex_day_began(used));
     rig.forge.list_ready(7, false);
     rig.forge.label(7, "agent:codex");
     (rig, runner)

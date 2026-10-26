@@ -13,6 +13,7 @@ use std::path::{Path, PathBuf};
 
 use super::Runner;
 
+use super::pace::Started;
 use super::report::{Begin, StepReport};
 use super::rework::review_text;
 use super::trigger;
@@ -260,7 +261,8 @@ impl Runner {
                 return Ok((Some(held), skipped));
             }
             let begin = match self.start_adoption(number) {
-                Ok((issue, agent)) => {
+                Ok(Started::Held(held)) => return Ok((Some(*held), skipped)),
+                Ok(Started::Opened((issue, agent))) => {
                     self.adopt_failing.remove(&number);
                     Begin::Report(StepReport::Adopted {
                         issue,
@@ -508,7 +510,10 @@ impl Runner {
     // Checks the pull request can be adopted, then prepares its worktree,
     // writes what the worker needs, takes the triage and summon labels off
     // and saves the work item, in that order.
-    fn start_adoption(&mut self, number: u64) -> Result<(TicketId, AgentName), AdoptError> {
+    fn start_adoption(
+        &mut self,
+        number: u64,
+    ) -> Result<Started<(TicketId, AgentName)>, AdoptError> {
         let repo = self.remote.clone();
         let pr = self
             .ports
@@ -533,6 +538,10 @@ impl Runner {
         let (agent, note) = self
             .labelled_agent(ticket, &found.labels)
             .map_err(AdoptError::Label)?;
+        // The account of an agent the project does not list has not been paced yet.
+        if let Some(held) = self.pace_agent(&agent).map_err(AdoptError::State)?.holds() {
+            return Ok(Started::Held(Box::new(held)));
+        }
         let session = new_session_id().map_err(|e| AdoptError::Session(e.to_string()))?;
         let fresh = self.fresh(ticket, found.title.clone(), agent.clone(), session);
         // A start that failed part way leaves a worktree on a head `origin`
@@ -672,7 +681,7 @@ impl Runner {
         self.save(next).map_err(AdoptError::State)?;
         self.mark_held(ticket, true);
         self.notes.extend(note);
-        Ok((ticket, agent))
+        Ok(Started::Opened((ticket, agent)))
     }
 }
 
