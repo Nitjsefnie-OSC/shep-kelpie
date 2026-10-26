@@ -6,9 +6,10 @@ use std::sync::Mutex;
 use serde_json::json;
 
 use super::pick_tests::{list, rig_with};
-use super::research_tests::{WORDS, calls, crash, reply};
-use crate::ports::{Role, Session};
+use super::research_tests::{WORDS, calls, crash, reply, triage};
+use crate::ports::{AgentError, Role, Session, SessionId};
 use crate::runner::{Runner, step};
+use crate::settings::Harness;
 use crate::test::{Rig, Scripted};
 
 // #1287's reply: the entry in `open` lost the key in front of its recommendation
@@ -29,11 +30,11 @@ enum On {
 }
 
 // A rig whose untouched issue 30 is researched on `on`
-fn researching_on(on: On) -> (Rig, Mutex<Runner>) {
+fn researching_on(on: On, lines: &str) -> (Rig, Mutex<Runner>) {
     let rig = match on {
-        On::ClaudeCode => rig_with("pick = \"all\""),
+        On::ClaudeCode => rig_with(&format!("pick = \"all\"{lines}")),
         On::Pi => {
-            let rig = rig_with("pick = \"all\"\nagent = \"pi-scout\"");
+            let rig = rig_with(&format!("pick = \"all\"\nagent = \"pi-scout\"{lines}"));
             rig.write_agent(
                 "pi-scout",
                 "---\nrole: triager\nharness: pi\nmodel: qwen3.8:27b\neffort: low\n\
@@ -52,7 +53,7 @@ fn researching_on(on: On) -> (Rig, Mutex<Runner>) {
 #[test]
 fn a_reply_with_a_dropped_key_is_repaired_in_the_same_pass_and_posts() {
     for on in [On::ClaudeCode, On::Pi] {
-        let (rig, runner) = researching_on(on);
+        let (rig, runner) = researching_on(on, "");
         rig.claude
             .script_for(Role::Triager, [DROPPED_KEY, mended()]);
 
@@ -67,6 +68,11 @@ fn a_reply_with_a_dropped_key_is_repaired_in_the_same_pass_and_posts() {
             "{on:?}"
         );
         assert!(asked[1].call.prompt.contains("expected `:`"), "{on:?}");
+        // pi sends them again on a resumed call, and the others ignore them.
+        assert_eq!(
+            asked[1].call.instructions, asked[0].call.instructions,
+            "{on:?}"
+        );
         assert_eq!(rig.github.comments().len(), 1, "{on:?}: the comment posts");
     }
 }
@@ -74,7 +80,7 @@ fn a_reply_with_a_dropped_key_is_repaired_in_the_same_pass_and_posts() {
 #[test]
 fn a_repair_that_is_no_triage_either_is_tried_at_the_next_poll_and_counts_once() {
     for on in [On::ClaudeCode, On::Pi] {
-        let (rig, runner) = researching_on(on);
+        let (rig, runner) = researching_on(on, "");
         // Five tries of two calls each, then the reply that would post.
         let broken = std::iter::repeat_n(DROPPED_KEY, 10);
         rig.claude.script_for(Role::Triager, broken);
@@ -99,11 +105,28 @@ fn a_repair_that_is_no_triage_either_is_tried_at_the_next_poll_and_counts_once()
 
 #[test]
 fn a_reply_with_no_json_object_is_not_repaired() {
-    let (rig, runner) = researching_on(On::ClaudeCode);
+    let (rig, runner) = researching_on(On::ClaudeCode, "");
     rig.claude
         .script_for(Role::Triager, [Scripted::Text("I could not tell.")]);
 
     assert_eq!(step(&runner).unwrap(), None);
 
     assert_eq!(calls(&rig, Role::Triager).len(), 1);
+}
+
+#[test]
+fn a_repair_that_fails_still_spends_the_place_the_first_reply_took() {
+    for on in [On::ClaudeCode, On::Pi] {
+        let (rig, runner) = researching_on(on, "\nper_day = 5");
+        let gone = AgentError::NoSession(Harness::ClaudeCode, SessionId("gone".to_owned()));
+        rig.claude
+            .script_for(Role::Triager, [DROPPED_KEY, Scripted::Fail(gone)]);
+
+        assert_eq!(step(&runner).unwrap(), None);
+
+        assert_eq!(calls(&rig, Role::Triager).len(), 2, "{on:?}");
+        assert_eq!(rig.github.comments(), [], "{on:?}: nothing posts");
+        let used = &triage(&rig, &runner)["daily"]["used"];
+        assert_eq!(used, 1, "{on:?}: the first reply reached a model");
+    }
 }

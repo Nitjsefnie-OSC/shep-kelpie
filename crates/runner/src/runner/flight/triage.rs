@@ -331,8 +331,8 @@ fn researched(
 
 // Asks the session `first` ran in, once, for its reply again with the parser's
 // `why` said, and reads what it answers. The repair is part of the same call:
-// `first`'s usage is added to the repair's, and an answer that is still no
-// triage is a failure like any other.
+// `first`'s usage is added to the repair's, and a repair that is still no
+// triage, or fails, is a failure like any other.
 fn repaired(
     first: &AgentReply,
     why: &str,
@@ -346,14 +346,19 @@ fn repaired(
 ) {
     call.session = Session::Resume(first.session_id.clone());
     call.prompt = repair_prompt(why);
-    // A resumed session keeps the instructions it began with.
-    call.instructions = None;
     match agents.run(call, ending) {
         Ok(mut second) => {
             second.usage += first.usage;
             let found = read(&second.text).map_err(|e| format!("its repair failed too: {e}"));
             (Ok(second), Some(found))
         }
-        Err(e) => (Err(e), None),
+        // A runner stopping asks again at the next poll, as any stopped call
+        // does. Any other end keeps `first`, the reply that did reach a model, so
+        // its usage and its place of the cap are still counted.
+        Err(AgentError::Stopped) => (Err(AgentError::Stopped), None),
+        Err(e) => (
+            Ok(first.clone()),
+            Some(Err(format!("its repair failed: {e}"))),
+        ),
     }
 }
