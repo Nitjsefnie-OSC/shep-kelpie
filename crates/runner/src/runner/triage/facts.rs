@@ -7,6 +7,7 @@
 
 use super::ready::is_issue_body;
 use super::research::{Addressed, Found};
+use crate::local_paths::Leak;
 
 /// Who reads the comment, which settles how it closes
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -216,4 +217,8 @@ fn maintainers(found: &Found, ask: bool, stood: bool) -> String {
     }
     said.push('\n');
     said
+}
+
+pub(super) fn refused_facts(facts: &str, leak: Leak) -> String {
+    format!("{facts}\nThe last wording named {leak}. Leave it out.\n")
 }
