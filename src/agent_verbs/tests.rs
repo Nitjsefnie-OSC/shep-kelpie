@@ -771,6 +771,35 @@ fn init_pi_without_a_gateway_is_refused_naming_the_flag() {
     assert!(claude.contains("--gateway"), "{claude}");
 }
 
+// `--detect` reads the gateways kelpie's own settings hold, so a server flag on it
+// is refused rather than dropped.
+#[test]
+fn init_detect_refuses_a_server_flag_naming_it() {
+    let dir = tempfile::tempdir().unwrap();
+
+    for line in [
+        "--detect --url http://box:11434/v1",
+        "--detect --gateway paddock",
+    ] {
+        let err = init_on(
+            dir.path(),
+            line,
+            MODELS,
+            &Machine::default(),
+            Gateways::default(),
+        )
+        .unwrap_err();
+        assert!(err.contains("--gateway"), "{err}");
+        assert!(err.contains("--url"), "{err}");
+        assert!(err.contains("`--detect`"), "{err}");
+    }
+    assert_eq!(
+        files(dir.path()),
+        Vec::<String>::new(),
+        "nothing is written"
+    );
+}
+
 #[test]
 fn detect_reads_the_path_and_configured_gateways_and_nothing_else() {
     let listed = StandInEndpoint::start([]).like_paddock("pk-right", &["qwen3.8:27b"]);

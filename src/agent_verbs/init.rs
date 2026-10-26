@@ -265,12 +265,20 @@ impl Ask {
         }
         match (harness, detect) {
             (Some(_), true) => Err("`--detect` takes no harness: it finds them itself".to_owned()),
-            (None, true) => Ok(Self {
-                harness,
-                detect,
-                gateway,
-                url,
-            }),
+            (None, true) => match (gateway.as_ref(), url.as_ref()) {
+                (None, None) => Ok(Self {
+                    harness,
+                    detect,
+                    gateway,
+                    url,
+                }),
+                _ => Err(
+                    "`--gateway` and `--url` are for `agents init <harness>`: `--detect` asks the \
+                     gateways kelpie's own settings hold, and binds a pi or goose row only where \
+                     one of them lists its model"
+                        .to_owned(),
+                ),
+            },
             (Some(_), false) => Ok(Self {
                 harness,
                 detect,
