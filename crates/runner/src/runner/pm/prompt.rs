@@ -156,7 +156,7 @@ const ANSWER: &str = concat!(
     "\
 ```
 {\"pick\": <the ready issue to start next, or null to start nothing now; when the wake says several slots are free, a list of ready issues in the order to start them>,
- \"hold\": [<every ready issue that should wait until an open work item closes; [] holds none>],
+ \"hold\": [{\"issue\": <a ready issue that should wait>, \"until\": <the open work item whose closing ends the hold>}, ...] (one entry for every ready issue that should wait; [] holds none),
  \"unstick\": null or {\"item\": <a stuck work item's issue>, \"action\": \"retry\" | \"re-scope\" | \"ask\" | \"none\", \"why\": \"<one sentence>\"} or [{\"item\": <a stuck work item's issue>, \"action\": \"retry\" | \"re-scope\" | \"ask\" | \"none\", \"why\": \"<one sentence>\"}, ...],
  ",
     answer_key!(),
@@ -173,6 +173,13 @@ const ANSWER: &str = concat!(
  \"reply\": null or \"<a message to the maintainer, if one is due>\",
  \"why\": \"<two sentences at most>\"}
 ```
+
+`hold` names, for each ready issue, the open work item it waits on as `until`. The \
+hold ends when that work item closes or the issue's text changes, and no other \
+close ends it, so you need not hold it again on each wake. An `until` that is no open \
+work item is refused and the issue is not held. An entry that is just an issue number \
+holds until any work item closes. Each answer replaces the last, so list every hold \
+that should stand.
 
 `unstick` is one object for one stuck item, or a list of them where the wake \
 carried several: kelpie acts on each in turn. `retry` runs the item's turn \

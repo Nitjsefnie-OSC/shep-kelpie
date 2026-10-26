@@ -9,6 +9,7 @@
 //! item twice acts once.
 
 use super::answer::{Action, Answer, Unstick};
+use super::maintainer::Held;
 use super::red::Settled;
 use super::{Pick, StuckState, stuck_on};
 use crate::board::briefing::ticket_ref;
@@ -40,14 +41,24 @@ impl Runner {
         if matches!(self.pm.pick, Some(Pick::Nothing(_))) {
             self.pm.pick = None;
         }
-        let mut held: Vec<TicketId> = Vec::new();
+        let mut held: Vec<Held> = Vec::new();
         let mut dropped = answer.unread.clone();
-        for &ticket in &answer.hold {
-            let named = ticket_ref(ticket);
-            match ready.contains(&ticket) {
-                true if !held.contains(&ticket) => held.push(ticket),
-                true => {}
-                false => dropped.push(format!("hold {named}: not a ready issue on the board")),
+        let open = self.state.open_tickets();
+        for call in &answer.hold {
+            let named = ticket_ref(call.issue);
+            let waits = call.until.filter(|until| !open.contains(until));
+            if !ready.contains(&call.issue) {
+                dropped.push(format!("hold {named}: not a ready issue on the board"));
+            } else if let Some(until) = waits {
+                let until = ticket_ref(until);
+                dropped.push(format!("hold {named}: {until} is no open work item"));
+            } else if !held.iter().any(|h| h.issue == call.issue) {
+                let text = self.ready_text(call.issue).unwrap_or_default();
+                held.push(Held {
+                    issue: call.issue,
+                    until: call.until,
+                    text,
+                });
             }
         }
         let mut acted = Vec::new();
@@ -82,7 +93,7 @@ impl Runner {
                 dropped.push(format!(
                     "pick {named}: only {slots} can start from this wake"
                 ));
-            } else if held.contains(&ticket) {
+            } else if held.iter().any(|h| h.issue == ticket) {
                 dropped.push(format!("pick {named}: it holds {named} too"));
             } else if ready.contains(&ticket) {
                 picks.push(ticket);
@@ -113,7 +124,7 @@ impl Runner {
             self.pm.asked_pick = false;
         }
         if !held.is_empty() {
-            let named: Vec<String> = held.iter().map(|&t| ticket_ref(t)).collect();
+            let named: Vec<String> = held.iter().map(Held::to_string).collect();
             acted.push(format!("holds {}", named.join(", ")));
         }
         self.pm.held = held;

@@ -38,8 +38,9 @@ const UNSTICK: &str = "`item`, an `action` of retry, re-scope, ask or none, and 
 pub(super) struct Answer {
     /// The ready issues to start, in order, or none to start nothing now
     pub(super) picks: Vec<TicketId>,
-    /// The ready issues to hold until an open work item closes
-    pub(super) hold: Vec<TicketId>,
+    /// The ready issues to hold, each until the open work item it names closes
+    /// or, naming none, until any closes
+    pub(super) hold: Vec<HoldCall>,
     /// What to do about each stuck work item the wake carried
     pub(super) unstick: Vec<Unstick>,
     /// What to do about one worker's question
@@ -59,6 +60,19 @@ pub(super) struct Answer {
     pub(super) why: Option<String>,
     /// What could not be read, each named, to log
     pub(super) unread: Vec<String>,
+}
+
+/// What a `hold` entry holds, as a dropped one names it
+const HOLD: &str =
+    "a ticket id, or an object with an `issue` and the open work item it waits on as `until`";
+
+/// The project manager's call to hold one ready issue back
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct HoldCall {
+    /// The ready issue
+    pub(super) issue: TicketId,
+    /// The open work item it waits on, or none for any work item closing
+    pub(super) until: Option<TicketId>,
 }
 
 /// The project manager's call on one workflow red on `main` after its rerun
@@ -201,15 +215,13 @@ pub(super) fn read(text: &str) -> Option<Answer> {
                 Value::Null => {}
                 Value::Array(items) => {
                     for item in items {
-                        match ticket(item) {
-                            Some(t) => answer.hold.push(t),
-                            None => answer
-                                .unread
-                                .push(format!("`hold`: a ticket id, not {item}")),
+                        match hold(item) {
+                            Some(h) => answer.hold.push(h),
+                            None => answer.unread.push(format!("`hold`: {HOLD}, not {item}")),
                         }
                     }
                 }
-                _ => answer.unread.push(unread("a list of ticket ids")),
+                _ => answer.unread.push(unread("a list of holds")),
             },
             "unstick" => match &value {
                 Value::Null => {}
@@ -357,6 +369,19 @@ fn ticket(value: &Value) -> Option<TicketId> {
     }
 }
 
+// A bare ticket id holds until any work item closes, as answers always read.
+fn hold(value: &Value) -> Option<HoldCall> {
+    if let Some(issue) = ticket(value) {
+        return Some(HoldCall { issue, until: None });
+    }
+    let issue = ticket(value.get("issue")?)?;
+    let until = match value.get("until") {
+        None | Some(Value::Null) => None,
+        Some(until) => Some(ticket(until)?),
+    };
+    Some(HoldCall { issue, until })
+}
+
 fn unstick(value: &Value) -> Option<Unstick> {
     let item = ticket(value.get("item")?)?;
     let action = match value.get("action")?.as_str()? {
@@ -474,7 +499,7 @@ mod tests {
     #[test]
     fn the_last_object_after_the_reasoning_is_the_answer() {
         let text = "I read the board. {\"pick\": 3} was my first thought.\n\n```json\n\
-                    {\"pick\": 12, \"hold\": [4, \"#9\"], \"unstick\": {\"item\": 7, \
+                    {\"pick\": 12, \"hold\": [4, \"#9\", {\"issue\": 5, \"until\": \"#3\"}], \"unstick\": {\"item\": 7, \
                     \"action\": \"re-scope\", \"why\": \"split the parser out\"}, \
                     \"reply\": null, \"why\": \"#12 touches nothing open.\"}\n```\n";
         let answer = read(text).unwrap();
@@ -482,7 +507,20 @@ mod tests {
             answer,
             Answer {
                 picks: vec![ticket(12)],
-                hold: vec![ticket(4), ticket(9)],
+                hold: vec![
+                    HoldCall {
+                        issue: ticket(4),
+                        until: None
+                    },
+                    HoldCall {
+                        issue: ticket(9),
+                        until: None
+                    },
+                    HoldCall {
+                        issue: ticket(5),
+                        until: Some(ticket(3))
+                    },
+                ],
                 unstick: vec![Unstick {
                     item: ticket(7),
                     action: Action::ReScope,
@@ -736,18 +774,49 @@ mod tests {
                 &answer.unstick,
                 answer.reply.as_deref()
             ),
-            (&Vec::new(), &vec![ticket(5)], &Vec::new(), Some("On it."))
+            (
+                &Vec::new(),
+                &vec![HoldCall {
+                    issue: ticket(5),
+                    until: None
+                }],
+                &Vec::new(),
+                Some("On it.")
+            )
         );
         assert_eq!(
             answer.unread,
             [
-                "`hold`: a ticket id, not true",
+                "`hold`: a ticket id, or an object with an `issue` and the open work item it waits on as \
+                 `until`, not true",
                 "`merge_order` is not a field kelpie acts on",
                 "`pick`: a ticket id, a list of them or null, not \"soon\"",
                 "`unstick`: `item`, an `action` of retry, re-scope, ask or none, and `why`, \
                  not {\"action\":\"reboot\",\"item\":7}",
             ]
         );
+    }
+
+    #[test]
+    fn a_hold_is_a_ticket_or_an_issue_with_what_it_waits_on() {
+        let text = "{\"hold\": [7, {\"issue\": 8, \"until\": 3}, {\"issue\": 9, \"until\": null}, \
+                    {\"issue\": 10}, {\"issue\": 11, \"until\": \"soon\"}, {\"until\": 3}]}";
+        let answer = read(text).unwrap();
+        let hold = |issue: u64, until: Option<u64>| HoldCall {
+            issue: ticket(issue),
+            until: until.map(ticket),
+        };
+        assert_eq!(
+            answer.hold,
+            [
+                hold(7, None),
+                hold(8, Some(3)),
+                hold(9, None),
+                hold(10, None)
+            ]
+        );
+        assert_eq!(answer.unread.len(), 2, "{:?}", answer.unread);
+        assert!(answer.unread[0].ends_with("not {\"issue\":11,\"until\":\"soon\"}"));
     }
 
     #[test]
