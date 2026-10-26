@@ -60,7 +60,7 @@ impl Runner {
         let prompt = local_block(
             self.remote.as_str(),
             issue,
-            &read.title,
+            self.scrub_triage_title(issue, &read.title),
             &found.files,
             &found.open,
         );
@@ -246,7 +246,11 @@ pub(super) fn local_block(
     files: &[String],
     questions: &[Question],
 ) -> String {
-    let mut block = format!("/{SKILL} Issue {repo}#{issue}: {}.\n", one_line(title));
+    let title = match title.is_empty() {
+        true => String::new(),
+        false => format!(": {}", one_line(title)),
+    };
+    let mut block = format!("/{SKILL} Issue {repo}#{issue}{title}.\n");
     block.push_str(&format!(
         "\nRead it with `gh issue view {issue} --comments`.\n"
     ));

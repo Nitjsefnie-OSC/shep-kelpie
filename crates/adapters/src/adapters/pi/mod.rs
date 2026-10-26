@@ -19,7 +19,9 @@ use serde_json::json;
 use self::compact::Tokens;
 use self::shared::profile;
 use super::cli::{Cli, CliAdapter, Launch, Turn};
-use super::harness::{Base, bind_in_scratch, call_policy, prompt_file, step_skill, tail};
+use super::harness::{
+    Base, assignments, bind_in_scratch, call_policy, prompt_file, step_skill, tail,
+};
 use super::process::record::CallFiles;
 use super::unreachable::reaches_no_host;
 use crate::fence;
@@ -446,12 +448,7 @@ fn env_args(call: &AgentCall, files: &Files) -> Vec<OsString> {
     let unset = web::unset(call)
         .into_iter()
         .flat_map(|name| ["-u".into(), name.into()]);
-    let set = vars.into_iter().map(|(name, value)| {
-        let mut pair = OsString::from(format!("{name}="));
-        pair.push(value);
-        pair
-    });
-    unset.chain(set).collect()
+    unset.chain(assignments(vars)).collect()
 }
 
 // pi loads nothing of the maintainer's or the repo's own: no extensions,

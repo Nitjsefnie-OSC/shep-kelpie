@@ -7,7 +7,7 @@
 //! to the next implementer listed that no other item waits on. It has no
 //! session yet, so nothing is lost. A later turn, one pinned by a `!` label,
 //! or one whose own agent the project does not list, never moves. A new work
-//! item opens on the next free one when a first turn waits on its label's model.
+//! item opens on the next free one when its label's model has a queue.
 
 use std::collections::BTreeMap;
 
@@ -17,7 +17,7 @@ use super::super::Runner;
 use super::super::report::{ReviewCall, StepReport};
 use super::Launch;
 use crate::ports::{AgentError, AgentReply, CallActivity, SessionId, Timestamp, Wait};
-use crate::settings::{AgentName, GatewayName, LocalRound, ModelHost};
+use crate::settings::{AgentName, GatewayKind, GatewayName, LocalRound, ModelHost};
 use crate::state::StateError;
 use crate::ticket::TicketId;
 use crate::work_item::{Turn, WorkItem, new_session_id};
@@ -200,8 +200,8 @@ impl Runner {
 
     // The implementer a new work item for `ticket`, labelled for `from`, opens on
     // instead: `None` while `agents.fallback_after` is off, or no first turn of
-    // this runner waits on `from`'s model for a lease or a busy gateway, or
-    // `next_free` finds none. A silent turn never counts, and no gateway is read.
+    // this runner waits on `from`'s model and its gateway has no queue, or
+    // `next_free` finds none. A silent turn never counts.
     pub(in crate::runner) fn opens_elsewhere(
         &self,
         ticket: TicketId,
@@ -218,10 +218,32 @@ impl Runner {
             })
             .filter_map(|item| self.model_wait(item.issue))
             .any(|waiting| matches!(waiting.why, Wait::Lease | Wait::Busy));
-        if !waits_on_from {
+        if !waits_on_from && !self.gateway_queued(from) {
             return None;
         }
         self.next_free(ticket, from)
+    }
+
+    // A failed read leaves the implementer available, as a gateway without leases does.
+    fn gateway_queued(&self, name: &AgentName) -> bool {
+        let Some(agent) = self.agents.implementer(name) else {
+            return false;
+        };
+        let Some(server) = agent.model.harness.server() else {
+            return false;
+        };
+        let ModelHost::Gateway(gateway) = &server.host else {
+            return false;
+        };
+        // parity: gateway.lease-availability
+        if self.gateways.get(gateway).map(|g| g.kind) != Some(GatewayKind::Paddock) {
+            return false;
+        }
+        self.gateways.upstream(&server.host).ok().is_some_and(|up| {
+            self.ports
+                .local_leases
+                .paddock_queued(&up, agent.model.model.as_str())
+        })
     }
 
     // The implementer listed after `from` that no other turn waits on, or
@@ -240,7 +262,7 @@ impl Runner {
         let busy: Vec<&AgentName> = waited_on.chain(moving_to).collect();
         listed[after..]
             .iter()
-            .find(|name| !busy.contains(name))
+            .find(|name| !busy.contains(name) && !self.gateway_queued(name))
             .cloned()
     }
 

@@ -176,3 +176,15 @@ fn an_address_that_is_not_on_a_local_network_goes_through() {
         assert_eq!(paths.find(&text, Surface::Prose), None, "{text}");
     }
 }
+
+#[test]
+fn the_me_placeholder_passes_but_other_linux_home_names_are_refused() {
+    let paths = LocalPaths::default();
+    for text in ["/home/me", "/home/me/x", "/Users/me/x", "`/home/me`."] {
+        assert_eq!(paths.find(text, Surface::Prose), None, "{text}");
+    }
+    for name in ["meg", "rin", "me-2", "me_b", "me.txt"] {
+        let text = format!("/home/{name}/x");
+        assert_eq!(paths.find(&text, Surface::Prose), Some(Leak::Path));
+    }
+}

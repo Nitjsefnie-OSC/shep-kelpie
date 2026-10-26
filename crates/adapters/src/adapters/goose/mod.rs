@@ -16,7 +16,7 @@ use std::process::{Command, Output};
 use self::files::Files;
 use self::output::Spent;
 use super::cli::{Cli, CliAdapter, FollowUp, Launch, Turn};
-use super::harness::{Base, bind_in_scratch, call_policy};
+use super::harness::{Base, assignments, bind_in_scratch, call_policy};
 use super::process::record::CallFiles;
 use crate::fence;
 use crate::forwarder::Upstream;
@@ -542,13 +542,7 @@ fn env_args(
         let added = (fence.env.iter()).filter(|(name, _)| !own.contains(name));
         vars.extend(added.map(|(name, value)| (name.clone(), value.clone().into())));
     }
-    vars.into_iter()
-        .map(|(name, value)| {
-            let mut pair = OsString::from(format!("{name}="));
-            pair.push(value);
-            pair
-        })
-        .collect()
+    assignments(vars).collect()
 }
 
 // The prompt is one `--text=` argument, so one starting with `-` is not a flag.
