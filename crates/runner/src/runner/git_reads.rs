@@ -383,12 +383,12 @@ impl Runner {
 
     /// The job that installs the packages of the focused work item's worktree in the worker's
     /// sandbox, or none when the worktree needs none, the step's earlier ask kept the answer, an
-    /// earlier install failed, no pass runs to make it, or the worktree is not made
+    /// earlier install ran, no pass runs to make it, or the worktree is not made
     ///
     /// The install follows the worktree's making, which the step's `preparing` job kept.
     pub(in crate::runner) fn installing(&self) -> Option<Begin> {
         let item = self.current().filter(|item| {
-            self.reads.git.installed.is_none() && !self.install_failed.contains(&item.issue)
+            self.reads.git.installed.is_none() && !self.install_ran.contains(&item.issue)
         })?;
         if !matches!(self.reads.git.prepared, Some(Ok(_))) {
             return None;
@@ -422,14 +422,12 @@ impl Runner {
         Some(Begin::Reads(job))
     }
 
-    /// Logs the install the step's job ran, and keeps a failed one from being run again
+    /// Logs the install the step's job ran, and keeps it from being run again
     pub(in crate::runner) fn packages_installed(&mut self, issue: TicketId) {
         let Some(installed) = self.reads.git.installed().cloned() else {
             return;
         };
-        if installed.failed.is_some() {
-            self.install_failed.insert(issue);
-        }
+        self.install_ran.insert(issue);
         self.started.push(StepReport::PackagesInstalled {
             issue,
             folders: installed.folders,

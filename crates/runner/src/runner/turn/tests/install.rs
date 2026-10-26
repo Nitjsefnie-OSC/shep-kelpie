@@ -93,6 +93,22 @@ fn a_worktree_that_holds_node_modules_is_not_installed_again() {
 }
 
 #[test]
+fn an_install_that_leaves_no_node_modules_is_not_run_again_on_the_next_turn() {
+    // The stand-in installs nothing, as Yarn's Plug'n'Play and a project with no dependencies don't.
+    let (rig, runner) = first_turn(&["bun.lock"], Vec::new());
+    rig.claude
+        .script([Scripted::Reply(usage(1), Cost(20_085_300))]);
+    step(&runner).unwrap();
+
+    assert_eq!(rig.tests.ran().len(), 1, "the second turn installed again");
+    let installs = steps(&runner)
+        .iter()
+        .filter(|s| s["step"] == "packages-installed")
+        .count();
+    assert_eq!(installs, 1);
+}
+
+#[test]
 fn a_worktree_with_no_lockfile_is_not_installed() {
     let (rig, _) = first_turn(&["README.md"], Vec::new());
 
