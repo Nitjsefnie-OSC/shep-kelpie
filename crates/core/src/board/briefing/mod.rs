@@ -629,15 +629,8 @@ pub fn cut(text: &str, chars: usize) -> String {
 /// files names none, and one matching none counts only if it has a `/`.
 pub fn named_paths(body: &str, tree: &[String]) -> Vec<String> {
     let mut found = BTreeSet::new();
-    for span in body.split('`').skip(1).step_by(2) {
-        let Some(name) = path_like(span) else {
-            continue;
-        };
-        let suffix = format!("/{name}");
-        let hits: Vec<&String> = tree
-            .iter()
-            .filter(|f| **f == name || f.ends_with(&suffix))
-            .collect();
+    for name in path_names(body) {
+        let hits = matching(name, tree);
         match hits.len() {
             0 if name.contains('/') => {
                 found.insert(name.to_owned());
@@ -647,6 +640,74 @@ pub fn named_paths(body: &str, tree: &[String]) -> Vec<String> {
         }
     }
     found.into_iter().collect()
+}
+
+/// The paths an issue's body names in backticks that match no file or folder on `main`
+///
+/// A name matches as in [`named_paths`], or is a folder holding files. One with
+/// no `/` counts only if its extension is one files on `main` have, so a field
+/// as `item.base` and a version as `1.85` are not paths. A path the issue means
+/// to add is among them, so a note on one says it may be new.
+pub fn missing_paths(body: &str, tree: &[String]) -> Vec<String> {
+    let missing = path_names(body).filter(|name| {
+        let known = name.contains('/') || extension_on(name, tree);
+        known && matching(name, tree).is_empty() && !folder_on(name, tree)
+    });
+    missing
+        .map(str::to_owned)
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect()
+}
+
+/// Whether an issue's body names a path in backticks, for or against any tree
+pub fn names_a_path(body: &str) -> bool {
+    path_names(body).next().is_some()
+}
+
+/// The file on `main` that ends the way the missing `name` does, if one does
+///
+/// The files sharing its file name are weighed by how many of its last parts
+/// they share, then by the shortest path.
+pub fn closest<'a>(name: &str, tree: &'a [String]) -> Option<&'a str> {
+    let parts: Vec<&str> = name.rsplit('/').collect();
+    let shared = |file: &str| {
+        let ends = file.rsplit('/').zip(&parts);
+        ends.take_while(|(a, b)| a == *b).count()
+    };
+    tree.iter()
+        .map(|file| (shared(file), file))
+        .filter(|(shared, _)| *shared > 0)
+        .min_by_key(|(shared, file)| (std::cmp::Reverse(*shared), file.len(), file.as_str()))
+        .map(|(_, file)| file.as_str())
+}
+
+// The path-like backticked spans of a body.
+fn path_names(body: &str) -> impl Iterator<Item = &str> {
+    body.split('`').skip(1).step_by(2).filter_map(path_like)
+}
+
+// The files on `main` that `name` is the whole path or last parts of.
+fn matching<'a>(name: &str, tree: &'a [String]) -> Vec<&'a String> {
+    let suffix = format!("/{name}");
+    (tree.iter())
+        .filter(|f| **f == name || f.ends_with(&suffix))
+        .collect()
+}
+
+// Whether `name` is a folder with files in it on `main`, at its root or below another.
+fn folder_on(name: &str, tree: &[String]) -> bool {
+    let folder = name.trim_end_matches('/');
+    let (head, middle) = (format!("{folder}/"), format!("/{folder}/"));
+    tree.iter()
+        .any(|f| f.starts_with(&head) || f.contains(&middle))
+}
+
+// Whether a file on `main` ends with `name`'s extension.
+fn extension_on(name: &str, tree: &[String]) -> bool {
+    let extension = |path: &str| path.rsplit_once('.').map(|(_, ext)| ext.to_owned());
+    let wanted = extension(name);
+    tree.iter().any(|f| extension(f) == wanted)
 }
 
 // A span that reads as a path: no spaces, path characters only, and a

@@ -13,6 +13,7 @@ use std::time::Duration;
 
 use super::Runner;
 use super::adopt;
+use super::briefing::git::files_on;
 use super::browser;
 use super::claim::main_fetch_key;
 use super::claude_files::Unchecked;
@@ -26,6 +27,7 @@ use super::question::asked;
 use super::report::{Begin, StepReport};
 use super::rework;
 use super::ruling::park;
+use crate::board::briefing::{closest, missing_paths, names_a_path};
 use crate::guard::Pause;
 use crate::pacer::Scope;
 use crate::ports::{
@@ -617,8 +619,12 @@ impl Runner {
                     .unwrap_or_else(|| self.ports.tickets.issue(&self.remote, ticket))
                     .map_err(|e| format!("cannot read {}: {e}", ticket.shown()))?;
                 let comments = self.maintainer_comments(ticket, started.comments())?;
+                let first = first_prompt(ticket, &issue, &comments);
+                let moved = moved_paths(&issue.body, || {
+                    files_on(&self.settings.git.checkout, self.item_base(item))
+                });
                 self.skills
-                    .invoke(Step::Implement, &first_prompt(ticket, &issue, &comments))
+                    .invoke(Step::Implement, &format!("{first}{moved}"))
             }
         };
         let prompt = match self.reads.git.installed().and_then(|i| i.failed.as_deref()) {
@@ -835,6 +841,36 @@ fn install_failed(why: &str) -> String {
          output ended:\n\n{why}\n\nThe lockfile as it stands could not be installed, so \
          `node_modules` may be missing or half made. Fix what the output names if it is yours \
          to fix, and name the gap in your final message if it is not."
+    )
+}
+
+// What the worker is told of the paths its issue names that `main` lacks, or nothing. A path
+// the issue means to add is among them, so the note says it may be new. `read_tree` is the files
+// on `main`, asked of git only when the body names a path.
+fn moved_paths(body: &str, read_tree: impl FnOnce() -> Vec<String>) -> String {
+    if !names_a_path(body) {
+        return String::new();
+    }
+    let tree = read_tree();
+    // Without the files on `main`, every path would read as missing.
+    let missing = if tree.is_empty() {
+        Vec::new()
+    } else {
+        missing_paths(body, &tree)
+    };
+    if missing.is_empty() {
+        return String::new();
+    }
+    let named: Vec<String> = (missing.iter())
+        .map(|path| match closest(path, &tree) {
+            Some(near) => format!("`{path}` (closest on `main`: `{near}`)"),
+            None => format!("`{path}`"),
+        })
+        .collect();
+    format!(
+        "\nThese paths the issue names are not on `main` and may have moved, or be new: {}. \
+         Look for them under their new place before you assume they are gone.\n",
+        named.join(", ")
     )
 }
 
