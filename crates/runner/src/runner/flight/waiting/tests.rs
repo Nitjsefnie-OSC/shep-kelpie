@@ -756,3 +756,40 @@ fn a_refused_label_swap_opens_the_item_on_its_labelled_implementer_with_a_note()
     assert!(events(&runner).iter().all(|e| !e.contains("moved")));
     queue.release();
 }
+
+#[test]
+fn a_later_turn_waiting_on_the_model_does_not_move_a_new_item() {
+    let (rig, runner) = seven_open(&["coder", "sonnet-high"], Some(15));
+    rig.claude.script([Scripted::Say("done")]);
+    let driven = Driven::new(&runner);
+    driven.started();
+    assert!(driven.landed().is_some());
+    let queue = queued(&rig, Scripted::Say("done"));
+    driven.started();
+    assert_eq!(driven.heard(), None);
+    assert_eq!(item(&rig, &runner, 7)["waiting"]["why"], "lease");
+
+    assert_eq!(eight_added(&rig, &runner, "agent:coder"), "coder");
+
+    assert_eq!(agent_labels(&rig, 8), ["agent:coder"]);
+    queue.release();
+}
+
+#[test]
+fn a_move_whose_work_item_cannot_be_saved_leaves_the_issue_labelled_as_it_was() {
+    let (rig, runner, queue) = seven_queued(&["coder", "sonnet-high"], Some(15));
+    let driven = Driven::new(&runner);
+    driven.started();
+    assert_eq!(driven.heard(), None);
+    let folder = rig.paths().state.parent().unwrap().to_owned();
+    std::fs::remove_dir_all(&folder).unwrap();
+    // A file where the folder was, which a save cannot make a folder of.
+    std::fs::write(&folder, "").unwrap();
+    rig.forge.label(8, "agent:coder");
+
+    let reply = rig.ask(&runner, "add", Some("8"));
+
+    assert!(reply["error"].is_string(), "{reply}");
+    assert_eq!(agent_labels(&rig, 8), ["agent:coder"]);
+    queue.release();
+}

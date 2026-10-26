@@ -35,6 +35,15 @@ pub enum AddError {
     State(StateError),
 }
 
+// A label swap `add` made as it opened a work item
+struct Moved {
+    // The board event naming both implementers
+    event: String,
+    // The `agent:` label the issue had, and the one it has now
+    old: String,
+    new: String,
+}
+
 impl fmt::Display for AddError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -120,17 +129,23 @@ impl Runner {
         item.pinned = pinned(&found.labels);
         next.work_items.push(item);
         Self::label_ruled(&mut next, ticket);
-        if let Some(event) = moved {
-            next.record_event(self.ports.clock.now(), event);
+        if let Some(moved) = &moved {
+            next.record_event(self.ports.clock.now(), moved.event.clone());
         }
-        self.save(next).map_err(AddError::State)?;
+        if let Err(e) = self.save(next) {
+            // No work item opened, so the issue keeps the label it had.
+            if let Some(moved) = moved {
+                let _ = self.swap_labels(ticket, &moved.new, &moved.old);
+            }
+            return Err(AddError::State(e));
+        }
         self.notes.extend(note);
         self.mark_held(ticket, true);
         Ok(agent)
     }
 
     // The implementer a work item for `ticket` opens on, given the one its
-    // `agent:` label names, and the board event for a move. A pinned label, or
+    // `agent:` label names, and the move made, if any. A pinned label, or
     // one with no free implementer to move to, keeps `labelled`. A label swap
     // the forge refuses keeps it too, with a note, so label and item match.
     fn opening_agent(
@@ -138,26 +153,28 @@ impl Runner {
         ticket: TicketId,
         labels: &[String],
         labelled: AgentName,
-    ) -> (AgentName, Option<String>) {
+    ) -> (AgentName, Option<Moved>) {
         let label = labels.iter().find(|l| is_agent_label(l));
         let to = label.filter(|_| !pinned(labels));
         let to = to.and_then(|label| Some((label, self.opens_elsewhere(ticket, &labelled)?)));
         let Some((label, to)) = to else {
             return (labelled, None);
         };
-        match self.swap_agent_label(ticket, label, &to) {
+        let new = format!("{AGENT_LABEL}{to}");
+        match self.swap_labels(ticket, label, &new) {
             Ok(()) => {
                 let event = format!(
-                    "{}: its `{AGENT_LABEL}{labelled}` label moved to `{AGENT_LABEL}{to}`, \
-                     since a work item already waits on {labelled}'s model",
+                    "{}: its `{AGENT_LABEL}{labelled}` label moved to `{new}`, since a first \
+                     turn already waits on {labelled}'s model",
                     ticket.shown()
                 );
-                (to, Some(event))
+                let old = label.clone();
+                (to, Some(Moved { event, old, new }))
             }
             Err(e) => {
                 self.notes.push(format!(
                     "{}: stays on {labelled}, whose model a work item waits on, since the \
-                     forge would not move its label to `{AGENT_LABEL}{to}`: {e}",
+                     forge would not move its label to `{new}`: {e}",
                     ticket.shown()
                 ));
                 (labelled, None)
@@ -165,18 +182,12 @@ impl Runner {
         }
     }
 
-    // Puts `to`'s `agent:` label on `ticket` in place of `old`, the label it
-    // has. Leaves it as it was when either change fails.
-    fn swap_agent_label(
-        &self,
-        ticket: TicketId,
-        old: &str,
-        to: &AgentName,
-    ) -> Result<(), ForgeError> {
-        let new = format!("{AGENT_LABEL}{to}");
-        self.set_agent_label(ticket, &new, true)?;
+    // Puts the label `new` on `ticket` in place of `old`, the label it has.
+    // Leaves it as it was when either change fails.
+    fn swap_labels(&self, ticket: TicketId, old: &str, new: &str) -> Result<(), ForgeError> {
+        self.set_agent_label(ticket, new, true)?;
         self.set_agent_label(ticket, old, false).inspect_err(|_| {
-            let _ = self.set_agent_label(ticket, &new, false);
+            let _ = self.set_agent_label(ticket, new, false);
         })
     }
 
