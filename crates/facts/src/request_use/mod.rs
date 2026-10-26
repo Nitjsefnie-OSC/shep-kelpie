@@ -3,14 +3,14 @@
 //! came before it
 //!
 //! A transcript has one usage a request, where the ledger has one a call.
-//! Claude Code writes a request as a line for each block of its reply, all
-//! of them holding the request's usage, so they count once. A request is
-//! `after` the session's start if it is the first the file holds, after a
-//! gap if longer passed since the request before it than the cache keeps
-//! what that wrote, and after growth otherwise. Claude Code writes the cache
-//! for an hour and pi for five minutes, as a request's usage says when it
-//! writes. The request before may be an earlier call's, so a resumed call's
-//! first request reads the gap since its session last spoke.
+//! Claude Code writes a line for each block of a reply, all holding the
+//! request's usage, so they count once; Codex writes one record a request.
+//! A request is `after` the start if it is the file's first, after a gap if
+//! longer passed since the request before than the cache keeps what that
+//! wrote, and after growth otherwise. The cache keeps a write an hour on
+//! Claude Code's one-hour cache and five minutes otherwise. The request
+//! before may be an earlier call's, so a resumed call's first request reads
+//! the gap since its session last spoke.
 //! `docs/facts/transcript-requests.md`
 
 use std::collections::BTreeSet;
@@ -84,10 +84,12 @@ pub fn claude(text: &str, from: usize) -> Vec<Request> {
         } else {
             None
         };
+        let cache_write = used("cache_creation_input_tokens");
         Some(Read {
-            input: used("input_tokens"),
-            cache_read: used("cache_read_input_tokens"),
-            cache_write: used("cache_creation_input_tokens"),
+            context: (used("input_tokens"))
+                .saturating_add(used("cache_read_input_tokens"))
+                .saturating_add(cache_write),
+            cache_write,
             lives,
         })
     })
@@ -103,19 +105,47 @@ pub fn pi(text: &str, from: usize) -> Vec<Request> {
         }
         let usage = &message["usage"];
         let used = |key: &str| usage[key].as_u64().unwrap_or(0);
+        let cache_write = used("cacheWrite");
         Some(Read {
-            input: used("input"),
-            cache_read: used("cacheRead"),
-            cache_write: used("cacheWrite"),
+            context: (used("input"))
+                .saturating_add(used("cacheRead"))
+                .saturating_add(cache_write),
+            cache_write,
             lives: None,
+        })
+    })
+}
+
+/// The requests Codex's rollout `text` holds from byte `from` on, where the
+/// call whose lines begin there made them
+pub fn codex(text: &str, from: usize) -> Vec<Request> {
+    let mut ids = BTreeSet::new();
+    requests(text, from, |entry| {
+        if entry["type"] != "token_usage_record" {
+            return None;
+        }
+        let payload = &entry["payload"];
+        // A request is one `response_id`.
+        if payload["response_id"]
+            .as_str()
+            .is_some_and(|id| !ids.insert(id.to_owned()))
+        {
+            return None;
+        }
+        let usage = &payload["usage"];
+        let cache_write = usage["cache_write_input_tokens"].as_u64().unwrap_or(0);
+        Some(Read {
+            // `input_tokens` holds the cached tokens already.
+            context: usage["input_tokens"].as_u64().unwrap_or(0),
+            cache_write,
+            lives: (cache_write > 0).then_some(FIVE_MINUTES),
         })
     })
 }
 
 // What a line of a transcript says of its request
 struct Read {
-    input: u64,
-    cache_read: u64,
+    context: u64,
     cache_write: u64,
     // Milliseconds the cache keeps what the request wrote, if its usage says
     lives: Option<i64>,
@@ -141,12 +171,7 @@ fn requests(text: &str, from: usize, mut read: impl FnMut(&Value) -> Option<Read
         let Some(used) = read(&entry) else {
             continue;
         };
-        let (cache_read, cache_write) = (used.cache_read, used.cache_write);
-        let context = used
-            .input
-            .saturating_add(cache_read)
-            .saturating_add(cache_write);
-        if context == 0 {
+        if used.context == 0 {
             continue;
         }
         let when = (entry["timestamp"].as_str())
@@ -161,8 +186,8 @@ fn requests(text: &str, from: usize, mut read: impl FnMut(&Value) -> Option<Read
         lasts = used.lives.unwrap_or(lasts);
         if at >= from {
             found.push(Request {
-                context,
-                cache_write,
+                context: used.context,
+                cache_write: used.cache_write,
                 after,
             });
         }

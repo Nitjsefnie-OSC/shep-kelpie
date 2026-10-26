@@ -71,8 +71,9 @@ pub struct HarnessFacts {
     pub reads_from_an_empty_folder: bool,
     /// The format of the transcript it writes, if kelpie reads it
     pub transcript: Option<Format>,
-    /// Whether the runner counts a turn's MCP and tool calls from that transcript
-    pub counts_calls: bool,
+    /// Whether the runner counts a turn from that transcript: its requests, and
+    /// its MCP and tool calls where the format records them
+    pub counts_transcript: bool,
     /// Whether it can run the roles that need Claude Code's own tools: the
     /// issue writer and the project manager
     pub runs_claude_roles: bool,
@@ -150,7 +151,7 @@ const CLAUDE_CODE: HarnessFacts = HarnessFacts {
     keeps_its_servers: false,
     reads_from_an_empty_folder: false,
     transcript: Some(Format::Claude),
-    counts_calls: true,
+    counts_transcript: true,
     runs_claude_roles: true,
     holds_handover_at_attach: None,
     attached_role: None,
@@ -174,7 +175,7 @@ const PI: HarnessFacts = HarnessFacts {
     keeps_its_servers: false,
     reads_from_an_empty_folder: false,
     transcript: Some(Format::Pi),
-    counts_calls: true,
+    counts_transcript: true,
     runs_claude_roles: false,
     holds_handover_at_attach: Some(FORWARDER),
     attached_role: Some("pi_session"),
@@ -198,7 +199,7 @@ const CODEX: HarnessFacts = HarnessFacts {
     keeps_its_servers: false,
     reads_from_an_empty_folder: true,
     transcript: Some(Format::Codex),
-    counts_calls: false,
+    counts_transcript: true,
     runs_claude_roles: false,
     holds_handover_at_attach: Some(TRUST),
     attached_role: Some("codex_session"),
@@ -227,7 +228,7 @@ const GOOSE: HarnessFacts = HarnessFacts {
     keeps_its_servers: true,
     reads_from_an_empty_folder: true,
     transcript: None,
-    counts_calls: false,
+    counts_transcript: false,
     runs_claude_roles: false,
     holds_handover_at_attach: Some(FORWARDER),
     attached_role: Some("goose_session"),
@@ -252,7 +253,7 @@ const STAND_IN: HarnessFacts = HarnessFacts {
     keeps_its_servers: false,
     reads_from_an_empty_folder: false,
     transcript: Some(Format::Claude),
-    counts_calls: false,
+    counts_transcript: false,
     runs_claude_roles: false,
     holds_handover_at_attach: None,
     attached_role: None,
