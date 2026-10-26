@@ -219,6 +219,16 @@ impl Rig {
         std::fs::create_dir_all(&paths.folder).unwrap();
         std::fs::write(rig.settings_file(), settings).unwrap();
         rig.write_agent("claude", CLAUDE_REVIEWER);
+        // Kelpie's own agents bind nothing, so each runs as the file the maintainer binds.
+        crate::agents::write_bound_stubs(
+            &paths.agents,
+            "harness: claude-code\nmodel: claude-opus-5-5\neffort: medium\n",
+        );
+        rig.write_agent(
+            "defect-hunter",
+            "---\nextends: kelpie:defect-hunter\nharness: claude-code\nmodel: claude-opus-5-5\n\
+             effort: high\nsecond_look: true\n---\n",
+        );
         // The maintainer's qwen-review script, which the runner checks is there as it starts.
         let script = rig.home.path().join(".claude/scripts/qwen-review.sh");
         std::fs::create_dir_all(script.parent().unwrap()).unwrap();

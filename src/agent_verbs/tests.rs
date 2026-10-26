@@ -41,9 +41,12 @@ fn new_writes_a_file_that_extends_the_baseline_and_loads_with_its_prompt() {
     );
     let book = Agents::load(dir.path()).unwrap();
     let pm = book.get(&name("pm")).expect("the new file is in the book");
-    let baseline = baseline::named("pm").unwrap();
-    let shipped = baseline::check("pm", baseline.text).unwrap();
-    assert_eq!(pm.prompt, shipped.prompt);
+    let (_, body) = baseline::named("pm")
+        .unwrap()
+        .text
+        .split_once("\n---\n")
+        .unwrap();
+    assert_eq!(pm.prompt.as_deref(), Some(body.trim()));
 }
 
 #[test]
@@ -201,11 +204,11 @@ fn list_shows_bound_agents_unbound_files_and_baselines_that_bind_nothing_with_no
 }
 
 #[test]
-fn list_shows_a_baseline_that_keeps_its_binding_as_an_agent_and_none_as_missing() {
+fn list_shows_every_baseline_as_missing_a_file_in_an_empty_folder() {
     let dir = tempfile::tempdir().unwrap();
     let lines = agents(dir.path(), "list").unwrap();
-    assert!(lines.iter().any(|l| l.starts_with("triager: triager, ")));
-    assert!(lines.iter().all(|l| !l.contains("no file")), "{lines:#?}");
+    let missing = lines.iter().filter(|l| l.contains("baseline, no file"));
+    assert_eq!(missing.count(), 10, "{lines:#?}");
 }
 
 #[test]
@@ -289,4 +292,59 @@ fn a_reviewer_with_no_file_still_needs_a_baseline_when_the_name_is_free() {
 
     assert!(err.contains("--baseline"), "{err}");
     assert_eq!(files(dir.path()), Vec::<String>::new());
+}
+
+#[test]
+fn migrate_prints_a_line_for_each_file_written_and_each_skipped_one() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("pm.md"), "---\nextends: kelpie:pm\n---\n").unwrap();
+    std::fs::write(
+        dir.path().join("hunter.md"),
+        "---\nextends: kelpie:defect-hunter\neffort: low\n---\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.path().join("codex-pm.md"),
+        "---\nextends: kelpie:pm\nharness: codex\n---\n",
+    )
+    .unwrap();
+
+    let said = agents(dir.path(), "migrate").unwrap();
+
+    assert_eq!(said.len(), 3, "{said:?}");
+    assert_eq!(
+        said[0],
+        "hunter.md: wrote claude-code claude-opus-5-5 second_look"
+    );
+    assert_eq!(said[1], "pm.md: wrote claude-code claude-opus-5-5 medium");
+    assert!(said[2].starts_with("codex-pm.md: skipped, "), "{said:?}");
+    assert!(said[2].contains("`model`"), "{said:?}");
+    let book = Agents::load(dir.path()).unwrap();
+    assert!(
+        book.broken(&name("codex-pm")).is_some(),
+        "the skipped file is left out of the book until it gets a hand"
+    );
+    assert!(book.broken(&name("pm")).is_none());
+}
+
+#[test]
+fn migrate_says_there_is_nothing_to_migrate_on_a_second_run_and_in_a_folder_of_bound_files() {
+    let dir = tempfile::tempdir().unwrap();
+    assert_eq!(
+        agents(dir.path(), "migrate").unwrap(),
+        ["nothing to migrate"]
+    );
+    std::fs::write(dir.path().join("pm.md"), "---\nextends: kelpie:pm\n---\n").unwrap();
+    agents(dir.path(), "migrate").unwrap();
+
+    let again = agents(dir.path(), "migrate").unwrap();
+
+    assert_eq!(again, ["nothing to migrate"]);
+    assert!(Agents::load(dir.path()).unwrap().get(&name("pm")).is_some());
+}
+
+#[test]
+fn migrate_takes_no_argument() {
+    let dir = tempfile::tempdir().unwrap();
+    assert_eq!(agents(dir.path(), "migrate now").unwrap_err(), USAGE);
 }

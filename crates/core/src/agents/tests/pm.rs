@@ -1,15 +1,14 @@
 //! The project manager's agent file: a Claude Code session with a prompt
 
-use super::{folder, name, pair, refused};
+use super::{OPUS_HIGH, folder, name, pair, refused};
 use crate::agents::{Agents, Role};
 use crate::settings::{AgentHarness, Effort};
 
 #[test]
-fn kelpies_own_project_manager_is_opus_at_medium_with_a_prompt() {
-    let agents = Agents::embedded();
+fn kelpies_own_project_manager_has_a_prompt() {
+    let agents = Agents::embedded().bind("pm", OPUS_HIGH);
     let pm = agents.get(&name("pm")).unwrap();
     assert_eq!(pm.role, Role::Pm);
-    assert_eq!(pair(pm), ("claude-opus-5-5", Effort::Medium));
     assert_eq!(
         pm.runs.session().unwrap().0.harness,
         AgentHarness::ClaudeCode

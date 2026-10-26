@@ -117,9 +117,9 @@ fn an_unknown_shipped_name_is_refused_naming_the_shipped_agents() {
 fn a_stub_that_sets_a_key_keeps_the_shipped_body_and_takes_its_own_value() {
     let agents = load(&[(
         "triager.md",
-        "---\nextends: kelpie:triager\nmodel: mine\n---\n",
+        "---\nextends: kelpie:triager\nharness: claude-code\nmodel: mine\neffort: low\n---\n",
     )]);
-    let shipped = Agents::embedded();
+    let shipped = Agents::embedded().bind("triager", OPUS_HIGH);
     let shipped = shipped.get(&name("triager")).unwrap();
     let stub = agents.get(&name("triager")).unwrap();
     assert_eq!(pair(stub).0, "mine");
@@ -169,9 +169,11 @@ fn a_child_that_sorts_before_its_parent_resolves() {
 fn a_shipped_agent_can_be_extended_by_a_file_of_another_name() {
     let agents = load(&[(
         "hunter-light.md",
-        "---\nextends: kelpie:defect-hunter\neffort: medium\nsecond_look: false\n---\n",
+        "---\nextends: kelpie:defect-hunter\nharness: claude-code\nmodel: claude-opus-5-5\n\
+         effort: medium\nsecond_look: false\n---\n",
     )]);
-    let default = Agents::embedded();
+    let default =
+        Agents::embedded().bind("defect-hunter", &format!("{OPUS_HIGH}second_look: true\n"));
     let hunter = default.get(&name("defect-hunter")).unwrap();
     let light = agents.get(&name("hunter-light")).unwrap();
     assert_eq!(pair(light), ("claude-opus-5-5", Effort::Medium));
@@ -277,10 +279,13 @@ fn an_embedded_default_that_extends_is_refused() {
 
 #[test]
 fn a_stub_extending_a_shipped_agent_loads_its_frontmatter_and_body() {
-    let agents = load(&[("triager.md", "---\nextends: kelpie:triager\n---\n")]);
+    let stub = format!("---\nextends: kelpie:triager\n{OPUS_HIGH}---\n");
+    let agents = load(&[("triager.md", &stub)]);
     assert_eq!(
         agents.get(&name("triager")),
-        Agents::embedded().get(&name("triager"))
+        Agents::embedded()
+            .bind("triager", OPUS_HIGH)
+            .get(&name("triager"))
     );
 }
 
@@ -315,14 +320,14 @@ fn body_append_applies_at_each_step_of_a_chain_down_to_a_shipped_agent() {
     let agents = load(&[
         (
             "mid.md",
-            "---\nextends: kelpie:triager\nbody: append\n---\nMiddle.\n",
+            "---\nextends: kelpie:triager\nbody: append\nharness: claude-code\nmodel: m2\neffort: low\n---\nMiddle.\n",
         ),
         (
             "leaf.md",
-            "---\nextends: mid\nbody: append\nmodel: m3\n---\nLeaf.\n",
+            "---\nextends: mid\nbody: append\nharness: claude-code\nmodel: m3\neffort: low\n---\nLeaf.\n",
         ),
     ]);
-    let shipped = Agents::embedded();
+    let shipped = Agents::embedded().bind("triager", OPUS_HIGH);
     let shipped = shipped
         .get(&name("triager"))
         .unwrap()

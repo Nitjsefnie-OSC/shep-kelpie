@@ -21,13 +21,25 @@ const GPT: &str = "---\nrole: implementer\nharness: codex\nmodel: gpt-6-sol\neff
 const BOX: &str = "---\nrole: implementer\nharness: stand-in\nmodel: qwen3-coder\neffort: low\n\
                    usage: none\n---\n";
 
-// Kelpie's own agents, with haiku, a pi agent, a Codex one and a stand-in on no limit.
+const OPUS: &str = "harness: claude-code\nmodel: claude-opus-5-5\n";
+
+// Kelpie's own agents with every baseline bound, then haiku, a pi agent, a Codex one and a
+// stand-in on no limit.
 fn book() -> Agents {
-    Agents::embedded()
+    bound(Agents::embedded())
         .with("haiku", HAIKU)
         .with("qwen", QWEN)
         .with("gpt", GPT)
         .with("box", BOX)
+}
+
+// `agents` with each baseline bound to Opus 5.5, the project manager at medium effort and
+// the representative at low.
+fn bound(agents: Agents) -> Agents {
+    agents
+        .bind_all(&format!("{OPUS}effort: high\n"))
+        .bind("pm", &format!("{OPUS}effort: medium\n"))
+        .bind("representative", &format!("{OPUS}effort: low\n"))
 }
 
 // The example's project with `names` as its `[agents]` table.
@@ -78,7 +90,7 @@ fn a_project_that_names_nothing_builds_on_sonnet_high() {
         Path::new("/p"),
     )
     .unwrap();
-    let agents = settings.role_agents(&Agents::embedded()).unwrap();
+    let agents = settings.role_agents(&bound(Agents::embedded())).unwrap();
     assert_eq!(names(&agents), ["sonnet-high"]);
     let sonnet = &agents.default_implementer;
     assert_eq!(sonnet.name.as_str(), "sonnet-high");
@@ -511,7 +523,7 @@ fn naming_a_baseline_that_binds_nothing_and_has_no_file_is_refused_with_the_comm
 }
 
 #[test]
-fn a_baseline_that_keeps_its_binding_is_named_with_no_file() {
-    let book = Agents::load(tempfile::tempdir().unwrap().path()).unwrap();
+fn a_baseline_a_book_binds_is_named_with_no_file() {
+    let book = bound(Agents::load(tempfile::tempdir().unwrap().path()).unwrap());
     project("").role_agents(&book).unwrap();
 }

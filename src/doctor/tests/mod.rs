@@ -140,6 +140,10 @@ impl Scene {
             clock,
             shepherd,
         };
+        crate::agents::write_bound_stubs(
+            &scene.kelpie_home.join("agents"),
+            "harness: claude-code\nmodel: claude-opus-5-5\neffort: high\n",
+        );
         scene.runs("koji", |_| {});
         scene
     }

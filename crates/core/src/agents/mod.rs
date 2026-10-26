@@ -29,6 +29,7 @@ use crate::settings::{
 pub mod baseline;
 mod extends;
 mod front;
+pub mod legacy;
 
 /// The folder in kelpie's home that holds the agent files
 pub const FOLDER: &str = "agents";
@@ -572,6 +573,60 @@ impl Agents {
         let agent = front::parse_named(name, text).unwrap_or_else(|e| panic!("agent {name}: {e}"));
         self.agents.insert(named, agent);
         self
+    }
+
+    /// The baseline `name` with `binding` after its `role` line, over any
+    /// agent of that name, for a test
+    ///
+    /// # Panics
+    ///
+    /// When `name` is no baseline, or the file with `binding` is not a usable
+    /// agent.
+    #[cfg(any(test, feature = "test-support"))]
+    #[track_caller]
+    pub fn bind(self, name: &str, binding: &str) -> Self {
+        let text = baseline::named(name)
+            .unwrap_or_else(|| panic!("`{name}` is no baseline"))
+            .text;
+        let (head, rest) = text
+            .split_once("\nrole: ")
+            .expect("a baseline names its role");
+        let (role, rest) = rest.split_once('\n').expect("a role ends its line");
+        self.with(name, &format!("{head}\nrole: {role}\n{binding}{rest}"))
+    }
+
+    /// Every baseline bound to `binding`, for a test that needs them to run
+    ///
+    /// # Panics
+    ///
+    /// When a baseline with `binding` is not a usable agent.
+    #[cfg(any(test, feature = "test-support"))]
+    #[track_caller]
+    pub fn bind_all(self, binding: &str) -> Self {
+        baseline::ALL
+            .iter()
+            .fold(self, |agents, shipped| agents.bind(shipped.name, binding))
+    }
+}
+
+/// Writes into `folder` a stub for each baseline that extends it and sets
+/// `binding`, for a test whose reads need every baseline to run
+///
+/// # Panics
+///
+/// When a file cannot be written.
+#[cfg(any(test, feature = "test-support"))]
+#[track_caller]
+pub fn write_bound_stubs(folder: &Path, binding: &str) {
+    fs::create_dir_all(folder).expect("the folder can be made");
+    for shipped in baseline::ALL.iter() {
+        let stub = format!(
+            "---\nextends: {}{}\n{binding}---\n",
+            extends::SHIPPED,
+            shipped.name
+        );
+        fs::write(folder.join(format!("{}.md", shipped.name)), stub)
+            .expect("a stub can be written");
     }
 }
 

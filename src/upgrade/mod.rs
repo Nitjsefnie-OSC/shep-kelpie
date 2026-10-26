@@ -1,19 +1,19 @@
 //! `shep kelpie upgrade`: installs a new kelpie, restarts the dog and runners
 //!
-//! `--ref <git ref>` builds kelpie at that ref, `--release <version>`
-//! downloads a release, and `--binary <path>` takes a hand-made build as it is.
-//! `--rollback` puts the previous build back.
-//! The installed kelpie is the program the adopted dog runs, and the build it
-//! replaces is first copied into `<kelpie home>/builds`. Before any file or
-//! sheep changes, the build gives its shep line (`version --json`) and the
-//! shepherd its version. An earlier shep, or a refused protocol, stops the
-//! upgrade there. Each runner is handed over in place or drained, unless `--now`.
+//! `--ref <git ref>` builds kelpie at that ref, `--release <version>` downloads a release, and
+//! `--binary <path>` takes a hand-made build as it is. `--rollback` puts the previous build back.
+//! The installed kelpie is the program the adopted dog runs, and the build it replaces is first
+//! copied into `<kelpie home>/builds`. The agent files are migrated before the restarts. Before
+//! any file or sheep changes, the build gives its shep line (`version --json`) and the shepherd
+//! its version. An earlier shep, or a refused protocol, stops the upgrade there. Each runner is
+//! handed over in place or drained, unless `--now`.
 
 pub mod drain;
 pub mod fetch;
 pub mod handover;
 pub mod install;
 pub mod lock;
+mod migrate;
 pub mod restart;
 pub mod seen;
 
@@ -277,6 +277,7 @@ pub async fn run(
             say(format!("{build} is installed already"));
         }
     }
+    migrate::run(scene, action, layout.installed(), say);
     say(format!(
         "restarting onto it: if this stops before it finishes, {finish} finishes the restarts"
     ));

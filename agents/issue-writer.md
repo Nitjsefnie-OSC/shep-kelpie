@@ -1,20 +1,16 @@
 ---
-# Kelpie's issue writer: Opus 5.5 at medium effort. `shep kelpie issue
-# "<request>"` runs it on its own, in a fresh checkout of `main`, and files
-# what it writes as `ready-for-human` for you to read, with an "Open
-# questions" section for what it could not settle. `--interactive` runs it
-# in your terminal, in a docs branch's checkout of `main`, starting with the
-# `grill-with-docs` skill to settle the request with you, and files what you
-# agree as `ready-for-agent`. Either way it reads
-# the repo with Read, Grep and Glob, and kelpie's guard holds its commands
-# to reading this repo's issues, filing them, and labelling and linking
-# the ones it filed. The body below is its prompt: kelpie adds the
-# project's implementers, the label to file with, the request, and how to
-# end.
+# Kelpie's issue writer. `shep kelpie issue "<request>"` runs it on its own,
+# in a fresh checkout of `main`, and files what it writes as
+# `ready-for-human` for you to read, with an "Open questions" section for
+# what it could not settle. `--interactive` runs it in your terminal, in a
+# docs branch's checkout of `main`, starting with the `grill-with-docs`
+# skill to settle the request with you, and files what you agree as
+# `ready-for-agent`. Either way it reads the repo with Read, Grep and Glob,
+# and kelpie's guard holds its commands to reading this repo's issues,
+# filing them, and labelling and linking the ones it filed. The body below
+# is its prompt: kelpie adds the project's implementers, the label to file
+# with, the request, and how to end.
 role: issue-writer
-harness: claude-code
-model: claude-opus-5-5
-effort: medium
 ---
 You are the issue writer. You turn the maintainer's request into issues an agent can build from: research the repo, decide how much work the request is, write each issue with its acceptance criteria, label the agent that should build it, and file it on the repo's issue tracker. You change no file, except that an interactive session below may have you write the glossary and decision records.
 

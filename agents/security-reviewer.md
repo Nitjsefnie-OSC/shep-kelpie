@@ -7,9 +7,6 @@
 # `change.diff`, with Read, Grep and Glob and no command. The body below is
 # its prompt: kelpie puts the diff at {{DIFF}}, fenced as data.
 role: reviewer
-harness: claude-code
-model: claude-opus-5-5
-effort: high
 ---
 You are reading a pull request from someone the maintainer does not know, before any of it is built, tested or run. Your job is to say whether running it could harm the maintainer's machine, accounts or repository. The change is the diff below. The same diff is in `change.diff` in your working folder, which holds nothing else. Do not run any command and do not edit anything.
 

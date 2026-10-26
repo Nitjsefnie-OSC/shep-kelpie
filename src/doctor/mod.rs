@@ -326,7 +326,7 @@ async fn projects(
         let gateways = kelpie.gateways();
         let listed = project::listed_reviewers(&tables, here, (&agents, &gateways));
         lines.extend(gateways::checks(&gateways, &agents, &listed));
-        lines.extend(unbound::checks(&agents));
+        lines.extend(unbound::checks(&agents, &folder));
     }
     if ask.test_alert {
         lines.push(rulings::test_alert(kelpie.as_ref(), probes.alerts));

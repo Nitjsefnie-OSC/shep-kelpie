@@ -184,6 +184,32 @@ fn refresh_baselines_in(folder: &std::path::Path) {
     }
 }
 
+// A stub that inherits its baseline's binding gets it written in, as `shep
+// kelpie agents migrate` does. The upgrade that first brings this step is run
+// by a build without it, so the dog does it too. A failure is said and the dog
+// runs on.
+fn migrate_agents() {
+    match home::kelpie_home() {
+        Ok(home) => {
+            for line in migrate_agents_in(&home.join(agents::FOLDER)) {
+                println!("{line}");
+            }
+        }
+        Err(e) => println!("{e}: not migrating kelpie's agent files"),
+    }
+}
+
+fn migrate_agents_in(folder: &std::path::Path) -> Vec<String> {
+    match agents::legacy::migrate(folder) {
+        Ok(report) => report
+            .lines()
+            .into_iter()
+            .map(|line| format!("agent files: {line}"))
+            .collect(),
+        Err(e) => vec![format!("{e}: kelpie's agent files are not migrated")],
+    }
+}
+
 fn windows_in(folder: &std::path::Path) -> Reviewers {
     let agents = Agents::load(folder).unwrap_or_else(|e| {
         println!("{e}: booking each review bot's window as kelpie's own file has it");
@@ -291,6 +317,7 @@ async fn serve() -> Result<(), String> {
     let settings = settings(&client).await?;
     let metrics = Arc::new(Recorder::new(Arc::new(ShepherdSink::new(shepherd.clone()))));
     refresh_baselines();
+    migrate_agents();
     let mut kept = open(file, Box::new(SystemClock), windows(), metrics);
     let capacity = settings.leases.cargo_test_capacity();
     kept.desk.set_test_capacity(capacity);
@@ -819,6 +846,33 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&edited).unwrap(), shipped);
         assert!(kept.join("pm.md").is_file());
         assert!(std::fs::metadata(&edited).unwrap().permissions().readonly());
+    }
+
+    #[test]
+    fn the_dogs_start_migrates_unbound_stubs_and_says_each_file() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("pm.md"), "---\nextends: kelpie:pm\n---\n").unwrap();
+        std::fs::write(
+            dir.path().join("mine.md"),
+            "---\nextends: kelpie:spec\nharness: pi\n---\n",
+        )
+        .unwrap();
+
+        let said = migrate_agents_in(dir.path());
+
+        assert_eq!(said.len(), 2, "{said:?}");
+        assert_eq!(
+            said[0],
+            "agent files: pm.md: wrote claude-code claude-opus-5-5 medium"
+        );
+        assert!(said[1].starts_with("agent files: mine.md"), "{said:?}");
+        let pm = std::fs::read_to_string(dir.path().join("pm.md")).unwrap();
+        assert!(pm.contains("model: claude-opus-5-5\n"), "{pm}");
+        assert_eq!(
+            migrate_agents_in(dir.path()).len(),
+            1,
+            "only the skipped file again"
+        );
     }
 
     #[test]
