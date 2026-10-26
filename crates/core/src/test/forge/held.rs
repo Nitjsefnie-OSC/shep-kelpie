@@ -35,6 +35,8 @@ pub enum At {
     RunLogTail,
     // The read of an issue's comments, which a worker's first turn makes
     IssueComments,
+    // The read of the login's rate limits, which a pass makes once a minute
+    RateLimit,
 }
 
 // Who reached the forge and who lets it go
@@ -134,6 +136,11 @@ impl FakeForge {
         self.hold_open(At::IssueComments)
     }
 
+    /// Holds the next read of the login's rate limits open, and lets every other call through
+    pub fn hold_next_rate_limit_read(&self) -> HeldCall {
+        self.hold_open(At::RateLimit)
+    }
+
     fn hold_open(&self, at: At) -> HeldCall {
         let (entered, heard) = mpsc::channel();
         let (release, waited) = mpsc::channel();
@@ -149,12 +156,13 @@ impl FakeForge {
     }
 
     /// Holds one call here until the test drops the [`HeldCall`] it took.
-    /// A gate named for one call waits for that call and lets the rest through.
+    /// A gate named for one call waits for that call and lets the rest through, and one for
+    /// [`At::Any`] waits at the first call that asks the forge.
     pub fn wait_if_held(&self, at: At) {
         let gate = {
             let mut hold = self.hold.lock().unwrap_or_else(PoisonError::into_inner);
             match hold.as_ref() {
-                Some(gate) if gate.at == At::Any || gate.at == at => hold.take().expect("checked"),
+                Some(gate) if gate.at == at => hold.take().expect("checked"),
                 _ => return,
             }
         };

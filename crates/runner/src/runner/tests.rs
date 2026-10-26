@@ -500,3 +500,17 @@ fn a_failed_rate_limit_read_keeps_the_gauges_and_stands_once() {
     step(&runner).unwrap();
     assert_eq!(gauges(&rig)[0], Some(500.0), "a read that works moves them");
 }
+
+// The read of the rate limits waits its turn behind the login's pace, so it is made with the lock
+// let go: a trigger sent meanwhile is answered.
+#[test]
+fn a_trigger_is_answered_while_the_rate_limits_are_read() {
+    let rig = Rig::new("reactmap");
+    let runner = rig.open().unwrap();
+    let read = rig.forge.hold_next_rate_limit_read();
+
+    let (reply, pass) = rig.asked_while_held(&runner, read, "add", Some("7"));
+
+    assert!(reply.is_some(), "the trigger waited for the rate limit read");
+    pass.unwrap();
+}
