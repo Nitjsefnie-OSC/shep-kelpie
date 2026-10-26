@@ -1,19 +1,13 @@
 //! Agent definition files
 //!
 //! Each agent is `<name>.md` in the `agents` folder of kelpie's home: YAML
-//! frontmatter naming what it is for and what runs it, then a Markdown body.
-//! An implementer's body is added to kelpie's own instructions, and every
-//! other role's is its prompt.
-//! Kelpie embeds its own whole agents, and a file of the same name replaces
-//! one. `shep kelpie add` writes a stub for each that is missing,
-//! `extends: kelpie:<name>` and nothing else, and kelpie writes every shipped
-//! file whole and read-only to `.defaults/`, which nothing loads. A file with
-//! `extends: <name>` builds on that file, and one with `extends:
-//! kelpie:<name>` on a shipped one, a whole agent or a baseline. A file whose
-//! merged keys name no `harness` is unbound: the book leaves it out and
-//! [`Agents::unbound`] lists it. A file that cannot be read stops the runner,
-//! one that cannot be used is left out, and one whose name is no agent's is
-//! skipped, each named in the log. A review bot's file is named for its bot.
+//! frontmatter naming what it is for and what runs it, then a Markdown body,
+//! an implementer's addition to kelpie's instructions or another role's
+//! prompt. A file named for a shipped agent replaces it. `extends: <name>`
+//! builds on that file, `extends: kelpie:<name>` on a shipped one. The book
+//! leaves out a file that binds no `harness` ([`Agents::unbound`]) or cannot
+//! be used ([`Agents::broken`]), and skips and logs other `.md` files. A file
+//! that cannot be read stops the runner.
 
 use std::collections::BTreeMap;
 use std::fmt;
