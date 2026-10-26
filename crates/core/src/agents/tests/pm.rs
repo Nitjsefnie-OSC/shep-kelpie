@@ -46,3 +46,13 @@ fn a_file_of_its_own_replaces_the_project_manager() {
     assert_eq!(pair(pm), ("claude-sonnet-5-5", Effort::High));
     assert_eq!(pm.prompt.as_deref(), Some("Pick the oldest."));
 }
+
+#[test]
+fn the_project_managers_harness_refusal_keeps_its_message() {
+    let text = "---\nrole: pm\nharness: codex\nmodel: m\neffort: high\n---\nDecide.\n";
+    assert_eq!(
+        crate::agents::baseline::check("pm", text).unwrap_err(),
+        "`harness`: the project manager runs on claude-code, not codex: \
+         a Claude Code hook is what holds its writes to its notes at line 3"
+    );
+}

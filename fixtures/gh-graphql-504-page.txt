@@ -1,0 +1,91 @@
+GraphQL query:
+query IssueByNumber($owner: String!, $repo: String!, $number: Int!) {
+    repository(owner: $owner, name: $repo) {
+      hasIssuesEnabled
+      issue: issueOrPullRequest(number: $number) {
+        __typename
+        ...on Issue{title,body,labels(first:100){nodes{id,name,description,color},totalCount},state,parent{id,number,title,url,state,repository{nameWithOwner}},blockedBy(first:50){nodes{id,number,title,url,state,repository{nameWithOwner}},totalCount},id}
+        ...on PullRequest{title,body,labels(first:100){nodes{id,name,description,color},totalCount},state,id}
+GraphQL variables: {"number":1368,"owner":"shep-pm","repo":"shep-kelpie"}
+
+
+<!DOCTYPE html>
+<!--
+
+Hello future GitHubber! I bet you're here to remove those nasty inline styles,
+DRY up these templates and make 'em nice and re-usable, right?
+
+Please, don't. https://github.com/styleguide/templates/2.0
+
+-->
+<html>
+  <head>
+    <title>Unicorn! &middot; GitHub</title>
+    <style type="text/css" media="screen">
+      body {
+        background-color: #f1f1f1;
+        margin: 0;
+        font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+
+      .container { margin: 50px auto 40px auto; width: 600px; text-align: center; }
+
+      a { color: #4183c4; text-decoration: none; }
+      a:hover { text-decoration: underline; }
+
+      h1 { letter-spacing: -1px; line-height: 60px; font-size: 60px; font-weight: 100; margin: 0px; text-shadow: 0 1px 0 #fff; }
+      p { color: rgba(0, 0, 0, 0.5); margin: 10px 0 10px; font-size: 18px; font-weight: 200; line-height: 1.6em;}
+
+      ul { list-style: none; margin: 25px 0; padding: 0; }
+      li { display: table-cell; font-weight: bold; width: 1%; }
+
+      .logo { display: inline-block; margin-top: 35px; }
+      .logo-img-2x { display: none; }
+      @media
+      only screen and (-webkit-min-device-pixel-ratio: 2),
+      only screen and (   min--moz-device-pixel-ratio: 2),
+      only screen and (     -o-min-device-pixel-ratio: 2/1),
+      only screen and (        min-device-pixel-ratio: 2),
+      only screen and (                min-resolution: 192dpi),
+      only screen and (                min-resolution: 2dppx) {
+        .logo-img-1x { display: none; }
+        .logo-img-2x { display: inline-block; }
+
+      #suggestions {
+        margin-top: 35px;
+        color: #ccc;
+      #suggestions a {
+        color: #666666;
+        font-weight: 200;
+        font-size: 14px;
+        margin: 0 10px;
+
+    </style>
+  </head>
+  <body>
+
+    <div class="container">
+      <p>
+        <img width="200" src="data:image/png;base64,
+iVBORw0KGgoA">
+      </p>
+
+      <p><strong>We couldn't respond to your request in time.</strong></p>
+      <p>Sorry about that. Please try refreshing and contact us if the problem persists.</p>
+      <div id="suggestions">
+        <a href="https://github.com/contact">Contact Support</a> &mdash;
+        <a href="https://www.githubstatus.com">GitHub Status</a> &mdash;
+        <a href="https://twitter.com/githubstatus">@githubstatus</a>
+      </div>
+
+      <a href="/" class="logo logo-img-1x">
+        <img width="32" height="32" title="" alt="" src="data:image/png;base64,iVBORw0KGgo" />
+      </a>
+
+      <a href="/" class="logo logo-img-2x">
+        <img width="32" height="32" title="" alt="" src="data:image/png;base64,iVBORw0KGgo" />
+      </a>
+    </div>
+  </body>
+</html>
+
+HTTP 504: 504 Gateway Timeout (https://api.github.com/graphql)

@@ -15,6 +15,7 @@ mod extends;
 mod goose;
 mod issue_writer;
 mod legacy;
+mod needs;
 mod pm;
 mod representative;
 mod tools;

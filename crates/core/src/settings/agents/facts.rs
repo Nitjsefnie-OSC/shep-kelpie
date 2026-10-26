@@ -74,9 +74,14 @@ pub struct HarnessFacts {
     /// Whether the runner counts a turn from that transcript: its requests, and
     /// its MCP and tool calls where the format records them
     pub counts_transcript: bool,
-    /// Whether it can run the roles that need Claude Code's own tools: the
-    /// issue writer and the project manager
-    pub runs_claude_roles: bool,
+    /// Whether it can edit files within the worker's fence
+    pub edits: bool,
+    /// Whether its session continues across turns
+    pub resumable_session: bool,
+    /// Whether it can read the repository
+    pub repo_reads: bool,
+    /// Whether its adapter wires kelpie's PM and issue-writer guards
+    pub role_guard: bool,
     /// Why a handover waits while a session on it is open in the maintainer's
     /// terminal, if it does
     pub holds_handover_at_attach: Option<&'static str>,
@@ -152,7 +157,10 @@ const CLAUDE_CODE: HarnessFacts = HarnessFacts {
     reads_from_an_empty_folder: false,
     transcript: Some(Format::Claude),
     counts_transcript: true,
-    runs_claude_roles: true,
+    edits: true,
+    resumable_session: true,
+    repo_reads: true,
+    role_guard: true,
     holds_handover_at_attach: None,
     attached_role: None,
     researcher_web: ResearcherWeb::Builtin,
@@ -176,7 +184,10 @@ const PI: HarnessFacts = HarnessFacts {
     reads_from_an_empty_folder: false,
     transcript: Some(Format::Pi),
     counts_transcript: true,
-    runs_claude_roles: false,
+    edits: true,
+    resumable_session: true,
+    repo_reads: true,
+    role_guard: false,
     holds_handover_at_attach: Some(FORWARDER),
     attached_role: Some("pi_session"),
     researcher_web: ResearcherWeb::PiPackage,
@@ -200,7 +211,10 @@ const CODEX: HarnessFacts = HarnessFacts {
     reads_from_an_empty_folder: true,
     transcript: Some(Format::Codex),
     counts_transcript: true,
-    runs_claude_roles: false,
+    edits: true,
+    resumable_session: true,
+    repo_reads: true,
+    role_guard: false,
     holds_handover_at_attach: Some(TRUST),
     attached_role: Some("codex_session"),
     researcher_web: ResearcherWeb::Builtin,
@@ -229,7 +243,10 @@ const GOOSE: HarnessFacts = HarnessFacts {
     reads_from_an_empty_folder: true,
     transcript: None,
     counts_transcript: false,
-    runs_claude_roles: false,
+    edits: true,
+    resumable_session: true,
+    repo_reads: true,
+    role_guard: false,
     holds_handover_at_attach: Some(FORWARDER),
     attached_role: Some("goose_session"),
     researcher_web: ResearcherWeb::GoosePackage,
@@ -254,7 +271,10 @@ const STAND_IN: HarnessFacts = HarnessFacts {
     reads_from_an_empty_folder: false,
     transcript: Some(Format::Claude),
     counts_transcript: false,
-    runs_claude_roles: false,
+    edits: true,
+    resumable_session: true,
+    repo_reads: true,
+    role_guard: false,
     holds_handover_at_attach: None,
     attached_role: None,
     researcher_web: ResearcherWeb::Builtin,
