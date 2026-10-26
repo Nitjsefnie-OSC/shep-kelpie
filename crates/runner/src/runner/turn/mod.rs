@@ -27,7 +27,7 @@ use super::question::asked;
 use super::report::{Begin, StepReport};
 use super::rework;
 use super::ruling::park;
-use crate::board::briefing::{closest, missing_paths};
+use crate::board::briefing::{closest, missing_paths, names_a_path};
 use crate::guard::Pause;
 use crate::pacer::Scope;
 use crate::ports::{
@@ -848,7 +848,7 @@ fn install_failed(why: &str) -> String {
 // the issue means to add is among them, so the note says it may be new. `read_tree` is the files
 // on `main`, asked of git only when the body names a path.
 fn moved_paths(body: &str, read_tree: impl FnOnce() -> Vec<String>) -> String {
-    if missing_paths(body, &[]).is_empty() {
+    if !names_a_path(body) {
         return String::new();
     }
     let tree = read_tree();

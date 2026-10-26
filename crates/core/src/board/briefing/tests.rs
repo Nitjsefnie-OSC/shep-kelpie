@@ -231,6 +231,20 @@ fn a_named_path_that_matches_no_file_on_main_is_missing_whole_or_bare() {
 }
 
 #[test]
+fn a_folder_on_main_is_not_missing_and_code_with_a_dot_is_not_a_path() {
+    let tree = files(&[
+        "docs/design/work.md",
+        "crates/runner/src/lib.rs",
+        "README.md",
+    ]);
+    let folders = "See `docs/design/`, `docs/design`, `crates/runner` and `runner/src`.";
+    assert!(missing_paths(folders, &tree).is_empty());
+    assert_eq!(missing_paths("`docs/designs/`", &tree), ["docs/designs/"]);
+    let code = "Read `item.base`, `gh.rules`, `call.cwd` and `rules.ledger`, then `gone.md`.";
+    assert_eq!(missing_paths(code, &tree), ["gone.md"]);
+}
+
+#[test]
 fn a_body_whose_paths_all_resolve_misses_none() {
     let tree = files(&["src/board.rs", "README.md"]);
     assert!(missing_paths("See `board.rs:40` and `./README.md`.", &tree).is_empty());

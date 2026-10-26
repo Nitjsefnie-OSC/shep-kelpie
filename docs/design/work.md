@@ -24,7 +24,7 @@ Projects, slots, issue writer. The board and work items are in `board.md`, the p
 ## Issues
 
 - A path in backticks in an issue a writer files that matches no file on `main` goes back once: the guard refuses the filing, the ledger keeps the path, and the same issue passes on its next try. Retros: 8 of 27 reported an issue naming a moved or renamed file. `core/guard/issues/named.rs`, #1322
-- The first prompt of a work item names the paths its issue names that `main` lacks as "may have moved", with the closest file that ends the same way. One `git ls-tree`, read in place. `runner/turn/mod.rs`, #1322
+- The first prompt of a work item names the paths its issue names that `main` lacks as "may have moved", with the closest file that ends the same way. One `git ls-tree`, read in place and only when the body names a path. A folder on `main` resolves, and a name with no `/` counts only with an extension files on `main` have. `runner/turn/mod.rs`, #1322
 
 ## Not built
 

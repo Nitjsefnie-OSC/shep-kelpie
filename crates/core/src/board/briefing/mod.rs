@@ -642,23 +642,27 @@ pub fn named_paths(body: &str, tree: &[String]) -> Vec<String> {
     found.into_iter().collect()
 }
 
-/// The paths an issue's body names in backticks that match no file on `main`
+/// The paths an issue's body names in backticks that match no file or folder on `main`
 ///
-/// A name matches as in [`named_paths`], but one with no `/` counts too, unless
-/// its extension is all digits, as in a version `1.85`. A path the issue means
+/// A name matches as in [`named_paths`], or is a folder holding files. One with
+/// no `/` counts only if its extension is one files on `main` have, so a field
+/// as `item.base` and a version as `1.85` are not paths. A path the issue means
 /// to add is among them, so a note on one says it may be new.
 pub fn missing_paths(body: &str, tree: &[String]) -> Vec<String> {
     let missing = path_names(body).filter(|name| {
-        let digits = name
-            .rsplit_once('.')
-            .is_some_and(|(_, ext)| ext.bytes().all(|b| b.is_ascii_digit()));
-        matching(name, tree).is_empty() && (name.contains('/') || !digits)
+        let known = name.contains('/') || extension_on(name, tree);
+        known && matching(name, tree).is_empty() && !folder_on(name, tree)
     });
     missing
         .map(str::to_owned)
         .collect::<BTreeSet<_>>()
         .into_iter()
         .collect()
+}
+
+/// Whether an issue's body names a path in backticks, for or against any tree
+pub fn names_a_path(body: &str) -> bool {
+    path_names(body).next().is_some()
 }
 
 /// The file on `main` that ends the way the missing `name` does, if one does
@@ -689,6 +693,21 @@ fn matching<'a>(name: &str, tree: &'a [String]) -> Vec<&'a String> {
     (tree.iter())
         .filter(|f| **f == name || f.ends_with(&suffix))
         .collect()
+}
+
+// Whether `name` is a folder with files in it on `main`, at its root or below another.
+fn folder_on(name: &str, tree: &[String]) -> bool {
+    let folder = name.trim_end_matches('/');
+    let (head, middle) = (format!("{folder}/"), format!("/{folder}/"));
+    tree.iter()
+        .any(|f| f.starts_with(&head) || f.contains(&middle))
+}
+
+// Whether a file on `main` ends with `name`'s extension.
+fn extension_on(name: &str, tree: &[String]) -> bool {
+    let extension = |path: &str| path.rsplit_once('.').map(|(_, ext)| ext.to_owned());
+    let wanted = extension(name);
+    tree.iter().any(|f| extension(f) == wanted)
 }
 
 // A span that reads as a path: no spaces, path characters only, and a

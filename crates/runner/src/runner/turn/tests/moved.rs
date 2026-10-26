@@ -47,3 +47,13 @@ fn paths_that_resolve_add_no_note() {
 
     assert!(!prompt.contains("moved"), "{prompt}");
 }
+
+#[test]
+fn a_folder_on_main_and_a_field_in_code_add_no_note() {
+    let prompt = prompt_for(
+        "Read `item.base` in `src/`, `src/dogs` and `src/dogs/`.",
+        &["src/dogs/route.rs"],
+    );
+
+    assert!(!prompt.contains("moved"), "{prompt}");
+}
