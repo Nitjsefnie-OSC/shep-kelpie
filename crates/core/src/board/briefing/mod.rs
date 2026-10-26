@@ -629,15 +629,8 @@ pub fn cut(text: &str, chars: usize) -> String {
 /// files names none, and one matching none counts only if it has a `/`.
 pub fn named_paths(body: &str, tree: &[String]) -> Vec<String> {
     let mut found = BTreeSet::new();
-    for span in body.split('`').skip(1).step_by(2) {
-        let Some(name) = path_like(span) else {
-            continue;
-        };
-        let suffix = format!("/{name}");
-        let hits: Vec<&String> = tree
-            .iter()
-            .filter(|f| **f == name || f.ends_with(&suffix))
-            .collect();
+    for name in path_names(body) {
+        let hits = matching(name, tree);
         match hits.len() {
             0 if name.contains('/') => {
                 found.insert(name.to_owned());
@@ -647,6 +640,55 @@ pub fn named_paths(body: &str, tree: &[String]) -> Vec<String> {
         }
     }
     found.into_iter().collect()
+}
+
+/// The paths an issue's body names in backticks that match no file on `main`
+///
+/// A name matches as in [`named_paths`], but one with no `/` counts too, unless
+/// its extension is all digits, as in a version `1.85`. A path the issue means
+/// to add is among them, so a note on one says it may be new.
+pub fn missing_paths(body: &str, tree: &[String]) -> Vec<String> {
+    let missing = path_names(body).filter(|name| {
+        let digits = name
+            .rsplit_once('.')
+            .is_some_and(|(_, ext)| ext.bytes().all(|b| b.is_ascii_digit()));
+        matching(name, tree).is_empty() && (name.contains('/') || !digits)
+    });
+    missing
+        .map(str::to_owned)
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect()
+}
+
+/// The file on `main` that ends the way the missing `name` does, if one does
+///
+/// The files sharing its file name are weighed by how many of its last parts
+/// they share, then by the shortest path.
+pub fn closest<'a>(name: &str, tree: &'a [String]) -> Option<&'a str> {
+    let parts: Vec<&str> = name.rsplit('/').collect();
+    let shared = |file: &str| {
+        let ends = file.rsplit('/').zip(&parts);
+        ends.take_while(|(a, b)| a == *b).count()
+    };
+    tree.iter()
+        .map(|file| (shared(file), file))
+        .filter(|(shared, _)| *shared > 0)
+        .min_by_key(|(shared, file)| (std::cmp::Reverse(*shared), file.len(), file.as_str()))
+        .map(|(_, file)| file.as_str())
+}
+
+// The path-like backticked spans of a body.
+fn path_names(body: &str) -> impl Iterator<Item = &str> {
+    body.split('`').skip(1).step_by(2).filter_map(path_like)
+}
+
+// The files on `main` that `name` is the whole path or last parts of.
+fn matching<'a>(name: &str, tree: &'a [String]) -> Vec<&'a String> {
+    let suffix = format!("/{name}");
+    (tree.iter())
+        .filter(|f| **f == name || f.ends_with(&suffix))
+        .collect()
 }
 
 // A span that reads as a path: no spaces, path characters only, and a
