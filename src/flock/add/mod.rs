@@ -18,7 +18,7 @@ use shep_client::shep_core::protocol::request::Response;
 use shep_client::shep_core::status::ProcStatus;
 
 use super::share::share_none;
-use super::{Checkout, Launch, flock, kelpie_sheep, send, tables};
+use super::{Checkout, Launch, flock, gateways, kelpie_sheep, send, tables};
 use crate::board::{HUMAN, IN_PROGRESS, READY};
 use crate::coderabbit::LABEL as SUMMON;
 use crate::dog;
@@ -26,7 +26,6 @@ use crate::home::ProjectName;
 use crate::ports::{Forge, NewLabel};
 use crate::settings::{BaseBranch, Gateways, Settings, table_of};
 use crate::shepherd::{Connection, DOG};
-use crate::webhook::KelpieSettings;
 
 /// The labels kelpie reads and sets on a project's issues and pull requests
 pub const LABELS: [NewLabel<'static>; 4] = [
@@ -267,17 +266,6 @@ pub async fn add(
         Err(e) if done.is_empty() => Err(e),
         Err(e) => Err(format!("{e}, after this much: {}", done.join("; "))),
     }
-}
-
-// Kelpie's gateways, as its section of the shepherd's settings holds them. A section
-// that does not parse holds none: the runner reports it when it starts.
-async fn gateways(client: &dyn Connection) -> Result<Gateways, String> {
-    let section = crate::shepherd::read_section(client).await?;
-    let read = match section.trim().is_empty() {
-        true => Ok(KelpieSettings::default()),
-        false => KelpieSettings::from_section(&section),
-    };
-    Ok(read.map(|kelpie| kelpie.gateways()).unwrap_or_default())
 }
 
 // The project's settings: the defaults with what the checkout and the forge say.
