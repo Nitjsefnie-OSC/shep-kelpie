@@ -6,6 +6,7 @@
 mod adopted;
 mod base;
 mod carried;
+mod env;
 mod labels;
 mod policy;
 mod records;
@@ -15,6 +16,7 @@ mod text;
 pub(crate) use adopted::adoption_of;
 pub use base::Base;
 pub(crate) use carried::{Carried, Noted};
+pub(crate) use env::assignments;
 pub use labels::LambLabels;
 pub use policy::fence_policy;
 pub(crate) use policy::{bind_in_scratch, call_policy, dial_the_forwarder};
