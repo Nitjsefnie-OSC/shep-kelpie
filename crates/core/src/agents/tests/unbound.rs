@@ -1,6 +1,6 @@
 use super::*;
-use crate::agents::front;
 use crate::agents::baseline::Baseline;
+use crate::agents::front;
 
 // A baseline with no binding keys, so a stub that extends it binds nothing.
 const SCRIBE: Baseline = Baseline {
@@ -119,7 +119,9 @@ fn a_baseline_is_a_role_and_a_prompt_and_no_binding_key() {
         let (front, body) = front::split(shipped.text).unwrap();
         assert!(!body.trim().is_empty(), "{name} has a prompt");
         for key in KEYS {
-            let set = front.lines().any(|line| line.starts_with(&format!("{key}:")));
+            let set = front
+                .lines()
+                .any(|line| line.starts_with(&format!("{key}:")));
             assert!(!set, "{name} sets `{key}`");
         }
     }

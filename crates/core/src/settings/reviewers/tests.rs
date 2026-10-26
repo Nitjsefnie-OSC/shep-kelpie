@@ -201,7 +201,11 @@ fn a_bot_that_reviews_on_ready_is_refused_after_another_bot_and_kept_before_it()
     let (settings, home) = project(Some(r#"["coderabbit", "codex"]"#));
     assert!(
         settings
-            .lineup(&bound(Agents::embedded()), &Gateways::default(), home.path())
+            .lineup(
+                &bound(Agents::embedded()),
+                &Gateways::default(),
+                home.path()
+            )
             .is_ok(),
         "kelpie's own Codex file does not review on ready"
     );

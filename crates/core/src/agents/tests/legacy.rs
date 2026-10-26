@@ -1,0 +1,257 @@
+//! The one-time step that writes each stub the binding its baseline shipped with
+
+use super::{folder, name};
+use crate::agents::legacy::{self, Report};
+use crate::agents::{Agents, baseline};
+
+// Each baseline's binding as `git show a22137eb:agents/<name>.md` has it, before the
+// baselines dropped their models: (name, harness, model, effort, second_look).
+const SHIPPED: [(&str, &str, &str, &str, bool); 10] = [
+    (
+        "defect-hunter",
+        "claude-code",
+        "claude-opus-5-5",
+        "high",
+        true,
+    ),
+    (
+        "security-reviewer",
+        "claude-code",
+        "claude-opus-5-5",
+        "high",
+        false,
+    ),
+    ("spec", "claude-code", "claude-opus-5-5", "high", false),
+    ("standards", "claude-code", "claude-opus-5-5", "high", false),
+    (
+        "issue-writer",
+        "claude-code",
+        "claude-opus-5-5",
+        "medium",
+        false,
+    ),
+    ("pm", "claude-code", "claude-opus-5-5", "medium", false),
+    ("advisor", "claude-code", "claude-opus-5-5", "high", false),
+    (
+        "researcher",
+        "claude-code",
+        "claude-sonnet-5-5",
+        "high",
+        false,
+    ),
+    (
+        "representative",
+        "claude-code",
+        "claude-opus-5-5",
+        "low",
+        false,
+    ),
+    ("triager", "claude-code", "claude-opus-5-5", "medium", false),
+];
+
+// The binding lines a baseline shipped with.
+fn shipped_binding(row: &(&str, &str, &str, &str, bool)) -> String {
+    let (_, harness, model, effort, second_look) = row;
+    let look = if *second_look {
+        "second_look: true\n"
+    } else {
+        ""
+    };
+    format!("harness: {harness}\nmodel: {model}\neffort: {effort}\n{look}")
+}
+
+fn stub(baseline: &str) -> String {
+    format!("---\nextends: kelpie:{baseline}\n---\n")
+}
+
+fn read(dir: &tempfile::TempDir, file: &str) -> String {
+    std::fs::read_to_string(dir.path().join(file)).unwrap()
+}
+
+fn wrote(report: &Report) -> Vec<&str> {
+    report.wrote.iter().map(|w| w.file.as_str()).collect()
+}
+
+#[test]
+fn the_table_matches_the_ten_files_as_they_shipped() {
+    assert_eq!(legacy::TABLE.len(), SHIPPED.len());
+    for (name, harness, model, effort, second_look) in SHIPPED {
+        let row = legacy::named(name).unwrap_or_else(|| panic!("{name} has no row"));
+        assert_eq!(
+            (row.harness, row.model, row.effort, row.second_look),
+            (harness, model, effort, second_look),
+            "{name}"
+        );
+    }
+    for shipped in baseline::ALL {
+        assert!(legacy::named(shipped.name).is_some(), "{}", shipped.name);
+    }
+}
+
+#[test]
+fn a_bare_stub_gets_the_binding_and_then_loads_as_it_did_before() {
+    for row in &SHIPPED {
+        let baseline = row.0;
+        let dir = folder(&[("mine.md", &stub(baseline))]);
+
+        let report = legacy::migrate(dir.path()).unwrap();
+
+        assert_eq!(wrote(&report), ["mine.md"], "{baseline}");
+        let text = read(&dir, "mine.md");
+        assert_eq!(
+            text,
+            format!(
+                "---\nextends: kelpie:{baseline}\n{}---\n",
+                shipped_binding(row)
+            ),
+            "{baseline}"
+        );
+        let loaded = Agents::load(dir.path()).unwrap();
+        let before = Agents::embedded().bind(baseline, &shipped_binding(row));
+        assert_eq!(
+            loaded.get(&name("mine")),
+            before.get(&name(baseline)),
+            "{baseline}"
+        );
+    }
+}
+
+#[test]
+fn a_stub_keeps_its_comments_other_keys_and_body() {
+    let text = "---\n# mine, for the nightly run\nextends: kelpie:researcher\n\
+                usage: none # no meter\n\n# last\n---\nAlso read the changelog.\n";
+    let dir = folder(&[("nightly.md", text)]);
+
+    legacy::migrate(dir.path()).unwrap();
+
+    assert_eq!(
+        read(&dir, "nightly.md"),
+        "---\n# mine, for the nightly run\nextends: kelpie:researcher\n\
+         harness: claude-code\nmodel: claude-sonnet-5-5\neffort: high\n\
+         usage: none # no meter\n\n# last\n---\nAlso read the changelog.\n"
+    );
+}
+
+#[test]
+fn a_stub_that_sets_its_own_effort_keeps_it() {
+    let text = "---\nextends: kelpie:pm\neffort: low\n---\n";
+    let dir = folder(&[("quick-pm.md", text)]);
+
+    let report = legacy::migrate(dir.path()).unwrap();
+
+    assert_eq!(
+        read(&dir, "quick-pm.md"),
+        "---\nextends: kelpie:pm\nharness: claude-code\nmodel: claude-opus-5-5\neffort: low\n---\n"
+    );
+    assert_eq!(
+        report.wrote[0].to_string(),
+        "quick-pm.md: wrote claude-code claude-opus-5-5"
+    );
+}
+
+#[test]
+fn a_stub_with_a_harness_and_no_model_is_skipped_and_named() {
+    let text = "---\nextends: kelpie:pm\nharness: codex\neffort: low\n---\n";
+    let dir = folder(&[("codex-pm.md", text)]);
+
+    let report = legacy::migrate(dir.path()).unwrap();
+
+    assert!(report.wrote.is_empty());
+    assert_eq!(report.skipped.len(), 1);
+    assert_eq!(report.skipped[0].file, "codex-pm.md");
+    assert!(
+        report.skipped[0].why.contains("`harness`"),
+        "{}",
+        report.skipped[0].why
+    );
+    assert!(
+        report.skipped[0].why.contains("`model`"),
+        "{}",
+        report.skipped[0].why
+    );
+    assert_eq!(read(&dir, "codex-pm.md"), text, "it is left alone");
+}
+
+#[test]
+fn a_second_run_writes_nothing() {
+    let skipped = "---\nextends: kelpie:pm\nharness: codex\n---\n";
+    let dir = folder(&[
+        ("a.md", &stub("pm")),
+        ("b.md", &stub("defect-hunter")),
+        ("c.md", skipped),
+    ]);
+    assert_eq!(
+        wrote(&legacy::migrate(dir.path()).unwrap()),
+        ["a.md", "b.md"]
+    );
+    let once = (read(&dir, "a.md"), read(&dir, "b.md"));
+
+    let again = legacy::migrate(dir.path()).unwrap();
+
+    assert!(again.wrote.is_empty());
+    assert_eq!((read(&dir, "a.md"), read(&dir, "b.md")), once);
+    assert!(
+        std::fs::read_dir(dir.path()).unwrap().all(|f| {
+            let name = f.unwrap().file_name();
+            name.to_string_lossy().ends_with(".md")
+        }),
+        "no temporary file is left"
+    );
+}
+
+#[test]
+fn a_file_extending_a_stub_loads_bound() {
+    let dir = folder(&[
+        ("base.md", &stub("advisor")),
+        ("child.md", "---\nextends: base\neffort: low\n---\nShort.\n"),
+    ]);
+    assert!(
+        Agents::load(dir.path())
+            .unwrap()
+            .get(&name("child"))
+            .is_none()
+    );
+
+    let report = legacy::migrate(dir.path()).unwrap();
+
+    assert_eq!(wrote(&report), ["base.md"], "the child needs nothing");
+    let child = Agents::load(dir.path()).unwrap();
+    let child = child.get(&name("child")).unwrap();
+    assert_eq!(
+        super::pair(child),
+        ("claude-opus-5-5", crate::settings::Effort::Low)
+    );
+}
+
+#[test]
+fn a_file_with_no_legacy_parent_is_left_alone() {
+    let own = "---\nrole: implementer\nharness: claude-code\nmodel: m\neffort: low\n---\n";
+    let whole = "---\nextends: kelpie:opus-high\n---\n";
+    let bare = "---\nextends: pm\n---\n";
+    let dir = folder(&[
+        ("own.md", own),
+        ("whole.md", whole),
+        ("bare.md", bare),
+        ("n.txt", "x"),
+    ]);
+
+    let report = legacy::migrate(dir.path()).unwrap();
+
+    assert_eq!(report, Report::default());
+    assert_eq!(read(&dir, "whole.md"), whole);
+}
+
+#[test]
+fn a_folder_that_is_not_there_has_nothing_to_migrate() {
+    let dir = tempfile::tempdir().unwrap();
+    let report = legacy::migrate(&dir.path().join("agents")).unwrap();
+    assert_eq!(report, Report::default());
+}
+
+#[test]
+fn a_report_lists_what_it_would_write_without_writing_it() {
+    let dir = folder(&[("a.md", &stub("pm"))]);
+    let report = legacy::pending(dir.path()).unwrap();
+    assert_eq!(wrote(&report), ["a.md"]);
+    assert_eq!(read(&dir, "a.md"), stub("pm"));
+}

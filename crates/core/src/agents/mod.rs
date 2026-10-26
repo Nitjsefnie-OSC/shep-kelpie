@@ -29,6 +29,7 @@ use crate::settings::{
 pub mod baseline;
 mod extends;
 mod front;
+pub mod legacy;
 
 /// The folder in kelpie's home that holds the agent files
 pub const FOLDER: &str = "agents";

@@ -172,7 +172,8 @@ fn a_shipped_agent_can_be_extended_by_a_file_of_another_name() {
         "---\nextends: kelpie:defect-hunter\nharness: claude-code\nmodel: claude-opus-5-5\n\
          effort: medium\nsecond_look: false\n---\n",
     )]);
-    let default = Agents::embedded().bind("defect-hunter", &format!("{OPUS_HIGH}second_look: true\n"));
+    let default =
+        Agents::embedded().bind("defect-hunter", &format!("{OPUS_HIGH}second_look: true\n"));
     let hunter = default.get(&name("defect-hunter")).unwrap();
     let light = agents.get(&name("hunter-light")).unwrap();
     assert_eq!(pair(light), ("claude-opus-5-5", Effort::Medium));
@@ -282,7 +283,9 @@ fn a_stub_extending_a_shipped_agent_loads_its_frontmatter_and_body() {
     let agents = load(&[("triager.md", &stub)]);
     assert_eq!(
         agents.get(&name("triager")),
-        Agents::embedded().bind("triager", OPUS_HIGH).get(&name("triager"))
+        Agents::embedded()
+            .bind("triager", OPUS_HIGH)
+            .get(&name("triager"))
     );
 }
 

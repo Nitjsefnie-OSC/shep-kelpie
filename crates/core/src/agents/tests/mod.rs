@@ -14,6 +14,7 @@ mod experts;
 mod extends;
 mod goose;
 mod issue_writer;
+mod legacy;
 mod pm;
 mod representative;
 mod tools;
@@ -470,10 +471,8 @@ const COMMAND: &str = "---\nrole: reviewer\nharness: command\ncommand: ~/bin/rev
 
 #[test]
 fn kelpies_own_reviewers_are_defect_hunter_and_qwen() {
-    let agents = Agents::embedded().bind(
-        "defect-hunter",
-        &format!("{OPUS_HIGH}second_look: true\n"),
-    );
+    let agents =
+        Agents::embedded().bind("defect-hunter", &format!("{OPUS_HIGH}second_look: true\n"));
     let hunter = agents.get(&name("defect-hunter")).unwrap();
     assert_eq!(hunter.role, Role::Reviewer);
     assert_eq!(model(hunter).harness, AgentHarness::ClaudeCode);
