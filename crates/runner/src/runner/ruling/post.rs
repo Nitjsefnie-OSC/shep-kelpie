@@ -23,7 +23,7 @@ enum Post {
     /// `gh` acts as
     App {
         thread: u64,
-        ruling: Ruling,
+        ruling: Box<Ruling>,
         maintainer: Option<String>,
     },
     /// As the login `gh` acts as
@@ -160,7 +160,7 @@ impl Runner {
             let thread = number.or(ruling.issue.and_then(|ticket| ticket.github()))?;
             Post::App {
                 thread,
-                ruling: ruling.clone(),
+                ruling: Box::new(ruling.clone()),
                 maintainer: self.known_maintainer(),
             }
         } else {
