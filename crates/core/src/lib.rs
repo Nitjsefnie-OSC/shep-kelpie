@@ -27,6 +27,7 @@ pub mod local_paths;
 pub mod local_tickets;
 pub mod metrics;
 pub mod pacer;
+pub mod package_managers;
 pub mod ports;
 pub mod profile;
 pub mod review_bot;

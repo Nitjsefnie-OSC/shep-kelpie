@@ -11,6 +11,7 @@ mod github;
 mod machine;
 mod mcp;
 mod project;
+mod registries;
 mod rulings;
 
 use std::collections::BTreeMap;

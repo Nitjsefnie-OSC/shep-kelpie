@@ -97,7 +97,10 @@ url = "https://ntfy.sh/your-private-topic"
 # writes `qwen`, a reviewer that runs the
 # maintainer's qwen-review script, only where that script is installed. A
 # project lists the ones that build its work items in `agents.implementers`
-# and the ones that review its pull requests in `agents.reviewers`. The
+# and the ones that review its pull requests in `agents.reviewers`. An
+# issue's `agent:<name>` label runs it on any file below whose role is
+# `implementer`, listed or not, and `agents.implementer_choice` says who
+# picks for an issue with no label. The
 # agents guide describes every key:
 # https://github.com/shep-pm/shep-kelpie/blob/main/docs/guide/agents.md
 # An implementer's body is added to kelpie's own instructions; a pi

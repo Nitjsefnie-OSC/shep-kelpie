@@ -109,7 +109,7 @@ fn the_script_stops_when_the_install_fails_and_runs_the_server_when_it_does_not(
 // `dir`, and says whether the stand-in ran.
 fn installed(run: &DevRun, dir: &Path, install: &str) -> bool {
     std::fs::create_dir_all(Path::new(&run.args[4]).parent().unwrap()).unwrap();
-    let manager = MANAGERS.iter().map(|m| m.install);
+    let manager = MANAGERS.iter().filter_map(|m| m.install);
     let script = manager.fold(run.args[1].clone(), |s, m| s.replace(m, install));
     std::process::Command::new(crate::spawn::sh())
         .arg("-c")
