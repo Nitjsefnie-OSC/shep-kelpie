@@ -108,6 +108,44 @@ fn holder_in(body: &str, model: &str) -> Result<Option<PaddockHolder>, String> {
         }))
 }
 
+pub(crate) fn queued(gateway: &Upstream, model: &str) -> bool {
+    let asked = ("GET", "/paddock/status");
+    match send(gateway, asked, None, true, STATUS_WITHIN) {
+        Ok((200, body)) => queued_in(&body, model),
+        _ => false,
+    }
+}
+
+fn queued_in(body: &str, model: &str) -> bool {
+    let Ok(read) = serde_json::from_str::<Value>(body) else {
+        return false;
+    };
+    let Some(turns) = read["models"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|entry| entry["model"] == model)
+        .and_then(|entry| entry["turns"]["lease"].as_u64())
+        .filter(|turns| *turns > 0)
+    else {
+        return false;
+    };
+    let held = read["leases"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|lease| {
+            lease["model"] == model && lease["revoked"].is_null() && lease["reclaimable"] == false
+        })
+        .count();
+    held as u64 >= turns
+        && read["waiters"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|waiter| waiter["model"] == model)
+}
+
 /// The gateway port for a paddock, taking its leases on `timing`'s schedule
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Paddock {
@@ -507,3 +545,6 @@ fn exchange(
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod status_tests;

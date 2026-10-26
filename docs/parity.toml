@@ -298,3 +298,8 @@ providers = ["paddock", "openai"]
 what = "A call holds a lease on its model, so nothing evicts it mid-turn"
 paddock = "yes"
 openai = { cannot = "an OpenAI-compatible gateway knows nothing of leases", doc = "docs/design/agents.md", says = "no lease, so it may evict a model a turn runs on" }
+
+[gateway.lease-availability]
+what = "Kelpie checks shared lease-turn availability before opening a labelled item"
+paddock = "yes"
+openai = { cannot = "an OpenAI-compatible gateway exposes no lease-turn status", doc = "docs/design/waits-and-spend.md", says = "OpenAI gateways expose no lease-turn status and count as free." }
