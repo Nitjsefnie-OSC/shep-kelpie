@@ -1,22 +1,13 @@
-//! `kelpie guard ... --goose=<build folder>`: the `PreToolUse` hook of a goose
-//! worker
+//! `kelpie guard ... --goose=<build folder>`: the `PreToolUse` hook of a goose worker
 //!
-//! goose runs the hook for every tool call and gives it `tool_name`,
-//! `tool_input` and `working_dir`. The hook is the worker's only gate, since
-//! goose in `auto` mode ignores its own permissions. A shell command goes to
-//! the command guard as Claude Code's `Bash` would, and a `write` or an
-//! `edit` goes to `kelpie confine` as a `Write` or an `Edit`, held to the
-//! worktree and the build folder, with the project's `write` hooks seeing the
-//! text. A tree is judged as the `ls` of its folder. A tool of an MCP server the
-//! call loads is let through, the sandbox being the boundary for a server. Any
-//! other tool is refused, and so is a payload this cannot read, a name it does not know
-//! being no reason to let a call by.
+//! goose's `auto` mode ignores its own permissions, so this is the worker's
+//! only gate. A shell command goes to the command guard as Claude Code's
+//! `Bash` would, a `write` or `edit` to `kelpie confine`, and a tree is the
+//! `ls` of its folder. An MCP server's tool passes; any other tool is refused.
 //!
-//! A goose reviewer, advisor or retro has the read-only guard instead,
-//! [`judge_goose_reading`]: its `shell` runs only what [`judge_reading`] lists,
-//! its `tree` is the `ls` of its folder, and every other tool is refused, since
-//! the call writes no file. A reviewer asked for tests has [`judge_goose_writing`]:
-//! the same, and its `write` goes to `kelpie confine` held to its tests folder.
+//! A reviewer, advisor or retro has [`judge_goose_reading`], read-only; one
+//! asked for tests has [`judge_goose_writing`], whose `write` is held to its
+//! tests folder.
 
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -198,15 +189,14 @@ fn of_server(tool: &str, key: &str) -> bool {
         .is_some_and(|rest| rest.starts_with("__") && rest.len() > 2)
 }
 
-/// Judges goose's `PreToolUse` payload in `input` for a call that writes no
-/// file: a reviewer, an advisor or a retro
+/// Judges goose's `PreToolUse` payload in `input` for a call that writes no file
 ///
-/// A `shell` command goes to [`judge_reading`] as Claude Code's `Bash` would,
-/// so it runs only what reads, and the project's `command` hooks judge it. A
-/// `tree` is the `ls` of its folder, judged the same way. Every other tool is
-/// refused, `write` and `edit` included, and so is a payload this cannot read. A tool named
-/// `<key>__<tool>` for a `key` in `servers` is an MCP server's, which goes through as in
-/// [`judge_goose`].
+/// A reviewer, an advisor or a retro makes such a call. A `shell` command goes
+/// to [`judge_reading`] as Claude Code's `Bash` would, and the project's
+/// `command` hooks judge it. A `tree` is the `ls` of its folder. Every other
+/// tool is refused, `write` and `edit` included, as is a payload this cannot
+/// read. A tool named `<key>__<tool>` for a `key` in `servers` is an MCP
+/// server's, which goes through as in [`judge_goose`].
 pub fn judge_goose_reading(input: impl Read, hooks: &Hooks, servers: &[String]) -> Verdict {
     judge_reading_with(input, hooks, servers, None)
 }

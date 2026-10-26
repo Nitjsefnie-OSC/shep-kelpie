@@ -1,23 +1,13 @@
 //! The plugins a repo turns on
 //!
 //! A repo's `.claude/settings.json` names a marketplace in
-//! `extraKnownMarketplaces` and the plugin in `enabledPlugins`. Claude Code
-//! loads only a plugin that is installed, and a headless run installs none, so
-//! kelpie does it: it reads that file from the checkout's default branch (never
-//! a worker's branch, so a branch cannot turn a plugin on for itself), finds
-//! each enabled plugin's folder in its marketplace, and copies the plugin's
-//! `skills/`, `agents/`, `commands/` and `hooks/` that `repo_setup.parts`
-//! loads, beside every other folder of it and the files at its root, into a
-//! plugin of the same name under the project's skills folder: a skill names a
-//! file under the plugin's root, and the name reaches nothing where the copy
-//! has none of it. Every call gets that folder with `--plugin-dir`. A plugin's
-//! hooks sit in their own folder, so they run beside the hooks of the call's
-//! settings file and cannot replace them.
+//! `extraKnownMarketplaces` and the plugin in `enabledPlugins`. A headless run
+//! installs none, so kelpie reads that file from the default branch (never a
+//! worker's) and copies each enabled plugin, less the parts `repo_setup.parts`
+//! leaves out, under the project's skills folder, given to every call with `--plugin-dir`.
 //!
-//! The repo's own `.claude` files load as one more plugin (`own`). A plugin's
-//! MCP servers, and the repo's own in its `.mcp.json`, are handed to each
-//! call's MCP config rather than copied (see [`mcp`]). A plugin that cannot
-//! load is skipped with its reason, and the run goes on.
+//! The repo's own `.claude` files load as one more plugin (`own`). MCP servers
+//! go to each call's MCP config ([`mcp`]). A plugin that cannot load is skipped.
 
 use std::collections::BTreeMap;
 use std::ffi::{OsStr, OsString};

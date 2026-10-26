@@ -1,25 +1,13 @@
 //! A project's own hooks, run by kelpie at its own points
 //!
 //! A project names commands in `hooks`, each for a [`HookPoint`]. Kelpie runs
-//! them itself, so a pi or Codex worker, a reviewer, the issue writer and
-//! kelpie's own posts reach them as a Claude Code worker does, with no
-//! harness-shaped hook. The agent can neither edit nor skip a hook. One run
-//! by `kelpie guard` or `kelpie confine` (`commit`, `push`, `command`,
-//! `write`, `after_command`, a worker's `publish`) is inside kelpie's sandbox,
-//! in the worker's fence, so it reads what the worker can; the points of kelpie's
-//! own work item loop (`handover`, `turn_start`, `turn_end` and the notices)
-//! and kelpie's own `publish` run in the runner, outside it.
+//! them itself, so the agent cannot skip one. `kelpie guard` and `kelpie
+//! confine` run them inside the sandbox, the rest outside it.
 //!
-//! The command runs under `sh -c` with a JSON payload on its stdin: the
-//! point, the project, the role whose text or work it judges, the repo's
-//! slug, and the point's own fields. Its exit is its answer: 0 passes, 2
-//! refuses with its stderr as the reason, and anything else is a hook that
-//! failed. A failed hook refuses and says so, since a check that cannot run
-//! must not pass silently. A hook that runs past [`TIMEOUT`] is killed and
-//! has failed. A hook only refuses: what it prints on stdout is dropped, so
-//! it cannot rewrite the text it judges. A point is a gate, which refuses, or
-//! a notice (`reset`, `ruling`, `ci`, `done`), which [`Hooks::notify`] runs and
-//! only logs when a hook exits non-zero or hangs.
+//! The command runs under `sh -c` with a JSON payload on stdin. Exit 0 passes,
+//! 2 refuses with its stderr as the reason, and anything else, or a run past
+//! [`TIMEOUT`], is a failed hook, which refuses. Stdout is dropped. A notice
+//! (`reset`, `ruling`, `ci`, `done`) is run by [`Hooks::notify`], which only logs.
 
 use std::fmt;
 use std::io::{Read, Write};

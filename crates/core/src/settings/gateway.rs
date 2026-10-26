@@ -401,9 +401,7 @@ impl Gateways {
         })
     }
 
-    /// Refuses a start or a change whose triage spam check names a gateway
-    /// kelpie's settings lack or cannot dial, as an endpoint that does not
-    /// answer is refused
+    /// Refuses a start or change whose triage spam check names a gateway kelpie's settings lack or cannot dial
     ///
     /// The key is left to the check itself: a gateway whose key is unset is one
     /// kelpie cannot ask, and triage goes on without the check rather than the

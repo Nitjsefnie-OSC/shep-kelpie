@@ -2,15 +2,12 @@
 //!
 //! Such a work item had finished its review pass, so its bot round loads as
 //! a pass of the listed review bots alone, at the stage it was saved in: a
-//! round waiting for the lease starts that pass afresh, a summon waits on,
-//! threads found go to the worker, and a fix under way goes on and, once
-//! pushed, resolves the threads it was sent. A question or a ruling that
-//! keeps a bot fix resumes in that pass. A pending ruling on a bot that
-//! never answered is a pass of the bots instead, and one on the old round
-//! cap, which is gone, asks whether to send the threads it held, which a
-//! yes sends for a fix that resolves them. An item past its review that no
-//! bot had read owes the listed bots a pass after its next green CI. The
-//! rounds a work item had counted are CodeRabbit's reads.
+//! round waiting for the lease starts afresh, a summon waits on, threads found
+//! go to the worker, and a fix under way goes on and resolves its threads once
+//! pushed. A question or ruling that keeps a bot fix resumes in that pass. A
+//! pending ruling on a bot that never answered is a pass of the bots instead,
+//! and one on the old round cap asks whether to send the threads it held. An
+//! item past its review that no bot read owes the listed bots a pass after CI.
 
 use serde_json::{Map, Value, json};
 
@@ -129,11 +126,10 @@ fn fold_ruling(map: &mut Map<String, Value>) {
     }
 }
 
-// The pending rulings on a bot round, which need the work item they park:
-// a bot that never answered gets a pass of the bots in place of the ruling,
-// and the round cap's held threads are asked about again for a fix that
-// resolves them. A file before work items had issues keeps its one item
-// under `work_item`.
+// The pending rulings on a bot round, which need the work item they park: a
+// bot that never answered gets a pass of the bots in place of the ruling, and
+// the round cap's held threads are asked about again for a fix that resolves
+// them. A file from before work items had issues keeps its item under `work_item`.
 fn fold_pending(value: &mut Value) {
     let Some(state) = value.as_object_mut() else {
         return;

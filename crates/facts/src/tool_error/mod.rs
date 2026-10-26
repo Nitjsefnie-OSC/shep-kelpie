@@ -1,17 +1,12 @@
 //! What a call's transcript says of each tool call that failed: what made it
 //! fail, as a kind
 //!
-//! A failed result counts once, however many lines of output it holds: one
-//! command can print the same error on hundreds of lines. A kind is the first
-//! that matches, so a guard refusal of a result that also holds a sandbox
-//! error is a guard refusal. Each kind's phrase is read at the head of a line,
-//! once the markers a harness or a program write in front of its own error are
-//! taken off, so output that quotes a phrase is not that error. Claude Code
-//! names the hook that refused inside its refusal text, and kelpie's own hooks
-//! are its `guard` and `confine` programs, read as shell words. pi's guard
-//! extension marks its refusals with [`GUARD_MARK`] and writes each one as a
-//! content block of its own, which is what tells a refusal from output that
-//! quotes the mark. `docs/facts/tool-errors.md`
+//! A failed result counts once, however many lines of output it holds. A kind
+//! is the first that matches. Each kind's phrase is read at the head of a
+//! line, once the markers in front of an error are taken off, so output that
+//! quotes a phrase is not that error. Claude Code names the hook that refused
+//! in its refusal text. pi's guard extension marks a refusal with
+//! [`GUARD_MARK`] in a content block of its own. `docs/facts/tool-errors.md`
 
 use std::collections::HashMap;
 
@@ -168,11 +163,9 @@ fn claude_one(text: &str, tool: Option<&str>) -> ToolError {
     }
 }
 
-// A pi result that failed: its guard extension's refusal, or what else it says. The
-// extension refuses a call that never ran by writing the refusal as the result's only
-// block, and pi writes no `durationMs` for a call that never ran. It refuses a command
-// that already ran by adding its reason as a block of its own at the end. A command's own
-// output is one block, so output that starts with the mark or quotes it is not a refusal.
+// A pi result that failed: its guard extension's refusal, or what else it says. A call that
+// never ran has the refusal as its only block and no `durationMs`. A command that already ran
+// has the reason as a block of its own at the end, so output that quotes the mark is no refusal.
 fn pi_one(message: &Value) -> ToolError {
     let texts: Vec<&str> = match &message["content"] {
         Value::String(text) => vec![text],
@@ -242,11 +235,9 @@ fn kind_of(text: &str, tool: Option<&str>) -> Kind {
     Kind::Other
 }
 
-// One line of a failed result: what it says, and what it says about itself. `head` is the line
-// with the markers a harness or a program writes in front of its own error taken off: Claude
-// Code's `<tool_use_error>` wrapper, and the `<something>:` run a program or a shell puts before
-// its message. A line that quotes an error keeps its own words at its head, so no kind's phrase
-// lands there.
+// One line of a failed result. `head` is the line with the markers in front of its own error
+// taken off: Claude Code's `<tool_use_error>` wrapper and the `<something>:` run a program or
+// shell puts before its message. A line that quotes an error keeps its words at its head.
 #[derive(Debug)]
 struct Line {
     head: String,
@@ -278,13 +269,10 @@ impl Line {
     }
 }
 
-// Where a line's own message begins. A program or a shell writes its error after a run of
-// `<token>:` markers, each followed by a space (`mkdir: cbm-docs: Operation not permitted`,
-// `(eval):1: no such file or directory: /x`, `grep: /tmp/x: No such file or directory`), so the
-// message is what follows the last such marker. A grep or rg match line writes no space after its
-// colons (`notes.txt:3:Operation not permitted`), so it holds no marker and keeps its own words.
-// A match line whose matched text has a colon and a space of its own is caught by naming the file
-// and the line number it matched (`docs/x.md:7:Command timed out after 2m`).
+// Where a line's own message begins: after the last of a run of `<token>:` markers, each followed
+// by a space (`mkdir: cbm-docs: Operation not permitted`, `(eval):1: no such file: /x`). A grep
+// or rg match line has no space after its colons (`notes.txt:3:Operation not permitted`), so it
+// holds no marker. One whose text has a colon and space is caught by its file and line number.
 fn message(line: &str) -> &str {
     if names_a_match(line) {
         return line;

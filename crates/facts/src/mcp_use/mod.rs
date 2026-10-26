@@ -2,15 +2,12 @@
 //! it ended, and its tool calls to each
 //!
 //! Claude Code writes how a session's servers stand in an `attachment` line,
-//! and writes another only when that changes, so a resumed call whose servers
-//! stand as before writes none: the last such line in the whole transcript is
-//! how they stood at the call's end. While every server connects and none of
-//! their tools is deferred it writes no such line, and its prompt snapshot
-//! lists each server's tools with the server's name. pi's session file
-//! records the call's tool calls, and the tools its system messages add and
-//! remove, which is all it says of a server that failed to connect: it names
-//! none, and names no reason for one whose tool it answered with an error.
-//! `docs/facts/mcp-servers.md`
+//! and another only when that changes, so the last such line in the whole
+//! transcript is how they stood at the call's end. While every server connects
+//! and none of their tools is deferred it writes none, and its prompt snapshot
+//! lists each server's tools. pi's session file records tool calls and the
+//! tools its system messages add and remove, which is all it says of a server
+//! that failed to connect. `docs/facts/mcp-servers.md`
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -131,15 +128,9 @@ fn all_connected(text: &str) -> Option<Stood> {
 }
 
 // The servers the session shows working as it ends, by the part of a tool's name pi names them
-// after. pi writes `toolsAdded` when a server's tools load and `toolsRemoved` when they go, for a
-// server disabled or one that dropped a tool and re-registered it hidden, and writes nothing at all
-// for a server that failed to connect. So the last word the file says of a server is how it stood:
-// an addition, or a call the server answered with `isError` false, leaves it standing, and a removal
-// that left none of its tools does not. An answer with `isError` true says only that the tool was
-// called: pi writes it for a server whose connection closed and for a tool the model named wrongly.
-// One tool of a server left keeps it. pi writes `toolsAdded` in the session's first system message,
-// and a resumed call's file holds them from the call that wrote them, so the whole file is read and
-// not the call's own lines.
+// after. The file's last word on a server is how it stood: an addition, or a call answered with
+// `isError` false, leaves it standing, and a removal of its last tool does not. `isError` true
+// says only that the tool was called. The whole file is read, as a resumed call's holds earlier adds.
 fn reached(text: &str) -> BTreeSet<String> {
     let mut tools: BTreeSet<String> = BTreeSet::new();
     let mut reached: BTreeSet<String> = BTreeSet::new();

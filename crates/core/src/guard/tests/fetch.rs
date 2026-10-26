@@ -118,10 +118,9 @@ fn a_fetch_that_only_a_program_names_is_not_refused() {
 }
 
 // A fetch git is pointed at another repo is left to git. `--git-dir` and
-// `GIT_DIR` name a repo kelpie cannot tell the worker's own fixture from, and
-// a fetch writes none of the work item's refs, so none of them is answered.
-// `--git-dir=.git` is the shared clone named plainly, and git's own failure is
-// what answers it there.
+// `GIT_DIR` name a repo kelpie cannot tell the worker's own fixture from.
+// `--git-dir=.git` is the shared clone named plainly, and git's own failure
+// is what answers it there.
 #[test]
 fn a_fetch_git_is_pointed_at_another_repo_goes_through() {
     let tree = WorkerTree::new();

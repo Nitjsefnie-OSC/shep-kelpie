@@ -57,16 +57,13 @@ fn find(started: &Started) -> Option<PathBuf> {
     )
 }
 
-/// Each of the `wanted` sessions the steps file `steps` names a call starting
-/// in, by session id, with its transcript's format and the file it wrote, for
-/// those whose file exists
+/// Each of the `wanted` sessions the steps file `steps` names a call starting in, by session id
 ///
-/// Only a wanted session's file is looked for, as a locator may list a whole
-/// folder.
-///
-/// A session logged more than once, as a resumed one is, keeps its first
-/// step's folder. A goose call is left out: its stdout file holds no whole
-/// session.
+/// Each comes with its transcript's format and the file it wrote, for those
+/// whose file exists. Only a wanted session's file is looked for, as a locator
+/// may list a whole folder. A session logged more than once, as a resumed one
+/// is, keeps its first step's folder. A goose call is left out: its stdout
+/// file holds no whole session.
 pub fn transcripts_of(
     steps: &str,
     wanted: &std::collections::BTreeSet<String>,

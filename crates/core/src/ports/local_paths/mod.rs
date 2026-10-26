@@ -2,14 +2,12 @@
 //!
 //! Everything kelpie posts to the forge goes through [`Guarded`], which
 //! refuses a text [`LocalPaths`] finds something of this machine's in: its
-//! folders or an address on a local network. A post to a public repo that names
-//! a repo of the flock which GitHub marks private is refused too. A post that
-//! names one is never sent.
+//! folders or an address on a local network. A post to a public repo that
+//! names a repo of the flock which GitHub marks private is refused too.
 //!
-//! The project's `publish` hooks judge the same text after that, so a post
-//! one refuses is never sent either. A pull request's title and body are the
-//! worker's text, handed over for kelpie to post; every other text is
-//! kelpie's own.
+//! The project's `publish` hooks judge the same text after that. A pull
+//! request's title and body are the worker's text, handed over for kelpie to
+//! post; every other text is kelpie's own.
 
 use std::fmt;
 use std::sync::Arc;

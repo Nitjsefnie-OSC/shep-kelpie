@@ -83,11 +83,10 @@ impl Foreground {
 /// Runs `command` in the foreground until it exits, and says how it ended
 ///
 /// `started` is told the session's pid once it runs. An interrupt from the
-/// terminal reaches the session, which answers it as it chooses, and does
-/// not end kelpie. On Unix a SIGTERM or SIGHUP to kelpie is passed on to the
-/// session, and kelpie still waits for it to end. On Windows Ctrl+C and
-/// Ctrl+Break reach the session through the console, and kelpie holds both
-/// off and waits.
+/// terminal reaches the session, which answers it, and does not end kelpie.
+/// On Unix a SIGTERM or SIGHUP to kelpie is passed on to the session. On
+/// Windows Ctrl+C and Ctrl+Break reach the session, and kelpie holds both
+/// off. Either way kelpie waits for the session to end.
 ///
 /// # Errors
 ///
