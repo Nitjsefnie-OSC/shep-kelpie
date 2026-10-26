@@ -677,7 +677,6 @@ fn an_issue_triaged_again_and_now_sure_loses_the_needs_triage_of_the_first_pass(
             "label needs-triage",
             "comment",
             "label bug",
-            "label P2",
             "label ready-for-agent",
         ]
     );
@@ -711,10 +710,7 @@ fn a_restarted_pass_knows_its_own_needs_triage_from_the_record() {
         "the owed rewrite goes on, as the comment promised"
     );
     assert_eq!(rig.github.label_takes(), [(30, "needs-triage".to_owned())]);
-    assert_eq!(
-        moves(&rig),
-        ["label bug", "label P2", "label ready-for-agent"]
-    );
+    assert_eq!(moves(&rig), ["label bug", "label ready-for-agent"]);
     assert_eq!(triage(&rig, &runner)["issues"][0]["step"], "ready");
     let told: Vec<String> = runner.lock().unwrap().take_notes();
     assert!(
