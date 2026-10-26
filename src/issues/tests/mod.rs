@@ -7,6 +7,7 @@ use crate::agents::Agents;
 use crate::local_tickets::{LocalTickets, Routed};
 use crate::test::{Rig, Scripted, git, write_in, write_script};
 
+mod paths;
 mod touches;
 
 const BODY: &str = "Build the thing.\n\n## Acceptance criteria\n\n- [ ] It works\n";
@@ -19,6 +20,7 @@ struct Setup {
     settings: Settings,
     paths: ProjectPaths,
     listed: RoleAgents,
+    files: Vec<AgentName>,
     writer: Writer,
 }
 
@@ -42,6 +44,7 @@ impl Setup {
             settings,
             paths,
             listed,
+            files: agents.implementer_files(),
             writer,
         }
     }
@@ -57,6 +60,7 @@ impl Setup {
                 .expect("the example sets it"),
             paths: &self.paths,
             agents: &self.listed,
+            implementers: &self.files,
             kelpie: Path::new(Rig::KELPIE),
             home: self.rig.home.path(),
         }
@@ -125,7 +129,7 @@ fn a_request_runs_one_session_that_files_and_kelpie_prints_what_it_filed() {
     // The repo lacked the agents' labels, so they were made before the session.
     assert_eq!(
         s.rig.forge.repo_labels_now(),
-        [HUMAN, "agent:sonnet-high", "agent:opus-high"]
+        [HUMAN, "agent:opus-high", "agent:sonnet-high"]
     );
     let seen = s.rig.claude.all_seen();
     let [seen] = seen.as_slice() else {
@@ -302,7 +306,7 @@ fn an_issue_without_criteria_or_one_listed_agent_is_named_with_what_it_lacks() {
         "#43 Untidy: no `agent:` label; no acceptance criteria"
     );
     assert!(
-        lines[3].starts_with("#44 Unlisted: label `agent:haiku-low` names no agent the project"),
+        lines[3].starts_with("#44 Unlisted: label `agent:haiku-low` names no implementer"),
         "{}",
         lines[3]
     );

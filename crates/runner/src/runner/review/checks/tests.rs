@@ -382,7 +382,7 @@ fn the_command_gets_the_tests_path_and_name_filled_in() {
         run.reach.fence.is_some(),
         "it runs under the worker's fence"
     );
-    assert_eq!(run.door, rig.paths().door);
+    assert_eq!(run.door, Some(rig.paths().door));
     assert!(run.settings.starts_with(rig.paths().worker));
 }
 

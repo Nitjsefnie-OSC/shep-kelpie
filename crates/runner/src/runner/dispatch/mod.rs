@@ -158,7 +158,7 @@ impl Runner {
         // that may yet change, and one whose paths are unread may be one.
         let overlaps = self.parked_overlap(&ready);
         ready.retain(|issue| !overlaps.iter().any(|s| s.issue() == Some(issue.ticket)));
-        let implementers = self.agents.implementer_names();
+        let implementers = self.implementer_files();
         let all = takeable(
             &ready,
             &open,
@@ -166,12 +166,12 @@ impl Runner {
             &self.state.dropped,
             &implementers,
         );
-        let held = self.pm_holds(&all);
+        let held = self.pm_holds(&all, &ready);
         ready.retain(|issue| !held.contains(&issue.ticket));
         let mut paced = false;
         let mut unlabelled: Vec<Skip> = Vec::new();
         loop {
-            let implementers = self.agents.implementer_names();
+            let implementers = self.implementer_files();
             let (finished, dropped) = (self.state.finished.clone(), self.state.dropped.clone());
             let order = self.state.order.clone();
             let pick = board::pick(&ready, &open, &finished, &dropped, &implementers, &order);

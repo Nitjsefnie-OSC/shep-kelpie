@@ -4,7 +4,8 @@
 //! It goes on when a work item opens and comes off when one ends, so a
 //! reader of GitHub can see a worker has the issue. The label is a courtesy:
 //! a forge that refuses it leaves a note and never stops the work item.
-//! Each listed implementer's `agent:` label is made where the repo lacks it.
+//! Each agent file of `role: implementer` gets its `agent:` label made where
+//! the repo lacks it, listed by the project or not.
 //! A project on the local store does neither.
 
 use std::collections::BTreeMap;
@@ -63,7 +64,7 @@ impl Runner {
         }
     }
 
-    // Makes each listed implementer's `agent:` label the repo lacks. Only
+    // Makes each implementer agent file's `agent:` label the repo lacks. Only
     // adds: removing a label would strip it from every issue, closed ones too.
     // A local ticket carries its `agent:` label in the store, so a project on
     // the local store makes none on the repo.
@@ -71,7 +72,7 @@ impl Runner {
         if self.local_store() {
             return;
         }
-        let labels = crate::board::agent_labels(&self.agents);
+        let labels = crate::board::agent_labels(&self.implementer_files());
         let wanted = labels.iter().map(crate::board::AgentLabel::new_label);
         let made = self.make_missing_labels(wanted);
         if let Err(e) = made {

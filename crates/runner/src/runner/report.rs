@@ -145,6 +145,16 @@ pub enum StepReport {
         /// When the pacer reads usage again at the latest
         until: Timestamp,
     },
+    /// A work item's worktree had its packages installed before its turn, in the worker's
+    /// sandbox. A failed install does not stop the turn: the worker's prompt says why.
+    PackagesInstalled {
+        /// The work item's ticket
+        issue: TicketId,
+        /// The folders it installed, relative to the worktree
+        folders: Vec<String>,
+        /// Why the install failed, if it did
+        failed: Option<String>,
+    },
     /// A turn ended and its call was recorded
     Ended {
         /// The work item's ticket

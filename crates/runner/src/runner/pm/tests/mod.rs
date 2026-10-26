@@ -19,6 +19,7 @@ use super::HOLD_FOR;
 
 mod attach;
 mod code;
+mod conflicts;
 mod follow_up;
 mod hold;
 mod lease;
@@ -28,6 +29,7 @@ mod pick;
 mod question;
 mod quiet;
 mod red;
+mod until;
 mod wake_prompt;
 
 const NOTHING: &str = "{\"pick\": null}";

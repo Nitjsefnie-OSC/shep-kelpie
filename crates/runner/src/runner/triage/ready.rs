@@ -41,7 +41,7 @@ const READY_LABEL: NewLabel<'static> = NewLabel {
 
 // Whether `body` is an agent-ready issue body: it names `Touches:` and has
 // acceptance criteria, as the issue writer files them
-fn is_issue_body(body: &str) -> bool {
+pub(super) fn is_issue_body(body: &str) -> bool {
     has_criteria(body)
         && body
             .lines()
@@ -172,15 +172,21 @@ impl Runner {
         }
     }
 
-    // The triage labels `issue` carries now
-    pub(super) fn triage_labels_now(&self, issue: u64) -> Result<Vec<String>, ForgeError> {
+    // Every label `issue` carries now
+    pub(super) fn labels_now(&self, issue: u64) -> Result<Vec<String>, ForgeError> {
         let found = self
             .ports
             .tickets
             .issue(&self.remote, super::ticket(issue)?)?;
-        Ok((found.labels.iter())
+        Ok(found.labels)
+    }
+
+    // The triage labels `issue` carries now
+    pub(super) fn triage_labels_now(&self, issue: u64) -> Result<Vec<String>, ForgeError> {
+        let carried = self.labels_now(issue)?;
+        Ok(carried
+            .into_iter()
             .filter(|l| TRIAGE_LABELS.contains(&l.as_str()))
-            .cloned()
             .collect())
     }
 
@@ -204,6 +210,20 @@ impl Runner {
             &self.triage_labels_now(issue)?,
             &self.triage_seen(issue),
         ))
+    }
+
+    // The same, leaving `own` out of what the issue carries: the label the
+    // caller is about to write may already be on from a call whose answer was
+    // lost, and that one is kelpie's.
+    pub(super) fn triage_labelled_by_hand_but(
+        &self,
+        issue: u64,
+        own: &str,
+    ) -> Result<Option<String>, ForgeError> {
+        let carried: Vec<String> = (self.triage_labels_now(issue)?.into_iter())
+            .filter(|l| l != own)
+            .collect();
+        Ok(stood(&carried, &self.triage_seen(issue)))
     }
 
     // Saves the record with the owed ready body dropped: a publish refusal
@@ -257,12 +277,8 @@ impl Runner {
         let labels = self
             .triage_record(issue)
             .map_or_else(Vec::new, |t| t.labels.clone());
-        for label in labels {
-            if let Err(e) = self.label_issue(issue, &label, true) {
-                let why = format!("cannot label it `{label}`: {e}");
-                self.triage_failed(issue, &why, !forge_is_busy(&e));
-                return Ok(ReadyLabels::Held);
-            }
+        if !self.put_pass_labels(issue, &labels) {
+            return Ok(ReadyLabels::Held);
         }
         // An issue is not both ready for the board and waiting for the
         // maintainer, so the `needs-triage` of an earlier pass comes off before

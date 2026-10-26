@@ -213,6 +213,7 @@ mod tests {
                 repo: Path::new("/k/repo"),
                 guard_hooks: &[],
                 allowed_domains: &[],
+                registries: &[],
                 build_env: &BTreeMap::new(),
                 shep_home: Path::new("/k/shep"),
                 door: Path::new("/k/dog/lease.sock"),
@@ -592,6 +593,34 @@ mod tests {
                 .unwrap()
                 .is_dir()
         );
+    }
+
+    // Go writes its module cache, and a test can leave a temp folder, with
+    // read-only folders that a plain removal cannot empty.
+    #[cfg(unix)]
+    #[test]
+    fn a_scratch_folder_holding_read_only_folders_is_emptied_and_the_call_runs() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let w = World::new();
+        let cli = w.cli(Arc::new(OpenSandbox::default()));
+        let call = w.worker();
+        let held = scratch(&call).join("mod/cache");
+        std::fs::create_dir_all(&held).unwrap();
+        std::fs::write(held.join("file"), "").unwrap();
+        std::fs::set_permissions(held.join("file"), PermissionsExt::from_mode(0o444)).unwrap();
+        std::fs::set_permissions(&held, PermissionsExt::from_mode(0o555)).unwrap();
+        std::fs::set_permissions(scratch(&call).join("mod"), PermissionsExt::from_mode(0o555))
+            .unwrap();
+        cli.run(&call, &Ending::default()).unwrap();
+        assert!(w.path("ran").exists(), "claude did not run");
+        assert!(scratch(&call).is_dir());
+        assert_eq!(std::fs::read_dir(scratch(&call)).unwrap().count(), 0);
+        let mode = std::fs::metadata(scratch(&call))
+            .unwrap()
+            .permissions()
+            .mode();
+        assert_ne!(mode & 0o200, 0, "scratch is read-only: {mode:o}");
     }
 
     #[test]

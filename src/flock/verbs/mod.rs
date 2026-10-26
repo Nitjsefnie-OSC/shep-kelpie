@@ -426,6 +426,7 @@ async fn issue(here: Here<'_>, name: &ProjectName, args: &[&str]) -> Result<Vec<
     crate::spawn::hide(loaded.kelpie.gateways().key_vars());
     let agents = Agents::load(&paths.agents).map_err(|e| e.to_string())?;
     let listed = (loaded.settings.role_agents(&agents)).map_err(|e| e.to_string())?;
+    let implementers = agents.implementer_files();
     let writer = Writer::of(&agents, &loaded.settings.agents.issue_writer)?;
     let kelpie = std::env::current_exe().map_err(|e| format!("cannot find kelpie itself: {e}"))?;
     let remote = crate::runner::check_checkout(&loaded.settings).map_err(|e| e.to_string())?;
@@ -434,6 +435,7 @@ async fn issue(here: Here<'_>, name: &ProjectName, args: &[&str]) -> Result<Vec<
         remote: &remote,
         paths: &paths,
         agents: &listed,
+        implementers: &implementers,
         kelpie: &kelpie,
         home: here.home,
     };

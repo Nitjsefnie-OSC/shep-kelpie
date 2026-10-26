@@ -13,7 +13,7 @@ Per-user App: tokens, posting, answering rulings on GitHub. The ruling panel is 
 - Workers push any branch: `doctor` says protect `main`. Kelpie reads covered workers' failed CI logs (3 runs, 6000 bytes each, noise dropped) rather than widen token. #420
 - Worker token renewed every 30 min (1h life). `runner/login_refresh.rs`
 - `shep kelpie github setup` registers an App from 127.0.0.1 with random `state`, refusing other hosts. #396
-- App under `<kelpie home>/github/<owner>/`, key 0600, never in argument or variable (like TOTP secret). #396
+- App under `<kelpie home>/github/<owner>/`, key 0600 (an owner-only ACL on Windows, `docs/design/windows.md`), never in argument or variable (like TOTP secret). #396
 - JWTs signed with `openssl`, sent by `curl` config on stdin (not in process list, no RSA crate). #396
 - Tokens cached per repo until 5 min before expiry; one mint flight per repo. #397
 - `doctor` checks each repo's token; no App = `unsure`. #396

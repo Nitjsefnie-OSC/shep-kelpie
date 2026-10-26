@@ -463,19 +463,27 @@ fn a_change_that_does_not_hold_keeps_the_settings_the_runner_has() {
     assert!(Path::new(&rig.settings_file()).exists());
 }
 
+// An implementer on a local model, which the project does not list
+const CODER: &str = "---\nrole: implementer\nharness: stand-in\nmodel: qwen3-coder\n\
+                      effort: low\nusage: none\n---\n";
+
 #[test]
-fn each_listed_implementers_agent_label_is_made_on_open_and_on_a_new_list_only() {
+fn every_implementer_agents_label_is_made_on_open_and_none_on_a_new_list_only() {
     let rig = Rig::new("shep");
     rig.forge.set_repo_labels(&["bug", "Agent:Sonnet-high"]);
     let runner = rig.open().unwrap();
-    assert_eq!(rig.forge.repo_labels_now(), ["bug", "Agent:Sonnet-high"]);
+    let made = ["bug", "Agent:Sonnet-high", "agent:opus-high"];
+    assert_eq!(
+        rig.forge.repo_labels_now(),
+        made,
+        "sonnet-high's is there already"
+    );
 
     rig.implementers(&["sonnet-high", "opus-high"]);
     let mut runner = runner.lock().unwrap();
     runner
         .reread(rig.settings(), rig.kelpie_settings())
         .unwrap();
-    let made = ["bug", "Agent:Sonnet-high", "agent:opus-high"];
     assert_eq!(rig.forge.repo_labels_now(), made);
 
     rig.implementers(&["opus-high"]);
@@ -486,14 +494,28 @@ fn each_listed_implementers_agent_label_is_made_on_open_and_on_a_new_list_only()
 }
 
 #[test]
-fn a_fresh_repo_gets_the_default_implementers_label_when_the_runner_opens() {
+fn an_unlisted_implementers_agent_label_is_made_too() {
     let rig = Rig::new("shep");
+    rig.write_agent("coder", CODER);
     rig.open().unwrap();
-    assert_eq!(rig.forge.repo_labels_now(), ["agent:sonnet-high"]);
+    let labels = rig.forge.repo_labels_now();
+    for label in ["agent:coder", "agent:opus-high", "agent:sonnet-high"] {
+        assert!(labels.contains(&label.to_owned()), "{label}: {labels:?}");
+    }
 }
 
 #[test]
-fn the_issue_writer_or_fallback_alone_is_a_change() {
+fn a_fresh_repo_gets_every_implementers_label_when_the_runner_opens() {
+    let rig = Rig::new("shep");
+    rig.open().unwrap();
+    assert_eq!(
+        rig.forge.repo_labels_now(),
+        ["agent:opus-high", "agent:sonnet-high"]
+    );
+}
+
+#[test]
+fn the_issue_writer_the_fallback_or_the_choice_alone_is_a_change() {
     let rig = Rig::new("shep");
     let scribe = "---\nrole: issue-writer\nharness: claude-code\nmodel: claude-sonnet-5-5\n\
                   effort: low\n---\nWrite issues.\n";
@@ -533,5 +555,20 @@ fn the_issue_writer_or_fallback_alone_is_a_change() {
     assert_eq!(
         runner.settings().agents.fallback_after.map(|m| m.get()),
         Some(15)
+    );
+    let chosen = settings_with(&rig, |s| {
+        s.replace(
+            "\nfallback_after = 15\nimplementers = ",
+            "\nfallback_after = 15\nimplementer_choice = \"order\"\nimplementers = ",
+        )
+    });
+    let line = runner.reread(chosen, rig.kelpie_settings()).unwrap();
+    assert_eq!(
+        line.as_deref(),
+        Some("settings changed: agents now in effect")
+    );
+    assert_eq!(
+        runner.settings().agents.implementer_choice,
+        crate::settings::ImplementerChoice::Order
     );
 }

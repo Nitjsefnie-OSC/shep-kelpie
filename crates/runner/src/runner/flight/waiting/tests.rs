@@ -9,7 +9,7 @@ use serde_json::{Value, json};
 
 use super::super::tests::{CEILING, CODER, Driven};
 use crate::ports::{AgentError, CallActivity, Session, Timestamp};
-use crate::runner::{Runner, StepReport};
+use crate::runner::{Runner, StepReport, step};
 use crate::settings::Harness;
 use crate::test::ticket;
 use crate::test::{CALL_PATIENCE, Hold, Rig, Scripted};
@@ -195,6 +195,76 @@ fn a_pinned_item_never_falls_back() {
        driven.landed(),
        Some(StepReport::TimedOut { issue, .. }) if issue == ticket(7)
     ));
+    queue.release();
+}
+
+#[test]
+fn with_implementer_choice_order_a_first_turn_waiting_past_fallback_after_moves_to_the_next() {
+    let rig = rig("acme", &["coder", "sonnet-high"], Some(15));
+    rig.implementers_in_order();
+    rig.forge.list_ready(7, false);
+    let runner = rig.open().unwrap();
+    let report = step(&runner).unwrap();
+    assert!(
+        matches!(&report, Some(StepReport::Dispatched { issue, agent, .. })
+            if *issue == ticket(7) && agent.as_str() == "coder"),
+        "an unlabelled issue opens on the first listed: {report:?}"
+    );
+    let first = item(&rig, &runner, 7)["session"].clone();
+    let queue = queued(&rig, Scripted::Say("done"));
+    let driven = Driven::new(&runner);
+    driven.started();
+    assert_eq!(driven.heard(), None);
+    rig.clock.advance(15 * 60);
+    driven.pass();
+    let moved = StepReport::FellBack {
+        issue: ticket(7),
+        from: "coder".to_owned().try_into().unwrap(),
+        to: "sonnet-high".to_owned().try_into().unwrap(),
+        waited: 15 * 60,
+    };
+    assert_eq!(driven.landed(), Some(moved));
+    let now = item(&rig, &runner, 7);
+    assert_eq!(
+        (&now["agent"], &now["turn"]["state"]),
+        (&json!("sonnet-high"), &json!("due"))
+    );
+    assert_ne!(now["session"], first, "its next turn starts a new session");
+    queue.release();
+}
+
+#[test]
+fn an_item_on_an_unlisted_implementer_never_falls_back() {
+    let rig = rig("acme", &["coder", "sonnet-high"], Some(15));
+    rig.forge.label(7, "agent:coder2");
+    let runner = rig.open().unwrap();
+    rig.ask(&runner, "add", Some("7"));
+    let queue = queued(&rig, Scripted::Say("done"));
+    let driven = Driven::new(&runner);
+    driven.started();
+    assert_eq!(driven.heard(), None);
+    rig.clock.advance(20 * 60);
+    driven.pass();
+    let now = item(&rig, &runner, 7);
+    assert_eq!(
+        now["agent"], "coder2",
+        "the label was the choice, so it stays"
+    );
+    assert!(now.get("pinned").is_none(), "it is no `!` label");
+    assert_eq!(now["waiting"]["why"], "lease");
+    assert_eq!(
+        runner.lock().unwrap().next_ceiling(),
+        Some(Duration::from_secs(CEILING - 20 * 60)),
+        "no fallback wake"
+    );
+    assert_eq!(runner.lock().unwrap().take_notes(), Vec::<String>::new());
+    rig.clock.advance(CEILING);
+    driven.pass();
+    assert!(matches!(
+       driven.landed(),
+       Some(StepReport::TimedOut { issue, .. }) if issue == ticket(7)
+    ));
+    assert_eq!(item(&rig, &runner, 7)["agent"], "coder2");
     queue.release();
 }
 
@@ -391,12 +461,10 @@ fn a_first_turn_whose_agent_is_no_longer_listed_waits_on() {
     rig.clock.advance(15 * 60);
     driven.pass();
     assert_eq!(item(&rig, &runner, 7)["agent"], "coder");
-    let notes = runner.lock().unwrap().take_notes();
-    assert!(
-        notes
-            .iter()
-            .any(|n| n.starts_with("#7: its first turn on coder waits")),
-        "{notes:?}"
+    assert_eq!(
+        runner.lock().unwrap().take_notes(),
+        Vec::<String>::new(),
+        "an agent the project no longer lists is no fallback target"
     );
     rig.clock.advance(CEILING);
     driven.pass();

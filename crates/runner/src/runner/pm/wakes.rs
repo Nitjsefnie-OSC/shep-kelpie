@@ -1,6 +1,7 @@
 //! What wakes the project manager besides a pick and a `tell`: a work item
 //! parked on a stuck item's ruling, a pair of open branches newly in
-//! conflict, and, once it is back, whatever it missed while it was not
+//! conflict in their own changes rather than `main`'s, and, once it is back,
+//! whatever it missed while it was not
 //!
 //! A work item the project manager answered `none` for is not queued again
 //! while it is in the state it was left alone in, which is what `pm_due` checks
@@ -284,13 +285,17 @@ impl Runner {
                 stuck_wake(ticket, ruling).filter(|_| !ended)
             })
             .collect();
-        let closed = (was.work_items.iter()).any(|i| now.item(i.issue).is_none());
+        let closed: Vec<TicketId> = (was.work_items.iter())
+            .map(|i| i.issue)
+            .filter(|&issue| now.item(issue).is_none())
+            .collect();
         self.pm_asked(now);
         for wake in stuck {
             self.pm_due(wake);
         }
-        if closed {
-            self.pm.held.clear();
+        if !closed.is_empty() {
+            // A hold waits on the work item it names, or on any when it names none.
+            (self.pm.held).retain(|held| held.until.is_some_and(|until| !closed.contains(&until)));
             if matches!(self.pm.pick, Some(Pick::Nothing(_))) {
                 self.pm.pick = None;
             }
@@ -345,6 +350,10 @@ impl Runner {
 
     /// Wakes the project manager for each pair of open branches newly in
     /// conflict, given every pair in conflict now
+    ///
+    /// The files a branch conflicts with `main` in are in no pair: the board
+    /// reports it behind `main`, and kelpie catches it up without the project
+    /// manager.
     pub(in crate::runner) fn pm_conflicts(
         &mut self,
         now: BTreeMap<(TicketId, TicketId), Vec<String>>,

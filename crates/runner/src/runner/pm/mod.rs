@@ -17,6 +17,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::Runner;
 use super::report::StepReport;
+use crate::board::ReadyIssue;
 use crate::board::briefing::ticket_ref;
 use crate::pacer::Scope;
 use crate::ports::{
@@ -45,7 +46,7 @@ mod wakes;
 #[cfg(test)]
 pub(super) use call::SECRET_SHAPED;
 pub(super) use ci_logs::wake_off_lock;
-pub use maintainer::{PmAttaching, PmError, PmStatus, Settled};
+pub use maintainer::{Held, PmAttaching, PmError, PmStatus, Settled};
 
 use answer::Action;
 use ci_logs::Woke;
@@ -263,7 +264,8 @@ pub(super) struct Desk {
     pick: Option<Pick>,
     // Each of its picks kelpie dropped, in words, until a wake tells it
     lost: Vec<String>,
-    held: Vec<TicketId>,
+    // Each ready issue it holds back, with what it waits on
+    held: Vec<Held>,
     // Each pair of open branches in conflict, with the files
     conflicts: BTreeMap<(TicketId, TicketId), Vec<String>>,
     // A stuck item or conflict was given up while it was unavailable
@@ -353,10 +355,22 @@ impl Runner {
     }
 
     /// The ready issues the project manager holds back, out of `takeable`,
-    /// those the board could start. With no work item open, a hold over
-    /// every one of them has nothing to wait for, so it goes.
-    pub(super) fn pm_holds(&mut self, takeable: &[TicketId]) -> Vec<TicketId> {
-        let all = !takeable.is_empty() && takeable.iter().all(|n| self.pm.held.contains(n));
+    /// those the board could start. A hold on an issue whose text changed
+    /// since goes, since the project manager held what it read. With no work
+    /// item open, a hold over every one of them has nothing to wait for, so
+    /// it goes.
+    pub(super) fn pm_holds(
+        &mut self,
+        takeable: &[TicketId],
+        ready: &[ReadyIssue],
+    ) -> Vec<TicketId> {
+        let edited = |held: &Held| {
+            let issue = ready.iter().find(|r| r.ticket == held.issue);
+            issue.is_some_and(|r| r.fingerprint() != held.text)
+        };
+        self.pm.held.retain(|held| !edited(held));
+        let held = |n: &TicketId| self.pm.held.iter().any(|h| h.issue == *n);
+        let all = !takeable.is_empty() && takeable.iter().all(held);
         if all && self.state.work_items.is_empty() {
             self.notes.push(
                 "the project manager holds every issue the board could start, with no work \
@@ -365,11 +379,11 @@ impl Runner {
             );
             self.pm.held.clear();
         }
-        self.pm.held.clone()
+        self.pm.held.iter().map(|h| h.issue).collect()
     }
 
     /// The ready issues the project manager holds back, as the board shows them
-    pub(super) fn pm_held(&self) -> &[TicketId] {
+    pub(super) fn pm_held(&self) -> &[Held] {
         &self.pm.held
     }
 

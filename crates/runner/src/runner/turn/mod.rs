@@ -13,6 +13,7 @@ use std::time::Duration;
 
 use super::Runner;
 use super::adopt;
+use super::briefing::git::files_on;
 use super::browser;
 use super::claim::main_fetch_key;
 use super::claude_files::Unchecked;
@@ -26,6 +27,7 @@ use super::question::asked;
 use super::report::{Begin, StepReport};
 use super::rework;
 use super::ruling::park;
+use crate::board::briefing::{closest, missing_paths, names_a_path};
 use crate::guard::Pause;
 use crate::pacer::Scope;
 use crate::ports::{
@@ -436,6 +438,11 @@ impl Runner {
         if let Some(reads) = self.preparing() {
             return Ok(reads);
         }
+        // Its packages are installed in the worker's sandbox once the worktree is there. A
+        // compaction runs no code.
+        if !compacting && let Some(reads) = self.installing() {
+            return Ok(reads);
+        }
         self.token_wait.begins();
         let prepared = self.prepare(item, session, prompt);
         let mut next = self.state.clone();
@@ -496,6 +503,7 @@ impl Runner {
             drop(self.opened.take(issue));
             return Err(e);
         }
+        self.packages_installed(issue);
         if resumed {
             self.note_resumed(ticket);
         }
@@ -611,9 +619,17 @@ impl Runner {
                     .unwrap_or_else(|| self.ports.tickets.issue(&self.remote, ticket))
                     .map_err(|e| format!("cannot read {}: {e}", ticket.shown()))?;
                 let comments = self.maintainer_comments(ticket, started.comments())?;
+                let first = first_prompt(ticket, &issue, &comments);
+                let moved = moved_paths(&issue.body, || {
+                    files_on(&self.settings.git.checkout, self.item_base(item))
+                });
                 self.skills
-                    .invoke(Step::Implement, &first_prompt(ticket, &issue, &comments))
+                    .invoke(Step::Implement, &format!("{first}{moved}"))
             }
+        };
+        let prompt = match self.reads.git.installed().and_then(|i| i.failed.as_deref()) {
+            Some(why) if prompt != COMPACT => format!("{prompt}\n\n{}", install_failed(why)),
+            _ => prompt,
         };
         // A `/compact` has nothing to bound, and would hand itself back after.
         let compact_window =
@@ -677,6 +693,7 @@ impl Runner {
             profile::write_login(&item.build, token)
                 .map_err(|e| format!("cannot write the worker's GitHub login: {e}"))?;
         }
+        let registries = self.registries(&item.worktree);
         let profile = WorkerProfile {
             worktree: &item.worktree,
             build: &item.build,
@@ -693,6 +710,7 @@ impl Runner {
             kelpie_home: &self.paths.kelpie_home,
             repo: &self.settings.git.checkout,
             allowed_domains: &self.settings.worker.allowed_domains,
+            registries: &registries,
             build_env: &self.settings.worker.build_env,
             shep_home: &self.paths.shep_home,
             door: &self.paths.door,
@@ -705,6 +723,15 @@ impl Runner {
             fence.guard.hooks = self.hooks.get().as_ref().clone().in_folder(&item.worktree);
         }
         Ok(reach)
+    }
+
+    /// The registries of the package managers `worktree` keeps files for, none while
+    /// `worker.package_registries` is off
+    fn registries(&self, worktree: &Path) -> Vec<&'static str> {
+        if !self.settings.worker.package_registries {
+            return Vec::new();
+        }
+        crate::package_managers::registries(&crate::package_managers::found_in(worktree))
     }
 
     /// The agent `item`'s worker runs on: the one it opened on, as that
@@ -805,6 +832,46 @@ impl Runner {
             .find(|pr| pr.head == branch)
             .map(|pr| pr.number)
     }
+}
+
+// What the worker is told when kelpie's install of its worktree's packages failed
+fn install_failed(why: &str) -> String {
+    format!(
+        "Kelpie tried to install this worktree's packages before your turn, and it failed. The \
+         output ended:\n\n{why}\n\nThe lockfile as it stands could not be installed, so \
+         `node_modules` may be missing or half made. Fix what the output names if it is yours \
+         to fix, and name the gap in your final message if it is not."
+    )
+}
+
+// What the worker is told of the paths its issue names that `main` lacks, or nothing. A path
+// the issue means to add is among them, so the note says it may be new. `read_tree` is the files
+// on `main`, asked of git only when the body names a path.
+fn moved_paths(body: &str, read_tree: impl FnOnce() -> Vec<String>) -> String {
+    if !names_a_path(body) {
+        return String::new();
+    }
+    let tree = read_tree();
+    // Without the files on `main`, every path would read as missing.
+    let missing = if tree.is_empty() {
+        Vec::new()
+    } else {
+        missing_paths(body, &tree)
+    };
+    if missing.is_empty() {
+        return String::new();
+    }
+    let named: Vec<String> = (missing.iter())
+        .map(|path| match closest(path, &tree) {
+            Some(near) => format!("`{path}` (closest on `main`: `{near}`)"),
+            None => format!("`{path}`"),
+        })
+        .collect();
+    format!(
+        "\nThese paths the issue names are not on `main` and may have moved, or be new: {}. \
+         Look for them under their new place before you assume they are gone.\n",
+        named.join(", ")
+    )
 }
 
 // Whether a turn sent `prompt` is prompted with its issue: the first of a work item that is

@@ -133,9 +133,10 @@ impl Runner {
             open_checks::triage(&settings, self.ports.voice.as_ref(), &self.remote, &book)?;
         }
         let (was, now) = (&self.settings.agents, &settings.agents);
-        let writer =
-            (was.issue_writer != now.issue_writer) || (was.fallback_after != now.fallback_after);
-        if agents != self.agents || lineup != self.lineup || book != self.book || writer {
+        let picking = (was.issue_writer != now.issue_writer)
+            || (was.fallback_after != now.fallback_after)
+            || (was.implementer_choice != now.implementer_choice);
+        if agents != self.agents || lineup != self.lineup || book != self.book || picking {
             changed.push("agents");
         }
         if gpu_metrics_url != self.gpu.url() {
@@ -176,7 +177,7 @@ impl Runner {
         crate::skills::check(&settings.skills, &self.paths.skills)?;
         let skills = (settings.skills != self.settings.skills)
             .then(|| Skills::load(&settings.skills, &self.paths.skills));
-        let new_implementers = agents.implementer_names() != self.agents.implementer_names();
+        let had_labels = self.implementer_files();
         // A local start made no `agent:` label on the repo, so a board now on GitHub needs them.
         let to_github = settings.tickets.source != self.settings.tickets.source
             && settings.tickets.source == TicketSource::Github;
@@ -225,13 +226,14 @@ impl Runner {
         // A call already running holds the reviewers it started with.
         self.contribution_lineup = contribution_lineup;
         self.agents = agents;
-        if new_implementers || to_github {
-            self.make_agent_labels();
-        }
         if book != self.book {
             self.notes.extend(book.skipped());
         }
         self.book = book;
+        // A new implementer file needs its `agent:` label made, listed or not.
+        if self.implementer_files() != had_labels || to_github {
+            self.make_agent_labels();
+        }
         self.gpu.point_at(gpu_metrics_url);
         self.extra_instructions = extra_instructions;
         self.webhook = webhook;

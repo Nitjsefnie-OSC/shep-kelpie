@@ -8,7 +8,7 @@
 //! PreToolUse guard reads it. A ledger that is missing or cannot be read
 //! holds nothing, so an edit or a link is refused rather than allowed.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::io::Read;
 use std::path::Path;
 
@@ -25,6 +25,10 @@ pub(super) struct Ledger {
     filed: Vec<TicketId>,
     /// Each issue's database id, by its number, as `gh api ... --jq .id` printed it
     ids: BTreeMap<u64, u64>,
+    /// The paths in issues it tried to file that matched no file on main, which it
+    /// was told of once
+    #[serde(default)]
+    told: BTreeSet<String>,
 }
 
 impl Ledger {
@@ -33,6 +37,11 @@ impl Ledger {
         path.and_then(|p| std::fs::read(p).ok())
             .and_then(|bytes| serde_json::from_slice(&bytes).ok())
             .unwrap_or_default()
+    }
+
+    /// Whether this session was told `path` names no file on main
+    pub(super) fn told(&self, path: &str) -> bool {
+        self.told.contains(path)
     }
 
     /// Whether this session filed `ticket`
@@ -55,6 +64,17 @@ impl Ledger {
     /// Whether `id` is one this session read for an issue of this repo
     pub(super) fn read_id(&self, id: u64) -> bool {
         self.ids.values().any(|read| *read == id)
+    }
+}
+
+/// Records in the ledger at `path` that the session was told `paths` name no file on main
+///
+/// Best effort: a ledger that is not written tells the session again.
+pub(super) fn tell(path: &Path, paths: &[String]) {
+    let mut ledger = Ledger::read(Some(path));
+    ledger.told.extend(paths.iter().cloned());
+    if let Ok(text) = serde_json::to_vec(&ledger) {
+        let _ = std::fs::write(path, text);
     }
 }
 

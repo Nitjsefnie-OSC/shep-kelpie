@@ -109,7 +109,7 @@ fn the_script_stops_when_the_install_fails_and_runs_the_server_when_it_does_not(
 // `dir`, and says whether the stand-in ran.
 fn installed(run: &DevRun, dir: &Path, install: &str) -> bool {
     std::fs::create_dir_all(Path::new(&run.args[4]).parent().unwrap()).unwrap();
-    let manager = MANAGERS.iter().map(|m| m.install);
+    let manager = MANAGERS.iter().filter_map(|m| m.install);
     let script = manager.fold(run.args[1].clone(), |s, m| s.replace(m, install));
     std::process::Command::new(crate::spawn::sh())
         .arg("-c")
@@ -187,4 +187,119 @@ fn a_cache_the_server_already_names_is_kept() {
     before(&mut run, dir.path(), Path::new("/build"));
 
     assert_eq!(run.env["BUN_INSTALL_CACHE_DIR"], "/b/bun/cache");
+}
+
+// Runs a worktree plan's command with `install` standing in for each manager's install, in
+// the worktree, and says whether it succeeded.
+fn ran(plan: &Plan, dir: &Path, install: &str) -> bool {
+    let manager = MANAGERS.iter().filter_map(|m| m.install);
+    let command = manager.fold(plan.command.clone(), |s, m| s.replace(m, install));
+    std::process::Command::new(crate::spawn::sh())
+        .arg("-c")
+        .arg(command)
+        .current_dir(dir)
+        .status()
+        .unwrap()
+        .success()
+}
+
+#[test]
+fn a_worktree_with_a_lockfile_and_no_packages_is_planned_for_install() {
+    let dir = checkout(&["bun.lock"]);
+
+    let plan = worktree(dir.path(), Path::new("/build")).unwrap();
+
+    assert!(
+        plan.command
+            .contains("bun install --frozen-lockfile --ignore-scripts")
+    );
+    assert_eq!(plan.folders, ["."]);
+    assert_eq!(plan.env["BUN_INSTALL_CACHE_DIR"], "/build/bun-cache");
+}
+
+#[test]
+fn a_worktree_that_holds_its_packages_is_planned_for_no_install() {
+    let dir = checkout(&["bun.lock", "node_modules/vite/package.json"]);
+
+    assert!(worktree(dir.path(), &dir.path().join("b")).is_none());
+}
+
+#[test]
+fn a_worktree_with_no_lockfile_is_planned_for_no_install() {
+    let dir = checkout(&["package.json", "Cargo.lock"]);
+
+    assert!(worktree(dir.path(), &dir.path().join("b")).is_none());
+}
+
+#[test]
+fn packages_an_install_left_unfinished_are_planned_again() {
+    let dir = checkout(&["bun.lock", "node_modules/vite/package.json"]);
+    let build = dir.path().join("b");
+    std::fs::create_dir_all(&build).unwrap();
+    std::fs::write(build.join(UNFINISHED), "").unwrap();
+
+    assert!(worktree(dir.path(), &build).is_some());
+}
+
+#[test]
+fn each_folder_that_lacks_packages_is_installed_by_its_own_manager() {
+    let dir = checkout(&[
+        "web/pnpm-lock.yaml",
+        "api/package-lock.json",
+        "docs/yarn.lock",
+        "docs/node_modules/x/package.json",
+    ]);
+
+    let plan = worktree(dir.path(), Path::new("/build")).unwrap();
+
+    let mut folders = plan.folders.clone();
+    folders.sort();
+    assert_eq!(folders, ["api", "web"]);
+    assert!(plan.command.contains("pnpm install --frozen-lockfile"));
+    assert!(plan.command.contains("npm ci --ignore-scripts"));
+    assert!(!plan.command.contains("yarn"));
+    assert_eq!(plan.env["npm_config_store_dir"], "/build/pnpm-store");
+    assert_eq!(plan.env["npm_config_cache"], "/build/npm-cache");
+}
+
+#[test]
+fn the_mark_stays_when_any_install_fails_and_goes_when_all_succeed() {
+    for (install, mark) in [("true", false), ("false", true)] {
+        let dir = checkout(&["web/bun.lock", "api/package-lock.json"]);
+        let build = dir.path().join("b");
+        std::fs::create_dir_all(&build).unwrap();
+        let plan = worktree(dir.path(), &build).unwrap();
+
+        assert_eq!(ran(&plan, dir.path(), install), !mark, "{install}");
+
+        assert_eq!(build.join(UNFINISHED).exists(), mark, "{install}");
+    }
+}
+
+#[test]
+fn a_folder_name_the_shell_would_read_is_quoted() {
+    let dir = checkout(&["a b'c/bun.lock"]);
+    let build = dir.path().join("b");
+    std::fs::create_dir_all(&build).unwrap();
+    let plan = worktree(dir.path(), &build).unwrap();
+
+    assert!(ran(&plan, dir.path(), "touch installed"));
+
+    assert!(dir.path().join("a b'c/installed").exists());
+}
+
+#[test]
+fn the_dev_servers_install_skips_a_worktree_the_plan_installed() {
+    let dir = checkout(&["bun.lock"]);
+    let build = dir.path().join("b");
+    std::fs::create_dir_all(&build).unwrap();
+    let plan = worktree(dir.path(), &build).unwrap();
+    assert!(ran(&plan, dir.path(), "mkdir -p node_modules"));
+    let mut run = run(dir.path());
+    run.program = "true".to_owned();
+
+    before(&mut run, dir.path(), &build);
+
+    assert!(!installed(&run, dir.path(), "touch installed"));
+    assert_eq!(run.ready_within, Duration::from_secs(60));
 }

@@ -22,6 +22,7 @@ A key kelpie no longer reads, such as `review.reviewers`, `coderabbit` or `plann
 - `concurrency.active_items = 1` and `concurrency.pending_rulings = 2`
 - `budget.per_item_usd = 10`
 - `agents.implementers = ["sonnet-high"]`
+- no `agents.implementer_choice`, which reads `"issue-writer"`: with more than one implementer listed, the issue writer labels each unlabelled issue before the board opens it. `"order"` opens an unlabelled issue on the first listed with no call. `agents.md` says the picking
 - `agents.reviewers = ["defect-hunter-lite"]`, with `iq3-xxs-review` first when kelpie's settings hold a gateway named `paddock`, and no review bot
 - `contributions.pick = "off"`, `contributions.security_reviewer = "security-reviewer"`, `contributions.quiet_days = 7` and `contributions.nudge_days = 3`
 - `triage.pick = "off"`, `triage.hand_ready = false`, `triage.wait_days = 7`, `triage.max_questions = 10` and `triage.agent = "triager"`
@@ -31,6 +32,7 @@ A key kelpie no longer reads, such as `review.reviewers`, `coderabbit` or `plann
 - `pacing.enabled = true`
 - no `[app.dogs.kelpie.tickets]` table, which means `tickets.source = "github"`. `local` takes the project's tickets from files, see [Local tickets](tickets.md)
 - `worker.allowed_domains = []`, `worker.turn_timeout = 60` and `worker.compact_window = 200000`
+- `worker.package_registries = true`: a call that works an item also reaches the registries of the package managers its worktree keeps a lockfile or manifest for, in its root or a folder directly under it, so `allowed_domains` only needs hosts beyond them. The hosts are `registry.npmjs.org` (npm, pnpm, bun), `registry.yarnpkg.com` and `registry.npmjs.org` (yarn), `crates.io`, `index.crates.io` and `static.crates.io` (cargo), `proxy.golang.org` and `sum.golang.org` (go), and `pypi.org` and `files.pythonhosted.org` (uv, pip). `false` gives only `allowed_domains`. `doctor` prints a `package registries` line for each project that keeps any, naming each manager and whether `package_registries` or `allowed_domains` reaches it, and `MISSING` with the hosts to add where neither does
 
 The checkout is the project's repo, and shep-kelpie runs `git fetch`, `git worktree` and `git branch` against its `.git`. Its worktrees, build folders and state go under `$SHEP_HOME/kelpie/<project>`, never inside it. Add from a clone you don't work in if you'd rather keep your own checkout out of it.
 

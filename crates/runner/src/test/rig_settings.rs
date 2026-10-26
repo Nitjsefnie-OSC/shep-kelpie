@@ -208,6 +208,21 @@ impl Rig {
         });
     }
 
+    /// Opens the project's issues with no `agent:` label on the first
+    /// implementer listed, read when a runner next opens
+    pub fn implementers_in_order(&self) {
+        self.edit_settings(|s| {
+            assert!(
+                s.contains("\nimplementers = "),
+                "the example's implementers moved"
+            );
+            s.replace(
+                "\nimplementers = ",
+                "\nimplementer_choice = \"order\"\nimplementers = ",
+            )
+        });
+    }
+
     /// Lists `names` as the project's reviewers, read when a runner next opens
     pub fn reviewers(&self, names: &[&str]) {
         let listed = format!("reviewers = {names:?}\n");

@@ -675,6 +675,7 @@ impl World {
             repo: &self.path("repo"),
             guard_hooks: &[],
             allowed_domains: &[],
+            registries: &[],
             build_env: &BTreeMap::new(),
             shep_home: &self.path("shep"),
             door: Path::new("/k/dog/lease.sock"),

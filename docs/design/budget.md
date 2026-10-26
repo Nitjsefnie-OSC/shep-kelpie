@@ -9,7 +9,7 @@ Pacing, leases, forge limits, time, usage, settings.
 - `add <issue>` skips daily allowance, not 5-hour window. #15
 - `pacing.enabled` (on): off turns limits off but still reads usage (before a free reset). #67
 - Unreadable usage holds (a guess would spend the account it protects). #15
-- Each account paces separately; new item paces on every account its agents spend. #129
+- Each account paces separately; new item paces on every account its agents spend, its own agent's included. #129, #1293
 - `budget.per_item_usd` ($10) parks item `over-budget` before a turn or round, never mid-call; yes doubles it. #492, `core/work_item/spend/`
 - A contribution's calls take a slot while they run, count against `budget.per_item_usd` through its `spend`, and go ahead of new issues; a yes or a no with a note to its `over-budget` ruling doubles the cap. Like the PM's and the issue-label calls, they are tied to no work item. #621, `runner/contributions/budget.rs`
 
@@ -52,7 +52,7 @@ Pacing, leases, forge limits, time, usage, settings.
 - `git`: `checkout`, `remote` (`origin`'s GitHub repo when absent), `merging`, `issues`. `settings/git.rs`
 - `ci`: `block`, `fix_attempts` (-1); `concurrency`: `active_items` (1), `pending_rulings` (2). `settings/ci.rs`
 - `budget.per_item_usd` ($10); `pacing.enabled` (on), `pacing.kickoff_hours` (8, display only). `settings/budget.rs`
-- `agents`: implementers, reviewers, pm, issue writer, advisor, researcher, `fallback_after`. `settings/agents/`
+- `agents`: see agents.md. `settings/agents/`
 - `rulings`: `decide` (`shadow`; `panel`; `always` = full panel decides every ruling it votes on by most votes, tie to PM else first option, never merges on a tie, `design` ignored, off unless set, `pm_alone`/`full_panel_paths` unused). `settings/rulings.rs`
 - `worker`: `allowed_domains`, `guard_hooks`, `instructions_file`, `turn_timeout` (60), `compact_window` (200000; pi a reserve, goose a threshold: compaction.md). `runner/turn/`
 - `skills`: per-step overrides; `retro` off (the PM's batch retro when named); `triage`, `spec`, `reset` driven by no step yet. `crates/core/src/skills/mod.rs`
