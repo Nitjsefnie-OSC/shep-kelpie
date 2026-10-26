@@ -17,6 +17,7 @@ test-support = ["shep-kelpie-core/test-support"]
 
 [dependencies]
 shep-kelpie-core.workspace = true
+shep-kelpie-disk.workspace = true
 shep-kelpie-facts.workspace = true
 shep-kelpie-owner-only.workspace = true
 shep-kelpie-process.workspace = true
