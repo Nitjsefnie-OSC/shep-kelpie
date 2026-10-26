@@ -7,7 +7,7 @@ Kelpie's numbers, live, on shep's metrics endpoint. ADR 0012, #920.
 - Runner and dog send channel samples (`shep_channel::Shepherd::metric_with`); shep's metrics dog serves them on `/metrics` (default `127.0.0.1:9615`) with the sender's labels first: `sheep` (the project), `id`, `fold` for a runner; `dog`, `source` for the dog. `crates/core/src/metrics/mod.rs`
 - Through the `Sink` port (`crates/core/src/ports/metrics.rs`): the real one is the runner's `Shepherd`, a test holds `RecordedSink` and asserts the samples sent. Sending never blocks or fails; a full outbox drops a sample, and the next carries the total.
 - Counters are kept whole in kelpie's memory (`Recorder`) and each change sends the new total. A runner start begins them at zero, as Prometheus expects of a restart.
-- A runner sends at most `SERIES_CAP` (255) series, one under the dog's 256 a sender, which leaves the one `kelpie_series_dropped_total` is; a new series past it is not sent and counts there, with one log line per name. The budget test drives every role on every harness it may use with every kind of call, which is 252 series once the failed tool calls' 39, the forge's 18 and the lock's 3 are counted (the cap went from 240 to 255 for the forge's 18, and the 50000 request bucket went for the lock's 3).
+- A runner sends at most `SERIES_CAP` (255) series, one under the dog's 256 a sender, which leaves the one `kelpie_series_dropped_total` is; a new series past it is not sent and counts there, with one log line per name. The budget test drives every role on every harness it may use with every kind of call, which is 248 series once the failed tool calls' 15, the forge's 18, the lock's 3 and five models' leases 20 are counted (the cap went from 240 to 255 for the forge's 18, the 50000 request bucket went for the lock's 3, and the reviewer's and project manager's tool errors went from 13 kinds each to one `any` series each for the leases' 20).
 - Names `kelpie_*`, snake case; counters end `_total`. Labels only from bounded sets: `role`, `kind`, `agent` and `effort` (named in settings), `harness`, `model`, `ended`, `account`, `window`, `phase`, `feature`, `outcome`, `type`, `tests`, `severity`, `le`, `after`, `server` (kelpie's own servers by name, any other `repo`). Never an issue, pull request, session or path.
 
 ## Series
@@ -33,7 +33,7 @@ Model leases: the calls waiting for, and holding, a lease on a gateway's model, 
 
 - `kelpie_model_lease_waiting{model}`, `kelpie_model_lease_held{model}`: gauges set from the calls in flight at each told wait, each begin and each pass, so a call that ends sets its model's gauge down. A model once seen is set to 0 rather than left at its last count
 - `kelpie_model_lease_wait_seconds_total{model}`, `kelpie_model_lease_grants_total{model}`: counted at each begin, the wait from when the call first said it waited. A model on a URL host and a round that runs a command have no `Watched.lease`, so are not counted
-- Four series a model: the budget test does not count them yet (see the cap above)
+- Four series a model, so 20 for five models, which the budget test counts
 
 Work items (phases, how they ended, review rounds, findings, red CI heads) are in `metrics-work-items.md`.
 

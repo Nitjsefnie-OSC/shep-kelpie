@@ -134,6 +134,12 @@ fn the_rules_alert_on_a_tool_error_kind_taking_over_a_role() {
         expr.contains("kelpie_tool_errors_total"),
         "{TOOL_ERROR_ALERT} does not read kelpie_tool_errors_total: {expr}"
     );
+    // Only the worker's errors are counted by kind: the others' are one `any` series each,
+    // which would fire it at once.
+    assert!(
+        expr.contains(r#"role="worker""#),
+        "{TOOL_ERROR_ALERT} reads roles whose errors are not counted by kind: {expr}"
+    );
     // `other` is a command that ran and failed, which is the worker's own
     // doing and not friction in the harness.
     assert!(

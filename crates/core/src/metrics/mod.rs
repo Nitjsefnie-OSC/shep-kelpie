@@ -27,8 +27,10 @@ pub use shepherd_sink::ShepherdSink;
 
 /// The most series a runner sends, one under the metrics dog's 256 a sender
 /// (shep-pm/shep#733), which leaves room for the series counting the ones past it. The worst
-/// case the budget test drives is 252 series: 192 of the roles' calls and requests, the 39 of
-/// the failed tool calls of #968, the 18 of the forge's calls and rate limits, and the lock's 3
+/// case the budget test drives is 248 series: 192 of the roles' calls and requests, the 15 of
+/// the failed tool calls (13 kinds of the worker's, and one `any` each of the reviewer's and the
+/// project manager's), the 18 of the forge's calls and rate limits, the lock's 3, and the 20 of
+/// five models' leases
 pub const SERIES_CAP: usize = 255;
 
 // Seconds between sending every series again. A minute is a scrape or four

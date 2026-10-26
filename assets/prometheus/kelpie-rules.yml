@@ -62,16 +62,18 @@ groups:
         annotations:
           summary: "{{ $labels.sheep }}: {{ $value | humanizePercentage }} of {{ $labels.role }} calls did not answer in 6h"
 
-      # A kind of tool error as common as the role's calls: the worker's edits
+      # A kind of tool error as common as the worker's calls: its edits
       # miss every time, a hook that is not kelpie's refuses most of what it
       # runs, a command that is never there. `other` is left out, since a
       # command that ran and failed is the worker's own work going wrong, not
-      # friction around it. The floor is on calls, so one call with one failed
-      # tool call cannot fire it.
+      # friction around it. Only the worker's errors are counted by kind (the
+      # reviewer's and the project manager's are one `any` series each), so
+      # the alert reads the worker's. The floor is on calls, so one call with
+      # one failed tool call cannot fire it.
       - alert: KelpieToolErrorTakesOver
         expr: |
           (
-            sum by (sheep, role, kind) (increase(kelpie_tool_errors_total{kind!="other"}[6h]))
+            sum by (sheep, role, kind) (increase(kelpie_tool_errors_total{role="worker", kind!="other"}[6h]))
             / on (sheep, role) group_left
             sum by (sheep, role) (increase(kelpie_calls_total[6h]))
           ) > 0.5
