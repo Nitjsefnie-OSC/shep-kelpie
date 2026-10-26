@@ -43,6 +43,8 @@ pub enum At {
     Comment,
     // The merge of a pull request, which a green bump is given
     Merge,
+    // The marking of a draft pull request ready
+    MarkReady,
 }
 
 // Who reached the forge and who lets it go
@@ -160,6 +162,11 @@ impl FakeForge {
     /// Holds the next merge open, and lets every other call through
     pub fn hold_next_merge(&self) -> HeldCall {
         self.hold_open(At::Merge)
+    }
+
+    /// Holds the next marking of a pull request ready open, and lets every other call through
+    pub fn hold_next_mark_ready(&self) -> HeldCall {
+        self.hold_open(At::MarkReady)
     }
 
     fn hold_open(&self, at: At) -> HeldCall {

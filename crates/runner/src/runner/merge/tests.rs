@@ -63,6 +63,40 @@ fn a_yes_merges_the_ruled_head_and_removes_the_branch_worktree_and_build_folder(
 }
 
 #[test]
+fn a_trigger_is_answered_while_a_draft_is_marked_ready() {
+    let (rig, runner, _) = Rig::parked("koji");
+    rig.ask(&runner, "rule", Some("71 yes"));
+    let call = rig.forge.hold_next_mark_ready();
+
+    let (reply, pass) = rig.asked_while_held(&runner, call, "status", None);
+
+    assert!(reply.is_some(), "the trigger waited for the marking");
+    assert!(matches!(
+        pass,
+        Ok(Pass::Report(StepReport::MarkedReady { .. }))
+    ));
+    assert_eq!(rig.forge.readied(), [71]);
+}
+
+#[test]
+fn a_trigger_is_answered_while_a_yes_is_merged() {
+    let (rig, runner, head) = Rig::parked("koji");
+    rig.ask(&runner, "rule", Some("71 yes"));
+    assert_eq!(step(&runner).unwrap(), marked_ready());
+    rig.clock.advance(CHECKS_SETTLE);
+    let call = rig.forge.hold_next_merge();
+
+    let (reply, pass) = rig.asked_while_held(&runner, call, "status", None);
+
+    assert!(reply.is_some(), "the trigger waited for the merge");
+    let Ok(Pass::Report(report)) = pass else {
+        panic!("the item did not end: {pass:?}");
+    };
+    assert!(finished(Some(report)));
+    assert_eq!(rig.forge.merges(), [(71, head)]);
+}
+
+#[test]
 fn a_trigger_is_answered_while_a_merged_items_worktree_is_removed() {
     let (rig, runner, _) = Rig::parked("koji");
     rig.ask(&runner, "rule", Some("71 yes"));

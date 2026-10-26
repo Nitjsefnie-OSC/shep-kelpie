@@ -746,6 +746,7 @@ impl Forge for FakeForge {
 
     fn mark_ready(&self, _repo: &ForgeSlug, number: u64) -> Result<(), ForgeError> {
         self.ask()?;
+        self.wait_if_held(held::At::MarkReady);
         self.opened(number)?;
         let mut prs = self.pull_requests.lock().unwrap();
         prs.get_mut(&number).expect("checked above").draft = false;

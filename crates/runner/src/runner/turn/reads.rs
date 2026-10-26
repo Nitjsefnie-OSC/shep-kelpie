@@ -17,6 +17,7 @@ use crate::ports::{
 };
 use crate::review_bot::{Activity, Bot, Profile};
 use crate::runner::git_reads::{Found, Git, Kept};
+use crate::runner::merge::call::{Marking, Merged, Merging};
 use crate::runner::off_lock::ItemKey;
 use crate::runner::report::Begin;
 use crate::runner::snapshot::view_of;
@@ -38,6 +39,8 @@ pub(in crate::runner) struct Reads {
     // By head, and whether they are the merge queue's runs
     logs: BTreeMap<(String, bool), Result<FailedLogs, ForgeError>>,
     standings: BTreeMap<u64, Result<QueueStanding, ForgeError>>,
+    readied: BTreeMap<u64, Result<(), ForgeError>>,
+    merged: BTreeMap<u64, Merged>,
     // The pull requests whose comments the step has handled, so a step made again does not
     // handle them twice
     talked: BTreeSet<u64>,
@@ -69,6 +72,8 @@ impl Reads {
         self.talks.clear();
         self.logs.clear();
         self.standings.clear();
+        self.readied.clear();
+        self.merged.clear();
         self.talked.clear();
         self.starts.clear();
         self.git.clear();
@@ -129,6 +134,16 @@ impl Reads {
         self.standings.get(&number).cloned()
     }
 
+    /// Whether marking pull request `number` ready came to, as the step asked it
+    pub(in crate::runner) fn readied(&self, number: u64) -> Option<Result<(), ForgeError>> {
+        self.readied.get(&number).cloned()
+    }
+
+    /// What merging pull request `number` came to, as the step asked it
+    pub(in crate::runner) fn merged(&self, number: u64) -> Option<Merged> {
+        self.merged.get(&number).cloned()
+    }
+
     /// Whether the step has handled the comments on pull request `number`
     pub(in crate::runner) fn talked(&self, number: u64) -> bool {
         self.talked.contains(&number)
@@ -152,6 +167,8 @@ enum Read {
     Talk(Written),
     Logs(Failed),
     Standing(Queued),
+    Ready(Marking),
+    Merge(Merging),
     Start(Starting),
     Git(Git),
     Change(Change),
@@ -233,6 +250,14 @@ pub(in crate::runner) enum Done {
     Standing {
         number: u64,
         standing: Result<QueueStanding, ForgeError>,
+    },
+    Readied {
+        number: u64,
+        marked: Result<(), ForgeError>,
+    },
+    Merged {
+        number: u64,
+        merged: Merged,
     },
     View {
         number: u64,
@@ -317,6 +342,14 @@ impl Job {
             }) => Done::Standing {
                 number,
                 standing: forge.merge_queue(&remote, number),
+            },
+            Read::Ready(marking) => Done::Readied {
+                number: marking.number,
+                marked: marking.run(),
+            },
+            Read::Merge(merging) => Done::Merged {
+                number: merging.number,
+                merged: merging.run(),
             },
             Read::Start(starting) => Done::Start {
                 ticket: starting.ticket,
@@ -483,6 +516,35 @@ impl Runner {
         })
     }
 
+    // The job that marks pull request `number` ready
+    pub(in crate::runner) fn ready_job(&self, number: u64) -> Option<Box<Job>> {
+        self.job(|forge, remote| {
+            Read::Ready(Marking {
+                forge,
+                remote,
+                number,
+            })
+        })
+    }
+
+    // The job that merges pull request `number` at `head`
+    pub(in crate::runner) fn merge_job(
+        &self,
+        number: u64,
+        head: &str,
+        auto: bool,
+    ) -> Option<Box<Job>> {
+        self.job(|forge, remote| {
+            Read::Merge(Merging {
+                forge,
+                remote,
+                number,
+                head: head.to_owned(),
+                auto,
+            })
+        })
+    }
+
     // The job that reads what `item`'s turn needs before its call and the step has not read: the
     // worker's token, and for a first turn the issue and the comments under it. None when the
     // step has them all, or the turn fails before it asks for any, or no pass runs to make the
@@ -589,6 +651,12 @@ impl Runner {
             }
             Done::Standing { number, standing } => {
                 self.reads.standings.insert(number, standing);
+            }
+            Done::Readied { number, marked } => {
+                self.reads.readied.insert(number, marked);
+            }
+            Done::Merged { number, merged } => {
+                self.reads.merged.insert(number, merged);
             }
             Done::Git(found) => self.reads.git.keep(found),
             Done::Changed(_) => {}
