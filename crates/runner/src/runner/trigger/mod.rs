@@ -351,7 +351,7 @@ enum Request {
     PmAttach(u32, Option<u32>),
     PmDetach(u32),
     Drain { at_tool: bool },
-    Undrain,
+    Undrain { keep: bool },
     Finish,
     Start,
     Pausing,
@@ -363,9 +363,8 @@ enum Request {
 ///
 /// Blank params count as none. `add` takes a ticket id, `rework` and
 /// `adopt` a pull request number, `triage` an issue number, `rule` takes
-/// `<id> yes`, `<id> no <note>`,
-/// `<id> rework <note>` or `<id> answer <text>`, `gate` and `drop` take the
-/// ticket of the work item they are about when more than one is open,
+/// `<id> yes`, `<id> no <note>`, `<id> rework <note>` or `<id> answer <text>`,
+/// `gate` and `drop` take the ticket of the work item they are about when more than one is open,
 /// `timings` takes how many finished work items to total (ten when left
 /// out) and answers the totals, not the status, `attach` and `detach` take
 /// a ticket and the attaching process's pid, `attach` then the pid of the
@@ -376,12 +375,13 @@ enum Request {
 /// `board` takes nothing to list the ready issues in the order the board
 /// takes them, `move <issue> <position>` or `top <issue>` to move one, and
 /// answers [`Board`](super::Board) either way, and every other action takes
-/// nothing. `drain` holds back every new call
-/// and answers the status with the calls still running, `drain pause` also
-/// ends each worker turn at its next tool call, and `undrain` lets
-/// calls start again. `finish` holds the board back until the open work
-/// items end, `start` lets it pick again, and `pausing`, which `pause` sends
-/// before its stop, clears the saved `finishing` so the runner comes back picking.
+/// nothing. `drain` holds back every new call and answers the status with
+/// the calls still running, `drain pause` also ends each worker turn at its
+/// next tool call, and `undrain` lets calls start again, `undrain keep` not
+/// yet the turns a pause ended. `finish` holds the board back until the open
+/// work items end, `start` lets it pick again, and `pausing`, which `pause`
+/// sends before its stop, clears the saved `finishing` so the runner comes
+/// back picking.
 ///
 /// `status`, `drain` and `undrain` are answered from what the loop last posted
 /// whenever a pass holds the runner's lock, which it holds through the pass's
@@ -452,8 +452,8 @@ pub fn answer(
             runner.drain(at_tool);
             Ok(())
         }
-        Request::Undrain => {
-            runner.undrain();
+        Request::Undrain { keep } => {
+            runner.undrain(keep);
             Ok(())
         }
         Request::Finish => runner.begin_finishing().map_err(|e| e.to_string()),
@@ -531,8 +531,8 @@ fn from_posted(posted: &Posted, request: &Request) -> Option<String> {
             posted.ask_drain(*at_tool);
             true
         }
-        Request::Undrain => {
-            posted.ask_undrain();
+        Request::Undrain { keep } => {
+            posted.ask_undrain(*keep);
             true
         }
         _ => false,
@@ -677,12 +677,15 @@ fn read(action: &str, params: Option<&str>) -> Result<Request, String> {
         }
         // What `pause` sends: drain, and end each worker turn at its next tool call.
         ("drain", Some("pause")) => Ok(Request::Drain { at_tool: true }),
+        // What `pause` sends when it gives up: undrain, and keep the turns it ended stopped.
+        ("undrain", Some("keep")) => Ok(Request::Undrain { keep: true }),
+        ("undrain", Some(p)) => Err(format!("`undrain` takes `keep` or nothing, not {p:?}")),
         (_, _) if !ACTIONS.contains(&action) => Err(format!("unknown action `{action}`")),
         (_, Some(_)) => Err(format!("`{action}` takes no params")),
         ("gate", None) => Ok(Request::Gate(None)),
         ("drop", None) => Ok(Request::Drop(None)),
         ("drain", None) => Ok(Request::Drain { at_tool: false }),
-        ("undrain", None) => Ok(Request::Undrain),
+        ("undrain", None) => Ok(Request::Undrain { keep: false }),
         ("finish", None) => Ok(Request::Finish),
         ("start", None) => Ok(Request::Start),
         ("pausing", None) => Ok(Request::Pausing),

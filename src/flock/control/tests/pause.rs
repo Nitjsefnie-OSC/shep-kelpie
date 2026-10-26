@@ -39,6 +39,16 @@ fn drain_params(writes: &[Request]) -> Vec<Option<String>> {
         .collect()
 }
 
+// The params of each `undrain` sent
+fn undrain_params(writes: &[Request]) -> Vec<Option<String>> {
+    (writes.iter())
+        .filter_map(|w| match w {
+            Request::Trigger { action, params, .. } if action == "undrain" => Some(params.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
 pub(super) async fn paused(
     shepherd: &FakeShepherd,
     patience: Patience,
@@ -131,10 +141,13 @@ async fn a_call_that_outlasts_its_ceiling_leaves_the_runner_running_and_undraine
         .unwrap_err();
     assert_eq!(
         err,
-        "`koji` is running #7's worker turn after 0s, so it was not stopped, and it was sent \
-         `undrain`, so it starts calls again"
+        "koji's runner was busy, not down, and answered slowly: `koji` is running #7's worker \
+         turn after 0s, so it was not stopped, and it was sent `undrain`, so it starts calls \
+         again"
     );
-    let asked = asked(&shepherd.writes());
+    let writes = shepherd.writes();
+    assert_eq!(undrain_params(&writes), [Some("keep".to_owned())]);
+    let asked = asked(&writes);
     assert_eq!(asked.last().unwrap(), "undrain");
     assert!(!asked.contains(&"stop".to_owned()), "{asked:?}");
     assert!(shepherd.sheep("koji").unwrap().1);
@@ -152,8 +165,32 @@ async fn a_ctrl_c_while_the_runner_drains_undrains_it() {
         "{err}"
     );
     assert!(err.contains("it was sent `undrain`"), "{err}");
-    assert_eq!(asked(&shepherd.writes()).last().unwrap(), "undrain");
+    let writes = shepherd.writes();
+    assert_eq!(asked(&writes).last().unwrap(), "undrain");
+    assert_eq!(undrain_params(&writes), [Some("keep".to_owned())]);
     assert!(shepherd.sheep("koji").unwrap().1);
+}
+
+// What a runner from before `undrain keep` answers it
+const NO_KEEP: &str = r#"{"error":"`undrain` takes no params"}"#;
+
+#[tokio::test]
+async fn a_runner_from_before_keep_is_sent_a_plain_undrain() {
+    let mut shepherd = FakeShepherd::new();
+    runner(&shepherd, "koji", Path::new("/src/koji"), true);
+    shepherd.says("koji", &[NO_KEEP, DRAINED]);
+    let client = client(&shepherd).await;
+
+    let said = drain::undrain(&client, "koji", Purpose::Pause).await;
+
+    assert_eq!(
+        undrain_params(&shepherd.writes()),
+        [Some("keep".to_owned()), None]
+    );
+    assert_eq!(
+        said,
+        ", and it was sent `undrain`, so it starts calls again"
+    );
 }
 
 #[tokio::test]
