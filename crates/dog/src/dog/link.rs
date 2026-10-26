@@ -21,10 +21,10 @@ const RETRY: Duration = Duration::from_millis(250);
 
 /// The bus topics the dog listens to
 ///
-/// Runners send their lease and window totals as notes. `channel.metric`
-/// carries them from a runner still on a build from before notes, during
-/// the upgrade that restarts the dog first, and goes in a later release.
-const TOPICS: [&str; 3] = ["channel.note", "channel.metric", "process.*"];
+/// Runners send their lease and window totals as notes. Not `channel.metric`:
+/// every runner resends every series each minute, which fills the stream
+/// the dog reads and makes it miss events.
+const TOPICS: [&str; 2] = ["channel.note", "process.*"];
 
 /// Connects as the dog the shepherd named in `SHEP_DOG_NAME`
 ///
@@ -150,10 +150,10 @@ mod tests {
         assert_eq!(shepherd.hellos()[0].dog_name, None);
     }
 
-    // A runner sends its lease totals as notes, and one still on an older
-    // build as metric samples, so the dog hears both.
+    // Every runner resends its metric series each minute, so a subscription
+    // to them is the stream the dog falls behind on.
     #[tokio::test]
-    async fn the_dog_listens_for_runners_notes_and_older_builds_samples() {
+    async fn the_dog_listens_for_runners_notes_and_process_events_only() {
         use shep_client::shep_core::protocol::Request;
         let dir = tempfile::tempdir().unwrap();
         let socket = control_address(dir.path());
@@ -168,10 +168,7 @@ mod tests {
                 _ => None,
             })
             .collect();
-        assert_eq!(
-            topics,
-            [["channel.note", "channel.metric", "process.*"].map(String::from)]
-        );
+        assert_eq!(topics, [["channel.note", "process.*"].map(String::from)]);
     }
 
     // A restarted shepherd gets the name again, and the bus stream is
