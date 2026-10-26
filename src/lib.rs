@@ -8,6 +8,7 @@
 #![forbid(unsafe_code)]
 #![doc(test(attr(deny(warnings))))]
 
+pub mod agent_verbs;
 pub mod doctor;
 pub mod flock;
 pub mod issues;

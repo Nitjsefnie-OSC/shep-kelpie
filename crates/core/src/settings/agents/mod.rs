@@ -614,6 +614,11 @@ pub(super) fn find<'a>(
 ) -> Result<&'a Agent, SettingsError> {
     let invalid = |reason: String| SettingsError::Invalid { setting, reason };
     let Some(agent) = agents.get(name) else {
+        if let Some(command) = agents.unbound_command(name) {
+            return Err(invalid(format!(
+                "`{at}` names {name}, which is unbound: run `{command}`"
+            )));
+        }
         return Err(invalid(format!(
             "`{at}` names {name}, which has no agent file: write `{FOLDER}/{name}.md` \
              in kelpie's home"
