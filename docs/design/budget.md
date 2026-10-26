@@ -4,11 +4,11 @@ Pacing, leases, forge limits, time, usage, settings.
 
 ## Pacing
 
-- Daily allowance = account's weekly remainder over whole days to reset, fixed at day start; once spent nothing new dispatched (5-hour window, board screening already pace). #15, `runner/pace.rs`
+- Daily allowance = account's weekly remainder over whole days to reset, fixed at day start; once spent nothing new dispatched (window and board screening already pace). #15, `runner/pace.rs`
 - At 50% of 5-hour window no turn starts until reset. #15
 - `add <issue>` skips daily allowance, not 5-hour window. #15
 - `pacing.enabled` (on): off turns limits off but still reads usage (before a free reset). #67
-- Unreadable usage holds (guessing pacer would spend the account it protects). #15
+- Unreadable usage holds (a guess would spend the account it protects). #15
 - Each account paces separately; new item paces on every account its agents spend. #129
 - `budget.per_item_usd` ($10) parks item `over-budget` before a turn or round, never mid-call; yes doubles it. #492, `core/work_item/spend/`
 - A contribution's calls take a slot while they run, count against `budget.per_item_usd` through its `spend`, and go ahead of new issues; a yes or a no with a note to its `over-budget` ruling doubles the cap. Like the PM's and the issue-label calls, they are tied to no work item. #621, `runner/contributions/budget.rs`
@@ -47,7 +47,7 @@ Pacing, leases, forge limits, time, usage, settings.
 ## Settings
 
 - Read through shep client: runner sheep's `[app.dogs.kelpie]` table + kelpie's `[kelpie]` in `dogs.toml` (start needs no dog); missing required key stops runner by name. #114, #332, `crates/core/src/settings/mod.rs`; `settings/x.rs` below is in `crates/core/src/settings/`
-- Changes apply at the next wake of an idle runner (within a minute), or within 30s (`pace::INTERVAL`) between two passes of one that always has work (polled), #1327; some wait for restart (guide: settings). Failing change keeps old settings, alerts once a reason, shows in `status`; hand-written table checked at start, reread. #809, `runner/reread/`
+- Changes apply at next wake, or each 30s when busy; some wait for restart (guide: settings). Failing change keeps old settings, alerts once a reason, shows in `status`; hand-written table checked at start, reread. #809, `runner/reread/`
 - Every setting is read by something; removed key refused by name with replacement. Pre-table files named. #332, `settings/removed.rs`
 - `git`: `checkout`, `remote` (`origin`'s GitHub repo when absent), `merging`, `issues`. `settings/git.rs`
 - `ci`: `block`, `fix_attempts` (-1); `concurrency`: `active_items` (1), `pending_rulings` (2). `settings/ci.rs`
