@@ -1,19 +1,13 @@
 //! A runner replacing its image with the installed build, in place
 //!
 //! `shep_handover` execs the new build over this process, so the pid, the
-//! shepherd channel's descriptor and the children all stay, and shep sees no
-//! stop. A `handover` trigger asks. The loop acts at its quiet point, between
-//! passes, where no merge, `git` or `gh` child of a pass is running, and holds
-//! while a child's stdin is still being written, which the new image could not
-//! finish. What crosses is each worker turn in flight, which the new image
-//! finishes from the call's record on disk.
-//!
-//! The channel's descriptor is not named to `shep_handover`: the shepherd
-//! passes it without close-on-exec and `SHEP_CHANNEL_FD` stays in the
-//! environment, so the new image's `shep_channel::serve` takes it again.
-//! Before it execs, the build to be run is started once as a runner that stops
-//! after reading its settings, so one that would fail there is refused while
-//! this image still runs. Any refusal leaves this image running with every call.
+//! channel's descriptor and the children stay, and shep sees no stop. A
+//! `handover` trigger asks. The loop acts between passes, where no merge, `git`
+//! or `gh` child runs and no child's stdin is being written. Worker turns in
+//! flight finish from their records. The channel's descriptor has no
+//! close-on-exec, so `shep_channel::serve` takes it again. The new build is
+//! first started once as a runner that stops after reading its settings, so one
+//! that would fail there is refused and this image runs on.
 
 use std::any::Any;
 use std::ffi::OsString;
@@ -28,7 +22,7 @@ use serde::{Deserialize, Serialize};
 use shep_handover::{Handover, State, Verdict};
 
 use crate::adapters::{Base, ShepLeases};
-use crate::home::Build;
+use crate::home::probe_version;
 use crate::lease::Epoch;
 use crate::lease::saved::BookFile;
 use crate::lease::wire::{Asker, AskerCarry};
@@ -103,7 +97,7 @@ impl Carry {
             "took over: {}, from {from} to kelpie {}, {} turns carried, {} work items open, \
              {} rulings waiting",
             status.project,
-            Build::this().kelpie,
+            probe_version(),
             self.turns.len(),
             status.work_items.len(),
             status.rulings.len()
@@ -313,7 +307,7 @@ impl Handing {
         let why = match carried {
             Ok(turns) => {
                 let leases = held.carry_leases();
-                let build = Some(Build::this().kelpie);
+                let build = Some(probe_version());
                 (self.exec)(&Carry {
                     turns,
                     leases,

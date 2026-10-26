@@ -432,6 +432,51 @@ fn a_question_whose_wake_fails_is_commented_as_it_stands() {
 }
 
 #[test]
+fn a_trigger_is_answered_while_a_released_questions_comment_is_posted() {
+    let (rig, runner) = asking_on_a_pull_request("togepi");
+    let down = AgentError::Failed(Harness::ClaudeCode, "overloaded".into());
+    rig.claude.script([Scripted::Fail(down)]);
+    step_until(&runner, |r| matches!(r, StepReport::PmFailed { .. }));
+    let comment = rig.forge.hold_next_comment();
+
+    let (reply, pass) = rig.asked_while_held(&runner, comment, "add", Some("9"));
+
+    assert!(reply.is_some(), "the trigger waited for the comment");
+    pass.unwrap();
+    assert_eq!(rig.forge.comments().len(), 1, "the comment went up");
+}
+
+// The comment is placed once it is up, so a ruling settled in between has no
+// comment to edit until then.
+#[test]
+fn a_released_question_settled_while_its_comment_is_posted_is_edited_to_say_so() {
+    let rig = Rig::new("slowpoke");
+    rig.with_app();
+    rig.maintainer("octocat");
+    rig.forge.list_ready(7, false);
+    std::fs::write(rig.kelpie_settings_file(), "").unwrap();
+    let (rig, runner) = pm_on(rig);
+    rig.ask(&runner, "add", Some("7"));
+    rig.forge.open_pull_request(71, "kelpie/7", &[7]);
+    rig.claude.script([Scripted::Say(ASKS)]);
+    step_until(&runner, |r| matches!(r, StepReport::Asked { .. }));
+    let down = AgentError::Failed(Harness::ClaudeCode, "overloaded".into());
+    rig.claude.script([Scripted::Fail(down)]);
+    step_until(&runner, |r| matches!(r, StepReport::PmFailed { .. }));
+    let comment = rig.github.hold_next_comment();
+
+    let ask = || rig.ask(&runner, "rule", Some("71 answer Use --check."));
+    let (reply, pass) = rig.during_read(comment, || advance(&runner), ask);
+
+    let reply = reply.expect("the trigger waited for the comment");
+    assert!(reply.get("error").is_none(), "{reply}");
+    pass.unwrap();
+    let edits = rig.github.edits();
+    assert_eq!(edits.len(), 1, "the comment was never edited: {edits:?}");
+    assert!(edits[0].1.starts_with("**Settled.**"), "{edits:?}");
+}
+
+#[test]
 fn a_question_waits_at_most_one_wake_for_its_answer() {
     let (rig, runner) = asking("wartortle", ASKS);
     let hold = Hold::default();

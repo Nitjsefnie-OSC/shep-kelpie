@@ -8,7 +8,7 @@ use serde_json::{Value, json};
 use super::ask::REPLY_HINT;
 use super::marker::MARKER;
 use super::pick_tests::{MAINTAINER, issue, list, rig_with};
-use super::research_tests::{APP, calls, crashed_with, moves, reply, restart, triage};
+use super::research_tests::{APP, calls, crashed_with, handed, moves, reply, restart, triage};
 use crate::github::ApiError;
 use crate::ports::{Clock, Role};
 use crate::runner::{Runner, step};
@@ -298,7 +298,7 @@ fn a_github_followed_by_answers_is_read_as_answers_and_no_question_is_posted_aga
     );
     let posted = posted(&rig);
     assert_eq!(posted.len(), 2, "{posted:?}");
-    assert_eq!(posted[1], format!("{A_WORDS}\n\n{MARKER}"));
+    assert_eq!(posted[1], handed(A_WORDS));
     assert!(!posted[1].contains("❓"), "no question is posted again");
     assert_eq!(
         rig.github.issue_edits(),

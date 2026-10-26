@@ -1,16 +1,12 @@
 //! Telling a contributor what kelpie does to their branch once it is kelpie's
 //!
-//! After a release the contributor can still be watching. When red CI sends
-//! the worker a fix turn on their branch, the representative posts one comment
-//! saying kelpie is on it, once for each fix turn. The failed checks' names go
-//! to the call as facts, fenced as data since a workflow file names them. The
-//! comment is a courtesy: a call or a post that fails is told in the log and
-//! not tried again, and the fix turn never waits on it. It never promises a
-//! merge, which only the maintainer's ruling decides.
+//! When red CI sends the worker a fix turn, the representative posts one
+//! comment saying kelpie is on it, once per fix turn. The failed checks' names
+//! go to the call as facts, fenced as data. A failed call or post is logged and
+//! not retried, and the fix turn never waits on it. It never promises a merge.
 //!
-//! A push of the contributor's after the release is no case of its own: it
-//! moves the head kelpie knew, and the gate raises the foreign-change ruling
-//! as it does for any adopted pull request.
+//! A contributor's push after the release moves the head, and the gate raises
+//! the foreign-change ruling as for any adopted pull request.
 
 use super::super::Runner;
 use super::super::representative::Post;

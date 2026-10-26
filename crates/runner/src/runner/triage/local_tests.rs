@@ -8,6 +8,7 @@ use serde_json::{Value, json};
 use super::ask_tests::{
     A_WORDS, ASK_WORDS, asked, filed, filed_before, posted, record, settled, settled_ready, wrote,
 };
+use super::marker::MARKER;
 use super::pick_tests::{MAINTAINER, issue, list};
 use super::research_tests::{calls, moves, nothing, reply, restart};
 use crate::ports::{OpenIssue, Role};
@@ -233,6 +234,25 @@ fn an_edited_outside_issue_ends_needs_triage() {
     let held = record(&rig, &runner);
     assert_eq!(held["step"], "done");
     assert!(held.get("local").is_none(), "{held}");
+}
+
+#[test]
+fn the_pass_that_reads_a_rewritten_outside_body_mentions_the_maintainer() {
+    let (rig, runner) = filed("pick = \"all\"", "newcomer", asked_with_files());
+    local_round(&rig, &runner);
+
+    list(&rig, rewritten(&rig, "newcomer", EDITED));
+    rig.claude.script_for(Role::Triager, [reply(settled())]);
+    rig.claude
+        .script_for(Role::Representative, [Scripted::Say(A_WORDS)]);
+    rig.next_look();
+    assert_eq!(step(&runner).unwrap(), None);
+
+    let comments = posted(&rig);
+    assert_eq!(comments.len(), 2);
+    assert!(!comments[0].contains("cc @"), "the ask mentions no one");
+    let mention = format!("{A_WORDS}\n\ncc @{MAINTAINER}\n\n{MARKER}");
+    assert_eq!(comments[1], mention);
 }
 
 #[test]

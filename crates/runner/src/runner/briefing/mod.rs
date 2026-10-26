@@ -26,7 +26,7 @@ use crate::ticket::TicketId;
 use crate::work_item::{Phase, ReviewStage, Seat, Turn, WorkItem};
 
 mod events;
-mod git;
+pub(in crate::runner) mod git;
 pub(in crate::runner) mod patch;
 
 #[cfg(test)]
@@ -446,6 +446,7 @@ impl Runner {
             events,
             woken_before: self.state.pm_seen.is_some(),
             dropped,
+            behind: answers.behind,
             conflicts: answers.merges,
         }
     }
@@ -519,6 +520,12 @@ impl Runner {
         }
     }
 
+    /// The digest of `ticket`'s text as the board last read it, if it is ready
+    pub(super) fn ready_text(&self, ticket: TicketId) -> Option<String> {
+        let (_, ready) = self.brief.ready.as_ref()?;
+        Some(ready.iter().find(|i| i.ticket == ticket)?.fingerprint())
+    }
+
     /// The ready issues as last read, none of them open, in the order the
     /// board takes them
     pub(super) fn ready_in_order(&self) -> Vec<ReadyIssue> {
@@ -547,8 +554,9 @@ impl Runner {
                     let (text, quoted) = passed_over(s, &|text| self.shown(text));
                     (Some(text), quoted)
                 });
-                if waits.is_none() && self.pm_held().contains(&issue.ticket) {
-                    waits = Some("held by you until an open work item closes".to_owned());
+                let held = self.pm_held().iter().find(|h| h.issue == issue.ticket);
+                if let Some(held) = held.filter(|_| waits.is_none()) {
+                    waits = Some(format!("held by you {}", held.waits()));
                 }
                 let named = self.brief.named.get(&issue.ticket);
                 ReadyLine {
@@ -634,6 +642,8 @@ pub(super) fn passed_over(skip: &Skip, shown: &dyn Fn(String) -> String) -> (Str
             format!("has no `agent:` label, and waits on ruling {id}"),
             true,
         ),
+        Skip::Paced { hold, .. } => (format!("held by the pacer: {hold}"), true),
+        Skip::PmWaits { .. } => ("the project manager's pick waits".into(), true),
         Skip::Rework { error, .. } | Skip::Adopt { error, .. } => {
             (shown(events::quote(error)), true)
         }

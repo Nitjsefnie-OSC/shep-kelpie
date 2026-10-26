@@ -1,20 +1,13 @@
 //! The board: which ready issue becomes the next work item
 //!
-//! The board's input is the project's open issues labelled `ready-for-agent`.
-//! The board keeps them in an order and dispatches the first that is free. A
-//! newly ready issue joins it after the last issue of its priority: `priority: P0`,
-//! then `P1`, `P2`, `P3`, `P4`, then an issue with no priority label, and within a
-//! priority the oldest first, by ticket id. An issue whose priority label
-//! changes moves the same way. An issue that closes or loses the label leaves
-//! it. An issue that already
-//! has an open pull request or an assignee is someone's work in progress, and
-//! is skipped. So is one whose `agent:` label names no implementer kelpie
-//! has an agent file for, since kelpie would not know which agent to run it
-//! on. An issue waits while any issue it is blocked by is open, even one with
-//! a pull request. An issue the runner picks but cannot take, because the forge
-//! cannot show it or its `agent:` label fails when `add` reads it, is skipped
-//! too, so it cannot stall the issues behind it. An issue with sub-issues is
-//! never worked itself: its sub-issues are.
+//! The board keeps the project's open `ready-for-agent` issues in an order and
+//! dispatches the first that is free. A newly ready issue joins after the last
+//! issue of its priority: `priority: P0` to `P4`, then none, and oldest first
+//! by ticket id within a priority. An issue that closes or loses the label
+//! leaves. One with an open pull request or an assignee is skipped, as is one
+//! whose `agent:` label names no implementer kelpie has a file for, or that
+//! the runner cannot take. An issue waits while a blocker is open, and one
+//! with sub-issues is never worked itself.
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -235,6 +228,19 @@ pub enum Skip {
         #[serde(skip_serializing_if = "Option::is_none")]
         ruling: Option<TicketId>,
     },
+    /// The pacer holds every new work item, this pick among them
+    Paced {
+        /// The ticket
+        issue: TicketId,
+        /// The pacer's reading of the hold
+        hold: String,
+    },
+    /// The project manager is deciding, or said to start nothing, so this
+    /// pick waits
+    PmWaits {
+        /// The ticket
+        issue: TicketId,
+    },
     /// An adopted pull request that could not start this poll, and still waits
     Adopt {
         /// The pull request
@@ -264,7 +270,9 @@ impl Skip {
             | Self::Rework { issue, .. }
             | Self::Overlap { issue, .. }
             | Self::PathsUnread { issue, .. }
-            | Self::Unlabelled { issue, .. } => Some(*issue),
+            | Self::Unlabelled { issue, .. }
+            | Self::Paced { issue, .. }
+            | Self::PmWaits { issue } => Some(*issue),
             Self::Adopt { .. } => None,
         }
     }
@@ -286,20 +294,11 @@ pub struct Pick {
 /// Picks the ready issue that nobody is working on, first in `order`
 ///
 /// `order` is the order the board keeps. An issue it omits comes after those
-/// it lists, highest priority first and oldest first within a priority.
-///
-/// A ready issue labelled `in-progress` is passed over as held by an earlier
-/// worker. The caller drops the issues its own work items hold before it asks,
-/// so only an issue it does not hold reaches this check.
-///
-/// `finished` lists the issues whose work items kelpie already finished. The
-/// forge can still list one as open and ready for a while after its pull
-/// request merges, so the board never takes one again.
-///
-/// `dropped` lists the issues whose work items ended with no merged pull
-/// request. The board leaves one be while the forge lists it. The runner
-/// forgets one once the forge no longer lists it or its text changes, so a
-/// label put back or an edit returns it.
+/// it lists, highest priority first and oldest first within a priority. An
+/// `in-progress` issue is held by an earlier worker and passed over.
+/// `finished` lists issues whose work items are done, which the forge may
+/// still list as ready. `dropped` lists those that ended with no merged pull
+/// request, until the forge stops listing one or its text changes.
 pub fn pick(
     ready: &[ReadyIssue],
     open: &[OpenPullRequest],
@@ -398,6 +397,28 @@ pub fn repo_priority<'a>(repo: &'a [String], value: &str) -> Option<&'a str> {
     repo_label(repo, &format!("{PRIORITY_LABEL}{value}")).or_else(|| repo_label(repo, value))
 }
 
+// The position in [`PRIORITIES`] of the priority `label` names, as the board's
+// `priority: P2` or the bare `P2`, in any case
+fn priority_index(label: &str) -> Option<usize> {
+    PRIORITIES.iter().position(|p| {
+        let bare = p.strip_prefix(PRIORITY_LABEL).unwrap_or(p);
+        label.eq_ignore_ascii_case(p) || label.eq_ignore_ascii_case(bare)
+    })
+}
+
+/// Whether `label` names a priority, as the board's `priority: P2` or the bare
+/// `P2`, in any case
+#[must_use]
+pub fn is_priority_label(label: &str) -> bool {
+    priority_index(label).is_some()
+}
+
+/// Whether `a` and `b` name the same priority, whichever form each is in
+#[must_use]
+pub fn same_priority(a: &str, b: &str) -> bool {
+    priority_index(a).is_some_and(|index| priority_index(b) == Some(index))
+}
+
 /// Sorts `ready` into the board's order: `order` first, then an issue it
 /// omits by the board rule, which is priority, then oldest by id
 pub fn rule_order(ready: &mut [ReadyIssue], order: &[TicketId]) {
@@ -408,17 +429,14 @@ pub fn rule_order(ready: &mut [ReadyIssue], order: &[TicketId]) {
 /// its id, so a changed label is seen
 pub type Ranked = BTreeMap<TicketId, usize>;
 
-/// The order and the ranks on record after a read of the board that listed
-/// `ready`, given those before it
+/// The order and the ranks on record after a read of the board that listed `ready`, given those before it
 ///
-/// An issue the forge no longer lists, because it closed or lost
-/// `ready-for-agent`, leaves the order. A newly ready issue goes after the
-/// last issue of its priority that the order holds, wherever the maintainer
-/// put it, or before every issue of a lower priority when it holds none. An
-/// issue whose priority label changed since `ranked` has it moves the same
-/// way, as if it were new. Several moves go in oldest first. An issue with no
-/// rank on record keeps its place. With no order kept, the result is the board
-/// rule's order.
+/// An issue the forge no longer lists leaves the order. A newly ready issue
+/// goes after the last issue of its priority that the order holds, or before
+/// every issue of a lower priority when it holds none. One whose priority
+/// label changed since `ranked` has it moves the same way, oldest first. An
+/// issue with no rank on record keeps its place. With no order kept, the
+/// result is the board rule's order.
 pub fn keep_order(
     order: &[TicketId],
     ranked: &Ranked,

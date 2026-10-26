@@ -12,7 +12,6 @@ mod claude;
 mod codex;
 mod goose;
 mod line;
-mod locate;
 mod log;
 mod pi;
 mod tail;
@@ -23,6 +22,7 @@ mod tests;
 use std::path::PathBuf;
 
 use crate::ticket::TicketId;
+use crate::transcripts;
 use jiff::tz::TimeZone;
 use jiff::{Span, Timestamp};
 
@@ -46,28 +46,24 @@ pub(crate) fn said_in(format: Format, line: &str) -> Vec<Said> {
     }
 }
 
-/// The file the `session` of `format` wrote its transcript in, once it has,
-/// searched for in `folder` as `threads` says
-pub fn session_file(
-    format: Format,
-    session: &str,
-    folder: PathBuf,
-    threads: Option<PathBuf>,
-    at: Timestamp,
-) -> Option<PathBuf> {
-    locate::find(&Started::of(format, session, folder, threads, at))
+// The file the session `started` names wrote its transcript in, once it has
+fn find(started: &Started) -> Option<PathBuf> {
+    transcripts::find(
+        started.format,
+        &started.session,
+        &started.folder,
+        started.threads.as_deref(),
+        started.at,
+    )
 }
 
-/// Each of the `wanted` sessions the steps file `steps` names a call starting
-/// in, by session id, with its transcript's format and the file it wrote, for
-/// those whose file exists
+/// Each of the `wanted` sessions the steps file `steps` names a call starting in, by session id
 ///
-/// Only a wanted session's file is looked for, as a locator may list a whole
-/// folder.
-///
-/// A session logged more than once, as a resumed one is, keeps its first
-/// step's folder. A goose call is left out: its stdout file holds no whole
-/// session.
+/// Each comes with its transcript's format and the file it wrote, for those
+/// whose file exists. Only a wanted session's file is looked for, as a locator
+/// may list a whole folder. A session logged more than once, as a resumed one
+/// is, keeps its first step's folder. A goose call is left out: its stdout
+/// file holds no whole session.
 pub fn transcripts_of(
     steps: &str,
     wanted: &std::collections::BTreeSet<String>,
@@ -86,7 +82,7 @@ pub fn transcripts_of(
         }
         let format = started.format;
         let session = started.session.clone();
-        if let Some(file) = locate::find(&started) {
+        if let Some(file) = find(&started) {
             found.insert(session, (format, file));
         }
     }
@@ -148,7 +144,7 @@ impl Session {
     // New lines, attributed, once the transcript exists.
     fn read(&mut self) -> Vec<(Event, String)> {
         if self.tail.is_none() {
-            self.tail = locate::find(&self.started).map(Tail::from_start);
+            self.tail = find(&self.started).map(Tail::from_start);
         }
         let Some(tail) = &mut self.tail else {
             return Vec::new();
@@ -193,7 +189,7 @@ impl Watch {
             // Only what is written from now on, to every transcript there is.
             found.clear();
             for session in &mut watch.sessions {
-                session.tail = locate::find(&session.started).map(Tail::at_end);
+                session.tail = find(&session.started).map(Tail::at_end);
             }
         } else {
             found.extend(watch.read_recent(back));
@@ -281,12 +277,7 @@ impl Watch {
             .sessions
             .iter()
             .enumerate()
-            .map(|(n, s)| {
-                (
-                    locate::find(&s.started).and_then(|f| locate::written(&f)),
-                    n,
-                )
-            })
+            .map(|(n, s)| (find(&s.started).and_then(|f| transcripts::written(&f)), n))
             .collect();
         order.sort_by(|a, b| b.cmp(a));
         let mut found: Vec<(Event, String)> = Vec::new();
@@ -295,7 +286,7 @@ impl Watch {
             let session = &mut self.sessions[n];
             if enough.is_some_and(|enough| written.is_none_or(|w| w < enough)) {
                 // Not read, and not to be read later either.
-                session.tail = locate::find(&session.started).map(Tail::at_end);
+                session.tail = find(&session.started).map(Tail::at_end);
                 continue;
             }
             found.extend(session.read());

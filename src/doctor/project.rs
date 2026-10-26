@@ -406,7 +406,7 @@ fn implementers(subject: String, settings: &Settings, paths: &ProjectPaths) -> (
         Ok(_) if !skipped.is_empty() => Line::unsure(
             subject,
             skipped.join("; "),
-            "rename it to the agent's name, or move it out of kelpie's `agents` folder",
+            "correct or rename the file it names, or move it out of kelpie's `agents` folder",
         ),
         Ok(roles) if roles.implementers.len() > 1 => Line::ok(
             subject,
@@ -425,7 +425,7 @@ fn implementers(subject: String, settings: &Settings, paths: &ProjectPaths) -> (
         Err(e) => Line::missing(
             subject,
             e.to_string(),
-            "write the agent file it names, or correct `agents.implementers`",
+            "write or correct the agent file it names, or correct `agents.implementers`",
         ),
     };
     (book, line)

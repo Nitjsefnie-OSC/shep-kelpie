@@ -6,7 +6,10 @@
 //! item's first turn that waited `agents.fallback_after` is stopped and moves
 //! to the next implementer listed that no other item waits on. It has no
 //! session yet, so nothing is lost. A later turn, one pinned by a `!` label,
-//! or one whose own agent the project does not list, never moves.
+//! or one whose own agent the project does not list, never moves. A new work
+//! item opens on the next free one when its label's model has a queue.
+
+use std::collections::BTreeMap;
 
 use serde::Serialize;
 
@@ -14,7 +17,7 @@ use super::super::Runner;
 use super::super::report::{ReviewCall, StepReport};
 use super::Launch;
 use crate::ports::{AgentError, AgentReply, CallActivity, SessionId, Timestamp, Wait};
-use crate::settings::{AgentName, GatewayName, LocalRound, ModelHost};
+use crate::settings::{AgentName, GatewayKind, GatewayName, LocalRound, ModelHost};
 use crate::state::StateError;
 use crate::ticket::TicketId;
 use crate::work_item::{Turn, WorkItem, new_session_id};
@@ -88,7 +91,33 @@ impl Runner {
             let since = flight.watched.told.map_or(now, |(since, _)| since);
             flight.watched.told = Some((since, wait));
         }
+        self.model_leases();
         self.board_changed();
+    }
+
+    // Sets each model's gauges of the calls waiting for, and holding, a lease on it. A model
+    // whose calls have all ended is set to 0 rather than left at its last count.
+    pub(in crate::runner) fn model_leases(&mut self) {
+        let mut standing: BTreeMap<&str, (usize, usize)> = BTreeMap::new();
+        for flight in self.flights.flying.values() {
+            let Some((_, model)) = &flight.watched.lease else {
+                continue;
+            };
+            let (held, waiting) = standing.entry(model).or_default();
+            match (flight.watched.told, flight.watched.granted) {
+                (Some(_), _) => *waiting += 1,
+                (None, Some(_)) => *held += 1,
+                (None, None) => {}
+            }
+        }
+        for model in &self.flights.leased_models {
+            standing.entry(model).or_default();
+        }
+        for (model, (held, waiting)) in &standing {
+            self.metrics.model_lease_standing(model, *held, *waiting);
+        }
+        let named = standing.keys().map(|model| (*model).to_owned()).collect();
+        self.flights.leased_models = named;
     }
 
     // Seconds a turn shows nothing before it is marked waiting.
@@ -169,6 +198,54 @@ impl Runner {
         !item.pinned && self.agents.implementer(&item.agent).is_some()
     }
 
+    // The implementer a new work item for `ticket`, labelled for `from`, opens on
+    // instead: `None` while `agents.fallback_after` is off, or no first turn of
+    // this runner waits on `from`'s model and its gateway has no queue, or
+    // `next_free` finds none. A silent turn never counts.
+    pub(in crate::runner) fn opens_elsewhere(
+        &self,
+        ticket: TicketId,
+        from: &AgentName,
+    ) -> Option<AgentName> {
+        self.settings.agents.fallback_after?;
+        let waits_on_from = (self.state.work_items.iter())
+            .filter(|item| item.agent == *from)
+            .filter(|item| {
+                self.flights
+                    .flying
+                    .get(&item.issue)
+                    .is_some_and(|f| f.first)
+            })
+            .filter_map(|item| self.model_wait(item.issue))
+            .any(|waiting| matches!(waiting.why, Wait::Lease | Wait::Busy));
+        if !waits_on_from && !self.gateway_queued(from) {
+            return None;
+        }
+        self.next_free(ticket, from)
+    }
+
+    // A failed read leaves the implementer available, as a gateway without leases does.
+    fn gateway_queued(&self, name: &AgentName) -> bool {
+        let Some(agent) = self.agents.implementer(name) else {
+            return false;
+        };
+        let Some(server) = agent.model.harness.server() else {
+            return false;
+        };
+        let ModelHost::Gateway(gateway) = &server.host else {
+            return false;
+        };
+        // parity: gateway.lease-availability
+        if self.gateways.get(gateway).map(|g| g.kind) != Some(GatewayKind::Paddock) {
+            return false;
+        }
+        self.gateways.upstream(&server.host).ok().is_some_and(|up| {
+            self.ports
+                .local_leases
+                .paddock_queued(&up, agent.model.model.as_str())
+        })
+    }
+
     // The implementer listed after `from` that no other turn waits on, or
     // is moving to.
     fn next_free(&self, ticket: TicketId, from: &AgentName) -> Option<AgentName> {
@@ -185,7 +262,7 @@ impl Runner {
         let busy: Vec<&AgentName> = waited_on.chain(moving_to).collect();
         listed[after..]
             .iter()
-            .find(|name| !busy.contains(name))
+            .find(|name| !busy.contains(name) && !self.gateway_queued(name))
             .cloned()
     }
 

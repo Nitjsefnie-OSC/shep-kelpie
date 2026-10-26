@@ -1,14 +1,11 @@
-//! The triager's research call on an issue: what it is asked, and how its
-//! reply is read
+//! The triager's research call on an issue: its prompt and how its reply is read
 //!
-//! The call has no network, so the prompt carries what it needs of the
-//! forge: the issue, the open issues' numbers and titles, and the open pull
-//! requests with the issues each body says it closes, so the triager can
-//! tell one that already covers this issue. All of it is text from outside
-//! and goes in fenced as data. The reply is one JSON object, and kelpie's
-//! code keeps only what it can check: a related number the listing holds,
-//! a file the view holds, and an `addressed_by` the forge still agrees to
-//! ([`super::addressed`]).
+//! The call has no network, so the prompt carries what it needs of the forge:
+//! the issue, the open issues' numbers and titles, and the open pull requests
+//! with the issues each body says it closes. All of it is outside text and goes in
+//! fenced as data. The reply is one JSON object, and kelpie's code keeps only
+//! what it can check: a related number the listing holds, a file the view holds,
+//! and an `addressed_by` the forge still agrees to ([`super::addressed`]).
 
 use std::collections::BTreeSet;
 use std::path::{Component, Path};
@@ -124,6 +121,38 @@ struct Said {
     kind: String,
     #[serde(default)]
     why: String,
+}
+
+/// Why the triager's text is no reply
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(in crate::runner) enum Unread {
+    /// The text holds no JSON object, which a repair cannot mend
+    NoObject,
+    /// The object is not the shape asked for, with the parser's words, which a
+    /// repair is given
+    NotTriage(String),
+}
+
+impl core::fmt::Display for Unread {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::NoObject => f.write_str("its reply holds no JSON object"),
+            Self::NotTriage(why) => write!(f, "its reply is no triage: {why}"),
+        }
+    }
+}
+
+impl core::error::Error for Unread {}
+
+/// What the triager is asked when its reply was no triage: the parser's words,
+/// and the object again, alone
+pub(in crate::runner) fn repair_prompt(why: &str) -> String {
+    format!(
+        "Your reply could not be read as the JSON object asked for: {why}. Reply again with \
+         the corrected object, exactly one JSON object in the same shape and nothing else. \
+         Keep every value you found, and change only what the error points at. Research \
+         nothing again."
+    )
 }
 
 /// The question a `P0` becomes, since kelpie never sets it
@@ -291,7 +320,8 @@ pub(super) fn prompt(
 /// # Errors
 ///
 /// Why the text is no reply: it holds no JSON object, or the object is not
-/// the shape asked for.
+/// the shape asked for, in which case [`Unread::NotTriage`] holds the
+/// parser's words.
 pub(in crate::runner) fn read_reply(
     text: &str,
     issue: u64,
@@ -299,11 +329,10 @@ pub(in crate::runner) fn read_reply(
     view: &Path,
     asking: (usize, AuthorRole),
     notes: &Notes,
-) -> Result<Found, String> {
+) -> Result<Found, Unread> {
     let (most, role) = asking;
-    let json = object_in(text).ok_or("its reply holds no JSON object")?;
-    let reply: Reply =
-        serde_json::from_str(json).map_err(|e| format!("its reply is no triage: {e}"))?;
+    let json = object_in(text).ok_or(Unread::NoObject)?;
+    let reply: Reply = serde_json::from_str(json).map_err(|e| Unread::NotTriage(e.to_string()))?;
     let mut questions = Vec::new();
     // The urgency question of anyone but the maintainer comes after the
     // triager's own, so the cap drops it first, and names no label

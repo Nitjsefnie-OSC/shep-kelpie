@@ -68,7 +68,9 @@ fn a_codex_session_for_the_terminal_resumes_in_the_workers_sandbox() {
     let command = codex.foreground(&call).unwrap();
 
     let args = args_of(&command);
-    assert_eq!(command.get_program(), "codex");
+    assert_eq!(command.get_program(), "env");
+    let at = args.iter().position(|a| a == "codex").unwrap();
+    let args = args[at + 1..].to_vec();
     assert_eq!(args[0], "resume");
     assert_eq!(args[args.len() - 2..], ["--", THREAD]);
     let pair = |a: &str, b: &str| args.windows(2).any(|w| w == [a, b]);

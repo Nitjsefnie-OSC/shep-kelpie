@@ -1,21 +1,13 @@
 //! Restarting the dog and each runner onto the installed build
 //!
-//! One sheep at a time, the dog first: every runner asks it for leases, so it
-//! is back before any runner goes down. A runner is restarted only when its
-//! `status` shows no merge in flight, and the dog only when no runner has
-//! one. A runner that does not answer `status` is not a runner with no merge:
-//! it is waited on, and named if the wait runs out. A sheep that is stopped
-//! stays stopped: it starts on the new build.
-//!
-//! A runner that is running but silent after its restart does not hold the
-//! runners after it back: they are restarted first, and it is asked again.
-//!
-//! Unless the upgrade was asked to restart at once, each runner is drained
-//! before its merge wait ([`super::drain`]), so its restart cuts no call
-//! short. The dog is never drained, since the calls are the runners'.
-//!
-//! The installed kelpie is the program the adopted dog runs, and every sheep
-//! restarted must run that same path, or the restart would not move it.
+//! One sheep at a time, the dog first: every runner asks it for leases. A
+//! runner is restarted only when its `status` shows no merge in flight, and the
+//! dog only when no runner has one. A runner that does not answer `status` is
+//! waited on and named if the wait runs out. A stopped sheep stays stopped.
+//! A silent runner after its restart does not hold the others back: it is
+//! asked again after them. Unless asked to restart at once, each runner is
+//! drained first ([`super::drain`]). The dog is never drained. Every sheep
+//! restarted must run the adopted dog's path, or the restart moves nothing.
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -202,21 +194,17 @@ impl Plan {
 /// Restarts the dog and each running runner, saying what it does through `say`
 ///
 /// With `keep_calls`, each runner is handed over to the installed build. One
-/// that refuses, predates the handover or does not show the build in time is
-/// drained before its merge wait, and sent `undrain` if it is not restarted
-/// after all: on a failure, or when `interrupt` comes while it is drained.
+/// that refuses, predates the handover or is slow to show the build is drained
+/// before its merge wait, and sent `undrain` if not restarted after all.
 ///
 /// # Errors
 ///
 /// A message naming the sheep that could not be restarted, did not come back,
-/// or kept a merge in flight, or would not say whether it had one, for longer
-/// than `patience.merge`, or a drained runner that kept a call running past
-/// its ceiling and `patience.margin`, or the interrupt that stopped it. A
-/// runner that stopped after its restart, or that answers no `status` in
-/// `patience.start` then again in `patience.start` once the others are
-/// restarted, is named after them; the dog is named at once. The sheep
-/// restarted before it are on the new build, and running the upgrade again
-/// finishes the rest.
+/// kept a merge in flight past `patience.merge`, or would not say whether it
+/// had one; a drained runner that kept a call past its ceiling and
+/// `patience.margin`; or the interrupt. A runner silent after its restart is
+/// named after the others, the dog at once. Sheep restarted before it are on
+/// the new build, and running the upgrade again finishes the rest.
 pub async fn restart_all(
     client: &dyn Connection,
     plan: &Plan,

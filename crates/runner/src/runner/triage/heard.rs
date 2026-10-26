@@ -1,24 +1,13 @@
 //! Hearing the author's answers while a triage waits on them
 //!
-//! [`Runner::hear_triage`] runs on the comments a thread read found, next to
-//! the rulings' hearing in [`super::super::thread_replies`]. It looks only at
-//! issues whose triage record says the wait is open, and only at what the
-//! issue's own author wrote on that issue after the triage comment went up, by
-//! login ignoring case. A bot's comment, kelpie's own post and anyone else's
-//! words are dropped: they are not an answer.
-//!
-//! Whatever the author wrote is their answers, with no word to read in it: a
-//! comment that opens with `github` or answers nothing the questions asked
-//! still starts the second pass, which reads it against the questions and asks
-//! again only what it left unsettled. The author's comments are kept in the
-//! pass until the second call is made with them. Silence `triage.wait_days`
-//! after the comment ends the wait as `none` does, with nothing posted, unless
-//! the comment holds a prompt: [`Runner::watch_local_waits`] ends that one,
-//! since the author's session may have rewritten the body instead. A wait
-//! the prompt is on, with no questions, is not heard from at all: its author
-//! answers it by rewriting the issue body. An issue kelpie has given up on
-//! after five failures is not heard from either, as no other part of triage
-//! tries it again until kelpie restarts.
+//! [`Runner::hear_triage`] runs on the comments a thread read found. It looks
+//! only at issues whose triage record says the wait is open, and only at what the
+//! issue's own author wrote there after the triage comment, by login ignoring case.
+//! Whatever the author wrote is their answers, with no word to read in it: it
+//! starts the second pass, which asks again only what it left unsettled.
+//! Silence `triage.wait_days` ends the wait as `none` does, unless the comment
+//! holds a prompt: [`Runner::watch_local_waits`] ends that one. A wait on a prompt
+//! with no questions is not heard from, nor is an issue given up on after failures.
 
 use super::super::Runner;
 use super::super::thread_replies::plain_login;

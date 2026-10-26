@@ -13,6 +13,7 @@ mod mcp;
 mod project;
 mod registries;
 mod rulings;
+mod unbound;
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -212,11 +213,10 @@ pub async fn check(shep_home: &Path, probes: Probes<'_>, here: Here<'_>, ask: As
                 Ok::<_, String>((tables, section))
             };
             let read = read.await;
-            // The sandbox fix is fitted to what the projects this run covers
-            // plan to run: only a project with the browser on and a launch
-            // file on its base branch gets a dev server that binds a local
-            // port, and on Windows only an `--allow-loopback` install can
-            // hold one.
+            // The sandbox fix is fitted to the projects this run covers: only
+            // one with the browser on and a launch file on its base branch
+            // binds a local port, and on Windows only an `--allow-loopback`
+            // install can hold that.
             let listen = match &read {
                 Ok((tables, _)) => runs_a_dev_server(tables, ask, here),
                 Err(_) => false,
@@ -244,11 +244,10 @@ pub async fn check(shep_home: &Path, probes: Probes<'_>, here: Here<'_>, ask: As
     Report { lines }
 }
 
-// Whether a project this run of doctor covers plans a dev server that binds
-// a local port: the browser is on, and the base branch has a launch file with
-// at least one configuration, which is what the runner plans a server from
-// (`runner/dev_server/launch/`). A file that is missing, malformed or empty
-// runs the turn without a server, so it listens on nothing.
+// Whether a project this run covers plans a dev server that binds a local
+// port: the browser is on and the base branch has a launch file with a
+// configuration (`runner/dev_server/launch/`). A missing, malformed or empty
+// file runs the turn without a server.
 fn runs_a_dev_server(
     tables: &BTreeMap<String, Map<String, Value>>,
     ask: Ask<'_>,
@@ -327,6 +326,7 @@ async fn projects(
         let gateways = kelpie.gateways();
         let listed = project::listed_reviewers(&tables, here, (&agents, &gateways));
         lines.extend(gateways::checks(&gateways, &agents, &listed));
+        lines.extend(unbound::checks(&agents, &folder));
     }
     if ask.test_alert {
         lines.push(rulings::test_alert(kelpie.as_ref(), probes.alerts));

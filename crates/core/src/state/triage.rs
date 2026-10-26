@@ -39,15 +39,14 @@ fn is_zero(n: &u64) -> bool {
     *n == 0
 }
 
-/// How many finished records are kept, the oldest going first. An issue whose
-/// record went is told apart from an untouched one by its `needs-triage` label
-/// and, if that is taken off, by the marker in its comments. The label alone
-/// does not say who put it on, so [`TriageState::pruned_through`] says which
-/// issue numbers kelpie may have triaged.
+/// How many finished triage records are kept, the oldest going first
 ///
-/// A record that closed an issue as a duplicate is kept past the count: the
-/// issue carries no `needs-triage` label, and the record is what keeps a
-/// reopened one out of the due list.
+/// An issue whose record went is told apart from an untouched one by its
+/// `needs-triage` label and, if that is taken off, by the marker in its
+/// comments. The label alone does not say who put it on, so
+/// [`TriageState::pruned_through`] says which issue numbers kelpie may have
+/// triaged. A duplicate-closing record is kept past the count: its issue has
+/// no label, and the record keeps a reopened one out of the due list.
 pub const TRIAGED_KEPT: usize = 200;
 
 /// How many of one issue's triage call times are kept, which is more than the
@@ -59,15 +58,13 @@ pub const TRIAGE_CALLS_KEPT: usize = 8;
 const BEFORE_PRUNED_THROUGH: u32 = 75;
 
 impl TriageState {
-    /// Drops the oldest finished records past [`TRIAGED_KEPT`], keeping every
-    /// one that closed an issue as a duplicate, and the records that hold a call
-    /// ahead of the ones that hold none
+    /// Drops the oldest finished records past [`TRIAGED_KEPT`], keeping duplicate-closers and records that hold a call
     ///
     /// The daily caps count the calls the records hold, so a record that holds
     /// one is all a cap can see. A limit's hold makes a record that holds none,
-    /// and a burst of them is what would otherwise push the counted records out
-    /// and free the cap partway through the burst it exists for. The calls kept
-    /// for an issue with no record are bounded the same way.
+    /// and a burst of them would otherwise push the counted records out and free
+    /// the cap partway through the burst it exists for. The calls kept for an
+    /// issue with no record are bounded the same way.
     pub fn prune(&mut self) {
         let finished = |t: &Triaged| {
             matches!(t.step, TriageStep::Done | TriageStep::Ready) && t.duplicate_of.is_none()
@@ -241,14 +238,13 @@ pub struct Triaged {
     /// Left out while empty.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub seen: Vec<String>,
-    /// The ask a kelpie that asked for a word (`github`, `local` or `none`)
-    /// saved while the triage waited on it. Kelpie no longer asks for a word:
-    /// the triage comment carries the questions, and the record holds
-    /// `questions` and `local`. A file saved before that still loads, and the
-    /// author's comment after this ask is read as the answers to the triage
-    /// comment.
+    /// The ask a kelpie that asked for a word (`github`, `local` or `none`) saved while triage waited on it
     ///
-    /// Left out unless a file saved before the change holds one.
+    /// Kelpie no longer asks for a word: the triage comment carries the
+    /// questions, and the record holds `questions` and `local`. A file saved before
+    /// that still loads, and the author's comment after this ask is read as the
+    /// answers to the triage comment. Left out unless a file saved before the
+    /// change holds one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub asked: Option<TriageAsked>,
     /// The triage comment that carries the questions for the author to answer,

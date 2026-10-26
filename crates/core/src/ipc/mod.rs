@@ -2,10 +2,8 @@
 //!
 //! The lease door, the bridges and the forwarders each listen at a socket path.
 //! This is the one place that path becomes a transport. The async half is
-//! shep's own (`shep_core::transport`), which also carries the shepherd's
-//! control socket, so kelpie's door and shep's speak the same way on each
-//! platform. [`blocking`] is the same for the threads that serve a bridge or a
-//! forwarder.
+//! shep's own (`shep_core::transport`), so kelpie's door and shep's speak the
+//! same way. [`blocking`] is the same for the threads serving a bridge.
 //!
 //! A socket path keeps naming the endpoint everywhere. On Windows [`address`]
 //! turns it into a pipe's name, so a path under one home never names the pipe

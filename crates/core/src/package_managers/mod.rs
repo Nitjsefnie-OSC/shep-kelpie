@@ -5,7 +5,7 @@
 //! (`worker.package_registries`), the dev server's install runs the manager
 //! whose lockfile the checkout keeps, and `doctor` names each manager it finds.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// A package manager, known by the files a project keeps for it
 #[derive(Debug, PartialEq, Eq)]
@@ -114,12 +114,11 @@ impl PackageManager {
     }
 }
 
-/// The package managers `worktree` keeps a lockfile or manifest for, in its root or in a
-/// folder directly under it, in the table's order
+/// `worktree` and the folders directly under it, where a project keeps its package files
 ///
 /// A folder one level down is read since a project often keeps its web app in one. A hidden
 /// folder and the ones in `SKIPPED` are not.
-pub fn found_in(worktree: &Path) -> Vec<&'static PackageManager> {
+pub fn folders(worktree: &Path) -> Vec<PathBuf> {
     let below = std::fs::read_dir(worktree)
         .into_iter()
         .flatten()
@@ -131,7 +130,13 @@ pub fn found_in(worktree: &Path) -> Vec<&'static PackageManager> {
         })
         .map(|entry| entry.path())
         .filter(|path| path.is_dir());
-    let folders: Vec<_> = std::iter::once(worktree.to_owned()).chain(below).collect();
+    std::iter::once(worktree.to_owned()).chain(below).collect()
+}
+
+/// The package managers `worktree` keeps a lockfile or manifest for, in its root or in a
+/// folder directly under it, in the table's order
+pub fn found_in(worktree: &Path) -> Vec<&'static PackageManager> {
+    let folders = folders(worktree);
     MANAGERS
         .iter()
         .filter(|m| folders.iter().any(|folder| m.kept_in(folder)))

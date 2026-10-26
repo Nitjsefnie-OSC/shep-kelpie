@@ -105,6 +105,9 @@ pub(super) struct Reading {
     /// The edit of a settled ruling's comment that failed, by ruling, tried
     /// again after a wait that doubles until it is given up
     unedited: BTreeMap<TicketId, settled::Unedited>,
+    /// The rulings whose comment is being posted, each with the first line of
+    /// the edit it is owed when it was settled meanwhile
+    posting: BTreeMap<TicketId, Option<String>>,
     /// The rulings the panel decided while they are watched, as they stood
     /// when they were decided, so a `no <note>` can reopen one
     decided: BTreeMap<TicketId, Ruling>,

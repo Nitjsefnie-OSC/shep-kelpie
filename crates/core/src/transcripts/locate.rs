@@ -5,33 +5,42 @@ use std::time::SystemTime;
 
 use jiff::Timestamp;
 
-use super::log::{Format, Started};
+use crate::watch::Format;
 
 /// How deep under its `sessions` folder Codex keeps a rollout: year, month, day
 const CODEX_DEPTH: usize = 3;
 
-/// The transcript file of the session `started` names, once the harness has
-/// written it
-pub(super) fn find(started: &Started) -> Option<PathBuf> {
-    match started.format {
+/// The transcript file of `session`, once the harness has written it, searched
+/// for in `folder` as `threads` says
+///
+/// `at` is when the session's call began, which a Codex call that kelpie has
+/// no thread of yet is told by.
+pub fn find(
+    format: Format,
+    session: &str,
+    folder: &Path,
+    threads: Option<&Path>,
+    at: Timestamp,
+) -> Option<PathBuf> {
+    match format {
         // Named for the session, from the id kelpie gave it.
         Format::Claude => {
-            let file = started.folder.join(format!("{}.jsonl", started.session));
+            let file = folder.join(format!("{session}.jsonl"));
             file.is_file().then_some(file)
         }
         // Named `<time>_<session>.jsonl` when pi first writes it.
         Format::Pi => {
-            let suffix = format!("_{}.jsonl", started.session);
-            files(&started.folder, 0).into_iter().find(|file| {
+            let suffix = format!("_{session}.jsonl");
+            files(folder, 0).into_iter().find(|file| {
                 (file.file_name().and_then(|n| n.to_str())).is_some_and(|n| n.ends_with(&suffix))
             })
         }
-        Format::Codex => codex(started),
+        Format::Codex => codex(session, folder, threads, at),
         // The logged folder is the call's goose root, `<stem>.goose`, and the
         // call's stdout file is `<stem>.stdout.jsonl`. Every call at one
         // settings path writes the same file, emptied as each starts.
         Format::Goose => {
-            let file = started.folder.with_extension("stdout.jsonl");
+            let file = folder.with_extension("stdout.jsonl");
             file.is_file().then_some(file)
         }
     }
@@ -40,8 +49,7 @@ pub(super) fn find(started: &Started) -> Option<PathBuf> {
 // Codex names a rollout for its own thread. Kelpie keeps which thread each
 // of its session ids is once the first call ends. Until then, a rollout no
 // session claims, written since this one began, is its.
-fn codex(started: &Started) -> Option<PathBuf> {
-    let threads = started.threads.as_deref();
+fn codex(session: &str, folder: &Path, threads: Option<&Path>, at: Timestamp) -> Option<PathBuf> {
     let claimed = |dir: &Path| -> Vec<(String, String)> {
         let Ok(entries) = std::fs::read_dir(dir) else {
             return Vec::new();
@@ -58,20 +66,12 @@ fn codex(started: &Started) -> Option<PathBuf> {
             .collect()
     };
     let claims = threads.map(claimed).unwrap_or_default();
-    let rollouts = files(&started.folder, CODEX_DEPTH);
-    let named = |thread: &str| {
-        let suffix = format!("-{thread}.jsonl");
-        rollouts.iter().find(|file| {
-            (file.file_name().and_then(|n| n.to_str())).is_some_and(|n| n.ends_with(&suffix))
-        })
-    };
-    if let Some((_, thread)) = claims
-        .iter()
-        .find(|(session, _)| *session == started.session)
-    {
+    let rollouts = files(folder, CODEX_DEPTH);
+    let named = |thread: &str| in_rollouts(&rollouts, thread);
+    if let Some((_, thread)) = claims.iter().find(|(claimed, _)| claimed == session) {
         return named(thread).cloned();
     }
-    let since = SystemTime::from(started.at);
+    let since = SystemTime::from(at);
     rollouts
         .iter()
         .filter(|file| {
@@ -85,6 +85,19 @@ fn codex(started: &Started) -> Option<PathBuf> {
         })
         .max()
         .map(|(_, file)| file.clone())
+}
+
+/// The rollout of Codex thread `thread`, searched for under its `sessions` folder
+pub fn codex_rollout(sessions: &Path, thread: &str) -> Option<PathBuf> {
+    in_rollouts(&files(sessions, CODEX_DEPTH), thread).cloned()
+}
+
+// A rollout is named `rollout-<time>-<thread>.jsonl`.
+fn in_rollouts<'a>(rollouts: &'a [PathBuf], thread: &str) -> Option<&'a PathBuf> {
+    let suffix = format!("-{thread}.jsonl");
+    rollouts.iter().find(|file| {
+        (file.file_name().and_then(|n| n.to_str())).is_some_and(|n| n.ends_with(&suffix))
+    })
 }
 
 // Every `.jsonl` file under `dir`, down `depth` more folders
@@ -104,7 +117,7 @@ fn files(dir: &Path, depth: usize) -> Vec<PathBuf> {
 }
 
 /// When the file at `path` was last written
-pub(super) fn written(path: &Path) -> Option<Timestamp> {
+pub fn written(path: &Path) -> Option<Timestamp> {
     let modified = std::fs::metadata(path).and_then(|m| m.modified()).ok()?;
     Timestamp::try_from(modified).ok()
 }

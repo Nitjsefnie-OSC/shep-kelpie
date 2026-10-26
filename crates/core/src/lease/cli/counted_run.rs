@@ -3,9 +3,7 @@
 //! The command's process tree inherits the connection, so the lease stays
 //! held until the last of it exits, however this process ends. When the
 //! command ends, this process shuts the connection for every holder. A dog
-//! that goes away is asked again once it is back: a waiting run asks
-//! afresh, and a running one asks to be counted. A connection made on such
-//! a rejoin is this process's alone, since the command already runs.
+//! that is back is asked again: a waiting run afresh, a running one to be counted.
 //!
 //! A command that runs past its bound, counted from the grant and not from
 //! the wait in the queue, is ended with everything it started, so one hung
@@ -132,10 +130,9 @@ struct Rejoin<'a> {
 }
 
 // Waits for `child`, which leads its own tree, until it ends or `limit` has
-// passed since `granted`, and returns the number to exit with. The tree is the
-// command and everything it started: a signal to the run is passed on to the
-// whole tree, and so is an interrupt, which the terminal sends to the run's
-// group and not to the command's.
+// passed since `granted`, and returns the number to exit with. A signal to the
+// run is passed on to the whole tree, and so is an interrupt, which the
+// terminal sends to the run's group and not to the command's.
 async fn tend(
     mut child: tokio::process::Child,
     visit: Option<Visit>,

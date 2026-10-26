@@ -14,9 +14,13 @@
 //! the board rule picks and stuck items keep the rulings they raised.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Mutex;
 
 use super::Runner;
 use super::report::StepReport;
+use super::ruling::PostJob;
+use super::trigger::lock;
+use crate::board::ReadyIssue;
 use crate::board::briefing::ticket_ref;
 use crate::pacer::Scope;
 use crate::ports::{
@@ -45,7 +49,7 @@ mod wakes;
 #[cfg(test)]
 pub(super) use call::SECRET_SHAPED;
 pub(super) use ci_logs::wake_off_lock;
-pub use maintainer::{PmAttaching, PmError, PmStatus, Settled};
+pub use maintainer::{Held, PmAttaching, PmError, PmStatus, Settled};
 
 use answer::Action;
 use ci_logs::Woke;
@@ -263,7 +267,8 @@ pub(super) struct Desk {
     pick: Option<Pick>,
     // Each of its picks kelpie dropped, in words, until a wake tells it
     lost: Vec<String>,
-    held: Vec<TicketId>,
+    // Each ready issue it holds back, with what it waits on
+    held: Vec<Held>,
     // Each pair of open branches in conflict, with the files
     conflicts: BTreeMap<(TicketId, TicketId), Vec<String>>,
     // A stuck item or conflict was given up while it was unavailable
@@ -297,6 +302,20 @@ impl Desk {
     /// Whether a call of its session is in flight
     pub(super) fn waking(&self) -> bool {
         self.flying.is_some()
+    }
+}
+
+/// Posts the comment of each held ruling whose hold has ended, with the runner's lock let go
+pub(super) fn post_released(runner: &Mutex<Runner>) {
+    let posts = lock(runner).release_posts();
+    for post in posts {
+        let id = post.id();
+        let sent = post.send();
+        let mut held = lock(runner);
+        if let Some(why) = held.ruling_posted(sent) {
+            held.notes
+                .push(format!("cannot post ruling {id} on its thread: {why}"));
+        }
     }
 }
 
@@ -353,10 +372,22 @@ impl Runner {
     }
 
     /// The ready issues the project manager holds back, out of `takeable`,
-    /// those the board could start. With no work item open, a hold over
-    /// every one of them has nothing to wait for, so it goes.
-    pub(super) fn pm_holds(&mut self, takeable: &[TicketId]) -> Vec<TicketId> {
-        let all = !takeable.is_empty() && takeable.iter().all(|n| self.pm.held.contains(n));
+    /// those the board could start. A hold on an issue whose text changed
+    /// since goes, since the project manager held what it read. With no work
+    /// item open, a hold over every one of them has nothing to wait for, so
+    /// it goes.
+    pub(super) fn pm_holds(
+        &mut self,
+        takeable: &[TicketId],
+        ready: &[ReadyIssue],
+    ) -> Vec<TicketId> {
+        let edited = |held: &Held| {
+            let issue = ready.iter().find(|r| r.ticket == held.issue);
+            issue.is_some_and(|r| r.fingerprint() != held.text)
+        };
+        self.pm.held.retain(|held| !edited(held));
+        let held = |n: &TicketId| self.pm.held.iter().any(|h| h.issue == *n);
+        let all = !takeable.is_empty() && takeable.iter().all(held);
         if all && self.state.work_items.is_empty() {
             self.notes.push(
                 "the project manager holds every issue the board could start, with no work \
@@ -365,11 +396,11 @@ impl Runner {
             );
             self.pm.held.clear();
         }
-        self.pm.held.clone()
+        self.pm.held.iter().map(|h| h.issue).collect()
     }
 
     /// The ready issues the project manager holds back, as the board shows them
-    pub(super) fn pm_held(&self) -> &[TicketId] {
+    pub(super) fn pm_held(&self) -> &[Held] {
         &self.pm.held
     }
 
@@ -638,9 +669,9 @@ impl Runner {
         }
     }
 
-    /// Posts the comment of each held ruling whose hold has ended and which
-    /// still waits on the maintainer, as the project manager left it
-    pub(super) fn post_released(&mut self) {
+    /// Settles the comment of each held ruling whose hold has ended and which still waits on the
+    /// maintainer, as the project manager left it, and returns the posts to make
+    pub(super) fn release_posts(&mut self) -> Vec<PostJob> {
         // A ruling the project manager's hold has let go of may be the panel's now.
         self.panel_pass();
         // A ruling held when the runner last stopped is still to be posted.
@@ -652,6 +683,7 @@ impl Runner {
         let released: Vec<TicketId> = (self.pm.unposted.iter().copied())
             .filter(|&id| !self.ruling_held(id))
             .collect();
+        let mut posts = Vec::new();
         for id in released {
             self.pm.unposted.remove(&id);
             let Some(number) =
@@ -659,11 +691,13 @@ impl Runner {
             else {
                 continue;
             };
-            if let Some(why) = self.post_ruling(number, id) {
-                self.notes
-                    .push(format!("cannot post ruling {id} on its thread: {why}"));
+            let post = self.ruling_post(number, id);
+            if post.is_some() {
+                self.posting_begins(id);
             }
+            posts.extend(post);
         }
+        posts
     }
 
     fn launch_wake(&mut self, agent: &PmAgent) -> Result<(), String> {

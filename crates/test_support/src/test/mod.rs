@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+mod access;
 mod elsewhere;
 mod fake;
 mod repo;
@@ -7,6 +8,9 @@ mod script;
 mod status;
 mod tempdir;
 
+#[cfg(windows)]
+pub use access::open_to_administrators;
+pub use access::open_to_others;
 pub use elsewhere::Elsewhere;
 pub use fake::{Fake, write_fake};
 pub use repo::{cut_from_main, git, linked_worktree, main_commits, write_in};

@@ -127,6 +127,7 @@ impl FakeForge {
     // core limit at nothing left and resetting when the forge said.
     pub(super) fn read_rate_limit(&self) -> Result<RateLimits, ForgeError> {
         let used_up = self.reset();
+        self.wait_if_held(held::At::RateLimit);
         let mut rate = self.rate.lock().unwrap();
         rate.reads += 1;
         if rate.down {

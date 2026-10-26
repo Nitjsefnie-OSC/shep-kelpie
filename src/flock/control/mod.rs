@@ -1,15 +1,13 @@
 //! `shep kelpie start`, `pause`, `finish`, `status` and the triggers the
 //! other verbs send, over the shepherd's socket
 //!
-//! A project runs while its runner's sheep does: shep's own state is the
-//! run state, so `shep start <project>` runs it too. `start` first checks
-//! the adopted kelpie holds the leases, starts the runner's sheep when it is
-//! not running, then waits for the runner to answer, since a runner just
-//! started reads its settings before it opens its channel. `pause` drains
-//! the runner, waits for its calls and any merge to end, then stops its
-//! sheep. `finish` lets the open work items end and picks nothing new, and
-//! the runner then stops its own sheep as `pause` does. `rule` leaves the
-//! answer for a stopped runner to act on when it starts.
+//! A project runs while its runner's sheep does, so `shep start <project>`
+//! runs it too. `start` checks the adopted kelpie holds the leases, starts the
+//! runner's sheep if it is down, then waits for the runner to answer, since it
+//! reads its settings before it opens its channel. `pause` drains the runner,
+//! waits for its calls and any merge to end, then stops its sheep. `finish`
+//! lets open work items end and picks nothing new, then the runner stops its
+//! own sheep. `rule` leaves the answer for a stopped runner to act on.
 
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -218,21 +216,18 @@ fn checkout_roots(folder: &Path) -> Vec<PathBuf> {
         .collect()
 }
 
-/// Starts `project`'s runner when it is down, then waits for it to answer
-/// `status`, which it answers
+/// Starts `project`'s runner when it is down, then waits for it to answer `status`
 ///
 /// A runner whose `status` says it is finishing, or finished and not yet
-/// stopped, is sent `start`, so the board picks again. So is one still on a
-/// build from before the run state went whose `status` says it is paused,
-/// which that build's own `start` runs.
+/// stopped, is sent `start`, so the board picks again. So is a paused one on
+/// an older build, whose own `start` runs it.
 ///
 /// # Errors
 ///
 /// A message when the adopted kelpie is not running as the dog with its
 /// channel, the project has no kelpie runner, or it does not answer `status`
-/// in time. A runner that takes `start` and answers it late is no error: the
-/// line says `start` has most likely been taken. Only kelpie's own runners
-/// are ever started.
+/// in time. A runner that takes `start` and answers late is no error: the line
+/// says `start` has most likely been taken.
 pub async fn start(client: &dyn Connection, project: &ProjectName) -> Result<Vec<String>, String> {
     let rows = flock(client).await?;
     let runner = kelpie_runner(client, &rows, project).await?;
@@ -280,23 +275,19 @@ fn run(body: &str) -> Option<String> {
     status["run"].as_str().map(str::to_owned)
 }
 
-/// Puts `project`'s runner in finishing: its open work items run to their
-/// end, the board picks nothing new, and the runner then stops its sheep
+/// Puts `project`'s runner in finishing: open work items run to their end
 ///
-/// With no work item open the runner stops at once. A runner still
-/// starting is waited on as `pause` waits on it, saying so to `say`. A
-/// runner that is not running is left alone, since it has nothing to
-/// finish. Pull requests adopted and still waiting for a slot stay waiting
-/// for the next `start`, and are named.
+/// The board picks nothing new, and the runner then stops its sheep, at once
+/// with no work item open. A runner still starting is waited on as `pause`
+/// waits, saying so to `say`; one not running is left alone. Adopted pull
+/// requests still waiting for a slot stay waiting for the next `start`.
 ///
 /// # Errors
 ///
-/// A message when the project has no kelpie runner, it does not come up
-/// from starting within `patience`, the runner refused `finish`, with its
-/// reason, or it did not answer `status`. A runner busy past the deadline
-/// when sent `finish` is no error: the line says `finish` has most likely
-/// been taken. With [`Format::Json`] it returns the runner's answer as it
-/// came, once the runner has taken `finish`.
+/// A message when the project has no kelpie runner, it does not come up within
+/// `patience`, the runner refused `finish`, or it did not answer `status`. A
+/// runner busy past the deadline is no error: the line says `finish` has most
+/// likely been taken. [`Format::Json`] returns the runner's answer as it came.
 pub async fn finish(
     client: &dyn Connection,
     project: &ProjectName,
@@ -433,20 +424,18 @@ fn shown(value: &serde_json::Value) -> Option<String> {
 
 /// Lets `project`'s runner end what it has running, then stops its sheep
 ///
-/// The runner is drained, so it starts no new call, and waited on until no
-/// call runs and no merge is in flight, as `upgrade` waits before a restart
-/// and bounded by `patience` the same way. Each line of what it waits on
-/// goes to `say`. A session the maintainer attached is their own process,
-/// not the runner's: it goes on, and its work item stays held until it ends.
-/// A runner finishing is sent `pausing` just before the stop, so it comes
-/// back picking, and `finish` again if the stop is refused.
+/// The runner is drained and waited on until no call runs and no merge is in
+/// flight, bounded by `patience` as `upgrade` is. Each line it waits on goes to
+/// `say`. A session the maintainer attached goes on, and its work item stays
+/// held until it ends. A finishing runner is sent `pausing` just before the
+/// stop, so it comes back picking, and `finish` again if the stop is refused.
 ///
 /// # Errors
 ///
-/// A message when the project has no kelpie runner, it does not come up
-/// from starting, the wait runs out or `interrupt` comes first, or the
-/// shepherd refuses the stop. The runner is then sent `undrain keep`, which
-/// leaves the turns the pause ended stopped for a while, and left running. Once the stop is sent, `interrupt` is no longer heard.
+/// A message when the project has no kelpie runner, it does not come up, the
+/// wait runs out or `interrupt` comes first, or the shepherd refuses the stop.
+/// The runner is then sent `undrain keep` and left running. Once the stop is
+/// sent, `interrupt` is no longer heard.
 pub async fn pause(
     client: &dyn Connection,
     project: &ProjectName,
@@ -724,8 +713,9 @@ pub async fn status(client: &dyn Connection, format: Format) -> Result<Vec<Strin
     Ok(lines)
 }
 
-/// Sends `project`'s runner `action` with `params`, as `shep trigger` would,
-/// for an action that changes nothing: a retry after an error is safe
+/// Sends `project`'s runner `action` with `params`, as `shep trigger` would
+///
+/// For an action that changes nothing, so a retry after an error is safe.
 ///
 /// # Errors
 ///
@@ -748,14 +738,12 @@ pub async fn send(
     }
 }
 
-/// Sends `project`'s runner `action` with `params`, an action that changes
-/// its state, and prints its answer as plain lines, or with [`Format::Json`]
-/// as the runner's object
+/// Sends `project`'s runner `action` with `params`, an action that changes its state
 ///
-/// A runner busy mid-step can take the action and not answer in time. It is
-/// no error then, since a retry would repeat what was done: the line says the
-/// runner was busy, the action has most likely been taken, and the command
-/// that shows it.
+/// The answer is plain lines, or the runner's object with [`Format::Json`]. A
+/// runner busy mid-step can take the action and not answer in time. That is no
+/// error, since a retry would repeat it: the line says the action has most
+/// likely been taken, and the command that shows it.
 ///
 /// # Errors
 ///

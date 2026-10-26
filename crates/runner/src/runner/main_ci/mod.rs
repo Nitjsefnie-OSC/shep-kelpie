@@ -11,8 +11,9 @@
 
 use serde::Serialize;
 
+use self::read::Done;
 use super::Runner;
-use crate::ports::{BranchRun, ForgeError, Rerun, Timestamp};
+use crate::ports::{BranchRun, ForgeError, Timestamp};
 use crate::state::{MainNotice, Notice, RedWorkflow};
 
 /// A workflow red on `main`, as `status` shows it
@@ -38,36 +39,33 @@ pub struct RedStatus {
 }
 
 impl Runner {
-    // What to do about the workflows this read found red, and the notices it
-    // leaves to post. A workflow in `failing` has the failed jobs of each new
-    // red head rerun once, and is told once for the stretch when red again
-    // after a rerun, or at once where the forge refuses one. A red-again head
-    // is the project manager's to fix or ask about. A limit that is used up
-    // waits for the next read. Each of `cleared` that was told is told green.
+    // What to do about the workflows this read found red, and the notices to post. A new
+    // red head is rerun once, then told once when red again or where the forge refuses a
+    // rerun, and each of `cleared` that was told is told green. `done` holds the forge's
+    // answers, and a workflow with none waits for the next read.
     fn act_on_reds(
-        &self,
         failing: &[String],
         red: &mut [RedWorkflow],
         cleared: &[Cleared],
+        done: &mut Done,
         now: Timestamp,
     ) -> Vec<Notice> {
         let mut notices = Vec::new();
         for workflow in red.iter_mut().filter(|r| failing.contains(&r.workflow)) {
+            let Some(mut answers) = done.remove(&workflow.run) else {
+                continue;
+            };
             if workflow.rerun_done() {
                 workflow.again = true;
             } else {
-                match self
-                    .ports
-                    .forge
-                    .rerun_run(&self.remote, workflow.run, Rerun::Failed)
-                {
-                    Ok(()) => {
+                match answers.rerun.take() {
+                    None | Some(Err(ForgeError::Held(_) | ForgeError::Limited { .. })) => continue,
+                    Some(Ok(())) => {
                         workflow.reran = Some(workflow.run);
                         workflow.reran_head = Some(workflow.head.clone());
                         continue;
                     }
-                    Err(ForgeError::Held(_) | ForgeError::Limited { .. }) => continue,
-                    Err(e) => {
+                    Some(Err(e)) => {
                         eprintln!("cannot rerun {} on main: {e}", workflow.workflow);
                         workflow.reran_head = Some(workflow.head.clone());
                         workflow.again = true;
@@ -77,12 +75,15 @@ impl Runner {
             if workflow.noticed {
                 continue;
             }
+            let Some(log) = answers.log else {
+                continue;
+            };
             workflow.noticed = true;
             notices.push(Notice::Main(MainNotice {
                 workflow: workflow.workflow.clone(),
                 run: workflow.run,
                 red_for: now.0.saturating_sub(workflow.since.0),
-                log: self.log_end(workflow.run),
+                log: log_end(&log),
                 green: false,
             }));
         }
@@ -96,22 +97,6 @@ impl Runner {
             }));
         }
         notices
-    }
-
-    // The last lines of run `run`'s failed log, or none where it cannot be read
-    fn log_end(&self, run: u64) -> String {
-        let log = self.ports.forge.run_log_tail(&self.remote, run);
-        let log = log.unwrap_or_else(|e| {
-            eprintln!("cannot read the log of run {run} on main: {e}");
-            String::new()
-        });
-        let lines: Vec<&str> = log.lines().collect();
-        let end = lines[lines.len().saturating_sub(NOTICE_LOG_LINES)..].join("\n");
-        let mut cut = end.len().saturating_sub(NOTICE_LOG_BYTES);
-        while !end.is_char_boundary(cut) {
-            cut += 1;
-        }
-        end[cut..].to_owned()
     }
 
     /// The workflows red on `main` as `status` shows them, in the order they went red
@@ -133,6 +118,17 @@ impl Runner {
             })
             .collect()
     }
+}
+
+// The last lines of a failed log
+fn log_end(log: &str) -> String {
+    let lines: Vec<&str> = log.lines().collect();
+    let end = lines[lines.len().saturating_sub(NOTICE_LOG_LINES)..].join("\n");
+    let mut cut = end.len().saturating_sub(NOTICE_LOG_BYTES);
+    while !end.is_char_boundary(cut) {
+        cut += 1;
+    }
+    end[cut..].to_owned()
 }
 
 // Whether a run ended in a way that means the code is broken

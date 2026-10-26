@@ -2,9 +2,8 @@
 //!
 //! Each work item gets its own git worktree, on a branch cut from the latest
 //! `origin/main`, and its own build folder. A rework's branch starts from
-//! itself on `origin` instead, and reuses a local branch left behind that
-//! matches it exactly. Preparing is idempotent, so a restarted runner
-//! finds the worktree it made before and keeps it.
+//! itself on `origin` instead. Preparing is idempotent, so a restarted runner
+//! keeps the worktree it made before.
 //!
 //! `main` and `origin/main` in these docs are the project's base branch, which
 //! each function takes as `base`: `main` unless the project's settings name
@@ -28,6 +27,7 @@ mod ref_folders;
 mod remote;
 mod stale_lock;
 mod workflows;
+mod writable;
 
 pub use active::touched_since;
 pub use adopt::adopt;
@@ -41,6 +41,7 @@ pub use contribution::{
 pub use push::push_commits;
 pub use remote::Remote;
 pub use workflows::runs_on_pull_requests;
+pub use writable::remove_tree;
 
 /// Where a new worktree's branch starts
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -153,13 +154,10 @@ impl core::error::Error for WorktreeError {}
 /// Makes sure `worktree` is a worktree of `repo` on `branch`, and `build` exists
 ///
 /// A new worktree's branch starts where `start` says, just fetched, and does
-/// not track it. [`Start::Pushed`] reads the branch from `remote`, which is
-/// the fork's branch when `remote` is a [`Remote::Fork`]. Every call fetches
-/// `origin/main`, which is what the worker is told to merge and may not fetch
-/// itself. Where that fetch fails the worktree keeps the `origin/main` kelpie
-/// last fetched and [`Worktree::main_fetch_failed`] says why, so the runner
-/// can note it and the turn go on. A [`Start::Main`] branch starts on that
-/// ref, so there a failed fetch is an error.
+/// not track it. [`Start::Pushed`] reads the branch from `remote`. Every call
+/// fetches `origin/main`. Where that fetch fails the worktree keeps the last
+/// one and [`Worktree::main_fetch_failed`] says why, so the turn goes on. A
+/// [`Start::Main`] branch starts on that ref, so there a failed fetch errors.
 ///
 /// # Errors
 ///
@@ -305,16 +303,7 @@ pub fn remove(
     };
     ref_folders::ensure(&common, branch)?;
     on_remote_deleted?;
-    let removed = match std::fs::remove_dir_all(build) {
-        // Go writes its module cache with read-only folders, which cannot
-        // be emptied until they are made writable.
-        Err(e) if e.kind() == io::ErrorKind::PermissionDenied => {
-            make_writable(build);
-            std::fs::remove_dir_all(build)
-        }
-        other => other,
-    };
-    match removed {
+    match remove_tree(build) {
         Err(e) if e.kind() != io::ErrorKind::NotFound => Err(WorktreeError::Remove {
             path: build.to_owned(),
             kind: e.kind(),
@@ -329,11 +318,10 @@ fn delete_on_remote(repo: &Path, remote: &Remote, branch: &str) -> Result<(), Wo
     if !on_remote(repo, remote, &full_ref)? {
         return Ok(());
     }
-    // The forge deletes a merged head branch itself on some repos, and
-    // may do it between the check above and this push. Git's error for
-    // that varies by version and host, so a failed delete is judged by
-    // whether the ref is still there.
-    // The repo's own pre-push hook has no say over a branch kelpie deletes.
+    // The forge may delete a merged head branch itself between the check
+    // above and this push. Git's error for that varies, so a failed delete
+    // is judged by whether the ref is still there. The repo's own pre-push
+    // hook has no say over a branch kelpie deletes.
     let target = remote.target();
     match git(
         repo,
@@ -350,45 +338,6 @@ fn delete_on_remote(repo: &Path, remote: &Remote, branch: &str) -> Result<(), Wo
         Err(e) if on_remote(repo, remote, &full_ref)? => Err(e),
         _ => Ok(()),
     }
-}
-
-/// Gives the owner read, write and execute on every folder under `root`, and
-/// on `root`, so the tree can be unlinked
-///
-/// A link is never followed and never changed, so nothing outside `root` is
-/// touched. What cannot be read or changed is skipped: the removal that
-/// follows reports it.
-fn make_writable(root: &Path) {
-    let Ok(meta) = std::fs::symlink_metadata(root) else {
-        return;
-    };
-    if !meta.is_dir() {
-        return;
-    }
-    let _ = std::fs::set_permissions(root, owner_writes(meta.permissions()));
-    let Ok(entries) = std::fs::read_dir(root) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        make_writable(&entry.path());
-    }
-}
-
-#[cfg(unix)]
-fn owner_writes(mut permissions: std::fs::Permissions) -> std::fs::Permissions {
-    use std::os::unix::fs::PermissionsExt;
-
-    permissions.set_mode(permissions.mode() | 0o700);
-    permissions
-}
-
-// Windows has no mode bits, only a read-only flag.
-#[cfg(not(unix))]
-fn owner_writes(mut permissions: std::fs::Permissions) -> std::fs::Permissions {
-    // The lint warns that this makes a Unix file world-writable.
-    #[allow(clippy::permissions_set_readonly_false)]
-    permissions.set_readonly(false);
-    permissions
 }
 
 /// Makes `view` a detached worktree of `repo` at `origin/main`, just
@@ -673,18 +622,15 @@ pub fn change_start(repo: &Path, worktree: &Path, base: &str) -> Result<String, 
     trusted(repo, worktree)?(&["merge-base", base, "HEAD"])
 }
 
-/// Git for the worktree, with its git dirs named rather than found, as every
-/// git kelpie runs on a worker's worktree must be: git that finds them reads
-/// the config of whatever repo the worker points it at. The worker can write
-/// the worktree's own git dir, so its `commondir` is checked against the
-/// repo's, and hooks are off: none of them is kelpie's to run. Replace refs
-/// are ignored too: a worker's `git replace` would show a read one commit
-/// while a push packs another.
+/// Git for the worktree, with its git dirs named rather than found, since
+/// git that finds them reads the config of whatever repo the worker points
+/// it at. The worktree's `commondir` is checked against the repo's, hooks
+/// are off, and replace refs are ignored.
 ///
 /// # Errors
 ///
-/// [`WorktreeError`] when the worktree's git dirs cannot be named, or its `commondir`
-/// is not the repo's.
+/// [`WorktreeError`] when the worktree's git dirs cannot be named, or its
+/// `commondir` is not the repo's.
 pub fn trusted<'a>(
     repo: &Path,
     worktree: &'a Path,

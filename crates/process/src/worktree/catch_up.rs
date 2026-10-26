@@ -22,20 +22,13 @@ pub enum Rebase {
     Refused(String),
 }
 
-/// Catches the worktree's branch, at `head`, up with `origin/main` and pushes
-/// it to `remote`
+/// Catches the worktree's branch at `head` up with `origin/main` and pushes it to `remote`
 ///
-/// A branch with a merge commit in it (the worker's resolution of an earlier
-/// conflict), or one whose commits are not kelpie's to `rewrite`, is merged
-/// with `origin/main` and pushed without force. Any other is rebased, and the
-/// push is forced with a lease on `head`, so it fails rather than drop a
-/// commit pushed since. A rebase that conflicts is aborted and merged
-/// instead, since a merge may not conflict where replaying commits did. A
-/// merge that conflicts is left in progress, for the worker to finish: it
-/// would otherwise fail on any file of `main`'s the worker's sandbox refuses
-/// to write. A failed push puts the branch back at `head`. A worktree
-/// already in the middle of a merge is refused. Run [`super::base_of`] first, which
-/// fetches.
+/// A branch with a merge commit, or whose commits are not kelpie's to
+/// `rewrite`, is merged with `origin/main` and pushed without force. Any other
+/// is rebased and pushed with a lease on `head`; a rebase that conflicts is
+/// merged instead, and a merge that conflicts is left for the worker. A failed
+/// push puts the branch back at `head`. Run [`super::base_of`] first.
 ///
 /// # Errors
 ///

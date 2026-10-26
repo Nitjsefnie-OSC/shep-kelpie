@@ -181,7 +181,7 @@ fn a_role_naming_an_agent_kelpie_lacks_stops_the_runner_naming_it() {
 }
 
 #[test]
-fn an_agent_file_that_cannot_be_used_stops_the_runner_naming_the_file_and_the_key() {
+fn an_agent_file_a_setting_names_that_cannot_be_used_stops_the_runner_naming_it() {
     let rig = Rig::new("shep");
     let file = rig.paths().agents.join("qwen.md");
     let cases = [
@@ -200,11 +200,54 @@ fn an_agent_file_that_cannot_be_used_stops_the_runner_naming_the_file_and_the_ke
         rig.write_agent("qwen", text);
         let err = rig.open().unwrap_err().to_string();
         assert!(
-            err.starts_with(&format!("agent file {}: ", file.display())),
+            err.contains(&format!(
+                "names qwen, whose agent file {}: ",
+                file.display()
+            )),
             "{err}"
         );
         assert!(err.contains(why), "{err}\nwanted: {why}");
     }
+}
+
+#[test]
+fn an_agent_file_nothing_names_that_cannot_be_used_is_left_out_and_logged() {
+    let rig = Rig::new("shep");
+    rig.write_agent("codex-bot", "---\nextends: kelpie:codex\n---\n");
+    let runner = rig.open().unwrap();
+    let file = rig.paths().agents.join("codex-bot.md");
+    let notes = runner.lock().unwrap().take_notes();
+    let [note] = notes.as_slice() else {
+        panic!("{notes:?}");
+    };
+    assert!(
+        note.starts_with(&format!("agent file {}: `bot`: runs codex", file.display())),
+        "{note}"
+    );
+    assert!(
+        note.ends_with("it is left out, and a setting naming it is refused"),
+        "{note}"
+    );
+}
+
+#[test]
+fn a_reread_is_refused_while_an_open_work_item_runs_on_a_file_that_cannot_be_used() {
+    let rig = Rig::new("shep");
+    rig.write_agent("coder", HAIKU);
+    let runner = rig.open().unwrap();
+    rig.forge.label(8, "agent:coder");
+    rig.ask(&runner, "add", Some("8"));
+
+    rig.write_agent("coder", "role: implementer\n");
+    let err = (runner.lock().unwrap())
+        .reread(rig.settings(), rig.kelpie_settings())
+        .unwrap_err();
+    let file = rig.paths().agents.join("coder.md");
+    assert!(
+        err.to_string()
+            .starts_with(&format!("agent file {}: must start with", file.display())),
+        "{err}"
+    );
 }
 
 #[test]

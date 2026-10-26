@@ -46,6 +46,7 @@ pub mod work_item;
 
 // The leaf crates under `crates/`, each module kept under the name it had here
 pub use shep_kelpie_facts::{mcp_use, request_use, tool_error};
+pub use shep_kelpie_owner_only::owner_only;
 pub use shep_kelpie_panel::panel;
 pub use shep_kelpie_process::{spawn, status, terminal, tools, worktree};
 pub use shep_kelpie_tree::{interrupt, tree};

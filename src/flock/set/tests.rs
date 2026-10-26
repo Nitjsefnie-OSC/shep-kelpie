@@ -151,6 +151,10 @@ impl Scene {
             add_project(&shepherd, "eevee", eevee),
         ];
         shepherd.holds(AppConfig::minimal("rotom", "/opt/kelpie"), false);
+        crate::agents::write_bound_stubs(
+            &shepherd.scratch("home").join("kelpie").join("agents"),
+            "harness: claude-code\nmodel: claude-opus-5-5\neffort: high\n",
+        );
         Self {
             shepherd,
             checkouts,

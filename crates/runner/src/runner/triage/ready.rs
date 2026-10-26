@@ -1,25 +1,13 @@
 //! The maintainer's own issue the pass is sure of becomes agent-ready
 //!
-//! Only the maintainer makes an outside issue ready, so the ready path runs
-//! for an issue whose author is [`Runner::maintainer`], ignoring case. Sure
-//! means the reply has a type and a priority, asks no open question, and
-//! carries a `body` [`crate::board::has_criteria`] accepts that names
-//! `Touches:`. The comment says the issue is ready, the body goes over the
-//! issue's through [`Voice::edit_issue_body`](crate::ports::Voice), and the
-//! type and priority labels come before `ready-for-agent`, which goes on
-//! last, with the `needs-triage` an earlier pass left on taken off before it.
-//! A priority goes on under the name the board ranks by, `priority: P2`, and
-//! under the bare `P2` only where the repo names its priorities that way.
-//!
-//! The comment is worded before any of that is written, so what it promises is
-//! decided here first: no promise for a body the local guard would refuse, and
-//! none while a triage label the maintainer put on by hand stands, which is
-//! read for before the comment, before the body write and before the labelling
-//! ([`Runner::triage_labelled_by_hand`]). The labels the pass began with come
-//! from [`Runner::triage_seen`], the record's `seen` after a restart, so a
-//! pass that resumes takes none of kelpie's own labels for the maintainer's.
-//! A refusal kelpie cannot read beforehand is said on the issue, since the
-//! comment there promised the rewrite.
+//! Only the maintainer makes an outside issue ready, so the ready path runs for
+//! an issue whose author is [`Runner::maintainer`], ignoring case. Sure means a
+//! type and a priority, no open question, and a `body` that names `Touches:`
+//! ([`crate::board::has_criteria`]). The comment says the issue is ready, the
+//! body goes over the issue's, then the labels, `ready-for-agent` last. The
+//! comment is worded first, so it promises nothing for a body the local guard
+//! would refuse or while a hand-put triage label stands
+//! ([`Runner::triage_labelled_by_hand`], [`Runner::triage_seen`]).
 
 use super::super::Runner;
 use super::super::contributions::post::{forge_is_busy, refused_text};
@@ -41,7 +29,7 @@ const READY_LABEL: NewLabel<'static> = NewLabel {
 
 // Whether `body` is an agent-ready issue body: it names `Touches:` and has
 // acceptance criteria, as the issue writer files them
-fn is_issue_body(body: &str) -> bool {
+pub(super) fn is_issue_body(body: &str) -> bool {
     has_criteria(body)
         && body
             .lines()
@@ -172,15 +160,21 @@ impl Runner {
         }
     }
 
-    // The triage labels `issue` carries now
-    pub(super) fn triage_labels_now(&self, issue: u64) -> Result<Vec<String>, ForgeError> {
+    // Every label `issue` carries now
+    pub(super) fn labels_now(&self, issue: u64) -> Result<Vec<String>, ForgeError> {
         let found = self
             .ports
             .tickets
             .issue(&self.remote, super::ticket(issue)?)?;
-        Ok((found.labels.iter())
+        Ok(found.labels)
+    }
+
+    // The triage labels `issue` carries now
+    pub(super) fn triage_labels_now(&self, issue: u64) -> Result<Vec<String>, ForgeError> {
+        let carried = self.labels_now(issue)?;
+        Ok(carried
+            .into_iter()
             .filter(|l| TRIAGE_LABELS.contains(&l.as_str()))
-            .cloned()
             .collect())
     }
 
@@ -194,11 +188,10 @@ impl Runner {
             .unwrap_or_default()
     }
 
-    // The triage label `issue` carries now that it did not when the pass
-    // began, or `None` when it carries none. Kelpie's own labels for the
-    // issue go on after this check, so a label that came by since is the
-    // maintainer's, and it stands. A reading that fails is the caller's to
-    // count as a failure: kelpie will not label over labels it cannot see.
+    // The triage label `issue` carries now that it did not when the pass began,
+    // or `None`. Kelpie's own labels go on after this check, so a label that came
+    // by since is the maintainer's and stands. A failed reading is the caller's
+    // to count as a failure: kelpie will not label over labels it cannot see.
     pub(super) fn triage_labelled_by_hand(&self, issue: u64) -> Result<Option<String>, ForgeError> {
         Ok(stood(
             &self.triage_labels_now(issue)?,
@@ -234,12 +227,10 @@ impl Runner {
         self.save(next)
     }
 
-    // Puts on the labels the reply gave and then `ready-for-agent`, the last
-    // label the ready path writes, taking the `needs-triage` an earlier pass
-    // left behind off first. A triage label that went on by hand since the pass
-    // began is read for here as well: kelpie labels nothing over it, so a label
-    // put on after the body went on stands the same as one put on while the
-    // call ran.
+    // Puts on the labels the reply gave and then `ready-for-agent`, last, taking
+    // off the `needs-triage` an earlier pass left. A triage label put on by hand
+    // since the pass began is read for here too: kelpie labels nothing over it,
+    // whether it came after the body went on or while the call ran.
     pub(super) fn label_ready(&mut self, issue: u64) -> Result<ReadyLabels, StateError> {
         let seen = self.triage_seen(issue);
         let carried = match self.triage_labels_now(issue) {
@@ -250,11 +241,10 @@ impl Runner {
                 return Ok(ReadyLabels::Held);
             }
         };
-        // `ready-for-agent` is the label this step writes, so on the issue at
-        // this step it is kelpie's own: an answer lost after the label went on
-        // or a crash before the step saved leaves it there, and the pass finishes
-        // the labelling rather than reading kelpie's own label as the
-        // maintainer's. Any other triage label here came by hand and stands.
+        // `ready-for-agent` is this step's own label, so on the issue here it is
+        // kelpie's: a lost answer or a crash before the step saved leaves it there, and
+        // the pass finishes the labelling rather than reading it as the maintainer's.
+        // Any other triage label here came by hand and stands.
         let owed: Vec<String> = carried
             .iter()
             .filter(|l| l.as_str() != READY)
@@ -271,12 +261,8 @@ impl Runner {
         let labels = self
             .triage_record(issue)
             .map_or_else(Vec::new, |t| t.labels.clone());
-        for label in labels {
-            if let Err(e) = self.label_issue(issue, &label, true) {
-                let why = format!("cannot label it `{label}`: {e}");
-                self.triage_failed(issue, &why, !forge_is_busy(&e));
-                return Ok(ReadyLabels::Held);
-            }
+        if !self.put_pass_labels(issue, &labels) {
+            return Ok(ReadyLabels::Held);
         }
         // An issue is not both ready for the board and waiting for the
         // maintainer, so the `needs-triage` of an earlier pass comes off before

@@ -1,31 +1,13 @@
 //! Taking a released contribution over
 //!
-//! A release makes the pull request kelpie's (ADR 0010), and kelpie finishes it
-//! as it finishes an adopted pull request: a work item on its branch, in the
-//! next free slot, after an adopted pull request and a rework and ahead of any
-//! new issue ([`adopt_waiting`](super::super::adopt)). A release, and a
-//! `rework` answer to the merge ruling, queue it here ([`follow_adoption`]);
-//! the board's step starts it.
-//!
-//! A work item hangs on an issue, and a contributor's pull request often
-//! closes none. Where it closes one, that one is the work item's. Where it
-//! closes none, kelpie files one from the pull request's title and body,
-//! labelled for the project's default implementer so the work item has an
-//! agent, and adds `Resolves #<issue>` to the pull request's body through the
-//! forge's edit, so the merge closes it. The record keeps the issue it filed,
-//! so a poll that filed it and could not edit the body files no second one, and
-//! that issue is what the work item hangs on even where the pull request closes
-//! another one later: the filed issue is the one its body names, so it closes
-//! with the merge and none is left open beside the work.
-//!
-//! A fork kelpie cannot push to is the maintainer's to decide on, not
-//! kelpie's: a quiet one gets a ruling ([`awaits_edits`]) and nothing is
-//! released. A released one kelpie cannot start a work item on gets a ruling of
-//! its own ([`ask_adopt`]): queueing it would have the board refuse it and post
-//! that refusal on the contributor's pull request, poll after poll.
-//! A filing or an edit the forge refuses is told in the log and tried again at
-//! the next poll, and the pull request is queued for adoption only once both
-//! went through.
+//! A release makes the pull request kelpie's (ADR 0010). [`follow_adoption`]
+//! queues it as a work item on its branch, for a release or a `rework` answer.
+//! Where the pull request closes no issue, kelpie files one from its title and
+//! body and adds `Resolves #<issue>` to the body, so the merge closes it.
+//! The record keeps the filed issue, so a failed edit files no second one.
+//! A fork kelpie cannot push to gets a ruling ([`awaits_edits`], [`ask_adopt`]).
+//! A refused filing or edit is retried at the next poll; the pull request is
+//! queued only once both went through.
 
 use super::super::Runner;
 use super::ruling::{raise_cannot_adopt, raise_no_edits};
@@ -113,11 +95,9 @@ impl Runner {
                 format!("it merges into `{}`, not `{base}`", pr.base),
             );
         }
-        // The issue its work item hangs on: the one an earlier poll filed for
-        // it, or the lowest the pull request closes. A pull request that closes
-        // an issue only after kelpie filed one keeps kelpie's: the filed issue
-        // is the one named on the pull request's body, so it is the one the
-        // merge closes, and none is left open beside the work.
+        // The issue its work item hangs on: the one an earlier poll filed, or the
+        // lowest the pull request closes. The filed issue is the one the body names,
+        // so the merge closes it.
         let mut filed = held.adopting.map(|a| (a.issue, a.resolves));
         let issue = match (
             filed.map(|(issue, _)| issue),

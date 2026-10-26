@@ -369,11 +369,12 @@ fn a_runner_with_every_role_and_harness_in_use_stays_under_the_cap() {
     let (recorder, sink) = recorder();
     // Each role on a harness it might have, with its kinds of call and two ways each ended. The
     // worker and the project manager run on a second harness as a fallback, and the reviewer on a
-    // local round too. Only the worker's, reviewer's and project manager's calls on Claude Code and
-    // pi have requests counted, and the other roles' are recorded to show they add none.
+    // local round too. Requests are counted for the worker, reviewer and project manager on Claude
+    // Code and pi and the worker on Codex, and the other calls are recorded to show they add none.
     let roles = [
         ("worker", "claude-code", &["turn", "compact", "vote"][..]),
         ("worker", "pi", &["turn", "compact", "vote"][..]),
+        ("worker", "codex", &["turn", "compact", "vote"][..]),
         ("pm", "pi", &["wake", "compact", "retro"][..]),
         ("reviewer", "claude-code", &["review"][..]),
         ("reviewer", "local", &["local-round"][..]),
@@ -390,7 +391,7 @@ fn a_runner_with_every_role_and_harness_in_use_stays_under_the_cap() {
                 recorder.line(&call_line(role, kind, harness, ended));
             }
         }
-        if harness == "claude-code" || harness == "pi" {
+        if harness == "claude-code" || harness == "pi" || (harness == "codex" && role == "worker") {
             let request = Request {
                 context: 30_000,
                 cache_write: 1,
@@ -456,6 +457,11 @@ fn a_runner_with_every_role_and_harness_in_use_stays_under_the_cap() {
     });
     // The runner's lock: the seconds it was held, and the holds of at most a second and of all.
     recorder.lock_holds(1.5, 1, 2);
+    // Five gateway models' leases: four series each.
+    for model in ["a", "b", "c", "d", "e"] {
+        recorder.model_lease_standing(model, 1, 1);
+        recorder.model_lease_granted(model, 5);
+    }
     // Every kind for each of the three roles whose tool calls are counted, and one for a role
     // whose are not, which adds none.
     const KINDS: [&str; 13] = [
@@ -506,8 +512,8 @@ fn a_runner_with_every_role_and_harness_in_use_stays_under_the_cap() {
     );
     assert_eq!(
         requests,
-        5 * 6,
-        "three buckets and three writes for each of the five pairs, and none for the one-shot roles"
+        6 * 6,
+        "three buckets and three writes for each of the six pairs, and none for the one-shot roles"
     );
     assert_eq!(
         errors,

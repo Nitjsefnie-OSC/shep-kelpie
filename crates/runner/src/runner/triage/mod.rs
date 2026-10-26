@@ -1,22 +1,13 @@
 //! Which issues other people opened are due for triage
 //!
-//! While `triage.pick` is not `off`, the runner lists the open issues once a
-//! board poll, before a pass takes the lock
-//! ([`poll_read`]), and `status` shows the untouched ones
-//! under `triage.due`, oldest first. An issue is untouched when it carries
-//! none of [`TRIAGE_LABELS`] but a `needs-triage` above `pruned_through`, no bot
-//! opened it, it was opened after `triage.since`, and, under `maintainer`, the
-//! maintainer opened it. With `triage.hand_ready` on, the maintainer's own
-//! hand-labelled `ready-for-agent` issue is taken back first ([`hand`]), so it is
-//! one of them.
-//!
-//! [`Runner::triage_due`], asked by the board's dispatch after a contribution's
-//! call and before the board's pick, starts the research on the oldest of
-//! them, or on the issue `shep kelpie triage` queued ahead of them: one call at a
-//! time, in flight like the security review ([`flight::triage`]), whose
-//! reply [`comment`] posts as one comment under the representative's words and
-//! [`research`] reads. Each issue ends at `needs-triage`, except a maintainer's
-//! issue the pass is sure of, which [`ready`] rewrites and makes `ready-for-agent`.
+//! While `triage.pick` is not `off`, the runner lists the open issues once a board
+//! poll ([`poll_read`]), and `status` shows the untouched ones under `triage.due`,
+//! oldest first. An issue is untouched when it carries none of [`TRIAGE_LABELS`]
+//! but a `needs-triage` above `pruned_through`, no bot opened it, it was opened
+//! after `triage.since`, and, under `maintainer`, the maintainer opened it.
+//! [`Runner::triage_due`] starts one research call at a time ([`flight::triage`]),
+//! on the oldest or the issue `shep kelpie triage` queued; [`research`] reads its
+//! reply, [`comment`] posts it, and [`ready`] rewrites a maintainer's sure issue.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -41,6 +32,7 @@ use ask::Purpose;
 pub(super) mod addressed;
 pub(super) mod ask;
 pub(super) mod comment;
+mod facts;
 pub(super) mod hand;
 pub(super) mod heard;
 pub(super) mod images;
@@ -50,6 +42,7 @@ pub(super) mod marker;
 pub(super) mod poll_read;
 pub(super) mod ready;
 pub(super) mod research;
+mod scrub;
 pub(super) mod spam;
 
 use super::contributions::post::forge_is_busy;
@@ -218,13 +211,10 @@ impl Runner {
         Ok(())
     }
 
-    // The research call to start, if one is due: the issue the verb queued, then
-    // the oldest untouched one, unless a call is in flight or the runner drains.
-    // The caller holds a free slot for it, which the call keeps until it ends.
-    //
-    // An issue is tried once a poll, so one that fails does not hold up the
-    // others. Where no App covers the repo nothing is started, since the comment
-    // could not be posted as one.
+    // The research call to start, if one is due: the verb's issue, then the oldest
+    // untouched one, unless a call is in flight or the runner drains. One issue is
+    // tried per poll, so a failure holds up no other. With no App on the repo nothing
+    // starts, as the comment could not be posted. The caller holds a free slot.
     pub(super) fn triage_due(&mut self) -> Result<Option<Begin>, StateError> {
         let idle = self.state.triage.is_some() && !self.draining() && self.app_covers();
         if !idle || self.flights.triaging().is_some() {
@@ -472,11 +462,10 @@ impl Runner {
             }
         };
         let most = role.most_questions(self.settings.triage.max_questions);
-        // The second pass reads the questions it asked and the author's answers
-        // to them, each fenced like everything else that comes from outside. It
-        // is not made without them: a triager shown neither the questions nor
-        // the answers answers from the repo alone, and its `body` would be
-        // written into the issue as if it came from the author.
+        // The second pass reads the questions it asked and the author's answers, each
+        // fenced. It is not made without them: a triager shown neither answers from
+        // the repo alone, and its `body` would be written into the issue as if the
+        // author wrote it.
         let settling = match purpose {
             Purpose::Answers => self.answers_round(issue),
             Purpose::First | Purpose::LocalRead => None,
@@ -579,17 +568,10 @@ impl Runner {
         Ok(call)
     }
 
-    // Queues issue `issue` ahead of the untouched ones, for `shep kelpie triage`
-    //
-    // The pick rule's `since` and author tests do not apply. A recorded issue is
-    // triaged again, and its record is replaced once the new comment posts. The
-    // `possible-spam` kelpie's own read put on comes off, since the verb is how
-    // the maintainer overrules it.
-    //
-    // # Errors
-    //
-    // Why it is refused: `triage.pick` is `off`, the issue is not open or
-    // carries a triage label, or its call is in flight.
+    // Queues issue `issue` ahead of the untouched ones, for `shep kelpie triage`.
+    // The pick rule's `since` and author tests do not apply; a recorded issue is
+    // triaged again and kelpie's own `possible-spam` comes off. Refused when
+    // `triage.pick` is `off`, the issue is not open or labelled, or its call is in flight.
     pub(super) fn triage_ask(&mut self, issue: u64) -> Result<(), String> {
         self.triage_allowed(issue)?;
         let open = (self.ports.tickets.open_issues(&self.remote))
@@ -625,14 +607,10 @@ impl Runner {
                 "#{issue} carries `{label}`, so it is not untouched"
             ));
         }
-        // Asking for an issue kelpie's classifier read as spam is the maintainer's
-        // answer to that read, so its `possible-spam` comes off now: the pass that
-        // follows labels the issue as any other, and a read the maintainer has
-        // answered would else keep it on the board as suspected spam. A
-        // `possible-spam` no record of kelpie's says it read the issue as spam came
-        // by hand, and stands as any hand label does. A record keeps the issue out
-        // of the pick rule either way, so taking the label off opens no second
-        // triage no one asked for.
+        // Asking for an issue read as spam is the maintainer's answer to that read, so
+        // kelpie's own `possible-spam` comes off now: else it would stay on the board as
+        // suspected spam. One kelpie's record does not say it put on came by hand and
+        // stands. A record keeps the issue out of the pick rule, so no second triage opens.
         if self.triage_record(issue).is_some_and(|t| t.spam.is_some())
             && let Err(e) = self.label_issue(issue, POSSIBLE_SPAM, false)
         {
@@ -656,12 +634,10 @@ impl Runner {
     }
 }
 
-// Whether `issue` is untouched, opened after `since`, and by `only` when one is named
-//
-// `needs-triage` is a queue state, not a decision: whether kelpie has triaged an
-// issue is its record, so a hand-added one does not keep the issue out. Past
-// `pruned_through` the record of an issue kelpie triaged may be gone, and its
-// own `needs-triage` is then all that says so.
+// Whether `issue` is untouched, opened after `since`, and by `only` when one is named.
+// `needs-triage` is a queue state, not a decision: whether kelpie triaged an issue is
+// its record, so a hand-added one does not keep it out. Past `pruned_through` the
+// record may be gone, and kelpie's own `needs-triage` is then all that says so.
 fn untouched(issue: &OpenIssue, since: Timestamp, pruned_through: u64, only: Option<&str>) -> bool {
     let decided = (issue.labels.iter()).any(|l| {
         TRIAGE_LABELS.contains(&l.as_str()) && (l != TRIAGE || issue.number <= pruned_through)
@@ -700,13 +676,19 @@ mod limits_tests;
 #[cfg(test)]
 mod local_tests;
 #[cfg(test)]
+mod mention_tests;
+#[cfg(test)]
 mod pick_tests;
 #[cfg(test)]
 mod ready_tests;
 #[cfg(test)]
+mod repair_tests;
+#[cfg(test)]
 mod research_tests;
 #[cfg(test)]
 mod roles_tests;
+#[cfg(test)]
+mod scrub_tests;
 #[cfg(test)]
 mod spam_tests;
 #[cfg(test)]

@@ -5,7 +5,7 @@
 //! file, answers the maintainer's triggers, and runs the worker's turns.
 //! Every change is saved before it takes effect in memory.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -325,6 +325,10 @@ pub struct Runner {
     // of a call just started, kept in memory only until `take_started` hands
     // them out
     started: Vec<StepReport>,
+    // The work items whose worktree's packages this process has installed, once and not again:
+    // an install that left no `node_modules` would be planned every turn, and after a failure
+    // the worker's own install would be wiped by another. Kept in memory only
+    install_ran: BTreeSet<TicketId>,
     // The calls this process has in flight, kept in memory only
     flights: flight::Flights,
     // The browsers opened for turns about to launch, kept in memory only
@@ -386,6 +390,8 @@ pub struct Runner {
     gh_login: std::cell::OnceCell<String>,
     // Whether a ruling posted with no one to mention has been told, in memory only
     unmentioned_told: std::cell::Cell<bool>,
+    // Whether a triage comment posted with no one to mention has been told, in memory only
+    triage_unmentioned_told: std::cell::Cell<bool>,
     // The posts to a contribution that failed, until one works or is given up, in memory only
     post_tries:
         std::cell::RefCell<std::collections::BTreeMap<String, contributions::post::Attempt>>,
@@ -567,6 +573,7 @@ impl Runner {
         check_coderabbit(&remote, &lineup, &ports)?;
         check_local(&lineup, &ports)?;
         let mut state = store.load()?.unwrap_or_default();
+        book.hold_for(state.work_items.iter().map(|item| &item.agent))?;
         // An item saved before it recorded its base was cut for the one this start reads.
         if fresh::record_bases(&mut state, settings.git.base()) {
             store.save(&state)?;
@@ -639,6 +646,7 @@ impl Runner {
             last_acted: None,
             notes: told,
             started: Vec::new(),
+            install_ran: BTreeSet::new(),
             flights: flight::Flights::default(),
             opened: browser::Opened::default(),
             planned: dev_server::Planned::default(),
@@ -667,6 +675,7 @@ impl Runner {
             forge_ledger,
             gh_login: std::cell::OnceCell::new(),
             unmentioned_told: std::cell::Cell::new(false),
+            triage_unmentioned_told: std::cell::Cell::new(false),
             post_tries: std::cell::RefCell::default(),
             post_unsaved: std::cell::RefCell::default(),
             token_wait: token_wait::TokenWait::default(),

@@ -2,26 +2,24 @@
 //!
 //! The representative words the facts, kelpie's code appends [`MARKER`] and
 //! posts the comment as the App, and then puts the labels on. A maintainer's
-//! issue the pass is sure of goes on to the ready path ([`ready`]): its body
-//! is rewritten and `ready-for-agent` goes on last; any other issue ends
-//! `needs-triage`. The record in `triage.issues` says how far an issue got,
-//! and it is saved before each next write to the forge, so a restart goes on
-//! from its step and posts nothing twice. A post the forge took whose record
-//! did not save is caught by the marker, which only the App's own comment
-//! counts for.
-//!
-//! A step that fails is told once in the log and tried at the next poll, and
-//! five failures give the issue up until kelpie restarts.
+//! issue the pass is sure of goes on to the ready path ([`ready`]); any other
+//! issue ends `needs-triage`. The record in `triage.issues` is saved before each
+//! next write to the forge, so a restart posts nothing twice; a post the forge
+//! took whose record did not save is caught by the marker, which only the App's
+//! own comment counts for. A failed step is logged and tried at the next poll,
+//! and five failures give the issue up until kelpie restarts.
 
 use super::super::Runner;
-use super::super::contributions::post::{forge_is_busy, refused_text};
+use super::super::contributions::post::forge_is_busy;
 use super::super::representative::IssuePost;
 use super::addressed::Cover;
 use super::ask::{self, Purpose};
+use super::facts::{Reader, Wording, duplicate_facts, facts};
 use super::marker::{MARKER, duplicate_marker};
 use super::ready;
 use super::research::{Addressed, Found, Question};
 use crate::board::{self, TRIAGE};
+use crate::local_paths::Leak;
 use crate::ports::{NewLabel, Timestamp};
 use crate::settings::AuthorRole;
 use crate::state::{StateError, TriageLocal, TriageQuestions, TriageStep, Triaged};
@@ -111,6 +109,9 @@ pub(in crate::runner) struct Tries {
     pub(super) waiting: Option<Waiting>,
     // The comment as worded, kept until the forge takes it
     pub(super) body: Option<String>,
+    // The next wording call gets the guard's reason.
+    pub(super) refused: Option<Leak>,
+    pub(super) refused_bodies: Vec<String>,
     // The labels the research asked for that the repo has, put on after the
     // comment; the record keeps them from there
     labels: Vec<String>,
@@ -227,6 +228,7 @@ impl Runner {
         found: &Found,
         purpose: Purpose,
     ) -> Result<(), StateError> {
+        let found = self.scrub_triage(issue, found);
         let tries = self.triage_tries.entry(issue).or_default();
         tries.shown = shown.to_owned();
         tries.purpose = purpose;
@@ -265,6 +267,65 @@ impl Runner {
                 None
             }
         }
+    }
+
+    // Puts the labels the pass found on `issue`; `false` when a write failed.
+    // Its priority goes on first and then replaces the others the issue has,
+    // unless one went on by hand since the pass began: that stands.
+    pub(super) fn put_pass_labels(&mut self, issue: u64, labels: &[String]) -> bool {
+        let Some(ours) = labels.iter().find(|l| board::is_priority_label(l)) else {
+            return self.put_labels(issue, labels);
+        };
+        let carried = match self.labels_now(issue) {
+            Ok(carried) => carried,
+            Err(e) => {
+                let why = format!("cannot read its labels: {e}");
+                self.triage_failed(issue, &why, !forge_is_busy(&e));
+                return false;
+            }
+        };
+        let seen = self.triage_seen(issue);
+        let others: Vec<&String> = (carried.iter())
+            .filter(|l| board::is_priority_label(l) && !board::same_priority(l, ours))
+            .collect();
+        if let Some(hand) = others.iter().find(|l| !seen.contains(l)) {
+            self.notes.push(format!(
+                "triage #{issue}: `{hand}` went on by hand while the pass ran, so that stands:                  kelpie does not put `{ours}` on"
+            ));
+            let rest: Vec<String> = (labels.iter())
+                .filter(|l| !board::is_priority_label(l))
+                .cloned()
+                .collect();
+            return self.put_labels(issue, &rest);
+        }
+        let on = carried.iter().any(|l| board::same_priority(l, ours));
+        let put: Vec<String> = (labels.iter())
+            .filter(|l| !(on && l.as_str() == ours))
+            .cloned()
+            .collect();
+        if !self.put_labels(issue, &put) {
+            return false;
+        }
+        for old in others {
+            if let Err(e) = self.label_issue(issue, old, false) {
+                let why = format!("cannot take `{old}` off: {e}");
+                self.triage_failed(issue, &why, !forge_is_busy(&e));
+                return false;
+            }
+        }
+        true
+    }
+
+    // Puts each of `labels` on `issue`, stopping at the first the forge refuses
+    fn put_labels(&mut self, issue: u64, labels: &[String]) -> bool {
+        for label in labels {
+            if let Err(e) = self.label_issue(issue, label, true) {
+                let why = format!("cannot label it `{label}`: {e}");
+                self.triage_failed(issue, &why, !forge_is_busy(&e));
+                return false;
+            }
+        }
+        true
     }
 
     // Words the comment from the waiting research and posts it
@@ -330,12 +391,10 @@ impl Runner {
                 return Ok(());
             }
         };
-        // The reply names a type `bug` and a priority `P2`. The board ranks by
-        // `priority: P2`, the label name it reads, so a priority is looked for
-        // under that name first, and under the bare `P2` only on a repo that
-        // names its priorities that way. A repo with neither gets the board's
-        // name made, so no priority the triager chose is dropped. A type the
-        // repo does not have is never put on.
+        // The reply names a type `bug` and a priority `P2`. The board reads the label
+        // `priority: P2`, so a priority is looked for under that name first, then the
+        // bare `P2`; a repo with neither gets the board's name made. A type the repo
+        // does not have is never put on.
         let mut labels: Vec<String> = Vec::new();
         if let Some(kind) = found.kind {
             labels.extend(board::repo_label(&have, kind).map(str::to_owned));
@@ -420,15 +479,32 @@ impl Runner {
             },
             false => found.clone(),
         };
-        let mut facts = facts(
-            found,
-            &labels,
-            ready_body.is_some(),
+        // The comment that hands an outside issue over mentions the maintainer;
+        // the maintainer's own issue and the comment that asks do not.
+        let maintainer = self.maintainer();
+        let own = (maintainer.as_ref()).is_ok_and(|login| login.eq_ignore_ascii_case(author));
+        let mention = match (ask || own, &maintainer) {
+            (true, _) => None,
+            (false, Ok(login)) => Some(login.clone()),
+            (false, Err(why)) => {
+                self.unmentioned_triage(issue, &why.to_string());
+                None
+            }
+        };
+        let reader = match (own, mention.is_some()) {
+            (true, _) => Reader::Maintainer,
+            (false, true) => Reader::Mentioned,
+            (false, false) => Reader::Other,
+        };
+        let wording = Wording {
+            ready: ready_body.is_some(),
             ask,
             answers,
             local,
-            answers_body.is_some(),
-        );
+            settled: answers_body.is_some(),
+            stood: stood.is_some(),
+        };
+        let mut facts = facts(found, &labels, wording, reader);
         if plain {
             facts.push_str(PLAIN_FACTS);
         }
@@ -444,12 +520,8 @@ impl Runner {
             author,
             said,
         };
-        let words = match self.represent_issue(issue, &post) {
-            Ok(words) => words,
-            Err(e) => {
-                self.triage_failed(issue, &e.to_string(), true);
-                return Ok(());
-            }
+        let Some(words) = self.word_triage(issue, &post) else {
+            return Ok(());
         };
         // The comment that asks lists the questions under the words and holds the
         // prompt for the author's own terminal, collapsed.
@@ -458,7 +530,10 @@ impl Runner {
                 Some((body, seen)) => (body, Some(seen)),
                 None => return Ok(()),
             },
-            false => (format!("{words}\n\n{MARKER}"), None),
+            false => {
+                let cc = (mention.as_deref()).map_or_else(String::new, |l| format!("cc @{l}\n\n"));
+                (format!("{words}\n\n{cc}{MARKER}"), None)
+            }
         };
         let tries = self.triage_tries.entry(issue).or_default();
         tries.body = Some(body);
@@ -473,6 +548,18 @@ impl Runner {
         tries.ask = ask;
         tries.answers_body = answers_body;
         self.send_triage(issue)
+    }
+
+    // Says in the log, once a run, that a comment that hands `issue` over goes
+    // up without the maintainer's mention, since no login could be read
+    fn unmentioned_triage(&self, issue: u64, why: &str) {
+        if self.triage_unmentioned_told.replace(true) {
+            return;
+        }
+        self.notes.push(format!(
+            "triage #{issue}: its comment is posted without a mention of the maintainer, since \
+             no login could be read: {why}; set `git.maintainer` to your GitHub login"
+        ));
     }
 
     // Whether what is posted to `issue`'s author is worded plain, with no path
@@ -508,12 +595,8 @@ impl Runner {
             author,
             said,
         };
-        let words = match self.represent_issue(issue, &post) {
-            Ok(words) => words,
-            Err(e) => {
-                self.triage_failed(issue, &e.to_string(), true);
-                return Ok(());
-            }
+        let Some(words) = self.word_triage(issue, &post) else {
+            return Ok(());
         };
         let tries = self.triage_tries.entry(issue).or_default();
         tries.body = Some(format!("{words}\n\n{}", duplicate_marker(named.number)));
@@ -531,6 +614,9 @@ impl Runner {
         // The same read again for a pass that was worded but could not be
         // posted: the body it was worded on may not be the one the issue holds.
         if self.local_read_stale(issue)? {
+            return Ok(());
+        }
+        if self.repeats_refused_triage(issue, &body) {
             return Ok(());
         }
         // The wording call can run for minutes, so a duplicate's cover is read
@@ -583,12 +669,7 @@ impl Runner {
             Err(e) => {
                 let why = format!("cannot post the comment: {e}");
                 self.triage_failed(issue, &why, !forge_is_busy(&e));
-                // The guard may have refused the wording, so it is worded again.
-                if refused_text(&e)
-                    && let Some(tries) = self.triage_tries.get_mut(&issue)
-                {
-                    tries.body = None;
-                }
+                self.keep_triage_refusal(issue, &e, body);
                 Ok(())
             }
         }
@@ -740,12 +821,10 @@ impl Runner {
         self.save(next)
     }
 
-    // Does what `issue`'s record says is left: the close of a duplicate, the
-    // labels the research asked for and then `needs-triage`, the answers pass's
-    // write under the author's text, or the ready path's body write and then
-    // its labels with `ready-for-agent` last, each step saved before the next
-    // write. A record whose ask or questions are still open is the author's to
-    // answer: no label goes on while it waits.
+    // Does what `issue`'s record says is left: the duplicate's close, the research's
+    // labels then `needs-triage`, the answers pass's write, or the ready path's
+    // body write then labels, `ready-for-agent` last, each saved before the next
+    // write. No label goes on while the author's ask or questions are open.
     pub(super) fn finish_triage(&mut self, issue: u64) -> Result<(), StateError> {
         loop {
             let Some(record) = self.triage_record(issue).cloned() else {
@@ -774,12 +853,8 @@ impl Runner {
                             let labels = self
                                 .triage_record(issue)
                                 .map_or_else(Vec::new, |t| t.labels.clone());
-                            for label in labels {
-                                if let Err(e) = self.label_issue(issue, &label, true) {
-                                    let why = format!("cannot label it `{label}`: {e}");
-                                    self.triage_failed(issue, &why, !forge_is_busy(&e));
-                                    return Ok(());
-                                }
+                            if !self.put_pass_labels(issue, &labels) {
+                                return Ok(());
                             }
                             self.triage_stepped(issue, TriageStep::Labelled)?;
                         }
@@ -845,119 +920,4 @@ impl Runner {
             }
         }
     }
-}
-
-// What the representative words the comment of a duplicate from: the other
-// item as `#n`, what it is, why the research says it covers this issue, and
-// the close that follows the comment
-fn duplicate_facts(named: &Addressed) -> String {
-    let why = named.why.trim();
-    let reason = match why.is_empty() {
-        true => String::new(),
-        false => format!(": {why}"),
-    };
-    let mut facts = String::from("Kelpie read the issue against the repo's main branch.\n");
-    facts.push_str(&format!(
-        "\n#{} is an open {} that already covers it{reason}.\n",
-        named.number,
-        named.item.word()
-    ));
-    facts.push_str(&format!(
-        "\nKelpie closes this issue as a duplicate of #{}, and puts no labels on it.\n",
-        named.number
-    ));
-    facts
-}
-
-// What the representative words the comment from: the labels that go on, the
-// related issues as `#n`, the files, tests and draft criteria, the questions,
-// whether the pass is sure enough to make the issue its board's, and how the
-// author's round ends: asking them the questions, reading their
-// answers as the last round, or reading the issue again after their own session
-// rewrote its body
-fn facts(
-    found: &Found,
-    labels: &[String],
-    ready: bool,
-    ask: bool,
-    answers: bool,
-    local: bool,
-    settled: bool,
-) -> String {
-    let mut facts = String::from("Kelpie read the issue against the repo's main branch.\n");
-    if !labels.is_empty() {
-        let when = match ask {
-            true => " when this triage ends",
-            false => "",
-        };
-        facts.push_str(&format!(
-            "\nKelpie labels it: {}{when}.\n",
-            labels.join(", ")
-        ));
-    }
-    if !found.related.is_empty() {
-        let related: Vec<String> = found.related.iter().map(|(n, _)| format!("#{n}")).collect();
-        facts.push_str(&format!("\nRelated open issues: {}.\n", related.join(", ")));
-    }
-    let lists = [
-        ("Files the work would touch", &found.files, "`"),
-        ("Tests that would pin it", &found.tests, "`"),
-        ("Draft acceptance criteria", &found.criteria, ""),
-    ];
-    for (heading, items, quote) in lists {
-        if items.is_empty() {
-            continue;
-        }
-        facts.push_str(&format!("\n{heading}:\n"));
-        for item in items {
-            facts.push_str(&format!("- {quote}{item}{quote}\n"));
-        }
-    }
-    match found.open.is_empty() {
-        true => facts.push_str("\nThere are no open questions.\n"),
-        false => {
-            facts.push_str("\nQuestions only the author can answer, each with the answer the research recommends:\n");
-            for (i, q) in found.open.iter().enumerate() {
-                let n = i + 1;
-                let (question, recommended) = (q.question.trim(), q.recommended.trim());
-                match recommended.is_empty() {
-                    true => facts.push_str(&format!("{n}. {question}\n")),
-                    false => {
-                        facts.push_str(&format!("{n}. {question} (recommended: {recommended})\n"))
-                    }
-                }
-            }
-        }
-    }
-    match ready {
-        true => facts.push_str(
-            "\nKelpie is sure of this issue: it rewrites the issue body from this report and \
-             labels it `ready-for-agent` for its board.\n",
-        ),
-        false => {
-            if settled {
-                facts.push_str(
-                    "\nKelpie writes the answers its author gave under the author's own text in \
-                     this issue's body, and never in place of it.\n",
-                );
-            }
-            match (ask, answers, local) {
-                (true, _, _) => facts.push_str(
-                    "\nKelpie posts these questions under your words, each with the answer the \
-                     research recommends, and under them a collapsed prompt the author can \
-                     paste into an agent session of their own. The author answers them all in \
-                     one comment, whatever they write, or rewrites the issue body from their \
-                     own session. Kelpie then reads the issue again, and what is still open \
-                     goes to the maintainer. With no reply the maintainer triages the issue as \
-                     it stands.\n",
-                ),
-                (false, true, _) | (false, false, true) => facts.push_str(
-                    "\nThis is the last round of questions: what is still open goes to the \
-                     maintainer.\n",
-                ),
-                (false, false, false) => facts.push_str("\nThe maintainer triages it next.\n"),
-            }
-        }
-    }
-    facts
 }

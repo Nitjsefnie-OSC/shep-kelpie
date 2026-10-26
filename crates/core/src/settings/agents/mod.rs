@@ -603,8 +603,8 @@ impl Settings {
 ///
 /// # Errors
 ///
-/// [`SettingsError::Invalid`] on `setting` when `agents` lacks it, or its
-/// file is another role's.
+/// [`SettingsError::Invalid`] on `setting` when `agents` lacks it, its file
+/// is left out, or its file is another role's.
 pub(super) fn find<'a>(
     agents: &'a Agents,
     name: &AgentName,
@@ -614,6 +614,14 @@ pub(super) fn find<'a>(
 ) -> Result<&'a Agent, SettingsError> {
     let invalid = |reason: String| SettingsError::Invalid { setting, reason };
     let Some(agent) = agents.get(name) else {
+        if let Some(error) = agents.broken(name) {
+            return Err(invalid(format!("`{at}` names {name}, whose {error}")));
+        }
+        if let Some(command) = agents.unbound_command(name) {
+            return Err(invalid(format!(
+                "`{at}` names {name}, which is unbound: run `{command}`"
+            )));
+        }
         return Err(invalid(format!(
             "`{at}` names {name}, which has no agent file: write `{FOLDER}/{name}.md` \
              in kelpie's home"

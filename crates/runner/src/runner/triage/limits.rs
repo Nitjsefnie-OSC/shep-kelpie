@@ -1,24 +1,13 @@
 //! The limits kelpie puts on triage, checked before an issue's research call
 //!
-//! Four checks, in this order, none of them a model call: the day's calls, the
-//! author's share of them, the age of the author's account, and the size of the
-//! body the triager is given. The maintainer's own issues and one `shep kelpie
-//! triage` asked for skip all four.
-//!
-//! The first holds an issue in `triage.due` for the next free place, which
-//! `status` says, and never drops it. The next two end it at `needs-triage`
-//! with no call and no comment, which is final for that issue: the pass does
-//! not come back to it, and only the verb reaches it again. The last cuts the
-//! body the call is given, and says in the fence that it did.
-//!
-//! The counts come from the calls saved in `ProjectState.triage`, each record
-//! holding the moment of every triager call its issue made, so a cap survives a
-//! restart. A call on an issue that has no record yet, which is what a first pass
-//! leaves until its comment is recorded, is saved the same way, under
-//! `triage.unrecorded`. A call counts when it reached a model, whether or not its
-//! reply read. A record a limit held stands for no call, so it spends no place of
-//! a cap it was held by, and a record made from a triage comment found on the
-//! issue holds no call of its own either.
+//! Four checks, in order, none a model call: the day's calls, the author's share
+//! of them, the age of the author's account, and the size of the body. The
+//! maintainer's own issues and one `shep kelpie triage` asked for skip all four.
+//! The first holds an issue in `triage.due` for a free place. The next two end it
+//! at `needs-triage` with no call and no comment, final until the verb is asked.
+//! The last cuts the body the call is given, and says in the fence that it did.
+//! Counts come from the calls saved in `ProjectState.triage`, so a cap survives a
+//! restart; a call on an issue with no record yet is saved under `triage.unrecorded`.
 
 use crate::board::TRIAGE;
 use crate::ports::{OpenIssue, Timestamp};
@@ -79,11 +68,10 @@ impl Runner {
             .is_ok_and(|m| login.eq_ignore_ascii_case(&m))
     }
 
-    // A record made before the caps existed names no author, and neither does one
-    // made from a triage comment found on the issue. The listing gives it, and it
-    // is what the author's cap counts by and what tells the maintainer's own
-    // issues, which skip every limit, from everyone else's. An account deleted
-    // since the issue went up leaves none, and the record stays as it is.
+    // A record made before the caps existed, or from a triage comment found on the
+    // issue, names no author. The listing gives it: the author's cap counts by it
+    // and it tells the maintainer's issues, which skip every limit. An account
+    // deleted since leaves none, and the record stays as it is.
     pub(super) fn note_triage_authors(&mut self, open: &[OpenIssue]) -> Result<(), StateError> {
         let Some(triage) = self.state.triage.as_ref() else {
             return Ok(());
@@ -136,12 +124,10 @@ impl Runner {
         self.triage_count(now, Some(login)).0
     }
 
-    // The day's triage calls, and the oldest of them: every call saved in the
-    // records whose moment falls in the 24 hours back from `now`, and every call
-    // saved for an issue that has no record yet, which is what a first pass that
-    // keeps failing leaves behind. With `login`, only that author's. A record a
-    // limit held, and one made from a comment found on the issue, hold no call and
-    // count toward none.
+    // The day's triage calls, and the oldest: every call saved in records whose
+    // moment falls in the 24 hours back from `now`, and every call saved for an
+    // issue with no record yet. With `login`, only that author's. A record a limit
+    // held, or made from a comment found on the issue, holds no call.
     fn triage_count(&self, now: Timestamp, login: Option<&str>) -> (u32, Option<Timestamp>) {
         let from = now.0.saturating_sub(DAY);
         let Some(triage) = self.state.triage.as_ref() else {
@@ -182,12 +168,10 @@ impl Runner {
         (used, oldest)
     }
 
-    // Records that a triager call on `issue` ran, at the moment it ended. An
-    // issue with a record carries its calls from the moment each one ends, so the
-    // next poll and a restart both see the place it spent, and a round's second
-    // call is counted before it is admitted. A first pass has no record until its
-    // comment is recorded, so its call is saved against the issue until then, and
-    // one whose reply could not be read keeps it that way.
+    // Records that a triager call on `issue` ran, at the moment it ended, so the
+    // next poll and a restart see the place it spent and a round's second call is
+    // counted before it is admitted. A first pass has no record until its comment
+    // is recorded, so its call is saved against the issue until then.
     pub(in crate::runner) fn triage_call_made(&mut self, issue: u64) -> Result<(), StateError> {
         let now = self.ports.clock.now();
         let author = self
@@ -249,10 +233,9 @@ impl Runner {
     }
 
     // Whether a call of the author's round waits for a free place: the day's cap
-    // alone. The author's share and the account's age decide which of an
-    // author's issues kelpie takes on, and this issue is one it took on already.
-    // A round is read from the records at every poll, so a call that waits is
-    // simply made at the next one.
+    // alone, as the author's share and the account's age decide which issues kelpie
+    // takes on and this one is taken already. A round is read from the records at
+    // every poll, so a call that waits is simply made at the next one.
     pub(super) fn triage_round_held(&mut self) -> bool {
         let now = self.ports.clock.now();
         let per_day = self.settings.triage.per_day;
@@ -294,11 +277,10 @@ impl Runner {
         age
     }
 
-    // Labels `issue` `needs-triage` with no call and no comment, and records
-    // that `limit` held it. The hold is final for the issue: its label and its
-    // record both keep it out of the due list, and `shep kelpie triage` can
-    // still be asked of it. A label the forge refuses is a failed triage, tried
-    // at the next poll, and nothing is recorded.
+    // Labels `issue` `needs-triage` with no call and no comment, and records that
+    // `limit` held it. The hold is final: its label and record keep it out of the
+    // due list, and `shep kelpie triage` can still be asked of it. A label the forge
+    // refuses is a failed triage, tried at the next poll, and nothing is recorded.
     pub(super) fn triage_hold(
         &mut self,
         issue: u64,

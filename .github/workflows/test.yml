@@ -181,7 +181,7 @@ jobs:
           }
           'C:\Program Files\LLVM\bin' | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
       # `dog`, `core` and the crates below them compile for Windows, tests included: keep them so.
-      - run: cargo check --all-targets --locked -p shep-kelpie-core -p shep-kelpie-dog -p shep-kelpie-process -p shep-kelpie-test-support -p shep-kelpie-facts -p shep-kelpie-panel -p shep-kelpie-worker-folder -p shep-kelpie-trim
+      - run: cargo check --all-targets --locked -p shep-kelpie-core -p shep-kelpie-dog -p shep-kelpie-process -p shep-kelpie-test-support -p shep-kelpie-facts -p shep-kelpie-owner-only -p shep-kelpie-panel -p shep-kelpie-worker-folder -p shep-kelpie-trim
       - id: check
         continue-on-error: true
         run: cargo check --workspace --all-targets --locked --keep-going
@@ -197,3 +197,11 @@ jobs:
       - if: steps.door.outcome == 'failure'
         run: |
           echo "::warning title=windows::the lease door's tests do not pass on Windows yet. The step's log names each failing test."
+      # The owner-only ACL: the secret, the answers files and the App's key
+      # store. Non-gating until a run of it passes on Windows.
+      - id: totp
+        continue-on-error: true
+        run: 'cargo test --locked -p shep-kelpie-core -p shep-kelpie-owner-only -p shep-kelpie-adapters --lib -- totp:: owner_only:: github::tests::saving_makes github::tests::a_key_others'
+      - if: steps.totp.outcome == 'failure'
+        run: |
+          echo "::warning title=windows::the owner-only ACL's tests do not pass on Windows yet. The step's log names each failing test."

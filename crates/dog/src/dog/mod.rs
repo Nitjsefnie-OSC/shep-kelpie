@@ -38,7 +38,8 @@ use crate::lease::saved::{BookFile, SavedBook};
 use crate::lease::wire::{GRANT, grant_params};
 use crate::metrics::{Recorder, ShepherdSink};
 use crate::ports::{Clock, LocalPace, SystemClock};
-use crate::review_bot::Reviewers;
+use crate::review_bot::{Bot, Reviewers};
+use crate::settings::AgentName;
 use crate::shep_home;
 use crate::webhook::KelpieSettings;
 use bus::{Bus, Sent};
@@ -156,8 +157,8 @@ fn open(
 }
 
 // Each review bot's window, from its agent file in kelpie's home. Files
-// that cannot be read leave kelpie's own windows, and a runner refuses to
-// start on them anyway.
+// that cannot be read, or a bot's that cannot be used, leave kelpie's own
+// windows, and a runner that names them refuses them anyway.
 fn windows() -> Reviewers {
     match home::kelpie_home() {
         Ok(home) => windows_in(&home.join(agents::FOLDER)),
@@ -183,21 +184,54 @@ fn refresh_baselines_in(folder: &std::path::Path) {
     }
 }
 
+// A stub that inherits its baseline's binding gets it written in, as `shep
+// kelpie agents migrate` does. The upgrade that first brings this step is run
+// by a build without it, so the dog does it too. A failure is said and the dog
+// runs on.
+fn migrate_agents() {
+    match home::kelpie_home() {
+        Ok(home) => {
+            for line in migrate_agents_in(&home.join(agents::FOLDER)) {
+                println!("{line}");
+            }
+        }
+        Err(e) => println!("{e}: not migrating kelpie's agent files"),
+    }
+}
+
+fn migrate_agents_in(folder: &std::path::Path) -> Vec<String> {
+    match agents::legacy::migrate(folder) {
+        Ok(report) => report
+            .lines()
+            .into_iter()
+            .map(|line| format!("agent files: {line}"))
+            .collect(),
+        Err(e) => vec![format!("{e}: kelpie's agent files are not migrated")],
+    }
+}
+
 fn windows_in(folder: &std::path::Path) -> Reviewers {
     let agents = Agents::load(folder).unwrap_or_else(|e| {
         println!("{e}: booking each review bot's window as kelpie's own file has it");
         Agents::embedded()
     });
-    Reviewers::from_agents(&agents)
+    let own = Reviewers::from_agents(&Agents::embedded());
+    let broken = |bot: &Bot| agents.broken(&AgentName::kelpies(bot.as_str()));
+    (Bot::ALL.iter()).fold(Reviewers::from_agents(&agents), |windows, bot| {
+        match (broken(bot), own.window(*bot)) {
+            (Some(e), Some(window)) => {
+                println!("{e}: booking {bot}'s window as kelpie's own file has it");
+                windows.with(*bot, window)
+            }
+            _ => windows,
+        }
+    })
 }
 
 // Kelpie's section, for its leases. One that cannot be read holds them at
-// the default capacities.
-// A section the shepherd refuses, as a `{{secret:...}}` it cannot resolve,
-// stops the dog, as it stops the runners that read the same section.
-// A webhook's `ca_cert` that cannot be read stops the dog, since every
-// ruling's post would fail on it, and so does `trusted` with no `token`,
-// since replies would then be taken on a topic anyone can post to.
+// the default capacities. A section the shepherd refuses stops the dog.
+// So does a webhook `ca_cert` that cannot be read, and `trusted` with no
+// `token`, since replies would then be taken on a topic anyone can post to.
 async fn settings(client: &ReconnectingClient) -> Result<KelpieSettings, String> {
     section_settings(client.dog_config(crate::shepherd::DOG).await)
 }
@@ -283,6 +317,7 @@ async fn serve() -> Result<(), String> {
     let settings = settings(&client).await?;
     let metrics = Arc::new(Recorder::new(Arc::new(ShepherdSink::new(shepherd.clone()))));
     refresh_baselines();
+    migrate_agents();
     let mut kept = open(file, Box::new(SystemClock), windows(), metrics);
     let capacity = settings.leases.cargo_test_capacity();
     kept.desk.set_test_capacity(capacity);
@@ -811,6 +846,33 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&edited).unwrap(), shipped);
         assert!(kept.join("pm.md").is_file());
         assert!(std::fs::metadata(&edited).unwrap().permissions().readonly());
+    }
+
+    #[test]
+    fn the_dogs_start_migrates_unbound_stubs_and_says_each_file() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("pm.md"), "---\nextends: kelpie:pm\n---\n").unwrap();
+        std::fs::write(
+            dir.path().join("mine.md"),
+            "---\nextends: kelpie:spec\nharness: pi\n---\n",
+        )
+        .unwrap();
+
+        let said = migrate_agents_in(dir.path());
+
+        assert_eq!(said.len(), 2, "{said:?}");
+        assert_eq!(
+            said[0],
+            "agent files: pm.md: wrote claude-code claude-opus-5-5 medium"
+        );
+        assert!(said[1].starts_with("agent files: mine.md"), "{said:?}");
+        let pm = std::fs::read_to_string(dir.path().join("pm.md")).unwrap();
+        assert!(pm.contains("model: claude-opus-5-5\n"), "{pm}");
+        assert_eq!(
+            migrate_agents_in(dir.path()).len(),
+            1,
+            "only the skipped file again"
+        );
     }
 
     #[test]

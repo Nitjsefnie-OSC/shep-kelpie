@@ -134,6 +134,10 @@ fn koji_shepherd(says: Option<&str>) -> crate::test::FakeShepherd {
     let name = ProjectName::try_from("koji").unwrap();
     shepherd.holds(launch.runner(&name, table), true);
     shepherd.holds_dog("kelpie", true);
+    crate::agents::write_bound_stubs(
+        &crate::home::kelpie_home_of(shepherd.home()).join("agents"),
+        "harness: claude-code\nmodel: claude-opus-5-5\neffort: medium\n",
+    );
     if let Some(says) = says {
         shepherd.says("koji", &[says]);
     }

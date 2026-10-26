@@ -51,15 +51,13 @@ fn hosts_told(domains: &[String], dev_port: Option<u16>) -> String {
     }
 }
 
-/// Whether `url` is `http` or `https` to one of `domains`, or to `localhost` or
-/// `127.0.0.1` on `dev_port`
+/// Whether `url` is `http` or `https` to one of `domains`, or `localhost` or `127.0.0.1` on `dev_port`
 ///
 /// A domain is a host, or `*.` and a parent for its subdomains. A domain's
-/// port is read but not held to anything, since the browser's resolver cannot
-/// hold a host to one port either: the proxy does. The dev server's address
-/// passes on its one port only. Anything this cannot read as such a URL is
-/// refused: another scheme, a user name, an IPv6 host, an encoded host, or a
-/// character a browser drops.
+/// port is read but not enforced here: the proxy does that. The dev server's
+/// address passes on its one port only. Anything not readable as such a URL
+/// is refused: another scheme, a user name, an IPv6 host, an encoded host, or
+/// a character a browser drops.
 pub fn allowed_url(url: &str, domains: &[String], dev_port: Option<u16>) -> bool {
     let lower = url.to_ascii_lowercase();
     let (default, rest) = match (

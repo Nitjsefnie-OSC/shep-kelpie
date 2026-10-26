@@ -6,6 +6,7 @@ use serde_json::{Value, json};
 
 use super::marker::MARKER;
 use super::pick_tests::{issue, list, rig_with, triaging};
+use super::research_tests::handed;
 use crate::github::ApiError;
 use crate::ports::{Role, Timestamp};
 use crate::runner::{advance, step};
@@ -40,10 +41,7 @@ fn triage_queues_an_issue_opened_before_pick_was_turned_on() {
     assert_eq!(reply.get("error"), None, "{reply}");
     assert_eq!(step(&runner).unwrap(), None);
 
-    assert_eq!(
-        rig.github.comments(),
-        [(30, format!("{WORDS}\n\n{MARKER}"))]
-    );
+    assert_eq!(rig.github.comments(), [(30, handed(WORDS))]);
     let status = rig.ask(&runner, "status", None);
     assert_eq!(status["triage"]["issues"][0]["issue"], 30);
     assert_eq!(status["triage"]["issues"][0]["step"], "done");
@@ -223,7 +221,7 @@ fn an_issue_queued_while_the_triage_listing_was_read_is_triaged_at_once() {
 
     assert_eq!(
         rig.github.comments(),
-        [(30, format!("{WORDS}\n\n{MARKER}"))],
+        [(30, handed(WORDS))],
         "the queued issue was triaged"
     );
 }

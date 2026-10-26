@@ -140,6 +140,10 @@ impl Scene {
             clock,
             shepherd,
         };
+        crate::agents::write_bound_stubs(
+            &scene.kelpie_home.join("agents"),
+            "harness: claude-code\nmodel: claude-opus-5-5\neffort: high\n",
+        );
         scene.runs("koji", |_| {});
         scene
     }
@@ -325,7 +329,7 @@ async fn an_md_file_named_for_no_agent_is_named_and_unsure() {
             agents.join("README.md").display()
         )
     );
-    assert!(next.contains("rename it"), "{next}");
+    assert!(next.contains("rename the file"), "{next}");
 }
 
 #[tokio::test]
@@ -339,17 +343,20 @@ async fn an_agent_file_that_cannot_be_used_or_an_implementer_without_one_is_miss
         what.contains("names fable, which has no agent file"),
         "{what}"
     );
-    assert!(fix.contains("write the agent file"), "{fix}");
+    assert!(fix.contains("write or correct the agent file"), "{fix}");
 
     let agents = scene.kelpie_home.join("agents");
     crate::test::write_in(&agents, "fable.md", "role: implementer\n");
     let (what, fix) = missing(&scene.report().await, "golbat: implementers");
     let file = agents.join("fable.md");
     assert!(
-        what.starts_with(&format!("agent file {}: ", file.display())),
+        what.contains(&format!(
+            "names fable, whose agent file {}: ",
+            file.display()
+        )),
         "{what}"
     );
-    assert!(fix.contains("correct the file"), "{fix}");
+    assert!(fix.contains("correct the agent file"), "{fix}");
 }
 
 // Shep lists a dog that is up and never named itself as silent, then gives
@@ -914,4 +921,5 @@ mod registries;
 mod reviewers;
 mod sandbox;
 mod template;
+mod unbound;
 mod webhook;

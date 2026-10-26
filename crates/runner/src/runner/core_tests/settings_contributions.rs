@@ -97,7 +97,10 @@ fn nudge_days_at_or_past_quiet_days_is_refused() {
 
 #[test]
 fn absent_reviewers_are_the_projects_agents_reviewers() {
-    let book = Agents::embedded().with("opus", REVIEWER);
+    let binding = "harness: claude-code\nmodel: claude-opus-5-5\neffort: high\n";
+    let book = Agents::embedded()
+        .bind("defect-hunter", binding)
+        .with("opus", REVIEWER);
     let home = tempfile::tempdir().unwrap();
     let listed = EXAMPLE.replace(
         "# reviewers = [\"iq3-xxs-review\", \"defect-hunter-lite\"]\n",

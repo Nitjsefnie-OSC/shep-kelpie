@@ -1,23 +1,13 @@
-//! Draining a runner before its restart or its stop, so neither cuts a call
-//! short
+//! Draining a runner before its restart or stop, so neither cuts a call short
 //!
 //! The runner is sent `drain`, after which it starts no new call, and asked
-//! again until it shows none running. `upgrade` drains a runner before its
-//! restart, and `shep kelpie pause` before its stop ([`Purpose`]). The wait
-//! is bounded by the longest a call of the runner's may run, which its
-//! answer says, plus [`Patience::margin`], counted from when the wait began.
-//! A turn's ceiling counts from when it got the lease it waited for, and a
-//! reviewer's call has none, so either can outrun the bound. Past it the runner is named and
-//! left running.
-//!
+//! again until none runs ([`Purpose`]). The wait is bounded by the longest
+//! call its answer says may run, plus [`Patience::margin`]. A lease wait or a
+//! reviewer's call can outrun that, and past it the runner is named and left.
 //! A pause sends `drain pause`, which also ends each worker turn at its next
-//! tool call, on a harness that can. Those turns are waited on for
-//! [`Patience::tool`] only: a tool call can run long, and past the limit the
-//! pause goes on to the stop, which cuts the call short as `shep stop` does.
-//! A runner from before `drain pause` is sent a plain `drain` and waited on
-//! as an upgrade waits. A runner on a build from before `drain` answers it, twice,
-//! as an action nobody took while it answers `status`: it is restarted or
-//! stopped as before, which cuts its calls short.
+//! tool call, on a harness that can. Those turns wait only [`Patience::tool`].
+//! An older runner gets a plain `drain`; one that takes it as an action nobody
+//! took is restarted or stopped as before.
 
 use std::time::Duration;
 

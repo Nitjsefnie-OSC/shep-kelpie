@@ -1,17 +1,12 @@
 //! The ruling a flagged head raises, and what answering it does
 //!
-//! A head the security review flagged needs the maintainer's eye before
-//! anything of it runs. One ruling is raised for it, about the pull request
-//! and with no work item, naming each file, line and why. A yes records the
-//! head as trusted, so it counts as passed; a no leaves it unpassed. Either
-//! way nothing of the contributor's runs because of the answer, and nothing
-//! is posted: the ruling reaches the maintainer's webhook, `status` and
-//! `shep kelpie rule` only, since a public comment would accuse the
-//! contributor and tip off an attacker, and it never goes to the panel.
-//!
-//! A ruling about a head that is gone, because the head moved or the pull
-//! request is no longer followed, is withdrawn at once, with no post. A new
-//! head is read afresh.
+//! A head the security review flagged needs the maintainer's eye before anything
+//! of it runs. One ruling is raised for it, about the pull request, naming each
+//! file, line and why. A yes records the head as trusted, so it counts as passed;
+//! a no leaves it unpassed. Nothing of the contributor's runs because of the
+//! answer. The ruling reaches the maintainer's webhook, `status` and `shep kelpie
+//! rule` only, never the panel: a public comment would accuse the contributor and
+//! tip off an attacker. A ruling about a head that is gone is withdrawn at once.
 
 use super::super::gate::short;
 use super::super::ruling::question;
@@ -287,15 +282,12 @@ pub(in crate::runner) fn rule_merge(next: &mut ProjectState, answer: &Answer, ru
     }
 }
 
-/// Carries the maintainer's answer to the ruling for a contributor who said
-/// no twice into `next`: keeping waiting starts the wait and the count over,
-/// adopting anyway records a release by the maintainer, and closing with
-/// thanks is left for the next poll, which has the representative say it
+/// Carries the maintainer's answer to a ruling into `next`
 ///
-/// The answers to the ruling for a fork kelpie cannot push to, and for one
-/// kelpie cannot adopt, are the same kind of choice: leaving it open drops the
-/// pull request from the ones followed, and closing with thanks is left for the
-/// next poll.
+/// For a contributor who said no twice: keeping waiting restarts the wait and
+/// the count, adopting anyway records a release by the maintainer, and closing
+/// with thanks is left to the next poll. A fork kelpie cannot push to or adopt
+/// gets the same kind of choice; leaving it open drops the pull request.
 ///
 /// # Errors
 ///
@@ -396,13 +388,10 @@ fn settle_no_edits(
 /// The fewest characters of a head's hash a yes may name
 const LEAST: usize = 7;
 
-/// Records the head a yes to `ruling` trusts, in `next`, so that it counts as
-/// passed
+/// Records the head a yes to `ruling` trusts, in `next`, so it counts as passed
 ///
-/// A yes names the head the maintainer read, because every ruling on a pull
-/// request has its number and a yes meant for one head must not trust the
-/// next. It trusts only the head the ruling is about; any other answer trusts
-/// nothing.
+/// A yes trusts only the head the ruling is about, since a yes meant for one
+/// head must not trust the next. Any other answer trusts nothing.
 ///
 /// # Errors
 ///

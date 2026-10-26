@@ -91,16 +91,13 @@ const RETRO_DENY: [&str; 14] = [
 /// context is 8,265 tokens, from 18,385.
 pub(crate) const WORK_TOOLS: &str = "Bash,Read,Edit,Write,Glob,Grep,Skill";
 
-/// The only tools an issue writer's session starts with, as `--tools` takes
-/// them
+/// The only tools an issue writer's session starts with, as `--tools` takes them
 ///
-/// `Bash` is there because its commands are its guard's (`gh issue` reads,
-/// creates, and label and link edits), and headless a command nothing allows
-/// is refused. `Read`, `Glob` and `Grep` are how it researches the repo.
-/// `Skill` stays because the repo's plugins reach this call on purpose and
-/// carry skills. It writes no file and fetches nothing, so no writer and no
-/// web tool is here. [`ISSUES_DENY`] stays as the second fence, as
-/// [`PM_DENY`] does for the project manager.
+/// `Bash` is there for its guard's commands (`gh issue` reads, creates and
+/// label and link edits). `Read`, `Glob` and `Grep` research the repo, and
+/// `Skill` carries the repo's plugins. It writes no file and fetches nothing.
+/// [`ISSUES_DENY`] is the second fence, as [`PM_DENY`] is for the project
+/// manager.
 pub(crate) const ISSUES_TOOLS: &str = "Bash,Read,Glob,Grep,Skill";
 
 /// The only tools the project manager's session has, as `--tools` takes them
@@ -885,11 +882,10 @@ mod tests {
         match tools {
             // It builds the change, so it writes files, held to its folders by `confine`.
             Tools::Work => &["Edit", "Write", "MultiEdit", "NotebookEdit"],
-            // It may edit its notes file and nothing else, which `Edit(<notes>)` allows
-            // and `confine --append` holds to appending (`Write` rides the `Edit` rule).
-            // `MultiEdit` was left off its deny list on purpose in #357: Claude Code warns
-            // that a rule for it matches no known tool, and its `--tools` allow-list
-            // already leaves the tool out. `NotebookEdit` stays denied.
+            // It may edit its notes file only: `Edit(<notes>)` allows it and
+            // `confine --append` holds it to appending (`Write` rides the `Edit` rule).
+            // `MultiEdit` has no deny rule: Claude Code warns it matches no known
+            // tool, and the `--tools` allow-list already leaves it out.
             Tools::Pm => &["Edit", "Write", "MultiEdit"],
             // Known gap: a reviewer's session is read-only by design (Read, Grep and Glob),
             // but its own deny list holds `Agent`, `Task` and `Bash` only. Every settings

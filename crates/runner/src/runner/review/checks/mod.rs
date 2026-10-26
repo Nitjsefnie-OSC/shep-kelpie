@@ -2,15 +2,12 @@
 //!
 //! With `ci.test_command` set, a finding may carry a failing test the reviewer
 //! wrote, kept in `<worker>/review-tests-<ticket>` ([`super::attached`]). Once
-//! the head a round read is known, each such test is put in the worktree at
-//! its path, run through the [`TestRunner`](crate::ports::TestRunner), and
-//! taken out again, so the worktree is as clean as it was. When the fix has
-//! moved the head and the worktree holds it, the same run is made again.
-//!
-//! The runs are recorded in the work item's `test_checks` and reported. A test
-//! that fails after the fix sends the worker back for one more fix turn on it,
-//! and one that still fails after that raises a `test-still-fails` ruling. Any
-//! other outcome blocks nothing: the pass goes on.
+//! the head a round read is known, each is put in the worktree at its path, run
+//! through the [`TestRunner`](crate::ports::TestRunner) and taken out again; when
+//! the fix has moved the head, the run is made again. The runs are recorded in
+//! `test_checks`. A test that fails after the fix sends the worker back for one
+//! more fix turn, and one that still fails raises a `test-still-fails` ruling.
+//! Any other outcome blocks nothing.
 
 use std::io;
 use std::path::{Component, Path, PathBuf};
@@ -297,7 +294,7 @@ impl Runner {
             cwd: item.worktree.clone(),
             reach,
             settings: (self.paths.worker).join(format!("test-run-{}.sandbox.json", item.issue)),
-            door: self.paths.door.clone(),
+            door: Some(self.paths.door.clone()),
             ceiling: CEILING,
         });
         // The outcome stands, but a worktree the run left dirty is the
@@ -398,9 +395,8 @@ struct Placed {
 impl Placed {
     // `text` at `rel` below `root`, with `record` written first.
     //
-    // A file already there with this very text is the worker's own copy of the
-    // reviewer's test, committed with its fix: it is run as it is, and left.
-    // Any other file there is not the reviewer's test, and nothing is put over it.
+    // A file already there with this very text is the worker's committed copy: it
+    // is run as it is, and left. Any other file there is left alone.
     fn put(root: &Path, rel: &Path, text: &str, record: &Path) -> Result<Self, String> {
         match root.join(rel).symlink_metadata() {
             Err(e) if e.kind() == io::ErrorKind::NotFound => {}

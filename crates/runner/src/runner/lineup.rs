@@ -94,7 +94,7 @@ impl Runner {
                 title: issue.title.clone(),
                 priority: priority(&issue.labels),
                 blocked: issue.blocked_by.iter().any(|b| b.open) || issue.unlisted_blockers > 0,
-                held: held.contains(&issue.ticket),
+                held: held.iter().any(|h| h.issue == issue.ticket),
             })
             .collect();
         Board {

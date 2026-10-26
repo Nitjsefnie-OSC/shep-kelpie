@@ -1,26 +1,13 @@
-//! goose, headless as `goose run`, one process per call, on a model an
-//! OpenAI-compatible server runs
+//! goose, headless as `goose run`, one process per call, on an OpenAI-compatible model
 //!
-//! Each call runs whole inside kelpie's sandbox, as pi's do. goose has no
-//! sandbox of its own here. Kelpie gives it a root of its own beside the
-//! call's settings, so the maintainer's own goose setup never loads. A
-//! researcher is loaded no builtin extension but `skills`, which lists the skills
-//! and offers `load_skill`: the model is offered no shell or file tool, so it
-//! reads what kelpie wrote it and answers, with the web of its MCP server where
-//! the package is installed ([`web`]). A worker is offered goose's `developer`
-//! extension, and every tool call it makes goes through a `PreToolUse` hook
-//! plugin that kelpie writes into the root, [`hooks`]. So is a reviewer, an
-//! advisor and a retro in a fence, with the plugin's read-only guard: goose has
-//! no read tool, so they read the repo through a `shell` that runs only what
-//! reads, and they write no file. A call also loads the MCP servers of the repo,
-//! its plugins and the code graph, as flags of a new session ([`mcp`]), and its
-//! hook lets those servers' tools through. Every call lists the skills of its
-//! plugins, and a step's prompt runs as goose's own skill command ([`skills`]).
-//! The sandbox
-//! allows no model host: goose's calls go to a forwarder outside it, which
-//! passes the server only the chat completions call. A model behind a gateway
-//! gets the gateway's key from the forwarder, and each call on one holds the
-//! gateway's lease on its model from start to end, where its kind offers one.
+//! Each call runs inside kelpie's sandbox in a goose root of its own, so the
+//! maintainer's goose setup never loads. A researcher gets only `skills` and
+//! its MCP web ([`web`]). A worker gets `developer`, and every tool call goes
+//! through the `PreToolUse` plugin ([`hooks`]); a fenced reviewer, advisor and
+//! retro get its read-only guard, reading through a `shell`. A call loads MCP
+//! servers as flags of a new session ([`mcp`]) and its plugins' skills ([`skills`]).
+//! goose dials a forwarder outside the sandbox, which passes on only the chat
+//! completions call. A gateway model gets its key and holds its lease per call.
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -29,7 +16,7 @@ use std::process::{Command, Output};
 use self::files::Files;
 use self::output::Spent;
 use super::cli::{Cli, CliAdapter, FollowUp, Launch, Turn};
-use super::harness::{Base, bind_in_scratch, call_policy, program_folder};
+use super::harness::{Base, assignments, bind_in_scratch, call_policy, program_folder};
 use super::process::record::CallFiles;
 use crate::dep_sources::ProcessEnv;
 use crate::fence;
@@ -333,11 +320,10 @@ impl Cli for Goose {
         read.reply
     }
 
-    // The terminal session runs on the session's model requests, so goose's totals will
-    // hold tokens kelpie cannot count: they are in goose's database. The record notes that
-    // when the session starts, not when it ends, since the hold outlives a runner that
-    // restarts and nothing in memory then remembers the session. The next headless turn
-    // counts from the totals it reports.
+    // The terminal session's requests are in goose's database, so its totals hold
+    // tokens kelpie cannot count. The record notes that at the start, since the
+    // hold outlives a restarted runner. The next headless turn counts from the
+    // totals it reports.
     fn started(&self, call: &AgentCall, known: &Spent) -> Result<(), AgentError> {
         let rebased = Spent {
             rebase: true,
@@ -510,11 +496,9 @@ fn told(call: &AgentCall, prompt: String) -> String {
 }
 
 // The variables that move goose into the call's own root and point it at the
-// forwarder. `GOOSE_MODE` is `chat` for a call with no extension: there is no
-// tool for `auto` to allow, and goose rejects one that appears anyway. A
-// worker's, a reader's and a call's that loads an MCP server is `auto`, which ignores
-// goose's own `permission.yaml`, so the hook plugin is the only gate. A call with a shell reads the repo's `AGENTS.md` and
-// `CLAUDE.md`, as pi does, and never `.goosehints`. A `mode` replaces that `GOOSE_MODE`.
+// forwarder. `GOOSE_MODE` is `chat` with no extension, else `auto`, where the
+// hook plugin is the only gate. A call with a shell reads `AGENTS.md` and
+// `CLAUDE.md`, never `.goosehints`. A `mode` replaces `GOOSE_MODE`.
 fn env_args(
     call: &AgentCall,
     server: &ModelServer,
@@ -559,21 +543,13 @@ fn env_args(
         let added = (fence.env.iter()).filter(|(name, _)| !own.contains(name));
         vars.extend(added.map(|(name, value)| (name.clone(), value.clone().into())));
     }
-    vars.into_iter()
-        .map(|(name, value)| {
-            let mut pair = OsString::from(format!("{name}="));
-            pair.push(value);
-            pair
-        })
-        .collect()
+    assignments(vars).collect()
 }
 
-// The prompt is one `--text=` argument, so one that starts with `-` is not read
-// as a flag. A worker is
-// given the `developer` builtin on a resumed call too: goose de-duplicates a
-// builtin, where a repeated `--with-extension` name ends the run. A reviewer,
-// advisor or retro is given it on a new session ([`offers_developer`]), and only
-// a new session is given its servers.
+// The prompt is one `--text=` argument, so one starting with `-` is not a flag.
+// A worker gets the `developer` builtin on a resumed call too, since goose
+// de-duplicates a builtin. A reviewer, advisor or retro gets it on a new
+// session ([`offers_developer`]), and only a new session gets its servers.
 fn argv(call: &AgentCall) -> Result<Vec<OsString>, AgentError> {
     if let Some(compact) = compact::argv(call) {
         return Ok(compact);

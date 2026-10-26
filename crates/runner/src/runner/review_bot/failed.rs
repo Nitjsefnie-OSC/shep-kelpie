@@ -12,18 +12,14 @@ use crate::state::StateError;
 use crate::work_item::{BotSkipped, Phase, ReviewStage};
 
 impl Runner {
-    /// Asks `bot` for its review once more after the first failure, and
-    /// passes it over after the second
+    /// Asks `bot` for its review once more after a first failure, then passes it over
     ///
     /// The summon sent again takes `now` as its own time, so the failure that
-    /// drew it is not read as its answer. Whether a failure came before is
-    /// the stage's `failed`, and not `resent`, which a summon the bot gave no
-    /// sign of sets too.
-    ///
-    /// A bot that posted a notice since the summon has had its lease given
-    /// back, so the second summon asks for it again and waits for the grant.
-    /// `failed` is saved before the comment goes out, as every summon is, so
-    /// a restart never sends a third.
+    /// drew it is not read as its answer. Whether a failure came before is the
+    /// stage's `failed`, not `resent`, which a silent summon sets too. A bot that
+    /// posted a notice has had its lease given back, so the second summon asks for
+    /// it again. `failed` is saved before the comment goes out, so a restart never
+    /// sends a third.
     pub(super) fn failed_review(
         &mut self,
         bot: Bot,

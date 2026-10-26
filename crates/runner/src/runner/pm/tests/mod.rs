@@ -19,6 +19,7 @@ use super::HOLD_FOR;
 
 mod attach;
 mod code;
+mod conflicts;
 mod follow_up;
 mod hold;
 mod lease;
@@ -28,6 +29,7 @@ mod pick;
 mod question;
 mod quiet;
 mod red;
+mod until;
 mod wake_prompt;
 
 const NOTHING: &str = "{\"pick\": null}";
@@ -409,6 +411,27 @@ fn a_pick_of_none_with_nothing_open_waits_half_an_hour_and_never_stalls() {
     rig.clock.advance(31 * 60);
     assert_eq!(dispatched(step(&runner).unwrap()), ticket(9));
     assert_eq!(pm_seen(&rig).len(), 1);
+}
+
+#[test]
+fn a_pick_held_while_the_project_manager_decides_shows_why_in_skipped_and_on_the_board() {
+    let (rig, runner) = with_pm("ditto");
+    rig.forge.list_ready(9, false);
+    rig.forge.list_ready(12, false);
+    rig.claude.script([Scripted::Say(
+        "{\"pick\": null, \"why\": \"#3 lands first.\"}",
+    )]);
+    answered(step(&runner).unwrap());
+
+    assert_eq!(step(&runner).unwrap(), None);
+
+    let skipped = rig.ask(&runner, "status", None)["skipped"].clone();
+    assert_eq!(skipped, json!([{ "reason": "pm-waits", "issue": "9" }]));
+    let board = std::fs::read_to_string(rig.paths().board).unwrap();
+    assert!(
+        board.contains("the project manager's pick waits"),
+        "{board}"
+    );
 }
 
 #[test]

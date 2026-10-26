@@ -1,20 +1,13 @@
 //! Agent definition files
 //!
 //! Each agent is `<name>.md` in the `agents` folder of kelpie's home: YAML
-//! frontmatter naming what it is for and what runs it, then a Markdown body.
-//! An implementer's body is added to kelpie's own instructions, and a
-//! reviewer's, the issue writer's, the project manager's, the advisor's, the
-//! researcher's, the representative's or the triager's is its prompt.
-//! Kelpie embeds its own agents as baselines, and a file of the same name
-//! replaces one. `shep kelpie add` writes a stub for each that is missing,
-//! `extends: kelpie:<name>` and nothing else, and kelpie writes each baseline
-//! whole and read-only to `.defaults/` to be read and diffed, which nothing
-//! loads. A file with `extends: <name>` builds on the file of that name, and
-//! one with `extends: kelpie:<name>` on a baseline, setting only the keys it
-//! changes. A file that cannot be read or used stops the runner, naming the
-//! file and what is wrong with it. A `.md` file whose name is no agent's,
-//! such as a `README.md`, is skipped and named in the log. A review bot's
-//! file is named for its bot, since the bot's window is its account's.
+//! frontmatter naming what it is for and what runs it, then a Markdown body,
+//! an implementer's addition to kelpie's instructions or another role's
+//! prompt. A file named for a shipped agent replaces it. `extends: <name>`
+//! builds on that file, `extends: kelpie:<name>` on a shipped one. The book
+//! leaves out a file that binds no `harness` ([`Agents::unbound`]) or cannot
+//! be used ([`Agents::broken`]), and skips and logs other `.md` files. A file
+//! that cannot be read stops the runner.
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -25,6 +18,7 @@ use std::time::Duration;
 
 use serde::Deserialize;
 
+use self::baseline::{Baseline, Unbound, shipped_text};
 use crate::board::AGENT_LABEL;
 use crate::review_bot::BotReviewer;
 use crate::settings::{
@@ -32,8 +26,10 @@ use crate::settings::{
     ModelHost, ModelServer, NonBlank, RoleAgents, RoleModel,
 };
 
+pub mod baseline;
 mod extends;
 mod front;
+pub mod legacy;
 
 /// The folder in kelpie's home that holds the agent files
 pub const FOLDER: &str = "agents";
@@ -91,10 +87,10 @@ enum Written {
     Beside(&'static str),
 }
 
-// Kelpie's own agents, by name: what `add` writes a stub for, what a file
+// Kelpie's own whole agents, by name: what `add` writes a stub for, what a file
 // reaches with `extends: kelpie:<name>`, and what a missing file falls back
 // to. A project lists none of the review bots unless told to.
-const DEFAULTS: [(&str, &str, Written); 18] = [
+const DEFAULTS: [(&str, &str, Written); 8] = [
     (
         DEFAULT_IMPLEMENTER,
         include_str!("../../../../agents/sonnet-high.md"),
@@ -106,11 +102,6 @@ const DEFAULTS: [(&str, &str, Written); 18] = [
         Written::Always,
     ),
     (
-        DEFECT_HUNTER,
-        include_str!("../../../../agents/defect-hunter.md"),
-        Written::Always,
-    ),
-    (
         DEFECT_HUNTER_LITE,
         include_str!("../../../../agents/defect-hunter-lite.md"),
         Written::Always,
@@ -118,21 +109,6 @@ const DEFAULTS: [(&str, &str, Written); 18] = [
     (
         IQ3_XXS_REVIEW,
         include_str!("../../../../agents/iq3-xxs-review.md"),
-        Written::Always,
-    ),
-    (
-        "standards",
-        include_str!("../../../../agents/standards.md"),
-        Written::Always,
-    ),
-    (
-        "spec",
-        include_str!("../../../../agents/spec.md"),
-        Written::Always,
-    ),
-    (
-        SECURITY_REVIEWER,
-        include_str!("../../../../agents/security-reviewer.md"),
         Written::Always,
     ),
     (
@@ -153,36 +129,6 @@ const DEFAULTS: [(&str, &str, Written); 18] = [
     (
         "codex",
         include_str!("../../../../agents/codex.md"),
-        Written::Always,
-    ),
-    (
-        ISSUE_WRITER,
-        include_str!("../../../../agents/issue-writer.md"),
-        Written::Always,
-    ),
-    (
-        PM,
-        include_str!("../../../../agents/pm.md"),
-        Written::Always,
-    ),
-    (
-        ADVISOR,
-        include_str!("../../../../agents/advisor.md"),
-        Written::Always,
-    ),
-    (
-        RESEARCHER,
-        include_str!("../../../../agents/researcher.md"),
-        Written::Always,
-    ),
-    (
-        REPRESENTATIVE,
-        include_str!("../../../../agents/representative.md"),
-        Written::Always,
-    ),
-    (
-        TRIAGER,
-        include_str!("../../../../agents/triager.md"),
         Written::Always,
     ),
 ];
@@ -227,6 +173,22 @@ impl Role {
             Self::Representative => "representative",
             Self::Triager => "triager",
         }
+    }
+
+    /// The role an agent file calls `name`, if there is one
+    pub fn named(name: &str) -> Option<Self> {
+        [
+            Self::Implementer,
+            Self::Reviewer,
+            Self::IssueWriter,
+            Self::Pm,
+            Self::Advisor,
+            Self::Researcher,
+            Self::Representative,
+            Self::Triager,
+        ]
+        .into_iter()
+        .find(|role| role.as_str() == name)
     }
 }
 
@@ -318,6 +280,9 @@ pub struct Agent {
 pub struct Agents {
     agents: BTreeMap<AgentName, Agent>,
     skipped: Vec<PathBuf>,
+    broken: BTreeMap<AgentName, AgentsError>,
+    unbound: Vec<Unbound>,
+    bare: Vec<Baseline>,
 }
 
 // Names each agent with its role, harness and model, and gives a prompt's
@@ -358,35 +323,85 @@ impl fmt::Debug for Agents {
                     .collect::<BTreeMap<_, _>>(),
             )
             .field("skipped", &self.skipped)
+            .field("broken", &self.broken)
+            .field("unbound", &self.unbound)
+            .field(
+                "bare",
+                &self.bare.iter().map(|b| b.name).collect::<Vec<_>>(),
+            )
             .finish()
     }
 }
 
 impl Agents {
     /// Kelpie's own agents, with no file read
+    ///
+    /// A baseline that still carries its binding keys is an agent here, so it
+    /// runs with no file. One that binds nothing is not, and is refused until
+    /// a file binds it.
     pub fn embedded() -> Self {
+        Self::embedded_over(&baseline::ALL)
+    }
+
+    // `embedded` over `baselines`.
+    fn embedded_over(baselines: &[Baseline]) -> Self {
         // A test pins that every default parses, so none is dropped here.
-        let parsed = DEFAULTS.iter().filter_map(|(name, text, _)| {
-            let name = AgentName::try_from((*name).to_owned()).ok()?;
-            Some((name, front::parse(text).ok()?))
-        });
+        let whole = DEFAULTS.iter().map(|(name, text, _)| (*name, *text));
+        let own = baselines.iter().map(|b| (b.name, b.text));
+        let mut agents = BTreeMap::new();
+        let mut bare = Vec::new();
+        for (name, text) in whole.chain(own) {
+            let Ok(name) = AgentName::try_from(name.to_owned()) else {
+                continue;
+            };
+            match front::parse(text) {
+                Ok(agent) => {
+                    agents.insert(name, agent);
+                }
+                Err(_) => bare.extend(
+                    (baselines.iter().find(|b| b.name == name.as_str()))
+                        .filter(|b| front::unbound_role(b.text).is_some()),
+                ),
+            }
+        }
         Self {
-            agents: parsed.collect(),
+            agents,
             skipped: Vec::new(),
+            broken: BTreeMap::new(),
+            unbound: Vec::new(),
+            bare,
         }
     }
 
     /// Kelpie's own agents, then each `<name>.md` in `folder` over them
     ///
     /// A folder that is not there holds no files, and a `.md` file whose
-    /// name is no agent's is skipped.
+    /// name is no agent's is skipped. A file that binds nothing is left out
+    /// of the book and listed by [`Agents::unbound`], and one that cannot be
+    /// used is left out with its error in [`Agents::broken`].
     ///
     /// # Errors
     ///
-    /// [`AgentsError`] naming the folder or the first file, by name, that
-    /// cannot be read or used.
+    /// [`AgentsError`] naming the folder or the first file that cannot be read.
     pub fn load(folder: &Path) -> Result<Self, AgentsError> {
-        let mut agents = Self::embedded();
+        Self::load_with(folder, &baseline::ALL)
+    }
+
+    /// `load` over `baselines` in place of kelpie's own, for a test of a
+    /// baseline that binds nothing
+    ///
+    /// # Errors
+    ///
+    /// As [`Agents::load`].
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn load_over(folder: &Path, baselines: &[Baseline]) -> Result<Self, AgentsError> {
+        Self::load_with(folder, baselines)
+    }
+
+    // `load` over `baselines`, which `extends: kelpie:<name>` reaches beside
+    // the whole agents.
+    fn load_with(folder: &Path, baselines: &[Baseline]) -> Result<Self, AgentsError> {
+        let mut agents = Self::embedded_over(baselines);
         let entries = match fs::read_dir(folder) {
             Ok(entries) => entries,
             Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(agents),
@@ -412,17 +427,7 @@ impl Agents {
             texts.insert(name, (path, text));
         }
         let parent = |name: &str| match name.strip_prefix(extends::SHIPPED) {
-            Some(shipped) => DEFAULTS
-                .iter()
-                .find(|(default, ..)| *default == shipped)
-                .map(|(_, text, _)| extends::ParentText::Default(text))
-                .ok_or_else(|| {
-                    let own: Vec<&str> = DEFAULTS.iter().map(|(name, ..)| *name).collect();
-                    format!(
-                        "`extends: {name}` names no shipped agent: kelpie's own are {}",
-                        own.join(", ")
-                    )
-                }),
+            Some(shipped) => shipped_text(name, shipped, baselines),
             None => AgentName::try_from(name.to_owned())
                 .ok()
                 .and_then(|name| texts.get(&name))
@@ -440,12 +445,56 @@ impl Agents {
                 path: path.clone(),
                 message,
             };
-            let merged = extends::merged(name.as_str(), text, &parent).map_err(file_error)?;
-            let agent = front::parse_named(name.as_str(), &merged.text)
-                .map_err(|message| file_error(merged.place(message)))?;
-            agents.agents.insert(name.clone(), agent);
+            let merged = match extends::merged(name.as_str(), text, &parent) {
+                Ok(merged) => merged,
+                Err(message) => {
+                    agents.leave_out(name, file_error(message));
+                    continue;
+                }
+            };
+            if let Some(role) = front::unbound_role(&merged.text) {
+                let shipped = extends::shipped_parent(text);
+                agents
+                    .unbound
+                    .push(Unbound::new(name.clone(), path, role, shipped));
+                agents.agents.remove(name);
+                continue;
+            }
+            match front::parse_named(name.as_str(), &merged.text) {
+                Ok(agent) => {
+                    agents.agents.insert(name.clone(), agent);
+                }
+                Err(message) => agents.leave_out(name, file_error(merged.place(message))),
+            }
         }
         Ok(agents)
+    }
+
+    // Leaves `name` out of the book for `error`, over any shipped agent of
+    // that name, so a setting naming it is refused rather than given that one.
+    fn leave_out(&mut self, name: &AgentName, error: AgentsError) {
+        self.agents.remove(name);
+        self.broken.insert(name.clone(), error);
+    }
+
+    /// What is wrong with the file of `name`, if that left it out of the book
+    pub fn broken(&self, name: &AgentName) -> Option<&AgentsError> {
+        self.broken.get(name)
+    }
+
+    /// Whether none of `names` is an agent whose file is left out
+    ///
+    /// # Errors
+    ///
+    /// The first such file's [`AgentsError`].
+    pub fn hold_for<'a>(
+        &self,
+        names: impl IntoIterator<Item = &'a AgentName>,
+    ) -> Result<(), AgentsError> {
+        match names.into_iter().find_map(|name| self.broken(name)) {
+            Some(error) => Err(error.clone()),
+            None => Ok(()),
+        }
     }
 
     /// The agent `name`, if kelpie has one
@@ -468,15 +517,48 @@ impl Agents {
             .collect()
     }
 
-    /// A line for each `.md` file skipped because its name is no agent's
+    /// Each file that binds nothing, by name: left out of the book, since a
+    /// project that never names one is not stopped by it
+    pub fn unbound(&self) -> &[Unbound] {
+        &self.unbound
+    }
+
+    /// Each baseline that binds nothing, by name: not in the book, so only a
+    /// file that binds it makes it an agent
+    pub fn bare_baselines(&self) -> &[Baseline] {
+        &self.bare
+    }
+
+    /// The command that binds `name`, if it names a file that binds nothing,
+    /// or a baseline that binds nothing and has no file
+    pub fn unbound_command(&self, name: &AgentName) -> Option<String> {
+        if self.agents.contains_key(name) {
+            return None;
+        }
+        if let Some(unbound) = self.unbound.iter().find(|u| &u.name == name) {
+            return Some(unbound.command());
+        }
+        let shipped = self.bare.iter().find(|b| b.name == name.as_str())?;
+        Some(baseline::new_command(
+            shipped.role()?,
+            Some(shipped.name),
+            shipped.name,
+        ))
+    }
+
+    /// A line for each `.md` file skipped because its name is no agent's, and
+    /// each left out because it cannot be used
     pub fn skipped(&self) -> impl Iterator<Item = String> + '_ {
-        self.skipped.iter().map(|path| {
+        let unnamed = self.skipped.iter().map(|path| {
             format!(
                 "agent file {} is skipped: an agent's name is lowercase letters, digits \
                  and `-`",
                 path.display()
             )
-        })
+        });
+        let broken = (self.broken.values())
+            .map(|error| format!("{error}: it is left out, and a setting naming it is refused"));
+        unnamed.chain(broken)
     }
 
     /// `name` defined by `text`, over any agent of that name, for a test
@@ -492,10 +574,64 @@ impl Agents {
         self.agents.insert(named, agent);
         self
     }
+
+    /// The baseline `name` with `binding` after its `role` line, over any
+    /// agent of that name, for a test
+    ///
+    /// # Panics
+    ///
+    /// When `name` is no baseline, or the file with `binding` is not a usable
+    /// agent.
+    #[cfg(any(test, feature = "test-support"))]
+    #[track_caller]
+    pub fn bind(self, name: &str, binding: &str) -> Self {
+        let text = baseline::named(name)
+            .unwrap_or_else(|| panic!("`{name}` is no baseline"))
+            .text;
+        let (head, rest) = text
+            .split_once("\nrole: ")
+            .expect("a baseline names its role");
+        let (role, rest) = rest.split_once('\n').expect("a role ends its line");
+        self.with(name, &format!("{head}\nrole: {role}\n{binding}{rest}"))
+    }
+
+    /// Every baseline bound to `binding`, for a test that needs them to run
+    ///
+    /// # Panics
+    ///
+    /// When a baseline with `binding` is not a usable agent.
+    #[cfg(any(test, feature = "test-support"))]
+    #[track_caller]
+    pub fn bind_all(self, binding: &str) -> Self {
+        baseline::ALL
+            .iter()
+            .fold(self, |agents, shipped| agents.bind(shipped.name, binding))
+    }
 }
 
-/// Writes a stub for each of kelpie's own agents that `folder` lacks, never over
-/// a file, and refreshes the baselines in `folder`'s `.defaults`
+/// Writes into `folder` a stub for each baseline that extends it and sets
+/// `binding`, for a test whose reads need every baseline to run
+///
+/// # Panics
+///
+/// When a file cannot be written.
+#[cfg(any(test, feature = "test-support"))]
+#[track_caller]
+pub fn write_bound_stubs(folder: &Path, binding: &str) {
+    fs::create_dir_all(folder).expect("the folder can be made");
+    for shipped in baseline::ALL.iter() {
+        let stub = format!(
+            "---\nextends: {}{}\n{binding}---\n",
+            extends::SHIPPED,
+            shipped.name
+        );
+        fs::write(folder.join(format!("{}.md", shipped.name)), stub)
+            .expect("a stub can be written");
+    }
+}
+
+/// Writes a stub for each of kelpie's own whole agents that `folder` lacks,
+/// never over a file, and refreshes the shipped files in `folder`'s `.defaults`
 ///
 /// A stub is `extends: kelpie:<name>` and nothing else. The `qwen` reviewer
 /// is written only where the maintainer's qwen-review script is installed
@@ -521,8 +657,8 @@ pub fn write_defaults(folder: &Path, home: &Path) -> Result<Vec<&'static str>, A
     Ok(written)
 }
 
-/// Writes each of kelpie's own agents, whole and read-only, to `folder`'s
-/// `.defaults`, over any file there
+/// Writes each of kelpie's own agents and baselines, whole and read-only, to
+/// `folder`'s `.defaults`, over any file there
 ///
 /// Each file leads with a comment saying kelpie writes it, so an edit is
 /// lost, and where to override it instead. A file is replaced by a rename, so
@@ -534,7 +670,9 @@ pub fn write_defaults(folder: &Path, home: &Path) -> Result<Vec<&'static str>, A
 pub fn write_baselines(folder: &Path) -> Result<(), AgentsError> {
     let kept = folder.join(BASELINES);
     fs::create_dir_all(&kept).map_err(|e| failed(&kept, e))?;
-    for (name, text, _) in DEFAULTS {
+    let shipped = (DEFAULTS.iter().map(|(name, text, _)| (*name, *text)))
+        .chain(baseline::ALL.iter().map(|b| (b.name, b.text)));
+    for (name, text) in shipped {
         let body = text.strip_prefix("---\n").unwrap_or(text);
         let whole = format!(
             "---\n# Kelpie writes this file and replaces it on every upgrade, so an edit here is \
@@ -763,7 +901,13 @@ impl Writer {
     /// A message when `agents` has no `name`, or its file is another role's.
     pub fn of(agents: &Agents, name: &AgentName) -> Result<Self, String> {
         let agent = agents.get(name).ok_or_else(|| {
-            format!("there is no `{name}` agent: write `agents/{name}.md` in kelpie's home")
+            match (agents.broken(name), agents.unbound_command(name)) {
+                (Some(error), _) => error.to_string(),
+                (None, Some(command)) => format!("`{name}` is unbound: run `{command}`"),
+                (None, None) => {
+                    format!("there is no `{name}` agent: write `agents/{name}.md` in kelpie's home")
+                }
+            }
         })?;
         let (Role::IssueWriter, Runs::Session { model, .. }, Some(prompt)) =
             (agent.role, &agent.runs, &agent.prompt)

@@ -48,13 +48,12 @@ fn outcome_of(
 }
 
 impl Runner {
-    /// Journals what each finding `sent` came to in the fix turn that has
-    /// just settled, `pushed` or not
+    /// Journals what each finding `sent` came to in the fix turn, `pushed` or not
     ///
-    /// Called before the bot threads sent are answered, which forgets what
-    /// the worker said of them. A file that cannot be read is noted and let
-    /// go, as a journal that cannot be written is. The disputed and deferred
-    /// findings are counted on the work item.
+    /// Called before the bot threads sent are answered, which forgets what the
+    /// worker said of them. A file that cannot be read is noted and let go, as is a
+    /// journal that cannot be written. The disputed and deferred findings are counted
+    /// on the work item.
     ///
     /// # Errors
     /// The state file cannot be saved.

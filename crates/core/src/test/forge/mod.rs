@@ -611,6 +611,7 @@ impl Forge for FakeForge {
 
     fn comment(&self, _repo: &ForgeSlug, number: u64, body: &str) -> Result<u64, ForgeError> {
         self.ask()?;
+        self.wait_if_held(held::At::Comment);
         if self.comments_down.load(Ordering::SeqCst) {
             return Err(ForgeError::Failed("comments are down".into()));
         }
@@ -734,6 +735,7 @@ impl Forge for FakeForge {
 
     fn rerun_run(&self, _repo: &ForgeSlug, run: u64, rerun: Rerun) -> Result<(), ForgeError> {
         self.ask()?;
+        self.wait_if_held(held::At::Rerun);
         let mut ci = self.ci.lock().unwrap();
         ci.rerun_of_run(run, rerun).map_err(ForgeError::Failed)
     }
@@ -744,6 +746,7 @@ impl Forge for FakeForge {
 
     fn mark_ready(&self, _repo: &ForgeSlug, number: u64) -> Result<(), ForgeError> {
         self.ask()?;
+        self.wait_if_held(held::At::MarkReady);
         self.opened(number)?;
         let mut prs = self.pull_requests.lock().unwrap();
         prs.get_mut(&number).expect("checked above").draft = false;
@@ -806,6 +809,7 @@ impl Forge for FakeForge {
     // and a head that moved since the caller looked.
     fn merge(&self, _repo: &ForgeSlug, number: u64, head: &str) -> Result<(), ForgeError> {
         self.ask()?;
+        self.wait_if_held(held::At::Merge);
         if self.merges_down.load(Ordering::SeqCst) {
             return Err(ForgeError::Failed("merges are down".into()));
         }

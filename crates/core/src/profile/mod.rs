@@ -170,10 +170,9 @@ const KELPIE_PUSHES: [&str; 2] = ["git push", "git push *"];
 const MAINTAINERS_LOGIN: [&str; 2] = ["~/.config/gh/**", "~/Library/Keychains/**"];
 
 // `security` reads the keychain `gh` and git's osxkeychain helper keep the
-// maintainer's token in, and so does the helper itself, run by hand or with
-// `git credential`. Nothing a worker holding the App's token needs any of
-// them, git asks its helpers itself. These are a guardrail against a mistake,
-// not the boundary: the sandbox closes the keychain itself (#429).
+// maintainer's token in, and so does the helper run by hand or with
+// `git credential`. A worker holding the App's token needs none of them.
+// These are a guardrail, not the boundary: the sandbox closes the keychain (#429).
 const KEYCHAIN_COMMANDS: [&str; 6] = [
     "security",
     "security *",

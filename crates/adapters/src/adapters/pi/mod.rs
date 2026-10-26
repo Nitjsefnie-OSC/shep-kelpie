@@ -1,17 +1,13 @@
-//! pi, headless as `pi -p`, one process per call, on a model an
-//! OpenAI-compatible server runs
+//! pi, headless as `pi -p`, one process per call, on an OpenAI-compatible model
 //!
-//! Each call runs whole inside kelpie's sandbox, as Claude Code's do. pi has
-//! no sandbox of its own and no permission prompts. Kelpie gives it a home of
-//! its own beside the call's settings, holding the one model the call runs
-//! and its sessions, so the maintainer's own pi setup never loads. A fenced
-//! call also loads an extension that runs kelpie's checks before each
-//! command and file write. A call that loads MCP servers gets them in an
-//! `mcp.json` in that home, and any other starts none. The sandbox allows no
-//! model host: pi's calls go to a forwarder outside it, which passes the
-//! server only the chat completions call. A model behind a gateway gets the
-//! gateway's key from the forwarder, and each call on one holds the gateway's
-//! lease on its model from start to end, where its kind offers one.
+//! Each call runs whole inside kelpie's sandbox. pi has no sandbox of its own
+//! and no permission prompts. Kelpie gives it a home beside the call's
+//! settings, holding its one model and its sessions, so the maintainer's pi
+//! setup never loads. A fenced call loads an extension that runs kelpie's
+//! checks before each command and file write. MCP servers go in an `mcp.json`
+//! there. pi dials a forwarder outside the sandbox, which passes on only the
+//! chat completions call. A gateway's model gets its key, and each call holds
+//! its lease where offered.
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -24,7 +20,7 @@ use self::compact::Tokens;
 use self::shared::profile;
 use super::cli::{Cli, CliAdapter, Launch, Turn};
 use super::harness::{
-    Base, bind_in_scratch, call_policy, program_folder, prompt_file, step_skill, tail,
+    Base, assignments, bind_in_scratch, call_policy, program_folder, prompt_file, step_skill, tail,
 };
 use super::process::record::CallFiles;
 use super::unreachable::reaches_no_host;
@@ -435,13 +431,10 @@ fn env_args(call: &AgentCall, files: &Files) -> Vec<OsString> {
     let mut vars: Vec<(String, OsString)> = vec![
         // pi is Node, whose fetch ignores the sandbox's proxy without it.
         ("NODE_USE_ENV_PROXY".into(), "1".into()),
-        // pi's own `grep` and `find` run `rg` and `fd`, which pi downloads from
-        // GitHub when it finds neither in its `bin` folder or on `PATH`. Each
-        // kelpie call has a pi home of its own, whose `bin` is always empty,
-        // and the sandbox refuses the download, so pi is told here that the
-        // call is offline. `--offline` says the same to pi's own argument
-        // parsing; this reaches every program pi starts, and is what pi's
-        // tools read.
+        // pi's `grep` and `find` download `rg` and `fd` when neither is in its
+        // `bin` or on `PATH`, and the sandbox refuses that. `--offline` says it
+        // to pi's argument parsing; this reaches every program pi starts, and
+        // is what pi's tools read.
         ("PI_OFFLINE".into(), "1".into()),
         ("PI_CODING_AGENT_DIR".into(), files.home.clone().into()),
         ("TMPDIR".into(), files.scratch.clone().into()),
@@ -461,12 +454,7 @@ fn env_args(call: &AgentCall, files: &Files) -> Vec<OsString> {
     let unset = web::unset(call)
         .into_iter()
         .flat_map(|name| ["-u".into(), name.into()]);
-    let set = vars.into_iter().map(|(name, value)| {
-        let mut pair = OsString::from(format!("{name}="));
-        pair.push(value);
-        pair
-    });
-    unset.chain(set).collect()
+    unset.chain(assignments(vars)).collect()
 }
 
 // pi loads nothing of the maintainer's or the repo's own: no extensions,

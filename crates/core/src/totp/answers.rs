@@ -11,7 +11,8 @@ use std::fs;
 use std::io::{self, Write};
 use std::path::PathBuf;
 
-use super::{STEP, create_private, private_dir, step_of};
+use super::{STEP, private_dir, step_of, sync_dir};
+use crate::owner_only::create_private;
 use crate::ports::Timestamp;
 
 /// Wrong codes, in messages kelpie has not seen before, after which answers
@@ -71,7 +72,7 @@ impl Answers {
         let _ = fs::remove_file(&fresh);
         let claim = match linked {
             Ok(()) => {
-                fs::File::open(&used)?.sync_all()?;
+                sync_dir(&used)?;
                 Claim::Ours
             }
             Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {
@@ -180,24 +181,11 @@ fn plain(message: &str) -> io::Result<&str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::owner_only;
 
     const NOW: Timestamp = Timestamp(1_111_111_109);
 
-    // Until #1264, no claim is made on Windows, rather than one others may read.
-    #[cfg(windows)]
     #[test]
-    fn no_claim_is_made_without_an_owner_only_acl() {
-        let home = tempfile::tempdir().unwrap();
-        let answers = Answers::in_folder(home.path().to_owned());
-        let claim = answers.claim(step_of(NOW), "m1", NOW).unwrap_err();
-        assert_eq!(claim.kind(), io::ErrorKind::Unsupported);
-        assert!(claim.to_string().contains("#1264"), "{claim}");
-        let fail = answers.fail("m1").unwrap_err();
-        assert_eq!(fail.kind(), io::ErrorKind::Unsupported);
-    }
-
-    #[test]
-    #[cfg_attr(windows, ignore = "a claim waits on an owner-only ACL, #1264")]
     fn a_step_is_the_first_messages_across_every_runner() {
         let home = tempfile::tempdir().unwrap();
         let (one, two) = (
@@ -206,6 +194,12 @@ mod tests {
         );
         let step = step_of(NOW);
         assert_eq!(one.claim(step, "m1", NOW).unwrap(), Claim::Ours);
+        for kept in ["used".to_owned(), format!("used/{step}")] {
+            assert!(
+                owner_only::is_owner_only(&home.path().join(&kept)).unwrap(),
+                "{kept}"
+            );
+        }
         // Another runner reading the same reply agrees it is the step's.
         assert_eq!(two.claim(step, "m1", NOW).unwrap(), Claim::Ours);
         assert_eq!(two.claim(step, "m2", NOW).unwrap(), Claim::Replayed);
@@ -219,7 +213,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(windows, ignore = "a claim waits on an owner-only ACL, #1264")]
     fn a_clock_running_ahead_never_lets_go_of_a_claim_in_use() {
         let home = tempfile::tempdir().unwrap();
         let answers = Answers::in_folder(home.path().to_owned());
@@ -232,7 +225,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(windows, ignore = "a claim waits on an owner-only ACL, #1264")]
     fn a_half_made_claim_is_let_go_and_odd_ids_are_refused() {
         let home = tempfile::tempdir().unwrap();
         let answers = Answers::in_folder(home.path().to_owned());
@@ -257,10 +249,8 @@ mod tests {
         }
     }
 
-    #[cfg(unix)]
     #[test]
     fn the_fifth_wrong_code_turns_answers_off_until_unlocked() {
-        use std::os::unix::fs::PermissionsExt;
         let home = tempfile::tempdir().unwrap();
         let (one, two) = (
             Answers::in_folder(home.path().to_owned()),
@@ -274,11 +264,12 @@ mod tests {
         assert_eq!(two.fail("m5").unwrap(), Failure::LockedNow);
         assert_eq!(one.fail("m5").unwrap(), Failure::Counted, "locked once");
         assert!(one.locked() && two.locked());
-        let mode = fs::metadata(home.path().join("failed"))
-            .unwrap()
-            .permissions()
-            .mode();
-        assert_eq!(mode & 0o777, 0o700);
+        for kept in ["failed", "failed/m1", "locked"] {
+            assert!(
+                owner_only::is_owner_only(&home.path().join(kept)).unwrap(),
+                "{kept}"
+            );
+        }
 
         one.unlock().unwrap();
         assert!(!two.locked());

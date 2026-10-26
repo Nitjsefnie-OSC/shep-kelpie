@@ -235,7 +235,8 @@ fn a_reply_with_an_open_question_or_no_priority_is_not_sure() {
 #[test]
 fn a_body_naming_a_local_path_is_refused_and_the_issue_ends_needs_triage() {
     let (rig, runner) = filed("maintainer", MAINTAINER);
-    let body = format!("Touches:\n- `/home/me/notes.md`\n\n{BODY}");
+    let private = rig.home.path().join("notes.md");
+    let body = format!("Touches:\n- `{}`\n\n{BODY}", private.display());
     rig.claude.script_for(
         Role::Triager,
         [reply(
@@ -249,7 +250,7 @@ fn a_body_naming_a_local_path_is_refused_and_the_issue_ends_needs_triage() {
     // so nothing is promised that kelpie will not do, and nothing is sent.
     let said = facts(&rig);
     assert!(!said.contains("ready-for-agent"), "{said}");
-    assert!(said.contains("The maintainer triages it next"), "{said}");
+    assert!(said.contains("as \"you\""), "{said}");
     assert_eq!(
         rig.github.issue_edits(),
         [],
@@ -445,7 +446,12 @@ fn a_triage_label_put_on_while_the_call_ran_stands_and_the_body_is_kept() {
     // nothing kelpie will not do.
     let said = facts(&rig);
     assert!(!said.contains("ready-for-agent"), "{said}");
-    assert!(said.contains("The maintainer triages it next"), "{said}");
+    assert!(said.contains("as \"you\""), "{said}");
+    assert!(
+        said.contains("stands, so kelpie labels it no further"),
+        "{said}"
+    );
+    assert!(!said.contains("ends at `needs-triage`"), "{said}");
     assert_eq!(moves(&rig), ["comment"], "nothing more is labelled");
     assert_eq!(rig.forge.issue_labels(30), ["needs-info"]);
     assert_eq!(triage(&rig, &runner)["issues"][0]["step"], "done");
@@ -672,7 +678,6 @@ fn an_issue_triaged_again_and_now_sure_loses_the_needs_triage_of_the_first_pass(
             "label needs-triage",
             "comment",
             "label bug",
-            "label P2",
             "label ready-for-agent",
         ]
     );
@@ -706,10 +711,7 @@ fn a_restarted_pass_knows_its_own_needs_triage_from_the_record() {
         "the owed rewrite goes on, as the comment promised"
     );
     assert_eq!(rig.github.label_takes(), [(30, "needs-triage".to_owned())]);
-    assert_eq!(
-        moves(&rig),
-        ["label bug", "label P2", "label ready-for-agent"]
-    );
+    assert_eq!(moves(&rig), ["label bug", "label ready-for-agent"]);
     assert_eq!(triage(&rig, &runner)["issues"][0]["step"], "ready");
     let told: Vec<String> = runner.lock().unwrap().take_notes();
     assert!(

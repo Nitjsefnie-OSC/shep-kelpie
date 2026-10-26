@@ -25,8 +25,7 @@ pub trait Reviewer: Send + Sync {
     /// Why it cannot, naming the command or the endpoint.
     fn check(&self, local: &LocalRound) -> Result<(), String>;
 
-    /// Runs `local` for round `round` against `worktree`'s diff from `base`,
-    /// usually `origin/main`, writing its findings under `out`
+    /// Runs `local` for round `round` against `worktree`'s diff from `base`, writing findings under `out`
     ///
     /// `criteria` is what the issue asks for, which the round checks the
     /// diff against, as its prompt or a file the command is pointed at.

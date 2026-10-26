@@ -1,6 +1,6 @@
 # Design
 
-Kelpie: dog of the maintainer's shepherd; one runner per project takes ready issues off a board, workers build, PRs pass reviewers, CI, merge gate. Maintainer asked only via rulings.
+Kelpie: the maintainer's dog; one runner per project builds ready issues. Maintainer asked only via rulings.
 
 ## Always
 
@@ -26,13 +26,13 @@ Kelpie: dog of the maintainer's shepherd; one runner per project takes ready iss
 | board.md | board, items, adoption | `core/board/`, `runner/{dispatch,adopt}/` |
 | pm.md | the project manager, its board | `runner/{pm,briefing}/` |
 | workers.md | runner loop, turns | `runner/{turn,flight}/` |
-| runner-lock.md | the runner's lock, hold metric | `runner/{lock_hold,off_lock}.rs`, `runner/trigger/` |
+| runner-lock.md | lock, hold metric | `runner/{lock_hold,off_lock}.rs` |
+| runner-lock-passes.md | queued verbs, board, threads | `runner/{queued,board_read,trigger}` |
 | runner-lock-worktrees.md | worktree jobs | `runner/worktree_jobs.rs` |
-| runner-lock-threads.md | handler threads | `runner/trigger/` |
 | fence.md | sandbox, guard, hooks | `core/{profile,guard,hooks}/` |
 | fence-reads.md | reads, sources | `core/dep_sources.rs`, `adapters/harness/`, `runner/turn/` |
 | fence-reach.md | hosts | `core/package_managers/` |
-| browser.md | a worker's browser: bridge, filter, tools | `core/{bridge,browse,settings/browser}.rs`, `adapters/bridge/`, `runner/browser.rs`, `process/tools/` |
+| browser.md | a worker's browser: bridge, filter, tools | `core/{bridge,browse}.rs`, `adapters/bridge/`, `runner/browser.rs`, `core/settings/browser.rs`, `process/tools/` |
 | browser-proxy.md | the browser's proxy: origins, addresses, limits | `adapters/bridge/proxy/`, `adapters/forwarder/http.rs` |
 | browser-dev-server.md | a worker's dev server: launch, port, readiness | `runner/dev_server/`, `core/ports/dev_server.rs`, `adapters/dev_server/` |
 | compaction.md | when a session compacts, `compact_window`, `COMPACT` | `runner/compact/`, `adapters/{pi/compact,goose/compact,codex/context}.rs` |
@@ -68,13 +68,14 @@ Kelpie: dog of the maintainer's shepherd; one runner per project takes ready iss
 | triage-author.md | author's round: ask, answers, confirming, silence | `runner/triage/{ask,heard}.rs` |
 | triage-local.md | local session: prompt, body hash | `runner/triage/local.rs` |
 | triage-spam.md | the spam check: `triage.spam`, `possible-spam` | `runner/triage/spam.rs` |
+| triage-reader.md | who a comment is for | `runner/triage/facts.rs` |
 | triage-hand.md | `hand_ready` take-back | `runner/triage/hand.rs` |
 | log-lines.md | runner and dog log lines | `runner/drain/`, `runner/{skip_log,claim}.rs`, `runner/review_bot/lease_wait.rs`, `dog/desk.rs`, `dog/door/` |
 | metrics.md | kelpie's series, alerts, dashboard | `core/metrics/`, `core/ports/metrics.rs`, `assets/{prometheus,grafana}/` |
 | metrics-work-items.md | work-item series, `finished` line | `core/usage/finished.rs`, `runner/ci_failure.rs` |
-| metrics-dog.md | leases, summons, forge hold/calls/rate | `core/metrics/{dog,forge}.rs`, `dog/watch/` |
-| metrics-transcripts.md | series from a call's transcript: MCP, tools, `usage` | `facts/`, `runner/transcript_count/`, `core/usage/` |
-| budget.md | pacing, dog + leases, time, usage, settings | `runner/pace.rs`, `dog/`, `core/usage/`, `core/settings/`, `src/sheep/` |
+| metrics-dog.md | leases, summons, forge | `core/metrics/{dog,forge,model_lease}.rs`, `dog/watch/` |
+| metrics-transcripts.md | series from a call's transcript: MCP, tools, `usage` | `crates/facts/`, `runner/transcript_count/`, `core/usage/` |
+| budget.md | pacing, dog + leases, time, usage, settings | `runner/pace.rs`, `dog/`, `core/usage/`, `core/settings/`, `src/sheep/mod.rs` |
 
 Each file stays under 8 KB; over it, split in two with a new row here (`scripts/design-size.sh`). A changed decision updates its bullet.
 

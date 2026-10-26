@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use super::*;
+use crate::agents::baseline::Baseline;
 use crate::settings::{AgentName, Effort, GuardHook, HookEvent};
 use crate::test::{project_table, with_tables};
 
@@ -20,13 +21,25 @@ const GPT: &str = "---\nrole: implementer\nharness: codex\nmodel: gpt-6-sol\neff
 const BOX: &str = "---\nrole: implementer\nharness: stand-in\nmodel: qwen3-coder\neffort: low\n\
                    usage: none\n---\n";
 
-// Kelpie's own agents, with haiku, a pi agent, a Codex one and a stand-in on no limit.
+const OPUS: &str = "harness: claude-code\nmodel: claude-opus-5-5\n";
+
+// Kelpie's own agents with every baseline bound, then haiku, a pi agent, a Codex one and a
+// stand-in on no limit.
 fn book() -> Agents {
-    Agents::embedded()
+    bound(Agents::embedded())
         .with("haiku", HAIKU)
         .with("qwen", QWEN)
         .with("gpt", GPT)
         .with("box", BOX)
+}
+
+// `agents` with each baseline bound to Opus 5.5, the project manager at medium effort and
+// the representative at low.
+fn bound(agents: Agents) -> Agents {
+    agents
+        .bind_all(&format!("{OPUS}effort: high\n"))
+        .bind("pm", &format!("{OPUS}effort: medium\n"))
+        .bind("representative", &format!("{OPUS}effort: low\n"))
 }
 
 // The example's project with `names` as its `[agents]` table.
@@ -77,7 +90,7 @@ fn a_project_that_names_nothing_builds_on_sonnet_high() {
         Path::new("/p"),
     )
     .unwrap();
-    let agents = settings.role_agents(&Agents::embedded()).unwrap();
+    let agents = settings.role_agents(&bound(Agents::embedded())).unwrap();
     assert_eq!(names(&agents), ["sonnet-high"]);
     let sonnet = &agents.default_implementer;
     assert_eq!(sonnet.name.as_str(), "sonnet-high");
@@ -436,4 +449,81 @@ fn a_representative_named_with_no_file_or_a_file_of_another_role_is_refused_nami
         err.contains("`agents.representative` names advisor, whose agent file's role is `advisor`"),
         "{err}"
     );
+}
+
+#[test]
+fn naming_an_unbound_agent_is_refused_with_the_command_that_binds_it() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("mine.md"), "---\nrole: implementer\n---\n").unwrap();
+    let agents = Agents::load(dir.path()).unwrap();
+    let err = project("implementers = [\"mine\"]\n")
+        .role_agents(&agents)
+        .unwrap_err()
+        .to_string();
+    assert_eq!(
+        err,
+        "setting `agents`: `agents.implementers` names mine, which is unbound: run \
+         `shep kelpie agents new implementer --name mine`"
+    );
+}
+
+#[test]
+fn naming_an_agent_whose_file_cannot_be_used_is_refused_and_never_given_kelpies_own() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("sonnet-high.md");
+    std::fs::write(&file, "role: implementer\n").unwrap();
+    let agents = Agents::load(dir.path()).unwrap();
+    let err = project("implementers = [\"sonnet-high\"]\n")
+        .role_agents(&agents)
+        .unwrap_err()
+        .to_string();
+    assert_eq!(
+        err,
+        format!(
+            "setting `agents`: `agents.implementers` names sonnet-high, whose agent file {}: \
+             must start with a `---` line, then the YAML frontmatter, then a `---` line of \
+             its own",
+            file.display()
+        )
+    );
+}
+
+// Baselines that bind nothing, as the shipped ones are once their keys move to bindings.
+const BARE: [Baseline; 2] = [
+    Baseline {
+        name: "issue-writer",
+        text: "---\nrole: issue-writer\n---\nYou write.\n",
+    },
+    Baseline {
+        name: "defect-hunter",
+        text: "---\nrole: reviewer\n---\nYou hunt.\n",
+    },
+];
+
+#[test]
+fn naming_a_baseline_that_binds_nothing_and_has_no_file_is_refused_with_the_command() {
+    let dir = tempfile::tempdir().unwrap();
+    let bare = Agents::load_over(dir.path(), &BARE).unwrap();
+    let err = project("").role_agents(&bare).unwrap_err().to_string();
+    assert_eq!(
+        err,
+        "setting `agents`: `agents.issue_writer` names issue-writer, which is unbound: run \
+         `shep kelpie agents new issue-writer`"
+    );
+    let err = project("implementers = [\"defect-hunter\"]\n")
+        .role_agents(&bare)
+        .unwrap_err()
+        .to_string();
+    assert!(
+        err.ends_with(
+            "which is unbound: run `shep kelpie agents new reviewer --baseline defect-hunter`"
+        ),
+        "{err}"
+    );
+}
+
+#[test]
+fn a_baseline_a_book_binds_is_named_with_no_file() {
+    let book = bound(Agents::load(tempfile::tempdir().unwrap().path()).unwrap());
+    project("").role_agents(&book).unwrap();
 }

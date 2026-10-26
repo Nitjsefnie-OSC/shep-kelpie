@@ -29,8 +29,9 @@ pub struct TestRun {
     pub reach: Reach,
     /// Where the sandbox's settings for the run are written, a file the run cannot write
     pub settings: PathBuf,
-    /// The dog's door, where the run takes its place in the `cargo-test` queue
-    pub door: PathBuf,
+    /// The dog's door, where the run takes its place in the `cargo-test` queue, or none for a
+    /// run that holds no lease
+    pub door: Option<PathBuf>,
     /// How long it may run once it holds the lease
     pub ceiling: Duration,
 }

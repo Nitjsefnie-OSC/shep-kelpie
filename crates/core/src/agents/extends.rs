@@ -65,6 +65,13 @@ pub(super) fn merged<'a>(
 /// into the binary, in place of a file
 pub(super) const SHIPPED: &str = "kelpie:";
 
+/// The name of the shipped agent `text`'s own `extends` key names, if it names one
+pub(super) fn shipped_parent(text: &str) -> Option<String> {
+    let (front, _) = front::split(text)?;
+    let extended = entries(front).into_iter().find(|e| e.key == "extends")?;
+    extended.value().strip_prefix(SHIPPED).map(str::to_owned)
+}
+
 /// The text of a parent: a file, which may extend another, or a default
 #[derive(Debug, Clone, Copy)]
 pub(super) enum ParentText<'a> {
@@ -220,10 +227,7 @@ impl Entry {
 fn entries(front: &str) -> Vec<Entry> {
     let mut entries: Vec<Entry> = Vec::new();
     for (at, line) in front.split_inclusive('\n').enumerate() {
-        let key = (!line.starts_with([' ', '\t', '#', '-', '\r', '\n']))
-            .then(|| line.split_once(':'))
-            .flatten()
-            .map(|(key, _)| key.trim().to_owned());
+        let key = key_of(line).map(str::to_owned);
         match (key, entries.last_mut()) {
             (Some(key), _) => entries.push(Entry {
                 key,
@@ -240,4 +244,49 @@ fn entries(front: &str) -> Vec<Entry> {
         }
     }
     entries
+}
+
+// The top-level key a frontmatter line starts, if it starts one.
+fn key_of(line: &str) -> Option<&str> {
+    (!line.starts_with([' ', '\t', '#', '-', '\r', '\n']))
+        .then(|| line.split_once(':'))
+        .flatten()
+        .map(|(key, _)| key.trim())
+}
+
+/// The keys `text`'s own frontmatter sets, and where its `extends` line ends
+#[derive(Debug)]
+pub(super) struct Own {
+    pub(super) keys: Vec<String>,
+    /// The value of its own `harness` key, if it sets one
+    pub(super) harness: Option<String>,
+    /// The byte offset in `text` just past the `extends` line, if there is one
+    pub(super) after_extends: Option<usize>,
+}
+
+/// What `text`'s own frontmatter sets, or none for text with no frontmatter
+pub(super) fn own(text: &str) -> Option<Own> {
+    let (front, _) = front::split(text)?;
+    let start = front.as_ptr() as usize - text.as_ptr() as usize;
+    let harness = entries(front)
+        .into_iter()
+        .find(|e| e.key == "harness")
+        .map(|e| e.value());
+    let mut keys = Vec::new();
+    let mut after_extends = None;
+    let mut offset = start;
+    for line in front.split_inclusive('\n') {
+        offset += line.len();
+        if let Some(key) = key_of(line) {
+            if key == "extends" {
+                after_extends = Some(offset);
+            }
+            keys.push(key.to_owned());
+        }
+    }
+    Some(Own {
+        keys,
+        harness,
+        after_extends,
+    })
 }

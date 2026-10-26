@@ -1,17 +1,16 @@
 //! The triager's agent file: an Expert-shaped session that researches an issue
 
-use super::{name, pair};
+use super::{OPUS_HIGH, name};
 use crate::agents::{Agents, Role};
-use crate::settings::{AgentHarness, Effort};
+use crate::settings::AgentHarness;
 
 #[test]
 fn the_shipped_triager_is_an_expert_file_whose_role_is_triager() {
-    let agents = Agents::embedded();
+    let agents = Agents::embedded().bind("triager", OPUS_HIGH);
 
     let triager = agents.get(&name("triager")).unwrap();
 
     assert_eq!(triager.role, Role::Triager);
-    assert_eq!(pair(triager), ("claude-opus-5-5", Effort::Medium));
     assert_eq!(
         triager.runs.session().unwrap().0.harness,
         AgentHarness::ClaudeCode
@@ -22,7 +21,7 @@ fn the_shipped_triager_is_an_expert_file_whose_role_is_triager() {
 
 #[test]
 fn the_shipped_triager_names_the_issue_writers_sections() {
-    let agents = Agents::embedded();
+    let agents = Agents::embedded().bind("triager", OPUS_HIGH);
     let prompt = agents
         .get(&name("triager"))
         .unwrap()

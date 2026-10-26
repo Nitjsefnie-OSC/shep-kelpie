@@ -1,16 +1,13 @@
 //! A stand-in OpenAI-compatible server, for kelpie's own local reviewer
 //!
-//! It answers `GET …/models` with an empty list and each
-//! `POST …/chat/completions` with the next scripted reply (as server-sent events
-//! when the request streams, or cut off while thinking), or `CLEAN` once the script runs out. It keeps
-//! every chat request's body, and the request line, `Authorization` and
-//! `x-paddock-*` headers of every request it got. Given a key, it answers paddock's own routes too:
-//! `/paddock/status` to that key alone, a lease's take with the next scripted
-//! [`Take`] or a grant, and a renewal or release with `204`, as paddock does,
-//! unless told to refuse or hang on renewals. Given [`like_openai`](StandInEndpoint::like_openai)
-//! instead, it answers `/models` to that key alone and `404` to every
-//! `/paddock/` route, as a gateway that knows only OpenAI's routes does. Each connection is served on a
-//! thread of its own, so one left hanging holds up no other.
+//! It answers `GET …/models` with an empty list and each `POST …/chat/completions`
+//! with the next scripted reply (as server-sent events when the request streams,
+//! or cut off while thinking), or `CLEAN` once the script runs out. It keeps every
+//! chat body, and each request's line, `Authorization` and `x-paddock-*` headers.
+//! Given a key, it answers paddock's routes too: `/paddock/status` to that key
+//! alone, a lease's take with the next scripted [`Take`] or a grant, and a renewal
+//! or release with `204`, unless told to refuse or hang. [`like_openai`](StandInEndpoint::like_openai)
+//! instead answers `/models` to that key alone and `404` to every `/paddock/` route.
 
 use std::collections::VecDeque;
 use std::io::{BufRead, BufReader, Read, Write};

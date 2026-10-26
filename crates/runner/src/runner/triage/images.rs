@@ -1,14 +1,12 @@
 //! The images in an issue's text, downloaded for the triager to read
 //!
-//! The call has no network and is told to follow no link, so a screenshot the
-//! author attached is something it could only guess at. Kelpie reads the links
-//! out of the issue's body and the author's comments, fetches the ones GitHub
-//! serves its own attachments from, and puts the files in a folder beside the
-//! view of `main` and outside the repo. The call prompt then lists their paths.
-//!
-//! The fetch runs on the research thread, so the runner's lock is not held for
-//! it. Every refusal and failure is a note in the log and one image fewer: the
-//! triage runs on whatever came.
+//! The call has no network and follows no link, so a screenshot the author
+//! attached is something it could only guess at. Kelpie reads the links out of the
+//! issue's body and the author's comments, fetches the ones GitHub serves its own
+//! attachments from, and puts the files beside the view of `main`, outside the
+//! repo. The call prompt then lists their paths. The fetch runs on the research
+//! thread, so the runner's lock is not held. Every refusal or failure is a log
+//! note and one image fewer.
 
 use std::fs;
 use std::path::PathBuf;

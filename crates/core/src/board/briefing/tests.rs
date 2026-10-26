@@ -84,6 +84,7 @@ fn a_board_with_an_idle_worker_a_review_call_and_a_ruling_reads_whole() {
         events: events.to_vec(),
         woken_before: true,
         dropped: true,
+        behind: BTreeMap::new(),
         conflicts: BTreeMap::new(),
     };
     assert_eq!(
@@ -194,6 +195,7 @@ fn briefing(items: Vec<Item>) -> Briefing<'static> {
         events: Vec::new(),
         woken_before: false,
         dropped: false,
+        behind: BTreeMap::new(),
         conflicts: BTreeMap::new(),
     }
 }
@@ -220,6 +222,53 @@ fn a_named_path_is_found_on_main_by_its_last_parts_and_a_vague_one_names_nothing
             "src/runner/board.rs"
         ]
     );
+}
+
+#[test]
+fn a_named_path_that_matches_no_file_on_main_is_missing_whole_or_bare() {
+    let tree = files(&["src/board.rs", "README.md"]);
+    let body = "Change `board.rs` and `README.md`, then `src/gone.rs`, `dogs_kv.rs` and \
+                `src/gone.rs` again, not `cargo test`, `1.85`, `x` or `--flag`.";
+    assert_eq!(missing_paths(body, &tree), ["dogs_kv.rs", "src/gone.rs"]);
+}
+
+#[test]
+fn a_folder_on_main_is_not_missing_and_code_with_a_dot_is_not_a_path() {
+    let tree = files(&[
+        "docs/design/work.md",
+        "crates/runner/src/lib.rs",
+        "README.md",
+    ]);
+    let folders = "See `docs/design/`, `docs/design`, `crates/runner` and `runner/src`.";
+    assert!(missing_paths(folders, &tree).is_empty());
+    assert_eq!(missing_paths("`docs/designs/`", &tree), ["docs/designs/"]);
+    let code = "Read `item.base`, `gh.rules`, `call.cwd` and `rules.ledger`, then `gone.md`.";
+    assert_eq!(missing_paths(code, &tree), ["gone.md"]);
+}
+
+#[test]
+fn a_body_whose_paths_all_resolve_misses_none() {
+    let tree = files(&["src/board.rs", "README.md"]);
+    assert!(missing_paths("See `board.rs:40` and `./README.md`.", &tree).is_empty());
+    assert!(missing_paths("No paths here.", &tree).is_empty());
+}
+
+#[test]
+fn the_closest_match_ends_the_way_the_missing_path_does() {
+    let tree = files(&[
+        "src/route/mod.rs",
+        "src/dogs/route.rs",
+        "crates/core/src/route.rs",
+        "src/other.rs",
+    ]);
+    // The most trailing parts shared wins, then the shortest path.
+    assert_eq!(
+        closest("src/core/src/route.rs", &tree),
+        Some("crates/core/src/route.rs")
+    );
+    assert_eq!(closest("route.rs", &tree), Some("src/dogs/route.rs"));
+    assert_eq!(closest("src/store.rs", &tree), None);
+    assert_eq!(closest("src/other.rs", &tree), Some("src/other.rs"));
 }
 
 #[test]
@@ -278,6 +327,7 @@ fn quoting(body: &str) -> String {
         events: Vec::new(),
         woken_before: false,
         dropped: false,
+        behind: BTreeMap::new(),
         conflicts: BTreeMap::from([((ticket(7), ticket(8)), Merge::Unknown)]),
     };
     render(&board)

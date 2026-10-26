@@ -1,21 +1,13 @@
 //! Reading a contribution's head for security before anything of theirs runs
 //!
-//! A contributor's code does not run on the maintainer's machine until
-//! something has read it. Once a poll, one followed contribution whose
-//! current head no review has read gets one, in flight on a thread of its own
-//! like every other call, so the runner's lock is not held while it runs and
-//! it is ended past its ceiling: the head is fetched into the
-//! project's checkout, which moves objects and checks nothing out, and the
-//! change since the last passed head, or the whole change from `origin/main`
-//! with none or after a force push, is read by the `contributions`
-//! `security_reviewer` in a scratch folder under the project's folder, never
-//! in the checkout.
-//!
-//! Kelpie flags in code what a model cannot read, and never passes it: a
-//! binary change, a symlink, a submodule change, and a diff over
-//! [`MAX_DIFF`] bytes. A clean reply records the head as passed, findings
-//! record it as flagged, and a call that fails or answers in no shape
-//! leaves the head unpassed, to be read again at the next poll.
+//! Once a poll, one followed contribution whose current head no review has read
+//! gets one, in flight on a thread of its own so the runner's lock is not held.
+//! The head is fetched into the project's checkout (objects only, nothing checked
+//! out). The change since the last passed head, or from `origin/main` with none
+//! or after a force push, is read by the `security_reviewer` in a scratch folder.
+//! Kelpie flags in code what a model cannot read: a binary change, a symlink, a
+//! submodule change, a diff over [`MAX_DIFF`] bytes. A clean reply passes the
+//! head, findings flag it, and a failed or misshapen call is retried next poll.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -76,13 +68,10 @@ pub(in crate::runner) struct Reading {
 }
 
 impl Runner {
-    // The read of the current head of one contribution no review has read, as
-    // the call to start, unless a read is in flight or the runner drains. One
-    // is tried once a poll, so a head that cannot be read does not hold up the
-    // others. A contribution over its cap starts no call: a
-    // ruling asks the maintainer, and the next one is tried.
-    //
-    // The caller holds a free slot for it, which the call keeps until it ends.
+    // The read of the current head of one contribution no review has read, as the
+    // call to start, unless a read is in flight or the runner drains. One is tried
+    // per poll, so an unreadable head holds up no other. Over its cap, a contribution
+    // starts no call. The caller holds a free slot, which the call keeps until it ends.
     pub(in crate::runner) fn security_due(&mut self) -> Result<Option<Begin>, StateError> {
         if self.draining() || self.flights.securing() {
             return Ok(None);

@@ -1,16 +1,12 @@
-//! The web a researcher on goose has: `duckduckgo-websearch`, run as a stdio MCP server
+//! The web a researcher on goose has: `duckduckgo-websearch`, as a stdio MCP server
 //!
-//! goose v1.54.0 ships no search or fetch tool, and a pi package cannot be loaded into it. The
-//! researcher's call names the package's server file as the stdio server `kelpie-web` in its
-//! reach (`Runner::researcher_call`), the `mcp` module passes it as a flag of a new session, and
-//! the hook lets its two tools through: `kelpie-web__search` and `kelpie-web__fetch_content`.
-//!
-//! What is left is here. The server's fetch dials the page's own host through the sandbox's proxy,
-//! so `researcher.allowed_domains` bounds it, and its keyless search POSTs to one host,
-//! [`SEARCH_HOST`], which a call that has the web may reach. Node's `fetch` ignores that proxy
-//! without `NODE_USE_ENV_PROXY=1`, so the call sets it, as a pi call does. The server takes no
-//! key and reads no file, so neither is given. What was measured is in
-//! `docs/facts/goose-as-an-agent.md`.
+//! goose v1.54.0 ships no search or fetch tool. The researcher's call names the
+//! server as stdio server `kelpie-web` (`Runner::researcher_call`), `mcp`
+//! passes it as a flag, and the hook lets `kelpie-web__search` and
+//! `kelpie-web__fetch_content` through. Its fetch dials the page's host through
+//! the sandbox's proxy, so `researcher.allowed_domains` bounds it. Its keyless
+//! search POSTs to [`SEARCH_HOST`]. Node's `fetch` ignores the proxy without
+//! `NODE_USE_ENV_PROXY=1`, so the call sets it. See `docs/facts/goose-as-an-agent.md`.
 
 use std::ffi::OsString;
 

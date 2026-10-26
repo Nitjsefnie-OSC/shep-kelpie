@@ -1,14 +1,13 @@
 //! Kelpie's own MCP client, for the browser's server
 //!
-//! A worker drives the browser through a model. Proving a bump drives it with
-//! none: kelpie connects to the bridge's socket as the agent's `mcp-connect`
-//! does, and calls the same tools. Every message passes the bridge's
-//! [`Filter`](crate::bridge::Filter) like a worker's, so kelpie's browser is
-//! held to the same hosts and the same dev server port.
+//! Proving a bump drives the browser with no model: kelpie connects to the
+//! bridge's socket as the agent's `mcp-connect` does, and calls the same tools.
+//! Every message passes the bridge's [`Filter`](crate::bridge::Filter), so the
+//! browser keeps the same hosts and the same dev server port.
 //!
-//! The server answers a tool call with text: sections under `### ` headings,
-//! of which `Result` holds what a tool read and `Error` says why it failed.
-//! This reads that text as the server of the pinned `@playwright/mcp` sends it.
+//! The server answers a tool call with text in sections under `### ` headings.
+//! `Result` holds what a tool read and `Error` says why it failed. This reads
+//! that text as the pinned `@playwright/mcp` sends it.
 
 use std::io::{BufRead, Write};
 

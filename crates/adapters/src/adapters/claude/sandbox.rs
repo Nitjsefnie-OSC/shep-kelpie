@@ -19,13 +19,10 @@ impl Claude {
     // `claude` with `argv`, in the call's folder and with its own temporary files.
     pub(super) fn program_command(&self, call: &AgentCall, argv: Vec<OsString>) -> Command {
         let scratch = scratch(call);
-        // A sheep has no `TMPDIR`, so a shell falls back to `/tmp`, which the
-        // sandbox refuses, and a heredoc cannot make its temp file there. zsh
-        // ignores `TMPDIR` for a heredoc and writes under `TMPPREFIX`, a prefix
-        // that zsh appends to, so it gets one in the same folder. Only
-        // `claude` is given them, through `env`: `srt` puts its proxy socket
-        // under its own `TMPDIR`, where a path past 104 bytes keeps it from
-        // starting and a folder the call writes lets the call delete the socket.
+        // A sheep has no `TMPDIR`, so a heredoc falls back to `/tmp`, which the
+        // sandbox refuses. zsh writes it under `TMPPREFIX` instead, so that gets
+        // the same folder. Only `claude` gets them, through `env`: `srt` keeps
+        // its proxy socket under its own `TMPDIR`, which the call must not write.
         let mut temp = OsString::from("TMPDIR=");
         temp.push(&scratch);
         let mut prefix = OsString::from("TMPPREFIX=");
@@ -512,13 +509,10 @@ mod tests {
         }
     }
 
-    // A shell's heredoc makes a temp file under `TMPDIR`, or `/tmp` with none,
-    // and the sandbox refuses a write there. `srt` makes its own proxy socket
-    // under its `TMPDIR`: past 104 bytes it cannot start, and in a folder the
-    // call writes the call could delete the socket. So only the command
-    // inside `srt` gets it, as `env TMPDIR=<folder> TMPPREFIX=<folder>/zsh
-    // claude ...`. zsh ignores `TMPDIR` for a heredoc and writes under
-    // `TMPPREFIX`, `/tmp/zsh` by default, which the sandbox refuses.
+    // Only the command inside `srt` gets the folder, as `env TMPDIR=<folder>
+    // TMPPREFIX=<folder>/zsh claude ...`: `srt` keeps its proxy socket under
+    // its own `TMPDIR`, past 104 bytes it cannot start, and a folder the call
+    // writes lets it delete the socket.
     #[test]
     fn every_role_gets_a_temp_folder_its_sandbox_can_write_and_srt_keeps_its_own() {
         let w = World::new();
@@ -652,6 +646,34 @@ mod tests {
                 .unwrap()
                 .is_dir()
         );
+    }
+
+    // Go writes its module cache, and a test can leave a temp folder, with
+    // read-only folders that a plain removal cannot empty.
+    #[cfg(unix)]
+    #[test]
+    fn a_scratch_folder_holding_read_only_folders_is_emptied_and_the_call_runs() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let w = World::new();
+        let cli = w.cli(Arc::new(OpenSandbox::default()));
+        let call = w.worker();
+        let held = scratch(&call).join("mod/cache");
+        std::fs::create_dir_all(&held).unwrap();
+        std::fs::write(held.join("file"), "").unwrap();
+        std::fs::set_permissions(held.join("file"), PermissionsExt::from_mode(0o444)).unwrap();
+        std::fs::set_permissions(&held, PermissionsExt::from_mode(0o555)).unwrap();
+        std::fs::set_permissions(scratch(&call).join("mod"), PermissionsExt::from_mode(0o555))
+            .unwrap();
+        cli.run(&call, &Ending::default()).unwrap();
+        assert!(w.path("ran").exists(), "claude did not run");
+        assert!(scratch(&call).is_dir());
+        assert_eq!(std::fs::read_dir(scratch(&call)).unwrap().count(), 0);
+        let mode = std::fs::metadata(scratch(&call))
+            .unwrap()
+            .permissions()
+            .mode();
+        assert_ne!(mode & 0o200, 0, "scratch is read-only: {mode:o}");
     }
 
     #[test]

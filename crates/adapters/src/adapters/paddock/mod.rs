@@ -4,12 +4,10 @@
 //!
 //! `GET /v1/models` lists its models and needs no key. `GET /paddock/status`
 //! needs one, so it tells a key paddock takes from one it refuses. A call or
-//! a review round on a model behind it holds a heartbeat lease, so nothing
-//! evicts the model midway: `POST /paddock/leases` waits for the grant, a
-//! `PUT` renews it, and a `DELETE` releases it when the call ends. A take
-//! paddock turns away as busy is asked again until the call gives up. Each
-//! request is one HTTP/1.0 exchange over plain `http://`, as the forwarder's
-//! are.
+//! review round on a model behind it holds a heartbeat lease: `POST
+//! /paddock/leases` waits for the grant, a `PUT` renews it, and a `DELETE`
+//! releases it. A take paddock turns away as busy is asked again until the call
+//! gives up. Each request is one HTTP/1.0 exchange over plain `http://`.
 
 use std::io::{Read, Write};
 use std::net::{Shutdown, TcpStream, ToSocketAddrs};
@@ -108,6 +106,44 @@ fn holder_in(body: &str, model: &str) -> Result<Option<PaddockHolder>, String> {
             what: text(lease, "note"),
             since: text(lease, "since"),
         }))
+}
+
+pub(crate) fn queued(gateway: &Upstream, model: &str) -> bool {
+    let asked = ("GET", "/paddock/status");
+    match send(gateway, asked, None, true, STATUS_WITHIN) {
+        Ok((200, body)) => queued_in(&body, model),
+        _ => false,
+    }
+}
+
+fn queued_in(body: &str, model: &str) -> bool {
+    let Ok(read) = serde_json::from_str::<Value>(body) else {
+        return false;
+    };
+    let Some(turns) = read["models"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|entry| entry["model"] == model)
+        .and_then(|entry| entry["turns"]["lease"].as_u64())
+        .filter(|turns| *turns > 0)
+    else {
+        return false;
+    };
+    let held = read["leases"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|lease| {
+            lease["model"] == model && lease["revoked"].is_null() && lease["reclaimable"] == false
+        })
+        .count();
+    held as u64 >= turns
+        && read["waiters"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|waiter| waiter["model"] == model)
 }
 
 /// The gateway port for a paddock, taking its leases on `timing`'s schedule
@@ -509,3 +545,6 @@ fn exchange(
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod status_tests;

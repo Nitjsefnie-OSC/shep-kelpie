@@ -14,10 +14,15 @@ mod experts;
 mod extends;
 mod goose;
 mod issue_writer;
+mod legacy;
 mod pm;
 mod representative;
 mod tools;
 mod triager;
+mod unbound;
+
+// A binding to put on a baseline, which ships with none.
+const OPUS_HIGH: &str = "harness: claude-code\nmodel: claude-opus-5-5\neffort: high\n";
 
 const QWEN: &str = "---\nrole: implementer\nharness: pi\nmodel: qwen3.8:27b\neffort: low\n\
                     url: http://box:11434/v1\ncontext: 65536\n---\n";
@@ -47,9 +52,14 @@ fn folder(files: &[(&str, &str)]) -> tempfile::TempDir {
     dir
 }
 
+// What is wrong with the first file of `files` that is left out.
 fn refused(files: &[(&str, &str)]) -> String {
-    let dir = folder(files);
-    Agents::load(dir.path()).unwrap_err().to_string()
+    left_out(folder(files).path())
+}
+
+fn left_out(dir: &Path) -> String {
+    let agents = Agents::load(dir).unwrap();
+    agents.broken.values().next().unwrap().to_string()
 }
 
 #[test]
@@ -66,8 +76,8 @@ fn kelpies_own_agents_are_sonnet_and_opus_at_high_on_claude_code() {
         assert_eq!(agent.prompt, None, "the comments are not a prompt");
     }
     assert_eq!(
-        Agents::embedded().agents.len(),
-        DEFAULTS.len(),
+        Agents::embedded().bind_all(OPUS_HIGH).agents.len(),
+        DEFAULTS.len() + baseline::ALL.len(),
         "a default that failed to parse would be dropped"
     );
 }
@@ -116,7 +126,7 @@ fn a_codex_agent_spends_the_codex_account() {
 #[test]
 fn a_file_that_does_not_parse_is_refused_naming_it() {
     let dir = folder(&[("broken.md", "role: implementer\n")]);
-    let err = Agents::load(dir.path()).unwrap_err().to_string();
+    let err = left_out(dir.path());
     let path = dir.path().join("broken.md");
     assert_eq!(
         err,
@@ -137,7 +147,7 @@ fn a_file_that_does_not_parse_is_refused_naming_it() {
 fn an_unknown_harness_is_refused_naming_the_file_and_the_key() {
     let gemini = QWEN.replace("harness: pi", "harness: gemini");
     let dir = folder(&[("qwen.md", &gemini)]);
-    let err = Agents::load(dir.path()).unwrap_err().to_string();
+    let err = left_out(dir.path());
     let path = dir.path().join("qwen.md");
     assert_eq!(
         err,
@@ -275,7 +285,7 @@ fn a_harness_missing_a_key_it_needs_is_refused_naming_the_key() {
 
 #[test]
 fn the_embedded_security_reviewer_file_parses_as_a_reviewer() {
-    let agents = Agents::embedded();
+    let agents = Agents::embedded().bind("security-reviewer", OPUS_HIGH);
     let reviewer = agents.get(&name("security-reviewer")).unwrap();
     assert_eq!(reviewer.role, Role::Reviewer);
     assert_eq!(model(reviewer).harness, AgentHarness::ClaudeCode);
@@ -291,7 +301,7 @@ fn the_embedded_security_reviewer_file_parses_as_a_reviewer() {
 
 #[test]
 fn the_embedded_default_reviewers_are_a_lite_hunter_and_a_local_endpoint_on_paddock() {
-    let agents = Agents::embedded();
+    let agents = Agents::embedded().bind("defect-hunter", OPUS_HIGH);
     let lite = agents.get(&name("defect-hunter-lite")).unwrap();
     assert_eq!(lite.role, Role::Reviewer);
     assert_eq!(model(lite).harness, AgentHarness::ClaudeCode);
@@ -320,21 +330,11 @@ fn defaults_are_written_where_missing_and_never_over_a_file() {
         [
             "sonnet-high",
             "opus-high",
-            "defect-hunter",
             "defect-hunter-lite",
             "iq3-xxs-review",
-            "standards",
-            "spec",
-            "security-reviewer",
             "coderabbit",
             "cubic",
-            "codex",
-            "issue-writer",
-            "pm",
-            "advisor",
-            "researcher",
-            "representative",
-            "triager"
+            "codex"
         ]
     );
     assert_eq!(Agents::load(&agents).unwrap(), Agents::embedded());
@@ -360,8 +360,12 @@ fn a_default_is_written_as_a_stub_that_extends_the_shipped_agent() {
     let agents = dir.path().join("agents");
     write_defaults(&agents, &dir.path().join("home")).unwrap();
     assert_eq!(
-        fs::read_to_string(agents.join("triager.md")).unwrap(),
-        "---\nextends: kelpie:triager\n---\n"
+        fs::read_to_string(agents.join("opus-high.md")).unwrap(),
+        "---\nextends: kelpie:opus-high\n---\n"
+    );
+    assert!(
+        !agents.join("triager.md").exists(),
+        "a baseline gets no stub: it binds nothing, so a stub would be unbound"
     );
 }
 
@@ -397,7 +401,7 @@ fn defaults_are_also_written_whole_and_read_only_under_dot_defaults() {
     );
     assert_eq!(
         Agents::load(&agents).unwrap(),
-        shipped,
+        Agents::embedded(),
         "the folder holds no agent in `.defaults`"
     );
 }
@@ -467,10 +471,10 @@ const COMMAND: &str = "---\nrole: reviewer\nharness: command\ncommand: ~/bin/rev
 
 #[test]
 fn kelpies_own_reviewers_are_defect_hunter_and_qwen() {
-    let agents = Agents::embedded();
+    let agents =
+        Agents::embedded().bind("defect-hunter", &format!("{OPUS_HIGH}second_look: true\n"));
     let hunter = agents.get(&name("defect-hunter")).unwrap();
     assert_eq!(hunter.role, Role::Reviewer);
-    assert_eq!(pair(hunter), ("claude-opus-5-5", Effort::High));
     assert_eq!(model(hunter).harness, AgentHarness::ClaudeCode);
     assert!(hunter.second_look);
     assert!(hunter.paths.is_empty());

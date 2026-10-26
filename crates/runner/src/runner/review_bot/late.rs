@@ -2,13 +2,12 @@
 //!
 //! A bot passed over for its pass may review the head anyway. Kelpie reads
 //! whether it has at the start of each round, when CI goes green, and every
-//! [`LATE_READ`] seconds while a merge ruling waits. One that has gets a
-//! round of its own, whose threads settle as any review's. Once the pass
-//! has ended, that round counts every listed reviewer as run, so its fix
-//! goes back to the merge ruling with no new pass, after the late round of
-//! any other bot the pass went on without that has reviewed too, and
-//! that ruling says no reviewer read the fix. A merge ruling waiting on
-//! the item is withdrawn for it, and the maintainer told so.
+//! [`LATE_READ`] seconds while a merge ruling waits. One that has gets a round
+//! of its own, whose threads settle as any review's. Once the pass has ended,
+//! that round counts every listed reviewer as run, so its fix goes back to the
+//! merge ruling, after any other late round, with no new pass; the ruling says
+//! no reviewer read the fix. A merge ruling waiting on the item is withdrawn for
+//! it, and the maintainer told so.
 
 use super::super::Runner;
 use super::super::report::Begin;

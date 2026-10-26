@@ -1,23 +1,13 @@
 //! Answering what a contributor asks
 //!
-//! Once a poll, each comment or review reply the contributor wrote that is
-//! not yet answered goes to the representative in one call, given their
-//! words (fenced as data), the findings the reviewers recorded on the head,
-//! the diff since the base, and the maintainer's recent comments for
-//! context. It replies with JSON: an `answer`, which is posted as a comment
-//! through the App, or a `decision`, a question for the maintainer, which
-//! raises a ruling and posts nothing yet. The maintainer's answer to that
-//! ruling goes back through the representative, which words it for the
-//! contributor, and that is posted.
-//!
-//! The representative never promises a merge: only a ruling decides one.
-//! A bot's comment is never heard, and the maintainer's is context and not
-//! answered. Each heard item is answered at most once, and the record keeps
-//! its id. Calls stop at `budget.per_item_usd` as every other call on a
-//! contribution does, and while a ruling waits on the pull request. A call
-//! that fails, or a post the forge refuses, is told once in the log and tried
-//! again at the next poll, up to [`POST_TRIES`] times, and never fails the
-//! poll.
+//! Once a poll, each unanswered comment or review reply of the contributor goes
+//! to the representative in one call, with the findings on the head, the diff
+//! since the base and the maintainer's recent comments. Their words are fenced.
+//! It replies with an `answer`, posted through the App, or a `decision`, which
+//! raises a ruling and posts nothing yet. It never promises a merge.
+//! Bots are never heard; each heard item is answered once. Calls stop at
+//! `budget.per_item_usd` and while a ruling waits. A failed call or post is
+//! retried at the next poll, up to [`POST_TRIES`] times.
 
 use serde::Deserialize;
 

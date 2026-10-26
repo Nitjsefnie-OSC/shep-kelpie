@@ -1,30 +1,13 @@
 //! A review bot's round, in its place in the review pass
 //!
-//! A bot listed in `agents.reviewers` reads the pull request once a pass, as
-//! any reviewer does. Its round marks a draft ready, since a bot may skip
-//! drafts, waits for the bot's window and lease, summons it by its label or
-//! its comment, and gives the lease back once the bot answers. A refusal
-//! tells the dog when the window opens, and the round asks again. A window
-//! that opens more than an hour on, by the dog's book or by the refusal,
-//! passes the bot over for the pass, and so do its `review_wait` with no
-//! review, a silent bot that never reviewed on the repo, a bot the project
-//! stopped listing, and CodeRabbit on a repo that is not public.
-//! Once a review covers the head the label comes off, and once two reads
-//! of the bot's open threads agree they are the round's findings, which go
-//! to one fix turn as any reviewer's do. Kelpie replies on each thread it sent
-//! with the worker's line for it, and resolves the ones fixed once that fix
-//! moves the head, as its App where one covers the repo and through `gh`
-//! where none does. A bot that read the pull request before
-//! has its nits on a head a nit-only fix pushed left open, not sent again.
-//! A bot passed over that reviews the head anyway gets a round of its own
-//! before the next reviewer's, at green CI, or while the merge ruling waits.
-//!
-//! On a pull request the bot read before, the label asks only for what is
-//! new, and after an adoption or a catch-up with `main` it finds nothing.
-//! Those summons ask for a full review by comment instead, where the bot's
-//! profile has one. A head the bot marks done with nothing posted was read
-//! and found clean, unless a summon is owed: that one asks once more, for a
-//! full review.
+//! A bot in `agents.reviewers` reads the pull request once a pass, as any
+//! reviewer does. Its round marks a draft ready, waits for its window and lease,
+//! summons it by label or comment, and returns the lease once it answers. A
+//! window over an hour on, `review_wait` with no review, a silent or unlisted
+//! bot, and CodeRabbit on a non-public repo pass it over. Once two reads of its
+//! open threads agree they are the round's findings, for one fix turn; kelpie
+//! replies on each and resolves the fixed ones. After adoption or a catch-up
+//! the label finds nothing new, so the summon asks for a full review by comment.
 
 mod answer;
 mod bot_reads;
@@ -180,12 +163,10 @@ impl Runner {
         }
     }
 
-    // No summon without the lease, and none for a head already reviewed:
-    // that one costs the window and buys nothing. A bot skips a draft, so a
-    // draft is marked ready first and the summon waits for the next step:
-    // the forge can show the old state for a few seconds after. `full` asks
-    // for a full review whatever the bot read before. A bot that reviews a
-    // draft when it is marked ready is summoned by marking it.
+    // No summon without the lease, or for a head already reviewed. A bot skips a
+    // draft: it is marked ready first, and the summon waits a step for the forge
+    // to show it (a bot that reviews on ready is summoned by marking). `full`
+    // asks for a full review whatever the bot read before.
     fn summon(
         &mut self,
         bot: Bot,
@@ -293,11 +274,9 @@ impl Runner {
         !owed && self.profile(bot).covers(activity, head)
     }
 
-    // Whether a summon asks for a full review by comment: when it was told
-    // to, when the bot has no label, or when the bot read the pull request
-    // before and the label would find nothing new, because a summon is owed
-    // or kelpie caught the branch up. A bot with no such comment always gets
-    // the label.
+    // Whether a summon asks for a full review by comment: when told to, when the
+    // bot has no label, or when the bot read before and the label would find
+    // nothing new (a summon is owed, or kelpie caught the branch up).
     fn asks_full(&self, bot: Bot, full: bool, activity: &Activity) -> bool {
         let (item, profile) = (self.item(), self.profile(bot));
         let read_before = profile.reviewed_besides(activity, "") > 0;
@@ -306,12 +285,10 @@ impl Runner {
         wanted && profile.full_review().is_some()
     }
 
-    // Sends the summon, under the lease, in whichever form `full` says.
-    // `again` is a re-send of a summon the bot gave no sign of: it goes
-    // out as a fresh event, and `at` stays the first one's time, so the
-    // round is the same and its window is not counted twice. A summon sent
-    // again after a failure takes its own time: the first was heard, never
-    // counted, and its failure must not read as the second's answer.
+    // Sends the summon, under the lease, in whichever form `full` says. `again`
+    // re-sends a summon the bot gave no sign of as a fresh event, with `at` kept
+    // at the first one's time so its window is not counted twice. A summon sent
+    // again after a failure takes its own time, so the failure is not its answer.
     fn send(
         &mut self,
         bot: Bot,
@@ -429,12 +406,10 @@ impl Runner {
         Ok(self.summoned(number, head, again))
     }
 
-    // A draft is marked ready once, and the round then waits out the settle
-    // for the forge to read it so: marking again on every stale read would
-    // loop with no backoff. A forge still reading draft after the settle is
-    // marked again, since a draft cannot be summoned. A pull request the forge
-    // shows ready is recorded as kelpie's own, so the gate never reads it as
-    // someone else's change.
+    // A draft is marked ready once, and the round then waits out the settle for
+    // the forge to show it: marking on every stale read would loop with no
+    // backoff. A forge still showing draft after the settle is marked again. A
+    // pull request shown ready is recorded as kelpie's own, not someone else's change.
     fn ready_for_review(
         &mut self,
         number: u64,
@@ -587,12 +562,9 @@ impl Runner {
                     },
                 )
             }
-            // A review that failed is asked for once more, and the pass goes
-            // on without the bot when that one fails too. The summon sent
-            // again takes the time it went out as its own, so the failure
-            // that drew it is not read as its answer. A bot summoned by
-            // marking ready is never asked by comment, so waits like one
-            // that is still reading.
+            // A failed review is asked for once more, and the pass goes on without the
+            // bot when that fails too. A bot summoned by marking ready is never asked by
+            // comment, so waits like one still reading.
             Reading::Failed if waited < review_wait && !self.bot_reviewer(bot).reviews_on_ready => {
                 self.failed_review(bot, (started, head), Timestamp(now), full_again)
             }
@@ -669,11 +641,10 @@ impl Runner {
         self.settle_threads(bot, activity)
     }
 
-    // The bot read the head, which also reads whatever a catch-up with
-    // `main` brought, so this pass has been read. Its open threads are the
-    // round's findings; with none, the pass goes on to the next reviewer.
-    // A bot that read the pull request before has its nits on a head a
-    // nit-only fix pushed left open, so it cannot loop on nits.
+    // The bot read the head, which also reads whatever a catch-up with `main`
+    // brought. Its open threads are the round's findings; with none, the pass goes
+    // on. A bot that read before has its nits on a head a nit-only fix pushed left
+    // open, so it cannot loop on nits.
     fn review_landed(
         &mut self,
         number: u64,

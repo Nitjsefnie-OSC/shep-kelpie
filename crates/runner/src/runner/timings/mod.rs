@@ -3,13 +3,13 @@
 //! Every save charges each open work item the time since its last charge,
 //! to the phase its state put it in until now. Reads charge nothing.
 
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use serde::Serialize;
 
 use super::Runner;
 use super::trigger::{issue_list, lock};
-use crate::ports::{ForgeError, RoundStage, Timestamp};
+use crate::ports::{Forge, ForgeError, RateLimits, RoundStage, Timestamp};
 use crate::state::{Finished, ProjectState, StateError};
 use crate::ticket::TicketId;
 use crate::work_item::{CallKind, Seconds, TimingPhase, Timings, WorkItem};
@@ -25,6 +25,16 @@ const HEARTBEAT: u64 = 30;
 
 // The standing warning's key for a rate limit read that failed
 const RATE_LIMIT_READ: &str = "rate-limit-read";
+
+/// Sets the gauges of the login's rate limits, read from the forge with the runner's lock let go
+pub(super) fn read_rate_limit(runner: &Mutex<Runner>) {
+    let job = lock(runner).rate_limit_job();
+    let Some(forge) = job else {
+        return;
+    };
+    let read = forge.rate_limit();
+    lock(runner).apply_rate_limit(read);
+}
 
 /// What `timings` answers
 // wire format: changing this is a breaking change to the `timings` reply
@@ -113,19 +123,23 @@ impl Runner {
     /// again, once a minute, for a metrics dog that started or restarted since
     pub(super) fn send_metrics(&mut self) {
         self.holds.flush(&self.metrics);
+        self.model_leases();
         self.metrics.refresh(self.ports.clock.now());
     }
 
-    /// Sets the gauges of the login's rate limits, read from the forge at most
-    /// once a minute
+    /// The forge to read the login's rate limits from, when they are due
     ///
-    /// A read the forge cannot answer leaves the gauges as they were and is told
-    /// once while it keeps failing. A read held by a used-up limit is no failure.
-    pub(super) fn read_rate_limit(&mut self) {
-        if !self.looks.rate_limit_due(self.ports.clock.now()) {
-            return;
-        }
-        match self.ports.forge.rate_limit() {
+    /// They are read at most once a minute, and the read is left to run with the lock let go.
+    fn rate_limit_job(&mut self) -> Option<Arc<dyn Forge>> {
+        let due = self.looks.rate_limit_due(self.ports.clock.now());
+        due.then(|| Arc::clone(&self.ports.forge))
+    }
+
+    // Sets the gauges of the login's rate limits from `read`. A read the forge cannot answer
+    // leaves the gauges as they were and is told once while it keeps failing. A read held by a
+    // used-up limit is no failure.
+    fn apply_rate_limit(&mut self, read: Result<RateLimits, ForgeError>) {
+        match read {
             Ok(limits) => {
                 self.metrics.rate_limits(&limits);
                 self.notes.ends(RATE_LIMIT_READ);

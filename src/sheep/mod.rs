@@ -2,13 +2,11 @@
 //!
 //! The runner's flock entry needs `channel = true`, and
 //! `shutdown_with_message = true` so a stop reaches it as a message.
-//! Triggers are answered at once. The runner's loop runs on a thread of its
-//! own, woken by each trigger that asks for work, by each call in flight
-//! that ends, and by a look at the board every minute, or more often while
-//! a ruling waits on a reply on the webhook's topic or a failed step waits
-//! to run again. It starts each agent call and goes on, and
-//! never waits on one. A runner that finished asks the shepherd to stop its
-//! own sheep, as `shep kelpie pause` would.
+//! Triggers are answered at once. The loop runs on its own thread, woken by a
+//! trigger that asks for work, a call in flight ending, and a look at the
+//! board every minute, or sooner while a ruling waits on a webhook reply or a
+//! failed step waits to rerun. It starts each agent call and never waits on
+//! one. A finished runner asks the shepherd to stop its own sheep.
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};

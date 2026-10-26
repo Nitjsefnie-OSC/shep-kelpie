@@ -8,7 +8,7 @@
 //! a deadline each pass checks, and a call past it is ended through its own
 //! process group.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
@@ -77,6 +77,8 @@ pub(super) struct Flights {
     news: Receiver<News>,
     // Told after each piece of news, so the loop waiting on it wakes
     wake: Option<Sender<()>>,
+    // The models whose lease gauges were set, so one whose calls have ended is set to 0
+    leased_models: BTreeSet<String>,
 }
 
 impl Default for Flights {
@@ -97,6 +99,7 @@ impl Default for Flights {
             send,
             news,
             wake: None,
+            leased_models: BTreeSet::new(),
         }
     }
 }
@@ -364,11 +367,20 @@ impl Runner {
                 flight.deadline = Some(Timestamp(now.0.saturating_add(flight.left)));
                 flight.ending.carry(flight.flying(now));
             }
-            (said, turn, told.map(|(_, why)| why), waited)
+            let model = flight
+                .watched
+                .lease
+                .as_ref()
+                .map(|(_, model)| model.clone());
+            (said, turn, told.map(|(_, why)| why), waited, model)
         });
+        if let Some((.., waited, Some(model))) = &told {
+            self.metrics.model_lease_granted(model, *waited);
+        }
+        self.model_leases();
         // The board names the gap the wait took, so a reader sees the wait was
         // real, and names what the call got. Only a wait for a lease got one.
-        if let Some((said, turn, why, waited)) = told
+        if let Some((said, turn, why, waited, _)) = told
             && said
         {
             let who = if turn { "worker" } else { "review call" };
@@ -719,7 +731,7 @@ fn one_pass(runner: &Mutex<Runner>) -> Result<Pass, StateError> {
     super::queued::take_up(runner);
     lock(runner).beat();
     lock(runner).send_metrics();
-    lock(runner).read_rate_limit();
+    super::timings::read_rate_limit(runner);
     lock(runner).let_go_of_the_gone();
     // Before any answer is taken, so none resumes a worker on a closed issue.
     super::closed::read_parked(runner)?;
@@ -862,6 +874,15 @@ fn hear_news(shared: &Mutex<Runner>, news: News) -> Result<Option<StepReport>, S
         End::Turn(result) => {
             let line = open.and_then(|open| runner.turn_line(&open, &result));
             let unreported = result.is_err();
+            // The turn's end reads git and the forge with the lock let go.
+            if result.is_ok()
+                && let Some(job) = runner.end_job(ticket)
+            {
+                drop(runner);
+                let read = job.run();
+                runner = lock(shared);
+                runner.keep_end_read(read);
+            }
             let ended = runner.turn_ended(ticket, result);
             if let (Some(line), Ok(_)) = (line, &ended) {
                 runner.append_call(line, unreported);

@@ -8,7 +8,7 @@
 //! PreToolUse guard reads it. A ledger that is missing or cannot be read
 //! holds nothing, so an edit or a link is refused rather than allowed.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::io::Read;
 use std::path::Path;
 
@@ -25,6 +25,10 @@ pub(super) struct Ledger {
     filed: Vec<TicketId>,
     /// Each issue's database id, by its number, as `gh api ... --jq .id` printed it
     ids: BTreeMap<u64, u64>,
+    /// The paths in issues it tried to file that matched no file on main, which it
+    /// was told of once
+    #[serde(default)]
+    told: BTreeSet<String>,
 }
 
 impl Ledger {
@@ -33,6 +37,11 @@ impl Ledger {
         path.and_then(|p| std::fs::read(p).ok())
             .and_then(|bytes| serde_json::from_slice(&bytes).ok())
             .unwrap_or_default()
+    }
+
+    /// Whether this session was told `path` names no file on main
+    pub(super) fn told(&self, path: &str) -> bool {
+        self.told.contains(path)
     }
 
     /// Whether this session filed `ticket`
@@ -58,20 +67,30 @@ impl Ledger {
     }
 }
 
+/// Records in the ledger at `path` that the session was told `paths` name no file on main
+///
+/// Best effort: a ledger that is not written tells the session again.
+pub(super) fn tell(path: &Path, paths: &[String]) {
+    let mut ledger = Ledger::read(Some(path));
+    ledger.told.extend(paths.iter().cloned());
+    if let Ok(text) = serde_json::to_vec(&ledger) {
+        let _ = std::fs::write(path, text);
+    }
+}
+
 /// The tickets the session with the ledger at `path` filed, in the order it
 /// filed them, none when the ledger is missing or cannot be read
 pub fn filed_in(path: &Path) -> Vec<TicketId> {
     Ledger::read(Some(path)).filed
 }
 
-/// Records what the issue writer's finished command in `input`, a
-/// PostToolUse hook's input, filed or read, in the ledger `rules` name
+/// Records what the issue writer's finished command in `input` filed or read, in the ledger `rules` name
 ///
 /// Only a line that is one lone `gh issue create`, with at most the `cat`
 /// its `--body` reads, adds an issue, and only when it printed one URL and
 /// nothing else. A lone `shep kelpie ticket new` does the same on a local
-/// project, when it printed one local id and nothing else. Only one lone `gh api` read of an issue with `--jq .id`
-/// adds the id it printed. Anything else changes nothing.
+/// project, printing one local id. A lone `gh api` read of an issue with
+/// `--jq .id` adds the id it printed. Anything else changes nothing.
 pub fn record_issues(input: impl Read, rules: &IssueRules) {
     let Some(path) = &rules.ledger else {
         return;

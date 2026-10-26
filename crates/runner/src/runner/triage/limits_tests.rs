@@ -1,16 +1,13 @@
-//! The limits kelpie puts on triage, checked before an issue's research call,
-//! through the runner's stand-ins
+//! The limits kelpie puts on triage, through the runner's stand-ins
 //!
-//! None of them calls a model. The day's cap holds an issue in the due list;
-//! the author's cap and the account's age end it at `needs-triage` with no call
-//! and no comment; the body limit cuts what the call is given. The maintainer's
-//! own issues and one `shep kelpie triage` asked for skip all four.
+//! None calls a model. The day's cap holds an issue in the due list; the author's
+//! cap and the account's age end it at `needs-triage` with no call or comment; the
+//! body limit cuts what the call is given. The maintainer's own issues and one
+//! `shep kelpie triage` asked for skip all four.
 //!
 //! The caps count the calls the records save, so an author's round spends places
-//! beside the first pass's call, and a round call past a cap waits for the next
-//! free place instead of ending the issue. A call counts when it reached a
-//! model, whatever its reply came to, and a call on an issue with no record yet is
-//! saved in the state, so a restart does not lose it.
+//! beside the first pass's call, and a round call past a cap waits for a free
+//! place. A call counts when it reached a model, whatever its reply came to.
 
 use std::sync::Mutex;
 
@@ -20,7 +17,7 @@ use super::ask_tests::{A_WORDS, asked as one_question, filed, settled, wrote};
 use super::limits::DAY;
 use super::marker::MARKER;
 use super::pick_tests::{MAINTAINER, due, issue, list, rig_with, status, triaging};
-use super::research_tests::{WORDS, calls, moves, reply, restart, triage};
+use super::research_tests::{WORDS, calls, handed, moves, reply, restart, triage};
 use crate::ports::{AuthorAssociation, Clock, OpenIssue, Role, Timestamp};
 use crate::runner::{Runner, step};
 use crate::state::{StateStore, TRIAGED_KEPT};
@@ -203,10 +200,7 @@ fn the_eleventh_issue_in_a_day_waits_and_is_triaged_once_a_place_opens() {
     assert_eq!(step(&runner).unwrap(), None);
 
     assert_eq!(calls(&rig, Role::Triager).len(), 1);
-    assert_eq!(
-        rig.github.comments(),
-        [(30, format!("{WORDS}\n\n{MARKER}"))]
-    );
+    assert_eq!(rig.github.comments(), [(30, handed(WORDS))]);
     assert_eq!(triage(&rig, &runner)["daily"]["used"], 1);
 }
 
@@ -237,7 +231,7 @@ fn an_authors_third_issue_in_a_day_gets_needs_triage_with_no_call_and_no_comment
     );
     assert_eq!(
         rig.github.comments(),
-        [(31, format!("{WORDS}\n\n{MARKER}"))],
+        [(31, handed(WORDS))],
         "no comment on the held issue"
     );
     assert_eq!(
@@ -297,10 +291,7 @@ fn a_new_account_that_has_contributed_before_is_triaged() {
     assert_eq!(step(&runner).unwrap(), None);
 
     assert_eq!(calls(&rig, Role::Triager).len(), 1);
-    assert_eq!(
-        rig.github.comments(),
-        [(31, format!("{WORDS}\n\n{MARKER}"))]
-    );
+    assert_eq!(rig.github.comments(), [(31, handed(WORDS))]);
     assert_eq!(record(&rig, &runner, 30)["held"], "new-account");
     assert_eq!(record(&rig, &runner, 31).get("held"), None);
 
@@ -435,10 +426,7 @@ fn the_maintainers_issues_and_the_verb_skip_every_limit() {
     assert_eq!(step(&runner).unwrap(), None);
 
     assert_eq!(calls(&rig, Role::Triager).len(), 1);
-    assert_eq!(
-        rig.github.comments(),
-        [(30, format!("{WORDS}\n\n{MARKER}"))]
-    );
+    assert_eq!(rig.github.comments(), [(30, handed(WORDS))]);
     assert_eq!(record(&rig, &runner, 30).get("held"), None);
 }
 
@@ -648,10 +636,7 @@ fn a_call_whose_reply_cannot_be_read_still_spends_a_place_of_the_day() {
     assert_eq!(step(&runner).unwrap(), None);
 
     assert_eq!(calls(&rig, Role::Triager).len(), 3, "and it takes the next");
-    assert_eq!(
-        rig.github.comments(),
-        [(30, format!("{WORDS}\n\n{MARKER}"))]
-    );
+    assert_eq!(rig.github.comments(), [(30, handed(WORDS))]);
 }
 
 #[test]
@@ -717,10 +702,7 @@ fn an_issue_whose_author_deleted_their_account_counts_toward_no_authors_cap() {
         1,
         "no author's cap reaches an issue with no author to count"
     );
-    assert_eq!(
-        rig.github.comments(),
-        [(30, format!("{WORDS}\n\n{MARKER}"))]
-    );
+    assert_eq!(rig.github.comments(), [(30, handed(WORDS))]);
     assert_eq!(record(&rig, &runner, 30).get("held"), None);
 }
 
@@ -812,10 +794,7 @@ fn a_first_pass_call_that_never_posted_spends_its_place_across_a_restart() {
     assert_eq!(step(&runner).unwrap(), None);
 
     assert_eq!(calls(&rig, Role::Triager).len(), 2, "the next place");
-    assert_eq!(
-        rig.github.comments(),
-        [(30, format!("{WORDS}\n\n{MARKER}"))]
-    );
+    assert_eq!(rig.github.comments(), [(30, handed(WORDS))]);
 }
 
 #[test]
