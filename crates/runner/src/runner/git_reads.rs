@@ -10,10 +10,13 @@
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use super::Runner;
-use super::report::Begin;
+use super::dev_server::install::{self, Installed};
+use super::report::{Begin, StepReport};
 use crate::fence;
+use crate::ports::{TestRun, TestRunner};
 use crate::ticket::TicketId;
 use crate::work_item::WorkItem;
 use crate::worktree::{self, Base, Remote, Start, Worktree, WorktreeError};
@@ -29,6 +32,7 @@ pub(in crate::runner) struct Kept {
     bases: BTreeMap<String, Result<Base, WorktreeError>>,
     changes: Option<Result<Changes, WorktreeError>>,
     prepared: Option<Result<Worktree, WorktreeError>>,
+    installed: Option<Installed>,
 }
 
 impl Kept {
@@ -44,11 +48,17 @@ impl Kept {
             && self.bases.is_empty()
             && self.changes.is_none()
             && self.prepared.is_none()
+            && self.installed.is_none()
     }
 
     /// Whether a job made the work item's worktree
     pub(in crate::runner) fn is_prepared(&self) -> bool {
         self.prepared.is_some()
+    }
+
+    /// What the install of the worktree's packages came to, once a job ran it
+    pub(in crate::runner) fn installed(&self) -> Option<&Installed> {
+        self.installed.as_ref()
     }
 
     /// Keeps what a job found for the step that asked
@@ -60,6 +70,7 @@ impl Kept {
             }
             Found::Changes(changes) => self.changes = Some(changes),
             Found::Prepared(prepared) => self.prepared = Some(prepared),
+            Found::Installed(installed) => self.installed = Some(installed),
         }
     }
 }
@@ -70,6 +81,7 @@ pub(in crate::runner) enum Git {
     Base(Standing),
     Changes(Changed),
     Prepare(Preparing),
+    Install(Installing),
 }
 
 /// What a [`Git`] read found, errors as the inline call returns them
@@ -81,12 +93,13 @@ pub(in crate::runner) enum Found {
     },
     Changes(Result<Changes, WorktreeError>),
     Prepared(Result<Worktree, WorktreeError>),
+    Installed(Installed),
 }
 
 impl Git {
     /// Whether the read changes the work item's worktree, which a trigger on it then waits for
     pub(in crate::runner) fn changes_worktree(&self) -> bool {
-        matches!(self, Self::Prepare(_))
+        matches!(self, Self::Prepare(_) | Self::Install(_))
     }
 
     /// Reads, with the calls the step would have made inline
@@ -102,6 +115,7 @@ impl Git {
             }
             Self::Changes(ask) => Found::Changes(ask.run()),
             Self::Prepare(ask) => Found::Prepared(ask.run()),
+            Self::Install(ask) => Found::Installed(ask.run()),
         }
     }
 }
@@ -220,6 +234,27 @@ impl Ask for Preparing {
 
     fn job(self) -> Git {
         Git::Prepare(self)
+    }
+}
+
+/// A work item's packages installed in the worker's sandbox, once its worktree is made
+///
+/// The worktree is made outside any sandbox, so the install follows it as a call of its own.
+pub(in crate::runner) struct Installing {
+    tests: Arc<dyn TestRunner>,
+    run: TestRun,
+    folders: Vec<String>,
+}
+
+impl Ask for Installing {
+    type Answer = Installed;
+
+    fn run(self) -> Self::Answer {
+        Installed::of(self.folders, self.tests.run(&self.run))
+    }
+
+    fn job(self) -> Git {
+        Git::Install(self)
     }
 }
 
@@ -344,6 +379,60 @@ impl Runner {
             })?;
         let job = self.git_job(self.prepare_ask(item, start_of(item)).job())?;
         Some(Begin::Reads(job))
+    }
+
+    /// The job that installs the packages of the focused work item's worktree in the worker's
+    /// sandbox, or none when the worktree needs none, the step's earlier ask kept the answer, an
+    /// earlier install ran, no pass runs to make it, or the worktree is not made
+    ///
+    /// The install follows the worktree's making, which the step's `preparing` job kept.
+    pub(in crate::runner) fn installing(&self) -> Option<Begin> {
+        let item = self.current().filter(|item| {
+            self.reads.git.installed.is_none() && !self.install_ran.contains(&item.issue)
+        })?;
+        if !matches!(self.reads.git.prepared, Some(Ok(_))) {
+            return None;
+        }
+        let plan = install::worktree(&item.worktree, &item.build)?;
+        // The token the turn's start read; a turn that failed to get one fails in its call.
+        let Some(Ok(token)) = self.reads.started(item.issue).token() else {
+            return None;
+        };
+        let mut reach = self
+            .worker_reach(item, start_of(item), token.as_ref())
+            .ok()?;
+        // The caches go in the build folder, unless the worker's own `build_env` named them.
+        let fence = reach.fence.as_mut()?;
+        for (variable, folder) in plan.env {
+            fence.env.entry(variable).or_insert(folder);
+        }
+        let run = TestRun {
+            command: plan.command,
+            cwd: item.worktree.clone(),
+            reach,
+            settings: (self.paths.worker).join(format!("install-{}.sandbox.json", item.issue)),
+            door: None,
+            ceiling: install::INSTALL_WITHIN,
+        };
+        let job = self.git_job(Git::Install(Installing {
+            tests: Arc::clone(&self.ports.test_runner),
+            run,
+            folders: plan.folders,
+        }))?;
+        Some(Begin::Reads(job))
+    }
+
+    /// Logs the install the step's job ran, and keeps it from being run again
+    pub(in crate::runner) fn packages_installed(&mut self, issue: TicketId) {
+        let Some(installed) = self.reads.git.installed().cloned() else {
+            return;
+        };
+        self.install_ran.insert(issue);
+        self.started.push(StepReport::PackagesInstalled {
+            issue,
+            folders: installed.folders,
+            failed: installed.failed,
+        });
     }
 
     /// The worktree of `item` made ready: what the step's job found, else made in place

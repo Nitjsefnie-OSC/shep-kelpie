@@ -88,7 +88,7 @@ impl World {
             cwd: self.path("wt"),
             reach,
             settings: self.path("worker/test-run.sandbox.json"),
-            door: self.path("d.sock"),
+            door: Some(self.path("d.sock")),
             ceiling: Duration::from_secs(30),
         }
     }
@@ -217,4 +217,16 @@ fn a_command_the_shell_cannot_find_and_a_dog_that_is_gone_are_not_run() {
         panic!("{missing:?}");
     };
     assert!(reason.contains("could not start"), "{reason}");
+}
+
+#[test]
+fn a_run_with_no_door_runs_without_asking_the_dog() {
+    let w = World::new();
+    let sandbox = OpenSandbox::default();
+    let mut run = w.run("true", w.worker());
+    run.door = None;
+
+    let outcome = runner(&sandbox).run(&run);
+
+    assert_eq!(outcome, TestOutcome::Passed);
 }

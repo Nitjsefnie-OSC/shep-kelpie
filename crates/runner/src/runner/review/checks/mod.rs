@@ -297,7 +297,7 @@ impl Runner {
             cwd: item.worktree.clone(),
             reach,
             settings: (self.paths.worker).join(format!("test-run-{}.sandbox.json", item.issue)),
-            door: self.paths.door.clone(),
+            door: Some(self.paths.door.clone()),
             ceiling: CEILING,
         });
         // The outcome stands, but a worktree the run left dirty is the

@@ -436,6 +436,11 @@ impl Runner {
         if let Some(reads) = self.preparing() {
             return Ok(reads);
         }
+        // Its packages are installed in the worker's sandbox once the worktree is there. A
+        // compaction runs no code.
+        if !compacting && let Some(reads) = self.installing() {
+            return Ok(reads);
+        }
         self.token_wait.begins();
         let prepared = self.prepare(item, session, prompt);
         let mut next = self.state.clone();
@@ -496,6 +501,7 @@ impl Runner {
             drop(self.opened.take(issue));
             return Err(e);
         }
+        self.packages_installed(issue);
         if resumed {
             self.note_resumed(ticket);
         }
@@ -614,6 +620,10 @@ impl Runner {
                 self.skills
                     .invoke(Step::Implement, &first_prompt(ticket, &issue, &comments))
             }
+        };
+        let prompt = match self.reads.git.installed().and_then(|i| i.failed.as_deref()) {
+            Some(why) if prompt != COMPACT => format!("{prompt}\n\n{}", install_failed(why)),
+            _ => prompt,
         };
         // A `/compact` has nothing to bound, and would hand itself back after.
         let compact_window =
@@ -816,6 +826,16 @@ impl Runner {
             .find(|pr| pr.head == branch)
             .map(|pr| pr.number)
     }
+}
+
+// What the worker is told when kelpie's install of its worktree's packages failed
+fn install_failed(why: &str) -> String {
+    format!(
+        "Kelpie tried to install this worktree's packages before your turn, and it failed. The \
+         output ended:\n\n{why}\n\nThe lockfile as it stands could not be installed, so \
+         `node_modules` may be missing or half made. Fix what the output names if it is yours \
+         to fix, and name the gap in your final message if it is not."
+    )
 }
 
 // Whether a turn sent `prompt` is prompted with its issue: the first of a work item that is
