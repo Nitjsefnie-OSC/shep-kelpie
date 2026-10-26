@@ -203,12 +203,10 @@ mod tests {
     use super::*;
     use crate::ports::PullRequestState;
 
-    // Recorded from gh 2.96: `gh api graphql` with `QUERY` on shep-pm/shep#617.
-    // The maintainer's reviews there are replies with empty bodies, and
-    // CodeRabbit's reviews come after them, with every thread resolved.
-    // `maintainerCanModify` and `headRepository` were added by hand, in the
-    // shape the GraphQL schema gives them, because the query grew after the
-    // recording; the ignored test below reads them from the real GitHub.
+    // Recorded from gh 2.96: `gh api graphql` with `QUERY` on shep-pm/shep#617,
+    // where the maintainer's reviews are empty replies and every thread is
+    // resolved. `maintainerCanModify` and `headRepository` are added by hand
+    // in the schema's shape; the ignored test below reads them from GitHub.
     const PR_617: &str = include_str!("../../../../../fixtures/gh-pr-reviewed-617.json");
 
     fn shep() -> ForgeSlug {

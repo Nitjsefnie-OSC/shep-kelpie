@@ -122,17 +122,14 @@ impl Processes {
         self.run(command, until, spawned, Some(Files::of(outputs)), b"")
     }
 
-    /// Runs `call`'s `command` with its stdout and stderr written to the
-    /// files [`CallFiles`] names, emptied first and read back once it ends,
-    /// and a record of it kept beside them while it runs
+    // A pipe shared with a parent that makes it non-blocking, as Node does,
+    // fails a write once full, and a program that does not retry dies of it.
+    // A file never fills that way.
+    /// Runs `call`'s `command` with output in the files [`CallFiles`] names
     ///
-    /// The record is removed when the call ends, by whatever means, and the
-    /// output files with it.
-    ///
-    /// A pipe the child shares with a parent that makes it non-blocking, as
-    /// Node does with its own, fails a write once the pipe is full, and a
-    /// program that does not wait and write again dies of it. A file never
-    /// fills that way.
+    /// The files are emptied first and read back once it ends, and a record of
+    /// the call is kept beside them while it runs. The record is removed when
+    /// the call ends, by whatever means, and the output files with it.
     pub(super) fn output_of_call(
         &self,
         command: &mut Command,
@@ -161,14 +158,12 @@ impl Processes {
         self.within(command, limit, b"", None, None)
     }
 
-    /// Like `output_within`, with `input` written to the child's stdin, the
-    /// child killed once `ending` is asked if one is given, and its stdout
-    /// and stderr written to the files `outputs` names, which are removed
-    /// once it ends
+    /// Like `output_within`, with `input` on the child's stdin and output in `outputs`
     ///
-    /// A secret goes this way rather than in the arguments, which any
-    /// process on the machine can list. The limit covers the write too, so a
-    /// child that never reads ends the call as [`RunError::TimedOut`].
+    /// The child is killed once `ending` is asked, if one is given, and the
+    /// output files are removed once it ends. A secret goes this way, as the
+    /// arguments are listable by any process. The limit covers the write too,
+    /// so a child that never reads ends the call as [`RunError::TimedOut`].
     pub(super) fn output_within_fed(
         &self,
         command: &mut Command,

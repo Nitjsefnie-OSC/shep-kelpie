@@ -509,13 +509,11 @@ async fn answer(
     control::rule(&client, &project, &params, &answers).await
 }
 
-/// `-p <project>`, `--project <project>` or `--project=<project>` from
-/// anywhere in `args` before a `--`, and the rest in order
+/// `-p <project>`, `--project <project>` or `--project=<project>` in `args`, and the rest
 ///
-/// A value with `*`, `?` or `[` is a glob over the projects' names.
-///
-/// With `words_from`, everything after that many other arguments is words,
-/// so a ruling's answer can carry `-p`.
+/// The flag is read from anywhere before a `--`. A value with `*`, `?` or `[`
+/// is a glob over the projects' names. With `words_from`, everything after that
+/// many other arguments is words, so a ruling's answer can carry `-p`.
 ///
 /// # Errors
 ///

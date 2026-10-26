@@ -1,14 +1,13 @@
 //! The outside half of [`crate::forwarder`]: one socket, for one call
 //!
-//! The sandbox's proxy hands the worker's model calls to this socket. The
-//! sandbox may not connect to it, only the proxy does. Each connection carries
-//! one request, or one tunnel and the one request inside it. A chat call is
-//! sent on to the model server with `Connection: close` and its reply is
-//! copied back as it arrives. Anything else is refused by name, and no byte
-//! of it is sent on, so a second request cannot ride behind the first.
-//! Anything inside the sandbox can reach the socket through the proxy, so
-//! every read is bounded in bytes and in time and the connections are capped.
-//! Dropping the [`Forwarder`] stops every connection and removes the socket.
+//! The sandbox's proxy hands the worker's model calls to this socket, and only
+//! the proxy may connect to it. Each connection carries one request, or one
+//! tunnel and the one request inside it. A chat call is sent on to the model
+//! server with `Connection: close` and its reply is copied back as it arrives.
+//! Anything else is refused by name and no byte of it is sent on, so a second
+//! request cannot ride behind the first. Every read is bounded in bytes and
+//! time and connections are capped. Dropping the [`Forwarder`] stops every
+//! connection and removes the socket.
 
 use std::collections::HashMap;
 use std::io::{self, BufReader, Read, Write};
@@ -454,13 +453,10 @@ fn connect(upstream: &Upstream) -> io::Result<TcpStream> {
     Err(last)
 }
 
-// The chat call as the model server gets it: its own path, and only the
-// headers a chat client needs, with a length the forwarder counted itself.
-// A gateway gets its own key, never the one the worker sent, and a request
-// for the batch turn, as kelpie runs unattended, on the lease its upstream
-// names, if any. A key holding a
-// line break would start a header of the worker's choosing, so it is refused
-// before anything is sent.
+// The chat call as the model server gets it: only a chat client's headers,
+// with a length the forwarder counted. A gateway gets its own key, never the
+// worker's, and the batch turn on its upstream's lease, if any. A key holding
+// a line break is refused, as it would start a header of the worker's choosing.
 fn request(upstream: &Upstream, head: &Head, length: usize) -> Result<Vec<u8>, Reply> {
     if let Some(key) = upstream.key()
         && key.expose().contains(['\r', '\n'])

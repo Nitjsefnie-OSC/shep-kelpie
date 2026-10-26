@@ -1,23 +1,13 @@
-//! `shep kelpie upgrade`: installs a new kelpie and restarts the dog and each
-//! runner onto it, and `--rollback` puts the previous build back
+//! `shep kelpie upgrade`: installs a new kelpie, restarts the dog and runners
 //!
-//! `upgrade --ref <git ref>` builds kelpie at that ref, `--release <version>`
-//! downloads a release, and `--binary <path>` takes a build made by hand as it
-//! is. The installed kelpie is whatever program the adopted dog runs, read
-//! from the shepherd, and every kelpie sheep runs that same path. The new
-//! build is written beside it and renamed over it, as shep upgrades itself,
-//! and the build it replaces is first copied into `<kelpie home>/builds`.
-//!
-//! The new build is asked for its shep line (`version --json`) and the
-//! shepherd for its version before any file or sheep changes. A shepherd on
-//! an earlier shep than the build's, or one that no longer accepts the
-//! build's protocol, stops the upgrade there, with the steps to take, because
-//! the build would come up into that refusal. One upgrade runs at a time.
-//!
-//! Each runner is handed over to the new build in place, keeping its calls
-//! running. One that cannot be is drained before its restart, so the restart
-//! cuts no call short. `--now`, before or after the other arguments, restarts
-//! without either.
+//! `--ref <git ref>` builds kelpie at that ref, `--release <version>`
+//! downloads a release, and `--binary <path>` takes a hand-made build as it is.
+//! `--rollback` puts the previous build back.
+//! The installed kelpie is the program the adopted dog runs, and the build it
+//! replaces is first copied into `<kelpie home>/builds`. Before any file or
+//! sheep changes, the build gives its shep line (`version --json`) and the
+//! shepherd its version. An earlier shep, or a refused protocol, stops the
+//! upgrade there. Each runner is handed over in place or drained, unless `--now`.
 
 pub mod drain;
 pub mod fetch;

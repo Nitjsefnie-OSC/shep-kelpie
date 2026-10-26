@@ -18,13 +18,10 @@ impl Claude {
     // `claude` with `argv`, in the call's folder and with its own temporary files.
     pub(super) fn program_command(&self, call: &AgentCall, argv: Vec<OsString>) -> Command {
         let scratch = scratch(call);
-        // A sheep has no `TMPDIR`, so a shell falls back to `/tmp`, which the
-        // sandbox refuses, and a heredoc cannot make its temp file there. zsh
-        // ignores `TMPDIR` for a heredoc and writes under `TMPPREFIX`, a prefix
-        // that zsh appends to, so it gets one in the same folder. Only
-        // `claude` is given them, through `env`: `srt` puts its proxy socket
-        // under its own `TMPDIR`, where a path past 104 bytes keeps it from
-        // starting and a folder the call writes lets the call delete the socket.
+        // A sheep has no `TMPDIR`, so a heredoc falls back to `/tmp`, which the
+        // sandbox refuses. zsh writes it under `TMPPREFIX` instead, so that gets
+        // the same folder. Only `claude` gets them, through `env`: `srt` keeps
+        // its proxy socket under its own `TMPDIR`, which the call must not write.
         let mut temp = OsString::from("TMPDIR=");
         temp.push(&scratch);
         let mut prefix = OsString::from("TMPPREFIX=");
@@ -453,13 +450,10 @@ mod tests {
         }
     }
 
-    // A shell's heredoc makes a temp file under `TMPDIR`, or `/tmp` with none,
-    // and the sandbox refuses a write there. `srt` makes its own proxy socket
-    // under its `TMPDIR`: past 104 bytes it cannot start, and in a folder the
-    // call writes the call could delete the socket. So only the command
-    // inside `srt` gets it, as `env TMPDIR=<folder> TMPPREFIX=<folder>/zsh
-    // claude ...`. zsh ignores `TMPDIR` for a heredoc and writes under
-    // `TMPPREFIX`, `/tmp/zsh` by default, which the sandbox refuses.
+    // Only the command inside `srt` gets the folder, as `env TMPDIR=<folder>
+    // TMPPREFIX=<folder>/zsh claude ...`: `srt` keeps its proxy socket under
+    // its own `TMPDIR`, past 104 bytes it cannot start, and a folder the call
+    // writes lets it delete the socket.
     #[test]
     fn every_role_gets_a_temp_folder_its_sandbox_can_write_and_srt_keeps_its_own() {
         let w = World::new();

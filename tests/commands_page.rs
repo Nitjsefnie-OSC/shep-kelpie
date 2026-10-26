@@ -1,31 +1,13 @@
 //! The commands guide page names every `shep kelpie` verb and flag, and none
 //! the command line lacks.
 //!
-//! The command line is what the binary prints for arguments it does not take:
-//! its usage text is the one place every verb, nested ones and flags included,
-//! is written down. The page is `docs/guide/commands.md`.
-//!
-//! What counts as the page naming something:
-//! - a verb is named by a code span, or a `sh` block line, that starts with it,
-//!   with or without `shep kelpie` before it (`board move <issue> <position>`
-//!   names `board move`, not `board`)
-//! - a flag of a verb is named when one paragraph, list item or `sh` block
-//!   line has a code span naming the verb and a code span with the flag
-//! - a flag the usage text offers to every verb (`-p`, `--json`) is named by
-//!   any code span
-//!
-//! What the page names that the command line lacks, checked in code spans
-//! the page means as commands, since it uses code spans for much besides:
-//! - a `shep kelpie ...` span or `sh` line
-//! - a span that starts with a lowercase word and has a `<...>`, `[...]` or
-//!   `"<...>"` after it, or that opens a paragraph or list item
-//! - a span in a list (joined by `,`, `and` or `or`) with a span that is a
-//!   command or names a verb
-//! - a span that starts with `lease`, `board` or another verb that has verbs
-//!   under it, with a second word
-//!
-//! Flags are checked the same way, in those spans, in any span that names a
-//! verb, and in any span that starts with a flag.
+//! The command line is the binary's usage text. The page is
+//! `docs/guide/commands.md`. It names a verb with a code span or `sh` line that
+//! starts with it (`board move <issue>` names `board move`), and a verb's flag
+//! in one paragraph, item or line with a span for each. A flag every verb takes
+//! (`-p`, `--json`) is named by any span. What the page names that the command
+//! line lacks is checked in the spans it means as commands: `shep kelpie ...`,
+//! a lowercase word then `<...>` or `[...]`, and a list entry beside a command.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;

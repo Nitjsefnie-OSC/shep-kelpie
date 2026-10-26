@@ -929,11 +929,9 @@ fn env(name: &str) -> String {
     std::env::var(name).expect(NEEDS)
 }
 
-// The real pi on the real model, under the real sandbox, recording what it
-// prints: a turn, the same session resumed, and a worker whose file write
-// `kelpie confine` refuses, one command the sandbox refuses and another
-// `kelpie guard` refuses. The fixtures
-// are these recordings with the temporary folder renamed.
+// The real pi on the real model under the real sandbox: a turn, the session
+// resumed, and a worker refused by `kelpie confine`, the sandbox and `kelpie
+// guard`. The fixtures are these recordings with the temporary folder renamed.
 #[test]
 #[ignore = "runs pi on a local model"]
 fn record_a_turn_a_resumed_turn_and_two_refusals() {

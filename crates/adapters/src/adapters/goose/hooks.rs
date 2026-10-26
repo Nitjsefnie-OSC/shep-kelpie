@@ -1,18 +1,13 @@
 //! The plugin that fences a goose worker, reviewer, advisor and retro
 //!
-//! goose has no sandbox rules of its own for a tool call, but it runs a
-//! `PreToolUse` command hook before every one and refuses the call when the
-//! hook exits 2. `on_failure: block` makes a hook that cannot run refuse as
-//! well, so the guard failing is never a call let through. Kelpie writes the
-//! plugin that holds the hook into the call's own goose root, where goose
-//! reads user plugins from, beside a `config.yaml` that has it on.
-//!
-//! Three things keep the worker from switching it off. The root's `.agents`
-//! and `config` folders are read only to the sandbox. The worktree's
-//! `.config/goose` is fenced as a harness folder, since a `disabledPlugins`
-//! entry there turns a plugin off by name. And the plugin's name is fixed: a
-//! project plugin of the same name would win over this one, so the call
-//! refuses to start when the plugin folder holds anything but it.
+//! goose runs a `PreToolUse` hook before every tool call and refuses the call
+//! when it exits 2. `on_failure: block` makes a hook that cannot run refuse too.
+//! Kelpie writes the plugin into the call's goose root, beside a `config.yaml`
+//! that has it on. Three things keep the worker from switching it off: the
+//! root's `.agents` and `config` folders are read only to the sandbox, the
+//! worktree's `.config/goose` is fenced (a `disabledPlugins` entry there turns a
+//! plugin off), and a same-named project plugin would win, so the call refuses
+//! to start when the plugin folder holds anything but this one.
 
 use std::path::{Path, PathBuf};
 
@@ -105,11 +100,9 @@ pub(super) fn write(
     put(&files.config_file(), &config(files, &plugin)?)
 }
 
-// The root's `config.yaml` with the plugin on. goose keeps the map by the
-// plugin's path. What else the file holds stays, since a resumed call's root
-// may hold settings goose wrote; a file that cannot be read as a map is
-// replaced, which goose could not have read either. JSON is YAML, and a file
-// that already lists the plugin as on is one goose has nothing to write to.
+// The root's `config.yaml` with the plugin on, keyed by the plugin's path.
+// Other settings stay, since goose may have written them; a file that is not a
+// map is replaced. JSON is YAML, so the value is written as JSON.
 fn config(files: &Files, plugin: &Path) -> Result<serde_json::Value, AgentError> {
     let path = files.config_file();
     let kept = match std::fs::read_to_string(&path) {
@@ -170,9 +163,7 @@ fn hooks_json(guard: &Guard, judging: Judging<'_>, servers: &[String]) -> serde_
     })
 }
 
-/// The command goose runs for each tool call: `kelpie guard` with the
-/// worker's folders, the project's hooks, the build folder it may write and
-/// the MCP servers whose tools it lets through
+/// The command goose runs for each tool call: `kelpie guard` and its flags
 ///
 /// When reading it leaves out the folders, which only the worker's command
 /// guard reads, and asks for the read-only guard after the build folder:

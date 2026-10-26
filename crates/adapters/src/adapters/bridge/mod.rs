@@ -1,18 +1,12 @@
 //! The outside half of [`crate::bridge`]: the browser's MCP server behind one socket, for one call
 //!
 //! The socket has a name no one can guess, in the call's settings folder, and
-//! the sandbox may connect to that path alone. The name is kept in a file, so
-//! a later bridge for the same work item binds the same path: a goose session
-//! keeps the command it began with, which names that path. Connections are served one at
-//! a time, each by a fresh server that stops when it ends. Every line goes
-//! through the [`Filter`] on its way in and out. Dropping the [`Bridge`] stops
-//! the server and removes the socket. What a server prints on stderr, and why
-//! one could not start, go to `server.log` in its folder.
-//!
-//! The browser the server launches is held to the project's hosts twice: by
-//! Chromium's resolver rules, and by a [`Proxy`] that every request goes
-//! through, which also holds it to ports. The bridge writes the config that
-//! says so, `config.json` in the server's folder.
+//! the sandbox may connect to that path alone. The name is kept in a file, so a
+//! later bridge for the same work item binds the same path. Connections are
+//! served one at a time by a fresh server, every line through the [`Filter`].
+//! Dropping the [`Bridge`] stops the server and removes the socket. The browser
+//! is held to the project's hosts by Chromium's resolver rules and by a
+//! [`Proxy`], per the `config.json` the bridge writes beside `server.log`.
 
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::Display;

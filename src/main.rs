@@ -1,78 +1,13 @@
-//! `kelpie --schema` and `--version`: shep's probes, answered for lookout
+//! `kelpie`: shep's probes (`--schema`, `--version`) and the verbs it runs as
 //!
-//! `kelpie runner <project>`: a project's runner, run as a sheep
-//! `kelpie`, started by shep as the adopted dog: the lease dog
-//! `shep kelpie lease ...`: the maintainer's lease commands
-//!
-//! `shep kelpie add`, `start`, `pause`, `status`, `rule`, `rework`, `adopt`,
-//! `gate`, `drop`, `timings`, `issue`, `attach`, `tell`, `pm`, `drain`, `undrain` and
-//! `usage`: a project in the maintainer's own flock, the one `-p` names or
-//! whose repo holds the folder it runs in. `usage` with no project reports
-//! every project that has a usage ledger instead, and `usage --forge` reports
-//! the forge ledger, which every project shares. `usage <project> --item`,
-//! `--context` and `--reads` join a project's ledger to the transcripts of
-//! its sessions.
-//!
-//! `shep kelpie watch [<issue> | pm] [--back <n>] [--full]`: the runner's
-//! log and the transcripts of the sessions it names, followed live. Run as
-//! `shep kelpie watch`.
-//!
-//! `shep kelpie doctor [<project>] [--test-alert]`: checks what the projects need
-//! on this machine, and changes nothing. Run as `shep kelpie doctor`.
-//!
-//! `shep kelpie upgrade --ref <git ref> | --release <version> | --binary <path>`,
-//! `shep kelpie upgrade --rollback`: installs a new kelpie over the one the
-//! adopted dog runs and restarts the dog and each runner onto it, between
-//! merges, or puts the previous build back. Each runner is handed over in place,
-//! or drained first, so no call is cut short, unless `--now` is given. Run as
-//! `shep kelpie upgrade ...`.
-//!
-//! `kelpie version [--json]`: the build's version, its commit and the shep
-//! version it is made with, which `upgrade` reads from a build first.
-//!
-//! `kelpie confine <folder>... [--hooks=<json>]`: the hook that holds a worker's
-//! file tools to its folders, and runs the project's `write` hooks. Claude Code
-//! runs it; it is not for the maintainer. With
-//! `--append <file>` it is the project manager's, which may only add to the
-//! end of that file.
-//!
-//! `kelpie guard <git common dir> <worktree>`: the hook on every worker's
-//! Bash calls that keeps the home folder's path and freeform pull request
-//! titles out of what it publishes. Claude Code runs it, like `confine`.
-//! On Codex it takes `--pin-folder`, and the command it answers with runs
-//! it again with `--judge-here` when Codex runs the command in another folder.
-//! With `--issues=<label>`, an `--agent=<name>` per implementer and
-//! `--ledger=<file>` it is the issue writer's hook instead, which runs only
-//! the commands it lists. With `--record` too it is the PostToolUse hook
-//! that records what the session filed and read in that ledger. With `--after`
-//! it is the PostToolUse hook that runs the project's `after_command` hooks.
-//! With `--read-only` it is a Codex reviewer's, advisor's and retro's hook,
-//! which runs only the commands that read the repo.
-//! With `--pause=<build folder>` it is the PostToolUse hook that ends a
-//! worker's turn at its next tool result while a pause is set.
-//! With `--goose=<build folder>` it is a goose worker's PreToolUse hook: it
-//! reads goose's own payload, judges a `shell` as a command and a `write` or
-//! `edit` as `confine` would, and refuses any tool it does not list. With
-//! `--read-only` as well it is a goose reviewer's, advisor's and retro's: a
-//! `shell` runs only what reads, and `write`, `edit` and any other tool are refused.
-//!
-//! `shep kelpie github setup [--org <org>] [--name <app name>] [--replace]`:
-//! registers kelpie's GitHub App for the maintainer's account or an
-//! organization, and opens the page that installs it.
-//!
-//! `shep kelpie tools install`: installs the sandbox runtime every agent runs
-//! in, the browser a worker sees the UI through, and the other tools, under
-//! kelpie's home.
-//!
-//! `kelpie mcp-connect <socket>`: carries a worker's MCP stdio to the browser
-//! kelpie runs outside its sandbox. The worker's harness starts it; it is not
-//! for the maintainer.
-//!
-//! `shep kelpie totp [--rotate]`, run as `shep kelpie totp [--rotate]` where kelpie
-//! is not on the PATH: prints the authenticator secret that answers a ruling
-//! from ntfy, as a URI and a QR code to scan, drawing it the first time, or
-//! afresh with `--rotate`. `shep kelpie totp --unlock` turns answers from
-//! ntfy back on after too many wrong codes.
+//! - `runner <project>` runs a project's runner as a sheep, and `kelpie`
+//!   alone is the adopted lease dog, which `shep kelpie lease ...` drives.
+//! - `shep kelpie <verb>` acts on the maintainer's flock, on the project `-p`
+//!   names or whose repo holds the folder it runs in: `add`, `start`, `pause`,
+//!   `rule`, `adopt`, `usage`, `watch`, `doctor`, `upgrade`, `totp` and more.
+//! - `confine`, `guard` and `mcp-connect` are run by a worker's harness, not
+//!   the maintainer: its tool hooks (`guard`'s modes are in
+//!   `shep_kelpie::guard`) and its MCP stdio carrier to the browser.
 
 #![forbid(unsafe_code)]
 
@@ -91,9 +26,8 @@ const REFUSE: u8 = 2;
 fn main() -> ExitCode {
     // First of all, before anything opens a descriptor or starts a thread: a
     // call on macOS or Linux runs `kelpie --crabpot ...`, and this becomes the
-    // sandbox that runs its command and exits with the command's status. On
-    // Linux the sandbox calls the binary back as its helper, which this answers
-    // too. Any other launch carries on.
+    // sandbox that runs its command. On Linux the sandbox calls the binary back
+    // as its helper, which this answers too.
     crabpot::run_from_args();
     // Then, before anything opens a descriptor or starts a thread: a build a
     // handover execs is asked here whether it reads the state, and takes it.

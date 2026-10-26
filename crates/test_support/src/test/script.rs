@@ -8,15 +8,11 @@ use std::time::Duration;
 
 /// Writes an executable stand-in script that is safe to run at once.
 ///
-/// On Linux a child forked while the file is still open for writing holds
-/// it, and `exec` of it fails with ETXTBSY. Other tests fork all the time,
-/// so this waits until the script has been executed once, with the probe
-/// variable set, before handing it over. The script's first line after the
-/// shebang exits on the probe, so the probe run does nothing.
-///
-/// Windows runs no shebang. There the script is written as it is, and runs only
-/// where Git for Windows' `sh` is the one starting it, as a hook does. A stand-in
-/// that a test starts itself is a [`write_fake`](super::write_fake).
+/// On Linux a child forked while the file is open for writing holds it, and
+/// `exec` fails with ETXTBSY. So this waits until the script has run once with
+/// the probe variable set, which its first line exits on. Windows runs no
+/// shebang: the script runs only where Git for Windows' `sh` starts it, as a
+/// hook does. A stand-in a test starts itself is a [`write_fake`](super::write_fake).
 pub fn write_script(path: &Path, contents: &str) {
     use std::io::Write;
 
@@ -60,8 +56,7 @@ fn executable(_: &mut std::fs::OpenOptions) {}
 
 /// Makes an owner-only FIFO at `path`
 ///
-/// Runs `mkfifo(1)`: `rustix` has no `mkfifoat` on macOS, and `nix` would put
-/// a second copy of itself in the tree beside the one `shep-core` builds.
+/// Runs `mkfifo(1)`, since `rustix` has no `mkfifoat` on macOS.
 ///
 /// # Panics
 ///

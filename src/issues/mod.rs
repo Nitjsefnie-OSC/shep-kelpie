@@ -1,27 +1,13 @@
 //! The issue writer: a request becomes issues an agent can build from
 //!
-//! `shep kelpie issue "<request>"` runs the agent `agents.issue_writer`
-//! names on its own, in a detached checkout of `origin/main`, and files what it writes
-//! as `ready-for-human` for the maintainer to read. Its session reads the
-//! repo, and its guard runs only the commands that file, label and link
-//! issues, and git's read-only ones. It ends with a list of what it filed,
-//! which kelpie reads back through the ticket port and checks before
-//! printing.
-//! It has no one to grill, so an issue ends with an "Open questions"
-//! section for each decision it could not settle, with a recommended answer.
-//! `--interactive` starts `claude` in the maintainer's terminal instead, with
-//! the same prompt and tool limits, running the `grill-with-docs` skill on
-//! the request, and files what the maintainer agrees as `ready-for-agent`.
-//! The glossary terms and ADRs the skill writes go on a docs branch, in a
-//! checkout of `origin/main` where the session runs, which kelpie opens as a
-//! pull request once the session ends. That session is the maintainer's:
-//! kelpie starts it and cleans up after it.
-//!
-//! Each agent file with `role: implementer` gets its `agent:` label made on
-//! the repo the first time the issue writer needs it, since the forge refuses
-//! a label the repo lacks. A project on the local ticket store makes none, and
-//! its writer files with `shep kelpie ticket new` into the project's
-//! `tickets/` folder, which its sandbox may write and read.
+//! `shep kelpie issue "<request>"` runs the `agents.issue_writer` agent in a
+//! detached checkout of `origin/main` and files what it writes as
+//! `ready-for-human`. Its guard allows only commands that file, label and link
+//! issues, and git's read-only ones. Kelpie checks its list of what it filed
+//! through the ticket port. With no one to grill, an issue ends with "Open
+//! questions". `--interactive` runs `grill-with-docs` in the maintainer's
+//! terminal instead and files what they agree as `ready-for-agent`, with the
+//! glossary and ADRs on a docs branch kelpie opens as a pull request.
 
 use std::collections::BTreeMap;
 use std::ffi::OsStr;
@@ -574,15 +560,13 @@ impl Interactive {
     }
 }
 
-/// `program`, Claude Code, started on `request` with the `grill-with-docs`
-/// skill, in a checkout of a docs branch cut from `origin/main`, with the
-/// issue writer's prompt appended and its tool limits
+/// `program`, Claude Code, started on `request` with `grill-with-docs` in a docs checkout
 ///
-/// Its settings file, written here, carries the deny rules and the guard,
-/// and allows no command outright, so Claude Code asks the maintainer
-/// before each one the guard lets through. Its file tools may write
-/// `GLOSSARY.md` and `docs/adr/` in the docs checkout and nothing else. The
-/// maintainer's own settings stay in force beside it.
+/// The checkout is a docs branch cut from `origin/main`. The settings file
+/// written here carries the deny rules and the guard and allows no command
+/// outright, so Claude Code asks before each one the guard lets through. Its
+/// file tools may write `GLOSSARY.md` and `docs/adr/` only. The maintainer's
+/// own settings stay in force beside it.
 ///
 /// # Errors
 ///

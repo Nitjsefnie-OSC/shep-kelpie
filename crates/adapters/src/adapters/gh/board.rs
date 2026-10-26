@@ -43,10 +43,9 @@ fn ready_args(repo: &ForgeSlug) -> [&str; 12] {
 }
 
 // One query lists every open pull request with what the board, rework, gate
-// and merge steps read of it. Reviews and threads come as counts only, for
-// telling whether any arrived: `reviewed` reads their words, for one pull
-// request, when they did. A page holds 100, so a repo with more open pull
-// requests costs one more query for each 100.
+// and merge steps read of it. Reviews and threads come as counts only:
+// `reviewed` reads their words, for one pull request. A page holds 100, so
+// each 100 more open pull requests cost one more query.
 const OPEN_QUERY: &str = concat!(
     "query($owner: String!, $name: String!, $after: String) { \
     repository(owner: $owner, name: $name) { \

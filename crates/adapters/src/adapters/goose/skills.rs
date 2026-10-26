@@ -1,17 +1,12 @@
 //! The skills a goose call loads, and a step's prompt as goose's skill command
 //!
-//! goose lists every skill it finds in the system prompt and offers a
-//! `load_skill` tool for them. Left alone it would list the maintainer's own
-//! skills from the real home, so the call is closed to those folders
-//! ([`NO_READ`]) and given one of its own: `<root>/config/skills`, which
-//! [`link`] rebuilds on every call with a link to the folder of each skill its
-//! plugins hold. goose follows the links to the plugin folders, which the
-//! sandbox reads. The call cannot write the folder ([`policy`]), so it cannot
-//! plant a skill for its next turn.
-//!
-//! goose also lists two skills of its own, `web-search` and `goose-doc-guide`,
-//! unless a discovered skill has the name. A stub of each shadows it
-//! ([`STUBS`]), so no worker spends turns on `uvx` or on docs it cannot fetch.
+//! goose lists every skill it finds and offers `load_skill` for them. The call
+//! is closed to the maintainer's skill folders ([`NO_READ`]) and given
+//! `<root>/config/skills`, which [`link`] rebuilds each call with a link to
+//! each skill its plugins hold. The call cannot write it ([`policy`]). goose
+//! also lists `web-search` and `goose-doc-guide`, unless a discovered skill has
+//! the name, so a stub of each shadows it ([`STUBS`]) and no worker spends
+//! turns on `uvx` or docs it cannot fetch.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -144,23 +139,14 @@ pub(super) fn link(call: &AgentCall, files: &Files) -> Result<(), AgentError> {
     Ok(())
 }
 
-/// The prompt as goose's skill command, when the call's prompt runs a skill
-/// goose can inject
+/// The prompt as goose's skill command, when it runs a skill goose can inject
 ///
-/// Kelpie starts a step's prompt with Claude Code's `/<plugin>:<skill>`. goose
-/// runs `/<name> <rest>` itself: the model gets the skill's text and then
-/// `ARGUMENTS: <rest>`. It splits `<rest>` like a shell when the skill's text
-/// holds a placeholder, and a quote in it that never closes ends the turn with
-/// no model call. Such a skill keeps the prompt as written, and the model loads
-/// it with `load_skill`, when the call `offers_tools`. A call that offers none
-/// cannot load it, so its prompt is the skill's text with the placeholders filled
-/// in as goose fills them, then `ARGUMENTS: <rest>`. So is a skill the worktree
-/// holds a skill of the same name beside ([`REPO_SKILLS`]): goose would give the
-/// repo's, and `load_skill` would too.
-///
-/// `None` leaves the prompt as it is, as it does for a skill no plugin holds
-/// and for a skill named like one of goose's own commands ([`COMMANDS`]), which
-/// goose would run in the skill's place.
+/// goose runs `/<name> <rest>`: the model gets the skill's text, then
+/// `ARGUMENTS: <rest>`. It splits `<rest>` like a shell when the text holds a
+/// placeholder, and an unclosed quote ends the turn with no model call. Such
+/// a skill keeps its prompt for `load_skill` when the call `offers_tools`;
+/// otherwise, or beside a worktree skill ([`REPO_SKILLS`]), the text is filled
+/// in. `None` leaves the prompt for an unknown skill or a goose command.
 pub(super) fn prompt(call: &AgentCall, offers_tools: bool) -> Option<String> {
     let step = step_skill(call)?;
     let name = name_of(&step.dir)?;
