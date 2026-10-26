@@ -6,6 +6,7 @@ default-members = [
     ".",
     "crates/adapters",
     "crates/core",
+    "crates/disk",
     "crates/dog",
     "crates/facts",
     "crates/owner_only",
@@ -39,6 +40,7 @@ self_named_module_files = "deny"
 # except `test_support`, which every other member names as a dev-dependency.
 shep-kelpie-adapters = { path = "crates/adapters" }
 shep-kelpie-core = { path = "crates/core" }
+shep-kelpie-disk = { path = "crates/disk" }
 shep-kelpie-dog = { path = "crates/dog" }
 shep-kelpie-facts = { path = "crates/facts" }
 shep-kelpie-owner-only = { path = "crates/owner_only" }
@@ -83,8 +85,9 @@ tempfile = { version = "3", default-features = false }
 tokio = { version = "1", default-features = false }
 toml = { version = "1.1", default-features = false, features = ["std", "parse", "display", "serde"] }
 # A Windows job object holds a turn's process tree, which closes with it, and
-# an ACL keeps a file to its owner. The 0.61 line the lockfile already holds.
-windows-sys = { version = "0.61", default-features = false, features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_System_JobObjects", "Win32_System_Threading"] }
+# an ACL keeps a file to its owner. Disk calls read free and allocated bytes.
+# The 0.61 line the lockfile already holds.
+windows-sys = { version = "0.61", default-features = false, features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_Storage_FileSystem", "Win32_System_JobObjects", "Win32_System_Threading"] }
 
 [package]
 name = "shep-kelpie"
@@ -107,6 +110,7 @@ workspace = true
 [dependencies]
 shep-kelpie-adapters.workspace = true
 shep-kelpie-core.workspace = true
+shep-kelpie-disk.workspace = true
 shep-kelpie-dog.workspace = true
 shep-kelpie-facts.workspace = true
 shep-kelpie-panel.workspace = true

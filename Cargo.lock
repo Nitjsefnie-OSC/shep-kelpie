@@ -1340,6 +1340,7 @@ dependencies = [
  "shep-handover",
  "shep-kelpie-adapters",
  "shep-kelpie-core",
+ "shep-kelpie-disk",
  "shep-kelpie-dog",
  "shep-kelpie-facts",
  "shep-kelpie-panel",
@@ -1367,6 +1368,7 @@ dependencies = [
  "shep-channel",
  "shep-handover",
  "shep-kelpie-core",
+ "shep-kelpie-disk",
  "shep-kelpie-facts",
  "shep-kelpie-owner-only",
  "shep-kelpie-process",
@@ -1405,6 +1407,16 @@ dependencies = [
  "tempfile",
  "tokio",
  "toml 1.1.8+spec-1.1.0",
+]
+
+[[package]]
+name = "shep-kelpie-disk"
+version = "0.0.0"
+dependencies = [
+ "rustix",
+ "shep-kelpie-test-support",
+ "tempfile",
+ "windows-sys",
 ]
 
 [[package]]

@@ -1,0 +1,30 @@
+[package]
+name = "shep-kelpie-disk"
+description = "The disk's free space and a build folder's allocated bytes. Uses no other member"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+# Deny instead of the workspace's forbid so the Windows disk calls can allow unsafe code.
+[lints.rust]
+missing_docs = "deny"
+missing_debug_implementations = "deny"
+unsafe_code = "deny"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+self_named_module_files = "deny"
+
+[target.'cfg(unix)'.dependencies]
+rustix.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-sys.workspace = true
+
+[dev-dependencies]
+shep-kelpie-test-support.workspace = true
+# Only for throwaway folders in tests
+tempfile.workspace = true

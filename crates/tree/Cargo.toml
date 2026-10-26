@@ -8,8 +8,7 @@ license.workspace = true
 repository.workspace = true
 publish = false
 
-# The workspace forbids unsafe code. This crate alone denies it instead, and
-# allows it in the one module that calls the Windows job object API.
+# Deny instead of the workspace's forbid so the Windows job object calls can allow unsafe code.
 [lints.rust]
 missing_docs = "deny"
 missing_debug_implementations = "deny"
