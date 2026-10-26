@@ -17,7 +17,7 @@ const GPU_BOX: &str = "---\nrole: reviewer\nharness: endpoint\nurl: http://gpu-b
 
 // Kelpie's own agents, with a Claude reviewer on some paths and an endpoint.
 fn book() -> Agents {
-    Agents::embedded()
+    Agents::embedded_with_baselines()
         .with("opus", OPUS)
         .with("gpu-box", GPU_BOX)
 }
@@ -196,7 +196,11 @@ fn a_bot_that_reviews_on_ready_is_refused_after_another_bot_and_kept_before_it()
     let (settings, home) = project(Some(r#"["coderabbit", "codex"]"#));
     assert!(
         settings
-            .lineup(&Agents::embedded(), &Gateways::default(), home.path())
+            .lineup(
+                &Agents::embedded_with_baselines(),
+                &Gateways::default(),
+                home.path()
+            )
             .is_ok(),
         "kelpie's own Codex file does not review on ready"
     );

@@ -181,6 +181,7 @@ impl Scene {
     async fn set_on(&self, name: &str, key: &str, value: &str) -> Result<Vec<String>, String> {
         let client = self.shepherd.connect().await;
         let home = self.shepherd.scratch("home");
+        crate::agents::write_baseline_stubs(&home.join("kelpie").join("agents"));
         let name = ProjectName::try_from(name).unwrap();
         let paths = ProjectPaths::under(&home.join("kelpie"), self.shepherd.home(), &name);
         let place = Place {
@@ -207,6 +208,7 @@ impl Scene {
     ) -> Result<Vec<String>, String> {
         let home = self.shepherd.scratch("home");
         let kelpie_home = home.join("kelpie");
+        crate::agents::write_baseline_stubs(&kelpie_home.join("agents"));
         let homes = Homes {
             home: &home,
             kelpie_home: &kelpie_home,

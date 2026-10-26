@@ -119,7 +119,7 @@ fn a_stub_that_sets_a_key_keeps_the_shipped_body_and_takes_its_own_value() {
         "triager.md",
         "---\nextends: kelpie:triager\nmodel: mine\n---\n",
     )]);
-    let shipped = Agents::embedded();
+    let shipped = Agents::embedded_with_baselines();
     let shipped = shipped.get(&name("triager")).unwrap();
     let stub = agents.get(&name("triager")).unwrap();
     assert_eq!(pair(stub).0, "mine");
@@ -171,7 +171,7 @@ fn a_shipped_agent_can_be_extended_by_a_file_of_another_name() {
         "hunter-light.md",
         "---\nextends: kelpie:defect-hunter\neffort: medium\nsecond_look: false\n---\n",
     )]);
-    let default = Agents::embedded();
+    let default = Agents::embedded_with_baselines();
     let hunter = default.get(&name("defect-hunter")).unwrap();
     let light = agents.get(&name("hunter-light")).unwrap();
     assert_eq!(pair(light), ("claude-opus-5-5", Effort::Medium));
@@ -280,7 +280,7 @@ fn a_stub_extending_a_shipped_agent_loads_its_frontmatter_and_body() {
     let agents = load(&[("triager.md", "---\nextends: kelpie:triager\n---\n")]);
     assert_eq!(
         agents.get(&name("triager")),
-        Agents::embedded().get(&name("triager"))
+        Agents::embedded_with_baselines().get(&name("triager"))
     );
 }
 
@@ -322,7 +322,7 @@ fn body_append_applies_at_each_step_of_a_chain_down_to_a_shipped_agent() {
             "---\nextends: mid\nbody: append\nmodel: m3\n---\nLeaf.\n",
         ),
     ]);
-    let shipped = Agents::embedded();
+    let shipped = Agents::embedded_with_baselines();
     let shipped = shipped
         .get(&name("triager"))
         .unwrap()

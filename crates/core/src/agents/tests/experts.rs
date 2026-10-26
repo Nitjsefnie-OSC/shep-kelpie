@@ -7,7 +7,7 @@ use crate::settings::{AgentHarness, Effort, Harness};
 
 #[test]
 fn kelpies_own_advisor_is_opus_at_high_with_a_prompt_that_keeps_it_to_the_code() {
-    let agents = Agents::embedded();
+    let agents = Agents::embedded_with_baselines();
     let advisor = agents.get(&name("advisor")).unwrap();
     assert_eq!(advisor.role, Role::Advisor);
     assert_eq!(pair(advisor), ("claude-opus-5-5", Effort::High));
@@ -18,7 +18,7 @@ fn kelpies_own_advisor_is_opus_at_high_with_a_prompt_that_keeps_it_to_the_code()
 
 #[test]
 fn kelpies_own_researcher_reads_what_is_outside_the_code() {
-    let agents = Agents::embedded();
+    let agents = Agents::embedded_with_baselines();
     let researcher = agents.get(&name("researcher")).unwrap();
     assert_eq!(researcher.role, Role::Researcher);
     assert_eq!(

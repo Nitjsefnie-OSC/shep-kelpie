@@ -122,6 +122,7 @@ impl Scene {
         let clock = FakeClock::at(1_000);
         let home = shepherd.scratch("home");
         let kelpie_home = shepherd.scratch("kelpie");
+        crate::agents::write_baseline_stubs(&kelpie_home.join("agents"));
         let github = FakeGithub::new(clock.clone(), "shep-pm");
         github.registered(&kelpie_home, "shep-pm/koji");
         github.install("shep-pm/golbat", 8);
@@ -914,4 +915,5 @@ mod registries;
 mod reviewers;
 mod sandbox;
 mod template;
+mod unbound;
 mod webhook;

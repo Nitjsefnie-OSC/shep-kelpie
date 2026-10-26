@@ -6,7 +6,7 @@ use crate::settings::{AgentHarness, Effort};
 
 #[test]
 fn kelpies_own_project_manager_is_opus_at_medium_with_a_prompt() {
-    let agents = Agents::embedded();
+    let agents = Agents::embedded_with_baselines();
     let pm = agents.get(&name("pm")).unwrap();
     assert_eq!(pm.role, Role::Pm);
     assert_eq!(pair(pm), ("claude-opus-5-5", Effort::Medium));

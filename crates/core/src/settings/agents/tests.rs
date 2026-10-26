@@ -22,7 +22,7 @@ const BOX: &str = "---\nrole: implementer\nharness: stand-in\nmodel: qwen3-coder
 
 // Kelpie's own agents, with haiku, a pi agent, a Codex one and a stand-in on no limit.
 fn book() -> Agents {
-    Agents::embedded()
+    Agents::embedded_with_baselines()
         .with("haiku", HAIKU)
         .with("qwen", QWEN)
         .with("gpt", GPT)
@@ -77,7 +77,9 @@ fn a_project_that_names_nothing_builds_on_sonnet_high() {
         Path::new("/p"),
     )
     .unwrap();
-    let agents = settings.role_agents(&Agents::embedded()).unwrap();
+    let agents = settings
+        .role_agents(&Agents::embedded_with_baselines())
+        .unwrap();
     assert_eq!(names(&agents), ["sonnet-high"]);
     let sonnet = &agents.default_implementer;
     assert_eq!(sonnet.name.as_str(), "sonnet-high");
@@ -434,6 +436,45 @@ fn a_representative_named_with_no_file_or_a_file_of_another_role_is_refused_nami
     let err = wrong.representative(&book()).unwrap_err().to_string();
     assert!(
         err.contains("`agents.representative` names advisor, whose agent file's role is `advisor`"),
+        "{err}"
+    );
+}
+
+#[test]
+fn naming_an_unbound_agent_is_refused_with_the_command_that_binds_it() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("mine.md"), "---\nrole: implementer\n---\n").unwrap();
+    let agents = Agents::load(dir.path()).unwrap();
+    let err = project("implementers = [\"mine\"]\n")
+        .role_agents(&agents)
+        .unwrap_err()
+        .to_string();
+    assert_eq!(
+        err,
+        "setting `agents`: `agents.implementers` names mine, which is unbound: run \
+         `shep kelpie agents new implementer --name mine`"
+    );
+}
+
+#[test]
+fn naming_a_baseline_with_no_file_is_refused_with_the_command_that_writes_one() {
+    let err = project("")
+        .role_agents(&Agents::embedded())
+        .unwrap_err()
+        .to_string();
+    assert_eq!(
+        err,
+        "setting `agents`: `agents.issue_writer` names issue-writer, which is unbound: run \
+         `shep kelpie agents new issue-writer`"
+    );
+    let err = project("implementers = [\"defect-hunter\"]\n")
+        .role_agents(&Agents::embedded())
+        .unwrap_err()
+        .to_string();
+    assert!(
+        err.ends_with(
+            "which is unbound: run `shep kelpie agents new reviewer --baseline defect-hunter`"
+        ),
         "{err}"
     );
 }

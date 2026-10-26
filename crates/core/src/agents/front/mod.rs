@@ -173,6 +173,30 @@ struct SessionKeys<'a> {
     tools: Option<&'a NonBlank>,
 }
 
+// The role alone, and whether the file names a harness
+#[derive(Debug, Deserialize)]
+struct Binding {
+    role: Role,
+    #[serde(default)]
+    harness: Option<IgnoredAny>,
+}
+
+/// The role `text` names, if its frontmatter reads that far
+pub(super) fn role(text: &str) -> Option<Role> {
+    let (front, _) = split(text)?;
+    serde_saphyr::from_str::<Tag>(&format!("\n{front}"))
+        .ok()
+        .map(|tag| tag.role)
+}
+
+/// The role of a file whose frontmatter names a `role` and no `harness`: it
+/// binds nothing, so it is unbound and not malformed
+pub(super) fn unbound_role(text: &str) -> Option<Role> {
+    let (front, _) = split(text)?;
+    let keys = serde_saphyr::from_str::<Binding>(&format!("\n{front}")).ok()?;
+    keys.harness.is_none().then_some(keys.role)
+}
+
 /// The agent an agent file's `text` defines, or what is wrong with it
 pub(super) fn parse(text: &str) -> Result<Agent, String> {
     let Some((front, body)) = split(text) else {

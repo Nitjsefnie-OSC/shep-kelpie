@@ -130,6 +130,8 @@ fn koji_shepherd(says: Option<&str>) -> crate::test::FakeShepherd {
         shep_home: shepherd.home().to_owned(),
         kelpie_home: None,
     };
+    let kelpie_home = crate::home::kelpie_home_of(shepherd.home());
+    crate::agents::write_baseline_stubs(&kelpie_home.join(crate::agents::FOLDER));
     let table = crate::test::project_table(include_str!("../../../settings.example.toml"));
     let name = ProjectName::try_from("koji").unwrap();
     shepherd.holds(launch.runner(&name, table), true);

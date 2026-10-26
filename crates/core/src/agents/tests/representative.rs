@@ -25,7 +25,7 @@ fn a_representative_file_loads_with_its_role_harness_model_and_effort() {
 
 #[test]
 fn the_shipped_representative_is_opus_at_low_effort_on_claude_code() {
-    let agents = Agents::embedded();
+    let agents = Agents::embedded_with_baselines();
 
     let representative = agents.get(&name("representative")).unwrap();
 
@@ -45,7 +45,7 @@ fn the_shipped_representative_is_opus_at_low_effort_on_claude_code() {
 
 #[test]
 fn the_shipped_representatives_guide_is_the_text_the_wording_test_picked() {
-    let agents = Agents::embedded();
+    let agents = Agents::embedded_with_baselines();
     let prompt = agents
         .get(&name("representative"))
         .unwrap()

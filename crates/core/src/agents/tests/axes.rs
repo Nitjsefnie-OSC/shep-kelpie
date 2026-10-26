@@ -1,6 +1,6 @@
 //! The standards and spec reviewers, which kelpie takes from the code-review skill
 
-use super::{DEFAULTS, model, name};
+use super::{DEFAULTS, baseline, model, name};
 use crate::agents::{Agents, Role};
 use crate::settings::AgentHarness;
 
@@ -8,7 +8,7 @@ const SKILL: &str = include_str!("../../../../../skills/skills/engineering/code-
 
 #[test]
 fn a_standards_reviewer_and_a_spec_reviewer_are_among_the_defaults() {
-    let agents = Agents::embedded();
+    let agents = Agents::embedded_with_baselines();
     for axis in ["standards", "spec"] {
         let reviewer = agents.get(&name(axis)).unwrap();
         assert_eq!(reviewer.role, Role::Reviewer, "{axis}");
@@ -22,7 +22,7 @@ fn a_standards_reviewer_and_a_spec_reviewer_are_among_the_defaults() {
     }
     assert_eq!(
         agents.agents.len(),
-        DEFAULTS.len(),
+        DEFAULTS.len() + baseline::ALL.len(),
         "a default that failed to parse would be dropped"
     );
 }
@@ -46,7 +46,7 @@ fn the_standards_prompt_carries_every_smell_the_skill_names() {
         smells.len() >= 12,
         "SKILL.md's smell list moved or changed shape, so this test cannot find it: {smells:?}"
     );
-    let agents = Agents::embedded();
+    let agents = Agents::embedded_with_baselines();
     let prompt = agents.get(&name("standards")).unwrap().prompt.clone();
     let prompt = prompt.unwrap();
     for smell in smells {
