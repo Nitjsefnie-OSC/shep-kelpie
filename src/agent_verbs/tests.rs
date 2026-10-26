@@ -319,10 +319,12 @@ fn migrate_prints_a_line_for_each_file_written_and_each_skipped_one() {
     assert_eq!(said[1], "pm.md: wrote claude-code claude-opus-5-5 medium");
     assert!(said[2].starts_with("codex-pm.md: skipped, "), "{said:?}");
     assert!(said[2].contains("`model`"), "{said:?}");
+    let book = Agents::load(dir.path()).unwrap();
     assert!(
-        Agents::load(dir.path()).is_err(),
-        "the skipped file still needs a hand"
+        book.broken(&name("codex-pm")).is_some(),
+        "the skipped file is left out of the book until it gets a hand"
     );
+    assert!(book.broken(&name("pm")).is_none());
 }
 
 #[test]

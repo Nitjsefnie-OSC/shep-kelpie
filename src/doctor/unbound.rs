@@ -10,9 +10,9 @@ use crate::agents::legacy;
 /// no harness, model or effort, then one for each file in `folder` the migration would skip
 ///
 /// A stub the migration would write names it as the fix: it inherited a binding that no
-/// baseline ships now. It is read from `legacy::pending`, since a skipped file in the folder
-/// stops `agents` from loading and leaves it without a stub. Any other unbound file names the
-/// command that binds it.
+/// baseline ships now. It is read from `legacy::pending`, which sees the folder when `agents` is
+/// the embedded book that stands in for a folder that cannot be read. Any other unbound file
+/// names the command that binds it.
 pub(super) fn checks(agents: &Agents, folder: &Path) -> Vec<Line> {
     let pending = legacy::pending(folder).unwrap_or_default();
     let migratable = pending
