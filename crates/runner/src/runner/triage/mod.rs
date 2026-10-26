@@ -42,6 +42,7 @@ pub(super) mod marker;
 pub(super) mod poll_read;
 pub(super) mod ready;
 pub(super) mod research;
+mod scrub;
 pub(super) mod spam;
 
 use super::contributions::post::forge_is_busy;
@@ -686,6 +687,8 @@ mod repair_tests;
 mod research_tests;
 #[cfg(test)]
 mod roles_tests;
+#[cfg(test)]
+mod scrub_tests;
 #[cfg(test)]
 mod spam_tests;
 #[cfg(test)]
