@@ -52,6 +52,8 @@ pub enum Pass {
 #[derive(Debug)]
 pub(super) struct Flights {
     flying: BTreeMap<TicketId, Flight>,
+    // When a handover first found each flying call's record gone
+    record_gone: BTreeMap<TicketId, Timestamp>,
     // The project manager's call, its ceiling and its hold
     pm: Option<(Timestamp, Ending)>,
     // The issue writer's call labelling an issue
@@ -84,6 +86,7 @@ impl Default for Flights {
         let (send, news) = mpsc::channel();
         Self {
             flying: BTreeMap::new(),
+            record_gone: BTreeMap::new(),
             pm: None,
             labelling: None,
             securing: None,
@@ -914,7 +917,7 @@ pub(crate) mod tests;
 pub(super) mod triage;
 mod waiting;
 
-pub use carry::CarriedTurn;
+pub use carry::{CARRY_WAIT, CarriedTurn, NotCarried};
 #[cfg(any(test, feature = "test-support"))]
 pub use step::step;
 pub(super) use waiting::Waiting;

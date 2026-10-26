@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 use super::gateway_tests::{KEY, gateways, on_gateway};
 use super::tests::{FRESH, FRESH_ID, World, id};
 use super::*;
-use crate::ports::{KeptServer, Role};
+use crate::ports::{KeptServer, NotAdopted, Role};
 use crate::test::{OpenSandbox, StandInEndpoint};
 
 // pi as a script that waits for a `go` file before it prints `FRESH`.
@@ -25,7 +25,11 @@ fn waiting_pi(world: &World, gateways: Gateways) -> PiCli {
 }
 
 // What the carry of `call` is while it runs, then lets it end.
-fn carried_while_running(pi: &PiCli, world: &World, call: &AgentCall) -> Result<Adopted, String> {
+fn carried_while_running(
+    pi: &PiCli,
+    world: &World,
+    call: &AgentCall,
+) -> Result<Adopted, NotAdopted> {
     pi.prepare(call).unwrap();
     let carried = std::thread::scope(|scope| {
         let running = scope.spawn(|| pi.run(call, &Ending::default()));
@@ -42,8 +46,9 @@ fn carried_while_running(pi: &PiCli, world: &World, call: &AgentCall) -> Result<
         carried
     });
     let gone = pi.adoption(call).unwrap_err();
+    assert!(matches!(gone, NotAdopted::RecordGone(_)), "{gone:?}");
     assert!(
-        gone.contains("cannot be read"),
+        gone.to_string().contains("cannot be read"),
         "a call that has ended is carried no more: {gone}"
     );
     carried
@@ -59,7 +64,7 @@ fn a_pi_call_that_is_not_a_workers_refuses_the_handover_naming_why() {
         Session::New(id(FRESH_ID)),
     );
     assert_eq!(
-        pi.adoption(&call).unwrap_err(),
+        pi.adoption(&call).unwrap_err().to_string(),
         "only a worker's call is carried"
     );
 }
@@ -74,10 +79,30 @@ fn a_workers_pi_call_with_no_record_refuses_the_handover_naming_the_record() {
         Session::New(id(FRESH_ID)),
     );
     let why = pi.adoption(&call).unwrap_err();
+    assert!(matches!(why, NotAdopted::RecordGone(_)), "{why:?}");
+    let why = why.to_string();
     assert!(
         why.starts_with("the call's record ") && why.contains("cannot be read"),
         "{why}"
     );
+}
+
+// A record that is there and does not parse is no call that just ended, so a handover does not wait for it.
+#[test]
+fn a_workers_pi_call_whose_record_cannot_be_parsed_is_refused_not_waited_for() {
+    let w = World::new();
+    let pi = waiting_pi(&w, Gateways::default());
+    let call = w.call(
+        "http://192.0.2.9:11434/v1",
+        Role::Worker,
+        Session::New(id(FRESH_ID)),
+    );
+    std::fs::write(call.settings.with_extension("call.json"), "{ not a record").unwrap();
+
+    let why = pi.adoption(&call).unwrap_err();
+
+    assert!(matches!(&why, NotAdopted::Refused(_)), "{why:?}");
+    assert!(why.to_string().contains("cannot be read"), "{why}");
 }
 
 #[test]

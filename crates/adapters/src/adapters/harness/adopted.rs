@@ -1,7 +1,9 @@
 //! A worker's call that left a record, as a handover finds it
 
 use crate::adapters::process::record::{CallFiles, Record};
-use crate::ports::{Adopted, AgentCall, Role, Session};
+use std::io::ErrorKind;
+
+use crate::ports::{Adopted, AgentCall, NotAdopted, Role, Session};
 use crate::settings::Harness;
 
 /// What finishes `call` on another image, if it runs now as a worker's call
@@ -9,14 +11,21 @@ use crate::settings::Harness;
 ///
 /// # Errors
 ///
-/// A message when the call is not a worker's, or its record cannot be read.
-pub(crate) fn adoption_of(call: &AgentCall, harness: Harness) -> Result<Adopted, String> {
+/// [`NotAdopted::RecordGone`] when the call's record is missing, and
+/// [`NotAdopted::Refused`] when the call is not a worker's or its record
+/// cannot be read.
+pub(crate) fn adoption_of(call: &AgentCall, harness: Harness) -> Result<Adopted, NotAdopted> {
     if call.role != Role::Worker {
         return Err("only a worker's call is carried".into());
     }
     let record = CallFiles::of(call).record;
-    let read = Record::read(&record)
-        .map_err(|e| format!("the call's record {} cannot be read: {e}", record.display()))?;
+    let read = Record::read(&record).map_err(|e| {
+        let why = format!("the call's record {} cannot be read: {e}", record.display());
+        match e.kind() {
+            ErrorKind::NotFound => NotAdopted::RecordGone(why),
+            _ => NotAdopted::Refused(why),
+        }
+    })?;
     Ok(Adopted {
         pid: read.pid,
         record,
