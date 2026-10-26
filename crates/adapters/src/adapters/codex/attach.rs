@@ -1,18 +1,13 @@
 //! Codex's session in the maintainer's terminal
 //!
-//! The interactive twin of a headless call: the same home, scratch folder,
-//! sandbox and policy, with the same `-c` overrides, features and hooks, resumed
-//! with `codex resume`. Codex's own sandbox stays off, as in the headless call,
-//! since it cannot start inside kelpie's, so Codex asks before each command it
-//! cannot tell is safe (`on-request`), as Claude Code asks before each tool
-//! call. The terminal session and the headless call share the home's
-//! `thread-writer-locks`, which attach keeps apart by ending every call first.
-//!
-//! Codex opens on "Trust this folder?" for the call's folder and saves the
-//! answer to the home's `config.toml`, which the policy refuses. Kelpie writes
-//! the answer there first, outside the sandbox, and removes it when the session
-//! ends. The headless call passes `--ignore-user-config`, so it never reads it.
-//! This is Codex's CLI only: pi's attach is unaffected.
+//! The interactive twin of a headless call: the same home, sandbox, policy and
+//! hooks, resumed with `codex resume`. Codex's own sandbox stays off, so it asks
+//! before each command it cannot tell is safe (`on-request`). Attach keeps the
+//! session and the headless call off the home's `thread-writer-locks` by ending
+//! every call first. Codex's "Trust this folder?" answer goes to the home's
+//! `config.toml`, which the policy refuses, so kelpie writes it there first,
+//! outside the sandbox, and removes it after. The headless call passes
+//! `--ignore-user-config`, so never reads it.
 
 use std::ffi::OsString;
 use std::path::Path;

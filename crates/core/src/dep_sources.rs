@@ -1,14 +1,13 @@
 //! The installed sources and docs of dependencies and toolchains, which every
 //! call reads and none of them writes
 //!
-//! A reviewer that checks a call against the crate it calls reads that crate's
-//! source, and a worker reads the version its lockfile pins. Each folder comes
-//! from the tool's own variable, or the tool's own default home where that is
-//! unset, and a folder that is not on this machine adds nothing. A variable
-//! that names a folder relative to wherever the tool was run names nothing:
-//! each call runs its tool from a different folder. Nothing here is writable:
-//! the fence's write list is untouched, and a credential file beside a readable
-//! folder stays in [`crate::profile::CREDENTIALS`].
+//! A reviewer reads the source of the crate a call uses, and a worker the
+//! version its lockfile pins. Each folder comes from the tool's own variable,
+//! or its default home where that is unset, and one not on this machine adds
+//! nothing. A variable naming a folder relative to wherever the tool was run
+//! names nothing: each call runs its tool from a different folder. Nothing
+//! here is writable, and a credential file beside a readable folder stays in
+//! [`crate::profile::CREDENTIALS`].
 
 use std::ffi::OsString;
 use std::path::{Component, MAIN_SEPARATOR_STR, Path, PathBuf};
@@ -128,11 +127,9 @@ fn toolchains(rustup: &Path) -> Vec<PathBuf> {
 }
 
 // The homes a tool keeps its cache in: the one its variable names, then the
-// tool's own `default` under `home`, each spelled once. Both are kept, since a
-// machine that moves a cache elsewhere still holds the crates the tool's own
-// default folder fetched for every other project. A variable that names a
-// folder relative to wherever the tool was run names nothing kelpie can find,
-// since each call runs its tool from a folder of its own.
+// tool's `default` under `home`, each spelled once. Both are kept, since a
+// moved cache may leave crates the default folder fetched earlier. A relative
+// variable names nothing, as each call runs its tool from its own folder.
 fn tool_homes(env: &dyn Env, name: &str, home: &Path, default: &str) -> Vec<PathBuf> {
     let default = normalize(&home.join(default));
     let mut homes = Vec::new();

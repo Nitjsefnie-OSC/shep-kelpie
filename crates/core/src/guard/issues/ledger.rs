@@ -84,14 +84,13 @@ pub fn filed_in(path: &Path) -> Vec<TicketId> {
     Ledger::read(Some(path)).filed
 }
 
-/// Records what the issue writer's finished command in `input`, a
-/// PostToolUse hook's input, filed or read, in the ledger `rules` name
+/// Records what the issue writer's finished command in `input` filed or read, in the ledger `rules` name
 ///
 /// Only a line that is one lone `gh issue create`, with at most the `cat`
 /// its `--body` reads, adds an issue, and only when it printed one URL and
 /// nothing else. A lone `shep kelpie ticket new` does the same on a local
-/// project, when it printed one local id and nothing else. Only one lone `gh api` read of an issue with `--jq .id`
-/// adds the id it printed. Anything else changes nothing.
+/// project, printing one local id. A lone `gh api` read of an issue with
+/// `--jq .id` adds the id it printed. Anything else changes nothing.
 pub fn record_issues(input: impl Read, rules: &IssueRules) {
     let Some(path) = &rules.ledger else {
         return;

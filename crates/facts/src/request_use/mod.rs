@@ -6,12 +6,8 @@
 //! Claude Code writes a line for each block of a reply, all holding the
 //! request's usage, so they count once; Codex writes one record a request.
 //! A request is `after` the start if it is the file's first, after a gap if
-//! longer passed since the request before than the cache keeps what that
-//! wrote, and after growth otherwise. The cache keeps a write an hour on
-//! Claude Code's one-hour cache and five minutes otherwise. The request
-//! before may be an earlier call's, so a resumed call's first request reads
-//! the gap since its session last spoke.
-//! `docs/facts/transcript-requests.md`
+//! longer passed since the request before than the cache keeps a write, and
+//! after growth otherwise. `docs/facts/transcript-requests.md`
 
 use std::collections::BTreeSet;
 

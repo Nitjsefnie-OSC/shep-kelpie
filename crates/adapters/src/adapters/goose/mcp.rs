@@ -1,16 +1,13 @@
 //! The MCP servers in a goose call's flags
 //!
-//! goose reads no `.mcp.json` from the repo, and `--no-profile` keeps its own config out, so a
-//! call is given each server as a flag. A stdio server is `--with-extension "<name>:KEY=value
-//! command args"`, named as Claude Code names it, and an HTTP one is
-//! `--with-streamable-http-extension <url>`, which takes no header and no name: goose names it
-//! from its URL. A session keeps the set it began with and a resumed call adds its flags to that
-//! set, which a name already in it ends the run over, so only a new session is given flags. The keys it
-//! began with are recorded, and a resumed call's hook follows them.
-//!
-//! goose splits the stdio string like a shell with no escape (`split_command_args`): a double
-//! quote groups and cannot be written, and a single quote counts only at the start of a word. The
-//! tools of a server are named `<key>__<tool>`, so the hook is handed each loaded server's key.
+//! goose reads no `.mcp.json`, so a call gets each server as a flag:
+//! `--with-extension "<name>:KEY=value command args"` for stdio,
+//! `--with-streamable-http-extension <url>` for HTTP, with no header or name. A
+//! repeated name ends the run, so only a new session gets flags, and its keys
+//! are recorded for a resumed call's hook. goose splits the stdio string like a
+//! shell with no escape (`split_command_args`): a double quote cannot be
+//! written, and a single quote counts only at a word's start. A server's tools
+//! are `<key>__<tool>`, so the hook is handed each loaded server's key.
 
 use std::collections::HashSet;
 use std::ffi::OsString;

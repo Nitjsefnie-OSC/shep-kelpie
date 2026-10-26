@@ -43,11 +43,10 @@ impl Probability {
     #[must_use]
     pub fn new(value: f64) -> Option<Self> {
         match value.is_finite() && (0.0..=1.0).contains(&value) {
-            // The cut is taken a hair above the product, because a whole
-            // millionth is a hair under itself once it is a float: 0.29 times a
-            // million is 290000.00000000006 for some of them and 289999.99999999994
-            // for others, and a number that stands at a millionth is held as that
-            // millionth.
+            // The cut is taken a hair above the product, because a whole millionth is a
+            // hair under itself once it is a float: 0.29 times a million is
+            // 290000.00000000006 for some and 289999.99999999994 for others, and a number
+            // that stands at a millionth is held as that millionth.
             true => Some(Self((value * f64::from(PARTS) + 1e-9).floor() as u32)),
             false => None,
         }

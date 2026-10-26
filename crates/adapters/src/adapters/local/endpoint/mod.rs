@@ -1,16 +1,13 @@
 //! Kelpie's own local reviewer, over an OpenAI-compatible server
 //!
-//! It diffs the worktree from the round's base and cuts the diff into
-//! chunks that fit the model's context, whole hunks where they fit. Each
-//! chunk goes to the server's `/chat/completions` with kelpie's prompt,
-//! through `curl`, and each reply is read in the findings format. The agent
-//! file's body, if it has one, replaces what the prompt asks to report.
-//! A gateway's key reaches `curl` on its stdin, never in its arguments, and
-//! a round behind one holds the gateway's lease on its model across every chunk.
-//! Each chunk's request asks for batch priority, names that lease so it takes
-//! the lease's own turn, and allows the wait the request's timeout allows.
-//! Requests and replies are kept under the round's folder, beside the
-//! `round-N.txt` and its completion marker a command would write.
+//! It diffs the worktree from the round's base and cuts the diff into chunks
+//! that fit the model's context, whole hunks where they fit. Each chunk goes
+//! to the server's `/chat/completions` with kelpie's prompt, through `curl`,
+//! and each reply is read in the findings format. The agent file's body, if
+//! any, replaces what the prompt asks to report. A gateway's key reaches `curl`
+//! on its stdin, never its arguments. A round behind a gateway holds its lease
+//! across every chunk, and each request asks for batch priority and names it.
+//! Requests and replies are kept under the round's folder.
 
 use std::fmt::Write as _;
 use std::path::Path;

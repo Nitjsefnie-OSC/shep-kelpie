@@ -1,14 +1,12 @@
 //! The web a researcher on pi has: `pi-web-access`, loaded from kelpie's tools
 //!
-//! pi has no web tool of its own. The researcher's call loads the package
-//! with `--extension`, which `tools install` put under kelpie's tools at an
-//! exact version, and lists three of its tools. Everything the package could
-//! reach beyond the page host and one search host is turned off in a config
-//! kelpie writes into the call's pi home, which the call cannot change, and
-//! the sandbox's allowlist holds the rest: its fetch dials the page's own
-//! host through the sandbox's proxy, so `researcher.allowed_domains` bounds
-//! it, and its keyless search dials `mcp.exa.ai` alone. No other call loads
-//! the package or reaches that host. What was measured is in
+//! pi has no web tool. The researcher's call loads the package with
+//! `--extension`, installed by `tools install` at an exact version, and lists
+//! three of its tools. Whatever it could reach beyond the page host and one
+//! search host is turned off in a config kelpie writes into the call's pi home.
+//! Its fetch dials the page's host through the sandbox's proxy, so
+//! `researcher.allowed_domains` bounds it, and its keyless search dials
+//! `mcp.exa.ai` alone. No other call loads it. See
 //! `docs/facts/the-second-harness.md`.
 
 use std::ffi::OsString;

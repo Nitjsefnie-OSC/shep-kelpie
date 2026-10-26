@@ -37,12 +37,11 @@ type Waiters = Arc<Mutex<HashMap<Ticket, oneshot::Sender<()>>>>;
 
 /// Opens the door at `socket`, only the maintainer's user may connect
 ///
-/// On Unix a socket left by a dog that is gone is replaced, and one another
-/// dog still answers on is left alone. The socket is bound under a private
-/// name and restricted before it takes its own, so it never accepts anyone
-/// else. On Windows the door is a named pipe whose name comes from `socket`,
-/// which only its creator and administrators may write to and which a second
-/// dog cannot create.
+/// On Unix a socket left by a dog that is gone is replaced, and one a live
+/// dog answers on is left alone. It is bound under a private name and
+/// restricted before it takes its own. On Windows the door is a named pipe
+/// named from `socket`, writable only by its creator and administrators,
+/// which a second dog cannot create.
 ///
 /// # Errors
 ///

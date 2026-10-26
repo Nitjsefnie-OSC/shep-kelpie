@@ -62,14 +62,10 @@ pub struct Change {
 /// The change contribution `pull_request`'s `head` makes
 ///
 /// It is the change since `passed`, the last head that passed the security
-/// review, when `passed` is an ancestor of `head`. With none, or when it is
-/// not an ancestor (a force push, or a commit git no longer holds), it is the
-/// whole of `head`'s change from `origin/main`. Fetches `refs/pull/<n>/head`
-/// and `main` first, and checks nothing out.
-///
-/// Reads at most `limit` bytes of any git output and stops git there, so a
-/// huge change from outside costs no more than that. A diff longer than
-/// `limit` comes back cut, with `cut` set and no `opaque` paths.
+/// review, when `passed` is an ancestor of `head`. Otherwise it is the whole
+/// of `head`'s change from `origin/main`. Fetches `refs/pull/<n>/head` and
+/// `main` first, and checks nothing out. Reads at most `limit` bytes of any
+/// git output; a longer diff comes back cut, with `cut` set and no `opaque`.
 ///
 /// # Errors
 ///
@@ -146,9 +142,8 @@ pub fn changed_paths(
 /// `pull_request`'s `head`, fetched from `refs/pull/<n>/head`, for a reader
 /// that opens its files and changes nothing
 ///
-/// A worktree already at `path` is replaced. The checkout runs none of the
-/// repo's hooks, and `main` is fetched too, so the change is
-/// `origin/main...HEAD` there.
+/// A worktree already at `path` is replaced. No hook runs, and `main` is
+/// fetched too, so the change is `origin/main...HEAD` there.
 ///
 /// # Errors
 ///

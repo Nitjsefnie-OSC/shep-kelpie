@@ -35,14 +35,13 @@ pub fn socket() -> Result<PathBuf, String> {
     named.map_or_else(|| Ok(default(&home::shep_home()?)), |n| Ok(n.into()))
 }
 
-/// The door of the shepherd at `shep_home`, which the dog binds and a runner
-/// lets its workers reach: `KELPIE_LEASE_SOCKET`, unless that is relative or
-/// under the shepherd's home outside kelpie's, when it is the default and the
-/// message says why
+/// The lease door's socket at `shep_home`, or the default and a message saying why
 ///
-/// The path goes into the worker's sandbox, so it must never be shep's
-/// own socket. The dog and the runner both ask this, so they cannot
-/// disagree. The comparison resolves `..`, symlinks and a volume's case.
+/// The dog binds it and a runner lets its workers reach it. It is
+/// `KELPIE_LEASE_SOCKET`, unless that is relative or under the shepherd's
+/// home outside kelpie's. The path goes into the worker's sandbox, so it must
+/// never be shep's own socket. The comparison resolves `..`, symlinks and a
+/// volume's case.
 pub fn checked_socket(shep_home: &Path) -> (PathBuf, Option<String>) {
     let named = std::env::var_os(SOCKET_VAR).filter(|n| !n.is_empty());
     checked(named.map(PathBuf::from), shep_home)

@@ -2,27 +2,20 @@
 //!
 //! The fence denies `packed-refs`, since every worktree shares one `.git`. Git
 //! still tries to pack refs: `gc --auto` and `maintenance --auto` after enough
-//! loose objects, and a fetch that prunes a ref it had packed. The lock it
-//! takes beside the file fails with `packed-refs.lock: Operation not
-//! permitted`. The commit or fetch itself went through, but the message reads
-//! as a failure and workers spent turns on `git log` to be sure. So the
-//! worker's git is told not to try. A commit locks the file on its own, which
-//! no setting stops, so the fence lets git make `packed-refs.lock` and keeps
-//! the file denied. A commit never writes the file, and git removes the lock.
-//! A lock a killed git leaves in the shared `.git` is removed by
-//! `worktree::prepare` once it is a minute old.
+//! loose objects, and a fetch that prunes a packed ref. Its lock beside the
+//! file fails with `packed-refs.lock: Operation not permitted`, which reads as
+//! a failure though the commit went through. So the worker's git is told not
+//! to try. A commit locks the file on its own, which no setting stops, so the
+//! fence lets git make `packed-refs.lock` and keeps the file denied. A lock a
+//! killed git leaves is removed by `worktree::prepare` once a minute old.
 
-/// What `GIT_CONFIG_PARAMETERS` carries for every worker, whether or not
-/// kelpie's App covers its repo
+/// What `GIT_CONFIG_PARAMETERS` carries for every worker, whether or not kelpie's App covers its repo
 ///
 /// Git reads that variable after every config file, so these win over the
-/// maintainer's and the repo's own.
-///
-/// The sandbox runtime sets the same variable to `http.proxyAuthMethod=basic`,
-/// and this one replaces it, so it carries that setting too. Without it git
-/// connects to the sandbox's proxy without its login, the proxy answers 407 and
-/// closes the connection, and git's retry on that connection fails as "Proxy
-/// CONNECT aborted": no covered worker could push.
+/// maintainer's and the repo's own. The sandbox runtime sets it to
+/// `http.proxyAuthMethod=basic`, which this replaces, so it carries that too:
+/// without it git connects to the sandbox's proxy without its login, and no
+/// covered worker could push.
 pub const PARAMETERS: &str =
     "'http.proxyAuthMethod'='basic' 'gc.auto'='0' 'maintenance.auto'='false' 'fetch.prune'='false'";
 

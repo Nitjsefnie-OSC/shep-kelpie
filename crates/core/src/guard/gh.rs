@@ -1,14 +1,13 @@
 //! `gh` in a worker's Bash call
 //!
 //! A pull request's title must be a conventional commit, and no title, body
-//! or notes may carry what [`LocalPaths`](crate::local_paths::LocalPaths) finds of this machine's. What only the project manager
-//! does is refused whatever the command's shape: merging, marking ready and
-//! summoning a review, with `gh api` and `gh auth`, which reach around them.
-//! A word a shell could build is refused too: outside a quoted `--body`,
-//! `--title` or `--notes` value, a word holds only letters, digits and
-//! `. _ / : @ = , + -`.
-//! An alias or an extension could stand for any of those, so only gh's own
-//! commands run.
+//! or notes may carry what [`LocalPaths`](crate::local_paths::LocalPaths)
+//! finds of this machine's. What only the project manager does is refused
+//! whatever the command's shape: merging, marking ready, summoning a review,
+//! and `gh api` and `gh auth`, which reach around them. Outside a quoted
+//! `--body`, `--title` or `--notes` value a word holds only letters, digits
+//! and `. _ / : @ = , + -`, since a shell could build any other. Only gh's own
+//! commands run, as an alias or extension could stand for any of those.
 
 use std::path::Path;
 
@@ -62,12 +61,10 @@ const MANAGER_ONLY: &str = "only the project manager merges a pull request, mark
                             or summons a review, on the maintainer's ruling: leave your pull \
                             request as a draft.";
 
-// A worker's `gh` is the maintainer's login, and a comment on its own pull
-// request from that login can read as the maintainer's answer to a ruling.
-//
-// Besides the comment verbs, `close` and `reopen` take `--comment`, and
-// `review` and `merge` a body, so a verb other than `create` and `edit` that
-// carries a body or a comment in any spelling is refused.
+// A worker's `gh` is the maintainer's login, and its comment on its own pull
+// request can read as the maintainer's answer to a ruling. `close`, `reopen`,
+// `review` and `merge` also take a comment or body, so any verb but `create`
+// and `edit` that carries one is refused.
 const NO_COMMENTS: &str = "a worker posts no comment or review text, nor closes or reopens \
                            with one: kelpie posts what the maintainer should read, and the \
                            maintainer's login is the one that answers a ruling. Put what you \
@@ -124,9 +121,8 @@ fn redirect_len(word: &str, quoted: impl Fn(usize) -> bool) -> usize {
 
 // The first word of a gh command that a shell may build or expand: one with a
 // character outside [`plain`], besides the characters a quote holds in a
-// `--body`, `--title` or `--notes` value, which is text. A quoted word is checked like a
-// bare one anywhere else. `quoting` has no entry for a word it does not know,
-// and that word is bare.
+// `--body`, `--title` or `--notes` value, which is text. A quoted word is
+// checked like a bare one elsewhere; a word `quoting` lacks is bare.
 fn built_word<'a>(words: &'a [String], quoting: &[Quoting]) -> Option<&'a str> {
     let mut value = false;
     for (at, word) in words.iter().enumerate().skip(1) {

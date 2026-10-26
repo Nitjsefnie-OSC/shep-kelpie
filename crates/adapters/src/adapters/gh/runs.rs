@@ -436,9 +436,8 @@ mod tests {
 
     // `gh run list --branch main --status completed --limit 50 --json
     // databaseId,workflowName,conclusion,headSha,event,createdAt` on
-    // shep-pm/shep with gh 2.96, its first fourteen runs: `file size`,
-    // `Release` and `Release PR` ran on several heads, `test` failed on one and
-    // passed on an older one, and `pages` was cancelled twice.
+    // shep-pm/shep with gh 2.96, its first fourteen runs: several heads per
+    // workflow, one `test` failure and two cancelled `pages` runs.
     const RECORDED: &[u8] = br#"[
         {"conclusion":"success","createdAt":"2026-10-13T10:58:41Z","databaseId":38387029879,"event":"push","headSha":"dc9b123d317baabe97afc3c22316f8a6723a9afe","workflowName":"file size"},
         {"conclusion":"success","createdAt":"2026-10-13T10:58:41Z","databaseId":38387029600,"event":"push","headSha":"dc9b123d317baabe97afc3c22316f8a6723a9afe","workflowName":"Release"},

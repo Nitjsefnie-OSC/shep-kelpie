@@ -193,12 +193,9 @@ fn locate(
         (Some(p), _) | (None, Some(p)) => Some(p.as_str()),
         (None, None) => None,
     };
-    // A ruling answers to its ticket, or to the pull request it is about. Only
-    // a GitHub ticket has a pull request number, and a ruling raised before
-    // one exists has none yet, so the pull request side is read only when the
-    // reference names a GitHub ticket. A local id has no GitHub number, and
-    // `None == None` would otherwise answer it to every ruling with no pull
-    // request yet.
+    // A ruling answers to its ticket, or to its pull request. Only a GitHub
+    // ticket has a number, so a local id skips the pull request side: `None ==
+    // None` would answer it to every ruling with no pull request yet.
     let github = ticket.github();
     let about =
         |r: &Ruling| r.issue == Some(*ticket) || github.is_some_and(|n| r.pull_request == Some(n));

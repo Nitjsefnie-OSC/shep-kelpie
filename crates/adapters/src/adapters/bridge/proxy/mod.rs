@@ -1,14 +1,13 @@
 //! The proxy every request of a call's browser goes through
 //!
-//! Chromium's host resolver rules hold it to names and know nothing of ports,
-//! so the browser is launched with `--proxy-server` naming this proxy and
-//! `<-loopback>` as its bypass list, which sends loopback through it too. The
-//! proxy sits on a loopback port kelpie picked, outside any sandbox, and
-//! allows a `CONNECT` tunnel or an absolute-URI request to a listed
-//! [`Origins`] entry only. A listed host that resolves to a loopback, private
-//! or link-local address is refused, and the address that was checked is the
-//! one dialed. Every read of a request is bounded in bytes and in time and the
-//! connections are capped. Dropping the [`Proxy`] ends every connection.
+//! Chromium's resolver rules know nothing of ports, so the browser launches
+//! with `--proxy-server` naming this proxy and `<-loopback>` as its bypass
+//! list. The proxy sits on a loopback port outside any sandbox and allows a
+//! `CONNECT` tunnel or an absolute-URI request to a listed [`Origins`] entry
+//! only. A listed host that resolves to a loopback, private or link-local
+//! address is refused, and the address checked is the one dialed. Reads are
+//! bounded in bytes and time, and connections are capped. Dropping the
+//! [`Proxy`] ends every connection.
 
 use std::collections::HashMap;
 use std::io::{self, BufReader, Read, Write};
@@ -505,11 +504,10 @@ fn dial(shared: &Shared, host: &str, port: u16) -> Result<TcpStream, Reply> {
     ))
 }
 
-// Whether `address` is globally routable. Every special-purpose range of the IANA
-// registries is refused, not only the loopback, private and link-local ones, since an
-// address under a listed domain's wildcard can name any of them. IPv6 is held to
-// global unicast (2000::/3) less its special-purpose blocks, which leaves out
-// NAT64 and 6to4 addresses that embed an IPv4 one.
+// Whether `address` is globally routable. Every special-purpose IANA range is
+// refused, since a listed domain's wildcard can name any of them. IPv6 is held
+// to global unicast (2000::/3) less its special blocks, so NAT64 and 6to4
+// addresses embedding an IPv4 one are out.
 fn is_public(address: IpAddr) -> bool {
     match address.to_canonical() {
         IpAddr::V4(v4) => {

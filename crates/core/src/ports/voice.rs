@@ -6,16 +6,13 @@ use crate::settings::ForgeSlug;
 /// The id [`Voice::review`] gives a review the forge took whose answer named none
 pub const UNREAD_ID: u64 = 0;
 
-/// Kelpie's own voice on the forge: what it writes for the maintainer to
-/// read, made as its GitHub App once one covers the repo
+/// Kelpie's own voice on the forge, as its GitHub App where one covers the repo
 ///
 /// Its writes are the rulings, notices and review rounds posted as comments,
-/// the replies and resolves on a review bot's threads, the issues and labels
-/// kelpie makes, and the issue labels it sets. A
-/// summon and the labels on a pull request stay on the maintainer's own
-/// login through [`Forge`](super::Forge): a review bot answers a person's label or comment.
-/// Where no App covers a repo the caller writes through [`Forge`](super::Forge) as before,
-/// so each write below is made only after [`Voice::covers`] says yes.
+/// the replies and resolves on a review bot's threads, and the issues and
+/// labels kelpie makes. A summon and the labels on a pull request stay on the
+/// maintainer's login through [`Forge`](super::Forge), as a review bot answers
+/// a person. Each write below is made only after [`Voice::covers`] says yes.
 pub trait Voice: Send + Sync {
     /// Whether an App covers `repo`: its owner has one, installed on the repo
     fn covers(&self, repo: &ForgeSlug) -> bool;
@@ -47,14 +44,12 @@ pub trait Voice: Send + Sync {
     /// [`ForgeError`] when the App cannot post it or its answer cannot be read.
     fn post(&self, repo: &ForgeSlug, thread: u64, body: &str) -> Result<PostedComment, ForgeError>;
 
-    /// Posts a review of pull request `number` at `head` that only comments:
-    /// `body`, and a comment on each line in `comments`. Returns the review's id.
+    /// Posts a comment-only review of `number` at `head`: `body` and a comment on each line in `comments`
     ///
-    /// The review never approves and never asks for changes. A line the diff
-    /// does not show, or one the forge refuses for another reason, makes the
-    /// forge refuse the comments, in which case the review is posted once
-    /// more with the comments' text added to `body`, since a reader still
-    /// wants the findings.
+    /// Returns the review's id. The review never approves and never asks for
+    /// changes. A line the diff does not show, or one the forge refuses, makes the
+    /// forge refuse the comments, and the review is posted again with their text
+    /// added to `body`.
     ///
     /// # Errors
     ///

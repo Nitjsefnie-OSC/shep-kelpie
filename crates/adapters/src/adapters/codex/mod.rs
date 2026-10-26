@@ -1,19 +1,13 @@
 //! Codex, headless as `codex exec --json`, one process per call, on the
 //! ChatGPT account kelpie's own Codex login is signed in to
 //!
-//! Each call runs whole inside kelpie's sandbox, as Claude Code's do, with
-//! Codex's own sandbox and approvals off: on macOS a sandbox cannot start
-//! inside another. Kelpie's login lives in `codex_home`, apart from the
-//! maintainer's `~/.codex`, which no call reads. Each call gets a Codex home
-//! of its own beside its settings, holding its sessions and Codex's
-//! database, with the login's `auth.json` linked in for Codex to read and
-//! not write. Kelpie never reads the login itself. A fenced call runs
-//! kelpie's checks as Codex's own `PreToolUse` hooks: `kelpie confine` on
-//! each `apply_patch`, the tool Codex writes files with, and `kelpie guard`
-//! on each shell command.
-//!
-//! Codex names its own sessions, so kelpie keeps which Codex session each
-//! of its session ids is, beside the call's settings.
+//! Each call runs whole inside kelpie's sandbox with Codex's own sandbox and
+//! approvals off: on macOS a sandbox cannot start inside another. Kelpie's
+//! login lives in `codex_home`, apart from `~/.codex`. Each call gets a Codex
+//! home beside its settings, with the login's `auth.json` linked in to read
+//! only. A fenced call runs `kelpie confine` on each `apply_patch` and `kelpie
+//! guard` on each shell command, as `PreToolUse` hooks. Codex names its own
+//! sessions, so kelpie keeps which one each session id is, beside the settings.
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -106,16 +100,13 @@ const DATABASES: &str = "db";
 /// Where Codex keeps its logs in a call's home, by `log_dir`
 const LOGS: &str = "log";
 
-/// The only folders in a call's Codex home the call may write: its
-/// sessions, databases, logs and locks
+/// The only folders in a call's Codex home the call may write
 ///
-/// Everything else there is Codex's to load, not to write: its login, its
-/// config, `hooks.json`, `.env` (whose variables reach every hook's shell),
-/// `AGENTS.md` and `AGENTS.override.md`, rules, skills and the model catalog.
-/// A list of those would miss the next one Codex adds, so the call writes
-/// only these. Not `tmp`: Codex puts a folder in it first on every hook's
-/// PATH, so a `git` planted there would run inside `kelpie guard`. Codex
-/// runs on without it (`docs/facts/codex-as-an-agent.md`).
+/// Its sessions, databases, logs and locks. Everything else there is Codex's
+/// to load, not to write: its login, config, `hooks.json`, `.env`, rules,
+/// skills and `AGENTS.md`. Not `tmp`: Codex puts a folder in it first on every
+/// hook's PATH, so a planted `git` would run inside `kelpie guard`
+/// (`docs/facts/codex-as-an-agent.md`).
 const WRITTEN: [&str; 5] = [
     "sessions",
     "archived_sessions",
@@ -824,12 +815,10 @@ struct ExecTurn {
     spent: Spent,
 }
 
-// `codex exec --json` prints one event per line: the session it runs in,
-// each item as it starts and ends, and the turn's end with its tokens or
-// its failure. The answer is the last agent message. Its tokens are the
-// session's so far, a resumed session's earlier turns included
-// (`docs/facts/codex-as-an-agent.md`). A ChatGPT plan has no price per call,
-// so kelpie records each one as unpriced.
+// `codex exec --json` prints one event per line. The answer is the last agent
+// message. Its tokens are the session's so far, earlier turns of a resumed
+// session included (`docs/facts/codex-as-an-agent.md`). A ChatGPT plan has no
+// price per call, so each is recorded as unpriced.
 fn parse_result(output: &Output, known: Option<&Thread>) -> Result<ExecTurn, AgentError> {
     #[derive(Deserialize)]
     struct Event {

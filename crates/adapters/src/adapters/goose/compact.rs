@@ -1,14 +1,12 @@
 //! What goose reports of its context and its compactions, and the call that
 //! compacts a session
 //!
-//! goose compacts a session by itself once, at the start of a turn, when the
-//! last request's tokens pass `GOOSE_AUTO_COMPACT_THRESHOLD` of
-//! `GOOSE_CONTEXT_LIMIT`. A call with a `compact_window` sets that fraction.
-//! A call whose prompt is `COMPACT` sends goose's own `/compact` command, which
-//! compacts and answers `Compaction complete`, and exits 0 either way.
-//!
-//! No `message` event carries tokens, so a worker's context is read after its
-//! process ends, from `goose session list --format json`.
+//! goose compacts a session itself, once, at the start of a turn, when the last
+//! request's tokens pass `GOOSE_AUTO_COMPACT_THRESHOLD` of
+//! `GOOSE_CONTEXT_LIMIT`, which a `compact_window` sets. A call whose prompt is
+//! `COMPACT` sends goose's `/compact`, which exits 0 either way. No `message`
+//! event carries tokens, so context is read after the process ends, from
+//! `goose session list --format json`.
 
 use std::ffi::OsString;
 use std::process::Output;

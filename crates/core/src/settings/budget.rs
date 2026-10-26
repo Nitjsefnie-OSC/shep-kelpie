@@ -10,16 +10,13 @@ use crate::ports::Cost;
 #[serde(deny_unknown_fields)]
 #[schemars(title = "Budget")]
 pub struct Budget {
-    /// The most a work item's priced calls may cost, in US dollars, before
-    /// kelpie raises a `stuck` ruling for `over-budget` instead of starting
-    /// the worker's next turn
+    /// The most a work item's priced calls may cost in US dollars, before kelpie raises `stuck` for `over-budget`
     ///
     /// The worker's and the reviewers' calls count, and a call whose harness
     /// reports no dollars counts nothing. A followed contribution has the same
-    /// cap, over the calls kelpie runs on it. A yes doubles the work item's cap,
-    /// and so does a no with a note, and each doubles it again while the cap is
-    /// still below what the item has spent. More than 0, and rounded to a cent.
-    /// 10 when absent.
+    /// cap, over the calls kelpie runs on it. A yes doubles the cap, as does a no
+    /// with a note, and each doubles it again while it is below what the item
+    /// has spent. More than 0, and rounded to a cent. 10 when absent.
     #[serde(default)]
     pub per_item_usd: PerItemUsd,
 }

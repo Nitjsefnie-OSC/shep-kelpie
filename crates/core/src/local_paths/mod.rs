@@ -1,26 +1,13 @@
 //! The one check for what must not leave this machine
 //!
-//! Kelpie's own forge posts and the guard on every worker's commits and `gh`
-//! calls ask the same question of a text: does it name this machine? The
-//! answer is [`LocalPaths::find`], so both refuse the same things, and never
-//! echo what they matched.
+//! Kelpie's forge posts and the worker guard both ask [`LocalPaths::find`]
+//! whether a text names this machine, and never echo what it matched.
 //!
 //! A text is read as written and again with its percent-encoding undone and
-//! its backslashes made slashes, because a dev server's stack-frame URLs carry
-//! `%2FUsers%2F...` and a Windows path carries `\`. Matching ignores case.
-//! It finds:
-//!
-//! - a folder it was given, in its canonical form too, so a symlinked home
-//!   names the same place twice
-//!
-//! A [`Surface::Prose`] is text a person reads, so it also refuses
-//! `/home/<name>`, `C:\Users\<name>`, `/private/tmp` and `/var/folders`,
-//! which name a machine's user or scratch space whoever the user is, and an
-//! address on a local network. A path under `~` names no one, since it is the
-//! same folder on every machine, so it goes through. Code and its patches are
-//! full of all of them (another user's home in a fixture, `self.local`, an
-//! address in a fixture), so a [`Surface::Code`] leaves them be and holds
-//! only to the folders it was given.
+//! its backslashes made slashes, ignoring case. It finds a folder it was given,
+//! in its canonical form too. A [`Surface::Prose`] also refuses `/home/<name>`,
+//! `C:\Users\<name>`, `/private/tmp`, `/var/folders` and a local network
+//! address; a [`Surface::Code`] holds only to the given folders.
 
 use std::fmt;
 use std::fs;

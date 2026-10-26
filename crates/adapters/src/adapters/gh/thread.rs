@@ -394,11 +394,9 @@ mod tests {
         assert!(ghost.bot && ghost.body.is_empty());
     }
 
-    // GraphQL's answer to `REPLIES` for a pull request with two review
-    // threads: the contributor replying to a bot, the maintainer answering,
-    // a comment from before the read, and a deleted account. The fixture is
-    // written from GitHub's schema, not recorded: a worker cannot run
-    // `gh api`.
+    // GraphQL's answer to `REPLIES` for a pull request with two review threads,
+    // including an older comment and a deleted account. The fixture is written
+    // from GitHub's schema, not recorded: a worker cannot run `gh api`.
     const REPLIED: &str = include_str!("../../../../../fixtures/gh-graphql-thread-replies.json");
 
     #[test]

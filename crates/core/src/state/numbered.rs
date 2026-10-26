@@ -90,11 +90,9 @@ impl ProjectState {
 }
 
 // `rulings` named by their numbers, each with the id it was saved under. A
-// work item parks on one ruling at a time, so when several are on a number,
-// one is waited on and the others are left by an older kelpie: the one a work
-// item is parked on, or else the last, takes the number, and the others keep
-// their ids, which still tell them apart in a thread. One whose id is another's
-// number cannot, and goes.
+// work item parks on one ruling at a time, so of several on a number the one
+// it is parked on, or else the last, takes the number. The others keep their
+// ids, except one whose id is another's number, which goes.
 fn numbered(rulings: Vec<Ruling>, parked: &BTreeSet<TicketId>) -> Vec<(TicketId, Ruling)> {
     let mut winners: BTreeMap<TicketId, usize> = BTreeMap::new();
     for (at, ruling) in rulings.iter().enumerate() {
