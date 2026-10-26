@@ -14,7 +14,9 @@ use std::sync::{Arc, Mutex, PoisonError};
 use super::{RateHeld, fallback_from, said_until, time_of, used_up};
 use crate::board::{OpenPullRequest, ReadyIssue};
 use crate::forge_ledger::{Ended, Identity, Kind};
-use crate::ports::{Forge, ForgeError, Issue, PullRequest, Reviewed, Tickets, Timestamp};
+use crate::ports::{
+    Forge, ForgeError, InstallationToken, Issue, PullRequest, Reviewed, Tickets, Timestamp,
+};
 use crate::review_bot::{Activity, Login};
 use crate::settings::ForgeSlug;
 use crate::ticket::TicketId;
@@ -54,6 +56,8 @@ pub enum Reading {
         reads: Arc<dyn AppReads>,
         /// The names of the permissions the token holds
         holds: BTreeSet<String>,
+        /// The token, so a token minted again can be told from the one before
+        token: InstallationToken,
     },
     /// The App does not cover the repo, so the login reads it
     Login,
@@ -111,6 +115,18 @@ pub(super) struct AppReader {
     // Each permission a repo's token was said to lack, with the key of the
     // warning that named it, so each is said once
     told: Mutex<BTreeMap<String, String>>,
+    // The reads the App was refused, by repo, with the token that was refused
+    // and when to try again
+    refused: Mutex<BTreeMap<(String, Kind), Refusal>>,
+}
+
+// How long the App is not asked for a read it was refused, if its token for
+// the repo is not minted again first
+const REFUSAL_MEMORY: u64 = 60 * 60;
+
+struct Refusal {
+    token: InstallationToken,
+    until: Timestamp,
 }
 
 impl AppReader {
@@ -119,6 +135,7 @@ impl AppReader {
             forges,
             held: Mutex::new(None),
             told: Mutex::new(BTreeMap::new()),
+            refused: Mutex::new(BTreeMap::new()),
         }
     }
 }
@@ -188,16 +205,18 @@ impl RateHeld {
 
     // The App's answer for `read` of `repo`, or `None` when the login must
     // read it: the App does not cover the repo, its limit is used up, or it
-    // was refused for want of a permission, which is told once.
+    // was refused for want of a permission, which is told once and
+    // remembered, so the App is not asked again for the same read.
     fn app_answer<T>(
         &self,
         repo: &ForgeSlug,
         read: Read,
         app: impl FnOnce(&dyn AppReads) -> Result<T, ForgeError>,
     ) -> Option<Result<T, ForgeError>> {
-        let reads = self.reads_as_app(repo, read)?;
+        let (reads, token) = self.reads_as_app(repo, read)?;
         match self.call_as_app(read, || app(reads.as_ref())) {
             Err(error) if lacks_permission(&error) => {
+                self.remember_refusal(repo, read, token);
                 self.told_lacking(repo, read, &error);
                 None
             }
@@ -206,9 +225,14 @@ impl RateHeld {
         }
     }
 
-    // The App's reads, when it covers the repo, its limit is not used up and
-    // its token holds what `read` needs.
-    fn reads_as_app(&self, repo: &ForgeSlug, read: Read) -> Option<Arc<dyn AppReads>> {
+    // The App's reads with the token they run on, when it covers the repo, its
+    // limit is not used up, it was not refused this read on this token within
+    // the hour, and its token holds what `read` needs.
+    fn reads_as_app(
+        &self,
+        repo: &ForgeSlug,
+        read: Read,
+    ) -> Option<(Arc<dyn AppReads>, InstallationToken)> {
         let reader = self.app.as_ref()?;
         let now = self.clock.now();
         let held = reader.held.lock().unwrap_or_else(PoisonError::into_inner);
@@ -216,9 +240,17 @@ impl RateHeld {
             return None;
         }
         drop(held);
-        let Reading::App { reads, holds } = reader.forges.reading(repo) else {
+        let Reading::App {
+            reads,
+            holds,
+            token,
+        } = reader.forges.reading(repo)
+        else {
             return None;
         };
+        if self.refused_still(reader, repo, read, &token, now) {
+            return None;
+        }
         let lacking: Vec<&str> = read
             .needs()
             .iter()
@@ -227,7 +259,7 @@ impl RateHeld {
             .collect();
         if lacking.is_empty() {
             self.holds_again(repo, read.needs());
-            return Some(reads);
+            return Some((reads, token));
         }
         self.tell_once(Cause::Lacks, repo, &lacking, |new| {
             format!(
@@ -239,6 +271,42 @@ impl RateHeld {
             )
         });
         None
+    }
+
+    // Whether the App was refused `read` of `repo` on `token` and the hour is
+    // not over. A refusal on another token, or past its hour, is forgotten.
+    fn refused_still(
+        &self,
+        reader: &AppReader,
+        repo: &ForgeSlug,
+        read: Read,
+        token: &InstallationToken,
+        now: Timestamp,
+    ) -> bool {
+        let mut refused = reader
+            .refused
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let key = (repo.as_str().to_owned(), read.kind());
+        let Some(refusal) = refused.get(&key) else {
+            return false;
+        };
+        if refusal.token == *token && refusal.until > now {
+            return true;
+        }
+        refused.remove(&key);
+        false
+    }
+
+    fn remember_refusal(&self, repo: &ForgeSlug, read: Read, token: InstallationToken) {
+        let Some(reader) = &self.app else { return };
+        let until = Timestamp(self.clock.now().0.saturating_add(REFUSAL_MEMORY));
+        let key = (repo.as_str().to_owned(), read.kind());
+        let mut refused = reader
+            .refused
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        refused.insert(key, Refusal { token, until });
     }
 
     fn told_lacking(&self, repo: &ForgeSlug, read: Read, error: &ForgeError) {
