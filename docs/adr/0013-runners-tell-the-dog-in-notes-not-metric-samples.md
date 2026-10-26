@@ -22,3 +22,5 @@ The decision:
 
 - A dog from a build before this one hears no runner on this build. `shep kelpie upgrade` restarts the dog first, so an upgrade keeps granting, but running a new runner beside an old dog does not.
 - Numbers kelpie sends for the maintainer's graphs stay metric samples. Notes are only for what the dog reads, so they never reach the metrics store.
+
+ADR 0017 adds a socket between a runner and kelpie's own verbs, not the one declined here between a runner and the dog: the dog keeps its notes.
