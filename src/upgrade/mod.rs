@@ -1,14 +1,12 @@
 //! `shep kelpie upgrade`: installs a new kelpie, restarts the dog and runners
 //!
-//! `--ref <git ref>` builds kelpie at that ref, `--release <version>`
-//! downloads a release, and `--binary <path>` takes a hand-made build as it is.
-//! `--rollback` puts the previous build back.
-//! The installed kelpie is the program the adopted dog runs, and the build it
-//! replaces is first copied into `<kelpie home>/builds`. Once it is installed,
-//! and before the restarts, the agent files are migrated (`migrate.rs`). Before any file or
-//! sheep changes, the build gives its shep line (`version --json`) and the
-//! shepherd its version. An earlier shep, or a refused protocol, stops the
-//! upgrade there. Each runner is handed over in place or drained, unless `--now`.
+//! `--ref <git ref>` builds kelpie at that ref, `--release <version>` downloads a release, and
+//! `--binary <path>` takes a hand-made build as it is. `--rollback` puts the previous build back.
+//! The installed kelpie is the program the adopted dog runs, and the build it replaces is first
+//! copied into `<kelpie home>/builds`. The agent files are migrated before the restarts. Before
+//! any file or sheep changes, the build gives its shep line (`version --json`) and the shepherd
+//! its version. An earlier shep, or a refused protocol, stops the upgrade there. Each runner is
+//! handed over in place or drained, unless `--now`.
 
 pub mod drain;
 pub mod fetch;

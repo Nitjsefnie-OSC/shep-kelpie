@@ -134,14 +134,10 @@ pub fn pending(folder: &Path) -> Result<Report, AgentsError> {
 
 /// Writes into each stub in `folder` the binding it inherited from its baseline
 ///
-/// A file whose own text has `extends: kelpie:<baseline>` gets each of
-/// `harness`, `model`, `effort` and (for `defect-hunter`) `second_look` it
-/// does not set, on the lines after its `extends`. Its comments, other keys
-/// and body stay as they are. A file that sets a `harness` but not both of
-/// `model` and `effort` is left alone and returned as skipped, since the
-/// baseline's model ran on Claude Code. Each file is replaced by a rename of
-/// a temporary file beside it, so a read never sees half, and a second run
-/// finds nothing to write.
+/// A file whose own text has `extends: kelpie:<baseline>` gets each of `harness`, `model`,
+/// `effort` and (for `defect-hunter`) `second_look` it does not set, after its `extends` line;
+/// comments, other keys and body stay. A file that sets a `harness` but not both of `model` and
+/// `effort` is skipped. Each write renames a temporary file beside it; a second run writes nothing.
 ///
 /// # Errors
 ///
