@@ -126,7 +126,17 @@ shep-kelpie runs a retro over a batch of finished work items, with the project m
 
 The retro reads a digest that shep-kelpie builds in code from the records it keeps, so the call spends its tokens reading, not collecting. It has one section for each work item: its title and type, the project manager's wakes and actions that named it, each ruling with its kind, how long it waited, the panel's votes and who answered, its review rounds and their findings, its fix turns after a failed check, its merges of main and conflicts, its wall time, its line from the usage ledger and the `Friction` section of its pull request's body. Wakes, review rounds, fix turns and merges of main come from `<kelpie home>/<project>/journal.jsonl`, which the runner adds to as each happens, because the state file forgets a work item once it finishes. The digest ends with the batch's totals: spend by role and kind, the wakes that changed nothing, and the rulings with how long each waited. The prompt asks for patterns across the batch first (repeated wakes, rulings that waited, findings that were stale or wrong, steps that cost more than the work), then problems in a single work item, and for a sentence and nothing else when nothing is worth your time.
 
-A worker keeps a voice at no extra call. When something slowed it down, it adds a `## Friction` section to its pull request's body, a line or two written while its cache is warm. shep-kelpie reads it from the body when the work item ends. Workers are told of the section only while the retro is on.
+What the digest counts:
+
+- A work item's section holds only its own run. Its entries start when the item started and end at its finish, so an issue that ran twice in the batch shows as two numbered runs, each with its own wakes, rounds and rulings.
+- A wake counts for a work item when it woke for it, picked it or acted on it. One that only names the item in its list of what it holds back counts for none of it.
+- A wake whose answer was `starts nothing now` counts as one that changed nothing, in the item's section and in the batch's totals.
+- Review rounds are counted as rounds that read the pull request. A round that read it and found nothing is listed with 0 findings, and a reviewer the pass went without is listed too, numbered, with its reason.
+- A project's first retro has no earlier retro to start from, so its totals cover the batch's own span, from its first work item's start.
+- A call whose harness reported no cost shows as `local, unpriced`, and a turn ended at its ceiling as `timed out, usage not read`. Neither shows as `$0.00`.
+- A `Friction` section stops at a harness's `🤖 Generated with` trailer. One past 600 characters is cut at a sentence, or at a word where it holds no sentence, and ends with `(cut)`.
+
+A worker keeps a voice at no extra call. When something slowed it down, it adds a `## Friction` section to its pull request's body, a line or two written while its cache is warm. shep-kelpie reads it from the body when the work item ends, keeping at most 600 characters. Workers are told of the section only while the retro is on.
 
 The call can read and search and nothing else: it edits no file, runs no command and pushes nothing, on every harness the project manager runs on. On Claude Code that is an allow-list, `--tools Read,Glob,Grep,Skill` with no MCP server loaded, so nothing a project's settings allow adds to it. Its reply is the report, and the runner writes it to `<kelpie home>/retro-reports/unverified/<project>-batch-<time>.md`, headed with the project and the batch's issue numbers, then the agent and the session.
 
