@@ -1,12 +1,12 @@
 //! The copy on Windows, through folders held open on the way down
 //!
 //! Windows has no `openat`, so each folder is opened by its path, from the
-//! worktree down, and every handle is held until the copy ends. A handle that
-//! shares no delete access keeps its folder from being renamed or replaced, so
-//! the folder under it is the one that was checked. A folder that is a reparse
-//! point (a symlink or a junction) is refused, and a file is made with
-//! `create_new` after the old one is removed, so a link put in its place
-//! fails the write.
+//! worktree down, and every handle is held until the copy ends. Sharing only
+//! read access keeps a folder from being renamed, replaced or opened for
+//! writing. A reparse point (a symlink or a junction) is refused, and a file
+//! is made with `create_new` after the old one is removed. Setting a reparse
+//! point on an open folder needs only write-attributes access, which sharing
+//! cannot deny, so each held folder is read again before a file is written.
 
 use std::fs::{File, OpenOptions};
 use std::io;
@@ -19,7 +19,6 @@ const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
 const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
 const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0000_0400;
 const FILE_SHARE_READ: u32 = 0x1;
-const FILE_SHARE_WRITE: u32 = 0x2;
 
 /// Copies what is in `staging` into the `results` folder of `worktree`,
 /// making the folder if it is not there, leaving what else is in it, and
@@ -39,22 +38,25 @@ pub(in crate::dog::e2e::run) fn deliver(
         .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
         .open(worktree)
         .map_err(|e| format!("cannot open {}: {e}", worktree.display()))?;
-    // Held, not read: every folder on the way stays open until the copy ends.
-    let mut held = vec![root];
+    // Every folder on the way stays open until the copy ends.
+    let mut held = vec![(root, worktree.to_owned())];
     let mut at = worktree.to_owned();
     let mut shown = PathBuf::new();
     for part in results {
         at.push(part);
         shown.push(part);
-        held.push(make_and_open(&at, &shown)?);
+        held.push((make_and_open(&at, &shown)?, shown.clone()));
     }
-    copy_tree(staging, &at, &shown)
+    copy_tree(staging, &at, &shown, &mut held)
 }
 
-// No delete access is shared: that is what keeps an open folder in its place.
+type Held = Vec<(File, PathBuf)>;
+
+// Only read access is shared: that keeps an open folder in its place and
+// closed to a writer.
 fn options() -> OpenOptions {
     let mut options = OpenOptions::new();
-    options.share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE);
+    options.share_mode(FILE_SHARE_READ);
     options
 }
 
@@ -73,20 +75,30 @@ fn make_and_open(path: &Path, shown: &Path) -> Result<File, String> {
         .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT)
         .open(path)
         .map_err(failed)?;
-    let found = folder.metadata().map_err(failed)?;
-    if found.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
-        return Err(format!(
-            "{} in the worktree is a link, and results are not copied through one",
-            shown.display()
-        ));
-    }
-    if !found.is_dir() {
+    check(&folder, shown)?;
+    if !folder.metadata().map_err(failed)?.is_dir() {
         return Err(failed(io::Error::from(io::ErrorKind::NotADirectory)));
     }
     Ok(folder)
 }
 
-fn copy_tree(from: &Path, into: &Path, shown: &Path) -> Result<(), String> {
+// Refuses `folder` when it is a link now, as its own handle says.
+fn check(folder: &File, shown: &Path) -> Result<(), String> {
+    let found = folder
+        .metadata()
+        .map_err(|e| format!("cannot open {} in the worktree: {e}", shown.display()))?;
+    if found.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT == 0 {
+        return Ok(());
+    }
+    Err(format!(
+        "{} in the worktree is a link, and results are not copied through one",
+        shown.display()
+    ))
+}
+
+// `held` is every folder from the worktree to `into`, each with its name as
+// shown.
+fn copy_tree(from: &Path, into: &Path, shown: &Path, held: &mut Held) -> Result<(), String> {
     let read = |e: io::Error| format!("cannot read {}: {e}", from.display());
     for entry in std::fs::read_dir(from).map_err(read)? {
         let entry = entry.map_err(read)?;
@@ -95,9 +107,14 @@ fn copy_tree(from: &Path, into: &Path, shown: &Path) -> Result<(), String> {
         let kind = entry.file_type().map_err(read)?;
         if kind.is_dir() {
             let at = into.join(&name);
-            let _held = make_and_open(&at, &shown)?;
-            copy_tree(&entry.path(), &at, &shown)?;
+            held.push((make_and_open(&at, &shown)?, shown.clone()));
+            copy_tree(&entry.path(), &at, &shown, held)?;
+            held.pop();
         } else if kind.is_file() {
+            // A folder made a link in place since it was opened is caught here.
+            for (folder, shown) in held.iter() {
+                check(folder, shown)?;
+            }
             copy_file(&entry.path(), &into.join(&name), &shown)?;
         }
     }
