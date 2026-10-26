@@ -83,6 +83,7 @@ fn a_cwd_that_leaves_the_worktree_is_refused() {
     assert!(folder(root, &with_cwd(Some("missing"))).is_err());
 }
 
+#[cfg(unix)]
 #[test]
 fn a_cwd_that_is_a_link_out_of_the_worktree_is_refused() {
     let tree = worktree_with(&[]);

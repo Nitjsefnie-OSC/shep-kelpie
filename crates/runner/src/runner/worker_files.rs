@@ -64,7 +64,7 @@ fn remove(path: &Path) -> io::Result<bool> {
     Ok(true)
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use std::os::unix::fs::symlink;
 

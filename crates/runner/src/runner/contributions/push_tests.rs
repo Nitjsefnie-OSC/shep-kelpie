@@ -4,6 +4,7 @@
 //! `crates/core/src/guard/tests/fork.rs`). After each of its turns the runner
 //! pushes the commits to the contributor's branch, fast-forward only.
 
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::sync::Mutex;
@@ -112,6 +113,7 @@ fn a_refused_push_raises_a_ruling_naming_the_reason_and_keeps_the_commits() {
         "#!/bin/sh\necho 'edits by maintainers are off' >&2\nexit 1\n",
     )
     .unwrap();
+    #[cfg(unix)]
     std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
     rig.claude.script([Scripted::Commit("fix.txt", "fixed\n")]);
 

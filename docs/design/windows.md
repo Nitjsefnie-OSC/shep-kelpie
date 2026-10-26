@@ -9,7 +9,7 @@ Kelpie is being ported (#241). This area holds the shell-outs and the tests' sta
 - A test's stand-in command is `write_fake` and `Fake` from `test_support`: an `sh` script on Unix, a `.cmd` file on Windows. `write_script` is for a script that needs real shell, which Windows runs through `spawn::sh()`.
 - A test that needs a FIFO is `#[cfg_attr(windows, ignore = "a FIFO is a Unix file")]`.
 - `docs/agents/sandbox-red-tests.md` lists what Windows cannot run, read from the source, since the Windows job only runs `cargo check`.
-- `core` and the crates below it compile for Windows, tests included (#1262), and the `windows` job's gating `cargo check` covers them. `dog` compiles for Windows too (#1274), and its check is gating. `adapters` compiles too, tests included (#1298). The crates above it do not yet (#1299).
+- `core` and the crates below it compile for Windows, tests included (#1262), and the `windows` job's gating `cargo check` covers them. `dog` compiles for Windows too (#1274), and its check is gating. `adapters` compiles too, tests included (#1298). `runner` compiles too, tests included (#1299). The root package does not yet (#241).
 - A file's mode is a Unix answer, and `core` gives Windows one of its own where it can (#1262):
   - the home stamp reads `Metadata::modified`.
   - the fence takes no executable bit from a Windows disk, since git there keeps none: a fenced file matches either regular mode of the commit.
@@ -23,3 +23,6 @@ Kelpie is being ported (#241). This area holds the shell-outs and the tests' sta
   - `adapters::files::is_executable` is the mode bits on Unix and a regular file on Windows, and `on_path` also tries each `PATHEXT` extension there.
   - `adapters::files::link` is `symlink` on Unix, and `symlink_file` or `symlink_dir` by the target on Windows, which needs Developer Mode (#1271). The Codex login and both skill folders use it.
   - `adapters::mcp::live`, which binds a Unix socket named by a uid, is built on Unix only.
+- The runner crate gives Windows these answers (#1299):
+  - `code_graph::too_long` says `None`, since the daemon's `cbm-daemon-<uid>` folder and the socket path limit it explains are Unix ones.
+  - a test that sets a mode or makes a symlink is `#[cfg(unix)]`. The rig's `hook` and `write_totp_secret` set no mode on Windows.

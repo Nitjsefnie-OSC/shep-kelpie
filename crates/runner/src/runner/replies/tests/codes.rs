@@ -103,6 +103,7 @@ fn five_wrong_codes_turn_answers_off_until_the_terminal_turns_them_on() {
     assert!(answered);
 }
 
+#[cfg(unix)]
 #[test]
 fn a_secret_others_may_read_stops_the_runner() {
     use std::os::unix::fs::PermissionsExt;
@@ -330,6 +331,7 @@ fn a_code_for_the_next_step_is_spent_before_it_comes() {
 // Probed in review: a secret that could not be read, or a claim that could
 // not be written, let the read move past the reply with its code unspent,
 // and a replay behind it answered.
+#[cfg(unix)]
 #[test]
 fn a_code_that_cannot_be_spent_holds_the_reply_until_it_can() {
     use std::os::unix::fs::PermissionsExt;

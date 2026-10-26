@@ -59,6 +59,7 @@ fn served(rig: &Rig, market: &str, plugins: &[(&str, &str)]) -> PathBuf {
     dir
 }
 
+#[cfg(unix)]
 // Lands `file` as a link to `target` on the default branch, after some other file landed
 fn land_link(rig: &Rig, file: &str, target: &str) {
     let other = rig.home.path().join("other");
@@ -606,6 +607,7 @@ fn two_plugins_of_one_name_from_two_marketplaces_load_only_the_first() {
     assert!(!skills.join("second").exists());
 }
 
+#[cfg(unix)]
 #[test]
 fn a_link_in_a_plugin_is_neither_listed_nor_copied() {
     let rig = Rig::new("shep");

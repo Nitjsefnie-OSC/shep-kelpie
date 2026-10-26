@@ -1,6 +1,7 @@
 use serde_json::{Value, json};
 
 use super::*;
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 
 use crate::runner::{CHECKS_SETTLE, StepReport, step};
@@ -184,6 +185,7 @@ fn an_answer_that_cannot_be_read_stays_for_the_next_pass() {
     );
 }
 
+#[cfg(unix)]
 #[test]
 fn an_answer_that_cannot_be_saved_stays_and_is_taken_once_it_can_be() {
     let (rig, runner, head) = Rig::parked("rotom");
