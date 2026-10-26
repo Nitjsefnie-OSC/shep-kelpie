@@ -9,6 +9,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use super::Runner;
+use super::end_reads::EndRead;
 use crate::board::OpenPullRequest;
 use crate::ports::{
     FailedLogs, Forge, ForgeError, InstallationToken, Issue, PullRequest, QueueStanding, Talk,
@@ -44,6 +45,8 @@ pub(in crate::runner) struct Reads {
     starts: BTreeMap<TicketId, Started>,
     // What git said, the fetches and diffs that need no write access to the worktree
     pub(in crate::runner) git: Kept,
+    // What a turn's end read, which `end_turn` takes
+    pub(in crate::runner) ended: Option<EndRead>,
 }
 
 /// What a turn's start read, each as the inline call returned it
@@ -69,6 +72,7 @@ impl Reads {
         self.talked.clear();
         self.starts.clear();
         self.git.clear();
+        self.ended = None;
     }
 
     /// What `ticket`'s turn read before its call, as the step read it
