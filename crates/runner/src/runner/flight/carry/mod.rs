@@ -23,8 +23,8 @@ use super::super::in_flight::{Key, Open};
 use super::super::transcript_count::Mark;
 use super::{End, Flight, News, Tell, unstarted, waiting};
 use crate::lease::wire::AskerCarry;
-use crate::ports::{Adopted, Ending, Flying, NotAdopted, Timestamp};
-use crate::settings::Harness;
+use crate::ports::{Adopted, Ending, Flying, KeptServer, NotAdopted, Timestamp};
+use crate::settings::{GatewayName, Harness};
 use crate::ticket::TicketId;
 use crate::work_item::WorkItem;
 
@@ -215,6 +215,7 @@ impl Runner {
             requests,
         } = turn;
         let harness = adopted.harness;
+        let lease = lease_kept(&adopted);
         let ending = Ending::default();
         ending.carry(flying);
         let tell = Tell {
@@ -261,7 +262,7 @@ impl Runner {
                     told: None,
                     granted: Some(flying.began),
                     woken: false,
-                    lease: None,
+                    lease,
                 },
                 first: flying.first,
                 compact: flying.compact,
@@ -271,8 +272,22 @@ impl Runner {
                 record_gone: None,
             },
         );
+        self.model_leases();
         self.board_changed();
     }
+}
+
+// The gateway and model a carried call still holds a lease on, as its flight names them, so
+// the new image counts it held. `None` when it holds none, or the image that carried it did
+// not say which model.
+fn lease_kept(adopted: &Adopted) -> Option<(GatewayName, String)> {
+    let kept = adopted.kept.as_ref()?;
+    kept.lease.as_ref()?;
+    let KeptServer::Gateway(name) = &kept.server else {
+        return None;
+    };
+    let gateway = GatewayName::try_from(name.clone()).ok()?;
+    Some((gateway, kept.model.clone()?))
 }
 
 #[cfg(test)]

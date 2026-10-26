@@ -8,6 +8,8 @@
 //! session yet, so nothing is lost. A later turn, one pinned by a `!` label,
 //! or one whose own agent the project does not list, never moves.
 
+use std::collections::BTreeMap;
+
 use serde::Serialize;
 
 use super::super::Runner;
@@ -88,7 +90,33 @@ impl Runner {
             let since = flight.watched.told.map_or(now, |(since, _)| since);
             flight.watched.told = Some((since, wait));
         }
+        self.model_leases();
         self.board_changed();
+    }
+
+    // Sets each model's gauges of the calls waiting for, and holding, a lease on it. A model
+    // whose calls have all ended is set to 0 rather than left at its last count.
+    pub(in crate::runner) fn model_leases(&mut self) {
+        let mut standing: BTreeMap<&str, (usize, usize)> = BTreeMap::new();
+        for flight in self.flights.flying.values() {
+            let Some((_, model)) = &flight.watched.lease else {
+                continue;
+            };
+            let (held, waiting) = standing.entry(model).or_default();
+            match (flight.watched.told, flight.watched.granted) {
+                (Some(_), _) => *waiting += 1,
+                (None, Some(_)) => *held += 1,
+                (None, None) => {}
+            }
+        }
+        for model in &self.flights.leased_models {
+            standing.entry(model).or_default();
+        }
+        for (model, (held, waiting)) in &standing {
+            self.metrics.model_lease_standing(model, *held, *waiting);
+        }
+        let named = standing.keys().map(|model| (*model).to_owned()).collect();
+        self.flights.leased_models = named;
     }
 
     // Seconds a turn shows nothing before it is marked waiting.
