@@ -26,3 +26,32 @@ fn the_disk_holding_a_folder_has_free_space() {
     let dir = tempfile::tempdir().unwrap();
     assert!(free_bytes(dir.path()).unwrap() > 0);
 }
+
+#[cfg(windows)]
+#[test]
+fn a_folder_can_be_measured_while_a_file_waits_for_its_last_handle_to_close() {
+    use std::os::windows::fs::OpenOptionsExt;
+
+    use windows_sys::Win32::Storage::FileSystem::FILE_FLAG_DELETE_ON_CLOSE;
+
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join("kept"), vec![1u8; 100_000]).unwrap();
+    let kept = folder_bytes(dir.path()).unwrap();
+    let removing = dir.path().join("removing");
+    fs::write(&removing, vec![1u8; 200_000]).unwrap();
+    let held = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(&removing)
+        .unwrap();
+    let delete_on_close = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .custom_flags(FILE_FLAG_DELETE_ON_CLOSE)
+        .open(&removing)
+        .unwrap();
+    drop(delete_on_close);
+
+    assert_eq!(folder_bytes(dir.path()).unwrap(), kept);
+    drop(held);
+}

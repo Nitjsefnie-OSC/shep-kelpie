@@ -31,6 +31,8 @@ pub fn free_bytes(on: &Path) -> io::Result<u64> {
 
 /// The allocated bytes in a folder's files, counting each hard link target once
 ///
+/// File readings skip missing or inaccessible entries.
+///
 /// # Errors
 /// Returns an error if a folder or a file's allocation cannot be read.
 pub fn folder_bytes(folder: &Path) -> io::Result<u64> {
@@ -48,7 +50,9 @@ pub fn folder_bytes(folder: &Path) -> io::Result<u64> {
                 pending.push(path);
                 continue;
             }
-            let allocation = imp::allocation(&path, &meta)?;
+            let Some(allocation) = imp::allocation(&path, &meta)? else {
+                continue;
+            };
             // Cargo links a final artifact into `deps/` and the profile folder.
             if allocation.linked.is_some_and(|key| !seen.insert(key)) {
                 continue;

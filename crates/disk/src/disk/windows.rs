@@ -9,6 +9,7 @@ use std::os::windows::io::AsRawHandle;
 use std::path::Path;
 use std::ptr;
 
+use windows_sys::Win32::Foundation::{ERROR_ACCESS_DENIED, ERROR_DELETE_PENDING};
 use windows_sys::Win32::Storage::FileSystem::{
     BY_HANDLE_FILE_INFORMATION, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
     FILE_READ_ATTRIBUTES, FILE_STANDARD_INFO, FileStandardInfo, GetDiskFreeSpaceExW,
@@ -37,13 +38,25 @@ pub(super) fn free_bytes(on: &Path) -> io::Result<u64> {
     Ok(available)
 }
 
-pub(super) fn allocation(path: &Path, _meta: &Metadata) -> io::Result<Allocation> {
+pub(super) fn allocation(path: &Path, _meta: &Metadata) -> io::Result<Option<Allocation>> {
     // Attribute access permits reading files without permission to read their contents.
     // Reparse points count themselves, including links to folders.
-    let file = OpenOptions::new()
+    let file = match OpenOptions::new()
         .access_mode(FILE_READ_ATTRIBUTES)
         .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS)
-        .open(path)?;
+        .open(path)
+    {
+        Ok(file) => file,
+        // Windows can report a delete-pending file as access denied.
+        Err(error)
+            if error.kind() == io::ErrorKind::NotFound
+                || error.raw_os_error() == Some(ERROR_ACCESS_DENIED as i32)
+                || error.raw_os_error() == Some(ERROR_DELETE_PENDING as i32) =>
+        {
+            return Ok(None);
+        }
+        Err(error) => return Err(error),
+    };
     let mut identity = BY_HANDLE_FILE_INFORMATION::default();
     // SAFETY: `file` is live and `identity` is the structure the call writes.
     check(unsafe { GetFileInformationByHandle(file.as_raw_handle(), &mut identity) })?;
@@ -61,11 +74,11 @@ pub(super) fn allocation(path: &Path, _meta: &Metadata) -> io::Result<Allocation
     let bytes = u64::try_from(standard.AllocationSize)
         .map_err(|_| io::Error::from(io::ErrorKind::InvalidData))?;
     let index = (u64::from(identity.nFileIndexHigh) << 32) | u64::from(identity.nFileIndexLow);
-    Ok(Allocation {
+    Ok(Some(Allocation {
         bytes,
         linked: (identity.nNumberOfLinks > 1)
             .then(|| (u64::from(identity.dwVolumeSerialNumber), index)),
-    })
+    }))
 }
 
 fn check(ok: i32) -> io::Result<()> {

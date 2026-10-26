@@ -15,9 +15,9 @@ pub(super) fn free_bytes(on: &Path) -> io::Result<u64> {
     Ok(stat.f_bavail.saturating_mul(stat.f_frsize))
 }
 
-pub(super) fn allocation(_path: &Path, meta: &Metadata) -> io::Result<Allocation> {
-    Ok(Allocation {
+pub(super) fn allocation(_path: &Path, meta: &Metadata) -> io::Result<Option<Allocation>> {
+    Ok(Some(Allocation {
         bytes: meta.blocks().saturating_mul(BLOCK),
         linked: (meta.nlink() > 1).then(|| (meta.dev(), meta.ino())),
-    })
+    }))
 }
