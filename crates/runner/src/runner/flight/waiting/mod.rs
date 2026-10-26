@@ -6,7 +6,8 @@
 //! item's first turn that waited `agents.fallback_after` is stopped and moves
 //! to the next implementer listed that no other item waits on. It has no
 //! session yet, so nothing is lost. A later turn, one pinned by a `!` label,
-//! or one whose own agent the project does not list, never moves.
+//! or one whose own agent the project does not list, never moves. A new work
+//! item opens on the next free one when its label's model is waited on already.
 
 use std::collections::BTreeMap;
 
@@ -195,6 +196,26 @@ impl Runner {
     // pins it to no agent, and the project lists the one it runs on.
     fn can_fall_back(&self, item: &WorkItem) -> bool {
         !item.pinned && self.agents.implementer(&item.agent).is_some()
+    }
+
+    // The implementer a new work item for `ticket`, labelled for `from`, opens on
+    // instead: `None` while `agents.fallback_after` is off, or no work item of
+    // this runner waits on `from`'s model for a lease or a busy gateway, or
+    // `next_free` finds none. A silent turn never counts, and no gateway is read.
+    pub(in crate::runner) fn opens_elsewhere(
+        &self,
+        ticket: TicketId,
+        from: &AgentName,
+    ) -> Option<AgentName> {
+        self.settings.agents.fallback_after?;
+        let waits_on_from = (self.state.work_items.iter())
+            .filter(|item| item.agent == *from)
+            .filter_map(|item| self.model_wait(item.issue))
+            .any(|waiting| matches!(waiting.why, Wait::Lease | Wait::Busy));
+        if !waits_on_from {
+            return None;
+        }
+        self.next_free(ticket, from)
     }
 
     // The implementer listed after `from` that no other turn waits on, or

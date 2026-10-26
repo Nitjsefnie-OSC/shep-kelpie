@@ -275,7 +275,7 @@ impl Runner {
 }
 
 // Whether `label` is an `agent:` label, its prefix in any case.
-fn is_agent_label(label: &str) -> bool {
+pub(in crate::runner) fn is_agent_label(label: &str) -> bool {
     (label.get(..AGENT_LABEL.len())).is_some_and(|p| p.eq_ignore_ascii_case(AGENT_LABEL))
 }
 

@@ -52,6 +52,14 @@ pub(super) enum Pace {
 }
 
 impl Pace {
+    /// The pacer's reading of the hold, or `None` when nothing holds
+    pub(super) fn reason(&self) -> Option<&str> {
+        match self {
+            Self::Clear => None,
+            Self::Held(hold) | Self::StillHeld(hold) => Some(&hold.reason),
+        }
+    }
+
     /// What the runner does instead of starting, or `None` to start
     pub(super) fn holds(self) -> Option<Begin> {
         match self {
@@ -389,6 +397,28 @@ mod tests {
             })
         );
         assert_eq!(rig.claude.calls(), []);
+    }
+
+    #[test]
+    fn a_pick_the_pacer_holds_shows_the_hold_in_skipped_and_on_the_board() {
+        let (rig, runner) = running_since("golbat", 0);
+        rig.forge.list_ready(7, false);
+        rig.meter.set(Rig::utilization(15, 3));
+
+        let (_, reason, _) = held(step(&runner).unwrap());
+
+        let skipped = rig.ask(&runner, "status", None)["skipped"].clone();
+        let hold = json!([{ "reason": "paced", "issue": "7", "hold": reason }]);
+        assert_eq!(skipped, hold);
+        let board = std::fs::read_to_string(rig.paths().board).unwrap();
+        assert!(
+            board.contains(&format!("held by the pacer: {reason}")),
+            "{board}"
+        );
+        // A hold from the earlier reading still stands the next pass.
+        rig.clock.advance(60);
+        assert_eq!(step(&runner).unwrap(), None);
+        assert_eq!(rig.ask(&runner, "status", None)["skipped"], hold);
     }
 
     #[test]

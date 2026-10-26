@@ -8,7 +8,7 @@ use std::time::Duration;
 use serde_json::{Value, json};
 
 use super::super::tests::{CEILING, CODER, Driven};
-use crate::ports::{AgentError, CallActivity, Session, Timestamp};
+use crate::ports::{AgentError, CallActivity, Session, Timestamp, Wait};
 use crate::runner::{Runner, StepReport, step};
 use crate::settings::Harness;
 use crate::test::ticket;
@@ -613,4 +613,146 @@ fn lease_wait_seconds_and_grants_add_up_per_model_across_calls() {
             .value("kelpie_model_lease_grants_total", &CODER_MODEL),
         Some(2.0)
     );
+}
+
+/// A rig with two slots and `listed` implementers, `fallback_after` at
+/// `minutes`, and #7 open on `coder`
+fn seven_open(listed: &[&str], minutes: Option<u32>) -> (Rig, Mutex<Runner>) {
+    let rig = rig("acme", listed, minutes);
+    rig.edit_settings(|s| s.replace("active_items = 1", "active_items = 2"));
+    rig.forge.label(7, "agent:coder");
+    let runner = rig.open().unwrap();
+    rig.ask(&runner, "add", Some("7"));
+    (rig, runner)
+}
+
+/// [`seven_open`], with #7's first turn queued at the lease
+fn seven_queued(listed: &[&str], minutes: Option<u32>) -> (Rig, Mutex<Runner>, Hold) {
+    let (rig, runner) = seven_open(listed, minutes);
+    let queue = queued(&rig, Scripted::Say("done"));
+    (rig, runner, queue)
+}
+
+/// The `agent:` labels issue `number` carries
+fn agent_labels(rig: &Rig, number: u64) -> Vec<String> {
+    let labels = rig.forge.issue_labels(number);
+    labels
+        .into_iter()
+        .filter(|l| l.starts_with("agent:"))
+        .collect()
+}
+
+/// Adds #8, labelled `label`, once #7's first turn waits, and returns what
+/// the runner kept of it: its agent
+fn eight_added(rig: &Rig, runner: &Mutex<Runner>, label: &str) -> Value {
+    rig.forge.label(8, label);
+    rig.ask(runner, "add", Some("8"));
+    item(rig, runner, 8)["agent"].clone()
+}
+
+fn events(runner: &Mutex<Runner>) -> Vec<String> {
+    let runner = runner.lock().unwrap();
+    runner.state.events.iter().map(|e| e.what.clone()).collect()
+}
+
+#[test]
+fn a_new_item_opens_on_the_next_free_implementer_when_its_labelled_ones_model_is_waited_on() {
+    let (rig, runner, queue) = seven_queued(&["coder", "sonnet-high"], Some(15));
+    let driven = Driven::new(&runner);
+    driven.started();
+    assert_eq!(driven.heard(), None);
+    assert_eq!(item(&rig, &runner, 7)["waiting"]["why"], "lease");
+
+    assert_eq!(eight_added(&rig, &runner, "agent:coder"), "sonnet-high");
+
+    let labels = agent_labels(&rig, 8);
+    assert_eq!(labels, ["agent:sonnet-high"], "the label follows the item");
+    let moved: Vec<String> = (events(&runner).into_iter())
+        .filter(|e| e.contains("moved"))
+        .collect();
+    assert_eq!(moved.len(), 1, "{moved:?}");
+    assert!(moved[0].contains("agent:coder"), "{}", moved[0]);
+    assert!(moved[0].contains("agent:sonnet-high"), "{}", moved[0]);
+    queue.release();
+}
+
+#[test]
+fn a_pinned_label_never_moves_at_opening() {
+    let (rig, runner, queue) = seven_queued(&["coder", "sonnet-high"], Some(15));
+    let driven = Driven::new(&runner);
+    driven.started();
+    assert_eq!(driven.heard(), None);
+
+    assert_eq!(eight_added(&rig, &runner, "agent:coder!"), "coder");
+
+    assert_eq!(agent_labels(&rig, 8), ["agent:coder!"]);
+    assert!(events(&runner).iter().all(|e| !e.contains("moved")));
+    queue.release();
+}
+
+#[test]
+fn a_silent_turn_never_moves_a_new_item() {
+    let (rig, runner) = seven_open(&["coder", "sonnet-high"], Some(15));
+    let hold = Hold::default();
+    rig.claude.script([Scripted::Hold(hold.clone())]);
+    rig.claude.set_activity(CallActivity::Nothing);
+    let driven = Driven::new(&runner);
+    driven.started();
+    assert!(hold.entered(CALL_PATIENCE), "the turn never began");
+    rig.clock.advance(15 * 60);
+    let waits = runner.lock().unwrap().model_wait(ticket(7));
+    assert_eq!(waits.map(|w| w.why), Some(Wait::Silent));
+
+    assert_eq!(eight_added(&rig, &runner, "agent:coder"), "coder");
+
+    assert_eq!(agent_labels(&rig, 8), ["agent:coder"]);
+    hold.release();
+}
+
+#[test]
+fn a_new_item_stays_when_no_implementer_after_its_own_is_free() {
+    let (rig, runner, queue) = seven_queued(&["sonnet-high", "coder"], Some(15));
+    let driven = Driven::new(&runner);
+    driven.started();
+    assert_eq!(driven.heard(), None);
+
+    assert_eq!(eight_added(&rig, &runner, "agent:coder"), "coder");
+
+    assert_eq!(agent_labels(&rig, 8), ["agent:coder"]);
+    queue.release();
+}
+
+#[test]
+fn a_new_item_stays_with_fallback_after_off() {
+    let (rig, runner, queue) = seven_queued(&["coder", "sonnet-high"], None);
+    let driven = Driven::new(&runner);
+    driven.started();
+    assert_eq!(driven.heard(), None);
+
+    assert_eq!(eight_added(&rig, &runner, "agent:coder"), "coder");
+
+    assert_eq!(agent_labels(&rig, 8), ["agent:coder"]);
+    queue.release();
+}
+
+#[test]
+fn a_refused_label_swap_opens_the_item_on_its_labelled_implementer_with_a_note() {
+    let (rig, runner, queue) = seven_queued(&["coder", "sonnet-high"], Some(15));
+    let driven = Driven::new(&runner);
+    driven.started();
+    assert_eq!(driven.heard(), None);
+    runner.lock().unwrap().take_notes();
+    rig.forge.set_labels_down(true);
+
+    assert_eq!(eight_added(&rig, &runner, "agent:coder"), "coder");
+
+    rig.forge.set_labels_down(false);
+    assert_eq!(agent_labels(&rig, 8), ["agent:coder"]);
+    let notes = runner.lock().unwrap().take_notes();
+    assert!(
+        notes.iter().any(|n| n.contains("labels are down")),
+        "{notes:?}"
+    );
+    assert!(events(&runner).iter().all(|e| !e.contains("moved")));
+    queue.release();
 }
