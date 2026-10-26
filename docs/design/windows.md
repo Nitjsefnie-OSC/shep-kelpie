@@ -2,6 +2,22 @@
 
 Kelpie is being ported (#241). This area holds the shell-outs and the tests' stand-in commands (#1149).
 
+## Starting a shepherd on Windows
+
+What the person starting the shepherd needs on a Windows machine (#1271). Measured on a Windows 11 ARM64 VM while crabpot took Windows (shep-pm/crabpot#218).
+
+- Start the shepherd in an interactive desktop session: signed in at the console. Not over SSH, and not as a service.
+  - crabpot refuses to start a worker in session 0 with `StartError::SessionZero`. Services and OpenSSH sessions both sit in session 0, so a shepherd started either way cannot run a worker. `doctor`'s `sandbox` line names the session, and `docs/facts/worker-profile-and-sandbox.md` records the refusal.
+  - `gh`'s keyring token reads as invalid from an SSH session, so `gh` there cannot open a pull request even where a worker could run.
+- Turn on Developer Mode (Settings, then System, then For developers), or start the shepherd from an elevated shell.
+  - `adapters::files::link` makes the Codex login and both skill folders with `symlink_file` and `symlink_dir`, and Windows allows a symlink only with Developer Mode on or an elevated token. Without either, linking fails.
+  - The tests that make a symlink need the same.
+- On ARM64 Windows, put `C:\Program Files\LLVM\bin` on `PATH` before `cargo install` of shep or kelpie.
+  - `ring` builds with clang there. CI sets the same `PATH` entry.
+- Run the one-time `crabpot windows-install` (below), and have Git for Windows installed.
+
+## What the port covers
+
 - `spawn::sh()` and `spawn::env()` are the only way to start a shell or `env`. On Unix they are `/bin/sh` and `/usr/bin/env`. On Windows they find Git for Windows through a `git.exe` on `PATH`, then its default install folders, and fall back to the bare name.
 - A hook, the test-runner, the dev server's install and the Claude sandbox's `env` run the maintainer's POSIX shell line, so they require Git for Windows.
 - `tar` and `shasum` are reached only for a release asset, which has no Windows build, so `upgrade` keeps them Unix. `kill` and `ps` wait on #1148, sockets on #1147.
@@ -18,12 +34,12 @@ Kelpie is being ported (#241). This area holds the shell-outs and the tests' sta
 - The dog's e2e run works on Windows too (#1302):
   - `deliver` has no `openat`, so it opens each folder from the worktree down by path with `FILE_FLAG_OPEN_REPARSE_POINT` and a share mode of read only, holds every handle until the copy ends, and refuses a folder whose attributes say reparse point (a symlink or a junction). It reads the attributes of every held folder again before each file. A worker that turns a results folder into a junction in place (write-attributes access is not subject to sharing) between that read and the write can land one result file outside the worktree. Unix has no such gap. Closing it needs a handle-relative open, which needs `unsafe` or a Windows crate, so it waits on the maintainer reopening the no-new-dependency and no-`unsafe` ruling. It removes a file already there and makes it again with `create_new`, so a link put in its place fails the write. The flag values are local constants, since `dog` takes no Windows crate.
   - The `ssh` and `rsync` stand-ins are `.sh` scripts run by a `.cmd` that calls Git for Windows' `sh` with `MSYS=winsymlinks:nativestrict`. The `.cmd` is the process the dog kills, so the `ssh` script ends its command when the dog closes its input. `ended` is `!tree::alive(pid)`.
-  - A test that makes a symlink needs Developer Mode or an administrator (#1271).
+  - A test that makes a symlink needs Developer Mode or an administrator (see "Starting a shepherd on Windows").
 - The adapters crate gives Windows these answers (#1298):
   - the App store's folders and key use the `owner_only` crate on both platforms (#1264): `private`, `put` and the owner and mode checks of `save` call it, in place of `rustix` and `PermissionsExt`. On Windows the key and its folders are the user's alone, and a link, another owner or any other ACE is `StoreError::Exposed`.
   - `StatDisk` says `Unsupported` for both readings until #1300. `runner::builds` turns that into a note and applies no limit.
   - `adapters::files::is_executable` is the mode bits on Unix and a regular file on Windows, and `on_path` also tries each `PATHEXT` extension there.
-  - `adapters::files::link` is `symlink` on Unix, and `symlink_file` or `symlink_dir` by the target on Windows, which needs Developer Mode (#1271). The Codex login and both skill folders use it.
+  - `adapters::files::link` is `symlink` on Unix, and `symlink_file` or `symlink_dir` by the target on Windows, which needs Developer Mode (see "Starting a shepherd on Windows"). The Codex login and both skill folders use it.
   - `adapters::mcp::live`, which binds a Unix socket named by a uid, is built on Unix only.
 - The runner crate gives Windows these answers (#1299):
   - `code_graph::too_long` says `None`, since the daemon's `cbm-daemon-<uid>` folder and the socket path limit it explains are Unix ones.
