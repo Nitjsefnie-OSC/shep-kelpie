@@ -1,31 +1,13 @@
-//! The author's own session: the prompt in the first comment, and the body it writes back
+//! The author's own session: the prompt in the first comment, and its write-back
 //!
-//! The first triage comment holds, under its questions and in a collapsed
-//! `<details>` section, a code-built block with the prompt an author pastes
-//! into an agent session of their own: the issue, the files the triage comment
-//! named and the questions it asked. Their session writes what it settles back
-//! into the issue body, and the body kelpie last saw is what the wait is
-//! measured against: the record keeps `local { at, body }`, `body` a hash of
-//! that text, set with the questions when the comment is recorded.
-//!
-//! Each poll reads each issue waiting on `local` through [`Tickets::issue`]
-//! (`crate::ports::Tickets`). A body whose hash differs is triaged again on the
-//! new text, by a call of [`Purpose::LocalRead`] taken the way the answers
-//! call is, and its comment ends the round: `ready-for-agent` for a maintainer
-//! issue the pass is sure of, `needs-triage` for any other, with no further ask
-//! whatever is still open. The wait stays open until that comment lands, so a
-//! restart between the edit and its call reads the body again and starts the
-//! call again. No answer and no edit `triage.wait_days` after the comment ends
-//! as `none` does. Kelpie's own body edits set the hash, so a write of kelpie's
-//! own is never read as the author's.
-//!
-//! The hash is taken from a read made just before the comment is posted, since
-//! the wording call before it can run for minutes. A pass that reads a
-//! rewritten body is read again against the forge before its comment goes up,
-//! so a body rewritten a second time under the call is not answered by it.
-//! Everything the block names, the title, the files and each question with what
-//! it recommends, is put on one line with its backticks gone, so none of it can
-//! close the fence the prompt is posted in.
+//! The first triage comment holds, in a collapsed `<details>` section, a block
+//! with the prompt an author pastes into their own agent session: the issue, the
+//! files named and the questions asked. Their session writes what it settles
+//! back into the issue body; the record keeps `local { at, body }`, `body` a
+//! hash of the body kelpie last saw, and kelpie's own edits set it. A body whose
+//! hash differs is triaged again by a [`Purpose::LocalRead`] call, whose comment
+//! ends the round. Everything the block names is put on one line with backticks
+//! gone, so none of it closes the fence. Silence ends the wait as `none` does.
 
 use std::collections::BTreeMap;
 
@@ -55,11 +37,9 @@ pub(in crate::runner) const LOCAL_READ_KIND: &str = "Write the triage comment on
 
 impl Runner {
     // The first comment that asks the author: the representative's words, the
-    // questions code lists with the answer each recommends, and the prompt for
-    // the author's own terminal in a collapsed section, the triage marker last.
-    // The hash of the body the prompt was written against comes with it, taken
-    // from a read made just now since the wording call under it can run for
-    // minutes. A body the forge cannot give is tried again at the next poll.
+    // questions code lists with each recommended answer, and the prompt in a
+    // collapsed section, the triage marker last. The body hash comes from a read
+    // made just now, as the wording call can run for minutes.
     pub(super) fn ask_comment(
         &mut self,
         issue: u64,
@@ -91,12 +71,10 @@ impl Runner {
         Some((body, body_hash(&read.body)))
     }
 
-    // Reads each issue whose triage waits on a local session. Its body is what
-    // the author's session was told to rewrite, so a body whose hash differs is
-    // the round's answer: the triager reads the issue again, on the body this
-    // read saw. With no edit and no comment `triage.wait_days` after the
-    // prompt, it ends as `none` does. Silence is ended here and not in
-    // [`Runner::hear_triage`], so a rewrite is read before it counts.
+    // Reads each issue whose triage waits on a local session. A body whose hash
+    // differs is the round's answer: the triager reads the issue again on that
+    // body. Silence `triage.wait_days` after the prompt ends as `none` does, here
+    // and not in [`Runner::hear_triage`], so a rewrite is read before it counts.
     pub(super) fn watch_local_waits(
         &mut self,
         reads: &BTreeMap<u64, Result<Issue, ForgeError>>,
@@ -240,13 +218,10 @@ impl Runner {
                 (false, true) => Purpose::LocalRead,
                 _ => continue,
             };
-            // The day's cap reaches the round as it reaches the first pass, and
-            // the record is where its author comes from, filled in from the
-            // listing when the record names none. A round call waits for a free
-            // place instead of ending the issue, which is already triaged, and a
-            // round is read from the records at every poll. The author's share and
-            // the account's age are left out here: they decide which of an
-            // author's issues kelpie took on, and this is one it took on already.
+            // The day's cap reaches the round as it reaches the first pass; the record
+            // gives its author, filled in from the listing when it names none. A round
+            // call waits for a free place rather than ending an issue already triaged. The
+            // author's share and the account's age are left out: this issue is taken on.
             let limited = self.triage_limited(&record.author, false);
             if limited && self.triage_round_held() {
                 continue;
@@ -261,11 +236,9 @@ impl Runner {
 }
 
 // The prompt an author pastes into their own session: the issue, how to read it
-// and the files kelpie named, the open questions with what the research
-// recommends, and the write-back that is how kelpie learns what they settled.
-// Every word of it that came from an agent's reply is put on one line with its
-// backticks gone, so none of it can close the fence the block is posted in or
-// become a line of the prompt itself.
+// and the files named, the open questions with what the research recommends,
+// and the write-back. Every word from an agent's reply is put on one line with
+// its backticks gone, so none can close the fence or become a prompt line.
 pub(super) fn local_block(
     repo: &str,
     issue: u64,

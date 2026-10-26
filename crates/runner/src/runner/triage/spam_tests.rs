@@ -1,18 +1,12 @@
-//! The spam check an issue goes through after the limits and before its research
-//! call, through the runner's stand-ins
+//! The spam check, through the runner's stand-ins
 //!
-//! The classifier answers in memory, so no test reaches a gateway. An issue at or
-//! above the threshold gets `possible-spam` and nothing else: no comment, no
-//! research call, no close, no lock and no body edit. Below it the pass goes on as
-//! it was. A gateway that cannot be asked is told once and the check is off for
-//! the rest of the run, with the issues going on to their calls and the limits
-//! still holding, while an answer kelpie cannot read is told once and leaves the
-//! check on. The maintainer's own issues and one `shep kelpie triage` asked for
-//! skip the check, as they skip the four limits, and the verb takes the label off
-//! when it was kelpie's own read, while one put on by hand stands. A record the
-//! check makes carries the calls the issue made before it, so the caps keep
-//! counting them. Each check that got an answer is a ledger line of its own, and
-//! spends no place of a triage cap.
+//! The classifier answers in memory. At or above the threshold an issue gets
+//! `possible-spam` and nothing else; below it the pass goes on. A gateway that
+//! cannot be asked is told once and turns the check off, while an unreadable
+//! answer leaves it on. The maintainer's own issues and `shep kelpie triage`
+//! skip the check, and the verb takes off kelpie's own label, not one put on by
+//! hand. A record the check makes carries the issue's earlier calls, and each
+//! answered check spends no place of a triage cap.
 
 use crate::test::ticket;
 #[cfg(unix)]

@@ -1,34 +1,13 @@
 //! Asking the contributor for a release
 //!
 //! Kelpie finishes a contribution only after its contributor says it may or
-//! goes quiet after being asked (ADR 0010). Once a poll, a contribution
-//! kelpie waits on the contributor for is looked at by its quiet clock:
-//!
-//! - At the nudge the representative posts one comment that reminds the
-//!   contributor of the review bots' open threads and asks whether kelpie may
-//!   take the pull request from here. The record keeps the comment's id. At
-//!   the quiet, with no ask yet, the same comment is posted and the clock
-//!   starts over, so the contributor has the whole window.
-//! - A reply the contributor wrote after the ask is read by one
-//!   representative call, as `yes`, `no` or `other`, their words fenced as
-//!   data. A `yes` or `no` is not answered as a conversation; `other` is, by
-//!   [`answer`](super::answer).
-//! - A thumbs up the contributor left on the ask is a yes and a thumbs down
-//!   is a no. A reaction counts on that comment only.
-//! - A yes, a thumbs up, or no answer by the quiet is a release: the record
-//!   gets `released` and the representative says the pull request is
-//!   kelpie's now.
-//! - A no restarts the clock, and after the next quiet window kelpie asks
-//!   once more. A second no followed by quiet raises a ruling for the
-//!   maintainer: keep waiting, adopt anyway, or close with thanks. The second
-//!   ask met with silence is a release.
-//!
-//! Nothing here merges or touches the contributor's branch. An answer the
-//! maintainer gives to close has the representative thank the contributor,
-//! and the pull request is closed after. A call that fails, or a post the
-//! forge refuses, is told once in the log and tried again at the next poll, as
-//! [`answer`](super::answer) does. An unread reply holds the silence: a
-//! release never rests on a no that was not read.
+//! goes quiet after being asked (ADR 0010); the quiet clock drives each step.
+//! At the nudge the representative asks, in one comment, whether kelpie may take
+//! the pull request; at the quiet with no ask it posts the same and restarts the
+//! clock. A reply is read as `yes`, `no` or `other` (the last goes to
+//! [`answer`](super::answer)), and a thumbs up or down on the ask counts alike.
+//! A yes, or no answer by the quiet, is a release. A no restarts the clock;
+//! a second no then quiet raises a ruling.
 
 use super::super::Runner;
 use super::super::representative::Post;

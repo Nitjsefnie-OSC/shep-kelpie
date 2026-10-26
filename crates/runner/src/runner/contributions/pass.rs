@@ -1,26 +1,13 @@
 //! The pass of the reviewers over a contribution's green head
 //!
-//! No reviewer reads a head until it has passed the security review and CI
-//! on it is green (ADR 0008). Then one pass walks `contributions.reviewers`
-//! from the reviewer after the last that answered, wrapping round, and the
-//! first to answer, with findings or `CLEAN`, ends it. The next push starts
-//! its pass there, so the reviewers take turns over a contribution's
-//! pushes. A reviewer limited to `paths` the change leaves alone is skipped,
-//! as is a local one that has reviewed nothing twice. One whose call fails
-//! three times is passed over. A pass no reviewer read ends unread, with why.
-//!
-//! The pass is a call in flight like the security review, sharing its
-//! one place, and its reviewers read a detached worktree of the fetched
-//! `refs/pull/<n>/head` under the project's folder, with read tools only,
-//! once the agents' own files in it are checked against `main`'s. A pass is
-//! posted by [`post`](super::post). The worktree stays until the pull request leaves the record.
-//!
-//! A review bot answers on its own clock, so its turn is no call: [`bots`]
-//! steps it each poll. A call reads the reviewers up to the next bot, and
-//! hands the walk back in the record, as [`Walking`], when none of them
-//! answered.
-//!
-//! [`bots`]: super::bots
+//! No reviewer reads a head until it has passed the security review and CI is
+//! green (ADR 0008). One pass walks `contributions.reviewers` from the one after
+//! the last that answered, wrapping round; the first to answer, with findings
+//! or `CLEAN`, ends it. A reviewer limited to other `paths`, a local one that
+//! reviewed nothing twice, or one whose call failed three times is passed over.
+//! The pass shares the security review's one place and reads a detached worktree
+//! of `refs/pull/<n>/head`, read tools only. [`post`](super::post) posts it; a
+//! review bot's turn is no call, [`bots`](super::bots) steps it each poll.
 
 use std::path::PathBuf;
 
@@ -114,11 +101,9 @@ enum Turn {
 
 impl Runner {
     // The pass over the current head of one contribution that has passed the
-    // security review and whose CI is green, as the call to start, unless a
-    // call on a contribution is in flight or the runner drains. One is tried
-    // once a poll, and a contribution over its cap starts none.
-    //
-    // The caller holds a free slot for it, which the call keeps until it ends.
+    // security review and whose CI is green, as the call to start, unless a call
+    // on a contribution is in flight or the runner drains. One is tried per poll,
+    // and a contribution over its cap starts none. The caller holds a free slot.
     pub(in crate::runner) fn run_pass(&mut self) -> Result<Option<Begin>, StateError> {
         if self.draining() || self.flights.securing() {
             return Ok(None);

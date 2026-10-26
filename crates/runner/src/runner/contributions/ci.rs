@@ -2,15 +2,12 @@
 //!
 //! GitHub holds a fork's first CI runs until a maintainer approves them, and
 //! approving runs the contributor's code. Once a poll, a contribution whose
-//! current head passed the security review (or that a yes to its ruling
-//! trusted) gets its held runs approved as the maintainer's `gh`
-//! login, and CI on the head is followed from then: waiting until the rollup
-//! has had [`CHECKS_SETTLE`](crate::runner::CHECKS_SETTLE) to register, then
-//! green or red with the failed checks' names. A head that is flagged,
-//! unread or stale is never approved. A refused approval is tried again at
-//! the next poll, and never fails the poll. The held runs are listed again at
-//! each poll while the settled rollup still shows no result, since GitHub may
-//! hold a run after the first listing.
+//! head passed the security review (or that a yes trusted) gets its held runs
+//! approved as the maintainer's `gh` login, and CI is followed from then: waiting
+//! [`CHECKS_SETTLE`](crate::runner::CHECKS_SETTLE) for the rollup, then green or
+//! red with the failed checks' names. A flagged, unread or stale head is never
+//! approved. A refused approval is retried at the next poll. Held runs are listed
+//! again while the settled rollup shows no result, as GitHub may hold a run late.
 
 use super::super::Runner;
 use super::super::gate::settled;

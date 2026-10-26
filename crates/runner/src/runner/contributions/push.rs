@@ -1,18 +1,12 @@
 //! Pushing a fork worker's commits to the contributor's branch
 //!
-//! A worker on a contributor's fork only commits, and the maintainer's login,
-//! which can push to the fork, must never be in its reach. So the runner
-//! pushes, outside the sandbox, with the login git holds there: after each
-//! worker turn, and at the CI gate, which tries a push that was refused again
-//! once the maintainer says yes. The guard and profile refuse the worker's own
-//! push as guardrails; its token, which #1134 measured able to push to a fork
-//! while edits are on, is the boundary.
-//!
-//! The push is fast-forward only and never forced. A fork head that is not the
-//! one kelpie last knew is the contributor's own push: nothing is pushed, and
-//! the gate raises the foreign-change ruling, so the commits wait unpushed. A
-//! push the fork refuses (edits turned off since, the branch deleted) raises
-//! a [`Stuck::PushRefused`] ruling naming git's reason, and the commits stay.
+//! A worker on a fork only commits, and the maintainer's login must never be in
+//! its reach. So the runner pushes, outside the sandbox, after each worker turn
+//! and at the CI gate. The guard and profile refuse the worker's own push; its
+//! token is the boundary. The push is fast-forward only. A fork head kelpie did
+//! not last know is the contributor's own push: nothing is pushed and the gate
+//! raises the foreign-change ruling. A refused push raises a
+//! [`Stuck::PushRefused`] ruling naming git's reason, and the commits stay.
 
 use super::super::Runner;
 use super::super::report::Begin;

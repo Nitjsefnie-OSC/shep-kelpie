@@ -66,21 +66,14 @@ pub(in crate::runner) enum Answered {
 }
 
 impl Runner {
-    /// Replies on each bot thread sent to the worker, with what its reply
-    /// said of the thread, and resolves the ones it fixed, on pull request
-    /// `number`
+    /// Replies on each bot thread sent to the worker and resolves the ones it fixed
     ///
-    /// A thread the worker's reply did not mention is replied to as not
-    /// addressed. When `pushed` is false the fix moved no head, so no thread
-    /// is resolved, and a fix the worker claims is replied to as not made.
-    /// Declined and unaddressed threads stay open.
-    ///
-    /// A thread is resolved before it is replied to, and forgotten once both
-    /// are done, so a failure part way retries only what is left and a
-    /// running runner never replies twice. A runner killed between a reply
-    /// and the save that forgets the thread replies to it again after the
-    /// restart: that order is kept, since the other would leave a thread with
-    /// no reply at all.
+    /// A thread the worker's reply did not mention is replied to as not addressed.
+    /// With `pushed` false no thread is resolved and a claimed fix is replied to as
+    /// not made. Declined and unaddressed threads stay open. A thread is resolved
+    /// before it is replied to and forgotten once both are done, so a failure retries
+    /// only what is left. A kill between a reply and the save repeats the reply after
+    /// a restart: the other order could leave a thread with none.
     pub(in crate::runner) fn answer_sent(
         &mut self,
         number: u64,
@@ -114,11 +107,10 @@ impl Runner {
                 false => forge.reply_to_thread(&self.remote, &id, text),
             };
             let mut posted = reply(&body);
-            // The guard refuses the same text every time, so a reason that
-            // names this machine, or that a hook refuses, is left out rather
-            // than retried for ever. A hook that failed to run is retried.
-            // Only a decline carries the worker's words, so only it is
-            // replaced, by a reply that says it was a decline.
+            // The guard refuses the same text every time, so a reason that names this
+            // machine, or that a hook refuses, is left out rather than retried for ever.
+            // A hook that failed to run is retried. Only a decline carries the worker's
+            // words, so only it is replaced, by a reply that says it was a decline.
             let declined = matches!(answer, Some(ThreadAnswer::Declined { .. }));
             match &posted {
                 Err(ForgeError::LocalPath { .. }) => posted = reply(UNPOSTABLE_REASON),

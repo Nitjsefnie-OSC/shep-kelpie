@@ -2,17 +2,11 @@
 //!
 //! Once a poll, a pass over the current head that a reviewer other than a
 //! review bot answered is posted as the App, in the representative's words:
-//! findings as one review that only comments, a comment on each finding the
-//! diff shows a line for and the rest in the review's body, and a pass that
-//! found nothing as one short note. A bot's threads are its own post, so a
-//! pass a bot answered posts nothing. Each is posted once per head: the id
-//! the forge gave is kept in the pass, and a push clears the pass with it.
-//!
-//! The representative words the review in one call, as JSON of the body and
-//! a list of comments in finding order. An answer that is not that, or has a
-//! different count of comments, falls back to the findings' own words. A
-//! call that fails, or a post the forge refuses, is told once in the log and
-//! tried again at the next poll, and never fails the poll.
+//! findings as one review that only comments, a note when nothing was found.
+//! A bot's threads are its own post. Each is posted once per head, the forge's
+//! id kept in the pass. One representative call words it, as JSON; any other
+//! answer falls back to the findings' own words. A failed call or post is
+//! retried at the next poll.
 
 use std::collections::{BTreeMap, BTreeSet};
 

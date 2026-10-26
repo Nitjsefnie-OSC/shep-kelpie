@@ -1,16 +1,13 @@
-//! The limits kelpie puts on triage, checked before an issue's research call,
-//! through the runner's stand-ins
+//! The limits kelpie puts on triage, through the runner's stand-ins
 //!
-//! None of them calls a model. The day's cap holds an issue in the due list;
-//! the author's cap and the account's age end it at `needs-triage` with no call
-//! and no comment; the body limit cuts what the call is given. The maintainer's
-//! own issues and one `shep kelpie triage` asked for skip all four.
+//! None calls a model. The day's cap holds an issue in the due list; the author's
+//! cap and the account's age end it at `needs-triage` with no call or comment; the
+//! body limit cuts what the call is given. The maintainer's own issues and one
+//! `shep kelpie triage` asked for skip all four.
 //!
 //! The caps count the calls the records save, so an author's round spends places
-//! beside the first pass's call, and a round call past a cap waits for the next
-//! free place instead of ending the issue. A call counts when it reached a
-//! model, whatever its reply came to, and a call on an issue with no record yet is
-//! saved in the state, so a restart does not lose it.
+//! beside the first pass's call, and a round call past a cap waits for a free
+//! place. A call counts when it reached a model, whatever its reply came to.
 
 use std::sync::Mutex;
 

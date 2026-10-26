@@ -1,16 +1,13 @@
 //! What a contributor says on their pull request
 //!
-//! The comments the runner's thread read finds (see
-//! [`thread_replies`](crate::runner::thread_replies)) and the replies it
-//! reads from the pull requests' review threads are sorted here, by author
-//! and never by the words. A comment or reply by the contribution's author is
-//! heard, and one by the maintainer is kept apart as context. Anyone else's,
-//! any bot's, and any comment kelpie posted as the maintainer's login are
-//! left alone. Only ids, kinds and times are recorded; a prompt reads the
-//! text again, fenced as outside text (`crates/runner/src/runner/untrusted.rs`).
-//!
-//! A push is heard by [`Runner::follow_contributions`] as the head moving.
-//! Nothing is posted and no reaction is read here.
+//! The comments from the runner's thread read (see
+//! [`thread_replies`](crate::runner::thread_replies)) and the review thread
+//! replies are sorted here by author, never by the words. The contribution
+//! author's are heard, the maintainer's kept apart as context, and anyone else's,
+//! any bot's and kelpie's own are left alone. Only ids, kinds and times are
+//! recorded; a prompt reads the text again, fenced as outside text
+//! (`crates/runner/src/runner/untrusted.rs`). A push is heard by
+//! [`Runner::follow_contributions`] as the head moving.
 
 use std::collections::BTreeSet;
 
@@ -28,16 +25,10 @@ enum Where {
 }
 
 impl Runner {
-    // Records what `comments`, the repo's comments since the last read, and
-    // `replies`, the review threads' comments of the pull requests followed,
-    // say about the contributions: who wrote them, and when. A comment on
-    // record is not recorded again. `read` are the pull requests whose review
-    // threads were read, which are read again from `behind`.
-    //
-    // Returns whether everything was sorted. When a login needed to tell the
-    // maintainer's words from kelpie's and anyone else's cannot be had,
-    // nothing is recorded or marked read, so the caller holds the place it
-    // reads to and the next read reaches all of it again.
+    // Records who wrote `comments` and `replies` and when, once each. `read` are
+    // the pull requests whose threads were read, read again from `behind`.
+    // Returns whether all was sorted; without the login that tells the maintainer's
+    // words from kelpie's, nothing is recorded and the next read reaches it all again.
     pub(in crate::runner) fn hear_contributions(
         &mut self,
         comments: &[ThreadComment],

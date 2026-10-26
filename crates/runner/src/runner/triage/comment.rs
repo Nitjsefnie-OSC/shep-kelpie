@@ -2,16 +2,12 @@
 //!
 //! The representative words the facts, kelpie's code appends [`MARKER`] and
 //! posts the comment as the App, and then puts the labels on. A maintainer's
-//! issue the pass is sure of goes on to the ready path ([`ready`]): its body
-//! is rewritten and `ready-for-agent` goes on last; any other issue ends
-//! `needs-triage`. The record in `triage.issues` says how far an issue got,
-//! and it is saved before each next write to the forge, so a restart goes on
-//! from its step and posts nothing twice. A post the forge took whose record
-//! did not save is caught by the marker, which only the App's own comment
-//! counts for.
-//!
-//! A step that fails is told once in the log and tried at the next poll, and
-//! five failures give the issue up until kelpie restarts.
+//! issue the pass is sure of goes on to the ready path ([`ready`]); any other
+//! issue ends `needs-triage`. The record in `triage.issues` is saved before each
+//! next write to the forge, so a restart posts nothing twice; a post the forge
+//! took whose record did not save is caught by the marker, which only the App's
+//! own comment counts for. A failed step is logged and tried at the next poll,
+//! and five failures give the issue up until kelpie restarts.
 
 use super::super::Runner;
 use super::super::contributions::post::{forge_is_busy, refused_text};
@@ -390,12 +386,10 @@ impl Runner {
                 return Ok(());
             }
         };
-        // The reply names a type `bug` and a priority `P2`. The board ranks by
-        // `priority: P2`, the label name it reads, so a priority is looked for
-        // under that name first, and under the bare `P2` only on a repo that
-        // names its priorities that way. A repo with neither gets the board's
-        // name made, so no priority the triager chose is dropped. A type the
-        // repo does not have is never put on.
+        // The reply names a type `bug` and a priority `P2`. The board reads the label
+        // `priority: P2`, so a priority is looked for under that name first, then the
+        // bare `P2`; a repo with neither gets the board's name made. A type the repo
+        // does not have is never put on.
         let mut labels: Vec<String> = Vec::new();
         if let Some(kind) = found.kind {
             labels.extend(board::repo_label(&have, kind).map(str::to_owned));
@@ -832,12 +826,10 @@ impl Runner {
         self.save(next)
     }
 
-    // Does what `issue`'s record says is left: the close of a duplicate, the
-    // labels the research asked for and then `needs-triage`, the answers pass's
-    // write under the author's text, or the ready path's body write and then
-    // its labels with `ready-for-agent` last, each step saved before the next
-    // write. A record whose ask or questions are still open is the author's to
-    // answer: no label goes on while it waits.
+    // Does what `issue`'s record says is left: the duplicate's close, the research's
+    // labels then `needs-triage`, the answers pass's write, or the ready path's
+    // body write then labels, `ready-for-agent` last, each saved before the next
+    // write. No label goes on while the author's ask or questions are open.
     pub(super) fn finish_triage(&mut self, issue: u64) -> Result<(), StateError> {
         loop {
             let Some(record) = self.triage_record(issue).cloned() else {

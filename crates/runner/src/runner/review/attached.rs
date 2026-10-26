@@ -52,17 +52,13 @@ impl Runner {
         command.filter(|_| writing_tool(model.harness.harness()).is_some())
     }
 
-    /// Readies the folders for a session round, and gives a reviewer asked for
-    /// tests the reach that lets it write its own folder alone
+    /// Readies the folders for a session round and the reviewer's reach
     ///
-    /// A Codex or goose reviewer not asked for tests gets a fence too, with no
-    /// write folder, since its only way to read the worktree is a shell that
-    /// the fence's guard judges. A reviewer on any other harness has none.
-    ///
-    /// A first look of a reviewer asked for tests starts its own folder empty. A
-    /// second look finds the first's files where they are. The checked copies
-    /// stay across reviewers and passes: a held finding still names its file,
-    /// and a path kept again is written over.
+    /// A reviewer asked for tests may write its own folder alone. A Codex or goose
+    /// reviewer not asked for tests gets a fence with no write folder: its only way
+    /// to read the worktree is a shell the fence's guard judges. A first look starts
+    /// its folder empty, a second finds the first's files, and the checked copies
+    /// stay across reviewers and passes so a held finding still names its file.
     ///
     /// # Errors
     ///

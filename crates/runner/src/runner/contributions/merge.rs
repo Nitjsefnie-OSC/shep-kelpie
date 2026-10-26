@@ -1,41 +1,13 @@
 //! The maintainer's ruling on merging a contribution
 //!
-//! Nobody but the maintainer merges someone else's work, so `git.merging =
-//! "auto"` does not reach a contribution. Once a poll, a contribution whose
-//! pass has ended and whose CI is green on the same head gets one merge
-//! ruling, about the pull request and with no work item. It names what the
-//! reviewers recorded and the review bot threads still open, goes to the
-//! maintainer's webhook, `status` and `shep kelpie rule` only, and is raised
-//! under `ask` and under `auto` alike. It holds nothing: the clock, the asks
-//! and the reviewers go on while it waits.
-//!
-//! The maintainer may also answer it with a thumbs up or down on the
-//! representative's clean-pass note, when the head's pass has one. Only the
-//! maintainer's reaction counts, a down wins over an up, and a down records
-//! no note. The first answer from any channel wins.
-//!
-//! The answer is kept on the record (`ruled`) and carried out by the next
-//! poll, so a restart loses none of it:
-//!
-//! - A yes merges the head the ruling named, and the representative thanks the
-//!   contributor. A forge that refuses the merge, because the head moved or
-//!   for any other reason, is told in the log and asked again at the next
-//!   poll. A merge that failed every try raises the ruling again. A thanks that
-//!   cannot be worded or posted is told in the log, never holds the merge back
-//!   and is not tried again once the merged pull request leaves the record.
-//! - A no with a note has the representative word the note and post it for
-//!   the contributor. A no with no note, or one given by a reaction or a tick,
-//!   posts nothing.
-//! - A rework hands the pull request to kelpie: the record is released as
-//!   `how: rework`, which is what adoption needs, and it is queued for a work
-//!   item at once, without waiting for the contributor to release it. A release
-//!   that landed first is overruled: its `how` becomes `rework` and the note
-//!   goes on the record. The note is kept on the record, where the work item's
-//!   start reads it, and a push after the answer keeps it. A rework with no
-//!   note, which a tick or the card's choice gives, sends the worker none.
-//!
-//! A yes, a no and a rework run no fix turn of their own. A new head clears
-//! the answer, withdraws the ruling and is read afresh.
+//! Only the maintainer merges someone else's work, so `git.merging = "auto"`
+//! does not reach a contribution. Once a poll, one whose pass has ended with green
+//! CI on the same head gets a merge ruling, with no work item. It holds nothing.
+//! A thumbs up or down on the clean-pass note answers it too; the first answer wins.
+//! The answer is kept on the record (`ruled`) and carried out by the next poll:
+//! yes merges the ruled head, a no with a note posts it, and a rework releases
+//! the pull request as `how: rework` and queues it at once. A new head clears the
+//! answer and withdraws the ruling.
 
 use super::super::Runner;
 use super::super::gate::short;
@@ -209,16 +181,10 @@ impl Runner {
         )
     }
 
-    // Has kelpie take the pull request over, as the maintainer's `rework`
-    // answer does. The record is released, which is all adoption needs of it,
-    // and the poll's own step queues it for a work item. Nothing is posted on
-    // the pull request. The note goes on the record and not on the answer, so
-    // a contributor who pushes before the work item starts leaves it there.
-    //
-    // A release that landed first, the contributor's own yes or a quiet
-    // `quiet_days`, is the maintainer's `rework` to overrule: its `how` becomes
-    // `rework` and the note goes on the record, which is what decides whether
-    // the work item starts at a review pass or at a worker's turn.
+    // Has kelpie take the pull request over, as the maintainer's `rework` answer
+    // does: the record is released and the poll's own step queues it. The note
+    // goes on the record, so a push before the work item starts keeps it. A release
+    // that landed first is overruled: its `how` becomes `rework`.
     fn take_it_over(&mut self, held: &Contribution) -> Result<(), StateError> {
         let number = held.pull_request;
         let note = (held.ruled.as_ref()).and_then(|r| match &r.verdict {
