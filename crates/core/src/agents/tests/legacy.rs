@@ -173,6 +173,52 @@ fn a_stub_with_a_harness_and_no_model_is_skipped_and_named() {
 }
 
 #[test]
+fn a_stub_on_the_baselines_own_harness_gets_the_model_and_effort() {
+    let text = "---\nextends: kelpie:pm\nharness: claude-code\n---\n";
+    let dir = folder(&[("pm.md", text)]);
+
+    let report = legacy::migrate(dir.path()).unwrap();
+
+    assert!(report.skipped.is_empty(), "{:?}", report.skipped);
+    assert_eq!(wrote(&report), ["pm.md"]);
+    assert_eq!(
+        read(&dir, "pm.md"),
+        "---\nextends: kelpie:pm\nmodel: claude-opus-5-5\neffort: medium\nharness: claude-code\n---\n"
+    );
+    assert!(Agents::load(dir.path()).is_ok());
+}
+
+#[test]
+fn a_file_on_a_harness_with_keys_of_its_own_is_left_alone() {
+    let endpoint = "---\nextends: kelpie:defect-hunter\nharness: endpoint\nurl: http://box:11434/v1\n\
+                    model: coder\ncontext: 32768\n---\n";
+    let command = "---\nextends: kelpie:standards\nharness: command\ncommand: /bin/true\n---\n";
+    let dir = folder(&[("local.md", endpoint), ("script.md", command)]);
+
+    let report = legacy::migrate(dir.path()).unwrap();
+
+    assert_eq!(report, Report::default());
+    assert_eq!(read(&dir, "local.md"), endpoint);
+    assert_eq!(read(&dir, "script.md"), command);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_symlinked_stub_is_written_through_and_stays_a_link() {
+    let dir = folder(&[("elsewhere.txt", &stub("pm"))]);
+    let agents = dir.path().join("agents");
+    std::fs::create_dir(&agents).unwrap();
+    std::os::unix::fs::symlink(dir.path().join("elsewhere.txt"), agents.join("pm.md")).unwrap();
+
+    let report = legacy::migrate(&agents).unwrap();
+
+    assert_eq!(wrote(&report), ["pm.md"]);
+    assert!(agents.join("pm.md").is_symlink());
+    assert!(read(&dir, "elsewhere.txt").contains("model: claude-opus-5-5"));
+    assert!(legacy::pending(&agents).unwrap().wrote.is_empty());
+}
+
+#[test]
 fn a_second_run_writes_nothing() {
     let skipped = "---\nextends: kelpie:pm\nharness: codex\n---\n";
     let dir = folder(&[

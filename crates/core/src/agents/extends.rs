@@ -258,6 +258,8 @@ fn key_of(line: &str) -> Option<&str> {
 #[derive(Debug)]
 pub(super) struct Own {
     pub(super) keys: Vec<String>,
+    /// The value of its own `harness` key, if it sets one
+    pub(super) harness: Option<String>,
     /// The byte offset in `text` just past the `extends` line, if there is one
     pub(super) after_extends: Option<usize>,
 }
@@ -266,6 +268,10 @@ pub(super) struct Own {
 pub(super) fn own(text: &str) -> Option<Own> {
     let (front, _) = front::split(text)?;
     let start = front.as_ptr() as usize - text.as_ptr() as usize;
+    let harness = entries(front)
+        .into_iter()
+        .find(|e| e.key == "harness")
+        .map(|e| e.value());
     let mut keys = Vec::new();
     let mut after_extends = None;
     let mut offset = start;
@@ -280,6 +286,7 @@ pub(super) fn own(text: &str) -> Option<Own> {
     }
     Some(Own {
         keys,
+        harness,
         after_extends,
     })
 }

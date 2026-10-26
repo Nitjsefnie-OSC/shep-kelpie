@@ -57,3 +57,20 @@ async fn a_file_the_migration_skips_says_why() {
     assert!(what.contains("model"), "{what}");
     assert!(fix.contains("`model` and `effort`"), "{fix}");
 }
+
+#[tokio::test]
+async fn a_skipped_file_does_not_hide_a_stub_the_migration_would_write() {
+    let scene = Scene::new().await;
+    scene.runs("golbat", |_| {});
+    let agents = scene.kelpie_home.join("agents");
+    crate::test::write_in(&agents, "pm.md", "---\nextends: kelpie:pm\n---\n");
+    let skipped = "---\nextends: kelpie:pm\nharness: codex\n---\n";
+    crate::test::write_in(&agents, "codex-pm.md", skipped);
+
+    let report = scene.report().await;
+
+    let (_, fix) = missing(&report, "agent pm");
+    assert_eq!(fix, "shep kelpie upgrade, or shep kelpie agents migrate");
+    let (what, _) = missing(&report, "agent codex-pm");
+    assert!(what.contains("is skipped by the migration"), "{what}");
+}

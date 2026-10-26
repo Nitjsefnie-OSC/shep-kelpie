@@ -71,6 +71,13 @@ pub struct Wrote {
     added: Vec<(&'static str, &'static str)>,
 }
 
+impl Wrote {
+    /// Whether the file set no `harness`, so it binds nothing until written
+    pub fn was_unbound(&self) -> bool {
+        self.added.iter().any(|(key, _)| *key == "harness")
+    }
+}
+
 impl fmt::Display for Wrote {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}: wrote", self.file)?;
@@ -101,7 +108,7 @@ impl fmt::Display for Skipped {
 pub struct Report {
     /// The files it wrote
     pub wrote: Vec<Wrote>,
-    /// The files it left alone, which set a `harness` without a `model` or `effort`
+    /// The files it left alone, which set another session `harness` without a `model` or `effort`
     pub skipped: Vec<Skipped>,
 }
 
@@ -136,8 +143,9 @@ pub fn pending(folder: &Path) -> Result<Report, AgentsError> {
 ///
 /// A file whose own text has `extends: kelpie:<baseline>` gets each of `harness`, `model`,
 /// `effort` and (for `defect-hunter`) `second_look` it does not set, after its `extends` line;
-/// comments, other keys and body stay. A file that sets a `harness` but not both of `model` and
-/// `effort` is skipped. Each write renames a temporary file beside it; a second run writes nothing.
+/// comments, other keys and body stay. A file on another session `harness` than the baseline's
+/// without both `model` and `effort` is skipped, and one on `command`, `endpoint` or `bot` is
+/// left alone. A write renames a temporary file beside its target; a second run writes nothing.
 ///
 /// # Errors
 ///
@@ -207,13 +215,18 @@ fn judge(text: &str) -> Judged {
         return Judged::Leave;
     };
     let sets = |key: &str| own.keys.iter().any(|k| k == key);
-    if sets("harness") {
-        let lacking: Vec<&str> = ["model", "effort"]
+    let harness = own.harness.as_deref();
+    // These take keys of their own, not the baseline's session keys, and never inherited them.
+    if matches!(harness, Some("command" | "endpoint" | "bot")) {
+        return Judged::Leave;
+    }
+    if harness.is_some_and(|h| h != row.harness) {
+        let lacking: Vec<String> = ["model", "effort"]
             .into_iter()
             .filter(|k| !sets(k))
+            .map(|k| format!("`{k}`"))
             .collect();
         if !lacking.is_empty() {
-            let lacking: Vec<String> = lacking.iter().map(|k| format!("`{k}`")).collect();
             return Judged::Skip(format!(
                 "it sets `harness` but not {}, and `{}` ran on {}: set {} in the file",
                 lacking.join(" or "),
@@ -248,9 +261,10 @@ fn judge(text: &str) -> Judged {
     }
 }
 
-// Writes `text` over `path` by a rename of a new file beside it, keeping its mode. A failure
-// leaves no temporary file.
+// Writes `text` over `path`, or over what a symlink there points to, by a rename of a new file
+// beside it, keeping its mode. A failure leaves no temporary file.
 fn replace(path: &Path, text: &str) -> io::Result<()> {
+    let path = &fs::canonicalize(path)?;
     let dir = path.parent().unwrap_or_else(|| Path::new("."));
     let name = path
         .file_name()
