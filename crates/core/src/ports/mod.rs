@@ -203,12 +203,17 @@ pub trait Forge: Send + Sync {
     /// [`ForgeError`] when the forge cannot be asked or its answer read.
     fn can_push(&self, repo: &ForgeSlug) -> Result<bool, ForgeError>;
 
-    /// Whether the review bot `login` has commented on any pull request of `repo`
+    /// When the pull request the review bot `login` last reviewed on `repo` was
+    /// last updated, or `None` when it has reviewed none
     ///
     /// # Errors
     ///
     /// [`ForgeError`] when the forge cannot be asked or its answer read.
-    fn review_bot_seen(&self, repo: &ForgeSlug, login: Login<'_>) -> Result<bool, ForgeError>;
+    fn last_bot_review(
+        &self,
+        repo: &ForgeSlug,
+        login: Login<'_>,
+    ) -> Result<Option<Timestamp>, ForgeError>;
 
     /// The open pull requests on `repo`
     ///

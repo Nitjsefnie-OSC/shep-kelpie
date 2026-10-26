@@ -7,10 +7,14 @@ use serde_json::{Map, Value};
 
 use super::{Here, Line, Probes, rulings};
 use crate::agents::Agents;
+use crate::coderabbit::CodeRabbit;
+use crate::codex::Codex;
+use crate::cubic::Cubic;
 use crate::flock::add::LABELS;
 use crate::home::{ProjectName, ProjectPaths};
 use crate::local_tickets::LocalTickets;
-use crate::ports::{Forge, NewLabel, Visibility};
+use crate::ports::{Forge, NewLabel, Timestamp, Visibility};
+use crate::review_bot::{Bot, Login, Profile};
 use crate::runner::{NO_ORIGIN, check_checkout, check_instructions, source_of};
 use crate::settings::{
     Account, AgentName, DoctorProbe, ForgeSlug, Gateways, Harness, Limit, Pick, RoleModel,
@@ -167,8 +171,8 @@ pub(super) fn checks(
     lines.push(line);
     // The forge lines need the repo, and the checkout line says why when it is unknown.
     if let Some(repo) = &remote {
-        let coderabbit = coderabbit_listed(&settings, (&book, &gateways), here.home);
-        lines.extend(forge_lines(&at, repo, &settings, coderabbit, probes));
+        let bots = bots_listed(&settings, (&book, &gateways), here.home);
+        lines.extend(forge_lines(&at, repo, &settings, &bots, probes));
         let (line, covered) = super::github::app(at("github app"), repo, probes.github);
         lines.push(line);
         lines.push(super::github::workers(at("workers"), repo, probes.github));
@@ -309,13 +313,13 @@ fn count(tickets: usize) -> String {
     }
 }
 
-// Push access, the labels, and the review bot where CodeRabbit is listed:
-// each read from `repo` on the forge.
+// Push access, the labels, and each review bot the project lists: each read
+// from `repo` on the forge.
 fn forge_lines(
     at: &dyn Fn(&str) -> String,
     repo: &ForgeSlug,
     settings: &Settings,
-    coderabbit: bool,
+    bots: &[Bot],
     probes: Probes<'_>,
 ) -> Vec<Line> {
     let slug = repo.as_str();
@@ -334,8 +338,9 @@ fn forge_lines(
         ),
     });
 
+    // parity: review-bot.summon-by-label
     let wanted: Vec<NewLabel> = (LABELS.into_iter())
-        .filter(|l| coderabbit || l.name != crate::coderabbit::LABEL)
+        .filter(|l| bots.contains(&Bot::Coderabbit) || l.name != crate::coderabbit::LABEL)
         .collect();
     lines.push(match probes.forge.repo_labels(repo) {
         Ok(have) => {
@@ -376,12 +381,8 @@ fn forge_lines(
         },
     );
 
-    if coderabbit {
-        lines.push(review_bot(
-            &at(&probes.review_bot.name().to_lowercase()),
-            repo,
-            probes,
-        ));
+    for &bot in bots {
+        lines.push(review_bot(&at(bot.as_str()), repo, bot, probes));
     }
     lines
 }
@@ -575,66 +576,87 @@ fn names(labels: &[NewLabel]) -> String {
     quoted.join(", ")
 }
 
-// Whether the project lists CodeRabbit's file among its reviewers. A list
-// that cannot be read is the `reviewers` line's to report.
-fn coderabbit_listed(
+// The review bots the project lists among its reviewers, in its order. A
+// list that cannot be read is the `reviewers` line's to report.
+fn bots_listed(
     settings: &Settings,
     (book, gateways): (&Agents, &Gateways),
     home: &std::path::Path,
-) -> bool {
+) -> Vec<Bot> {
     let lineup = settings.lineup(book, gateways, home).unwrap_or_default();
-    let listed = |r: &crate::settings::ListedReviewer| r.bot().map(|b| b.bot);
-    lineup
+    let mut bots: Vec<Bot> = lineup
         .iter()
-        // parity: review-bot.private-repos
-        .any(|r| listed(r) == Some(crate::review_bot::Bot::Coderabbit))
+        .filter_map(|r| r.bot().map(|b| b.bot))
+        .collect();
+    bots.dedup();
+    bots
 }
 
-// The runner refuses to start with the bot listed for a repo that is not
-// public, and a bot that has never commented on it is likely not installed.
-fn review_bot(subject: &str, repo: &ForgeSlug, probes: Probes<'_>) -> Line {
-    let bot = probes.review_bot;
+// The runner refuses to start with CodeRabbit listed for a repo that is not
+// public. Any bot that has never reviewed on the repo is likely not
+// installed there, and the runner passes it over after ten minutes.
+fn review_bot(subject: &str, repo: &ForgeSlug, bot: Bot, probes: Probes<'_>) -> Line {
+    let name = bot.name();
     let slug = repo.as_str();
-    match probes.forge.visibility(repo) {
-        Ok(Visibility::Public) => {}
-        Ok(_) => {
-            return Line::missing(
-                subject,
-                format!(
-                    "{slug} is not public, and {}'s free plan reviews public repos only",
-                    bot.name()
-                ),
-                "take `coderabbit` off this project's `agents.reviewers`, or make the repo public",
-            );
-        }
-        Err(e) => {
-            return Line::unsure(
-                subject,
-                format!("cannot read whether {slug} is public: {e}"),
-                format!("run `gh repo view {slug}` to see why"),
-            );
+    // parity: review-bot.private-repos
+    if bot == Bot::Coderabbit {
+        match probes.forge.visibility(repo) {
+            Ok(Visibility::Public) => {}
+            Ok(_) => {
+                return Line::missing(
+                    subject,
+                    format!(
+                        "{slug} is not public, and {name}'s free plan reviews public repos only"
+                    ),
+                    "take `coderabbit` off this project's `agents.reviewers`, or make the repo public",
+                );
+            }
+            Err(e) => {
+                return Line::unsure(
+                    subject,
+                    format!("cannot read whether {slug} is public: {e}"),
+                    format!("run `gh repo view {slug}` to see why"),
+                );
+            }
         }
     }
-    match probes.forge.review_bot_seen(repo, bot.login()) {
-        Ok(true) => Line::ok(
+    match probes.forge.last_bot_review(repo, login_of(bot)) {
+        Ok(Some(at)) => Line::ok(
             subject,
-            format!("{} has commented on a pull request of {slug}", bot.name()),
+            format!("{name} last reviewed on {slug} at {}", when(at)),
         ),
-        Ok(false) => Line::unsure(
+        Ok(None) => Line::missing(
             subject,
             format!(
-                "{} has not commented on any pull request of {slug}, so it may not be installed there",
-                bot.name()
+                "{name} has never reviewed a pull request of {slug}, so it may not be installed there"
             ),
             format!(
-                "install it on {slug}, or take `coderabbit` off `agents.reviewers`; a repo with no reviewed pull request yet reads this way"
+                "install it on {slug}, or take `{bot}` off `agents.reviewers`; a repo with no reviewed pull request yet reads this way"
             ),
         ),
         Err(e) => Line::unsure(
             subject,
-            format!("cannot read whether {} is on {slug}: {e}", bot.name()),
+            format!("cannot read whether {name} is on {slug}: {e}"),
             format!("run `gh search prs --repo {slug}` to see why"),
         ),
+    }
+}
+
+// The login `bot` posts under, which its profile holds.
+fn login_of(bot: Bot) -> Login<'static> {
+    match bot {
+        Bot::Coderabbit => CodeRabbit.login(),
+        Bot::Cubic => Cubic.login(),
+        Bot::Codex => Codex.login(),
+    }
+}
+
+// `at` as the maintainer reads a time, in UTC to the minute.
+fn when(at: Timestamp) -> String {
+    let seconds = i64::try_from(at.0).unwrap_or(i64::MAX);
+    match jiff::Timestamp::from_second(seconds) {
+        Ok(time) => time.strftime("%Y-%m-%d %H:%M UTC").to_string(),
+        Err(_) => format!("{} seconds into 1970", at.0),
     }
 }
 
