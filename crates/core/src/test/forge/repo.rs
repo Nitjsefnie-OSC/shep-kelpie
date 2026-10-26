@@ -31,6 +31,11 @@ impl FakeForge {
         *self.bot_reviewed.lock().unwrap() = at;
     }
 
+    /// How many times a review bot's last review was asked for
+    pub fn bot_review_reads(&self) -> usize {
+        self.bot_review_reads.load(Ordering::SeqCst)
+    }
+
     /// Makes asking who the account is fail with `error`, as `gh` does when it is logged out
     pub fn set_viewer_down(&self, error: ForgeError) {
         *self.viewer_down.lock().unwrap() = Some(error);

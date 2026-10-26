@@ -115,6 +115,7 @@ pub struct FakeForge {
     pushes: Arc<AtomicBool>,
     // When the review bot last reviewed on the repo, which it has until a test says not
     bot_reviewed: Arc<Mutex<Option<Timestamp>>>,
+    bot_review_reads: Arc<AtomicUsize>,
     viewer_down: Arc<Mutex<Option<ForgeError>>>,
     // Every call made, and the board's reads among them
     asked: Arc<AtomicUsize>,
@@ -214,6 +215,7 @@ impl FakeForge {
             issue_writes: Arc::default(),
             pushes: Arc::new(AtomicBool::new(true)),
             bot_reviewed: Arc::new(Mutex::new(Some(Timestamp(LAST_REVIEWED)))),
+            bot_review_reads: Arc::default(),
             viewer_down: Arc::default(),
             asked: Arc::default(),
             board_reads: Arc::default(),
@@ -470,6 +472,7 @@ impl Forge for FakeForge {
         _repo: &ForgeSlug,
         _login: Login<'_>,
     ) -> Result<Option<Timestamp>, ForgeError> {
+        self.bot_review_reads.fetch_add(1, Ordering::SeqCst);
         self.ask()?;
         Ok(*self.bot_reviewed.lock().unwrap())
     }

@@ -403,6 +403,9 @@ pub struct Runner {
     queued_reruns: gate::queued::Reruns,
     // The work items whose head's checks, as last listed, were none, in memory only
     no_checks: std::collections::BTreeSet<TicketId>,
+    // The review bots the forge showed reviewing on the repo before, in memory
+    // only: that never goes back, so a silent summon asks once
+    bots_reviewed: std::collections::BTreeSet<Bot>,
     // The build folders and the disk as last read while a turn ran, in memory only
     builds: builds::BuildWatch,
     // The ids of comments kelpie posted as the login `gh` acts as since the
@@ -666,6 +669,7 @@ impl Runner {
             held_up: turn::held_up::HeldUps::default(),
             queued_reruns: gate::queued::Reruns::default(),
             no_checks: std::collections::BTreeSet::new(),
+            bots_reviewed: std::collections::BTreeSet::new(),
             builds: builds::BuildWatch::default(),
             posted: std::cell::RefCell::default(),
             holds: lock_hold::Holds::default(),

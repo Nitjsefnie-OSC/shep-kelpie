@@ -102,6 +102,17 @@ fn a_bot_that_reviewed_before_is_not_passed_over_for_being_silent_ten_minutes() 
     assert_eq!(labels(&rig), [on()], "still summoned");
 }
 
+#[test]
+fn a_silent_summon_of_a_bot_that_reviewed_before_asks_the_forge_once() {
+    let (rig, runner, _) = summoned_with(None);
+    rig.clock.advance(ANSWER_WAIT);
+    for _ in 0..3 {
+        assert_eq!(step(&runner).unwrap(), None);
+        rig.clock.advance(60);
+    }
+    assert_eq!(rig.forge.bot_review_reads(), 1);
+}
+
 // A bot that shows a sign it is reviewing is not one that is not installed,
 // and waits for its review as it did.
 #[test]

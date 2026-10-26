@@ -13,14 +13,25 @@ use crate::work_item::BotSkipped;
 
 impl Runner {
     // Whether the forge says `bot` has never reviewed on this repo. A forge
-    // that cannot say leaves the bot to its wait.
-    pub(super) fn never_reviewed(&self, bot: Bot) -> bool {
+    // that cannot say leaves the bot to its wait. A review once seen is
+    // remembered, so a silent summon asks the forge once.
+    pub(super) fn never_reviewed(&mut self, bot: Bot) -> bool {
+        if self.bots_reviewed.contains(&bot) {
+            return false;
+        }
         let profile = self.profile(bot);
         let last = self
             .ports
             .forge
             .last_bot_review(&self.remote, profile.login());
-        matches!(last, Ok(None))
+        match last {
+            Ok(Some(_)) => {
+                self.bots_reviewed.insert(bot);
+                false
+            }
+            Ok(None) => true,
+            Err(_) => false,
+        }
     }
 
     // The pass goes on without `bot`, whose summon sent at `at` is spent.
