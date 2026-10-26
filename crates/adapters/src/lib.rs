@@ -15,16 +15,13 @@ use shep_kelpie_core::{
     ports, profile, review_bot, settings, skills, ticket, webhook,
 };
 
-// What only Unix uses, since Windows keeps no App until #1264
-#[cfg(unix)]
-use shep_kelpie_core::totp;
-
 // What only the adapters' tests use of core
 #[cfg(test)]
 use shep_kelpie_core::{coderabbit, codex, cubic, local_paths, work_item};
 
 // The leaf crates, each module kept under the name it had here
 use shep_kelpie_facts::tool_error;
+use shep_kelpie_owner_only::owner_only;
 use shep_kelpie_process::{spawn, tools, worktree};
 use shep_kelpie_tree::tree;
 use shep_kelpie_trim::trim;
