@@ -64,6 +64,7 @@ impl Rig {
             let reading = Reading::App {
                 reads: Arc::new(app.clone()),
                 holds: holds.iter().map(|&h| h.to_owned()).collect(),
+                token: InstallationToken::new("first".into()),
             };
             covers
                 .0
@@ -105,7 +106,18 @@ impl Rig {
     fn said(&self) -> Vec<String> {
         self.said.lock().unwrap().clone()
     }
+
+    // The App mints a token for `koji` again, holding what it held.
+    fn mint_again(&self) {
+        let mut covers = self.covers.0.lock().unwrap();
+        let Some(Reading::App { token, .. }) = covers.get_mut(repo().as_str()) else {
+            panic!("the App covers koji");
+        };
+        *token = InstallationToken::new("second".into());
+    }
 }
+
+const REFUSAL: &str = "gh: Resource not accessible by integration (HTTP 403)";
 
 #[test]
 fn a_covered_projects_reads_go_through_the_app_and_the_ledger_says_so() {
@@ -225,6 +237,7 @@ fn a_missing_permission_stands_until_the_token_holds_it() {
         let reading = Reading::App {
             reads: Arc::new(rig.app.clone()),
             holds: holds.iter().map(|&h| h.to_owned()).collect(),
+            token: InstallationToken::new("first".into()),
         };
         let mut covers = rig.covers.0.lock().unwrap();
         covers.insert(repo().as_str().to_owned(), reading);
@@ -256,13 +269,12 @@ fn a_later_read_says_only_the_permissions_not_said_before() {
 #[test]
 fn a_read_the_app_is_refused_for_want_of_a_permission_falls_to_the_login_and_says_which() {
     let rig = Rig::new(Some(&ALL));
-    rig.app
-        .set_failing("gh: Resource not accessible by integration (HTTP 403)");
+    rig.app.set_failing(REFUSAL);
 
     rig.held.pull_request(&repo(), 7).unwrap();
     rig.held.pull_request(&repo(), 7).unwrap();
 
-    assert_eq!((rig.app.asked(), rig.login.asked()), (2, 2));
+    assert_eq!((rig.app.asked(), rig.login.asked()), (1, 2));
     let said = rig.said();
     assert_eq!(said.len(), 1, "said once: {said:#?}");
     assert!(
@@ -274,6 +286,83 @@ fn a_read_the_app_is_refused_for_want_of_a_permission_falls_to_the_login_and_say
         seen[..2],
         [(Identity::App, Ended::Failed), (Identity::Login, Ended::Ok)]
     );
+}
+
+#[test]
+fn a_refused_read_is_not_tried_through_the_app_again_but_other_reads_are() {
+    let rig = Rig::new(Some(&ALL));
+    rig.app.set_failing(REFUSAL);
+    rig.held.pull_request(&repo(), 7).unwrap();
+    rig.app.set_down(false);
+
+    rig.held.pull_request(&repo(), 7).unwrap();
+    rig.held.pull_request(&repo(), 7).unwrap();
+    rig.held.ready_issues(&repo()).unwrap();
+
+    assert_eq!((rig.app.asked(), rig.login.asked()), (2, 3));
+    let seen: Vec<_> = rig
+        .lines()
+        .iter()
+        .map(|l| (l.kind, l.by, l.ended))
+        .collect();
+    assert_eq!(
+        seen.last(),
+        Some(&(Kind::ReadyIssues, Identity::App, Ended::Ok))
+    );
+}
+
+#[test]
+fn a_token_minted_again_ends_the_memory_of_a_refusal() {
+    let rig = Rig::new(Some(&ALL));
+    rig.app.set_failing(REFUSAL);
+    rig.held.pull_request(&repo(), 7).unwrap();
+
+    rig.app.set_down(false);
+    rig.mint_again();
+    rig.held.pull_request(&repo(), 7).unwrap();
+
+    assert_eq!((rig.app.asked(), rig.login.asked()), (2, 1));
+}
+
+#[test]
+fn the_memory_of_a_refusal_ends_after_an_hour_and_the_new_refusal_is_not_said_again() {
+    let rig = Rig::new(Some(&ALL));
+    rig.app.set_failing(REFUSAL);
+    rig.held.pull_request(&repo(), 7).unwrap();
+
+    rig.clock.advance(3_599);
+    rig.held.pull_request(&repo(), 7).unwrap();
+    assert_eq!(
+        rig.app.asked(),
+        1,
+        "still remembered a second before the hour"
+    );
+
+    rig.clock.advance(1);
+    rig.held.pull_request(&repo(), 7).unwrap();
+    assert_eq!(rig.app.asked(), 2, "asked again at the hour");
+    rig.held.pull_request(&repo(), 7).unwrap();
+    assert_eq!(rig.app.asked(), 2, "and refused again, so remembered again");
+
+    let said = rig.said();
+    assert_eq!(said.len(), 1, "said once: {said:#?}");
+    assert!(said[0].contains("Resource not accessible"), "{said:#?}");
+}
+
+#[test]
+fn a_timeout_is_retried_through_the_app_on_the_next_read() {
+    let rig = Rig::new(Some(&ALL));
+    rig.app
+        .set_failing("gh: Post https://api.github.com/graphql: i/o timeout");
+
+    rig.held.pull_request(&repo(), 7).unwrap_err();
+    rig.held.pull_request(&repo(), 7).unwrap_err();
+    assert_eq!((rig.app.asked(), rig.login.asked()), (2, 0));
+
+    rig.app.set_down(false);
+    rig.held.pull_request(&repo(), 7).unwrap();
+    assert_eq!((rig.app.asked(), rig.login.asked()), (3, 0));
+    assert!(rig.said().is_empty());
 }
 
 #[test]

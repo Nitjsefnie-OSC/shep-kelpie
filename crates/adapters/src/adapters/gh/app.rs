@@ -140,6 +140,7 @@ impl AppForges for GhApps {
                 etags: self.etags.clone(),
             }),
             holds,
+            token: issued.token,
         }
     }
 }
