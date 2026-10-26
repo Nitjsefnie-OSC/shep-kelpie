@@ -96,8 +96,9 @@ pub(crate) struct Body {
 pub(crate) enum Pending {
     /// Hold back every new call, and with `at_tool` end each worker turn in flight at its next tool call
     Drain { at_tool: bool },
-    /// Start calls again
-    Undrain,
+    /// Start calls again, and with `keep` leave a turn that ended for a pause
+    /// unstarted for [`PAUSE_HOLD`](super::drain::PAUSE_HOLD)
+    Undrain { keep: bool },
 }
 
 impl Posted {
@@ -168,7 +169,7 @@ impl Posted {
                 false
             }
             // A `drain` after an `undrain` is the later ask, so it stands.
-            Some(Pending::Undrain) => {
+            Some(Pending::Undrain { .. }) => {
                 *pending = Some(Pending::Drain { at_tool });
                 false
             }
@@ -186,15 +187,24 @@ impl Posted {
 
     /// Records an `undrain` for the runner to take up at its next lock,
     /// starting calls again from now
-    pub(crate) fn ask_undrain(&self) {
+    pub(crate) fn ask_undrain(&self, keep: bool) {
         self.draining.store(false, Ordering::SeqCst);
         let first = self
             .pending
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .replace(Pending::Undrain)
+            .replace(Pending::Undrain { keep })
             .is_none();
         self.wake.fetch_or(first, Ordering::SeqCst);
+    }
+
+    /// Whether an `undrain keep` waits for the runner to take it up
+    pub(crate) fn keeping(&self) -> bool {
+        let pending = self
+            .pending
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        matches!(*pending, Some(Pending::Undrain { keep: true }))
     }
 
     /// What a `drain` or `undrain` asked while a pass held the lock, if any is waiting
@@ -383,8 +393,11 @@ mod tests {
     fn a_drain_and_an_undrain_waiting_for_a_pass_leave_the_last_of_them() {
         let posted = Posted::default();
         posted.ask_drain(true);
-        posted.ask_undrain();
-        assert_eq!(posted.take_pending(), Some(Pending::Undrain));
+        posted.ask_undrain(false);
+        assert_eq!(
+            posted.take_pending(),
+            Some(Pending::Undrain { keep: false })
+        );
         assert!(!posted.draining(), "the last ask is the one that stands");
 
         posted.ask_drain(false);

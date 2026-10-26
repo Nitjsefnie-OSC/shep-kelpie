@@ -632,7 +632,11 @@ const SENT_BACK: &str = "Your last turn ended with no pull request for this work
 // `shep kelpie pause` sends it while the worker is mid-turn, and the hook
 // then ends the turn at that call's result. `then` is how the turn would
 // have gone on.
-fn step_paused_in_a_tool(rig: &Rig, runner: &Mutex<Runner>, then: Scripted) -> Option<StepReport> {
+pub(in crate::runner) fn step_paused_in_a_tool(
+    rig: &Rig,
+    runner: &Mutex<Runner>,
+    then: Scripted,
+) -> Option<StepReport> {
     let tool = Hold::default();
     rig.claude
         .script([Scripted::AtTool(tool.clone(), Box::new(then))]);

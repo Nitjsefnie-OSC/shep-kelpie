@@ -319,6 +319,7 @@ impl Runner {
         // running carries on, since a turn is never interrupted, and start_over
         // resumes the same not-yet-begun turn after a session died unborn.
         let due = matches!(item.turn, Turn::Due | Turn::Next { .. });
+        let kept_paused = self.pause_held(item);
         let started = self.reads.has_started(item.issue);
         if let Some(begin) = self.pushed_by_someone_else()? {
             // A read the gate asks for is made and the step made again in the gate's phase, which
@@ -334,6 +335,9 @@ impl Runner {
         }
         if due && let Some(parked) = self.park_over_budget()? {
             return Ok(parked);
+        }
+        if due && kept_paused {
+            return Ok(self.idle(Reason::PauseHeld));
         }
         if due && let Some(why) = self.builds_hold() {
             return Ok(self.idle(why));
@@ -818,4 +822,4 @@ pub(super) fn write(folder: &Path, file: &Path, text: &str) -> Result<(), String
 }
 
 #[cfg(test)]
-mod tests;
+pub(super) mod tests;

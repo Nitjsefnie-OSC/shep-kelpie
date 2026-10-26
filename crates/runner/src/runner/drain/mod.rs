@@ -10,18 +10,31 @@
 //! Draining is kept in memory only: a restart ends it, as `undrain` does.
 //!
 //! `drain pause`, which `shep kelpie pause` sends, also sets a pause for each
-//! worker turn in flight on a harness that can end a turn at a tool result:
-//! the turn ends at its next tool call and is resumed at the next start.
+//! worker turn in flight on a harness that can end it at a tool result: it
+//! resumes at the next start, which `undrain keep` puts off by [`PAUSE_HOLD`].
+
+use std::collections::BTreeSet;
 
 use serde::Serialize;
 
 use super::Runner;
 use super::posted::Pending;
+use super::turn::paused::resumes_pause;
 use crate::guard::Pause;
-use crate::ports::Tools;
+use crate::ports::{Timestamp, Tools};
 use crate::settings::Harness;
 use crate::ticket::TicketId;
 use crate::work_item::WorkItem;
+
+/// Seconds a turn that ended for a pause stays unstarted after `undrain keep`
+pub(super) const PAUSE_HOLD: u64 = 10 * 60;
+
+/// The turns an `undrain keep` found ended for a pause, and until when they stay unstarted
+#[derive(Debug)]
+pub(super) struct PauseHold {
+    until: Timestamp,
+    issues: BTreeSet<TicketId>,
+}
 
 /// Where a pause set for a turn in flight ends it
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -122,7 +135,7 @@ impl Runner {
         // on it after this. A pause asked for there is still asked for here.
         let (posted_drain, at_tool) = match self.postings.take_pending() {
             Some(Pending::Drain { at_tool: was }) => (true, at_tool || was),
-            Some(Pending::Undrain) => (false, at_tool),
+            Some(Pending::Undrain { .. }) => (false, at_tool),
             None => (false, at_tool),
         };
         // The one call a drain starts: a retro over what finished since the
@@ -150,19 +163,53 @@ impl Runner {
                     self.pause_turns();
                 }
             }
-            Some(Pending::Undrain) => self.withdraw_pauses(),
+            Some(Pending::Undrain { keep }) => self.lift_drain(keep),
             None => {}
         }
     }
 
-    /// Starts calls again
-    pub(super) fn undrain(&mut self) {
+    /// Starts calls again, and with `keep` leaves a turn that ended for a pause
+    /// unstarted for [`PAUSE_HOLD`]
+    pub(super) fn undrain(&mut self, keep: bool) {
         // A `drain` that landed while a pass held the lock is taken up here
         // rather than left for the pass after this one, which would pause the
         // turns this one let go of.
         self.postings.take_pending();
         self.postings.set_draining(false);
+        self.lift_drain(keep);
+    }
+
+    // Withdraws the pauses, and holds the turns that ended for one when `keep`.
+    fn lift_drain(&mut self, keep: bool) {
+        let until = Timestamp(self.ports.clock.now().0.saturating_add(PAUSE_HOLD));
+        self.pause_hold = keep.then(|| PauseHold {
+            until,
+            issues: (self.state.work_items.iter())
+                .filter(|item| self.ended_by_pause(item))
+                .map(|item| item.issue)
+                .collect(),
+        });
         self.withdraw_pauses();
+    }
+
+    // Whether `item`'s turn ended for a pause that `pause` set, not one the
+    // build limits set.
+    fn ended_by_pause(&self, item: &WorkItem) -> bool {
+        resumes_pause(item) && !self.builds.holds_pause(item.issue)
+    }
+
+    // Whether `item`'s turn ended for a pause that gave up, and its hold has
+    // not passed. An `undrain keep` not yet taken up holds every such turn, so
+    // the pass that holds the lock while it lands cannot start one.
+    pub(super) fn pause_held(&self, item: &WorkItem) -> bool {
+        if self.postings.keeping() {
+            return self.ended_by_pause(item);
+        }
+        (self.pause_hold.as_ref()).is_some_and(|hold| {
+            self.ports.clock.now() < hold.until
+                && hold.issues.contains(&item.issue)
+                && resumes_pause(item)
+        })
     }
 
     // Withdraws the pause set for each worker turn in flight.

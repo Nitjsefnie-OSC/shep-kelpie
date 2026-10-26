@@ -8,9 +8,13 @@ use serde_json::{Value, json};
 
 use crate::guard::Pause;
 use crate::ports::{CLEAN, Cost, Role, Usage};
+use crate::runner::drain::PAUSE_HOLD;
 use crate::runner::gate::CHECKS_SETTLE;
+use crate::runner::turn::paused::PAUSED;
+use crate::runner::turn::tests::step_paused_in_a_tool;
 use crate::runner::{CallRole, Pass, Runner, advance, answer, step};
 use crate::test::{CALL_PATIENCE, Hold, Rig, Scripted};
+use crate::work_item::Turn;
 
 // A running project with issue 7 open and its first turn due
 fn seven_due(project: &str) -> (Rig, Mutex<Runner>) {
@@ -141,15 +145,13 @@ fn a_drained_runner_still_merges() {
 }
 
 #[test]
-fn drain_and_undrain_take_no_params() {
+fn drain_takes_no_params() {
     let rig = Rig::new("xilriws");
     let runner = rig.open().unwrap();
-    for action in ["drain", "undrain"] {
-        assert_eq!(
-            rig.ask(&runner, action, Some("now")),
-            json!({ "error": format!("`{action}` takes no params") })
-        );
-    }
+    assert_eq!(
+        rig.ask(&runner, "drain", Some("now")),
+        json!({ "error": "`drain` takes no params" })
+    );
     assert_eq!(draining(&rig, &runner), json!(null));
 }
 
@@ -311,6 +313,150 @@ fn a_drain_takes_up_an_undrain_that_landed_while_a_pass_held_the_lock() {
     );
     drop(pass);
     hold.release();
+}
+
+// Issue 7's turn ended at a tool call for a `drain pause`, and issue 8 is due
+fn seven_paused_eight_due(project: &str) -> (Rig, Mutex<Runner>) {
+    let rig = Rig::new(project);
+    rig.edit_settings(|s| s.replace("active_items = 1", "active_items = 2"));
+    let runner = rig.open().unwrap();
+    rig.ask(&runner, "add", Some("7"));
+    step_paused_in_a_tool(&rig, &runner, Scripted::Say("done"));
+    rig.ask(&runner, "add", Some("8"));
+    (rig, runner)
+}
+
+// The prompts of the calls the worker made, oldest first
+fn prompts(rig: &Rig) -> Vec<String> {
+    (rig.claude.calls().into_iter())
+        .map(|call| call.prompt)
+        .collect()
+}
+
+#[test]
+fn undrain_keep_holds_a_paused_turn_for_the_hold_and_starts_the_others() {
+    let (rig, runner) = seven_paused_eight_due("shep");
+    rig.claude
+        .script([Scripted::Reply(Usage::default(), Cost(1))]);
+
+    rig.ask(&runner, "undrain", Some("keep"));
+    step(&runner).unwrap();
+    assert_eq!(rig.claude.calls().len(), 2, "issue 8 started at once");
+    step(&runner).unwrap();
+    rig.clock.advance(PAUSE_HOLD - 1);
+    step(&runner).unwrap();
+    assert!(
+        !prompts(&rig).contains(&PAUSED.to_owned()),
+        "held too short"
+    );
+
+    rig.clock.advance(1);
+    rig.claude
+        .script([Scripted::Reply(Usage::default(), Cost(1))]);
+    step(&runner).unwrap();
+    assert!(prompts(&rig).contains(&PAUSED.to_owned()), "never resumed");
+}
+
+#[test]
+fn a_bare_undrain_starts_the_paused_turn_at_once() {
+    let (rig, runner) = seven_paused_eight_due("shep");
+    rig.claude
+        .script([Scripted::Reply(Usage::default(), Cost(1))]);
+    rig.ask(&runner, "undrain", None);
+    for _ in 0..2 {
+        step(&runner).unwrap();
+    }
+    assert!(
+        prompts(&rig).contains(&PAUSED.to_owned()),
+        "{:?}",
+        prompts(&rig)
+    );
+}
+
+#[test]
+fn a_second_pause_inside_the_hold_finds_the_turns_stopped() {
+    let (rig, runner) = seven_paused_eight_due("shep");
+    rig.ask(&runner, "undrain", Some("keep"));
+    rig.clock.advance(PAUSE_HOLD / 2);
+    // Only issue 8 could be running, and its turn has not begun.
+    let drained = rig.ask(&runner, "drain", Some("pause"));
+    assert_eq!(drained["draining"]["calls"], json!([]), "{drained}");
+    assert_eq!(rig.claude.calls().len(), 1, "nothing started");
+}
+
+// An `undrain keep` answered while a pass holds the lock sets the hold when
+// the pass takes it up.
+#[test]
+fn an_undrain_keep_that_landed_while_a_pass_held_the_lock_still_holds() {
+    let (rig, runner) = seven_paused_eight_due("shep");
+    let runner = Arc::new(runner);
+    let postings = runner.lock().unwrap().postings();
+    let mut pass = runner.lock().unwrap();
+    {
+        let (runner, postings) = (Arc::clone(&runner), Arc::clone(&postings));
+        let asking =
+            std::thread::spawn(move || answer(&runner, &postings, "undrain", Some("keep")));
+        asking.join().unwrap();
+    }
+    pass.take_posted();
+    drop(pass);
+    // Issue 8 is due behind issue 7 in the rotation, so step until it ran.
+    let runner = Arc::into_inner(runner).expect("the only holder");
+    rig.claude
+        .script([Scripted::Reply(Usage::default(), Cost(1))]);
+    for _ in 0..3 {
+        step(&runner).unwrap();
+    }
+    assert!(
+        !prompts(&rig).contains(&PAUSED.to_owned()),
+        "{:?}",
+        prompts(&rig)
+    );
+    assert!(rig.claude.calls().len() > 1, "issue 8 never started");
+}
+
+// The pass that holds the lock while `undrain keep` lands reaches the turn
+// before it takes the ask up.
+#[test]
+fn an_undrain_keep_not_yet_taken_up_already_holds_the_paused_turn() {
+    let (rig, runner) = seven_paused_eight_due("shep");
+    let runner = Arc::new(runner);
+    let postings = runner.lock().unwrap().postings();
+    let pass = runner.lock().unwrap();
+    let asking = {
+        let (runner, postings) = (Arc::clone(&runner), Arc::clone(&postings));
+        std::thread::spawn(move || answer(&runner, &postings, "undrain", Some("keep")))
+    };
+    asking.join().unwrap();
+    let (seven, eight) = (&pass.state.work_items[0], &pass.state.work_items[1]);
+    assert!(pass.pause_held(seven), "the pass would start issue 7");
+    assert!(!pass.pause_held(eight), "issue 8's turn was not paused");
+    drop((pass, rig));
+}
+
+#[test]
+fn undrain_keep_holds_only_the_turns_that_were_paused_when_it_came() {
+    let (rig, runner) = seven_paused_eight_due("shep");
+    rig.ask(&runner, "undrain", Some("keep"));
+    let mut pass = runner.lock().unwrap();
+    // A turn that ends for a pause later on, say the `[builds]` limit's, is no
+    // turn a pause gave up on.
+    pass.state.work_items[1].turn = Turn::Next {
+        prompt: PAUSED.to_owned(),
+    };
+    assert!(pass.pause_held(&pass.state.work_items[0]));
+    assert!(!pass.pause_held(&pass.state.work_items[1]));
+}
+
+#[test]
+fn undrain_takes_only_the_keep_param() {
+    let rig = Rig::new("xilriws");
+    let runner = rig.open().unwrap();
+    assert_eq!(
+        rig.ask(&runner, "undrain", Some("now")),
+        json!({ "error": "`undrain` takes `keep` or nothing, not \"now\"" })
+    );
+    assert_eq!(draining(&rig, &runner), json!(null));
 }
 
 #[test]
