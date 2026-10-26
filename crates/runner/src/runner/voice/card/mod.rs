@@ -4,11 +4,10 @@
 //! each option does, the panel's words, and short ways to answer. The same
 //! options are what a reaction or a ticked box on the comment is read
 //! against ([`thumbs`] and [`ticked`]), so what the comment offers and what
-//! kelpie accepts cannot drift apart.
-//!
-//! The panel's list holds each expert's vote once the panel has voted, and
-//! the option it stood behind as the recommendation. A ruling the panel has
-//! not voted on holds the project manager's words where it gave any.
+//! kelpie accepts cannot drift apart. The panel's list holds each expert's
+//! vote once it has voted, and the option it stood behind as the
+//! recommendation. A ruling the panel has not voted on holds the project
+//! manager's words where it gave any.
 
 use super::super::contributions::{
     ADOPT_ANYWAY, CLOSE_WITH_THANKS, KEEP_WAITING, LEAVE_OPEN, flagged_lines,

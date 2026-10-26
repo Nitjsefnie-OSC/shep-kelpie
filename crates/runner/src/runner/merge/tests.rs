@@ -412,15 +412,10 @@ fn drop_refuses_with_nothing_in_flight_a_running_turn_or_a_merge() {
     assert!(rig.worktree_7().exists());
 }
 
-// A review call runs outside the runner's lock, the
-// same as a worker's turn. Dropping the work item out from under one
-// used to clear it while the call was still in flight, so the result
-// panicked the runner (`end_review`'s `.expect` on a work item that
-// was no longer there). Recording it in state the way a running turn
-// is, and refusing `drop` while it is set, keeps the call from ever
-// outliving its own work item. Unlike a turn, nothing ever reruns a
-// review call on restart, so the marker cannot be left running: `open`
-// clears it, rather than resuming it, before this drop can even ask.
+// A review call runs outside the runner's lock, as a worker's turn does. A
+// drop while a call is in flight panics the runner when its result lands.
+// Recording it in state as a turn is keeps the call from outliving its
+// item. So does refusing `drop` while it is set.
 #[test]
 fn a_restart_clears_a_stale_review_call_so_drop_no_longer_refuses() {
     let (rig, runner, _) = Rig::with_pull_request("shep");

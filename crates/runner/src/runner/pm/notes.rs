@@ -39,10 +39,8 @@ pub(super) const STANDING_MAX: usize = 4 * 1024;
 /// bytes it moved
 ///
 /// A file at or under [`NOTES_MAX`] is left alone, and so is one that is not
-/// there. The notes are written through a temporary file in the same folder,
-/// and only after the archive has taken the moved part. A replacement that
-/// fails puts the archive back at the length it had, so the moved part is
-/// never in it twice.
+/// there. The notes are written through a temporary file, and only after the
+/// archive has taken the moved part. A failed replacement puts the archive back.
 ///
 /// # Errors
 ///

@@ -275,16 +275,10 @@ fn assert_score(got: &Score, (decided, matched, maintainer): (u32, u32, u32), co
     assert!((got - cost).abs() < 1e-9, "cost {got} is not {cost}");
 }
 
-// Four shadow rulings, voted worker, project manager, researcher, advisor.
-// Every expert's vote costs what it did on each, the project manager's wake
-// for rulings 1 and 2 sharing its $0.20 between them.
-//
-//   1  merge     docs  "A A A A"  maintainer A
-//   2  merge     fix   "B A B A"  maintainer B
-//   3  question  fix   "A B A B"  maintainer B
-//   4  merge     docs, risky path  "A A A B"  maintainer A
-//
-// Worker $0.40, project manager $0.10, researcher $0.30, advisor $0.20.
+// Four shadow rulings voted by worker, project manager, researcher and
+// advisor, each vote priced. The project manager's $0.20 wake covers
+// rulings 1 and 2, so its cost is shared between them. Worker $0.40,
+// researcher $0.30, advisor $0.20.
 fn recorded() -> (Vec<Value>, Vec<Line>) {
     let mut lines = vec![
         shadowed(1, "merge", "docs", false, 'A', "A A A A"),

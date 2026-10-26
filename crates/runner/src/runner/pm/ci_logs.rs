@@ -3,15 +3,11 @@
 //! it runs no `gh`
 //!
 //! They are read as a worker's red prompt reads them, with `failed_run_logs`.
-//! The folder is emptied first, so a log never outlives its ruling.
-//!
-//! Each workflow red on `main` has the end of its latest red run's failed log
-//! beside them, as `ci/main-<run>.log`.
-//!
-//! The forge is asked with the runner's lock let go. [`wake_off_lock`] has the wake's
-//! first try name the reads, runs them as a [`LogsJob`], and tries again over what they
-//! found. The files are written under the lock from that, and a log the job did not read is
-//! read in place.
+//! The folder is emptied first, so a log never outlives its ruling. Each
+//! workflow red on `main` has the end of its latest red run's failed log
+//! beside them, as `ci/main-<run>.log`. The forge is asked with the runner's
+//! lock let go: [`wake_off_lock`] names the reads, runs them as a [`LogsJob`],
+//! and tries again over what they found. The files are written under the lock.
 
 use std::collections::BTreeMap;
 use std::path::Path;

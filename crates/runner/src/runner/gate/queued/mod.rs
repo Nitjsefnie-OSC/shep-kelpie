@@ -1,18 +1,13 @@
 //! A check stuck at queued or in progress on a finished run
 //!
-//! GitHub sometimes leaves one job of a finished workflow run queued: the
-//! run reads completed, the job never starts, and its check never
-//! concludes. It leaves others `IN_PROGRESS` with no conclusion. A check
-//! that is running ends at its own timeout, but the rollup cannot tell one
-//! from a stuck one, so both are waited on past `ci.queued_minutes`, counted
-//! from the wait's own `since`. Past it, the run is rerun whole, once per
-//! head, and the cap starts again from the rerun. The forge refuses a rerun
-//! of a run still going, which is how a running one is told: each run is
-//! tried in turn, and a refused one waits another cap. Still stuck past it,
-//! the item is parked on a `check-queued` ruling, unless every check left is
-//! running: a rerun may be running for real, so that waits for a job's own
-//! timeout (`JOB_TIMEOUT`, six hours) from the rerun. The rerun is kept in
-//! memory, like `held_up`: a restart can cost one more, which is harmless.
+//! GitHub sometimes leaves one job of a finished run queued. The run reads
+//! completed, the job never starts, and its check never concludes. The
+//! rollup cannot tell a running job from a stuck one. Both are waited on
+//! past `ci.queued_minutes`. Past that the run is rerun whole, once per head.
+//! The forge refuses a rerun of a run still going. That is how a running one
+//! is told, and it waits another cap. Still stuck, the item is parked on a
+//! `check-queued` ruling, unless every check left is running. The rerun is
+//! kept in memory, like `held_up`: a restart may spend one more.
 
 use std::collections::HashMap;
 
@@ -51,14 +46,12 @@ impl Reruns {
 }
 
 impl Runner {
-    /// What the step does about `queued`, the checks still queued on `head`
-    /// since `since`: nothing while they are within the cap, a rerun of a
-    /// run not yet rerun once past it, and a ruling when every run they
-    /// belong to has been rerun and one is still queued
+    /// What the step does about `queued`: nothing within the cap, a rerun past it
     ///
-    /// A rerun the forge refuses, as it does for a run still in progress,
-    /// waits another cap, so a backed-up runner is waited on and told once
-    /// per cap. `review` is the round whose CI wait it is, when one.
+    /// `queued` are the checks still queued on `head` since `since`. A ruling
+    /// comes when every run they belong to has been rerun. A rerun the forge
+    /// refuses waits another cap. A backed-up runner is told once per cap.
+    /// `review` is the round whose CI wait it is, when one.
     pub(in crate::runner) fn check_queued(
         &mut self,
         number: u64,

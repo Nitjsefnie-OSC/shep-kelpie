@@ -131,13 +131,10 @@ fn reviewed(item: &WorkItem, kind: &RulingKind) -> Option<String> {
     }
 }
 
-// What another review round costs, roughly: the average priced reviewer call
-// times the calls a round makes. A call whose harness reported no dollars is
-// left out of the average. A round makes more than one call when the reviewer
-// takes a second look, which `review_rounds` counts with its first. So the
-// calls to a round are the reviewer calls over the rounds a reviewer's session
-// ran, one at least: a local round and a review bot's read are rounds too, but
-// make no call. None before a call was priced.
+// What another review round costs. Roughly: the average priced reviewer
+// call times the calls a round makes. A round makes more than one call
+// when the reviewer takes a second look. A local round and a review bot's
+// read are rounds too, but make no call. None before a call was priced.
 fn round_cost(item: &WorkItem) -> Option<String> {
     let reviewer = || item.calls.iter().filter(|c| c.role == Role::Reviewer);
     let priced = || reviewer().filter(|call| !call.unpriced);

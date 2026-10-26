@@ -1,33 +1,13 @@
 //! The panel: four experts vote on each ruling before the maintainer is asked
 //!
 //! The work item's own worker, the project manager, the advisor and the
-//! researcher each vote with `{"choice": ..., "why": ..., "design": ...}`
-//! (shep-pm/shep-kelpie#461), blind to each other: no one's prompt carries
-//! another's vote. The worker, the advisor and the researcher run on
-//! threads of their own, together, in one flight; the project manager is
-//! woken as it is for anything else, and answers when it does.
-//!
-//! A panel runs for a ruling once a project names an advisor or a
-//! researcher, and the ruling lists two options or more. A worker's question
-//! that lists fewer first gets candidate answers from the project manager,
-//! which are its options (#709). The ruling's comment
-//! waits for its votes, for [`HOLD`] at most, and then lists them. A vote
-//! kelpie cannot read, or an expert that could not be asked, is an
-//! abstention, and is logged. An expert the project does not name is not on
-//! the panel, and the worker abstains when its work item has no worker.
-//!
-//! A runner that drains asks no expert, so a ruling raised in a drain waits
-//! for the runner that restarts or undrains, and takes its panel then. One
-//! still waiting after [`HOLD`] goes to the maintainer with no vote, and the
-//! reason is kept on it ([`Skip`]) for `rulings.jsonl` and `status`.
-//!
-//! The votes and the verdict they reach are kept on the ruling. Under
-//! `rulings.decide = "panel"` the verdict decides it; under `"always"` the
-//! most votes of all four decide it unless no expert voted; under `"shadow"`
-//! it only informs the maintainer's comment and the measurements (#466). A
-//! ruling the maintainer answers while its panel votes keeps the panel
-//! running under `"shadow"`, and the votes are written to its line in
-//! `rulings.jsonl`; under the others the answer ends the vote.
+//! researcher each vote blind: no one's prompt carries another's vote. The
+//! worker, the advisor and the researcher run on threads of their own, in
+//! one flight. The project manager is woken as for anything else. A panel
+//! runs once a project names an advisor or a researcher, and the ruling
+//! lists two options or more. A vote kelpie cannot read, or an expert it
+//! could not ask, is a logged abstention. `rulings.decide` says whether the
+//! verdict decides the ruling, informs the maintainer, or only measures.
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
@@ -248,13 +228,10 @@ impl Runner {
         std::mem::take(&mut self.panel.launched)
     }
 
-    // Whether `ruling` needs a panel that has not been taken up: it is not a
-    // contribution's, which never goes to a vote, it has no votes, lists two options or more, the project manager has not been asked
-    // it within its last wake (a drain does not undo that), and its comment is
-    // still to be posted, since one posted without the votes is not edited to
-    // hold them and a restart must not ask the experts again for a vote nobody
-    // would see. A question the panel decided that is asked again is the
-    // maintainer's, since the worker did not act on the decision.
+    // Whether `ruling` needs a panel that has not been taken up. It is not a
+    // contribution's, which never goes to a vote. It has no votes and lists
+    // two options or more. A comment posted without the votes is never edited
+    // to hold them, so a posted ruling is not voted on again.
     fn panel_wants(&self, ruling: &Ruling) -> bool {
         let posted = ruling.alerted || self.state.heard.contains_key(&ruling.id);
         !ruling.kind.is_contribution()
@@ -535,12 +512,10 @@ impl Runner {
         }
     }
 
-    // Whether the diff of ruling `id`'s work item from `main`'s merge base touches
-    // a path on `rulings.full_panel_paths`, which calls the full panel. It is
-    // read from `main`, not the review base: an adopted pull request's review
-    // leaves out the commits it arrived with, and those are as risky. With
-    // no list, or no work item, there is nothing to read. A diff that cannot
-    // be read counts as touching one, since this only ever raises scrutiny.
+    // Whether ruling `id`'s diff from `main`'s merge base touches
+    // `rulings.full_panel_paths`. It is read from `main`, not the review
+    // base: an adopted pull request's review leaves out the commits it
+    // arrived with. A diff that cannot be read counts as touching one.
     fn panel_risky(&mut self, id: TicketId, ticket: Option<TicketId>) -> bool {
         let globs = self.settings.rulings.full_panel_paths.clone();
         let Some(item) = ticket

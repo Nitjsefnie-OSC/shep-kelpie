@@ -2,16 +2,12 @@
 //! folder before it wakes, since it runs no git, and the board section that
 //! names them beside each work item's worktree
 //!
-//! A work item parked on red CI has its failed run's log named beside its diff,
-//! and each workflow red on `main` has its log named after the items.
-//!
-//! The diffs are those the board's last write read, with the runner's lock
-//! let go, so a wake runs no git. The folder is emptied first, so a diff
-//! never outlives its work item or a write whose git failed for it.
-//!
-//! A work item parked on a follow-up ruling has merged, so its branch's diff
-//! from `main` is empty. Its file holds the merged pull request's diff
-//! instead, which is the one thing a wake reads from git itself.
+//! A work item parked on red CI has its failed run's log named beside its
+//! diff, and each workflow red on `main` has its log named after the items.
+//! The diffs are those the board's last write read, with the lock let go, so
+//! a wake runs no git. The folder is emptied first, so a diff never outlives
+//! its work item. A work item parked on a follow-up ruling has merged, so its
+//! file holds the merged pull request's diff instead.
 
 use std::fmt::Write as _;
 use std::path::Path;

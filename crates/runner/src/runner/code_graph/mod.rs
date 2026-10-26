@@ -116,11 +116,10 @@ impl Runner {
     }
 }
 
-// The reviewers and the triager read the code. The worker's turns do only when the project names
-// `code_graph.worker`: no worker session recorded so far, on Claude Code or pi, has answered one of
-// the server's tools, and its 17 definitions ride in every request of every turn
-// (`docs/facts/mcp-servers.md`). The retro, the advisors and the project manager do not read the
-// code at all, and a harness that loads no MCP servers cannot use the server.
+// The reviewers and the triager read the code. The worker's turns do only
+// when the project names `code_graph.worker`: no recorded worker session has
+// answered one of the server's tools, and its 17 definitions ride in every
+// request of every turn (`docs/facts/mcp-servers.md`).
 fn reads_code(call: &AgentCall, worker: bool) -> bool {
     call.harness.loads_mcp()
         && match (call.role, call.tools) {

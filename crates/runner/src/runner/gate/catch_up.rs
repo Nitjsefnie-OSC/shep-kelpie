@@ -78,13 +78,10 @@ impl Runner {
         }
     }
 
-    // Kelpie has started the merge of `main`, so the worker only resolves it
-    // and nothing is force-pushed. A conflict the worker was already sent
-    // for this head, or for this `main`, is one it did not resolve, and the
-    // maintainer decides. So does a work item that has had `CONFLICT_TURNS`
-    // of them, whatever `main` does. The turn's end goes on to CI, or back to
-    // the `review` that was waiting on this head's run, and so does the
-    // maintainer's yes to that ruling.
+    // Kelpie has started the merge of `main`, so the worker only resolves it.
+    // Nothing is force-pushed. A conflict the worker was already sent for is
+    // one it did not resolve. The maintainer decides then, and so does a work
+    // item that has had `CONFLICT_TURNS` of them.
     fn conflicted(
         &mut self,
         number: u64,

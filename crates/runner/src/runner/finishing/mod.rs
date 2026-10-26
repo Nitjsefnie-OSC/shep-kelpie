@@ -1,17 +1,13 @@
 //! Finishing: the open work items run to their end, the board picks
 //! nothing new, then the runner stops its own sheep
 //!
-//! `finish` saves `finishing` in the state file, so a runner restarted
-//! while finishing comes back finishing. Each open item goes on as ever,
-//! through its turns, review, CI, rulings and merge, and the project
-//! manager is woken for anything but a pick. The pass that finds no work
-//! item open and no notice left to post clears `finishing`, logs that the
-//! runner finished, posts it where a webhook is set, and leaves the stop
-//! for the sheep to take, which stops itself as `pause` does. Until that
-//! stop the board stays shut, in memory only, so a runner that starts again
-//! picks as ever. `start` cancels it either way, except while the stop is
-//! under way. A `pause` clears the saved `finishing` just before its stop,
-//! so a runner it paused comes back picking.
+//! `finish` saves `finishing` in the state file, so a runner restarted while
+//! finishing comes back finishing. The project manager is woken for anything
+//! but a pick. The pass that finds nothing open and no notice to post clears
+//! `finishing`. It logs the finish and posts it where a webhook is set. The
+//! stop is left for the sheep to take. Until that stop the board stays shut,
+//! in memory only. `start` cancels finishing either way, except while the
+//! stop is under way. A `pause` clears the saved `finishing` before its stop.
 
 use std::fmt;
 

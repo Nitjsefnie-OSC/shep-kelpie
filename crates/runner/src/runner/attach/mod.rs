@@ -2,13 +2,12 @@
 //!
 //! `attach <ticket> <pid>` holds the work item for process `pid`, so no call
 //! starts for it. A call in flight runs to its end, and the answer says to
-//! wait. Once none is, the answer is the worker's session as a command,
-//! with the worker's settings file and inside its sandbox, for the
-//! maintainer's terminal. `attach <ticket> <pid> <session pid>` then names
-//! the session's process, and the hold stands while either runs, each
-//! known by its pid and start time. `detach` lets the work item go, and so
-//! does the first pass after both have ended. What the session pushed is
-//! the worker's own, as a turn's push is.
+//! wait. Once none is, the answer is the worker's session as a command. It
+//! runs in the worker's sandbox, with its settings file, for the maintainer's
+//! terminal. `attach <ticket> <pid> <session pid>` names the session's
+//! process, and the hold stands while either runs. `detach` lets the work
+//! item go, and so does the first pass after both have ended. What the
+//! session pushed is the worker's own, as a turn's push is.
 
 use std::fmt;
 use std::path::PathBuf;

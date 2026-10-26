@@ -187,15 +187,13 @@ impl Runner {
         );
     }
 
-    /// Queues each stuck wake whose back-off has ended, which is what makes
-    /// "woken for again when its back-off ends" happen for a worker that shows
+    /// Queues each stuck wake whose back-off has ended
+    ///
+    /// This is what wakes the project manager again for a worker that shows
     /// nothing more: the board flips an idle call only after new output, and
     /// `still_due` runs only after a lapse. Called from `wake_pm`, where its
-    /// agent is set up.
-    ///
-    /// Each hold is queued once, so an item the project manager says nothing
-    /// about is not woken for on every pass. An item no longer stuck in the
-    /// state the entry names loses it, being in a new one.
+    /// agent is set up. Each hold is queued once, so an item the project
+    /// manager says nothing about is not woken for on every pass.
     pub(super) fn pm_holds_over(&mut self) {
         let now = self.ports.clock.now();
         let over: Vec<TicketId> = self
@@ -307,10 +305,9 @@ impl Runner {
     }
 
     // Wakes the project manager for each question ruling `now` raises, and
-    // each follow-up ruling asking whether to file findings, and holds the
-    // ruling back from the maintainer for its answer, unless it is held by
-    // the maintainer's terminal or down, when the ruling goes out as it is.
-    // Its pace is checked when the wake starts.
+    // each follow-up ruling asking whether to file findings. The ruling is
+    // held back from the maintainer for its answer, unless the manager is
+    // down or the ruling is held by the maintainer's terminal.
     fn pm_asked(&mut self, now: &ProjectState) {
         let at = self.ports.clock.now();
         let passed = (self.pm.down_until).is_some_and(|until| at < until);

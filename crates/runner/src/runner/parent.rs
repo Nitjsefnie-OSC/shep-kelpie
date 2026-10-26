@@ -152,11 +152,10 @@ impl Runner {
     }
 
     fn close_parent(&mut self, ticket: TicketId) -> StepReport {
-        // The comment goes first, on the first try only, as the App where one
-        // covers the repo, else as a comment kelpie records: closing with
-        // `--comment` would post it as the login that answers rulings, with no
-        // id to skip. A comment that fails is told in the log, and the close
-        // goes on without it.
+        // The comment goes first, on the first try only, and as the App where
+        // one covers the repo. Closing with `--comment` posts it as the ruling
+        // login, which has no id to skip. A failed comment is told in the log,
+        // and the close goes on without it.
         if !self.close_refused.contains_key(&ticket)
             && let Err(e) = self.comment_on_ticket(ticket, PARENT_CLOSED)
         {

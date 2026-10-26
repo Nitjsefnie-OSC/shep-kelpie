@@ -1,15 +1,13 @@
 //! The browser proof of a web bump: its dev server, and its routes opened in the local browser
 //!
-//! The server starts from `main`'s launch file, as a worker turn's does, but in
-//! the bump's checkout, which holds code a bot changed. So it runs in a sandbox
-//! that writes only that checkout and its build folder, and reaches only the
-//! project's `browser.domains`. The plan is made on the runner's thread, where
-//! the settings are, and finished on the proof's thread once the checkout is
-//! there. The browser is headless whatever `headed` says.
-//!
-//! A route passes when the page loads, no request to the dev server's origin
-//! answers 5xx, and the console logs no error. What fails says the route and
-//! the status, and never the URL or path of a request.
+//! The server starts from `main`'s launch file, as a worker turn's does. It
+//! runs in the bump's checkout, which holds code a bot changed. Its sandbox
+//! writes only that checkout and its build folder, and reaches only the
+//! project's `browser.domains`. The plan starts on the runner's thread, where
+//! the settings are, and ends on the proof's. The browser is headless
+//! whatever `headed` says. A route passes when the page loads and the console
+//! logs no error. No request to the dev server's origin may answer 5xx. What
+//! fails says the route and the status, never a URL or path.
 
 use std::collections::BTreeSet;
 use std::path::Path;

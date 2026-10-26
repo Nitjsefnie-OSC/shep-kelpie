@@ -344,7 +344,6 @@ fn the_totals_match_the_sums_by_hand() {
     // Worker turns 100 + 50 units and $1.50 + $0.50, the reviewer's 30 and
     // $0.25, the project manager's one wake in the window (20, $0.10). Left
     // out: the wake before the retro, the retro's own call and #99's turn.
-    // Wakes in the window: 1200, 1300 and 1400, two of which changed nothing.
     // Rulings 1 and 2 waited 300s and 90s.
     let expected = "## Batch totals\n\
         - Spend by role and kind:\n  \

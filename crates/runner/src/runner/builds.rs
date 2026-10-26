@@ -1,14 +1,12 @@
 //! Keeping a work item's build folder, and the disk, from filling
 //!
-//! Every pass while a worker turn runs measures that work item's build folder
-//! and the disk that holds kelpie's home, no more than once a minute for each
-//! item, and without the runner's lock. A folder past `builds.max_gb`, or a
-//! disk under `builds.min_free_gb`, sets the pause for the turn, which ends at
-//! its next tool call, or at its end on a harness with no hook. Once the turn
-//! has ended, never before, the cargo cache it did not touch is removed. The
-//! turn then resumes, unless the folder or the disk is still past a limit:
-//! that holds it, and `status` says why, until a reading finds both clear.
-//! All of it is in memory only: a restart reads afresh.
+//! Each pass measures the running turn's build folder and the disk holding
+//! kelpie's home, at most once a minute for each item, and without the
+//! runner's lock. A folder past `builds.max_gb`, or a disk under
+//! `builds.min_free_gb`, pauses the turn. It ends at its next tool call, or
+//! at its end where there is no hook. Once the turn has ended, never before,
+//! the cargo cache it did not touch is removed. All of it is in memory only:
+//! a restart reads afresh.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -340,11 +338,10 @@ impl Runner {
         self.record_build(ticket, now, reading, failed);
     }
 
-    // Why the current work item's due turn must not start: the disk is under
-    // its floor, or the item ran past a limit and a reading still finds one
-    // passed, or cannot tell. Reads afresh when the last reading is a minute
-    // old. The folder is read only for an item just pruned, or one not seen
-    // since the runner started, since the disk is what every item shares.
+    // Why the current work item's due turn must not start. The disk is under
+    // its floor, or a reading finds a limit passed, or cannot tell. Reads
+    // afresh when the last reading is a minute old. The folder is read only
+    // for an item just pruned or new: the disk is what every item shares.
     pub(super) fn builds_hold(&mut self) -> Option<Reason> {
         let item = self.current()?;
         let ticket = item.issue;

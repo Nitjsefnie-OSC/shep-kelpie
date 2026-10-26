@@ -1,25 +1,13 @@
 //! What people with write access wrote on the pull request, sent to the worker
 //!
-//! Kelpie reads the pull request's comments and review threads at the start
-//! of each review round, when CI goes green, and every [`LATE_READ`] seconds
-//! while a merge ruling waits, which costs one forge read each time. What
-//! someone with write access wrote there is a request of the worker, sent as
-//! one resumed turn, the way a merge ruling's `no <note>` is. A comment that
-//! lands while a merge ruling waits withdraws the ruling and is handled as
-//! that `no` is, so its fix goes to CI and back to a new ruling. What the
-//! owner, a member or a collaborator wrote is trusted. Others' comments, and
-//! any App's or bot's, are ignored and logged. The review bots kelpie lists
-//! are read by their own rounds.
-//!
-//! The worker's reply names each request it fixed or declined, as it does
-//! for a review bot's threads, and kelpie replies on each review thread and
-//! resolves the fixed ones (see [`Runner::answer_sent`]). A request that is
-//! ambiguous or architectural ends the turn with a question block, which
-//! raises a `question` ruling. After [`TALK_ROUNDS`] rounds of comments the
-//! next comments go to the maintainer as such a ruling instead.
-//!
-//! A conversation comment from the login a ruling mentions is left to that
-//! ruling's own thread, which answers it (see [`super::thread_replies`]).
+//! Kelpie reads the pull request's comments and review threads at the start of
+//! each review round, when CI goes green, and every [`LATE_READ`] seconds while a
+//! merge ruling waits. What someone with write access wrote is a request of the
+//! worker, sent as one resumed turn, the way a merge ruling's `no <note>` is. A
+//! comment that lands while a merge ruling waits withdraws it. The owner, a
+//! member or a collaborator is trusted; others' and any bot's are ignored. A
+//! comment from the login a ruling mentions goes to that thread instead.
+//! After [`TALK_ROUNDS`] rounds the next comments go to the maintainer as a ruling.
 
 use std::collections::BTreeSet;
 
