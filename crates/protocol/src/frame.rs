@@ -58,7 +58,8 @@ pub enum FrameError {
         /// The request it names
         request: String,
     },
-    /// The line is not one JSON object, with what reading it said
+    /// The line is not one JSON object, or names a request this crate has with
+    /// params that do not read as it, with what reading it said
     Unreadable(String),
 }
 
@@ -70,7 +71,7 @@ impl fmt::Display for FrameError {
                 "a frame is at most {LONGEST_FRAME} bytes, and this one is {length}"
             ),
             Self::Unknown { request } => write!(f, "unknown request `{request}`"),
-            Self::Unreadable(why) => write!(f, "not one JSON object: {why}"),
+            Self::Unreadable(why) => write!(f, "the frame does not read: {why}"),
         }
     }
 }
@@ -94,7 +95,8 @@ pub fn encode<T: Serialize>(value: &T) -> Result<String, serde_json::Error> {
 ///
 /// [`FrameError::TooLong`] when the line is over [`LONGEST_FRAME`],
 /// [`FrameError::Unknown`] when it names a request this crate has no variant
-/// for, and [`FrameError::Unreadable`] when it is not one JSON object.
+/// for, and [`FrameError::Unreadable`] when it is not one JSON object, or names
+/// a request this crate has with params that do not read as it.
 ///
 /// [`FrameError::Unknown`]: FrameError::Unknown
 /// [`FrameError::Unreadable`]: FrameError::Unreadable
@@ -104,14 +106,15 @@ pub fn decode(line: &str) -> Result<Request, FrameError> {
     }
     let value: serde_json::Value =
         serde_json::from_str(line).map_err(|e| FrameError::Unreadable(e.to_string()))?;
-    match Request::deserialize(&value) {
-        Ok(request) => Ok(request),
-        Err(e) => match value.get("action").and_then(Value::as_str) {
-            Some(request) => Err(FrameError::Unknown {
-                request: request.to_owned(),
-            }),
-            None => Err(FrameError::Unreadable(e.to_string())),
-        },
+    let unreadable = match Request::deserialize(&value) {
+        Ok(request) => return Ok(request),
+        Err(e) => e,
+    };
+    match value.get("action").and_then(Value::as_str) {
+        Some(action) if !Request::reads(action) => Err(FrameError::Unknown {
+            request: action.to_owned(),
+        }),
+        _ => Err(FrameError::Unreadable(unreadable.to_string())),
     }
 }
 
@@ -174,6 +177,29 @@ mod tests {
             .to_string(),
             "this runner (1.2.3) has no `watch` request: upgrade kelpie"
         );
+    }
+
+    #[test]
+    fn a_request_it_has_with_params_that_do_not_read_is_not_called_unknown() {
+        let asked: [(&str, &str); 4] = [
+            (r#"{"action":"add"}"#, "missing field `params`"),
+            (
+                r#"{"action":"add","params":"x"}"#,
+                "invalid value: string \"x\", expected",
+            ),
+            (r#"{"action":"attach","params":[7]}"#, "invalid length 1"),
+            (
+                r#"{"action":"rule","params":[7,{"answer":"nope"}]}"#,
+                "unknown variant `nope`",
+            ),
+        ];
+        for (line, want) in asked {
+            let error = decode(line).expect_err("{line} reads as a request");
+            assert!(
+                matches!(&error, FrameError::Unreadable(seen) if seen.contains(want)),
+                "{line}: {error}"
+            );
+        }
     }
 
     #[test]

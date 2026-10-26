@@ -62,6 +62,31 @@ pub enum Request {
     Triage(u64),
 }
 
+// The action names serde reads for `Request`'s variants: each variant name in
+// snake_case, which is what a frame's `action` carries
+const NAMES: [&str; 20] = [
+    "status",
+    "add",
+    "rework",
+    "adopt",
+    "rule",
+    "gate",
+    "drop",
+    "timings",
+    "attach",
+    "detach",
+    "tell",
+    "pm_attach",
+    "pm_detach",
+    "drain",
+    "undrain",
+    "finish",
+    "start",
+    "pausing",
+    "board",
+    "triage",
+];
+
 impl Request {
     /// The action `shep trigger` names this request
     pub fn action(&self) -> &'static str {
@@ -86,6 +111,14 @@ impl Request {
             Self::Board(_) => "board",
             Self::Triage(_) => "triage",
         }
+    }
+
+    /// Whether a frame naming `name` as its action reads as one of these
+    ///
+    /// A frame names a variant, so `pm` arrives as `pm_attach` or `pm_detach`,
+    /// where [`Request::action`] names the verb `shep trigger` is given.
+    pub(crate) fn reads(name: &str) -> bool {
+        NAMES.contains(&name)
     }
 }
 
@@ -190,6 +223,16 @@ mod tests {
                 "board", "triage",
             ]
         );
+    }
+
+    #[test]
+    fn every_variant_reads_from_the_name_its_frame_carries() {
+        for request in every_request() {
+            let frame = serde_json::to_value(&request).unwrap();
+            let name = frame["action"].as_str().expect("a frame names its action");
+            assert!(Request::reads(name), "{name} reads as nothing");
+        }
+        assert!(!Request::reads("pm"), "`pm` names both pm verbs");
     }
 
     #[test]
