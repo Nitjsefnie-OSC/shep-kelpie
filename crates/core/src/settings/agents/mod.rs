@@ -195,7 +195,7 @@ impl UsageReader {
 
 /// The account whose usage windows an agent spends
 // wire format: changing this is a breaking change to the pacer's status
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Account {
     /// The account `claude` is logged in to

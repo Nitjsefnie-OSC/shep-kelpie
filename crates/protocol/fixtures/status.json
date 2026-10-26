@@ -61,7 +61,6 @@
     }
   ],
   "leases": [],
-  "lock": "<holds>",
   "merging": "ask",
   "order": [],
   "pacer": {

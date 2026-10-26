@@ -52,22 +52,22 @@ const MANIFEST_KEYS: [&str; 6] = [
 ];
 
 /// One plugin the repo turns on, as `status` shows it
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RepoPlugin {
     /// The plugin as the repo's settings name it, `name@marketplace`
     pub plugin: String,
     /// The skills it brought, where it loaded
     pub skills: Vec<String>,
     /// Why it was left out, where it was
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub skipped: Option<String>,
     /// Why it is an older copy, where its marketplace could not be fetched
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stale: Option<String>,
     /// Each of its `SKILL.md` files a strict harness refuses, named with the
     /// parser's message. The plugin loads, and so does every skill of it the
     /// harness can read.
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub unreadable: Vec<String>,
     #[serde(skip)]
     dir: Option<PathBuf>,
@@ -293,7 +293,7 @@ fn plan_one(resolved: Result<Found, Skipped>, into: &Path, setup: &RepoSetup) ->
 }
 
 /// A plugin the repo turns on whose folder was found
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub(crate) struct Found {
     /// `name@marketplace`
     pub(crate) id: String,

@@ -3,14 +3,14 @@
   "command": {
     "args": [
       "--settings",
-      "/home/maintainer/koji/.kelpie/pm/settings.json",
+      "/home/me/koji/.kelpie/pm/settings.json",
       "--resume",
       "11111111-2222-4333-8444-555555555555"
     ],
-    "cwd": "/home/maintainer/koji/.kelpie/pm",
+    "cwd": "/home/me/koji/.kelpie/pm",
     "env": {},
     "program": "claude"
   },
-  "folder": "<tempdir>",
-  "session": "<session>"
+  "folder": "/home/me/koji/.kelpie/pm",
+  "session": "11111111-2222-4333-8444-555555555555"
 }

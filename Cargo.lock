@@ -1473,6 +1473,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "shep-kelpie-protocol"
+version = "0.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "shep-kelpie-core",
+]
+
+[[package]]
 name = "shep-kelpie-runner"
 version = "0.0.0"
 dependencies = [
@@ -1484,6 +1493,7 @@ dependencies = [
  "shep-kelpie-facts",
  "shep-kelpie-panel",
  "shep-kelpie-process",
+ "shep-kelpie-protocol",
  "shep-kelpie-test-support",
  "shep-kelpie-trim",
  "shep-kelpie-worker-folder",

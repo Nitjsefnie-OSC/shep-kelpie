@@ -12,7 +12,7 @@ use crate::settings::PerItemUsd;
 ///
 /// Every harness reports tokens. Only some report dollars, so `cost_usd`
 /// covers the calls that did and `unpriced_calls` counts those that did not.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
 pub struct RoleSpend {
     /// How many calls it made
     pub calls: usize,
@@ -22,7 +22,7 @@ pub struct RoleSpend {
     /// when none did
     pub cost_usd: Option<f64>,
     /// Calls whose harness reported no dollars
-    #[serde(skip_serializing_if = "is_zero")]
+    #[serde(default, skip_serializing_if = "is_zero")]
     pub unpriced_calls: usize,
 }
 
@@ -31,7 +31,7 @@ fn is_zero(n: &usize) -> bool {
 }
 
 /// What a work item's agent calls have cost, by role
-#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
 pub struct Spend {
     /// The worker's turns
     pub worker: RoleSpend,
