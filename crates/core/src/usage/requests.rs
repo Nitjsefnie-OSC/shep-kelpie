@@ -4,8 +4,11 @@
 //! Claude Code writes one line per content block, so one request is several
 //! `assistant` lines that share a `message.id` and carry the same `usage`;
 //! a request is counted once, from its last line. pi writes one `assistant`
-//! message per request. Codex and goose are not read: their transcripts are
-//! not yet recorded in `fixtures/`. `docs/facts/session-transcripts.md`
+//! message per request. Codex writes a `token_usage_record` per request and
+//! names no file a tool call read or edited, so its session has no touches.
+//! goose is not read. `docs/facts/session-transcripts.md`
+
+use std::collections::BTreeSet;
 
 use jiff::Timestamp;
 use serde_json::Value;
@@ -59,11 +62,12 @@ pub(super) struct Parsed {
 /// What the transcript `text` of a session written in `format` holds, or
 /// `None` when kelpie reads no transcript of that format
 pub(super) fn parse(format: Format, text: &str) -> Option<Parsed> {
-    // parity: harness.usage-transcripts
+    // parity: harness.usage-requests, harness.usage-reads
     match format {
         Format::Claude => Some(claude(text)),
         Format::Pi => Some(pi(text)),
-        Format::Codex | Format::Goose => None,
+        Format::Codex => Some(codex(text)),
+        Format::Goose => None,
     }
 }
 
@@ -187,6 +191,52 @@ fn pi(text: &str) -> Parsed {
             },
         };
         // A message cut off before a model answered has no usage.
+        if request.tokens() > 0 {
+            parsed.requests.push(request);
+        }
+    }
+    parsed
+}
+
+fn codex(text: &str) -> Parsed {
+    let mut parsed = Parsed::default();
+    let mut ids = BTreeSet::new();
+    for entry in text
+        .lines()
+        .filter_map(|l| serde_json::from_str::<Value>(l).ok())
+    {
+        let payload = &entry["payload"];
+        if entry["type"] == "session_meta"
+            && let Some(dir) = payload["cwd"].as_str()
+        {
+            parsed.root.get_or_insert_with(|| dir.to_owned());
+        }
+        if entry["type"] != "token_usage_record" {
+            continue;
+        }
+        // A request is one `response_id`.
+        if payload["response_id"]
+            .as_str()
+            .is_some_and(|id| !ids.insert(id.to_owned()))
+        {
+            continue;
+        }
+        // `input_tokens` holds the cached tokens, read and written.
+        let usage = &payload["usage"];
+        let cache_read = count(&usage["cached_input_tokens"]);
+        let cache_write = count(&usage["cache_write_input_tokens"]);
+        let request = Request {
+            at: time(&entry),
+            usage: Usage {
+                input: (count(&usage["input_tokens"]))
+                    .saturating_sub(cache_read)
+                    .saturating_sub(cache_write),
+                cache_write,
+                cache_write_5m: 0,
+                cache_read,
+                output: count(&usage["output_tokens"]),
+            },
+        };
         if request.tokens() > 0 {
             parsed.requests.push(request);
         }

@@ -200,3 +200,40 @@ fn a_claude_request_with_no_split_is_a_gap_after_five_minutes() {
     let after: Vec<_> = claude(&text, 0).iter().map(|r| r.after).collect();
     assert_eq!(after, [Start, Growth, Gap]);
 }
+
+// A Codex 0.159.3 call that compacted: five requests, the fourth the compaction's own.
+const CODEX: &str = include_str!("../../../../fixtures/codex-rollout-compacted.jsonl");
+
+#[test]
+fn codex_reads_a_request_from_each_token_usage_record_the_compaction_s_included() {
+    assert_eq!(
+        codex(CODEX, 0),
+        [
+            request(19_244, 0, Start),
+            request(19_347, 0, Growth),
+            request(29_249, 0, Growth),
+            request(29_387, 0, Growth),
+            request(19_478, 0, Growth),
+        ],
+        "the fourth is the compaction's, which has no `token_count` event of its own"
+    );
+}
+
+#[test]
+fn a_resumed_codex_call_counts_its_own_requests() {
+    let second = start_of(CODEX, "{\"timestamp\":\"2026-10-21T15:40:55", 0);
+    assert_eq!(codex(CODEX, second).len(), 4);
+}
+
+#[test]
+fn a_codex_request_over_five_minutes_after_one_that_wrote_the_cache_is_a_gap() {
+    let later = CODEX
+        .replace("2026-10-21T15:40:55.216Z", "2026-10-21T15:46:55.216Z")
+        .replace(
+            "\"input_tokens\":19244,\"cached_input_tokens\":0,\"cache_write_input_tokens\":0",
+            "\"input_tokens\":19244,\"cached_input_tokens\":0,\"cache_write_input_tokens\":900",
+        );
+    let found = codex(&later, 0);
+    assert_eq!(found[0], request(19_244, 900, Start));
+    assert_eq!(found[1].after, Gap);
+}

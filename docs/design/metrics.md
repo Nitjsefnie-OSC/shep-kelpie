@@ -57,7 +57,7 @@ The dog's series (leases, summons, the forge hold) and the runners' model leases
 
 ## Not built
 
-- MCP servers and tool calls for Codex (#757) and goose (#784).
+- MCP servers and tool calls for Codex (#1279) and goose (#784).
 - Feature runs of the hooks `kelpie guard` and `kelpie confine` run inside a worker's sandbox: another process, with no recorder.
-- Requests for Codex (#757) and goose (#784).
+- Requests for goose (#784).
 - Canary: a real issue a night through each harness with every feature on, checked from its transcript. #927
