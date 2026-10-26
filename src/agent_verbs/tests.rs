@@ -201,3 +201,77 @@ fn an_unknown_verb_or_none_is_refused_with_the_usage() {
         assert!(err.contains("shep kelpie agents list"), "{line}: {err}");
     }
 }
+
+#[test]
+fn new_over_an_unbound_file_keeps_its_body_and_the_keys_it_does_not_bind() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("scribe.md"), UNBOUND_PM).unwrap();
+    let line = format!("{PM_ON_CLAUDE} --name scribe");
+
+    agents(dir.path(), &line).unwrap();
+
+    let book = Agents::load(dir.path()).unwrap();
+    let prompt = book.get(&name("scribe")).unwrap().prompt.clone();
+    assert_eq!(prompt.as_deref(), Some("You keep the project's notes."));
+
+    let mine = "---\n# Mine.\nrole: implementer\ntools: Bash,Read\n---\nExtra care.\n";
+    std::fs::write(dir.path().join("mine.md"), mine).unwrap();
+    let bare = "new implementer --harness claude-code --model claude-sonnet-5-5 --effort high";
+
+    agents(dir.path(), &format!("{bare} --name mine")).unwrap();
+
+    let written = file(dir.path(), "mine");
+    assert!(written.contains("tools: Bash,Read\n"), "{written}");
+    assert!(written.contains("# Mine.\n"), "{written}");
+    assert!(written.ends_with("---\nExtra care.\n"), "{written}");
+    assert!(
+        Agents::load(dir.path())
+            .unwrap()
+            .get(&name("mine"))
+            .is_some()
+    );
+}
+
+#[test]
+fn an_unbound_reviewer_with_no_baseline_is_bound_by_the_command_kelpie_prints() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("mine.md"),
+        "---\nrole: reviewer\n---\nRead it for defects.\n",
+    )
+    .unwrap();
+    let book = Agents::load(dir.path()).unwrap();
+    let command = book.unbound()[0].command();
+    assert_eq!(command, "shep kelpie agents new reviewer --name mine");
+
+    let said = agents(
+        dir.path(),
+        &format!(
+            "{} --harness claude-code --model claude-opus-5-5 --effort high",
+            command.strip_prefix("shep kelpie agents ").unwrap()
+        ),
+    )
+    .unwrap();
+
+    assert_eq!(said, ["wrote mine.md"]);
+    let written = file(dir.path(), "mine");
+    assert!(
+        written.starts_with("---\nrole: reviewer\nharness: claude-code\n"),
+        "{written}"
+    );
+    let book = Agents::load(dir.path()).unwrap();
+    let prompt = book.get(&name("mine")).unwrap().prompt.clone();
+    assert_eq!(prompt.as_deref(), Some("Read it for defects."));
+}
+
+#[test]
+fn a_reviewer_with_no_file_still_needs_a_baseline_when_the_name_is_free() {
+    let dir = tempfile::tempdir().unwrap();
+    let line =
+        "new reviewer --name mine --harness claude-code --model claude-opus-5-5 --effort high";
+
+    let err = agents(dir.path(), line).unwrap_err();
+
+    assert!(err.contains("--baseline"), "{err}");
+    assert_eq!(files(dir.path()), Vec::<String>::new());
+}

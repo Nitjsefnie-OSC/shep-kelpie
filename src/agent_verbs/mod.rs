@@ -145,25 +145,46 @@ impl Ask {
         }
     }
 
-    // The file's name, and its text.
-    fn file(&self) -> Result<(String, String), String> {
-        let baseline = self.baseline()?;
-        let name = match (&self.name, baseline) {
+    // The file's name: `--name`, else its baseline's.
+    fn file_name(&self, chosen: &Result<Option<&Baseline>, String>) -> Result<String, String> {
+        let name = match (&self.name, chosen) {
             (Some(name), _) => name.clone(),
-            (None, Some(baseline)) => baseline.name.to_owned(),
-            (None, None) => return Err("an implementer has no baseline: give `--name`".to_owned()),
+            (None, Ok(Some(baseline))) => baseline.name.to_owned(),
+            (None, Ok(None)) => return Err("an implementer has no baseline: give `--name`".into()),
+            (None, Err(why)) => return Err(why.clone()),
         };
         AgentName::try_from(name.clone()).map_err(|e| e.to_string())?;
-        let mut text = match baseline {
-            Some(baseline) => format!("---\nextends: kelpie:{}\n", baseline.name),
-            None => format!("---\nrole: {}\n", self.role.as_str()),
+        Ok(name)
+    }
+
+    // The file's text. Over a file that binds nothing, `old`, it keeps that
+    // file's body and the keys it holds besides these, and with no baseline
+    // to choose it keeps the file's own `extends` or `role`.
+    fn text(
+        &self,
+        chosen: Result<Option<&Baseline>, String>,
+        old: Option<&str>,
+    ) -> Result<String, String> {
+        let old = old.map(Old::parse);
+        let kept_identity = |keys: &[&str]| -> String {
+            old.iter()
+                .flat_map(|old| old.blocks.iter())
+                .filter(|(key, _)| keys.contains(&key.as_str()))
+                .map(|(_, block)| block.as_str())
+                .collect()
         };
-        text.push_str(&format!(
-            "harness: {}\nmodel: {}\neffort: {}\n",
+        let identity = match (chosen, &old) {
+            (Ok(Some(baseline)), _) => format!("extends: kelpie:{}\n", baseline.name),
+            (Ok(None), _) => format!("role: {}\n", self.role.as_str()),
+            (Err(_), Some(_)) if self.baseline.is_none() => kept_identity(&["extends", "role"]),
+            (Err(why), _) => return Err(why),
+        };
+        let mut text = format!(
+            "---\n{identity}harness: {}\nmodel: {}\neffort: {}\n",
             self.harness,
             quoted(&self.model),
             self.effort
-        ));
+        );
         if self.second_look {
             text.push_str("second_look: true\n");
         }
@@ -176,8 +197,70 @@ impl Ask {
         if let Some(tokens) = self.context {
             text.push_str(&format!("context: {tokens}\n"));
         }
+        let replaced = [
+            "extends",
+            "role",
+            "harness",
+            "model",
+            "effort",
+            "second_look",
+            "gateway",
+            "url",
+            "context",
+        ];
+        if let Some(old) = &old {
+            for (key, block) in &old.blocks {
+                if !replaced.contains(&key.as_str()) {
+                    text.push_str(block);
+                }
+            }
+        }
         text.push_str("---\n");
-        Ok((name, text))
+        if let Some(old) = &old {
+            text.push_str(&old.body);
+        }
+        Ok(text)
+    }
+}
+
+// An agent file split into the blocks of its frontmatter and its body.
+struct Old {
+    // Each top-level key with the lines under it, and any lines before the first key under "".
+    blocks: Vec<(String, String)>,
+    body: String,
+}
+
+impl Old {
+    fn parse(text: &str) -> Self {
+        let Some(rest) = text.strip_prefix("---\n") else {
+            return Self {
+                blocks: Vec::new(),
+                body: text.to_owned(),
+            };
+        };
+        let mut blocks: Vec<(String, String)> = Vec::new();
+        let mut at = 0;
+        let mut body = "";
+        for line in rest.split_inclusive('\n') {
+            at += line.len();
+            if line.trim_end() == "---" {
+                body = &rest[at..];
+                break;
+            }
+            let key = match line.starts_with(|c: char| !c.is_whitespace() && c != '#' && c != '-') {
+                true => line.split_once(':').map(|(key, _)| key.trim().to_owned()),
+                false => None,
+            };
+            match (key, blocks.last_mut()) {
+                (Some(key), _) => blocks.push((key, line.to_owned())),
+                (None, Some((_, block))) => block.push_str(line),
+                (None, None) => blocks.push((String::new(), line.to_owned())),
+            }
+        }
+        Self {
+            blocks,
+            body: body.to_owned(),
+        }
     }
 }
 
@@ -206,10 +289,17 @@ fn word(value: String, flag: &str) -> Result<String, String> {
 }
 
 fn new(folder: &Path, args: &[String]) -> Result<Vec<String>, String> {
-    let (name, text) = Ask::read(args)?.file()?;
-    baseline::check(&name, &text)?;
+    let ask = Ask::read(args)?;
+    let chosen = ask.baseline();
+    let name = ask.file_name(&chosen)?;
     let path = folder.join(format!("{name}.md"));
     let stub = path.exists() && is_unbound(folder, &path)?;
+    let old = match stub {
+        true => Some(fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?),
+        false => None,
+    };
+    let text = ask.text(chosen, old.as_deref())?;
+    baseline::check(&name, &text)?;
     fs::create_dir_all(folder).map_err(|e| format!("{}: {e}", folder.display()))?;
     let mut file = OpenOptions::new();
     file.write(true);
