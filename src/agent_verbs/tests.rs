@@ -348,3 +348,13 @@ fn migrate_takes_no_argument() {
     let dir = tempfile::tempdir().unwrap();
     assert_eq!(agents(dir.path(), "migrate now").unwrap_err(), USAGE);
 }
+
+#[test]
+fn new_pm_on_codex_writes_nothing_and_names_the_harness_that_can_serve_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let folder = dir.path().join("agents");
+    let err = agents(&folder, "new pm --harness codex --model gpt-5.5 --effort high").unwrap_err();
+    assert!(err.contains("claude-code"), "{err}");
+    assert!(err.contains("harnesses that can serve `pm`: claude-code"), "{err}");
+    assert!(!folder.exists());
+}

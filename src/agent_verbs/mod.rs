@@ -13,7 +13,7 @@ use std::process::ExitCode;
 use crate::agents::baseline::{self, Baseline};
 use crate::agents::legacy;
 use crate::agents::{Agents, Role, Runs};
-use crate::settings::AgentName;
+use crate::settings::{AgentName, Harness};
 use crate::shep_home;
 
 #[cfg(test)]
@@ -302,7 +302,22 @@ fn new(folder: &Path, args: &[String]) -> Result<Vec<String>, String> {
         false => None,
     };
     let text = ask.text(chosen, old.as_deref())?;
-    baseline::check(&name, &text)?;
+    baseline::check(&name, &text).map_err(|why| {
+        let cannot_serve = Harness::ALL
+            .into_iter()
+            .find(|harness| harness.as_str() == ask.harness)
+            .is_some_and(|harness| !harness.serves(ask.role));
+        if cannot_serve {
+            let serving = Harness::serving(ask.role)
+                .into_iter()
+                .map(Harness::as_str)
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("{why}; harnesses that can serve `{}`: {serving}", ask.role.as_str())
+        } else {
+            why
+        }
+    })?;
     fs::create_dir_all(folder).map_err(|e| format!("{}: {e}", folder.display()))?;
     let mut file = OpenOptions::new();
     file.write(true);
