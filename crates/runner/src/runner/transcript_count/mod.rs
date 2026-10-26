@@ -51,12 +51,13 @@ impl Runner {
 enum Format {
     Claude,
     Pi,
+    Codex,
 }
 
 impl Format {
     // pi names no server that failed to connect: what its session leaves
     // available and what it answers say which connected, and its tool calls are
-    // counted as Claude Code's are.
+    // counted as Claude Code's are. Codex's rollout is read for its requests alone.
     fn of(call: &AgentCall) -> Option<Self> {
         Self::of_harness(call.harness.harness())
     }
@@ -65,17 +66,32 @@ impl Format {
         // parity: harness.mcp-tool-calls, harness.mcp-failures, harness.request-usage,
         // harness.tool-errors
         let facts = harness.facts();
-        match facts.transcript.filter(|_| facts.counts_calls) {
+        match facts.transcript.filter(|_| facts.counts_transcript) {
             Some(transcripts::Format::Claude) => Some(Self::Claude),
             Some(transcripts::Format::Pi) => Some(Self::Pi),
+            Some(transcripts::Format::Codex) => Some(Self::Codex),
             _ => None,
         }
+    }
+
+    fn transcripts(self) -> transcripts::Format {
+        match self {
+            Self::Claude => transcripts::Format::Claude,
+            Self::Pi => transcripts::Format::Pi,
+            Self::Codex => transcripts::Format::Codex,
+        }
+    }
+
+    // Whether the format records the MCP servers and tool calls of a call
+    fn records_calls(self) -> bool {
+        !matches!(self, Self::Codex)
     }
 
     fn read(self, text: &str, from: usize) -> McpUse {
         match self {
             Self::Claude => mcp_use::claude(text, from),
             Self::Pi => mcp_use::pi(text, from),
+            Self::Codex => McpUse::default(),
         }
     }
 
@@ -83,6 +99,7 @@ impl Format {
         match self {
             Self::Claude => request_use::claude(text, from),
             Self::Pi => request_use::pi(text, from),
+            Self::Codex => request_use::codex(text, from),
         }
     }
 
@@ -90,6 +107,7 @@ impl Format {
         match self {
             Self::Claude => tool_error::claude(text, from),
             Self::Pi => tool_error::pi(text, from),
+            Self::Codex => Vec::new(),
         }
     }
 
@@ -97,7 +115,7 @@ impl Format {
     fn tool_part(self, name: &str) -> String {
         match self {
             Self::Claude => mcp_use::claude_tool_part(name),
-            Self::Pi => crate::ports::mcp::tool_prefix(name),
+            Self::Pi | Self::Codex => crate::ports::mcp::tool_prefix(name),
         }
     }
 }
@@ -125,22 +143,22 @@ fn stood(format: Format, given: &[String], used: &McpUse) -> Option<Stood> {
     })
 }
 
-// The file a session writes in `folder`, once it is written: Claude Code names it for the session,
-// and pi `<time>_<session>.jsonl`.
-fn file(folder: &Path, session: &str, format: Format) -> Option<PathBuf> {
-    match format {
-        Format::Claude => Some(folder.join(format!("{session}.jsonl"))),
-        Format::Pi => {
-            let suffix = format!("_{session}.jsonl");
-            (std::fs::read_dir(folder).ok()?)
-                .filter_map(Result::ok)
-                .map(|entry| entry.path())
-                .find(|path| {
-                    (path.file_name().and_then(|n| n.to_str()))
-                        .is_some_and(|n| n.ends_with(&suffix))
-                })
-        }
-    }
+// The file the session `transcript` names is written in, once it is: found as the harness names
+// it, from `at`, when the call began
+fn file(
+    transcript: &Transcript,
+    session: &str,
+    format: Format,
+    at: jiff::Timestamp,
+) -> Option<PathBuf> {
+    let threads = transcript.threads.as_deref();
+    transcripts::find(
+        format.transcripts(),
+        session,
+        &transcript.folder,
+        threads,
+        at,
+    )
 }
 
 fn length(file: &Path) -> u64 {
@@ -172,21 +190,29 @@ fn counted_errors(who: &str, role: &str, errors: &[ToolError], metrics: &Recorde
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(super) struct Mark {
     folder: PathBuf,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    threads: Option<PathBuf>,
     session: String,
     from: u64,
+    // When the turn began, in seconds since the epoch
+    #[serde(default)]
+    at: i64,
 }
 
 impl Mark {
     /// Where `call`'s transcript stands now, for a call on a harness whose requests are counted
     pub(super) fn of(agents: &dyn Agents, call: &AgentCall) -> Option<Self> {
         let format = Format::of(call)?;
-        let folder = agents.transcript(call)?.folder;
+        let transcript = agents.transcript(call)?;
         let session = call.session.id().0.clone();
-        let from = file(&folder, &session, format).map_or(0, |file| length(&file));
+        let at = jiff::Timestamp::now();
+        let from = file(&transcript, &session, format, at).map_or(0, |file| length(&file));
         Some(Self {
-            folder,
+            folder: transcript.folder,
+            threads: transcript.threads,
             session,
             from,
+            at: at.as_second(),
         })
     }
 
@@ -202,7 +228,12 @@ impl Mark {
         let Some(format) = Format::of_harness(harness) else {
             return;
         };
-        let Some(file) = file(&self.folder, &self.session, format) else {
+        let transcript = Transcript {
+            folder: self.folder.clone(),
+            threads: self.threads.clone(),
+        };
+        let at = jiff::Timestamp::from_second(self.at).unwrap_or_default();
+        let Some(file) = file(&transcript, &self.session, format, at) else {
             return;
         };
         let Ok(text) = std::fs::read_to_string(file) else {
@@ -213,21 +244,23 @@ impl Mark {
             for request in format.requests(&text, from) {
                 metrics.request(Role::Worker.as_str(), harness.as_str(), &request);
             }
-            counted_errors(
-                &who_carried(ticket),
-                Role::Worker.as_str(),
-                &format.errors(&text, from),
-                metrics,
-                notes,
-            );
+            if format.records_calls() {
+                counted_errors(
+                    &who_carried(ticket),
+                    Role::Worker.as_str(),
+                    &format.errors(&text, from),
+                    metrics,
+                    notes,
+                );
+            }
         }
     }
 }
 
 impl TranscriptCount {
-    fn file(&self, call: &AgentCall, format: Format) -> Option<PathBuf> {
-        let folder = self.agents.transcript(call)?.folder;
-        file(&folder, &call.session.id().0, format)
+    fn file(&self, call: &AgentCall, format: Format, at: jiff::Timestamp) -> Option<PathBuf> {
+        let transcript = self.agents.transcript(call)?;
+        file(&transcript, &call.session.id().0, format, at)
     }
 
     fn count_requests(&self, call: &AgentCall, format: Format, text: &str, from: usize) {
@@ -302,16 +335,20 @@ impl Agents for TranscriptCount {
         let Some(format) = Format::of(call) else {
             return self.agents.run(call, ending);
         };
-        let before = self.file(call, format).as_deref().map_or(0, length);
+        let at = jiff::Timestamp::now();
+        let before = self.file(call, format, at).as_deref().map_or(0, length);
         let ran = self.agents.run(call, ending);
-        let text = (self.file(call, format)).and_then(|file| std::fs::read_to_string(file).ok());
+        let text =
+            (self.file(call, format, at)).and_then(|file| std::fs::read_to_string(file).ok());
         if let Some(text) = text.filter(|text| text.len() as u64 > before) {
             let from = usize::try_from(before).unwrap_or(0);
-            if crate::ports::mcp::loads(call) {
+            if format.records_calls() && crate::ports::mcp::loads(call) {
                 self.count_mcp(call, format, &format.read(&text, from));
             }
             self.count_requests(call, format, &text, from);
-            self.count_errors(call, format, &text, from);
+            if format.records_calls() {
+                self.count_errors(call, format, &text, from);
+            }
         }
         ran
     }

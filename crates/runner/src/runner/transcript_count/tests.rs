@@ -506,5 +506,140 @@ fn a_stand_in_call_is_counted_as_no_harness_counts() {
         .filter(|h| Format::of_harness(*h).is_some())
         .collect();
 
-    assert_eq!(counted, [Harness::ClaudeCode, Harness::Pi]);
+    assert_eq!(counted, [Harness::ClaudeCode, Harness::Pi, Harness::Codex]);
+}
+
+// A Codex 0.159.3 call that compacted, as its rollout recorded it: five requests
+const CODEX_ROLLOUT: &str = include_str!("../../../../../fixtures/codex-rollout-compacted.jsonl");
+const CODEX_THREAD: &str = "01a0f7fd-4ed5-7773-80ea-165edc292d8d";
+
+// Codex, as far as its rollout goes: it names the file for its own thread, in a folder for the day,
+// and kelpie records which thread the session is once the first call ends.
+#[derive(Debug)]
+struct Codex {
+    sessions: PathBuf,
+    threads: PathBuf,
+}
+
+impl Agents for Codex {
+    fn prepare(&self, _call: &AgentCall) -> Result<(), AgentError> {
+        Ok(())
+    }
+
+    fn run(&self, call: &AgentCall, _ending: &Ending) -> Result<AgentReply, AgentError> {
+        let day = self.sessions.join("2026/10/21");
+        std::fs::create_dir_all(&day).unwrap();
+        let file = day.join(format!("rollout-2026-10-21T15-40-45-{CODEX_THREAD}.jsonl"));
+        let before = std::fs::read_to_string(&file).unwrap_or_default();
+        // Each call's requests have responses of their own.
+        let rollout = CODEX_ROLLOUT.replace("resp_", &format!("resp{}_", before.len()));
+        std::fs::write(&file, before + &rollout).unwrap();
+        std::fs::create_dir_all(&self.threads).unwrap();
+        let record = self.threads.join(format!("{}.json", call.session.id().0));
+        std::fs::write(record, format!(r#"{{"id":"{CODEX_THREAD}"}}"#)).unwrap();
+        Ok(AgentReply {
+            session_id: call.session.id().clone(),
+            text: "done".into(),
+            usage: Usage::default(),
+            session_cost: None,
+            context: None,
+            compactions: 0,
+        })
+    }
+
+    fn transcript(&self, _call: &AgentCall) -> Option<Transcript> {
+        Some(Transcript {
+            folder: self.sessions.clone(),
+            threads: Some(self.threads.clone()),
+        })
+    }
+}
+
+// A worker's Codex call in `folder`
+fn codex_call(folder: &Path) -> AgentCall {
+    AgentCall::new(
+        Role::Worker,
+        Tools::Work,
+        AgentHarness::Codex,
+        "gpt",
+        crate::settings::Effort::Medium,
+        Session::Resume(SessionId(SESSION.into())),
+        folder.join("worktree"),
+        "go on",
+    )
+}
+
+#[test]
+fn each_codex_call_counts_its_own_requests_from_its_rollout() {
+    let folder = short_tempdir();
+    let (counted, sink, _) = counted_with(Codex {
+        sessions: sessions_of(folder.path()),
+        threads: folder.path().join("threads"),
+    });
+    let call = codex_call(folder.path());
+    let small = [("harness", "codex"), ("le", "150000"), ("role", "worker")];
+
+    counted.run(&call, &Ending::default()).unwrap();
+    assert_eq!(
+        sink.value("kelpie_request_context_tokens", &small),
+        Some(5.0),
+        "the recorded rollout's five requests, the compaction's included"
+    );
+    counted.run(&call, &Ending::default()).unwrap();
+    assert_eq!(
+        sink.value("kelpie_request_context_tokens", &small),
+        Some(10.0),
+        "the second call's five, not the first's again"
+    );
+}
+
+#[test]
+fn a_codex_call_counts_no_mcp_server_and_no_tool_error() {
+    let folder = short_tempdir();
+    let (counted, sink, notes) = counted_with(Codex {
+        sessions: sessions_of(folder.path()),
+        threads: folder.path().join("threads"),
+    });
+    let mut call = codex_call(folder.path());
+    call.reach.code_graph = Some(CodeGraph {
+        binary: folder.path().join("codebase-memory-mcp"),
+        index: folder.path().join("graph"),
+        runtime: folder.path().join("cbm"),
+    });
+
+    counted.run(&call, &Ending::default()).unwrap();
+    assert_eq!(sink.total("kelpie_mcp_tool_calls_total"), 0.0);
+    assert_eq!(sink.total("kelpie_mcp_servers_total"), 0.0);
+    assert_eq!(sink.total("kelpie_tool_errors_total"), 0.0);
+    assert_eq!(notes.take(), Vec::<String>::new());
+}
+
+#[test]
+fn a_carried_codex_turn_counts_its_requests_from_the_rollout_its_thread_names() {
+    let folder = short_tempdir();
+    let agents = Codex {
+        sessions: sessions_of(folder.path()),
+        threads: folder.path().join("threads"),
+    };
+    let call = codex_call(folder.path());
+    let Some(mark) = Mark::of(&agents, &call) else {
+        panic!("a worker's Codex call has a mark");
+    };
+    agents.run(&call, &Ending::default()).unwrap();
+
+    let sink = RecordedSink::default();
+    let notes = Notes::default();
+    mark.count(
+        Harness::Codex,
+        ticket(1138),
+        &Recorder::new(Arc::new(sink.clone())),
+        &notes,
+    );
+
+    let small = [("harness", "codex"), ("le", "150000"), ("role", "worker")];
+    assert_eq!(
+        sink.value("kelpie_request_context_tokens", &small),
+        Some(5.0)
+    );
+    assert_eq!(notes.take(), Vec::<String>::new());
 }
