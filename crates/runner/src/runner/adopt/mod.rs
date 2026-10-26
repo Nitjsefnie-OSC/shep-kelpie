@@ -214,11 +214,10 @@ impl Runner {
         self.state.adopted.iter().any(|w| w.pull_request == number)
     }
 
-    // Queues each open pull request labelled `ready-for-agent` whose branch
-    // isn't `kelpie/N`. Starts the oldest that can. A refusal takes the label
-    // off and is posted on the pull request. One merged or closed while it
-    // waited just leaves. Returns each that could not start, and the first
-    // the pacer held, which stays queued while the ones behind it start.
+    // Queues each open pull request labelled `ready-for-agent` whose branch isn't
+    // `kelpie/N`. Starts the oldest that can. A refusal takes the label off and
+    // posts on the pull request. Returns each that could not start, and the
+    // first the pacer held.
     pub(super) fn adopt_waiting(&mut self, open: &[OpenPullRequest]) -> Result<Passed, StateError> {
         let mut skipped = Vec::new();
         // A queue saved before the project moved to the local store is let go,
