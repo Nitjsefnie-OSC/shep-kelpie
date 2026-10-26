@@ -41,10 +41,14 @@ impl Runner {
         if matches!(self.pm.pick, Some(Pick::Nothing(_))) {
             self.pm.pick = None;
         }
-        let mut held: Vec<Held> = Vec::new();
+        // An answer with no `hold` leaves the holds standing; one with a list replaces them.
+        let mut held: Vec<Held> = match &answer.hold {
+            Some(_) => Vec::new(),
+            None => self.pm.held.clone(),
+        };
         let mut dropped = answer.unread.clone();
         let open = self.state.open_tickets();
-        for call in &answer.hold {
+        for call in answer.hold.iter().flatten() {
             let named = ticket_ref(call.issue);
             let waits = call.until.filter(|until| !open.contains(until));
             if !ready.contains(&call.issue) {
@@ -123,7 +127,7 @@ impl Runner {
         if picking.is_some() {
             self.pm.asked_pick = false;
         }
-        if !held.is_empty() {
+        if answer.hold.is_some() && !held.is_empty() {
             let named: Vec<String> = held.iter().map(Held::to_string).collect();
             acted.push(format!("holds {}", named.join(", ")));
         }

@@ -39,8 +39,9 @@ pub(super) struct Answer {
     /// The ready issues to start, in order, or none to start nothing now
     pub(super) picks: Vec<TicketId>,
     /// The ready issues to hold, each until the open work item it names closes
-    /// or, naming none, until any closes
-    pub(super) hold: Vec<HoldCall>,
+    /// or, naming none, until any closes. None leaves the holds as they stand,
+    /// and an empty list clears them.
+    pub(super) hold: Option<Vec<HoldCall>>,
     /// What to do about each stuck work item the wake carried
     pub(super) unstick: Vec<Unstick>,
     /// What to do about one worker's question
@@ -214,9 +215,10 @@ pub(super) fn read(text: &str) -> Option<Answer> {
             "hold" => match &value {
                 Value::Null => {}
                 Value::Array(items) => {
+                    let holds = answer.hold.get_or_insert_with(Vec::new);
                     for item in items {
                         match hold(item) {
-                            Some(h) => answer.hold.push(h),
+                            Some(h) => holds.push(h),
                             None => answer.unread.push(format!("`hold`: {HOLD}, not {item}")),
                         }
                     }
@@ -507,7 +509,7 @@ mod tests {
             answer,
             Answer {
                 picks: vec![ticket(12)],
-                hold: vec![
+                hold: Some(vec![
                     HoldCall {
                         issue: ticket(4),
                         until: None
@@ -520,7 +522,7 @@ mod tests {
                         issue: ticket(5),
                         until: Some(ticket(3))
                     },
-                ],
+                ]),
                 unstick: vec![Unstick {
                     item: ticket(7),
                     action: Action::ReScope,
@@ -776,10 +778,10 @@ mod tests {
             ),
             (
                 &Vec::new(),
-                &vec![HoldCall {
+                &Some(vec![HoldCall {
                     issue: ticket(5),
                     until: None
-                }],
+                }]),
                 &Vec::new(),
                 Some("On it.")
             )
@@ -808,15 +810,22 @@ mod tests {
         };
         assert_eq!(
             answer.hold,
-            [
+            Some(vec![
                 hold(7, None),
                 hold(8, Some(3)),
                 hold(9, None),
                 hold(10, None)
-            ]
+            ])
         );
         assert_eq!(answer.unread.len(), 2, "{:?}", answer.unread);
         assert!(answer.unread[0].ends_with("not {\"issue\":11,\"until\":\"soon\"}"));
+    }
+
+    #[test]
+    fn no_hold_leaves_the_holds_and_an_empty_list_clears_them() {
+        assert_eq!(read("{\"pick\": 12}").unwrap().hold, None);
+        assert_eq!(read("{\"pick\": 12, \"hold\": null}").unwrap().hold, None);
+        assert_eq!(read("{\"hold\": []}").unwrap().hold, Some(Vec::new()));
     }
 
     #[test]

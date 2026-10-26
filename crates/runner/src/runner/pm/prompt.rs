@@ -178,8 +178,8 @@ const ANSWER: &str = concat!(
 hold ends when that work item closes or the issue's text changes, and no other \
 close ends it, so you need not hold it again on each wake. An `until` that is no open \
 work item is refused and the issue is not held. An entry that is just an issue number \
-holds until any work item closes. Each answer replaces the last, so list every hold \
-that should stand.
+holds until any work item closes. A list replaces your holds, so list every one that \
+should stand; null, or leaving `hold` out, keeps them as they are, and [] clears them.
 
 `unstick` is one object for one stuck item, or a list of them where the wake \
 carried several: kelpie acts on each in turn. `retry` runs the item's turn \

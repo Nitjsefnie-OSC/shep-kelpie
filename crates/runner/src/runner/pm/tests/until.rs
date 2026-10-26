@@ -58,6 +58,36 @@ fn a_hold_until_one_item_survives_another_closing_and_ends_when_it_closes() {
 }
 
 #[test]
+fn a_later_answer_with_no_hold_leaves_the_hold_and_an_empty_list_clears_it() {
+    let (rig, runner, _) = held_by(UNTIL_7);
+    // With #9 the only ready issue, no worker starts to take a scripted reply.
+    rig.forge.unlist_ready(12);
+    rig.clock.advance(61);
+    step(&runner).unwrap();
+    rig.claude
+        .script([Scripted::Say("{\"reply\": \"Noted.\"}")]);
+    rig.ask(&runner, "tell", Some("go on"));
+    let report = step_until(&runner, |r| matches!(r, StepReport::PmAnswered { .. }));
+    let (_, acted, dropped) = answered(Some(report));
+    assert_eq!((acted, dropped), (vec![], vec![]));
+
+    assert_eq!(
+        held(&rig, &runner),
+        json!([{ "issue": "9", "until": "7" }]),
+        "an answer that says nothing of holds leaves them"
+    );
+
+    rig.claude.script([Scripted::Say("{\"hold\": []}")]);
+    rig.ask(&runner, "tell", Some("and now"));
+    step_until(&runner, |r| matches!(r, StepReport::PmAnswered { .. }));
+    assert_eq!(
+        held(&rig, &runner),
+        json!(null),
+        "an empty list clears them"
+    );
+}
+
+#[test]
 fn a_hold_with_no_until_ends_at_any_close() {
     let (rig, runner, acted) = held_by("{\"pick\": null, \"hold\": [9]}");
     assert_eq!(acted, ["starts nothing now", "holds #9"]);
