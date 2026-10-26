@@ -409,20 +409,7 @@ fn a_pi_turn_whose_record_stays_gone_refuses_the_handover_and_the_old_image_keep
         wake,
     } = in_a_pi_turn(folder, &server);
     std::fs::remove_file(read(folder, "record").trim()).unwrap();
-    let asked = {
-        let handing = Arc::clone(&handing);
-        std::thread::spawn(move || handing.ask(&wake))
-    };
-    eventually("the record seen gone", || {
-        matches!(
-            runner.lock().unwrap().carry_calls(),
-            Err(NotCarried::Waiting(_))
-        )
-    });
-
-    rig.clock.advance(CARRY_WAIT.as_secs());
-
-    let answer: serde_json::Value = serde_json::from_str(&asked.join().unwrap()).unwrap();
+    let answer = refused_once_the_wait_is_up(&rig, &runner, &handing, wake);
     let error = answer["error"].as_str().unwrap();
     assert!(
         error.starts_with("handover refused: the turn of #7 cannot be carried: the call's record "),

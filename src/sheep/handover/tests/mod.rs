@@ -275,6 +275,28 @@ fn a_handover_is_refused_at_once_when_a_calls_record_is_there_and_cannot_be_read
     assert!(!handing.pending());
 }
 
+// Asks for a handover while the record of the running call is gone, lets the
+// wait for its end run out, and gives the refusal the request is answered with.
+fn refused_once_the_wait_is_up(
+    rig: &Rig,
+    runner: &Arc<Mutex<Runner>>,
+    handing: &Arc<Handing>,
+    wake: Sender<()>,
+) -> serde_json::Value {
+    let asked = {
+        let handing = Arc::clone(handing);
+        std::thread::spawn(move || handing.ask(&wake))
+    };
+    eventually("the record seen gone", || {
+        matches!(
+            runner.lock().unwrap().carry_calls(),
+            Err(NotCarried::Waiting(_))
+        )
+    });
+    rig.clock.advance(CARRY_WAIT.as_secs());
+    serde_json::from_str(&asked.join().unwrap()).unwrap()
+}
+
 // Whether an `add 7` asked while a pass holds the runner's lock is answered from the posted copy.
 fn add_is_answered_while_the_lock_is_held(runner: &Arc<Mutex<Runner>>) -> bool {
     let postings = runner.lock().unwrap().postings();
