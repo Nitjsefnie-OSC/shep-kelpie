@@ -28,6 +28,7 @@ mod ref_folders;
 mod remote;
 mod stale_lock;
 mod workflows;
+mod writable;
 
 pub use active::touched_since;
 pub use adopt::adopt;
@@ -41,6 +42,7 @@ pub use contribution::{
 pub use push::push_commits;
 pub use remote::Remote;
 pub use workflows::runs_on_pull_requests;
+pub use writable::remove_tree;
 
 /// Where a new worktree's branch starts
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -305,16 +307,7 @@ pub fn remove(
     };
     ref_folders::ensure(&common, branch)?;
     on_remote_deleted?;
-    let removed = match std::fs::remove_dir_all(build) {
-        // Go writes its module cache with read-only folders, which cannot
-        // be emptied until they are made writable.
-        Err(e) if e.kind() == io::ErrorKind::PermissionDenied => {
-            make_writable(build);
-            std::fs::remove_dir_all(build)
-        }
-        other => other,
-    };
-    match removed {
+    match remove_tree(build) {
         Err(e) if e.kind() != io::ErrorKind::NotFound => Err(WorktreeError::Remove {
             path: build.to_owned(),
             kind: e.kind(),
@@ -350,45 +343,6 @@ fn delete_on_remote(repo: &Path, remote: &Remote, branch: &str) -> Result<(), Wo
         Err(e) if on_remote(repo, remote, &full_ref)? => Err(e),
         _ => Ok(()),
     }
-}
-
-/// Gives the owner read, write and execute on every folder under `root`, and
-/// on `root`, so the tree can be unlinked
-///
-/// A link is never followed and never changed, so nothing outside `root` is
-/// touched. What cannot be read or changed is skipped: the removal that
-/// follows reports it.
-fn make_writable(root: &Path) {
-    let Ok(meta) = std::fs::symlink_metadata(root) else {
-        return;
-    };
-    if !meta.is_dir() {
-        return;
-    }
-    let _ = std::fs::set_permissions(root, owner_writes(meta.permissions()));
-    let Ok(entries) = std::fs::read_dir(root) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        make_writable(&entry.path());
-    }
-}
-
-#[cfg(unix)]
-fn owner_writes(mut permissions: std::fs::Permissions) -> std::fs::Permissions {
-    use std::os::unix::fs::PermissionsExt;
-
-    permissions.set_mode(permissions.mode() | 0o700);
-    permissions
-}
-
-// Windows has no mode bits, only a read-only flag.
-#[cfg(not(unix))]
-fn owner_writes(mut permissions: std::fs::Permissions) -> std::fs::Permissions {
-    // The lint warns that this makes a Unix file world-writable.
-    #[allow(clippy::permissions_set_readonly_false)]
-    permissions.set_readonly(false);
-    permissions
 }
 
 /// Makes `view` a detached worktree of `repo` at `origin/main`, just
