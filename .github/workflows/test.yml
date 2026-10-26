@@ -17,7 +17,31 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
 jobs:
+  # Decides whether a pull request changed anything a Rust job reads, so a
+  # prose-only change skips them. A skipped job reports as skipped, which
+  # kelpie and GitHub read as passed. Every other event runs every job, and a
+  # failed decision does too, since its output is then empty.
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      rust: ${{ steps.rust.outputs.rust }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+      # A pull request's checkout is its merge commit, whose first parent is the base.
+      - id: rust
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            git diff --name-only HEAD^1 HEAD | scripts/ci-changes.sh >> "$GITHUB_OUTPUT"
+          else
+            echo rust=true >> "$GITHUB_OUTPUT"
+          fi
+
   lint:
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.rust != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -37,7 +61,10 @@ jobs:
         env:
           PRIVATE_NAMES: ${{ secrets.PRIVATE_NAMES }}
 
+  # The prose checks run on every change, and rustdoc only when Rust may have.
   docs:
+    needs: changes
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -46,7 +73,6 @@ jobs:
       pull-requests: read
     steps:
       - uses: actions/checkout@v7
-      - run: rustup toolchain install stable --profile minimal
       - run: scripts/design-size.sh
       - run: scripts/readme-size.sh
       - run: scripts/docs-links.py
@@ -54,11 +80,16 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PR: ${{ github.event.pull_request.number }}
-      - run: cargo doc --no-deps --locked
+      - if: needs.changes.outputs.rust != 'false'
+        run: rustup toolchain install stable --profile minimal
+      - if: needs.changes.outputs.rust != 'false'
+        run: cargo doc --no-deps --locked
     env:
       RUSTDOCFLAGS: -D warnings
 
   test:
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.rust != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -70,6 +101,8 @@ jobs:
   # only test that sees shep answer `NotFound`, which the fake shepherd
   # cannot send.
   real-shepherd:
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.rust != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
@@ -100,6 +133,8 @@ jobs:
   # on Linux, where bubblewrap fences the worker. They skip the two that need
   # a login or pi.
   sandbox:
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.rust != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -142,6 +177,8 @@ jobs:
           done
 
   msrv:
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.rust != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -158,6 +195,8 @@ jobs:
   # every pull request on. Drop it, and add the job to the ruleset's
   # required checks, when #241 is done.
   windows:
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.rust != 'false' }}
     runs-on: windows-11-arm
     timeout-minutes: 30
     steps:
