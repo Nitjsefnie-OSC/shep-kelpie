@@ -235,6 +235,7 @@ impl Runner {
         let ModelHost::Gateway(gateway) = &server.host else {
             return false;
         };
+        // parity: gateway.lease-availability
         if self.gateways.get(gateway).map(|g| g.kind) != Some(GatewayKind::Paddock) {
             return false;
         }
