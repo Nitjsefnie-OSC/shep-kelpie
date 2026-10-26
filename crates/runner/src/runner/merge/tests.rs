@@ -81,6 +81,7 @@ fn a_trigger_is_answered_while_a_merged_items_worktree_is_removed() {
     assert!(!rig.worktree_7().exists());
 }
 
+#[cfg(unix)]
 #[test]
 fn a_build_folder_holding_a_read_only_module_cache_is_removed_with_the_item() {
     use std::os::unix::fs::PermissionsExt;

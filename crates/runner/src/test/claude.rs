@@ -78,6 +78,7 @@ pub enum Scripted {
     Attach(&'static str, &'static str, &'static str),
     /// Links this file below that folder to a file outside it, and answers
     /// with this text
+    #[cfg(unix)]
     AttachLinked(&'static str, &'static str),
     /// Answers like [`Self::Text`], with this cost for the session
     Billed(&'static str, Cost),
@@ -454,6 +455,7 @@ impl Agents for FakeClaude {
                 write_in(&attach_folder(call), file, text);
                 Ok(said(reply))
             }
+            #[cfg(unix)]
             Some(Scripted::AttachLinked(file, reply)) => {
                 let folder = attach_folder(call);
                 let outside = folder.parent().unwrap().join("outside.rs");

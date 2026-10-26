@@ -1,5 +1,6 @@
 //! When the runner charges time, and to what, as the project pauses, stops and restarts
 
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::sync::Mutex;
 
@@ -266,6 +267,7 @@ fn an_idle_step_saves_the_time_only_every_half_minute() {
     assert_eq!(saved_since(&rig), begun + 45, "the step's beat saved it");
 }
 
+#[cfg(unix)]
 #[test]
 fn a_beat_that_cannot_save_lets_the_step_go_on_and_loses_no_time() {
     let (rig, runner) = idle_with_issue_7();

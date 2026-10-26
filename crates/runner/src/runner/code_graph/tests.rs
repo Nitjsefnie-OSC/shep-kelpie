@@ -595,6 +595,7 @@ fn a_call_ended_while_its_index_builds_kills_the_indexer_and_runs_without_the_se
     );
 }
 
+#[cfg(unix)]
 #[test]
 fn an_index_that_fails_under_a_daemon_folder_too_long_for_its_socket_says_so() {
     let dir = crate::test::short_tempdir();
