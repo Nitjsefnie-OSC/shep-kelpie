@@ -100,6 +100,48 @@ fn a_refused_handover_leaves_the_runner_and_its_calls_as_they_were() {
 }
 
 #[test]
+fn a_handover_asked_while_passes_keep_starting_calls_is_tried_at_the_next_quiet_point() {
+    let rig = Rig::new("shep");
+    rig.edit_settings(|s| s.replace("active_items = 1", "active_items = 2"));
+    let runner = Arc::new(rig.open().unwrap());
+    rig.ask(&runner, "add", Some("7"));
+    rig.ask(&runner, "add", Some("8"));
+    let (seven, eight) = (Hold::default(), Hold::default());
+    rig.claude
+        .script([Scripted::Hold(seven.clone()), Scripted::Hold(eight.clone())]);
+    let (handing, tried) = refusing("stand-in", &Arc::default());
+    let hooks = Hooks {
+        on_wake: Box::new(|_| {}),
+        finished: Box::new(|_| {}),
+        handover: Arc::clone(&handing),
+    };
+    let (wake, woken) = mpsc::channel();
+    let (died, _) = mpsc::channel();
+    let held = rig.forge.hold_next_call();
+    let worker = Worker::spawn(Arc::clone(&runner), hooks, wake, woken, died);
+    assert!(held.waiting(CALL_PATIENCE), "the first pass never began");
+
+    // The request carries a wake of its own, so the loop is not woken by it.
+    let (elsewhere, _unheard) = mpsc::channel();
+    let asking = Arc::clone(&handing);
+    std::thread::spawn(move || asking.ask(&elsewhere));
+    eventually("the request", || handing.pending());
+    drop(held);
+
+    assert!(seven.entered(CALL_PATIENCE), "#7's turn never began");
+    assert!(eight.entered(CALL_PATIENCE), "#8's turn never began");
+    eventually("the handover tried", || {
+        tried.execs.load(Ordering::SeqCst) == 1
+    });
+    // Tried after the pass that started #7, before the one that started #8.
+    assert_eq!(*tried.carried.lock().unwrap(), [ticket(7)]);
+    assert!(!handing.pending());
+    seven.release();
+    eight.release();
+    assert!(worker.stop(JOIN_BOUND, || {}));
+}
+
+#[test]
 fn a_handover_with_nothing_in_flight_carries_nothing() {
     let rig = Rig::new("shep");
     let runner = Arc::new(rig.open().unwrap());
