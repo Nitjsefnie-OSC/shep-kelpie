@@ -25,6 +25,7 @@ mod commit;
 mod drain;
 mod files;
 mod handover;
+mod migrate;
 mod refusals;
 mod sheep;
 mod source;
