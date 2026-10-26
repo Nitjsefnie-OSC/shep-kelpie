@@ -47,6 +47,13 @@ pub(in crate::runner) enum Entry {
         reviewer: String,
         findings: usize,
     },
+    /// A reviewer the review pass went on without, with why
+    ReviewerSkipped {
+        issue: TicketId,
+        round: u32,
+        reviewer: String,
+        reason: String,
+    },
     /// A round's findings went to the worker's fix turn
     FindingsSent {
         issue: TicketId,
@@ -190,6 +197,30 @@ impl Entry {
                 reviewer: reviewer.as_str().to_owned(),
                 findings: *open_threads,
             },
+            StepReport::ReviewerSkipped {
+                issue,
+                round,
+                reviewer,
+                reason,
+                ..
+            } => Self::ReviewerSkipped {
+                issue: *issue,
+                round: *round,
+                reviewer: reviewer.as_str().to_owned(),
+                reason: reason.clone(),
+            },
+            StepReport::LocalRoundFailed {
+                issue,
+                round,
+                reviewer,
+                unreviewed,
+                ..
+            } => Self::ReviewerSkipped {
+                issue: *issue,
+                round: *round,
+                reviewer: reviewer.as_str().to_owned(),
+                reason: format!("it read no file: {}", unreviewed.join(", ")),
+            },
             StepReport::ReviewFindingsSent {
                 issue, round, held, ..
             } => Self::FindingsSent {
@@ -203,7 +234,8 @@ impl Entry {
 
     /// Whether the entry is about the work item for `ticket`
     ///
-    /// A wake is about the work items it names by id.
+    /// A wake is about the work items it woke for, picked or acted on, never
+    /// one its answer only holds back.
     pub(super) fn names(&self, ticket: TicketId) -> bool {
         match self {
             Self::Wake {
@@ -213,7 +245,7 @@ impl Entry {
                 ..
             } => woke_for
                 .iter()
-                .chain(acted)
+                .chain(acted_on(acted))
                 .chain(dropped)
                 .any(|text| mentions(text, ticket)),
             Self::CiFailed { issue: n, .. }
@@ -222,12 +254,35 @@ impl Entry {
             | Self::CiOutsideDiff { issue: n, .. }
             | Self::Findings { issue: n, .. }
             | Self::Round { issue: n, .. }
+            | Self::ReviewerSkipped { issue: n, .. }
             | Self::FindingsSent { issue: n, .. }
             | Self::FindingOutcomes { issue: n, .. }
             | Self::Friction { issue: n, .. } => *n == ticket,
             Self::Retro { issues } => issues.contains(&ticket),
         }
     }
+}
+
+/// What the project manager's answer did, with the line naming only what it
+/// holds back left out: holding an issue is not acting on it
+fn acted_on(acted: &[String]) -> Vec<&String> {
+    acted
+        .iter()
+        .filter(|line| !line.starts_with(HOLDS))
+        .collect()
+}
+
+/// The `acted` line that names what the wake holds back
+const HOLDS: &str = "holds ";
+
+/// The `acted` line the project manager's answer has when it starts nothing
+const STARTS_NOTHING: &str = "starts nothing now";
+
+/// Whether the wake whose answer `acted` is changed nothing it was asked about
+pub(in crate::runner) fn changed_nothing(acted: &[String]) -> bool {
+    acted_on(acted)
+        .iter()
+        .all(|line| line.as_str() == STARTS_NOTHING)
 }
 
 // Whether `text` names `ticket` as a whole id, and not a piece of a longer one.
@@ -280,6 +335,7 @@ pub(in crate::runner) fn read(file: &Path) -> Vec<Stamped> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::settings::AgentName;
     use crate::test::ticket;
 
     fn wake(woke_for: &str) -> Entry {
@@ -309,6 +365,90 @@ mod tests {
         assert!(!entry.names("k12".parse().unwrap()), "{entry:?}");
         let entry = wake("the k12 retro, and k12 too");
         assert!(entry.names("k12".parse().unwrap()), "{entry:?}");
+    }
+
+    #[test]
+    fn a_reviewer_the_pass_went_without_reaches_the_journal_with_its_reason() {
+        let report = StepReport::ReviewerSkipped {
+            issue: ticket(3),
+            pull_request: 71,
+            round: 1,
+            reviewer: AgentName::try_from("codex".to_owned()).unwrap(),
+            reason: "its window opens more than an hour on".to_owned(),
+        };
+        assert_eq!(
+            Entry::of(&report),
+            Some(Entry::ReviewerSkipped {
+                issue: ticket(3),
+                round: 1,
+                reviewer: "codex".to_owned(),
+                reason: "its window opens more than an hour on".to_owned(),
+            })
+        );
+        assert!(
+            Entry::ReviewerSkipped {
+                issue: ticket(3),
+                round: 1,
+                reviewer: "codex".to_owned(),
+                reason: "its calls failed three times".to_owned(),
+            }
+            .names(ticket(3))
+        );
+    }
+
+    #[test]
+    fn a_local_round_that_read_no_file_is_a_reviewer_the_pass_went_without() {
+        let report = StepReport::LocalRoundFailed {
+            issue: ticket(3),
+            pull_request: 71,
+            round: 2,
+            reviewer: AgentName::try_from("qwen".to_owned()).unwrap(),
+            unreviewed: vec!["src/a.rs".into(), "src/b.rs".into()],
+        };
+        assert_eq!(
+            Entry::of(&report),
+            Some(Entry::ReviewerSkipped {
+                issue: ticket(3),
+                round: 2,
+                reviewer: "qwen".to_owned(),
+                reason: "it read no file: src/a.rs, src/b.rs".to_owned(),
+            })
+        );
+    }
+
+    #[test]
+    fn a_wake_that_only_holds_an_issue_back_names_none_of_it() {
+        let entry = Entry::Wake {
+            woke_for: vec!["#406 CI failed".to_owned()],
+            acted: vec!["holds #407, #408".to_owned()],
+            dropped: Vec::new(),
+        };
+        assert!(entry.names(ticket(406)));
+        assert!(!entry.names(ticket(407)), "{entry:?}");
+        assert!(!entry.names(ticket(408)), "{entry:?}");
+        // A wake that picked it, or acted on it, is its own
+        let entry = Entry::Wake {
+            woke_for: Vec::new(),
+            acted: vec!["picked #407".to_owned(), "holds #408".to_owned()],
+            dropped: Vec::new(),
+        };
+        assert!(entry.names(ticket(407)), "{entry:?}");
+        assert!(!entry.names(ticket(408)), "{entry:?}");
+    }
+
+    #[test]
+    fn a_pick_of_none_is_a_wake_that_changed_nothing() {
+        assert!(changed_nothing(&[]));
+        assert!(changed_nothing(&["starts nothing now".to_owned()]));
+        assert!(changed_nothing(&[
+            "starts nothing now".to_owned(),
+            "holds #407".to_owned()
+        ]));
+        assert!(!changed_nothing(&["picked #407".to_owned()]));
+        assert!(!changed_nothing(&[
+            "starts nothing now".to_owned(),
+            "unstick #407".to_owned()
+        ]));
     }
 
     #[test]
