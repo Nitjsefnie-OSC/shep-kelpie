@@ -166,7 +166,7 @@ impl Runner {
             &self.state.dropped,
             &implementers,
         );
-        let held = self.pm_holds(&all);
+        let held = self.pm_holds(&all, &ready);
         ready.retain(|issue| !held.contains(&issue.ticket));
         let mut paced = false;
         let mut unlabelled: Vec<Skip> = Vec::new();

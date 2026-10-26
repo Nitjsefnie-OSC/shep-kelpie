@@ -284,13 +284,17 @@ impl Runner {
                 stuck_wake(ticket, ruling).filter(|_| !ended)
             })
             .collect();
-        let closed = (was.work_items.iter()).any(|i| now.item(i.issue).is_none());
+        let closed: Vec<TicketId> = (was.work_items.iter())
+            .map(|i| i.issue)
+            .filter(|&issue| now.item(issue).is_none())
+            .collect();
         self.pm_asked(now);
         for wake in stuck {
             self.pm_due(wake);
         }
-        if closed {
-            self.pm.held.clear();
+        if !closed.is_empty() {
+            // A hold waits on the work item it names, or on any when it names none.
+            (self.pm.held).retain(|held| held.until.is_some_and(|until| !closed.contains(&until)));
             if matches!(self.pm.pick, Some(Pick::Nothing(_))) {
                 self.pm.pick = None;
             }
