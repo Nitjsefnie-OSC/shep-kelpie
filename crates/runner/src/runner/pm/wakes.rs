@@ -1,6 +1,7 @@
 //! What wakes the project manager besides a pick and a `tell`: a work item
 //! parked on a stuck item's ruling, a pair of open branches newly in
-//! conflict, and, once it is back, whatever it missed while it was not
+//! conflict in their own changes rather than `main`'s, and, once it is back,
+//! whatever it missed while it was not
 //!
 //! A work item the project manager answered `none` for is not queued again
 //! while it is in the state it was left alone in, which is what `pm_due` checks
@@ -349,6 +350,10 @@ impl Runner {
 
     /// Wakes the project manager for each pair of open branches newly in
     /// conflict, given every pair in conflict now
+    ///
+    /// The files a branch conflicts with `main` in are in no pair: the board
+    /// reports it behind `main`, and kelpie catches it up without the project
+    /// manager.
     pub(in crate::runner) fn pm_conflicts(
         &mut self,
         now: BTreeMap<(TicketId, TicketId), Vec<String>>,

@@ -19,6 +19,7 @@ use super::HOLD_FOR;
 
 mod attach;
 mod code;
+mod conflicts;
 mod follow_up;
 mod hold;
 mod lease;

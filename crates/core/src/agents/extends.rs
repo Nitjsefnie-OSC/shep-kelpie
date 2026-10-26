@@ -65,6 +65,13 @@ pub(super) fn merged<'a>(
 /// into the binary, in place of a file
 pub(super) const SHIPPED: &str = "kelpie:";
 
+/// The name of the shipped agent `text`'s own `extends` key names, if it names one
+pub(super) fn shipped_parent(text: &str) -> Option<String> {
+    let (front, _) = front::split(text)?;
+    let extended = entries(front).into_iter().find(|e| e.key == "extends")?;
+    extended.value().strip_prefix(SHIPPED).map(str::to_owned)
+}
+
 /// The text of a parent: a file, which may extend another, or a default
 #[derive(Debug, Clone, Copy)]
 pub(super) enum ParentText<'a> {

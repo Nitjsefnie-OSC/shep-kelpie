@@ -122,6 +122,7 @@ fn a_workers_turn_on_a_gateway_is_carried_with_its_forwarder_and_lease_and_not_t
     assert_eq!(kept.server, KeptServer::Gateway("paddock".into()));
     assert_eq!(kept.session.0, FRESH_ID);
     assert_eq!(kept.lease.as_deref(), Some("L1"));
+    assert_eq!(kept.model.as_deref(), Some(call.model.as_str()));
     assert_eq!(adopted.harness, Harness::Pi);
     let wire = serde_json::to_string(&adopted).unwrap();
     assert!(!wire.contains(KEY), "{wire}");

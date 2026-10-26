@@ -457,6 +457,11 @@ fn a_runner_with_every_role_and_harness_in_use_stays_under_the_cap() {
     });
     // The runner's lock: the seconds it was held, and the holds of at most a second and of all.
     recorder.lock_holds(1.5, 1, 2);
+    // Five gateway models' leases: four series each.
+    for model in ["a", "b", "c", "d", "e"] {
+        recorder.model_lease_standing(model, 1, 1);
+        recorder.model_lease_granted(model, 5);
+    }
     // Every kind for each of the three roles whose tool calls are counted, and one for a role
     // whose are not, which adds none.
     const KINDS: [&str; 13] = [

@@ -778,6 +778,7 @@ mod hand_over;
 mod held;
 mod install;
 mod main_fetch;
+mod moved;
 mod off_lock;
 mod pause_log;
 mod question;

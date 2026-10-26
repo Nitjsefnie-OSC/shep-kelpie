@@ -380,3 +380,52 @@ fn a_gone_record_is_waited_for_afresh_by_the_turn_after_one_that_was_seen_gone()
     let waits = runner.lock().unwrap().carry_calls().unwrap_err();
     assert!(matches!(waits, NotCarried::Waiting(_)), "{waits:?}");
 }
+
+// What the old image's call held, as a gateway's lease on `coder`, or with no lease at all.
+fn kept_on_coder(lease: Option<&str>) -> crate::ports::Kept {
+    crate::ports::Kept {
+        forwarder: "calls/a.sock".into(),
+        server: crate::ports::KeptServer::Gateway("paddock".into()),
+        session: crate::ports::SessionId("pi-7".into()),
+        lease: lease.map(str::to_owned),
+        model: Some("coder".into()),
+    }
+}
+
+// The turn the new image adopts, with `kept` as the old image's adapter noted for its call.
+fn adopted_with(rig: &Rig, kept: crate::ports::Kept) -> Hold {
+    let (runner, hold) = in_a_held_turn(rig);
+    let mut turns = runner.lock().unwrap().carry_calls().unwrap();
+    turns[0].adopted.kept = Some(kept);
+    runner.lock().unwrap().adopt_calls(turns);
+    hold
+}
+
+// The gauge is the model's, so a handover does not drop it to nothing until the carried call ends.
+#[test]
+fn a_carried_call_still_holding_its_gateway_lease_counts_as_held_on_its_model() {
+    let rig = Rig::new("rotom");
+    let hold = adopted_with(&rig, kept_on_coder(Some("L1")));
+    let coder = [("model", "coder")];
+    assert_eq!(
+        rig.samples.value("kelpie_model_lease_held", &coder),
+        Some(1.0)
+    );
+    assert_eq!(
+        rig.samples.value("kelpie_model_lease_waiting", &coder),
+        Some(0.0)
+    );
+    hold.release();
+}
+
+#[test]
+fn a_carried_call_with_no_lease_counts_on_no_model() {
+    let rig = Rig::new("rotom");
+    let hold = adopted_with(&rig, kept_on_coder(None));
+    assert_eq!(
+        rig.samples
+            .value("kelpie_model_lease_held", &[("model", "coder")]),
+        None
+    );
+    hold.release();
+}

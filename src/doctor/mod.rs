@@ -13,6 +13,7 @@ mod mcp;
 mod project;
 mod registries;
 mod rulings;
+mod unbound;
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -327,6 +328,7 @@ async fn projects(
         let gateways = kelpie.gateways();
         let listed = project::listed_reviewers(&tables, here, (&agents, &gateways));
         lines.extend(gateways::checks(&gateways, &agents, &listed));
+        lines.extend(unbound::checks(&agents));
     }
     if ask.test_alert {
         lines.push(rulings::test_alert(kelpie.as_ref(), probes.alerts));

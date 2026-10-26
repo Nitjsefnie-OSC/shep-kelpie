@@ -135,14 +135,14 @@ async fn add_in_a_scratch_repo_writes_the_table_makes_the_labels_and_adds_the_ru
         .map(|n| n.as_str())
         .collect();
     assert_eq!(listed, ["sonnet-high"]);
-    for name in ["sonnet-high", "opus-high", "defect-hunter"] {
+    for name in ["sonnet-high", "opus-high"] {
         assert_eq!(scene.written(name), stub(name));
     }
     assert!(
         !scene.agents().join("qwen.md").exists(),
         "no qwen-review script, so no qwen reviewer"
     );
-    for bot in ["coderabbit", "cubic", "codex", "pm"] {
+    for bot in ["coderabbit", "cubic", "codex"] {
         assert_eq!(
             scene.written(bot),
             stub(bot),
@@ -280,14 +280,13 @@ async fn a_public_repo_with_no_ci_gets_no_ci_and_still_lists_no_review_bot() {
 }
 
 #[tokio::test]
-async fn add_writes_both_files_and_lists_neither() {
+async fn add_writes_stubs_for_the_whole_agents_and_none_for_a_baseline() {
     let scene = Scene::new().await;
     scene.add().await.unwrap();
-    for axis in ["standards", "spec"] {
-        assert_eq!(
-            scene.written(axis),
-            stub(axis),
-            "written, though no project lists it"
+    for baseline in ["standards", "spec", "pm", "defect-hunter", "triager"] {
+        assert!(
+            !scene.agents().join(format!("{baseline}.md")).exists(),
+            "{baseline} is a baseline: its stub comes from `agents new`"
         );
     }
     let reviewers = scene.settings().agents.reviewers.unwrap();

@@ -532,6 +532,10 @@ pub struct Kept {
     /// The gateway lease the call holds, which the new image goes on renewing
     /// and releases when the call ends, or none for a model with no lease
     pub lease: Option<String>,
+    /// The model the call runs on, which names its lease in the runner's
+    /// metrics; none from an image that did not carry it
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
 }
 
 /// The model server a carried call's forwarder passes to

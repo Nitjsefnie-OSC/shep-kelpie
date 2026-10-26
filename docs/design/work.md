@@ -21,6 +21,11 @@ Projects, slots, issue writer. The board and work items are in `board.md`, the p
 - Resuming a parked session after 1h repays cache write; accepted. shep-pm/shep#707
 - Bot window grant serves one item, never inherited (would summon twice in a window the dog counted once). #103
 
+## Issues
+
+- A path in backticks in an issue a writer files that matches no file on `main` goes back once: the guard refuses the filing, the ledger keeps the path, and the same issue passes on its next try. Retros: 8 of 27 reported an issue naming a moved or renamed file. `core/guard/issues/named.rs`, #1322
+- The first prompt of a work item names the paths its issue names that `main` lacks as "may have moved", with the closest file that ends the same way. One `git ls-tree`, read in place and only when the body names a path. A folder on `main` resolves, and a name with no `/` counts only with an extension files on `main` have. `runner/turn/mod.rs`, #1322
+
 ## Not built
 
 - Overlapping items bundled when small, chained otherwise; today overlap shows as a conflict turn. `docs/design-log.md` Decided, not built

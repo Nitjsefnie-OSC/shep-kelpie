@@ -113,6 +113,7 @@ impl Runner {
     /// again, once a minute, for a metrics dog that started or restarted since
     pub(super) fn send_metrics(&mut self) {
         self.holds.flush(&self.metrics);
+        self.model_leases();
         self.metrics.refresh(self.ports.clock.now());
     }
 

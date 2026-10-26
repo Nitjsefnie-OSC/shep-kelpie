@@ -7,7 +7,7 @@ Kelpie's numbers, live, on shep's metrics endpoint. ADR 0012, #920.
 - Runner and dog send channel samples (`shep_channel::Shepherd::metric_with`); shep's metrics dog serves them on `/metrics` (default `127.0.0.1:9615`) with the sender's labels first: `sheep` (the project), `id`, `fold` for a runner; `dog`, `source` for the dog. `crates/core/src/metrics/mod.rs`
 - Through the `Sink` port (`crates/core/src/ports/metrics.rs`): the real one is the runner's `Shepherd`, a test holds `RecordedSink` and asserts the samples sent. Sending never blocks or fails; a full outbox drops a sample, and the next carries the total.
 - Counters are kept whole in kelpie's memory (`Recorder`) and each change sends the new total. A runner start begins them at zero, as Prometheus expects of a restart.
-- A runner sends at most `SERIES_CAP` (255) series, one under the dog's 256 a sender, which leaves the one `kelpie_series_dropped_total` is; a new series past it is not sent and counts there, with one log line per name. The budget test drives every role on every harness it may use with every kind of call, which is 252 series once the failed tool calls' 39, the forge's 18 and the lock's 3 are counted (the cap went from 240 to 255 for the forge's 18, and the 50000 request bucket went for the lock's 3).
+- A runner sends at most `SERIES_CAP` (1023) series, one under the dog's 1024 a sender, which leaves the one `kelpie_series_dropped_total` is; a new series past it is not sent and counts there, with one log line per name. The cap follows shep-pm/shep#1222 and needs a shep release with it to hold in full: an older metrics dog holds 256 a sender, and a busy project loses the series past them. The budget test drives every role on every harness it may use with every kind of call, which is 272 series once the failed tool calls' 39, the forge's 18, the lock's 3 and five models' leases 20 are counted. The cap's history is in `design-log.md`.
 - Names `kelpie_*`, snake case; counters end `_total`. Labels only from bounded sets: `role`, `kind`, `agent` and `effort` (named in settings), `harness`, `model`, `ended`, `account`, `window`, `phase`, `feature`, `outcome`, `type`, `tests`, `severity`, `le`, `after`, `server` (kelpie's own servers by name, any other `repo`). Never an issue, pull request, session or path.
 
 ## Series
@@ -42,7 +42,7 @@ Features: whether what a project turned on runs.
 
 MCP servers, tool calls and requests are read from a call's transcript once it ends, and so are the reports of `shep kelpie usage`: `metrics-transcripts.md`.
 
-The dog's series (leases, summons, the forge hold) are in `metrics-dog.md`.
+The dog's series (leases, summons, the forge hold) and the runners' model leases are in `metrics-dog.md`.
 
 ## Alerts and dashboard
 

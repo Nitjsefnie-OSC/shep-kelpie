@@ -18,6 +18,7 @@ mod pm;
 mod representative;
 mod tools;
 mod triager;
+mod unbound;
 
 const QWEN: &str = "---\nrole: implementer\nharness: pi\nmodel: qwen3.8:27b\neffort: low\n\
                     url: http://box:11434/v1\ncontext: 65536\n---\n";
@@ -67,7 +68,7 @@ fn kelpies_own_agents_are_sonnet_and_opus_at_high_on_claude_code() {
     }
     assert_eq!(
         Agents::embedded().agents.len(),
-        DEFAULTS.len(),
+        DEFAULTS.len() + baseline::ALL.len(),
         "a default that failed to parse would be dropped"
     );
 }
@@ -320,21 +321,11 @@ fn defaults_are_written_where_missing_and_never_over_a_file() {
         [
             "sonnet-high",
             "opus-high",
-            "defect-hunter",
             "defect-hunter-lite",
             "iq3-xxs-review",
-            "standards",
-            "spec",
-            "security-reviewer",
             "coderabbit",
             "cubic",
-            "codex",
-            "issue-writer",
-            "pm",
-            "advisor",
-            "researcher",
-            "representative",
-            "triager"
+            "codex"
         ]
     );
     assert_eq!(Agents::load(&agents).unwrap(), Agents::embedded());
@@ -360,8 +351,12 @@ fn a_default_is_written_as_a_stub_that_extends_the_shipped_agent() {
     let agents = dir.path().join("agents");
     write_defaults(&agents, &dir.path().join("home")).unwrap();
     assert_eq!(
-        fs::read_to_string(agents.join("triager.md")).unwrap(),
-        "---\nextends: kelpie:triager\n---\n"
+        fs::read_to_string(agents.join("opus-high.md")).unwrap(),
+        "---\nextends: kelpie:opus-high\n---\n"
+    );
+    assert!(
+        !agents.join("triager.md").exists(),
+        "a baseline gets no stub: it runs with no file"
     );
 }
 
@@ -397,7 +392,7 @@ fn defaults_are_also_written_whole_and_read_only_under_dot_defaults() {
     );
     assert_eq!(
         Agents::load(&agents).unwrap(),
-        shipped,
+        Agents::embedded(),
         "the folder holds no agent in `.defaults`"
     );
 }

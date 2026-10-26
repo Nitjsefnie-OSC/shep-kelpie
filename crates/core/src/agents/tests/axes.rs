@@ -1,6 +1,6 @@
 //! The standards and spec reviewers, which kelpie takes from the code-review skill
 
-use super::{DEFAULTS, model, name};
+use super::{DEFAULTS, baseline, model, name};
 use crate::agents::{Agents, Role};
 use crate::settings::AgentHarness;
 
@@ -22,7 +22,7 @@ fn a_standards_reviewer_and_a_spec_reviewer_are_among_the_defaults() {
     }
     assert_eq!(
         agents.agents.len(),
-        DEFAULTS.len(),
+        DEFAULTS.len() + baseline::ALL.len(),
         "a default that failed to parse would be dropped"
     );
 }

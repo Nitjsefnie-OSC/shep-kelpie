@@ -11,9 +11,11 @@
 // as it did before they moved here
 mod test;
 
+#[cfg(windows)]
+pub use test::open_to_administrators;
 #[cfg(unix)]
 pub use test::signalled;
 pub use test::{
     CALL_PATIENCE, Elsewhere, Fake, cut_from_main, exited, git, linked_worktree, main_commits,
-    make_fifo, short_tempdir, waits_for, write_fake, write_in, write_script,
+    make_fifo, open_to_others, short_tempdir, waits_for, write_fake, write_in, write_script,
 };
