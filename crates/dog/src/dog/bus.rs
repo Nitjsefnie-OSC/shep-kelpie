@@ -19,6 +19,10 @@ use super::{Flock, Kept, lock_desk};
 /// The least time between one read of the flock coming back and the next going out
 pub const RESYNC_GAP: Duration = Duration::from_secs(5);
 
+/// A read of the flock that went out, to be handed back with its listing
+#[derive(Debug, Clone, Copy)]
+pub struct Sent(u64);
+
 /// The dog's view of the bus: who each runner is, and whether the flock needs reading
 pub struct Bus {
     names: HashMap<u32, String>,
@@ -28,6 +32,10 @@ pub struct Bus {
     stale: bool,
     reading: bool,
     ready_at: Instant,
+    // Counts what changed the dog's view since it began: a runner's process
+    // event or a listing applied. A listing sent before a change is older
+    // than what the dog knows.
+    moved: u64,
 }
 
 impl Bus {
@@ -39,6 +47,7 @@ impl Bus {
             stale: false,
             reading: false,
             ready_at: now,
+            moved: 0,
         }
     }
 
@@ -71,6 +80,7 @@ impl Bus {
                 }
             }
             Ok(BusEvent::Process { event, info, .. }) => {
+                self.moved += 1;
                 self.names.insert(info.id, info.name.clone());
                 let live = match event {
                     ProcessEventKind::Restart => info.pid,
@@ -92,14 +102,37 @@ impl Bus {
     }
 
     /// Notes that the read `read_at` named has gone out
-    pub fn reading(&mut self) {
+    pub fn reading(&mut self) -> Sent {
         self.stale = false;
         self.reading = true;
+        Sent(self.moved)
+    }
+
+    /// Takes the listing of the read `sent` that has come back at `now`
+    ///
+    /// A listing from before a runner's process event or a later listing is
+    /// older than the dog's view, and applying it would undo that. It is
+    /// dropped, and the flock is read again once the gap has passed.
+    pub fn read_back(
+        &mut self,
+        sent: Sent,
+        listed: Flock,
+        now: Instant,
+        desk: &Mutex<Kept>,
+    ) -> Vec<Delivery> {
+        if sent.0 == self.moved {
+            return self.read(listed, now, desk);
+        }
+        self.reading = false;
+        self.stale = true;
+        self.ready_at = now + RESYNC_GAP;
+        Vec::new()
     }
 
     /// Takes the flock as read at `now`: the names, the runners to reclaim,
     /// and what the notes that waited for a name grant
     pub fn read(&mut self, listed: Flock, now: Instant, desk: &Mutex<Kept>) -> Vec<Delivery> {
+        self.moved += 1;
         self.reading = false;
         self.ready_at = now + RESYNC_GAP;
         self.names = listed.names;
@@ -141,6 +174,9 @@ fn told(message: ChildMessage) -> Option<(String, f64)> {
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
+
+    use shep_client::shep_core::protocol::request::ProcessInfo;
+    use shep_client::shep_core::status::ProcStatus;
 
     use super::*;
     use crate::home::ProjectName;
@@ -222,7 +258,11 @@ mod tests {
     }
 
     fn ask(id: u32, kind: &LeaseKind) -> Result<BusEvent, Lagged> {
-        let (name, value) = Asker::new(Epoch(101)).want(kind);
+        ask_as(id, 101, kind)
+    }
+
+    fn ask_as(id: u32, epoch: u64, kind: &LeaseKind) -> Result<BusEvent, Lagged> {
+        let (name, value) = Asker::new(Epoch(epoch)).want(kind);
         Ok(BusEvent::Channel {
             id,
             message: ChildMessage::Note { name, value },
@@ -230,11 +270,28 @@ mod tests {
     }
 
     fn grant(project: &str, kind: &LeaseKind) -> Delivery {
+        grant_at(project, 101, kind)
+    }
+
+    fn grant_at(project: &str, epoch: u64, kind: &LeaseKind) -> Delivery {
         Delivery {
             project: ProjectName::try_from(project).unwrap(),
             kind: kind.clone(),
-            epoch: Epoch(101),
+            epoch: Epoch(epoch),
         }
+    }
+
+    // The shepherd's word that `sheep` restarted as process `pid`.
+    fn restarted(id: u32, sheep: &str, pid: u32) -> Result<BusEvent, Lagged> {
+        let info = ProcessInfo::builder(id, sheep, ProcStatus::Online)
+            .pid(Some(pid))
+            .build();
+        Ok(BusEvent::Process {
+            event: ProcessEventKind::Restart,
+            info,
+            at_ms: 0,
+            manually: false,
+        })
     }
 
     #[test]
@@ -357,5 +414,71 @@ mod tests {
         dog.hear(ask(MOSS, &kind("other")));
         assert_eq!(dog.read(&[(KOJI, "koji")]), []);
         assert_eq!(dog.read(&[(KOJI, "koji"), (MOSS, "moss")]), []);
+    }
+
+    // Who holds the stand-in lease, as `status` says.
+    fn holder(dog: &Dog) -> serde_json::Value {
+        let (body, _) = lock_desk(&dog.desk).desk.answer("status", None);
+        let status: serde_json::Value = serde_json::from_str(&body).unwrap();
+        let leases = status["leases"].as_array().unwrap();
+        leases.iter().find(|l| l["kind"] == "stand-in").unwrap()["holder"].clone()
+    }
+
+    // The read went out while koji ran as pid 7, and koji restarted before
+    // the listing came back: it is older than what the dog has since heard.
+    #[test]
+    fn a_listing_older_than_a_runner_s_restart_is_not_applied() {
+        let mut dog = dog();
+        let stand_in = kind("stand-in");
+        let sent = dog.bus.reading();
+        dog.hear(restarted(KOJI, "koji", 202));
+        assert_eq!(
+            dog.hear(ask_as(KOJI, 202, &stand_in)),
+            [grant_at("koji", 202, &stand_in)]
+        );
+
+        let back = dog.now + Duration::from_secs(1);
+        let listed = Dog::listing(&[(KOJI, "koji")]);
+        assert_eq!(dog.bus.read_back(sent, listed, back, &dog.desk), []);
+        assert_ne!(
+            holder(&dog),
+            serde_json::Value::Null,
+            "koji's run 202 still holds"
+        );
+        assert_eq!(
+            dog.bus.read_at(),
+            Some(back + RESYNC_GAP),
+            "the flock is read again once the gap has passed"
+        );
+    }
+
+    #[test]
+    fn a_listing_with_nothing_heard_since_is_applied() {
+        let mut dog = dog();
+        let stand_in = kind("stand-in");
+        dog.hear(ask_as(KOJI, 7, &stand_in));
+        assert_ne!(holder(&dog), serde_json::Value::Null);
+
+        let sent = dog.bus.reading();
+        let back = dog.now + Duration::from_secs(1);
+        let gone = Flock {
+            names: HashMap::new(),
+            live: HashMap::new(),
+        };
+        dog.bus.read_back(sent, gone, back, &dog.desk);
+        assert_eq!(holder(&dog), serde_json::Value::Null, "koji's run is gone");
+    }
+
+    // A read in flight when the stream ended is older than the one `rejoin`
+    // makes after it.
+    #[test]
+    fn a_listing_older_than_a_later_read_is_not_applied() {
+        let mut dog = dog();
+        let sent = dog.bus.reading();
+        dog.read(&[(KOJI, "koji")]);
+        let listed = Dog::listing(&[]);
+        let back = dog.now + Duration::from_secs(1);
+        assert_eq!(dog.bus.read_back(sent, listed, back, &dog.desk), []);
+        assert!(dog.bus.names.contains_key(&KOJI), "the newer names stand");
     }
 }

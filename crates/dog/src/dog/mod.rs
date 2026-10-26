@@ -41,7 +41,7 @@ use crate::ports::{Clock, LocalPace, SystemClock};
 use crate::review_bot::Reviewers;
 use crate::shep_home;
 use crate::webhook::KelpieSettings;
-use bus::Bus;
+use bus::{Bus, Sent};
 use desk::{Delivery, Desk};
 use triggers::ACTIONS;
 
@@ -350,13 +350,12 @@ async fn serve() -> Result<(), String> {
                     Err(e) => break Err(e),
                 },
             },
-            Some(read) = flocks.recv() => match read {
-                Ok(listed) => bus.read(listed, Instant::now(), &desk),
+            Some((sent, read)) = flocks.recv() => match read {
+                Ok(listed) => bus.read_back(sent, listed, Instant::now(), &desk),
                 Err(e) => break Err(e),
             },
             () = until(bus.read_at()) => {
-                bus.reading();
-                read_apart(&client, flocked.clone());
+                read_apart(&client, bus.reading(), flocked.clone());
                 Vec::new()
             },
             Some(grants) = to_deliver.recv() => grants,
@@ -409,14 +408,13 @@ async fn until(at: Option<Instant>) {
     }
 }
 
+type FlockTx = mpsc::UnboundedSender<(Sent, Result<Flock, String>)>;
+
 // Reads the flock off the loop, so the events keep draining meanwhile.
-fn read_apart(
-    client: &Arc<ReconnectingClient>,
-    back: mpsc::UnboundedSender<Result<Flock, String>>,
-) {
+fn read_apart(client: &Arc<ReconnectingClient>, sent: Sent, back: FlockTx) {
     let client = Arc::clone(client);
     tokio::spawn(async move {
-        let _ = back.send(flock(&client).await);
+        let _ = back.send((sent, flock(&client).await));
     });
 }
 
