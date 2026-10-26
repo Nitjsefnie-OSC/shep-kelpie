@@ -1,4 +1,4 @@
-//! The job object calls, the only unsafe code in the workspace
+//! The job object calls, the only unsafe code in this crate
 #![allow(unsafe_code)]
 
 use std::io;
