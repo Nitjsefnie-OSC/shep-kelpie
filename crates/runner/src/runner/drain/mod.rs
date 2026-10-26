@@ -135,7 +135,10 @@ impl Runner {
         // on it after this. A pause asked for there is still asked for here.
         let (posted_drain, at_tool) = match self.postings.take_pending() {
             Some(Pending::Drain { at_tool: was }) => (true, at_tool || was),
-            Some(Pending::Undrain { .. }) => (false, at_tool),
+            Some(Pending::Undrain { .. }) => {
+                self.pause_line = None;
+                (false, at_tool)
+            }
             None => (false, at_tool),
         };
         // The one call a drain starts: a retro over what finished since the
@@ -181,6 +184,7 @@ impl Runner {
 
     // Withdraws the pauses, and holds the turns that ended for one when `keep`.
     fn lift_drain(&mut self, keep: bool) {
+        self.pause_line = None;
         let until = Timestamp(self.ports.clock.now().0.saturating_add(PAUSE_HOLD));
         self.pause_hold = keep.then(|| PauseHold {
             until,
@@ -225,8 +229,8 @@ impl Runner {
     }
 
     // Sets the pause for each worker turn in flight that a tool result can end,
-    // and says which.
-    fn pause_turns(&self) {
+    // and says which when that differs from the last time it said.
+    fn pause_turns(&mut self) {
         let (mut asked, mut refused) = (Vec::new(), Vec::new());
         for item in &self.state.work_items {
             match self.pause_turn(item) {
@@ -247,7 +251,10 @@ impl Runner {
             let turns = refused.join(", ");
             line.push_str(&format!("; the pause could not be written for {turns}"));
         }
-        self.notes.push(line);
+        if self.pause_line.as_ref() != Some(&line) {
+            self.notes.push(line.clone());
+            self.pause_line = Some(line);
+        }
     }
 
     // Sets the pause for `item`'s worker turn in flight. A tool result can end

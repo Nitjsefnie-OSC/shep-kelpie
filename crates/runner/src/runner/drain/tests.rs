@@ -90,6 +90,72 @@ fn a_pause_sets_no_flag_for_a_work_item_with_no_turn_in_flight() {
     );
 }
 
+fn pause_notes(runner: &Mutex<Runner>) -> Vec<String> {
+    let mut notes = runner.lock().unwrap().take_notes();
+    notes.retain(|note| note.starts_with("drain pause:"));
+    notes
+}
+
+#[test]
+fn ten_identical_pauses_log_one_line() {
+    let (rig, runner) = seven_due("shep");
+    pause_notes(&runner);
+    for _ in 0..10 {
+        rig.ask(&runner, "drain", Some("pause"));
+    }
+    assert_eq!(
+        pause_notes(&runner),
+        ["drain pause: no worker turn in flight can end at a tool call"]
+    );
+}
+
+#[test]
+fn a_pause_that_names_other_turns_logs_a_new_line() {
+    let (rig, runner) = seven_due("shep");
+    let hold = Hold::default();
+    rig.claude.script([Scripted::Hold(hold.clone())]);
+    std::fs::create_dir_all(rig.build_7()).unwrap();
+    assert!(matches!(advance(&runner).unwrap(), Pass::Started));
+    assert!(hold.entered(CALL_PATIENCE), "the turn never began");
+    pause_notes(&runner);
+    rig.ask(&runner, "drain", Some("pause"));
+    rig.ask(&runner, "drain", Some("pause"));
+    assert_eq!(
+        pause_notes(&runner),
+        ["drain pause: turns asked to end at their next tool call: #7"]
+    );
+
+    hold.release();
+    let deadline = Instant::now() + CALL_PATIENCE;
+    while draining(&rig, &runner)["calls"] != json!([]) {
+        assert!(
+            Instant::now() < deadline,
+            "the turn's end was never recorded"
+        );
+        step(&runner).unwrap();
+        std::thread::yield_now();
+    }
+    pause_notes(&runner);
+    rig.ask(&runner, "drain", Some("pause"));
+    assert_eq!(
+        pause_notes(&runner),
+        ["drain pause: no worker turn in flight can end at a tool call"]
+    );
+}
+
+#[test]
+fn a_pause_after_an_undrain_logs_again() {
+    let (rig, runner) = seven_due("shep");
+    rig.ask(&runner, "drain", Some("pause"));
+    rig.ask(&runner, "undrain", None);
+    pause_notes(&runner);
+    rig.ask(&runner, "drain", Some("pause"));
+    assert_eq!(
+        pause_notes(&runner),
+        ["drain pause: no worker turn in flight can end at a tool call"]
+    );
+}
+
 #[test]
 fn a_restart_ends_draining() {
     let (rig, runner) = seven_due("rotom");
