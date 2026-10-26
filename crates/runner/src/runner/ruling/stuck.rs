@@ -70,6 +70,11 @@ pub(in crate::runner) fn stuck_comment(reason: &Stuck) -> String {
         }
         Stuck::Unlabelled { .. } => "No implementer was picked for this issue.".to_owned(),
         Stuck::AdoptFailed { .. } => "This pull request could not be adopted.".to_owned(),
+        Stuck::TurnFailed { setup: true, .. } => {
+            "Kelpie could not set up the work on this pull request on its own machine, so it \
+             waits for the maintainer."
+                .to_owned()
+        }
         Stuck::TurnFailed { .. } => {
             "The work on this pull request hit an error and stopped.".to_owned()
         }

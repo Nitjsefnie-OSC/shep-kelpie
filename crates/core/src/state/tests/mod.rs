@@ -16,7 +16,7 @@ fn store_in(dir: &Path) -> StateStore {
 // deliberate edit here and shows in review. Every other test reads `VERSION`.
 #[test]
 fn the_state_file_version_is_pinned() {
-    assert_eq!(VERSION, 85);
+    assert_eq!(VERSION, 86);
 }
 
 // Large, so a kill is likely to land inside a write, and uniform, so a
@@ -695,6 +695,7 @@ fn a_failed_turn_keeps_its_phase_and_the_turn_to_retry() {
         phase: Phase::Implement,
         retry: Turn::Due,
         restore: Vec::new(),
+        setup: false,
     });
     let saved = serde_json::to_value(&kind).unwrap();
     assert_eq!(
@@ -717,6 +718,7 @@ fn a_failed_turn_keeps_the_agent_files_it_offers_to_restore() {
         phase: Phase::Implement,
         retry: Turn::Due,
         restore: vec![".claude/settings.json".into()],
+        setup: false,
     });
     let saved = serde_json::to_value(&kind).unwrap();
     assert_eq!(

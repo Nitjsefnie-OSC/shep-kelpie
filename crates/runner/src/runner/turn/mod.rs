@@ -492,7 +492,7 @@ impl Runner {
             Err(reason) => {
                 let names = self.names();
                 let restore = self.restorable(issue);
-                Begin::Report(failed(names, &mut next, issue, now, reason, restore))
+                Begin::Report(failed(names, &mut next, issue, now, reason, restore, false))
             }
         };
         if let Err(e) = self.save(next) {
