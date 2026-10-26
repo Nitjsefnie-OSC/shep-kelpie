@@ -11,14 +11,28 @@
 use std::path::{Path, PathBuf};
 
 use super::Remote;
+use crate::spawn;
+use crate::test::write_script;
 
+// `@PID@` is the process the tests ask about, and `@RUN@` runs the command.
 const SSH: &str = r#"#!/bin/sh
 echo "ssh $PPID $*" >> '@DIR@/started.log'
-echo $$ > '@DIR@/ssh.pid'
+echo @PID@ > '@DIR@/ssh.pid'
 mkdir -p '@DIR@/hosts/'"$2"
 cd '@DIR@/hosts/'"$2" || exit 97
-exec sh -c "$3"
+@RUN@
 "#;
+
+// Unix: the script becomes the command, so killing ssh ends it.
+const RUN_IN_PLACE: &str = r#"exec sh -c "$3""#;
+
+// Windows: the dog kills the `.cmd` that starts this script and not the script,
+// so a watcher ends the command when the dog lets go of ssh's input.
+const RUN_AND_WATCH: &str = r#"exec 9<&0
+sh -c "$3" &
+run=$!
+( cat <&9 >/dev/null 2>&1; kill $run ) >/dev/null 2>&1 &
+wait $run"#;
 
 const RSYNC: &str = r#"#!/bin/sh
 echo "rsync $PPID $*" >> '@DIR@/started.log'
@@ -36,6 +50,7 @@ for arg; do
 done
 here() {
   case "$1" in
+    [A-Za-z]:*) echo "$1" ;;
     *:*) mkdir -p '@DIR@/hosts/'"${1%%:*}"; echo '@DIR@/hosts/'"${1%%:*}/${1#*:}" ;;
     *) echo "$1" ;;
   esac
@@ -63,16 +78,20 @@ pub struct StandIn {
 impl StandIn {
     pub fn new() -> Self {
         let dir = tempfile::tempdir().unwrap();
-        let base = dir.path().canonicalize().unwrap();
+        let base = plain(dir.path().canonicalize().unwrap());
         let script = |name: &str, text: &str| {
-            let path = base.join(name);
             let text = text.replace("@DIR@", &base.display().to_string());
-            std::fs::write(&path, text).unwrap();
-            executable(&path);
-            path
+            start_with(&base, name, &text)
+        };
+        let ssh = if cfg!(windows) {
+            // The Windows process of the script is not the one `$$` names.
+            SSH.replace("@PID@", "$(cat /proc/$$/winpid)")
+                .replace("@RUN@", RUN_AND_WATCH)
+        } else {
+            SSH.replace("@PID@", "$$").replace("@RUN@", RUN_IN_PLACE)
         };
         let remote = Remote {
-            ssh: script("ssh", SSH),
+            ssh: script("ssh", &ssh),
             rsync: script("rsync", RSYNC),
         };
         Self {
@@ -141,6 +160,40 @@ impl StandIn {
     }
 }
 
+/// Writes `text` as the program `name` in `base`, and returns the path the dog
+/// starts
+///
+/// Windows starts a `.cmd` file, so there the script is `<name>.sh`, run by the
+/// `.cmd` through Git for Windows' `sh`. `MSYS` makes its `ln -s` a real link,
+/// which the rsync stand-in's `--no-links` and the dog's own copy have to meet.
+fn start_with(base: &Path, name: &str, text: &str) -> PathBuf {
+    if !cfg!(windows) {
+        let path = base.join(name);
+        write_script(&path, text);
+        return path;
+    }
+    let script = base.join(format!("{name}.sh"));
+    write_script(&script, text);
+    let path = base.join(format!("{name}.cmd"));
+    let shim = format!(
+        "@echo off\r\nset MSYS=winsymlinks:nativestrict\r\n\"{}\" \"{}\" %*\r\n\
+         exit /b %errorlevel%\r\n",
+        spawn::sh().display(),
+        script.display()
+    );
+    std::fs::write(&path, shim).unwrap();
+    path
+}
+
+// `canonicalize` on Windows gives a `\\?\` path, which the `sh` of the scripts
+// does not take.
+fn plain(path: PathBuf) -> PathBuf {
+    match path.to_string_lossy().strip_prefix(r"\\?\") {
+        Some(rest) => PathBuf::from(rest),
+        None => path,
+    }
+}
+
 /// Makes the script at `path` something the dog can start
 #[cfg(unix)]
 fn executable(path: &Path) {
@@ -148,8 +201,8 @@ fn executable(path: &Path) {
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
 }
 
-// A file on Windows has no mode to set. The scripts are `sh` ones that Windows
-// cannot start, so every test that runs them is ignored there until #1302.
+// A file on Windows has no mode to set: `sh` starts the project's script by
+// its first line.
 #[cfg(windows)]
 fn executable(_path: &Path) {}
 
@@ -160,8 +213,8 @@ pub fn ended(pid: u32) -> bool {
     rustix::process::test_kill_process(pid) == Err(rustix::io::Errno::SRCH)
 }
 
-// Placeholder: the tests that call it are ignored on Windows until #1302.
+/// Whether process `pid` is gone, as `OpenProcess` answers
 #[cfg(windows)]
-pub fn ended(_pid: u32) -> bool {
-    unimplemented!("asking Windows whether a process is gone waits on #1302")
+pub fn ended(pid: u32) -> bool {
+    !shep_kelpie_core::tree::alive(pid)
 }
