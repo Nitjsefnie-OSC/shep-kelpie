@@ -62,6 +62,7 @@ impl World {
         let profile = WorkerProfile {
             worktree: &wt,
             build: &build,
+            home: Path::new("/Users/me"),
             git_common_dir: Path::new("/k/repo/.git"),
             git_dir: Path::new("/k/repo/.git/worktrees/7"),
             branch: "kelpie/7",

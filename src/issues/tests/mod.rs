@@ -169,19 +169,43 @@ fn a_request_runs_one_session_that_files_and_kelpie_prints_what_it_filed() {
     assert_guarded(&seen.settings, HUMAN, &ledger);
     assert_file_tools_read_only(&seen.settings, &call.cwd, &s.rig);
     // Its sandbox reads none of the secrets, the history or kelpie's homes, and
-    // inside those only its checkout, the guard's binary and the installed
-    // sources and docs of its dependencies and toolchains.
+    // inside those only its checkout, the guard's binary, the git dir its `git`
+    // runs through, and the installed sources and docs of its dependencies and
+    // toolchains.
     let files = &seen.sandbox["filesystem"];
     let denied = files["denyRead"].to_string();
     for path in ["~/.ssh/**", "~/.zsh_history", "~/.bash_history"] {
         assert!(denied.contains(&format!("\"{path}\"")), "{path}: {denied}");
     }
-    let kelpie_home = format!("\"{}/**\"", s.paths.kelpie_home.display());
-    assert!(
-        denied.contains(&kelpie_home)
-            || denied.contains(&format!("\"{}/**\"", s.paths.shep_home.display()))
-    );
-    let mut read = vec![json!(call.cwd), json!(Rig::KELPIE)];
+    // The home is denied whole, and that is how kelpie's own homes are hidden:
+    // the rules name the outermost folder only, and the `allowRead` below
+    // carves back none of them.
+    let globs: Vec<&str> = files["denyRead"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|glob| glob.as_str().unwrap())
+        .collect();
+    let whole = format!("{}/**", s.rig.home.path().display());
+    assert!(globs.contains(&whole.as_str()), "the home whole: {denied}");
+    for nested in [&s.paths.shep_home, &s.paths.kelpie_home] {
+        assert!(
+            globs
+                .iter()
+                .any(|glob| nested.starts_with(glob.trim_end_matches("/**"))),
+            "{nested:?} under no denied folder: {denied}"
+        );
+    }
+    // The git dir its `git` commands run through: the issues checkout is a
+    // linked worktree, so its git dir is the project repo's common one, which
+    // the denied home would otherwise hide.
+    let common = git(
+        &s.settings.git.checkout,
+        &["rev-parse", "--path-format=absolute", "--git-common-dir"],
+    )
+    .trim()
+    .to_owned();
+    let mut read = vec![json!(call.cwd), json!(Rig::KELPIE), json!(&common)];
     read.extend(
         crate::dep_sources::DepSources::discover(
             s.rig.home.path(),
@@ -194,7 +218,7 @@ fn a_request_runs_one_session_that_files_and_kelpie_prints_what_it_filed() {
     assert_eq!(
         files["allowRead"],
         json!(read),
-        "the checkout, the guard and the installed sources alone"
+        "the checkout, the guard, its git dir and the installed sources alone"
     );
     // The run is in the project's usage ledger.
     let lines = usage::read(&s.paths.folder.join(usage::FILE)).unwrap();

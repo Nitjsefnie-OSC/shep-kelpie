@@ -68,7 +68,13 @@ fn a_codex_reviewer_asked_for_tests_keeps_its_patch_hook_for_the_tests_folder() 
     let shell = hook_for(&argv, "^Bash$").unwrap();
     assert!(shell.contains("'--read-only'"), "{shell}");
 
-    let policy = policy(&call, &w.path("login"), &Files::of(&call), &[]);
+    let policy = policy(
+        &call,
+        &w.path("login"),
+        &Files::of(&call),
+        Path::new("/nowhere/codex"),
+        &[],
+    );
     assert!(policy.write.contains(&folder), "{:?}", policy.write);
     let worktree = w.path("wt");
     let in_worktree: Vec<&PathBuf> = (policy.write.iter())
@@ -92,7 +98,13 @@ fn a_codex_call_reads_the_dependency_sources_it_is_given_and_no_credential_of_th
         call.reach.read.push(folder.clone());
         call.reach.fence.as_mut().unwrap().read.push(folder.clone());
     }
-    let policy = policy(&call, &w.path("login"), &Files::of(&call), &[]);
+    let policy = policy(
+        &call,
+        &w.path("login"),
+        &Files::of(&call),
+        Path::new("/nowhere/codex"),
+        &[],
+    );
     for folder in &sources {
         assert!(policy.read.contains(folder), "{}", folder.display());
         assert!(
@@ -129,7 +141,13 @@ fn a_retro_and_an_advisor_have_a_read_only_shell_and_no_write_in_the_sandbox() {
         refuses_every_patch(&hook_for(&argv, "^apply_patch$").unwrap());
 
         let files = Files::of(&call);
-        let policy = policy(&call, &w.path("login"), &files, &[]);
+        let policy = policy(
+            &call,
+            &w.path("login"),
+            &files,
+            Path::new("/nowhere/codex"),
+            &[],
+        );
         let mut own: Vec<_> = WRITTEN.map(|name| files.home.join(name)).into();
         own.extend([files.home.join(INSTALLATION_ID), files.scratch.clone()]);
         let mut written = policy.write.clone();
@@ -150,7 +168,13 @@ fn a_worker_keeps_the_workers_guard_and_its_write_folders() {
     let shell = hook_for(&argv, "^Bash$").unwrap();
     assert!(!shell.contains("--read-only"), "{shell}");
     assert!(shell.contains("--pin-folder"), "{shell}");
-    let policy = policy(&call, &w.path("login"), &Files::of(&call), &[]);
+    let policy = policy(
+        &call,
+        &w.path("login"),
+        &Files::of(&call),
+        Path::new("/nowhere/codex"),
+        &[],
+    );
     assert!(policy.write.contains(&w.path("wt")), "{:?}", policy.write);
 }
 

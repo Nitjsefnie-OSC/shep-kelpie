@@ -3,6 +3,10 @@ name: test
 # job answers each gate. Every job carries `timeout-minutes`, a ceiling
 # against a hang rather than a performance budget. GitHub's default when
 # absent is 360.
+#
+# Every Rust job restores `Swatinem/rust-cache` after its toolchain install,
+# so the key sees the toolchain that builds. Only main saves, so a pull
+# request reads main's build and the repo's cache budget holds one per job.
 on:
   push:
     branches: [main]
@@ -17,12 +21,39 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
 jobs:
+  # Decides whether a pull request changed anything a Rust job reads, so a
+  # prose-only change skips them. A skipped job reports as skipped, which
+  # kelpie and GitHub read as passed. Every other event runs every job, and a
+  # failed decision does too, since its output is then empty.
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      rust: ${{ steps.rust.outputs.rust }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+      # A pull request's checkout is its merge commit, whose first parent is the base.
+      - id: rust
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            git diff --name-only HEAD^1 HEAD | scripts/ci-changes.sh >> "$GITHUB_OUTPUT"
+          else
+            echo rust=true >> "$GITHUB_OUTPUT"
+          fi
+
   lint:
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.rust != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
       - run: rustup toolchain install stable --profile minimal --component clippy,rustfmt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo fmt --all --check
       - run: cargo clippy --all-targets --locked -- -D warnings
       - run: scripts/no-tmp-tempdir.sh
@@ -37,7 +68,10 @@ jobs:
         env:
           PRIVATE_NAMES: ${{ secrets.PRIVATE_NAMES }}
 
+  # The prose checks run on every change, and rustdoc only when Rust may have.
   docs:
+    needs: changes
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -46,7 +80,6 @@ jobs:
       pull-requests: read
     steps:
       - uses: actions/checkout@v7
-      - run: rustup toolchain install stable --profile minimal
       - run: scripts/design-size.sh
       - run: scripts/readme-size.sh
       - run: scripts/docs-links.py
@@ -54,22 +87,44 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PR: ${{ github.event.pull_request.number }}
-      - run: cargo doc --no-deps --locked
+      - if: needs.changes.outputs.rust != 'false'
+        run: rustup toolchain install stable --profile minimal
+      - if: needs.changes.outputs.rust != 'false'
+        uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - if: needs.changes.outputs.rust != 'false'
+        run: cargo doc --no-deps --locked
     env:
       RUSTDOCFLAGS: -D warnings
 
+  # `cargo test --locked` in three parts that run at once, split in
+  # scripts/test-part.sh. Each part keys its own cache, since each builds a
+  # different set of test targets.
   test:
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.rust != 'false' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        part: [1, 2, 3]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
       - run: rustup toolchain install stable --profile minimal
-      - run: cargo test --locked
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: part-${{ matrix.part }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: scripts/test-part.sh ${{ matrix.part }}
 
   # The tests `#[ignore]`d for needing a real shepherd. One of them is the
   # only test that sees shep answer `NotFound`, which the fake shepherd
   # cannot send.
   real-shepherd:
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.rust != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
@@ -79,6 +134,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - run: rustup toolchain install stable --profile minimal
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Install the pinned shep
         run: |
           asset=shep-x86_64-unknown-linux-gnu
@@ -100,11 +158,16 @@ jobs:
   # on Linux, where bubblewrap fences the worker. They skip the two that need
   # a login or pi.
   sandbox:
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.rust != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
       - run: rustup toolchain install stable --profile minimal
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Install what the sandbox needs on Linux
         run: sudo apt-get update && sudo apt-get install -y bubblewrap ripgrep
       # Ubuntu 24.04 runners block unprivileged user namespaces, which
@@ -131,6 +194,7 @@ jobs:
             | tee sandbox.log
           for name in \
             the_worktree_the_build_folder_and_the_transcripts_are_written_and_nothing_outside \
+            a_worker_reads_its_own_folders_and_no_other_repo_of_the_home \
             claude_codes_own_files_are_refused_in_any_case_and_spelling \
             a_nested_claude_folder_that_existed_at_call_start_is_refused \
             codexs_own_files_are_refused_in_any_case \
@@ -142,12 +206,17 @@ jobs:
           done
 
   msrv:
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.rust != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
       # Matches `rust-version` in Cargo.toml, which matches shep's.
       - run: rustup toolchain install 1.88 --profile minimal
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo +1.88 check --all-targets --locked
 
   # Reports whether the workspace compiles on Windows while #241 ports it
@@ -158,6 +227,8 @@ jobs:
   # every pull request on. Drop it, and add the job to the ruleset's
   # required checks, when #241 is done.
   windows:
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.rust != 'false' }}
     runs-on: windows-11-arm
     timeout-minutes: 30
     steps:
@@ -171,6 +242,9 @@ jobs:
             "$env:USERPROFILE\.cargo\bin" | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
           }
       - run: rustup toolchain install stable --profile minimal
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       # `ring` compiles C with `clang` on `aarch64-pc-windows-msvc`.
       - name: Put LLVM on the PATH
         shell: pwsh

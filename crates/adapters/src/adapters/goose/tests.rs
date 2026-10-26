@@ -215,7 +215,14 @@ fn the_sandbox_lets_goose_write_only_its_data_state_and_scratch_and_reach_only_t
     let upstream = GooseCli::on(&Base::default())
         .upstream(server(&call).unwrap())
         .unwrap();
-    let open = policy(&call, &files, &upstream, &socket, &[]);
+    let open = policy(
+        &call,
+        &files,
+        &upstream,
+        &socket,
+        Path::new("/nowhere/goose"),
+        &[],
+    );
     let root = w.path("settings.goose");
     assert_eq!(
         open.write,
@@ -250,13 +257,30 @@ fn the_sandbox_lets_goose_write_only_its_data_state_and_scratch_and_reach_only_t
 
     let mut covered = call.clone();
     covered.reach.block_keychain = true;
-    assert!(policy(&covered, &files, &upstream, &socket, &[]).no_keychain);
+    assert!(
+        policy(
+            &covered,
+            &files,
+            &upstream,
+            &socket,
+            Path::new("/nowhere/goose"),
+            &[]
+        )
+        .no_keychain
+    );
 
     let mut reading = call.clone();
     reading.instructions = Some(w.path("instructions.md"));
     reading.plugin_dirs = vec![w.path("plugins/steps")];
     reading.reach.read = vec![w.path("extra")];
-    let reads = policy(&reading, &files, &upstream, &socket, &[]);
+    let reads = policy(
+        &reading,
+        &files,
+        &upstream,
+        &socket,
+        Path::new("/nowhere/goose"),
+        &[],
+    );
     for read in ["instructions.md", "plugins/steps", "extra"] {
         assert!(reads.read.contains(&w.path(read)), "{read}");
     }
@@ -270,7 +294,14 @@ fn goose_reads_no_harnesss_login_its_own_included() {
         .upstream(server(&call).unwrap())
         .unwrap();
     let files = Files::of(&call.settings);
-    let policy = policy(&call, &files, &upstream, &w.path("forwarder.sock"), &[]);
+    let policy = policy(
+        &call,
+        &files,
+        &upstream,
+        &w.path("forwarder.sock"),
+        Path::new("/nowhere/goose"),
+        &[],
+    );
     for own in fence::HARNESSES {
         for credentials in own.credentials {
             assert!(
@@ -661,9 +692,11 @@ impl World {
 
     pub(super) fn fenced(&self, url: &str, kelpie: &Path, session: Session) -> AgentCall {
         let (wt, build, git) = (self.path("wt"), self.path("build"), self.path("wt/.git"));
+        let home = self.path("home");
         let profile = WorkerProfile {
             worktree: &wt,
             build: &build,
+            home: &home,
             git_common_dir: &git,
             git_dir: &git,
             branch: "kelpie/7",

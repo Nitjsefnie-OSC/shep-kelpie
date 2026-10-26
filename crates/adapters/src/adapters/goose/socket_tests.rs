@@ -15,7 +15,14 @@ fn a_workers_scratch_folder_is_where_it_may_bind_sockets_and_a_reviewers_is_not(
         .unwrap();
     let policy = |call: &AgentCall| {
         let files = Files::of(&call.settings);
-        let policy = policy(call, &files, &upstream, &w.path("forwarder.sock"), &[]);
+        let policy = policy(
+            call,
+            &files,
+            &upstream,
+            &w.path("forwarder.sock"),
+            Path::new("/nowhere/goose"),
+            &[],
+        );
         (policy.socket_folders, files.scratch)
     };
 

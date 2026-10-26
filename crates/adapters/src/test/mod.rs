@@ -15,6 +15,12 @@ use shep_kelpie_core::test::{AppComments, FakeCodeRabbit, Hold};
 
 pub(crate) use shep_kelpie_core::test::FakeClock;
 
+// A program no machine holds, so a test's policy names one and lets no real
+// harness's files through.
+#[cfg(test)]
+pub(crate) static NO_PROGRAM: std::sync::LazyLock<std::path::PathBuf> =
+    std::sync::LazyLock::new(|| std::path::Path::new("/nowhere/program").to_owned());
+
 // What the adapters' own tests use of core's stand-ins and of `test_support`
 #[cfg(test)]
 pub(crate) use shep_kelpie_core::test::{

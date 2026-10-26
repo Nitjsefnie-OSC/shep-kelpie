@@ -9,7 +9,7 @@ use crate::adapters::skills;
 use crate::ports::{Browser, CodeGraph, Role};
 use crate::profile::WorkerProfile;
 use crate::settings::{ContextSize, Effort, EndpointUrl, ModelHost};
-use crate::test::OpenSandbox;
+use crate::test::{NO_PROGRAM, OpenSandbox};
 
 // Recorded from pi 1.1.0 on qwen3.8:27b through the paddock, by the ignored test
 // below, with the temporary folder renamed: a new session asked to say ok...
@@ -223,9 +223,10 @@ fn the_sandbox_reads_the_code_graph_binary_and_writes_only_its_index_and_daemon_
         runtime: PathBuf::from("/k/cbm/7"),
     };
     let mut call = w.fenced(URL, Path::new("/k/kelpie"), Session::New(id(WORKER_ID)));
-    let without = policy(&call, &Files::of(&call), &upstream, &socket, &[]);
+    let files = Files::of(&call);
+    let without = policy(&call, &files, &upstream, &socket, &NO_PROGRAM, &[]);
     call.reach.code_graph = Some(graph.clone());
-    let with = policy(&call, &Files::of(&call), &upstream, &socket, &[]);
+    let with = policy(&call, &files, &upstream, &socket, &NO_PROGRAM, &[]);
 
     assert!(with.read.contains(&graph.binary) && with.read.contains(&graph.index));
     assert!(with.write.contains(&graph.index));
@@ -267,9 +268,10 @@ fn the_sandbox_connects_only_to_the_browsers_socket_when_the_call_has_one() {
         socket: w.path("0123456789abcdef0123456789abcdef.sock"),
     };
     let mut call = w.fenced(URL, Path::new("/k/kelpie"), Session::New(id(WORKER_ID)));
-    let without = policy(&call, &Files::of(&call), &upstream, &forwarder, &[]);
+    let files = Files::of(&call);
+    let without = policy(&call, &files, &upstream, &forwarder, &NO_PROGRAM, &[]);
     call.reach.browser = Some(Box::new(browser.clone()));
-    let with = policy(&call, &Files::of(&call), &upstream, &forwarder, &[]);
+    let with = policy(&call, &files, &upstream, &forwarder, &NO_PROGRAM, &[]);
 
     assert!(!without.sockets.contains(&browser.socket));
     assert_eq!(
@@ -433,13 +435,9 @@ fn the_sandbox_reads_every_plugin_folder_a_call_loads_skills_from() {
     let upstream = PiCli::on(&Base::default())
         .upstream(server(&call).unwrap())
         .unwrap();
-    let policy = policy(
-        &call,
-        &Files::of(&call),
-        &upstream,
-        &w.path("forwarder.sock"),
-        &[],
-    );
+    let files = Files::of(&call);
+    let socket = w.path("forwarder.sock");
+    let policy = policy(&call, &files, &upstream, &socket, &NO_PROGRAM, &[]);
     for dir in skills::skill_dirs(&call) {
         let covered = policy.read.iter().any(|read| dir.starts_with(read));
         assert!(covered, "{}", dir.display());
@@ -513,7 +511,10 @@ fn a_call_on_a_covered_repo_runs_without_the_keychain_and_any_other_with_it() {
         w.call(URL, Role::Reviewer, Session::New(id(FRESH_ID))),
     ];
     for call in &mut calls {
-        let policy = |call: &AgentCall| policy(call, &Files::of(call), &upstream, &socket, &[]);
+        let policy = |call: &AgentCall| {
+            let files = Files::of(call);
+            policy(call, &files, &upstream, &socket, &NO_PROGRAM, &[])
+        };
         assert!(!policy(call).no_keychain);
         call.reach.block_keychain = true;
         assert!(policy(call).no_keychain);
@@ -537,12 +538,12 @@ fn a_calls_transcript_is_in_pis_sessions_folder() {
 fn the_sandbox_lets_pi_write_only_its_sessions_and_reach_only_the_forwarder() {
     let w = World::new();
     let call = w.fenced(URL, Path::new("/k/kelpie"), Session::New(id(WORKER_ID)));
-    let files = Files::of(&call);
     let socket = w.path("forwarder.sock");
     let upstream = PiCli::on(&Base::default())
         .upstream(server(&call).unwrap())
         .unwrap();
-    let policy = policy(&call, &files, &upstream, &socket, &[]);
+    let files = Files::of(&call);
+    let policy = policy(&call, &files, &upstream, &socket, &NO_PROGRAM, &[]);
     let home = w.path("settings.pi");
     assert!(policy.write.contains(&home.join("sessions")));
     assert!(policy.write.contains(&home.join("settings.json.lock")));
@@ -580,7 +581,8 @@ fn the_sandbox_lets_pi_write_only_its_sessions_and_reach_only_the_forwarder() {
         );
     }
     let open = w.call(URL, Role::Reviewer, Session::New(id(FRESH_ID)));
-    let policy = super::policy(&open, &Files::of(&open), &upstream, &socket, &[]);
+    let open_files = Files::of(&open);
+    let policy = super::policy(&open, &open_files, &upstream, &socket, &NO_PROGRAM, &[]);
     assert_eq!(
         policy.write,
         [
@@ -615,7 +617,14 @@ fn the_researchers_policy_reaches_its_allowed_domains_and_the_search_host_and_no
     let upstream = PiCli::on(&Base::default())
         .upstream(server(&call).unwrap())
         .unwrap();
-    let policy = policy(&call, &Files::of(&call), &upstream, &w.path("f.sock"), &[]);
+    let policy = policy(
+        &call,
+        &Files::of(&call),
+        &upstream,
+        &w.path("f.sock"),
+        &NO_PROGRAM,
+        &[],
+    );
     assert_eq!(policy.hosts, [hosts[0], hosts[1], "mcp.exa.ai"]);
     // The model's host is still shut, whatever the project lists.
     assert_eq!(
@@ -644,7 +653,7 @@ fn an_unfenced_pi_session_is_denied_the_shepherds_home_but_its_own_folder() {
     let sandbox = OpenSandbox::default();
     let pi = PiCli::on(
         &Base::default()
-            .unfenced_unread(&w.path("shep"))
+            .unfenced_unread(&w.path("home"), &w.path("shep"))
             .sandboxed(Arc::new(sandbox.clone()), w.path("home")),
     )
     .with_program(w.path("pi"));
@@ -894,6 +903,7 @@ impl World {
         let profile = WorkerProfile {
             worktree: &wt,
             build: &build,
+            home: &self.path("home"),
             git_common_dir: &git,
             git_dir: &git,
             branch: "kelpie/7",

@@ -32,7 +32,14 @@ fn curl_allowing(
     let upstream = PiCli::on(&Base::default())
         .upstream(server(call).unwrap())
         .unwrap();
-    let mut policy = policy(call, &Files::of(call), &upstream, &forwarder.socket, &[]);
+    let mut policy = policy(
+        call,
+        &Files::of(call),
+        &upstream,
+        &forwarder.socket,
+        Path::new("/nowhere/pi"),
+        &[],
+    );
     policy.hosts.extend(allowed.iter().cloned());
     let mut command = Command::new("env");
     command

@@ -112,7 +112,8 @@ mod tests {
     fn the_sandbox_lets_the_server_read_its_binary_and_write_and_bind_only_in_its_own_folders() {
         let settings = Path::new("/k/worker/settings.json");
         let with = call(Role::Worker, Tools::Work, settings, Some(graph()));
-        let policy = sandbox::policy(&with, Path::new("/home"), &[]).unwrap();
+        let policy =
+            sandbox::policy(&with, Path::new("/home"), Path::new("/nowhere/claude"), &[]).unwrap();
         let graph = graph();
         for path in [
             &graph.binary,
@@ -130,7 +131,13 @@ mod tests {
         assert!(!policy.write.contains(&graph.binary));
 
         let without = call(Role::Worker, Tools::Work, settings, None);
-        let policy = sandbox::policy(&without, Path::new("/home"), &[]).unwrap();
+        let policy = sandbox::policy(
+            &without,
+            Path::new("/home"),
+            Path::new("/nowhere/claude"),
+            &[],
+        )
+        .unwrap();
         assert!(!policy.read.contains(&graph.binary));
         assert!(!policy.write.contains(&graph.index));
         assert!(!policy.sockets.contains(&graph.runtime));

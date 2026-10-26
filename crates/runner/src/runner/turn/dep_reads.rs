@@ -76,6 +76,20 @@ impl Runner {
         }
         reads
     }
+
+    // The call's skill and plugin copies sit in kelpie's home, which a fence
+    // denies whole: they go in its read carve-outs, so the file tools and the
+    // shell both reach the files a skill names under its own folder.
+    pub(super) fn with_plugin_reads(&self, call: &mut AgentCall) {
+        let Some(fence) = call.reach.fence.as_mut() else {
+            return;
+        };
+        for dir in call.plugin_dirs.clone() {
+            if !fence.read.iter().any(|held| held == &dir) {
+                fence.read.push(dir);
+            }
+        }
+    }
 }
 
 // A call that reads no file of the flock reads none of these either

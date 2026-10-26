@@ -62,7 +62,14 @@ fn a_pi_reviewer_asked_for_tests_gets_write_and_the_guard() {
     let upstream = PiCli::on(&Base::default())
         .upstream(server(&call).unwrap())
         .unwrap();
-    let policy = policy(&call, &Files::of(&call), &upstream, &socket, &[]);
+    let policy = policy(
+        &call,
+        &Files::of(&call),
+        &upstream,
+        &socket,
+        Path::new("/nowhere/pi"),
+        &[],
+    );
     assert!(policy.write.contains(&folder), "{:?}", policy.write);
     let worktree = w.path("wt");
     let in_worktree: Vec<&PathBuf> = (policy.write.iter())

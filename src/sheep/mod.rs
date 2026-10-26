@@ -193,7 +193,7 @@ fn serve(project: &str, arrival: Option<Arrival<Carry>>) -> Result<(), Exit> {
     let login = LoginToken::take();
     let base = Base::labelling(Arc::new(shepherd.clone()))
         .in_runtime(home.clone(), &codex_home, gateways.key_vars())
-        .unfenced_unread(&shep_home);
+        .unfenced_unread(&home, &shep_home);
     let reviewer = LocalReviewer::default().with_gateways(gateways.clone());
     let epoch = Epoch(u64::from(std::process::id()));
     let book = BookFile::new(kelpie_home.join(crate::dog::BOOK));

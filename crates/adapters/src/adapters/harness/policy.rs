@@ -1,8 +1,13 @@
 //! The sandbox policy every harness starts from
 
+use std::collections::BTreeSet;
+use std::env;
+use std::ffi::OsStr;
+use std::io::Read;
 use std::net::{IpAddr, ToSocketAddrs};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
+use crate::dep_sources::{self, Env, ProcessEnv};
 use crate::forwarder::{Upstream, WORKER_HOST};
 use crate::ports::{AgentCall, Fence, Forward, Policy, Tools};
 use crate::profile::CREDENTIALS;
@@ -34,8 +39,8 @@ pub fn fence_policy(fence: &Fence) -> Policy {
 /// policy, or with no fence the credentials and `unfenced` unread
 ///
 /// Every harness starts here, so a call with no fence is denied `unfenced`
-/// whichever one runs it. Its own folder stays readable, since a worktree
-/// can sit inside the shepherd's home.
+/// whichever one runs it. What that call reads back inside those homes, and what
+/// stays denied under them, is in `unfenced_reads`.
 pub(crate) fn call_policy(call: &AgentCall, unfenced: &[String]) -> Policy {
     match &call.reach.fence {
         Some(fence) => fence_policy(fence),
@@ -46,11 +51,149 @@ pub(crate) fn call_policy(call: &AgentCall, unfenced: &[String]) -> Policy {
                 ..Policy::default()
             };
             if !unfenced.is_empty() {
-                policy.read.push(call.cwd.clone());
+                let carve = unfenced_reads(call, unfenced, &ProcessEnv);
+                policy.no_read.extend(carve.no_read);
+                policy.read = carve.read;
             }
             policy
         }
     }
+}
+
+// What a call with no fence is carved back inside the homes it is denied, and
+// what stays denied under that carve-back
+struct Carve {
+    read: Vec<PathBuf>,
+    no_read: Vec<String>,
+}
+
+// Its own folder, the git its `git` runs through, the toolchain it runs, and the
+// config `git` starts on: a tool cannot exec under a deny of its own folder, and
+// a linked worktree's `.git` file names a gitdir outside the worktree. A cargo
+// home read back whole keeps its own credential files denied.
+fn unfenced_reads(call: &AgentCall, unfenced: &[String], env: &dyn Env) -> Carve {
+    let homes: Vec<PathBuf> = unfenced
+        .iter()
+        .filter_map(|rule| rule.strip_suffix("/**"))
+        .map(PathBuf::from)
+        .collect();
+    let common = crate::worktree::git(
+        &call.cwd,
+        ["rev-parse", "--path-format=absolute", "--git-common-dir"],
+    )
+    .ok()
+    .map(PathBuf::from);
+    let tools: Vec<PathBuf> = homes
+        .iter()
+        .flat_map(|home| dep_sources::toolchain_homes(home, env))
+        .collect();
+    let config = homes.iter().filter_map(|home| {
+        let own = home.join(".gitconfig");
+        own.is_file().then_some(own)
+    });
+    Carve {
+        read: (std::iter::once(call.cwd.clone()))
+            .chain(common)
+            .chain(tools.iter().cloned())
+            .chain(config)
+            .collect(),
+        no_read: dep_sources::cargo_credentials(&tools),
+    }
+}
+
+/// Where `program` runs, as the files and folders the sandbox must let through
+///
+/// A call whose sandbox denies the home whole must allow back the harness it
+/// starts: a bare name looked up on `PATH`, a link followed to what it runs, each
+/// with the folder it runs from and the install folder above a `bin`, and a
+/// script's shebang interpreter, which is what the kernel execs (`pi` is Node).
+/// `home`, the harness's own folder, sits inside the denied home, so a grant
+/// that holds it is the home itself and is never made.
+pub(crate) fn program_folder(program: &Path, env: &dyn Env, home: &Path) -> Vec<PathBuf> {
+    let Some(found) = (if bare(program) {
+        on_path(program, env)
+    } else {
+        program.is_file().then(|| program.to_owned())
+    }) else {
+        return Vec::new();
+    };
+    let real = found.canonicalize().unwrap_or_else(|_| found.clone());
+    let mut grants: BTreeSet<PathBuf> = [found.clone(), real.clone()].into_iter().collect();
+    for file in [&found, &real] {
+        grants.extend(install(file, home));
+        grants.extend(interpreter(file, env, home));
+    }
+    grants.into_iter().collect()
+}
+
+// A name with no folder is the shell's to find, and kelpie finds it the same way
+fn bare(program: &Path) -> bool {
+    // `Path::parent` answers an empty folder for a bare name rather than none,
+    // and an empty folder is no folder.
+    program
+        .parent()
+        .is_none_or(|parent| parent.as_os_str().is_empty())
+}
+
+// `program` in each `PATH` folder, the first that holds a file of its name
+fn on_path(program: &Path, env: &dyn Env) -> Option<PathBuf> {
+    env.get("PATH")
+        .iter()
+        .flat_map(|paths| env::split_paths(paths))
+        .map(|folder| folder.join(program))
+        .find(|candidate| candidate.is_file())
+}
+
+// The folder `file` runs from, and the install folder above it when that is a
+// `bin`: npm, nvm, volta and bun each keep their tree beside it. A folder holding
+// the harness's own home is the denied home or above it, so it is never granted.
+fn install(file: &Path, home: &Path) -> Vec<PathBuf> {
+    let Some(folder) = file.parent().filter(|own| !own.as_os_str().is_empty()) else {
+        return Vec::new();
+    };
+    let prefix = (folder.file_name() == Some(OsStr::new("bin")))
+        .then(|| folder.parent())
+        .flatten();
+    [Some(folder), prefix]
+        .into_iter()
+        .flatten()
+        .filter(|own| !home.starts_with(own))
+        .map(Path::to_owned)
+        .collect()
+}
+
+// What a script's shebang runs, with the folders it runs from. The kernel execs
+// the interpreter, and the sandbox judges it under the same deny.
+fn interpreter(file: &Path, env: &dyn Env, home: &Path) -> Vec<PathBuf> {
+    let Some(line) = shebang(file) else {
+        return Vec::new();
+    };
+    let words: Vec<&str> = line["#!".len()..].split_whitespace().collect();
+    let found = match words.as_slice() {
+        ["/usr/bin/env", name, ..] => on_path(Path::new(name), env),
+        [path, ..] => Some(PathBuf::from(path)),
+        _ => None,
+    };
+    let Some(program) = found else {
+        return Vec::new();
+    };
+    let real = program.canonicalize().unwrap_or_else(|_| program.clone());
+    let mut grants: BTreeSet<PathBuf> = [program.clone(), real.clone()].into_iter().collect();
+    for file in [&program, &real] {
+        grants.extend(install(file, home));
+    }
+    grants.into_iter().collect()
+}
+
+// The `#!` line of `file`, and nothing when it is no script
+fn shebang(file: &Path) -> Option<String> {
+    let mut head = [0u8; 256];
+    let read = std::fs::File::open(file).ok()?.read(&mut head).ok()?;
+    let text = String::from_utf8_lossy(&head[..read]);
+    text.lines()
+        .next()
+        .filter(|line| line.starts_with("#!"))
+        .map(str::to_owned)
 }
 
 /// Lets a call that runs a work item's tests bind Unix sockets in `scratch`,
@@ -98,5 +241,255 @@ pub(crate) fn deny_the_server(policy: &mut Policy, upstream: &Upstream) {
         if !policy.denied_addresses.contains(&address) {
             policy.denied_addresses.push(address);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{call_policy, interpreter, program_folder, unfenced_reads};
+    use crate::dep_sources::Env;
+    use crate::ports::{AgentCall, Role, Session, SessionId, Tools};
+    use crate::settings::{AgentHarness, Effort};
+    use crate::test::{NO_PROGRAM, linked_worktree, write_script};
+    use std::path::{Path, PathBuf};
+
+    // A session id no live call holds
+    fn id() -> SessionId {
+        SessionId("5a2e9d40-1c7b-4b38-8e6f-2d4a9c1b7e53".to_owned())
+    }
+
+    // The environment a test names, variable by variable
+    struct Fixed(Vec<(&'static str, String)>);
+
+    impl Env for Fixed {
+        fn get(&self, name: &str) -> Option<String> {
+            self.0
+                .iter()
+                .find(|(own, _)| *own == name)
+                .map(|(_, value)| value.clone())
+        }
+    }
+
+    // A call with no fence, run in `cwd`, which is what an unfenced policy is for
+    fn unfenced_call(cwd: &Path) -> AgentCall {
+        AgentCall::new(
+            Role::Reviewer,
+            Tools::Review,
+            AgentHarness::ClaudeCode,
+            "model",
+            Effort::Low,
+            Session::New(id()),
+            cwd.to_owned(),
+            "read it",
+        )
+    }
+
+    // The deny a whole home gets
+    fn glob(folder: &Path) -> String {
+        format!("{}/**", folder.display())
+    }
+
+    // A folder on the `PATH` that holds a `claude` of its own
+    fn on_path() -> (tempfile::TempDir, PathBuf) {
+        let dir = tempfile::tempdir().unwrap();
+        let bin = dir.path().join("bin");
+        std::fs::create_dir(&bin).unwrap();
+        let program = bin.join("claude");
+        write_script(&program, "#!/bin/sh\nexit 0\n");
+        (dir, program)
+    }
+
+    // A file with a shebang, written without running it: `write_script` probes
+    // that what it writes runs, and these are no shell scripts.
+    fn write_shebang(path: &Path, contents: &str) {
+        std::fs::write(path, contents).unwrap();
+    }
+
+    // A `PATH` of these folders, in order
+    fn path_env(folders: &[&Path]) -> Fixed {
+        let joined = folders
+            .iter()
+            .map(|folder| folder.display().to_string())
+            .collect::<Vec<_>>()
+            .join(":");
+        Fixed(vec![("PATH", joined)])
+    }
+
+    #[test]
+    fn a_bare_program_name_is_found_on_the_path_that_holds_it() {
+        let (dir, program) = on_path();
+        let env = path_env(&[program.parent().unwrap()]);
+        let grant = program_folder(Path::new("claude"), &env, &dir.path().join("state"));
+        assert!(grant.contains(&program), "{grant:?}");
+    }
+
+    #[test]
+    fn a_bare_name_no_path_holds_gets_no_grant() {
+        let env = path_env(&[Path::new("/nowhere/bin")]);
+        assert!(program_folder(Path::new("claude"), &env, Path::new("/state")).is_empty());
+    }
+
+    #[test]
+    fn a_program_that_is_no_file_gets_no_grant() {
+        assert!(program_folder(&NO_PROGRAM, &Fixed(vec![]), Path::new("/state")).is_empty());
+    }
+
+    #[test]
+    fn a_folder_named_as_the_program_gets_no_grant() {
+        let (_dir, program) = on_path();
+        let folder = program.parent().unwrap();
+        assert!(program_folder(folder, &Fixed(vec![]), Path::new("/state")).is_empty());
+    }
+
+    #[test]
+    fn a_program_grants_the_folder_it_runs_from_and_the_install_above_a_bin() {
+        let dir = tempfile::tempdir().unwrap();
+        let bin = dir.path().join(".npm-global/bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        let program = bin.join("claude");
+        write_script(&program, "#!/bin/sh\nexit 0\n");
+        let grant = program_folder(&program, &Fixed(vec![]), &dir.path().join(".claude"));
+        assert!(grant.contains(&bin), "{grant:?}");
+        assert!(grant.contains(&dir.path().join(".npm-global")), "{grant:?}");
+    }
+
+    #[test]
+    fn a_scripts_interpreter_is_granted_with_the_tree_it_runs_from() {
+        let dir = tempfile::tempdir().unwrap();
+        let node = dir.path().join(".nvm/versions/node/v22/bin");
+        std::fs::create_dir_all(&node).unwrap();
+        write_script(&node.join("node"), "#!/bin/sh\nexit 0\n");
+        let bin = dir.path().join(".volta/bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        write_shebang(&bin.join("pi"), "#!/usr/bin/env node\n");
+        let env = path_env(&[&bin, &node]);
+        let grant = program_folder(&bin.join("pi"), &env, &dir.path().join(".pi"));
+        assert!(grant.contains(&node.join("node")), "{grant:?}");
+        assert!(grant.contains(&node), "{grant:?}");
+        assert!(
+            grant.contains(&node.parent().unwrap().to_path_buf()),
+            "the install folder above the interpreter's bin: {grant:?}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_program_held_by_a_link_grants_what_the_link_runs() {
+        let dir = tempfile::tempdir().unwrap();
+        let package = dir.path().join(".npm-global/lib/node_modules/pi");
+        std::fs::create_dir_all(&package).unwrap();
+        let real = package.join("cli.js");
+        write_shebang(&real, "#!/usr/bin/env node\n");
+        let bin = dir.path().join(".npm-global/bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        std::os::unix::fs::symlink(&real, bin.join("pi")).unwrap();
+        let grant = program_folder(&bin.join("pi"), &Fixed(vec![]), &dir.path().join(".pi"));
+        let resolved = package.canonicalize().unwrap();
+        assert!(grant.contains(&resolved), "{grant:?}");
+    }
+
+    #[test]
+    fn no_grant_opens_the_denied_home_whole() {
+        let dir = tempfile::tempdir().unwrap();
+        let program = dir.path().join("claude");
+        write_script(&program, "#!/bin/sh\nexit 0\n");
+        let grant = program_folder(&program, &Fixed(vec![]), &dir.path().join(".claude"));
+        assert!(grant.contains(&program), "{grant:?}");
+        assert!(!grant.contains(&dir.path().to_path_buf()), "{grant:?}");
+    }
+
+    #[test]
+    fn an_unfenced_call_reads_the_git_dir_its_worktree_points_to() {
+        let dir = tempfile::tempdir().unwrap();
+        let (repo, worktree) = linked_worktree(dir.path());
+        let policy = call_policy(&unfenced_call(&worktree), &[glob(dir.path())]);
+        let common = repo.join(".git").canonicalize().unwrap();
+        assert!(
+            policy
+                .read
+                .iter()
+                .any(|own| own.canonicalize().unwrap_or_default() == common),
+            "{:?}",
+            policy.read
+        );
+    }
+
+    #[test]
+    fn an_unfenced_call_reads_the_toolchain_and_config_under_the_denied_home() {
+        let dir = tempfile::tempdir().unwrap();
+        for folder in [".cargo", ".rustup"] {
+            std::fs::create_dir_all(dir.path().join(folder)).unwrap();
+        }
+        std::fs::write(dir.path().join(".gitconfig"), "[user]\n").unwrap();
+        let env = Fixed(vec![
+            (
+                "CARGO_HOME",
+                dir.path().join(".cargo").display().to_string(),
+            ),
+            (
+                "RUSTUP_HOME",
+                dir.path().join(".rustup").display().to_string(),
+            ),
+        ]);
+        let carve = unfenced_reads(&unfenced_call(dir.path()), &[glob(dir.path())], &env);
+        for folder in [".cargo", ".rustup", ".gitconfig"] {
+            let own = dir.path().join(folder);
+            assert!(carve.read.contains(&own), "{own:?} in {:?}", carve.read);
+        }
+        // Each is read back whole, so its own registry token stays denied by name.
+        for name in ["credentials", "credentials.toml"] {
+            let own = format!("{}/{}", dir.path().join(".cargo").display(), name);
+            assert!(carve.no_read.contains(&own), "{own}: {:?}", carve.no_read);
+        }
+    }
+
+    // The wiring and not only the rule: `call_policy` is where every harness
+    // starts, and the default cargo home needs no variable to be found.
+    #[test]
+    fn an_unfenced_call_denies_the_credentials_of_a_cargo_home_it_reads_back() {
+        let dir = tempfile::tempdir().unwrap();
+        let cargo = dir.path().join(".cargo");
+        std::fs::create_dir_all(cargo.join("registry/src")).unwrap();
+        std::fs::write(cargo.join("credentials.toml"), "token\n").unwrap();
+        let policy = call_policy(&unfenced_call(&dir.path().join("wt")), &[glob(dir.path())]);
+        assert!(policy.read.contains(&cargo), "{:?}", policy.read);
+        for name in ["credentials", "credentials.toml"] {
+            let own = format!("{}/{}", cargo.display(), name);
+            assert!(policy.no_read.contains(&own), "{own}: {:?}", policy.no_read);
+        }
+    }
+
+    #[test]
+    fn an_unfenced_call_reads_its_own_folder_and_nothing_of_a_home_it_is_not_in() {
+        let dir = tempfile::tempdir().unwrap();
+        let worktree = dir.path().join("elsewhere/wt");
+        std::fs::create_dir_all(&worktree).unwrap();
+        let carve = unfenced_reads(
+            &unfenced_call(&worktree),
+            &[glob(Path::new("/Users/me"))],
+            &Fixed(vec![]),
+        );
+        assert!(carve.read.contains(&worktree), "{:?}", carve.read);
+        assert!(
+            carve.read.iter().all(|own| !own.starts_with("/Users/me")),
+            "{:?}",
+            carve.read
+        );
+        assert!(carve.no_read.is_empty(), "{:?}", carve.no_read);
+    }
+
+    #[test]
+    fn a_call_with_no_home_denied_reads_nothing_extra() {
+        let dir = tempfile::tempdir().unwrap();
+        let policy = call_policy(&unfenced_call(dir.path()), &[]);
+        assert!(policy.read.is_empty(), "{:?}", policy.read);
+    }
+
+    #[test]
+    fn a_compiled_program_names_no_interpreter() {
+        let dir = tempfile::tempdir().unwrap();
+        let program = dir.path().join("codex");
+        std::fs::write(&program, [0x7f, b'E', b'L', b'F']).unwrap();
+        assert!(interpreter(&program, &Fixed(vec![]), &dir.path().join(".codex")).is_empty());
     }
 }

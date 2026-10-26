@@ -15,7 +15,14 @@ fn a_workers_scratch_folder_is_where_it_may_bind_sockets_and_a_reviewers_is_not(
         .unwrap();
     let policy = |call: &AgentCall| {
         let files = Files::of(call);
-        let policy = policy(call, &files, &upstream, &socket, &[]);
+        let policy = policy(
+            call,
+            &files,
+            &upstream,
+            &socket,
+            Path::new("/nowhere/pi"),
+            &[],
+        );
         (policy.socket_folders, files.scratch)
     };
 

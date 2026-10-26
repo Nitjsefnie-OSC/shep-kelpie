@@ -19,7 +19,7 @@ pub(crate) use carried::{Carried, Noted};
 pub(crate) use env::assignments;
 pub use labels::LambLabels;
 pub use policy::fence_policy;
-pub(crate) use policy::{bind_in_scratch, call_policy, dial_the_forwarder};
+pub(crate) use policy::{bind_in_scratch, call_policy, dial_the_forwarder, program_folder};
 pub(crate) use records::Records;
 pub(crate) use skill::{StepSkill, step_skill};
 #[cfg(test)]

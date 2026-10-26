@@ -500,7 +500,14 @@ fn the_sandbox_reads_the_code_graph_binary_and_writes_only_its_index_and_daemon_
         let goose = GooseCli::on(&Base::default());
         let upstream = goose.upstream(server(call).unwrap()).unwrap();
         let files = Files::of(&call.settings);
-        policy(call, &files, &upstream, &w.path("forwarder.sock"), &[])
+        policy(
+            call,
+            &files,
+            &upstream,
+            &w.path("forwarder.sock"),
+            Path::new("/nowhere/goose"),
+            &[],
+        )
     };
     let with = policy_of(&worker(
         &w,
@@ -545,7 +552,14 @@ fn a_new_session_with_a_browser_loads_playwright_and_the_sandbox_connects_only_t
         let goose = GooseCli::on(&Base::default());
         let upstream = goose.upstream(server(call).unwrap()).unwrap();
         let files = Files::of(&call.settings);
-        policy(call, &files, &upstream, &w.path("forwarder.sock"), &[])
+        policy(
+            call,
+            &files,
+            &upstream,
+            &w.path("forwarder.sock"),
+            Path::new("/nowhere/goose"),
+            &[],
+        )
     };
     let mut call = worker(&w, Session::New(id(FRESH_ID)), json!({}), None);
     let without = policy_of(&call);
