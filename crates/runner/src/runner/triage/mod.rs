@@ -41,6 +41,7 @@ use ask::Purpose;
 pub(super) mod addressed;
 pub(super) mod ask;
 pub(super) mod comment;
+mod facts;
 pub(super) mod hand;
 pub(super) mod heard;
 pub(super) mod images;
@@ -699,6 +700,8 @@ mod images_tests;
 mod limits_tests;
 #[cfg(test)]
 mod local_tests;
+#[cfg(test)]
+mod mention_tests;
 #[cfg(test)]
 mod pick_tests;
 #[cfg(test)]

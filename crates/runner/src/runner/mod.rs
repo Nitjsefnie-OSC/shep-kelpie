@@ -390,6 +390,8 @@ pub struct Runner {
     gh_login: std::cell::OnceCell<String>,
     // Whether a ruling posted with no one to mention has been told, in memory only
     unmentioned_told: std::cell::Cell<bool>,
+    // Whether a triage comment posted with no one to mention has been told, in memory only
+    triage_unmentioned_told: std::cell::Cell<bool>,
     // The posts to a contribution that failed, until one works or is given up, in memory only
     post_tries:
         std::cell::RefCell<std::collections::BTreeMap<String, contributions::post::Attempt>>,
@@ -672,6 +674,7 @@ impl Runner {
             forge_ledger,
             gh_login: std::cell::OnceCell::new(),
             unmentioned_told: std::cell::Cell::new(false),
+            triage_unmentioned_told: std::cell::Cell::new(false),
             post_tries: std::cell::RefCell::default(),
             post_unsaved: std::cell::RefCell::default(),
             token_wait: token_wait::TokenWait::default(),

@@ -3,10 +3,11 @@
 
 use serde_json::json;
 
-use super::marker::{MARKER, duplicate_marker};
+use super::marker::duplicate_marker;
 use super::pick_tests::{issue, list};
 use super::research_tests::{
-    APP, WORDS, calls, crashed_with, facts, moves, pump, reply, researching, triage, untouched,
+    APP, WORDS, calls, crashed_with, facts, handed, moves, pump, reply, researching, triage,
+    untouched,
 };
 use crate::github::ApiError;
 use crate::ports::{IssueCloseReason, PullRequestState, Role, Timestamp};
@@ -103,11 +104,7 @@ fn a_number_not_in_the_listing_or_closed_or_itself_is_dropped_and_the_issue_is_t
         assert_eq!(step(&runner).unwrap(), None, "{what}");
 
         assert_eq!(rig.forge.closings(), Vec::<u64>::new(), "{what}");
-        assert_eq!(
-            rig.github.comments(),
-            [(30, format!("{WORDS}\n\n{MARKER}"))],
-            "{what}"
-        );
+        assert_eq!(rig.github.comments(), [(30, handed(WORDS))], "{what}");
         assert_eq!(
             moves(&rig),
             ["comment", "make needs-triage", "label needs-triage"],
@@ -158,7 +155,7 @@ fn a_number_the_call_was_never_shown_is_dropped_even_when_it_is_open() {
     assert_eq!(rig.forge.closings(), Vec::<u64>::new());
     assert_eq!(
         rig.github.comments(),
-        [(30, format!("{WORDS}\n\n{MARKER}"))],
+        [(30, handed(WORDS))],
         "an ordinary triage comment"
     );
     let told: Vec<String> = runner.lock().unwrap().take_notes();
@@ -184,7 +181,7 @@ fn an_addressed_by_of_a_kind_kelpie_cannot_read_is_told_in_the_log() {
 
     assert_eq!(
         rig.github.comments(),
-        [(30, format!("{WORDS}\n\n{MARKER}"))],
+        [(30, handed(WORDS))],
         "an ordinary triage comment, not a duplicate one"
     );
     assert_eq!(rig.forge.closings(), Vec::<u64>::new(), "nothing closed");
@@ -411,11 +408,7 @@ fn a_cover_that_went_while_the_comment_waited_to_be_posted_is_not_posted() {
     assert_eq!(step(&runner).unwrap(), None);
     let posted = rig.github.comments();
     assert_eq!(posted.len(), 2, "one more comment, worded again");
-    assert_eq!(
-        posted[1],
-        (30, format!("{WORDS}\n\n{MARKER}")),
-        "an ordinary triage comment"
-    );
+    assert_eq!(posted[1], (30, handed(WORDS)), "an ordinary triage comment");
     assert_eq!(rig.forge.closings(), Vec::<u64>::new(), "and no close");
     assert_eq!(triage(&rig, &runner)["issues"][0]["step"], "done");
 }

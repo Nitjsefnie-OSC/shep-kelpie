@@ -1,6 +1,6 @@
 # The author's round
 
-An open question goes to the issue's author before it goes to the maintainer (#887, #892, #893, #1108): one round, answered in a comment on GitHub or in the author's own terminal, and `needs-triage` for what is left. The local prompt and the body rewrite are in `triage-local.md`. The settings, the pick rule, the verb and `status` are in `triage.md`; the pass, its post and its labels are in `triage-pass.md`.
+An open question goes to the issue's author before it goes to the maintainer (#887, #892, #893, #1108): one round, answered in a comment on GitHub or in the author's own terminal, and `needs-triage` for what is left. The comment that hands an outside issue over mentions the maintainer, which `triage-reader.md` has. The local prompt and the body rewrite are in `triage-local.md`. The settings, the pick rule, the verb and `status` are in `triage.md`; the pass, its post and its labels are in `triage-pass.md`.
 
 - `Runner::askable` is who is asked: the maintainer on their own issue, and any author under `pick = "all"`. Anyone else ends at `needs-triage` as before. `runner/triage/ask.rs`
 - Asked and not sure: one comment holds the representative's lead-in, the questions and, below them, the local prompt inside a collapsed `<details>` section. No status label goes on while the triage waits. `Runner::finish_triage` returns at a record whose `questions` or `local` are open, and the type and priority the pass owed wait in its `labels`. `Runner::ask_comment` builds the body, `runner/triage/comment.rs`, `runner/triage/local.rs`
