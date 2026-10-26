@@ -80,8 +80,8 @@ pub struct HarnessFacts {
     pub resumable_session: bool,
     /// Whether it can read the repository
     pub repo_reads: bool,
-    /// Whether it provides the Claude Code hooks that hold role tools
-    pub claude_hooks: bool,
+    /// Whether its adapter wires kelpie's PM and issue-writer guards
+    pub role_guard: bool,
     /// Why a handover waits while a session on it is open in the maintainer's
     /// terminal, if it does
     pub holds_handover_at_attach: Option<&'static str>,
@@ -160,7 +160,7 @@ const CLAUDE_CODE: HarnessFacts = HarnessFacts {
     edits: true,
     resumable_session: true,
     repo_reads: true,
-    claude_hooks: true,
+    role_guard: true,
     holds_handover_at_attach: None,
     attached_role: None,
     researcher_web: ResearcherWeb::Builtin,
@@ -187,7 +187,7 @@ const PI: HarnessFacts = HarnessFacts {
     edits: true,
     resumable_session: true,
     repo_reads: true,
-    claude_hooks: false,
+    role_guard: false,
     holds_handover_at_attach: Some(FORWARDER),
     attached_role: Some("pi_session"),
     researcher_web: ResearcherWeb::PiPackage,
@@ -214,7 +214,7 @@ const CODEX: HarnessFacts = HarnessFacts {
     edits: true,
     resumable_session: true,
     repo_reads: true,
-    claude_hooks: false,
+    role_guard: false,
     holds_handover_at_attach: Some(TRUST),
     attached_role: Some("codex_session"),
     researcher_web: ResearcherWeb::Builtin,
@@ -246,7 +246,7 @@ const GOOSE: HarnessFacts = HarnessFacts {
     edits: true,
     resumable_session: true,
     repo_reads: true,
-    claude_hooks: false,
+    role_guard: false,
     holds_handover_at_attach: Some(FORWARDER),
     attached_role: Some("goose_session"),
     researcher_web: ResearcherWeb::GoosePackage,
@@ -274,7 +274,7 @@ const STAND_IN: HarnessFacts = HarnessFacts {
     edits: true,
     resumable_session: true,
     repo_reads: true,
-    claude_hooks: false,
+    role_guard: false,
     holds_handover_at_attach: None,
     attached_role: None,
     researcher_web: ResearcherWeb::Builtin,

@@ -330,25 +330,26 @@ fn check_needs(
     explicit: Option<&[Need]>,
     yaml: &str,
 ) -> Result<(), String> {
-    let needs = explicit.unwrap_or_else(|| role.needs());
+    let guard = matches!(role, Role::Pm | Role::IssueWriter).then_some(&Need::RoleGuard);
+    let needs = explicit.unwrap_or_else(|| role.needs()).iter().chain(guard);
     // parity: harness.issue-writer, harness.pm
-    let Some(need) = needs.iter().find(|need| !need.met_by(harness)) else {
+    let Some(need) = needs.clone().find(|need| !need.met_by(harness)) else {
         return Ok(());
     };
     let name = harness.as_str();
     let message = match (role, need) {
-        (Role::IssueWriter, Need::ClaudeHooks) => format!(
+        (Role::IssueWriter, Need::RoleGuard) => format!(
             "the issue writer runs on claude-code, not {name}: \
              `--interactive` starts `claude`, and its guard is a Claude Code hook"
         ),
-        (Role::Pm, Need::ClaudeHooks) => format!(
+        (Role::Pm, Need::RoleGuard) => format!(
             "the project manager runs on claude-code, not {name}: \
              a Claude Code hook is what holds its writes to its notes"
         ),
         _ => {
             let serving = Harness::ALL
                 .into_iter()
-                .filter(|harness| needs.iter().all(|need| need.met_by(*harness)))
+                .filter(|harness| needs.clone().all(|need| need.met_by(*harness)))
                 .map(Harness::as_str)
                 .collect::<Vec<_>>()
                 .join(", ");

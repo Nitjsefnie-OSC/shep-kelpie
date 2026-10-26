@@ -1,6 +1,31 @@
 use crate::agents::{Need, Role};
 
 #[test]
+fn pm_and_issue_writer_cannot_drop_their_role_guard() {
+    use crate::agents::baseline;
+
+    for role in ["pm", "issue-writer"] {
+        for harness in ["codex", "pi", "goose", "stand-in"] {
+            for needs in ["[]", "[repo-reads]"] {
+                let text = format!(
+                    "---\nextends: kelpie:{role}\nharness: {harness}\nmodel: m\neffort: high\nneeds: {needs}\n---\n"
+                );
+                let err = baseline::check("mine", &text).unwrap_err();
+                assert!(err.contains("runs on claude-code"), "{role}: {err}");
+                assert!(err.contains(&format!("not {harness}")), "{role}: {err}");
+                assert!(err.contains("at line 3"), "{role}: {err}");
+                let supported =
+                    text.replace(&format!("harness: {harness}"), "harness: claude-code");
+                assert!(
+                    baseline::check("mine", &supported).is_ok(),
+                    "{role}: {needs}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn each_role_needs_what_the_design_says() {
     assert_eq!(
         Role::Implementer.needs(),
@@ -10,8 +35,8 @@ fn each_role_needs_what_the_design_says() {
     assert_eq!(Role::Advisor.needs(), &[Need::RepoReads]);
     assert_eq!(Role::Researcher.needs(), &[Need::RepoReads]);
     assert_eq!(Role::Triager.needs(), &[Need::RepoReads]);
-    assert_eq!(Role::IssueWriter.needs(), &[Need::ClaudeHooks]);
-    assert_eq!(Role::Pm.needs(), &[Need::ClaudeHooks]);
+    assert_eq!(Role::IssueWriter.needs(), &[Need::RoleGuard]);
+    assert_eq!(Role::Pm.needs(), &[Need::RoleGuard]);
     assert_eq!(Role::Representative.needs(), &[]);
 }
 
@@ -22,7 +47,7 @@ fn every_harness_declares_every_need() {
     let matrix: toml::Table = include_str!("../../../../../docs/parity.toml")
         .parse()
         .unwrap();
-    for (harness, hooks) in [
+    for (harness, guarded) in [
         (Harness::ClaudeCode, true),
         (Harness::Pi, false),
         (Harness::Codex, false),
@@ -33,19 +58,19 @@ fn every_harness_declares_every_need() {
         assert!(facts.edits, "{harness:?}");
         assert!(facts.resumable_session, "{harness:?}");
         assert!(facts.repo_reads, "{harness:?}");
-        assert_eq!(facts.claude_hooks, hooks, "{harness:?}");
+        assert_eq!(facts.role_guard, guarded, "{harness:?}");
         assert!(harness.serves(Role::Implementer));
         assert!(harness.serves(Role::Reviewer));
         assert!(harness.serves(Role::Representative));
-        assert_eq!(harness.serves(Role::Pm), hooks);
+        assert_eq!(harness.serves(Role::Pm), guarded);
         if harness == Harness::StandIn {
             continue;
         }
         for (row, declared) in [
             ("worker", facts.edits && facts.resumable_session),
             ("reviewer-reads-repo", facts.repo_reads),
-            ("issue-writer", facts.claude_hooks),
-            ("pm", facts.claude_hooks),
+            ("issue-writer", facts.role_guard),
+            ("pm", facts.role_guard),
         ] {
             assert_eq!(
                 matrix["harness"][row][facts.name].as_str() == Some("yes"),
@@ -71,7 +96,7 @@ fn the_needs_key_overrides_the_role_and_merges_through_extends() {
     let dir = folder(&[
         (
             "base.md",
-            "---\nrole: implementer\nharness: codex\nmodel: m\neffort: high\nneeds: [claude-hooks]\n---\n",
+            "---\nrole: implementer\nharness: codex\nmodel: m\neffort: high\nneeds: [role-guard]\n---\n",
         ),
         ("inherited.md", "---\nextends: base\n---\n"),
         (
@@ -81,20 +106,16 @@ fn the_needs_key_overrides_the_role_and_merges_through_extends() {
         ("empty.md", "---\nextends: base\nneeds: []\n---\n"),
         (
             "strict.md",
-            "---\nextends: relaxed\nneeds: [claude-hooks]\n---\n",
-        ),
-        (
-            "pm.md",
-            "---\nextends: kelpie:pm\nharness: codex\nmodel: m\neffort: high\nneeds: []\n---\n",
+            "---\nextends: relaxed\nneeds: [role-guard]\n---\n",
         ),
     ]);
     let book = Agents::load(dir.path()).unwrap();
     for agent in ["base", "inherited", "strict"] {
         let err = book.broken(&name(agent)).unwrap().to_string();
-        assert!(err.contains("Claude Code hook"), "{err}");
+        assert!(err.contains("PM and issue-writer guards"), "{err}");
         assert!(book.get(&name(agent)).is_none());
     }
-    for agent in ["relaxed", "empty", "pm"] {
+    for agent in ["relaxed", "empty"] {
         assert!(
             book.get(&name(agent)).is_some(),
             "{agent}: {:?}",
@@ -128,7 +149,7 @@ fn an_unknown_need_is_refused_with_its_line() {
             Some(line) => assert!(err.contains(&format!("at line {line},")), "{err}"),
             None => assert!(err.contains("inherited through `inline`"), "{err}"),
         }
-        for known in ["edits", "resumable-session", "repo-reads", "claude-hooks"] {
+        for known in ["edits", "resumable-session", "repo-reads", "role-guard"] {
             assert!(err.contains(known), "{err}");
         }
     }
@@ -151,13 +172,19 @@ fn every_roles_keys_take_needs_and_check_the_harness() {
         let text = format!(
             "---\nrole: {role}\nharness: codex\nmodel: m\neffort: high\nneeds: []\n---\nA prompt.\n"
         );
-        assert!(baseline::check("mine", &text).is_ok(), "{role}");
+        match role {
+            "pm" | "issue-writer" => {
+                let err = baseline::check("mine", &text).unwrap_err();
+                assert!(err.contains("runs on claude-code"), "{role}: {err}");
+            }
+            _ => assert!(baseline::check("mine", &text).is_ok(), "{role}"),
+        }
         let strict = text.replace(
             "needs: []",
-            "needs: [edits, resumable-session, repo-reads, claude-hooks]",
+            "needs: [edits, resumable-session, repo-reads, role-guard]",
         );
         let err = baseline::check("mine", &strict).unwrap_err();
-        assert!(err.contains("Claude Code hook"), "{role}: {err}");
+        assert!(err.contains("claude-code"), "{role}: {err}");
         assert!(
             baseline::check("mine", &strict.replace("codex", "claude-code")).is_ok(),
             "{role}"
