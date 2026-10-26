@@ -372,6 +372,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_program_held_by_a_link_grants_what_the_link_runs() {
         let dir = tempfile::tempdir().unwrap();
@@ -383,7 +384,8 @@ mod tests {
         std::fs::create_dir_all(&bin).unwrap();
         std::os::unix::fs::symlink(&real, bin.join("pi")).unwrap();
         let grant = program_folder(&bin.join("pi"), &Fixed(vec![]), &dir.path().join(".pi"));
-        assert!(grant.contains(&package), "{grant:?}");
+        let resolved = package.canonicalize().unwrap();
+        assert!(grant.contains(&resolved), "{grant:?}");
     }
 
     #[test]
