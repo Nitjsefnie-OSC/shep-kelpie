@@ -31,7 +31,7 @@ jobs:
     outputs:
       rust: ${{ steps.rust.outputs.rust }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 2
       # A pull request's checkout is its merge commit, whose first parent is the base.
@@ -49,9 +49,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: rustup toolchain install stable --profile minimal --component clippy,rustfmt
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo fmt --all --check
@@ -63,7 +63,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: scripts/check-private.sh
         env:
           PRIVATE_NAMES: ${{ secrets.PRIVATE_NAMES }}
@@ -79,7 +79,7 @@ jobs:
       issues: read
       pull-requests: read
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: scripts/design-size.sh
       - run: scripts/readme-size.sh
       - run: scripts/docs-links.py
@@ -90,7 +90,7 @@ jobs:
       - if: needs.changes.outputs.rust != 'false'
         run: rustup toolchain install stable --profile minimal
       - if: needs.changes.outputs.rust != 'false'
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - if: needs.changes.outputs.rust != 'false'
@@ -111,9 +111,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: rustup toolchain install stable --profile minimal
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           key: part-${{ matrix.part }}
           save-if: ${{ github.ref == 'refs/heads/main' }}
@@ -132,9 +132,9 @@ jobs:
       SHEP_VERSION: 0.16.1
       KELPIE_TEST_SHEP: ${{ github.workspace }}/.shep/shep
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: rustup toolchain install stable --profile minimal
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Install the pinned shep
@@ -163,9 +163,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: rustup toolchain install stable --profile minimal
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Install what the sandbox needs on Linux
@@ -211,10 +211,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # Matches `rust-version` in Cargo.toml, which matches shep's.
       - run: rustup toolchain install 1.88 --profile minimal
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo +1.88 check --all-targets --locked
@@ -232,7 +232,7 @@ jobs:
     runs-on: windows-11-arm
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install rustup if the image lacks it
         shell: pwsh
         run: |
@@ -242,7 +242,7 @@ jobs:
             "$env:USERPROFILE\.cargo\bin" | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
           }
       - run: rustup toolchain install stable --profile minimal
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       # `ring` compiles C with `clang` on `aarch64-pc-windows-msvc`.
