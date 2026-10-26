@@ -179,7 +179,16 @@ fn names_folder(text: &str, folder: &str) -> bool {
 fn names_system_path(text: &str) -> bool {
     for prefix in SYSTEM_PREFIXES {
         for (at, _) in text.match_indices(prefix) {
-            let after = text[at + prefix.len()..].chars().next();
+            let rest = &text[at + prefix.len()..];
+            let name = rest
+                .split(|c: char| !(is_word(c) || matches!(c, '-' | '.')))
+                .next()
+                .unwrap_or_default()
+                .trim_end_matches('.');
+            if prefix == "/home/" && name == "me" {
+                continue;
+            }
+            let after = rest.chars().next();
             // `/home/` needs a name after it; the rest end at their own name.
             let ends = if prefix.ends_with('/') {
                 after.is_some_and(is_word)
