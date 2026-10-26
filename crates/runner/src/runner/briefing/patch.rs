@@ -5,6 +5,7 @@ use std::io::{self, Read};
 use std::path::Path;
 use std::process::Stdio;
 
+use super::git::commits;
 use crate::worktree::in_repo;
 
 /// The most of one diff kept, in bytes: about 16k tokens, so one huge
@@ -43,7 +44,12 @@ pub(in crate::runner) fn merged(
 ) -> Result<Vec<u8>, String> {
     let main = format!("refs/remotes/origin/{base}");
     let head = format!("refs/heads/{branch}");
-    let (main, head) = resolve(repo, [&main, &head])?;
+    let tips = commits(repo, [&main, &head]);
+    let tip = |name: &String| match tips.get(name) {
+        Some(id) => Ok(id.clone()),
+        None => Err(format!("{name} is not in the checkout")),
+    };
+    let (main, head) = (tip(&main)?, tip(&head)?);
     let in_main = ["merge-base", "--is-ancestor", &head, &main];
     if !git_succeeds(repo, &in_main) {
         return read(repo, &main, &head, None, worktree);
@@ -71,28 +77,6 @@ pub(in crate::runner) fn merged(
         ));
     };
     cut(repo, &[format!("{merge}^1"), merge], None, worktree)
-}
-
-// The commit each of `refs` names, from one git call, or why one is missing.
-// `rev-parse --verify` takes a single revision, so `for-each-ref` lists both.
-fn resolve(repo: &Path, refs: [&str; 2]) -> Result<(String, String), String> {
-    let listing = git_line(
-        repo,
-        &[
-            "for-each-ref",
-            "--format=%(objectname) %(refname)",
-            refs[0],
-            refs[1],
-        ],
-    )
-    .unwrap_or_default();
-    let named = |name: &str| {
-        let mut listed = listing.lines().filter_map(|line| line.split_once(' '));
-        let id = listed.find_map(|(id, listed)| (listed == name).then_some(id));
-        id.map(str::to_owned)
-            .ok_or_else(|| format!("{name} is not in the checkout"))
-    };
-    Ok((named(refs[0])?, named(refs[1])?))
 }
 
 // The first line git prints for `args`, if it succeeds and prints one
