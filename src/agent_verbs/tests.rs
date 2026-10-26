@@ -1,5 +1,5 @@
 use super::*;
-use crate::settings::AgentName;
+use crate::settings::{AgentName, Harness};
 
 const UNBOUND_PM: &str = "---\nrole: pm\n---\nYou keep the project's notes.\n";
 
@@ -360,7 +360,7 @@ fn new_pm_on_codex_writes_nothing_and_names_the_harness_that_can_serve_it() {
     .unwrap_err();
     assert!(err.contains("claude-code"), "{err}");
     assert!(
-        err.contains("harnesses that can serve `pm`: claude-code"),
+        err.contains("a Claude Code hook is what holds its writes to its notes"),
         "{err}"
     );
     assert!(!folder.exists());
@@ -421,4 +421,20 @@ fn new_honors_fewer_needs_when_binding_an_unbound_file() {
         Harness::Codex
     );
     assert!(file(dir.path(), "pm").contains("needs: []"));
+}
+
+#[test]
+fn new_reports_a_missing_server_without_a_default_role_harness_hint() {
+    let dir = tempfile::tempdir().unwrap();
+    let stub = "---\nrole: pm\nneeds: []\n---\nMy notes.\n";
+    std::fs::write(dir.path().join("pm.md"), stub).unwrap();
+
+    let err = agents(dir.path(), "new pm --harness goose --model m --effort high").unwrap_err();
+
+    assert_eq!(
+        err,
+        "runs on goose, which needs the model's server as `url` or a `gateway`, \
+         and its context size as `context`"
+    );
+    assert_eq!(file(dir.path(), "pm"), stub);
 }
