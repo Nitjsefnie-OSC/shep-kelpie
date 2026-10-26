@@ -29,7 +29,7 @@ mod decided;
 mod folders;
 mod history;
 pub use measure::Standing;
-mod measure;
+pub(in crate::runner) mod measure;
 #[cfg(test)]
 mod tests;
 

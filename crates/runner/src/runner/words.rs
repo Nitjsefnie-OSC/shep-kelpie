@@ -111,6 +111,7 @@ impl Answer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::request::RuleAnswer;
     use crate::runner::trigger::read_rule;
     use crate::state::Stuck;
     use crate::test::ticket;
@@ -227,7 +228,11 @@ mod tests {
             Answer::Do(Action::Restore),
         ] {
             let params = answer.params(ticket(14));
-            assert_eq!(read_rule(&params), Some((ticket(14), answer)), "{params:?}");
+            assert_eq!(
+                read_rule(&params),
+                Some((ticket(14), RuleAnswer::from(answer.clone()))),
+                "{params:?}"
+            );
         }
     }
 }

@@ -15,7 +15,7 @@ mod answer;
 mod bots;
 mod budget;
 mod ci;
-mod clock;
+pub(in crate::runner) mod clock;
 mod heard;
 mod merge;
 mod pass;

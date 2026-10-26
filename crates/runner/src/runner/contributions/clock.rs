@@ -106,9 +106,9 @@ pub struct ClockStatus {
 #[derive(Debug, Serialize)]
 pub struct Followed<'a> {
     #[serde(flatten)]
-    contribution: &'a Contribution,
+    pub(in crate::runner) contribution: &'a Contribution,
     #[serde(skip_serializing_if = "Option::is_none")]
-    clock: Option<ClockStatus>,
+    pub(in crate::runner) clock: Option<ClockStatus>,
 }
 
 impl Runner {
