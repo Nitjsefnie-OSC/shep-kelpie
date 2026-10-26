@@ -12,13 +12,13 @@
 use super::Runner;
 use super::dev_server::Browsed;
 use super::flight::Verdict;
-use super::follow_up::TRIAGE_LABEL;
 use super::gate::{settled, short};
-use crate::board::{OpenPullRequest, TRIAGE, is_bump};
-use crate::ports::{Checks, E2eOutcome, ForgeError, NewLabel, PullRequestState, Timestamp};
-use crate::settings::{Dependencies, OnRed};
+use crate::board::{OpenPullRequest, is_bump};
+use crate::ports::{Checks, E2eOutcome, NewLabel, PullRequestState, Timestamp};
+use crate::settings::OnRed;
 use crate::state::{Bump, E2eResult, E2eState, Red, RedStep, StateError};
 use crate::worktree::Base;
+use acts::{Act, Done, Made};
 use read::{Proof, Reads};
 
 /// Made on a repo that lacks it before the first issue for a red bump
@@ -69,6 +69,8 @@ impl Why {
 enum Next {
     // Not yet: this is why
     Waiting(String),
+    // Behind `main`: ask its bot to rebase it, for this reason
+    Rebase(Why),
     // Proved: merge it. `behind` names the rule that let a behind bump through,
     // which the merge's log line says
     Merge { behind: Option<&'static str> },
@@ -99,6 +101,18 @@ fn behind_rule(read: &Proof, up_to_date: Option<Result<bool, String>>) -> Behind
         Some(Ok(true)) => Behind::Ask(Why::Strict),
         Some(Err(why)) => Behind::Ask(Why::Unknown(why)),
         None => Behind::Ask(Why::Unknown("the repo's rule has not been read".into())),
+    }
+}
+
+// Whether a bump behind `main` is to be asked to rebase, for the reason `why` gives, which it is
+// once for each head: else where it stands
+fn rebase_due(bump: &Bump, why: Why) -> Result<Why, String> {
+    match bump.rebase_asked.as_deref() == Some(&bump.head) {
+        true => Err(format!(
+            "{}: asked to rebase, and has not pushed yet",
+            why.standing()
+        )),
+        false => Ok(why),
     }
 }
 
@@ -171,36 +185,32 @@ impl Runner {
         self.save(next)
     }
 
+    // Takes bump `number` as far as it can go without a write, and returns the write it needs
     fn work_bump(
         &mut self,
         number: u64,
         open: &[OpenPullRequest],
         now: Timestamp,
         reads: &mut Reads,
-    ) -> Result<(), StateError> {
+    ) -> Result<Option<Act>, StateError> {
         let Some(bump) = self.bump(number) else {
-            return Ok(());
+            return Ok(None);
         };
         if bump.red.is_some() {
             let on_board = open.iter().any(|pr| pr.number == number);
             if !on_board && bump.issue_owed() && self.settle_left_red(&bump, reads)? {
-                return Ok(());
+                return Ok(None);
             }
             return self.finish_red(number);
         }
         let Some(pr) = open.iter().find(|pr| pr.number == number) else {
-            return Ok(());
+            return Ok(None);
         };
         match self.prove(&bump, pr, now, reads) {
-            Next::Waiting(why) => self.stand(number, why, false),
+            Next::Waiting(why) => self.stand(number, why, false).map(|()| None),
             Next::Red(why) => self.go_red(number, &bump.head, why),
-            Next::Merge { behind } => {
-                self.merge_bump(&bump, behind)?;
-                if self.bump(number).is_none() {
-                    reads.moved_on();
-                }
-                Ok(())
-            }
+            Next::Rebase(why) => Ok(Some(Act::Rebase { bump, why })),
+            Next::Merge { behind } => Ok(Some(Act::Merge { bump, behind })),
         }
     }
 
@@ -288,7 +298,12 @@ impl Runner {
             }
             Ok(Base::Current) => None,
             Ok(Base::Behind) => match behind_rule(&read, reads.up_to_date.clone()) {
-                Behind::Ask(why) => return Next::Waiting(self.ask_rebase(bump, &why)),
+                Behind::Ask(why) => {
+                    return match rebase_due(bump, why) {
+                        Ok(why) => Next::Rebase(why),
+                        Err(standing) => Next::Waiting(standing),
+                    };
+                }
                 Behind::Prove => Some(BEHIND_ALLOWED),
             },
         };
@@ -328,16 +343,11 @@ impl Runner {
         stood(behind, self.prove_web(bump, read.web, behind))
     }
 
-    // A bump behind `main` is asked to rebase once for each head, for the
-    // reason `why` gives: it conflicts, `main` requires it, or the rule that
-    // might not require it could not be read. The answer is its standing.
-    fn ask_rebase(&mut self, bump: &Bump, why: &Why) -> String {
+    // Keeps the answer to a rebase ask, and says where the bump stands. The ask is made once for
+    // each head, for the reason `why` gives.
+    fn rebased(&mut self, bump: &Bump, why: &Why, asked: Result<(), String>) -> String {
         let standing = why.standing();
-        if bump.rebase_asked.as_deref() == Some(&bump.head) {
-            return format!("{standing}: asked to rebase, and has not pushed yet");
-        }
-        let mention = format!("@{} rebase", Dependencies::mention(&bump.author));
-        if let Err(e) = self.comment_as_gh(bump.pull_request, &mention) {
+        if let Err(e) = asked {
             return format!("{standing}, and cannot ask for a rebase: {e}");
         }
         self.notes.push(format!(
@@ -419,7 +429,9 @@ impl Runner {
             Verdict::Browser(Browsed::Failed(why)) => {
                 self.notes
                     .push(format!("bump #{number}: browser proof failed at {at}"));
-                return self.go_red(number, head, why);
+                return self
+                    .go_red(number, head, why)
+                    .and_then(|act| self.settle_acts(act));
             }
             Verdict::Browser(Browsed::Unavailable(why)) => {
                 self.flights.decline(number, head, &why);
@@ -468,22 +480,35 @@ impl Runner {
         self.amend(number, |bump| bump.e2e = Some(E2eResult { head, state }))
     }
 
-    fn merge_bump(&mut self, bump: &Bump, behind: Option<&'static str>) -> Result<(), StateError> {
+    // Keeps the answer to a merge, and returns the ask to rebase a refused merge of a bump that
+    // was behind calls for
+    fn bump_merged(
+        &mut self,
+        bump: &Bump,
+        behind: Option<&'static str>,
+        merged: Result<(), String>,
+        reads: &mut Reads,
+    ) -> Result<Option<Act>, StateError> {
         let number = bump.pull_request;
-        if let Err(e) = self.ports.forge.merge(&self.remote, number, &bump.head) {
+        if let Err(e) = merged {
             return match behind {
                 // The forge refused a merge of a head that was behind as it
                 // stands: that is the rule kelpie could not read saying
                 // itself. Ask for the rebase, once for this head, as for any
                 // rule kelpie cannot tell.
                 Some(_) => {
-                    let why = self.ask_rebase(
-                        bump,
-                        &Why::Unknown(format!("the forge refused the merge: {e}")),
-                    );
-                    self.stand(number, why, false)
+                    let why = Why::Unknown(format!("the forge refused the merge: {e}"));
+                    match rebase_due(bump, why) {
+                        Ok(why) => Ok(Some(Act::Rebase {
+                            bump: bump.clone(),
+                            why,
+                        })),
+                        Err(standing) => self.stand(number, standing, false).map(|()| None),
+                    }
                 }
-                None => self.stand(number, format!("cannot merge it: {e}"), true),
+                None => self
+                    .stand(number, format!("cannot merge it: {e}"), true)
+                    .map(|()| None),
             };
         }
         let at = short(&bump.head);
@@ -491,7 +516,11 @@ impl Runner {
             None => format!("bump #{number}: merged at {at}"),
             Some(rule) => format!("bump #{number}: merged at {at}, {rule}"),
         });
-        self.drop_bump(number)
+        self.drop_bump(number)?;
+        if self.bump(number).is_none() {
+            reads.moved_on();
+        }
+        Ok(None)
     }
 
     fn drop_bump(&mut self, number: u64) -> Result<(), StateError> {
@@ -500,9 +529,14 @@ impl Runner {
         self.save(next)
     }
 
-    // Marks bump `number` red at `head`, with what failed, and goes on to
-    // what `on_red` says.
-    fn go_red(&mut self, number: u64, head: &str, why: Vec<String>) -> Result<(), StateError> {
+    // Marks bump `number` red at `head`, with what failed, and returns the write `on_red` says
+    // is next.
+    fn go_red(
+        &mut self,
+        number: u64,
+        head: &str,
+        why: Vec<String>,
+    ) -> Result<Option<Act>, StateError> {
         let (step, then) = match self.settings.dependencies.on_red {
             OnRed::Close => (RedStep::Comment, "closing it"),
             OnRed::Leave => (RedStep::Left, "left open"),
@@ -518,34 +552,21 @@ impl Runner {
         self.finish_red(number)
     }
 
-    // Takes a red bump through the steps left, each saved before the next.
-    // A step the forge refuses is tried again at the next poll.
-    fn finish_red(&mut self, number: u64) -> Result<(), StateError> {
-        loop {
-            let Some((bump, red)) = self.bump(number).and_then(|b| Some((b.clone(), b.red?)))
-            else {
-                return Ok(());
-            };
-            let refused = match red.step {
-                RedStep::Left => return Ok(()),
-                RedStep::Comment => self.comment_red(&bump, &red).map(|()| RedStep::Close),
-                RedStep::Close => self.close_red(&bump).map(|()| RedStep::File),
-                RedStep::File => return self.file_red(&bump, &red),
-            };
-            match refused {
-                Ok(step) => self.amend(number, |bump| {
-                    if let Some(red) = bump.red.as_mut() {
-                        red.step = step;
-                    }
-                })?,
-                Err(e) => {
-                    return self.stand(number, format!("red, and the forge refused: {e}"), true);
-                }
-            }
-        }
+    // The write a red bump's next step needs, the steps each saved before the next. A step the
+    // forge refuses is tried again at the next poll.
+    fn finish_red(&mut self, number: u64) -> Result<Option<Act>, StateError> {
+        let Some((bump, red)) = self.bump(number).and_then(|b| Some((b.clone(), b.red?))) else {
+            return Ok(None);
+        };
+        Ok(match red.step {
+            RedStep::Left => None,
+            RedStep::Comment => Some(self.comment_red(bump, &red)),
+            RedStep::Close => Some(Act::Close { bump }),
+            RedStep::File => Some(self.file_red(bump, &red)),
+        })
     }
 
-    fn comment_red(&self, bump: &Bump, red: &Red) -> Result<(), ForgeError> {
+    fn comment_red(&self, bump: Bump, red: &Red) -> Act {
         let follows = match self.local_store() {
             true => "A ticket follows.",
             false => "An issue follows.",
@@ -555,21 +576,11 @@ impl Runner {
             short(&red.head),
             lines_of(&red.why),
         );
-        self.comment_as_gh(bump.pull_request, &body)
+        Act::Comment { bump, body }
     }
 
-    fn close_red(&mut self, bump: &Bump) -> Result<(), ForgeError> {
-        let number = bump.pull_request;
-        (self.ports.forge).close_pull_request(&self.remote, number)?;
-        self.notes.push(format!("bump #{number}: closed, red"));
-        Ok(())
-    }
-
-    // Files the issue for a closed bump, which ends its record.
-    // Files the issue for a closed bump, which ends its record. A project on
-    // the local store files a ticket in the store instead, and makes no label
-    // on its repo.
-    fn file_red(&mut self, bump: &Bump, red: &Red) -> Result<(), StateError> {
+    // The issue for a closed bump, which ends its record
+    fn file_red(&self, bump: Bump, red: &Red) -> Act {
         let number = bump.pull_request;
         let title = format!("dependencies: #{number}, {}, broke", bump.branch);
         let body = format!(
@@ -580,31 +591,81 @@ impl Runner {
             short(&red.head),
             lines_of(&red.why),
         );
-        let labels = [TRIAGE, DEPENDENCIES_LABEL.name];
-        let made = match self.local_store() {
-            true => (self.file_ticket(&title, &body, &labels))
-                .map(|ticket| format!("ticket {ticket}"))
-                .map_err(|e| e.to_string()),
-            false => {
-                (self.make_missing_labels([TRIAGE_LABEL, DEPENDENCIES_LABEL])).and_then(|()| {
-                    (self.open_issue(&title, &body, &labels))
-                        .map(|issue| format!("issue #{issue}"))
-                        .map_err(|e| e.to_string())
-                })
+        let local = self.local_store();
+        Act::File {
+            bump,
+            title,
+            body,
+            local,
+        }
+    }
+
+    // Keeps what came of a write, and returns the write after it, if there is one
+    fn apply_act(&mut self, done: Done, reads: &mut Reads) -> Result<Option<Act>, StateError> {
+        let Done { act, result } = done;
+        let number = act.number();
+        if let Ok(Made::Comment(id)) = &result {
+            self.keep_comment_id(number, *id);
+        }
+        match act {
+            Act::Rebase { bump, why } => {
+                let standing = self.rebased(&bump, &why, result.map(drop));
+                self.stand(number, standing, false).map(|()| None)
             }
-        };
-        match made {
-            Ok(issue) => {
+            Act::Merge { bump, behind } => self.bump_merged(&bump, behind, result.map(drop), reads),
+            Act::Comment { .. } => self.red_stepped(number, result.map(|_| RedStep::Close)),
+            Act::Close { .. } => {
+                if result.is_ok() {
+                    self.notes.push(format!("bump #{number}: closed, red"));
+                }
+                self.red_stepped(number, result.map(|_| RedStep::File))
+            }
+            Act::File { .. } => {
+                let issue = match result {
+                    Ok(Made::Filed(issue)) => issue,
+                    Ok(_) => String::new(),
+                    Err(e) => {
+                        let why = format!("closed, and cannot file its issue: {e}");
+                        return self.stand(number, why, true).map(|()| None);
+                    }
+                };
                 self.notes
                     .push(format!("bump #{number}: filed {issue} for it"));
-                self.drop_bump(number)
+                self.drop_bump(number).map(|()| None)
             }
-            Err(e) => self.stand(
-                number,
-                format!("closed, and cannot file its issue: {e}"),
-                true,
-            ),
         }
+    }
+
+    // Saves that a red bump's step went through, and returns the write after it
+    fn red_stepped(
+        &mut self,
+        number: u64,
+        step: Result<RedStep, String>,
+    ) -> Result<Option<Act>, StateError> {
+        match step {
+            Ok(step) => {
+                self.amend(number, |bump| {
+                    if let Some(red) = bump.red.as_mut() {
+                        red.step = step;
+                    }
+                })?;
+                self.finish_red(number)
+            }
+            Err(e) => self
+                .stand(number, format!("red, and the forge refused: {e}"), true)
+                .map(|()| None),
+        }
+    }
+
+    // Makes the writes `act` and the acts after it call for, with the lock held, for the
+    // callers outside the poll.
+    fn settle_acts(&mut self, mut act: Option<Act>) -> Result<(), StateError> {
+        let mut reads = Reads::default();
+        while let Some(next) = act {
+            let done = next.run(&self.writer());
+            act = self.apply_act(done, &mut reads)?;
+        }
+        Ok(())
     }
 }
 
@@ -646,6 +707,7 @@ pub struct BumpStatus {
 }
 
 pub(super) use read::follow_dependencies;
+mod acts;
 #[cfg(test)]
 mod behind_tests;
 #[cfg(test)]

@@ -49,6 +49,7 @@ pub(super) use unfinished::{failed, named_files};
 
 mod budget;
 mod dep_reads;
+mod end_reads;
 mod ended;
 mod handover;
 pub(super) mod held_up;
@@ -828,9 +829,7 @@ impl Runner {
     // leaves it unrecorded, and status shows none.
     pub(super) fn pull_request_from(&self, branch: &str) -> Option<u64> {
         let open = self.ports.forge.open_pull_requests(&self.remote).ok()?;
-        open.into_iter()
-            .find(|pr| pr.head == branch)
-            .map(|pr| pr.number)
+        end_reads::from_branch(Some(&open), branch)
     }
 }
 

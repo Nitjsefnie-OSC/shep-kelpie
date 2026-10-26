@@ -14,9 +14,12 @@
 //! the board rule picks and stuck items keep the rulings they raised.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Mutex;
 
 use super::Runner;
 use super::report::StepReport;
+use super::ruling::PostJob;
+use super::trigger::lock;
 use crate::board::ReadyIssue;
 use crate::board::briefing::ticket_ref;
 use crate::pacer::Scope;
@@ -299,6 +302,20 @@ impl Desk {
     /// Whether a call of its session is in flight
     pub(super) fn waking(&self) -> bool {
         self.flying.is_some()
+    }
+}
+
+/// Posts the comment of each held ruling whose hold has ended, with the runner's lock let go
+pub(super) fn post_released(runner: &Mutex<Runner>) {
+    let posts = lock(runner).release_posts();
+    for post in posts {
+        let id = post.id();
+        let sent = post.send();
+        let mut held = lock(runner);
+        if let Some(why) = held.ruling_posted(sent) {
+            held.notes
+                .push(format!("cannot post ruling {id} on its thread: {why}"));
+        }
     }
 }
 
@@ -652,9 +669,9 @@ impl Runner {
         }
     }
 
-    /// Posts the comment of each held ruling whose hold has ended and which
-    /// still waits on the maintainer, as the project manager left it
-    pub(super) fn post_released(&mut self) {
+    /// Settles the comment of each held ruling whose hold has ended and which still waits on the
+    /// maintainer, as the project manager left it, and returns the posts to make
+    pub(super) fn release_posts(&mut self) -> Vec<PostJob> {
         // A ruling the project manager's hold has let go of may be the panel's now.
         self.panel_pass();
         // A ruling held when the runner last stopped is still to be posted.
@@ -666,6 +683,7 @@ impl Runner {
         let released: Vec<TicketId> = (self.pm.unposted.iter().copied())
             .filter(|&id| !self.ruling_held(id))
             .collect();
+        let mut posts = Vec::new();
         for id in released {
             self.pm.unposted.remove(&id);
             let Some(number) =
@@ -673,11 +691,13 @@ impl Runner {
             else {
                 continue;
             };
-            if let Some(why) = self.post_ruling(number, id) {
-                self.notes
-                    .push(format!("cannot post ruling {id} on its thread: {why}"));
+            let post = self.ruling_post(number, id);
+            if post.is_some() {
+                self.posting_begins(id);
             }
+            posts.extend(post);
         }
+        posts
     }
 
     fn launch_wake(&mut self, agent: &PmAgent) -> Result<(), String> {

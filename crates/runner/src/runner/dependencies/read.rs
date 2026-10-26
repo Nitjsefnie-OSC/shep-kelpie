@@ -3,9 +3,9 @@
 //! [`Runner::dependencies_job`] decides a poll is due and copies what it needs, [`Job::run`]
 //! lists the open pull requests and reads what each bump needs from the forge and from git,
 //! including the repo's up-to-date rule once any bump is behind `main`, and
-//! [`Runner::apply_dependencies`] takes each bump as far as it can go on the state it finds. The
-//! comments, merges and closes stay on the lock. A poll the forge refuses is read again at the
-//! next pass.
+//! [`Runner::work_bump`] takes each bump as far as it can go on the state it finds and returns the
+//! write it needs, which [`Act::run`] makes with the lock let go and [`Runner::apply_act`] keeps.
+//! A poll the forge refuses is read again at the next pass.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -13,9 +13,11 @@ use std::process::Stdio;
 use std::sync::{Arc, Mutex};
 
 use crate::board::{OpenPullRequest, is_bump};
+use crate::ports::Timestamp;
 use crate::ports::{Checks, Forge, ForgeError, PullRequestState};
 use crate::runner::Runner;
 use crate::runner::trigger::lock;
+use crate::runner::voice::Writer;
 use crate::settings::{Dependencies, ForgeSlug};
 use crate::state::{Bump, RedStep, StateError};
 use crate::worktree::{self, Base, Remote, in_repo};
@@ -36,7 +38,31 @@ pub(in crate::runner) fn follow_dependencies(runner: &Mutex<Runner>) -> Result<(
         return Ok(());
     };
     let read = job.run();
-    lock(runner).apply_dependencies(read)
+    let begun = lock(runner).begin_dependencies(read)?;
+    let Some(mut poll) = begun else {
+        return Ok(());
+    };
+    for number in std::mem::take(&mut poll.numbers) {
+        let work = lock(runner).work_bump(number, &poll.open, poll.now, &mut poll.reads)?;
+        let mut act = work;
+        while let Some(next) = act {
+            let done = next.run(&poll.hands);
+            act = lock(runner).apply_act(done, &mut poll.reads)?;
+        }
+    }
+    lock(runner).end_dependencies(&poll);
+    Ok(())
+}
+
+/// A poll in the middle of taking its bumps as far as they can go
+struct Poll {
+    open: Vec<OpenPullRequest>,
+    reads: Reads,
+    now: Timestamp,
+    /// The bumps still to take, by pull request
+    numbers: Vec<u64>,
+    /// What makes the writes a bump needs
+    hands: Writer,
 }
 
 /// What a poll read for the bumps
@@ -213,25 +239,32 @@ impl Runner {
         }))
     }
 
-    // Records the bumps the poll listed and takes each as far as it can go, then records the
-    // poll. A listing the forge refused records the poll too, so it is asked again a poll on.
-    fn apply_dependencies(
+    // Records the bumps the poll listed, and lists them for the poll to take. A listing the forge
+    // refused records the poll too, so it is asked again a poll on.
+    fn begin_dependencies(
         &mut self,
         read: Result<(Vec<OpenPullRequest>, Reads), ForgeError>,
-    ) -> Result<(), StateError> {
+    ) -> Result<Option<Poll>, StateError> {
         let now = self.ports.clock.now();
-        let Ok((open, mut reads)) = read else {
+        let Ok((open, reads)) = read else {
             self.looks.dependencies_read(now);
-            return Ok(());
+            return Ok(None);
         };
         self.record_bumps(&open, now)?;
-        let numbers: Vec<u64> = self.state.bumps.iter().map(|b| b.pull_request).collect();
-        for number in numbers {
-            self.work_bump(number, &open, now, &mut reads)?;
+        let numbers = self.state.bumps.iter().map(|b| b.pull_request).collect();
+        Ok(Some(Poll {
+            open,
+            reads,
+            now,
+            numbers,
+            hands: self.writer(),
+        }))
+    }
+
+    // Records the poll, unless a merge made what it read stale
+    fn end_dependencies(&mut self, poll: &Poll) {
+        if !poll.reads.stale {
+            self.looks.dependencies_read(poll.now);
         }
-        if !reads.stale {
-            self.looks.dependencies_read(now);
-        }
-        Ok(())
     }
 }

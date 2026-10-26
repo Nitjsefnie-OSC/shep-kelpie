@@ -731,7 +731,7 @@ fn one_pass(runner: &Mutex<Runner>) -> Result<Pass, StateError> {
     super::queued::take_up(runner);
     lock(runner).beat();
     lock(runner).send_metrics();
-    lock(runner).read_rate_limit();
+    super::timings::read_rate_limit(runner);
     lock(runner).let_go_of_the_gone();
     // Before any answer is taken, so none resumes a worker on a closed issue.
     super::closed::read_parked(runner)?;
@@ -874,6 +874,15 @@ fn hear_news(shared: &Mutex<Runner>, news: News) -> Result<Option<StepReport>, S
         End::Turn(result) => {
             let line = open.and_then(|open| runner.turn_line(&open, &result));
             let unreported = result.is_err();
+            // The turn's end reads git and the forge with the lock let go.
+            if result.is_ok()
+                && let Some(job) = runner.end_job(ticket)
+            {
+                drop(runner);
+                let read = job.run();
+                runner = lock(shared);
+                runner.keep_end_read(read);
+            }
             let ended = runner.turn_ended(ticket, result);
             if let (Some(line), Ok(_)) = (line, &ended) {
                 runner.append_call(line, unreported);

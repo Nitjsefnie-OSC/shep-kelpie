@@ -19,6 +19,7 @@ use crate::state::{MergeNotice, Notice, RulingKind, StateError, Stuck};
 use crate::ticket::TicketId;
 use crate::work_item::{Phase, Review, ReviewCallState, ReviewStage, Turn};
 use crate::worktree::{self, Base};
+use call::Merged;
 
 /// Why `drop` was refused
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -140,7 +141,6 @@ impl Runner {
             return Ok(Begin::Idle);
         };
         let tried = item.merge_tried.clone();
-        let repo = self.remote.clone();
         // Read with the runner's lock let go, and the step made again with the result
         let pr = match self.gate_view(number) {
             Ok(pr) => pr,
@@ -210,7 +210,11 @@ impl Runner {
             Err(begin) => return Ok(*begin),
         }
         if pr.draft {
-            if let Err(e) = self.ports.forge.mark_ready(&repo, number) {
+            let marked = match self.ready_marked(number) {
+                Ok(marked) => marked,
+                Err(begin) => return Ok(*begin),
+            };
+            if let Err(e) = marked {
                 return Ok(self.gate_failed(format!("cannot mark #{number} ready: {e}")));
             }
             let readied = Some(now);
@@ -247,31 +251,21 @@ impl Runner {
             return self.queue_marked(standing.removals);
         }
         let removals = standing.removals;
-        if let Err(e) = self.ports.forge.merge(&repo, number, &head) {
-            let reason = format!("cannot merge #{number}: {e}");
-            if !auto {
-                return Ok(self.gate_failed(reason));
+        let made = match self.merge_made(number, &head, auto) {
+            Ok(made) => made,
+            Err(begin) => return Ok(*begin),
+        };
+        match made {
+            Merged::Refused(reason) => Ok(self.gate_failed(reason)),
+            Merged::Waiting => self.queue_marked(removals),
+            Merged::Declined(reason) => self.refused(issue, number, head, reason),
+            Merged::Unread(e) | Merged::Read(Err(e)) => {
+                Ok(self.gate_failed(format!("cannot read #{number}: {e}")))
             }
-            // A lost answer may have queued it rather than merged it.
-            let waiting = self
-                .ports
-                .forge
-                .merge_queue(&repo, number)
-                .is_ok_and(|standing| standing.queued || standing.armed);
-            if waiting {
-                return self.queue_marked(removals);
+            Merged::Read(Ok(pr)) if pr.state == PullRequestState::Open => {
+                self.queue_marked(removals)
             }
-            match self.ports.forge.pull_request(&repo, number) {
-                Ok(pr) if pr.state == PullRequestState::Merged && pr.head == head => {}
-                Ok(_) => return self.refused(issue, number, head, reason),
-                Err(e) => return Ok(self.gate_failed(format!("cannot read #{number}: {e}"))),
-            }
-        }
-        // With a merge queue on, the call only queued the pull request.
-        match self.ports.forge.pull_request(&repo, number) {
-            Ok(pr) if pr.state == PullRequestState::Open => self.queue_marked(removals),
-            Ok(_) => self.merged(issue, number, head, auto),
-            Err(e) => Ok(self.gate_failed(format!("cannot read #{number}: {e}"))),
+            Merged::Read(Ok(_)) => self.merged(issue, number, head, auto),
         }
     }
 
@@ -375,6 +369,7 @@ impl Runner {
     }
 }
 
+pub(in crate::runner) mod call;
 mod cleanup;
 mod queue;
 

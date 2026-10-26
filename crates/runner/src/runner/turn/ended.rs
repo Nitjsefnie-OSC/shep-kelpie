@@ -35,10 +35,17 @@ impl Runner {
             );
         // Whatever the turn left on `origin` is the worker's own. A head
         // that cannot be read keeps the last one, which errs toward parking.
-        let pushed = self.current().and_then(|_| self.own_push());
+        let read = self.take_end_read();
+        let pushed = self.current().and_then(|item| match &read {
+            Some(read) => read.own_push(item.adopted),
+            None => self.own_push(),
+        });
         // Whether the head on `origin` is the worktree's own commit, which a
         // push by anyone else is not.
-        let local = self.worktree_head();
+        let local = match (&read, self.focus) {
+            (Some(read), Some(issue)) => read.worktree_head(issue),
+            _ => self.worktree_head(),
+        };
         let own_commit = pushed.is_some() && local == pushed;
         let mut next = self.state.clone();
         let Some(item) = self.current_in(&mut next) else {
@@ -67,7 +74,10 @@ impl Runner {
                     // Only this turn's refusal is told: an earlier one no longer
                     // says why there is no pull request.
                     item.pull_request_refused = None;
-                    item.pull_request = self.pull_request_from(&item.branch);
+                    item.pull_request = read
+                        .as_ref()
+                        .and_then(|read| read.pull_request_from(&item.branch))
+                        .unwrap_or_else(|| self.pull_request_from(&item.branch));
                     // A worker whose token opens no pull request wrote its text
                     // for kelpie to open it from, once the branch is pushed.
                     if handed_over && item.pull_request.is_none() && item.known.head.is_some() {
@@ -109,16 +119,20 @@ impl Runner {
                     matches!(&item.phase, Phase::Review(r) if r.stage == ReviewStage::Pushing);
                 // A worktree git cannot be read in is told and let go: the
                 // turn ends as it did before, which errs toward the ruling.
-                let uncommitted = match (question.is_none() && no_push && !asked && !pushing)
-                    .then(|| worktree::uncommitted(&self.settings.git.checkout, &item.worktree))
-                {
-                    Some(Ok(files)) => files,
-                    Some(Err(e)) => {
-                        eprintln!("cannot list issue #{issue}'s uncommitted files: {e}");
-                        Vec::new()
-                    }
-                    None => Vec::new(),
-                };
+                let uncommitted =
+                    match (question.is_none() && no_push && !asked && !pushing).then(|| match &read
+                    {
+                        Some(read) => read.uncommitted(),
+                        None => worktree::uncommitted(&self.settings.git.checkout, &item.worktree)
+                            .map_err(|e| e.to_string()),
+                    }) {
+                        Some(Ok(files)) => files,
+                        Some(Err(e)) => {
+                            eprintln!("cannot list issue #{issue}'s uncommitted files: {e}");
+                            Vec::new()
+                        }
+                        None => Vec::new(),
+                    };
                 let commit_first = !uncommitted.is_empty();
                 // The branch is handed over when the turn ends with it pushed,
                 // asking nothing and holding no work back, and the project's
