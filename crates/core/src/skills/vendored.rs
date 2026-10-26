@@ -1,9 +1,8 @@
 //! Kelpie's copy of mattpocock/skills, built into the binary
 //!
-//! `scripts/vendor-skills.sh` fetches it into `skills/` at the
-//! pinned commit, with its licence and the pin's `git ls-tree` in
-//! `blobs.txt`. The runner writes it out as a Claude Code plugin when it
-//! starts, so a project installs nothing.
+//! `scripts/vendor-skills.sh` fetches it into `skills/` at the pinned commit,
+//! with its licence and the pin's `git ls-tree` in `blobs.txt`. The runner
+//! writes it out as a Claude Code plugin at start, so a project installs nothing.
 //!
 //! A worker's copy holds only the skills its steps run and the ones those
 //! call, from `CALLS`: Claude Code lists every skill a plugin holds in

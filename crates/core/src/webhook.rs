@@ -1,5 +1,4 @@
-//! Kelpie's own settings: the webhook, the counted leases' capacities, the
-//! GPU's metrics page, kelpie's own Codex login and its model gateways
+//! Kelpie's own settings: webhook, lease capacities, GPU metrics page, Codex login, model gateways
 //!
 //! Kelpie's `[kelpie]` section of `dogs.toml`, or the file under kelpie's
 //! home it had before one, shared by every project. Every part is
@@ -316,13 +315,12 @@ impl KelpieSettings {
         Ok(())
     }
 
-    /// Checks in the section's text that a webhook with `trusted = true` has
-    /// a valid `token`: a non-empty word of printable characters
+    /// Checks in the section's text that a webhook with `trusted = true` has a valid `token`
     ///
-    /// Kelpie cannot see the server's access rules, so `trusted` is the
-    /// maintainer's word that the topic is locked to the token. It reads the
-    /// text and not the parsed settings, so a mistake elsewhere in the section
-    /// cannot hide it.
+    /// A valid token is a non-empty word of printable characters. Kelpie cannot
+    /// see the server's access rules, so `trusted` is the maintainer's word that
+    /// the topic is locked to the token. It reads the text and not the parsed
+    /// settings, so a mistake elsewhere in the section cannot hide it.
     ///
     /// # Errors
     ///

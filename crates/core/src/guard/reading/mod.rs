@@ -1,5 +1,4 @@
-//! `kelpie guard ... --read-only`: the commands of a call that reads the repo
-//! and changes nothing
+//! `kelpie guard ... --read-only`: the commands of a call that only reads the repo
 //!
 //! A Codex reviewer, advisor or retro has no read tool, only a shell, so its
 //! guard runs only what reads: a short list of commands, each as plain words,
@@ -8,7 +7,6 @@
 //! list, and a flag that writes a file or runs a program, such as
 //! `find -exec` or `rg --pre`. It runs no git: Claude Code's reviewer has
 //! none, and a repo's own config can name a program.
-//!
 //! The project's `command` hooks judge what it lets through, whole.
 
 use std::io::Read;

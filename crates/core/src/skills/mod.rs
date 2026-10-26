@@ -1,24 +1,13 @@
 //! The skill each step runs
 //!
-//! Every step kelpie drives an agent through names a skill, by default one
-//! from kelpie's vendored copy of mattpocock/skills. Each reaches Claude
-//! Code as a plugin folder passed with `--plugin-dir`, and pi as that
-//! folder's `skills/` passed with `--skill`, so an override is just another
-//! folder. A step whose skill cannot load runs kelpie's own
-//! prompt instead, and the runner's log and `status` say why.
+//! Every step kelpie drives an agent through names a skill, by default one from
+//! kelpie's vendored copy of mattpocock/skills, passed to Claude Code with
+//! `--plugin-dir` and to pi with `--skill`. A step whose skill cannot load runs
+//! kelpie's own prompt instead, and `status` says why.
 //!
-//! A worker's copy of the vendored plugin holds only the skills its own steps
-//! run and the ones those call, since a harness lists every skill a plugin
-//! holds on every request. `vendored::CALLS` is the table they are closed
-//! over, and `vendored_skills` is what seeds it. A step left out of `[skills]`
-//! runs one of kelpie's own skills only where that seeding wrote it, so
-//! `triage`, `spec`, `reset` and `retro` run kelpie's prompt until the project
-//! names them.
-//!
-//! Most steps start their prompt with the skill's slash command. `tests`
-//! and `pr` happen inside a worker's turn, so the worker's instructions name
-//! their skills instead. The `pr` step's skill comes with a writing skill of
-//! kelpie's own, [`Skills::wording`], named beside it.
+//! A worker's copy holds only the skills its steps run and those they call
+//! (`vendored::CALLS`). A step left out of `[skills]` runs kelpie's own skill
+//! only where `vendored_skills` seeded it. `pr` also names [`Skills::wording`].
 
 use std::collections::BTreeSet;
 use std::fmt;
@@ -172,15 +161,12 @@ impl Wording {
 impl Skills {
     /// Loads each step's skill, writing the plugins it needs under `folder`
     ///
-    /// The vendored plugin goes in `folder/mattpocock`, holding only the
-    /// skills a worker's steps run and those they call, kelpie's wording
-    /// plugin in `folder/kelpie-wording`, and a step's own skill folder is
-    /// copied into a plugin at `folder/<step>`. Nothing here
-    /// fails: a skill that cannot load leaves its step on kelpie's prompt.
-    ///
-    /// A step the project left out has a skill only where kelpie seeded one,
-    /// which it does for [`Step::WORKER`] alone, so no step is ever given a
-    /// command for a skill the written folder lacks.
+    /// The vendored plugin goes in `folder/mattpocock`, holding only the skills
+    /// a worker's steps run and those they call, kelpie's wording plugin in
+    /// `folder/kelpie-wording`, and a step's own skill folder in `folder/<step>`.
+    /// Nothing here fails: a skill that cannot load leaves its step on kelpie's
+    /// prompt. A step the project left out has a skill only where kelpie seeded
+    /// one, for [`Step::WORKER`] alone, so no command names a skill the folder lacks.
     pub fn load(chosen: &StepSkills, folder: &Path) -> Self {
         let vendored = folder.join(PLUGIN);
         // What the steps ask for, and what the folder holds: those plus what
@@ -358,17 +344,8 @@ impl Skills {
 
 // The vendored skills a runner's copy needs, before they are closed over
 // [`vendored::CALLS`]: each worker step's own, and every step the project
-// named `kelpie`, which kelpie must then hold to run it. A step set to
-// `none`, a path or a plugin needs none of them.
-//
-// A step left out runs its default, so only the worker's four are seeded by
-// that: they are the steps a worker's call runs. `retro` is off unless named,
-// and naming it is the only way its call gets a skill. `triage`, `spec` and
-// `reset` are driven by no call yet, so their skills stay out of a worker's
-// listing, and out of `status`, until one is: seeding `triage` would also
-// write the `grilling` and `domain-modeling` it calls, which are listed.
-// `Skills::load` reads this same set to decide whether a step left out has
-// a skill, so the two cannot disagree.
+// named `kelpie`. Only the steps a worker's call runs are seeded when left
+// out; `Skills::load` reads this same set, so the two cannot disagree.
 fn vendored_skills(chosen: &StepSkills) -> impl Iterator<Item = &'static str> {
     Step::ALL.into_iter().filter_map(move |step| {
         let named = matches!(chosen.choice(step), Some(SkillChoice::Kelpie {}));

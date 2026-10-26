@@ -1,17 +1,12 @@
 //! The tickets a project's work items come from, as their source holds them
 //!
-//! ADR 0014: a ticket lives in exactly one source, and that source is its
-//! truth. Kelpie reads a ticket and writes to it through this port. Every
-//! project's source today is GitHub issues in the pull request's own repo.
-//! A local store in kelpie's home, and ClickUp, follow as other sources.
-//!
-//! The forge port holds none of these (`Forge`, ADR 0014): a GitHub source's
-//! `Tickets` impl is where its issues are read and written, and every wrapper
-//! of a source holds that source's ticket port beside its forge port.
+//! ADR 0014: a ticket lives in exactly one source, which is its truth. Kelpie
+//! reads and writes it through this port; the forge port holds none of that.
+//! Every project's source today is GitHub issues in the pull request's own
+//! repo. A local store and ClickUp follow.
 //!
 //! The board stays kelpie's whichever source the tickets come from: the saved
-//! order, the project manager's holds and picks, drops and the file-overlap
-//! check are kelpie's scheduling, not the source's.
+//! order, holds and picks, drops and the file-overlap check are its scheduling.
 
 use std::path::{Path, PathBuf};
 
@@ -105,13 +100,11 @@ pub trait Tickets: Send + Sync {
         ticket: TicketId,
     ) -> Result<Vec<ThreadComment>, ForgeError>;
 
-    /// Downloads the image at `url`, a link from a ticket's text that
-    /// [`is_github_attachment`](super::is_github_attachment) accepts, to a file
-    /// named `stem` plus the extension its type gives, and returns that path
+    /// Downloads the image at `url`, which [`is_github_attachment`](super::is_github_attachment) accepts, to `stem` plus its extension
     ///
     /// The source's own login goes with the request, so an image on a repo
-    /// that needs a login can be read. It goes to GitHub's hosts alone. Nothing is left
-    /// behind on an error.
+    /// that needs a login can be read. It goes to GitHub's hosts alone. Nothing
+    /// is left behind on an error.
     ///
     /// # Errors
     ///

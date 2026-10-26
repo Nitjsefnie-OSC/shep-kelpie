@@ -29,8 +29,7 @@ const LONGEST_COMPLAINT: usize = 1000;
 ///
 /// Each line the command writes is sent to `lines` as it arrives. Results are
 /// copied back whatever the command's code. When they cannot be, a line says
-/// so and the command's code stands: a command that writes no results, which
-/// the default results folder allows, is not a failed one.
+/// so and the command's code stands.
 ///
 /// # Errors
 ///
@@ -108,10 +107,9 @@ async fn command(remote: &Remote, plan: &Plan, lines: &Sender<String>) -> Result
 }
 
 // The results folder alone, into a folder of the dog's own, and from there
-// into the same folder of the worktree. Links on the host are not copied, and
-// a link in the worktree, at the folder or above it, is refused as the copy
-// reaches it: the worktree is the worker's to change while this goes, so no
-// path in it is checked ahead and trusted later.
+// into the same folder of the worktree. Links on the host are not copied. A
+// link in the worktree is refused as the copy reaches it, since the worker
+// can change the worktree meanwhile and no path is checked ahead.
 async fn copy_back(remote: &Remote, plan: &Plan) -> Result<(), String> {
     let staging = plan.staging()?;
     let result = stage_and_deliver(remote, plan, &staging).await;

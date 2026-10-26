@@ -14,17 +14,10 @@ mod tests;
 ///
 /// The sandbox runtime (`srt`) refuses to start on an entry it does not
 /// accept, which a worker's next turn would find out as a `stuck` ruling. An
-/// entry is accepted here as the runtime accepts it: one optional leading
-/// `*.` and then a host, with an optional `:port` after it, and an IPv6
-/// address in brackets. A `*` anywhere else, a scheme, a path, a user or a
-/// blank is refused. The port is allowed because the runtime reads it
-/// (measured with `srt` 0.0.77, see `docs/facts/worker-profile-and-sandbox.md`), and the pi harness
-/// check in `settings::agents` reads it too.
-///
-/// The rule is written from the measurements of the runtime in `docs/facts/` and
-/// the failure that showed it (`productionresultssa*.blob.core.windows.net`),
-/// not from the runtime's source, which could not be read when it was
-/// written. The runtime stays the last word on a host's spelling.
+/// entry is accepted as the runtime accepts it: an optional leading `*.`,
+/// then a host, an optional `:port`, and an IPv6 address in brackets. A `*`
+/// elsewhere, a scheme, a path, a user or a blank is refused. The rule comes
+/// from `docs/facts/worker-profile-and-sandbox.md` (`srt` 0.0.77); the runtime has the last word.
 pub(super) fn allowed_domains<'de, D: Deserializer<'de>>(
     deserializer: D,
 ) -> Result<Vec<NonBlank>, D::Error> {

@@ -1,29 +1,13 @@
 //! Reading and writing files in a folder a worker can write
 //!
-//! Kelpie runs outside the sandbox, as the maintainer, and a worker can
-//! plant a link anywhere in its build folder or worktree. A path opened the
-//! ordinary way follows it to any file the maintainer can read or write: a
-//! `pull-request.md` that links the GitHub App's key would be posted as a pull
-//! request's body, and a `pull-request.applied.md` that links a shell's rc
-//! file would be overwritten with the worker's text. So every file kelpie
-//! reads or writes in such a folder goes through here, and nothing here
-//! follows a link.
+//! A worker can plant a link anywhere in its folders, and a path opened the
+//! ordinary way follows it to any file the maintainer can use. So kelpie
+//! reads and writes there only through here, which follows no link. On
+//! Windows every call returns [`Error::Unsupported`].
 //!
-//! - A read opens the file with `O_NOFOLLOW`, then asks the open file what it
-//!   is, and takes only a regular file the user owns, of a size [`MAX`] or
-//!   less. It opens without blocking, so a FIFO is refused, not waited on.
-//! - A write puts the text in a new file made with `O_EXCL` and `O_NOFOLLOW`
-//!   beside the file, then renames it over the file, which replaces a link
-//!   there and leaves what it pointed to alone.
-//! - A path with folders in it is walked one folder at a time from the root,
-//!   each opened with `O_NOFOLLOW` and `O_DIRECTORY`, and the file is opened
-//!   and renamed relative to the last one's descriptor. A folder swapped for a
-//!   link while kelpie works is then never followed either.
-//!
-//! The root is the one folder opened by its path as given: it is kelpie's own,
-//! and the worker cannot replace it.
-//!
-//! This holds on Unix. On Windows every call returns [`Error::Unsupported`].
+//! - A read opens with `O_NOFOLLOW` and takes a regular file of at most [`MAX`] bytes.
+//! - A write makes a new file with `O_EXCL` beside the file, then renames it over.
+//! - Each folder of a path is opened with `O_NOFOLLOW` and `O_DIRECTORY`.
 
 use std::fmt;
 use std::io;
@@ -35,10 +19,8 @@ mod unix;
 use unix as sys;
 
 // Windows has no `openat`, no `O_NOFOLLOW` and no descriptor-relative rename in
-// std, so there is no walk here that never follows a link, and a plain `std::fs`
-// one would follow the links this module exists to refuse. Every call is refused
-// until one is built.
-// Placeholder: the Windows port of the folder work is tracked by #241.
+// std, so a plain `std::fs` walk would follow the links this module refuses.
+// Every call is refused until one is built. Placeholder: the port is #241.
 #[cfg(not(unix))]
 mod sys {
     use super::{Error, Path};

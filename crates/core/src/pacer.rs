@@ -7,8 +7,7 @@
 //! no turn starts until the window resets. A turn already running is never
 //! interrupted, since the pacer is asked only between turns.
 //!
-//! Days are 24 hours counted from the weekly reset, so the days until reset
-//! are always whole and the allowance is 100 / 7 on a fresh week.
+//! Days are 24 hours from the weekly reset, so the allowance is 100 / 7 on a fresh week.
 
 use serde::{Deserialize, Serialize};
 

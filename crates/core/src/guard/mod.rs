@@ -1,35 +1,13 @@
 //! `kelpie guard`: the PreToolUse hook on every worker's Bash and Agent calls
 //!
-//! Kelpie adds it to every worker, before any hook a project names. It
-//! refuses two things a worker's commit or pull request would carry out:
-//! whatever [`LocalPaths`] finds of this machine's (the home folder's path,
-//! which every worktree sits under, and the rest the shared check knows),
-//! and a pull request title that is not a conventional commit. It also
-//! refuses what only the project manager does: a merge, marking ready, a
-//! summons, and a push to the base branch. It reads the command's own text,
-//! the shell scripts it runs and, for a commit or a push in the worker's
-//! worktree, the lines it adds or sends. It never echoes what it matched. It
-//! reads git and gh wherever the call's text runs them: behind a wrapper, in
-//! a shell's `-c`, `<<<`, heredoc or script file, or in text git runs as a
-//! command. It refuses a shell reading a pipe, and a program named by a
-//! variable. It does not read `python -c` or a file a config names.
-//!
-//! The hook runs outside the sandbox, so it runs git the way kelpie's own
-//! worktree steps do, with the worktree's git dirs named and checked. A
-//! repo the worker made could name any program in its own config.
-//!
-//! The project's `command` hooks judge each command it lets through, whole;
-//! `--after` makes it the PostToolUse hook for `after_command` instead.
-//!
-//! A goose worker's guard, [`judge_goose`], reads goose's own payload: its shell
-//! goes through the command guard, its file tools through `kelpie confine`. A goose
-//! reviewer's, advisor's and retro's, [`judge_goose_reading`], is the read-only
-//! guard behind goose's payload, with a `write` held to one folder for a reviewer
-//! asked for tests, [`judge_goose_writing`].
-//!
-//! The issue writer's guard is the other way round: [`judge_issues`] runs
-//! only the commands it lists. So does a Codex reviewer's, advisor's and
-//! retro's, [`judge_reading`], which lists only commands that read.
+//! Kelpie adds it before any hook a project names. It refuses whatever
+//! [`LocalPaths`] finds of this machine's, a pull request title that is not a
+//! conventional commit, and what only the project manager does: a merge,
+//! marking ready, a summons, a push to the base branch. It reads git and gh
+//! wherever the call's text runs them, never echoes what it matched, and runs
+//! outside the sandbox with the worktree's git dirs named and checked. The
+//! project's `command` hooks judge what it lets through, whole; `--after`
+//! makes it the PostToolUse hook.
 
 mod after;
 mod gh;
@@ -174,17 +152,12 @@ pub fn here(input: &[u8], folder: &Path) -> Result<Vec<u8>, String> {
     serde_json::to_vec(&call).map_err(unreadable)
 }
 
-/// Codex's hook answer that lets the command in `input` run where Codex
-/// runs it, once that folder has been judged
+/// Codex's hook answer that lets the command in `input` run where Codex runs it
 ///
 /// The command runs as it is in the folder the hook judged it in. In
 /// another folder of `worktree`, the model's `workdir`, it runs once
 /// `again`, `kelpie guard` with [`HERE_FLAG`], allows it there too.
 /// Anywhere else it is refused with what to do instead.
-///
-/// # Errors
-///
-/// What to tell the worker, when `input` names no folder or command.
 pub fn pinned(input: &[u8], worktree: &Path, again: &[String]) -> Result<String, String> {
     #[derive(Deserialize)]
     struct Call {
