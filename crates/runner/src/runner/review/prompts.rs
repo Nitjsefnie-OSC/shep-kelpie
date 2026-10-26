@@ -120,7 +120,7 @@ mod tests {
     }
 
     fn defect_hunter() -> String {
-        let agents = Agents::embedded_with_baselines();
+        let agents = Agents::embedded();
         let name = AgentName::kelpies(DEFECT_HUNTER);
         let agent = agents.get(&name).expect("kelpie ships defect-hunter");
         agent.prompt.clone().expect("its body is its prompt")

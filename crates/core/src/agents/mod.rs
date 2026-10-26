@@ -286,6 +286,7 @@ pub struct Agents {
     agents: BTreeMap<AgentName, Agent>,
     skipped: Vec<PathBuf>,
     unbound: Vec<Unbound>,
+    bare: Vec<Baseline>,
 }
 
 // Names each agent with its role, harness and model, and gives a prompt's
@@ -327,38 +328,51 @@ impl fmt::Debug for Agents {
             )
             .field("skipped", &self.skipped)
             .field("unbound", &self.unbound)
+            .field(
+                "bare",
+                &self.bare.iter().map(|b| b.name).collect::<Vec<_>>(),
+            )
             .finish()
     }
 }
 
 impl Agents {
-    /// Kelpie's own whole agents, with no file read
+    /// Kelpie's own agents, with no file read
     ///
-    /// The baselines are not here: each is bound by a file.
+    /// A baseline that still carries its binding keys is an agent here, so it
+    /// runs with no file. One that binds nothing is not, and is refused until
+    /// a file binds it.
     pub fn embedded() -> Self {
-        // A test pins that every default parses, so none is dropped here.
-        let parsed = DEFAULTS.iter().filter_map(|(name, text, _)| {
-            let name = AgentName::try_from((*name).to_owned()).ok()?;
-            Some((name, front::parse(text).ok()?))
-        });
-        Self {
-            agents: parsed.collect(),
-            skipped: Vec::new(),
-            unbound: Vec::new(),
-        }
+        Self::embedded_over(&baseline::ALL)
     }
 
-    /// Kelpie's own whole agents and each baseline as it ships, bound or not
-    /// as its file says, for a test that wants every shipped agent
-    #[cfg(any(test, feature = "test-support"))]
-    pub fn embedded_with_baselines() -> Self {
-        let mut agents = Self::embedded();
-        let parsed = baseline::ALL.iter().filter_map(|b| {
-            let name = AgentName::try_from(b.name.to_owned()).ok()?;
-            Some((name, front::parse(b.text).ok()?))
-        });
-        agents.agents.extend(parsed);
-        agents
+    // `embedded` over `baselines`.
+    fn embedded_over(baselines: &[Baseline]) -> Self {
+        // A test pins that every default parses, so none is dropped here.
+        let whole = DEFAULTS.iter().map(|(name, text, _)| (*name, *text));
+        let own = baselines.iter().map(|b| (b.name, b.text));
+        let mut agents = BTreeMap::new();
+        let mut bare = Vec::new();
+        for (name, text) in whole.chain(own) {
+            let Ok(name) = AgentName::try_from(name.to_owned()) else {
+                continue;
+            };
+            match front::parse(text) {
+                Ok(agent) => {
+                    agents.insert(name, agent);
+                }
+                Err(_) => bare.extend(
+                    (baselines.iter().find(|b| b.name == name.as_str()))
+                        .filter(|b| front::unbound_role(b.text).is_some()),
+                ),
+            }
+        }
+        Self {
+            agents,
+            skipped: Vec::new(),
+            unbound: Vec::new(),
+            bare,
+        }
     }
 
     /// Kelpie's own agents, then each `<name>.md` in `folder` over them
@@ -375,10 +389,21 @@ impl Agents {
         Self::load_with(folder, &baseline::ALL)
     }
 
+    /// `load` over `baselines` in place of kelpie's own, for a test of a
+    /// baseline that binds nothing
+    ///
+    /// # Errors
+    ///
+    /// As [`Agents::load`].
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn load_over(folder: &Path, baselines: &[Baseline]) -> Result<Self, AgentsError> {
+        Self::load_with(folder, baselines)
+    }
+
     // `load` over `baselines`, which `extends: kelpie:<name>` reaches beside
     // the whole agents.
     fn load_with(folder: &Path, baselines: &[Baseline]) -> Result<Self, AgentsError> {
-        let mut agents = Self::embedded();
+        let mut agents = Self::embedded_over(baselines);
         let entries = match fs::read_dir(folder) {
             Ok(entries) => entries,
             Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(agents),
@@ -464,8 +489,14 @@ impl Agents {
         &self.unbound
     }
 
+    /// Each baseline that binds nothing, by name: not in the book, so only a
+    /// file that binds it makes it an agent
+    pub fn bare_baselines(&self) -> &[Baseline] {
+        &self.bare
+    }
+
     /// The command that binds `name`, if it names a file that binds nothing,
-    /// or a baseline no file stands for
+    /// or a baseline that binds nothing and has no file
     pub fn unbound_command(&self, name: &AgentName) -> Option<String> {
         if self.agents.contains_key(name) {
             return None;
@@ -473,7 +504,7 @@ impl Agents {
         if let Some(unbound) = self.unbound.iter().find(|u| &u.name == name) {
             return Some(unbound.command());
         }
-        let shipped = baseline::named(name.as_str())?;
+        let shipped = self.bare.iter().find(|b| b.name == name.as_str())?;
         Some(baseline::new_command(
             shipped.role()?,
             Some(shipped.name),
@@ -532,22 +563,6 @@ pub fn write_defaults(folder: &Path, home: &Path) -> Result<Vec<&'static str>, A
     }
     write_baselines(folder)?;
     Ok(written)
-}
-
-/// Writes a stub for each baseline `folder` lacks, never over a file, so a test's
-/// folder binds the baselines as an install from before they were split does
-///
-/// # Panics
-///
-/// When `folder` cannot be written.
-#[cfg(any(test, feature = "test-support"))]
-#[track_caller]
-pub fn write_baseline_stubs(folder: &Path) {
-    fs::create_dir_all(folder).unwrap();
-    for shipped in baseline::ALL {
-        let stub = format!("---\nextends: {}{}\n---\n", extends::SHIPPED, shipped.name);
-        write_new(&folder.join(format!("{}.md", shipped.name)), &stub).unwrap();
-    }
 }
 
 /// Writes each of kelpie's own agents and baselines, whole and read-only, to

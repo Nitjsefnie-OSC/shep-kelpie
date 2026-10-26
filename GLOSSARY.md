@@ -110,7 +110,7 @@ none of the binding keys. `extends: kelpie:<name>` reaches it. A role may
 have several (`reviewer` has `defect-hunter`, `standards`, `spec` and
 `security-reviewer`), and `implementer` has none. A file that extends one and
 binds nothing is unbound: the book leaves it out and `shep kelpie agents new`
-binds it.
+binds it. While a baseline keeps its binding keys it runs with no file.
 _Avoid_: default, template
 
 **Binding**:

@@ -170,12 +170,23 @@ fn a_gateway_and_a_url_together_are_refused_and_a_missing_flag_is_named() {
 }
 
 #[test]
-fn list_shows_bound_agents_unbound_files_and_baselines_with_no_file() {
+fn list_shows_bound_agents_unbound_files_and_baselines_that_bind_nothing_with_no_file() {
     let dir = tempfile::tempdir().unwrap();
     agents(dir.path(), PM_ON_CLAUDE).unwrap();
     std::fs::write(dir.path().join("scribe.md"), UNBOUND_PM).unwrap();
+    let baselines = [
+        *baseline::named("pm").unwrap(),
+        Baseline {
+            name: "triager",
+            text: "---\nrole: triager\n---\nYou triage.\n",
+        },
+        Baseline {
+            name: "spec",
+            text: "---\nrole: reviewer\n---\nYou check the spec.\n",
+        },
+    ];
 
-    let lines = agents(dir.path(), "list").unwrap();
+    let lines = lines(&Agents::load_over(dir.path(), &baselines).unwrap());
 
     let has = |line: &str| assert!(lines.iter().any(|l| l == line), "{line} in {lines:#?}");
     has("pm: pm, claude-code, claude-opus-5-5, high");
@@ -183,14 +194,18 @@ fn list_shows_bound_agents_unbound_files_and_baselines_with_no_file() {
     has("scribe: pm, unbound: run `shep kelpie agents new pm --name scribe`");
     has("triager: baseline, no file: run `shep kelpie agents new triager`");
     has("spec: baseline, no file: run `shep kelpie agents new reviewer --baseline spec`");
-    assert!(
-        lines.iter().all(|l| !l.starts_with("pm: baseline")),
-        "pm has a file: {lines:#?}"
-    );
     let bound = lines.iter().position(|l| l.starts_with("pm: pm")).unwrap();
     let unbound = lines.iter().position(|l| l.starts_with("scribe:")).unwrap();
     let baseline = lines.iter().position(|l| l.starts_with("spec:")).unwrap();
     assert!(bound < unbound && unbound < baseline, "{lines:#?}");
+}
+
+#[test]
+fn list_shows_a_baseline_that_keeps_its_binding_as_an_agent_and_none_as_missing() {
+    let dir = tempfile::tempdir().unwrap();
+    let lines = agents(dir.path(), "list").unwrap();
+    assert!(lines.iter().any(|l| l.starts_with("triager: triager, ")));
+    assert!(lines.iter().all(|l| !l.contains("no file")), "{lines:#?}");
 }
 
 #[test]

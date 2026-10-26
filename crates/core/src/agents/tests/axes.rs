@@ -8,7 +8,7 @@ const SKILL: &str = include_str!("../../../../../skills/skills/engineering/code-
 
 #[test]
 fn a_standards_reviewer_and_a_spec_reviewer_are_among_the_defaults() {
-    let agents = Agents::embedded_with_baselines();
+    let agents = Agents::embedded();
     for axis in ["standards", "spec"] {
         let reviewer = agents.get(&name(axis)).unwrap();
         assert_eq!(reviewer.role, Role::Reviewer, "{axis}");
@@ -46,7 +46,7 @@ fn the_standards_prompt_carries_every_smell_the_skill_names() {
         smells.len() >= 12,
         "SKILL.md's smell list moved or changed shape, so this test cannot find it: {smells:?}"
     );
-    let agents = Agents::embedded_with_baselines();
+    let agents = Agents::embedded();
     let prompt = agents.get(&name("standards")).unwrap().prompt.clone();
     let prompt = prompt.unwrap();
     for smell in smells {

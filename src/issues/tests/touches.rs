@@ -97,7 +97,7 @@ fn a_parent_with_sub_issues_is_not_noted() {
 
 #[test]
 fn the_issue_writers_prompt_names_the_same_split_as_the_note() {
-    let agents = Agents::embedded_with_baselines();
+    let agents = Agents::embedded();
     let writer = agents
         .get(&AgentName::try_from(ISSUE_WRITER.to_owned()).unwrap())
         .unwrap();

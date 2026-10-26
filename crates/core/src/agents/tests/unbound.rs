@@ -77,9 +77,13 @@ fn extends_resolves_in_the_whole_agents_and_in_the_baselines() {
 }
 
 #[test]
-fn the_issue_writer_names_the_command_for_an_unbound_agent_and_for_a_baseline_with_no_file() {
+fn the_issue_writer_names_the_command_for_an_unbound_agent_and_for_a_bare_baseline_with_no_file() {
+    let bare = Baseline {
+        name: "issue-writer",
+        text: "---\nrole: issue-writer\n---\nYou write.\n",
+    };
     let dir = folder(&[("scribe.md", "---\nrole: issue-writer\n---\nYou write.\n")]);
-    let agents = Agents::load(dir.path()).unwrap();
+    let agents = Agents::load_over(dir.path(), &[bare]).unwrap();
     let err = Writer::of(&agents, &name("scribe")).unwrap_err();
     assert_eq!(
         err,
@@ -90,4 +94,34 @@ fn the_issue_writer_names_the_command_for_an_unbound_agent_and_for_a_baseline_wi
         err,
         "`issue-writer` is unbound: run `shep kelpie agents new issue-writer`"
     );
+}
+
+#[test]
+fn a_baseline_that_keeps_its_binding_resolves_with_no_file() {
+    let agents = Agents::load(folder(&[]).path()).unwrap();
+    for shipped in baseline::ALL {
+        assert!(
+            agents.get(&name(shipped.name)).is_some(),
+            "{}",
+            shipped.name
+        );
+        assert_eq!(agents.unbound_command(&name(shipped.name)), None);
+    }
+    assert!(agents.bare_baselines().is_empty());
+    Writer::of(&agents, &name("issue-writer")).unwrap();
+}
+
+#[test]
+fn a_file_over_a_bare_baseline_binds_it_and_leaves_the_baseline_listed_only_while_unbound() {
+    let bare = Baseline {
+        name: "scribe",
+        text: "---\nrole: pm\n---\nYou keep the notes.\n",
+    };
+    let loose = Agents::load_over(folder(&[]).path(), &[bare]).unwrap();
+    assert_eq!(loose.bare_baselines(), [bare]);
+    let bound = "---\nextends: kelpie:scribe\nharness: claude-code\nmodel: m\neffort: low\n---\n";
+    let dir = folder(&[("scribe.md", bound)]);
+    let agents = Agents::load_over(dir.path(), &[bare]).unwrap();
+    assert!(agents.get(&name("scribe")).is_some());
+    assert_eq!(agents.unbound_command(&name("scribe")), None);
 }

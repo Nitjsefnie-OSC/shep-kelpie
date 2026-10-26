@@ -4,7 +4,8 @@
 //! and a body. A binding, the `harness`, `model` and `effort` and the keys
 //! around them, says what runs it. A file reaches a baseline with `extends:
 //! kelpie:<name>`, and one whose merged keys bind nothing is unbound: the book
-//! leaves it out and names it, and `shep kelpie agents new` binds it.
+//! leaves it out and names it, and `shep kelpie agents new` binds it. A baseline
+//! that still carries its binding keys runs with no file.
 
 use std::path::{Path, PathBuf};
 

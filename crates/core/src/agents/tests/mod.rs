@@ -68,7 +68,7 @@ fn kelpies_own_agents_are_sonnet_and_opus_at_high_on_claude_code() {
     }
     assert_eq!(
         Agents::embedded().agents.len(),
-        DEFAULTS.len(),
+        DEFAULTS.len() + baseline::ALL.len(),
         "a default that failed to parse would be dropped"
     );
 }
@@ -276,7 +276,7 @@ fn a_harness_missing_a_key_it_needs_is_refused_naming_the_key() {
 
 #[test]
 fn the_embedded_security_reviewer_file_parses_as_a_reviewer() {
-    let agents = Agents::embedded_with_baselines();
+    let agents = Agents::embedded();
     let reviewer = agents.get(&name("security-reviewer")).unwrap();
     assert_eq!(reviewer.role, Role::Reviewer);
     assert_eq!(model(reviewer).harness, AgentHarness::ClaudeCode);
@@ -292,7 +292,7 @@ fn the_embedded_security_reviewer_file_parses_as_a_reviewer() {
 
 #[test]
 fn the_embedded_default_reviewers_are_a_lite_hunter_and_a_local_endpoint_on_paddock() {
-    let agents = Agents::embedded_with_baselines();
+    let agents = Agents::embedded();
     let lite = agents.get(&name("defect-hunter-lite")).unwrap();
     assert_eq!(lite.role, Role::Reviewer);
     assert_eq!(model(lite).harness, AgentHarness::ClaudeCode);
@@ -356,7 +356,7 @@ fn a_default_is_written_as_a_stub_that_extends_the_shipped_agent() {
     );
     assert!(
         !agents.join("triager.md").exists(),
-        "a baseline binds nothing"
+        "a baseline gets no stub: it runs with no file"
     );
 }
 
@@ -365,7 +365,7 @@ fn defaults_are_also_written_whole_and_read_only_under_dot_defaults() {
     let dir = tempfile::tempdir().unwrap();
     let agents = dir.path().join("agents");
     write_defaults(&agents, &dir.path().join("home")).unwrap();
-    let shipped = Agents::embedded_with_baselines();
+    let shipped = Agents::embedded();
     let kept = agents.join(".defaults");
     for (agent, _) in shipped.iter() {
         let file = kept.join(format!("{agent}.md"));
@@ -448,7 +448,7 @@ fn refreshes_at_the_same_time_each_leave_every_baseline_whole() {
             refresh.join().unwrap().unwrap();
         }
     });
-    let shipped = Agents::embedded_with_baselines();
+    let shipped = Agents::embedded();
     for (agent, _) in shipped.iter() {
         let text = fs::read_to_string(agents.join(".defaults").join(format!("{agent}.md")));
         assert!(text.unwrap().starts_with("---\n# Kelpie writes this file"));
@@ -462,7 +462,7 @@ const COMMAND: &str = "---\nrole: reviewer\nharness: command\ncommand: ~/bin/rev
 
 #[test]
 fn kelpies_own_reviewers_are_defect_hunter_and_qwen() {
-    let agents = Agents::embedded_with_baselines();
+    let agents = Agents::embedded();
     let hunter = agents.get(&name("defect-hunter")).unwrap();
     assert_eq!(hunter.role, Role::Reviewer);
     assert_eq!(pair(hunter), ("claude-opus-5-5", Effort::High));

@@ -9,7 +9,7 @@ const WRITER: &str = "---\nrole: issue-writer\nharness: claude-code\nmodel: clau
 
 #[test]
 fn kelpies_issue_writer_is_opus_at_medium_with_its_rules_as_its_prompt() {
-    let agents = Agents::embedded_with_baselines();
+    let agents = Agents::embedded();
     let writer = agents.get(&name(ISSUE_WRITER)).unwrap();
     assert_eq!(writer.role, Role::IssueWriter);
     assert_eq!(pair(writer), ("claude-opus-5-5", Effort::Medium));

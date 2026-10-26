@@ -335,6 +335,12 @@ fn is_unbound(folder: &Path, path: &PathBuf) -> Result<bool, String> {
 
 fn list(folder: &Path) -> Result<Vec<String>, String> {
     let book = Agents::load(folder).map_err(|e| e.to_string())?;
+    Ok(lines(&book))
+}
+
+// A line for each agent, each unbound file, then each baseline that binds
+// nothing and has no file.
+fn lines(book: &Agents) -> Vec<String> {
     let mut lines = Vec::new();
     for (name, agent) in book.iter() {
         let role = agent.role.as_str();
@@ -358,18 +364,19 @@ fn list(folder: &Path) -> Result<Vec<String>, String> {
             unbound.command()
         ));
     }
-    for baseline in baseline::ALL {
+    for baseline in book.bare_baselines() {
         let Some(role) = baseline.role() else {
             continue;
         };
-        let file = AgentName::try_from(baseline.name.to_owned()).map_err(|e| e.to_string())?;
-        if book.get(&file).is_none() && book.unbound().iter().all(|u| u.name != file) {
-            let command = baseline::new_command(role, Some(baseline.name), baseline.name);
-            lines.push(format!(
-                "{}: baseline, no file: run `{command}`",
-                baseline.name
-            ));
+        let has_file = |u: &baseline::Unbound| u.name.as_str() == baseline.name;
+        if book.unbound().iter().any(has_file) {
+            continue;
         }
+        let command = baseline::new_command(role, Some(baseline.name), baseline.name);
+        lines.push(format!(
+            "{}: baseline, no file: run `{command}`",
+            baseline.name
+        ));
     }
-    Ok(lines)
+    lines
 }
