@@ -80,6 +80,7 @@ fn a_new_project_has_nothing_in_flight() {
         json!({
             "project": "koji",
             "merging": "ask",
+            "board_poll_secs": 60,
             "work_item": null,
             "work_items": [],
             "active_items": 1,

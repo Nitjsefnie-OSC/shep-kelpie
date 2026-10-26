@@ -70,7 +70,7 @@ fn one(number: u64, author: &str, head: &str) -> Vec<(u64, String, String)> {
 // A step with nothing for the board to do, after the next poll is due, but for
 // the alert of a ruling about the pull request
 pub(in crate::runner) fn poll(rig: &Rig, runner: &Mutex<Runner>) {
-    rig.next_look();
+    rig.next_poll(runner);
     let report = step(runner).unwrap();
     assert!(
         report.is_none() || matches!(report, Some(StepReport::Alerted { id }) if id == ticket(30)),
@@ -82,7 +82,7 @@ pub(in crate::runner) fn poll(rig: &Rig, runner: &Mutex<Runner>) {
 // adopted: every report it takes besides the ruling's names the pull request
 // that was handed over
 pub(in crate::runner) fn poll_or_adopt(rig: &Rig, runner: &Mutex<Runner>) {
-    rig.next_look();
+    rig.next_poll(runner);
     let report = step(runner).unwrap();
     let taken_over = (serde_json::to_value(&report).unwrap().get("pull_request"))
         .and_then(Value::as_u64)

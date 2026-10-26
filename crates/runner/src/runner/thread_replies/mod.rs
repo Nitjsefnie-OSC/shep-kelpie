@@ -2,7 +2,7 @@
 //!
 //! A ruling posted through kelpie's App that mentions someone says to reply
 //! in its thread, the pull request or the issue it is about. Each
-//! [`BOARD_POLL`] the runner asks the forge once for the repo's comments
+//! board poll the runner asks the forge once for the repo's comments
 //! since the last it read, and reads the new ones on the threads of the
 //! rulings that wait. A reply counts when its author is the login the ruling
 //! mentions and has write access to the repo: anyone else's, any bot's and
@@ -44,7 +44,6 @@ use std::sync::{Arc, Mutex};
 
 use self::settled::Ended;
 pub(super) use self::settled::{Outcome, Settler};
-use super::looks::BOARD_POLL;
 use super::trigger::lock;
 use super::words::{Wants, read_answer};
 use super::{Answer, RuleError, Runner, voice};
@@ -236,7 +235,7 @@ impl ThreadJob {
 }
 
 impl Runner {
-    // Decides whether the threads are read now: at most once a [`BOARD_POLL`],
+    // Decides whether the threads are read now: at most once a board poll,
     // where kelpie's App covers the repo and a ruling waits in its thread or a
     // contribution is followed. One read of the repo's comments serves both.
     // Returns the time and what the read needs.
@@ -250,7 +249,7 @@ impl Runner {
         if self.threads.watching.is_empty() && followed.is_empty() && waits.is_empty() {
             return None;
         }
-        let poll = BOARD_POLL.as_secs();
+        let poll = self.looks.poll().as_secs();
         if (self.threads.read).is_some_and(|at| now.0 < at.0.saturating_add(poll)) {
             return None;
         }

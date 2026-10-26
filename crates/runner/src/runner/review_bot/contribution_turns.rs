@@ -33,7 +33,7 @@ fn coderabbit() -> LeaseKind {
 
 // Steps one poll on, and lets a call it began end
 fn poll(rig: &Rig, runner: &Mutex<Runner>) {
-    rig.next_look();
+    rig.next_poll(runner);
     step(runner).unwrap();
     crate::runner::contributions::budget_tests::settle(runner);
 }

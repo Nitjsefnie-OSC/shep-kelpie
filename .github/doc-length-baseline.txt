@@ -198,7 +198,7 @@ crates/runner/src/runner/gate/mod.rs	5	// The failure becomes the worker's next 
 crates/runner/src/runner/gate/queued/mod.rs	15	//! A check stuck at queued or in progress on a finished run
 crates/runner/src/runner/gate/queued/mod.rs	7,7	/// What the step does about `queued`, the checks still queued on `head`
 crates/runner/src/runner/gate/rerun/mod.rs	12	//! A red run whose log names no file the branch changed is rerun once
-crates/runner/src/runner/looks/mod.rs	13	//! How often a pass reads the forge
+crates/runner/src/runner/looks/mod.rs	12	//! How often a pass reads the forge
 crates/runner/src/runner/main_ci/mod.rs	6	// What to do about the workflows this read found red, and the notices it
 crates/runner/src/runner/main_ci/mod.rs	6	// `red` after `runs`, the latest completed run of each workflow and event: a
 crates/runner/src/runner/merge/mod.rs	7,11	/// Ends a work item without merging it, the one `ticket` names or the
