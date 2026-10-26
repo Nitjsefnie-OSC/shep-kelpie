@@ -30,7 +30,7 @@ Kelpie: the maintainer's dog; one runner per project builds ready issues. Mainta
 | runner-lock-passes.md | queued verbs, board, threads | `runner/{queued,board_read,trigger}` |
 | runner-lock-worktrees.md | worktree jobs | `runner/worktree_jobs.rs` |
 | fence.md | sandbox, guard, hooks | `core/{profile,guard,hooks}/` |
-| fence-reads.md | reads, sources | `core/dep_sources.rs`, `adapters/harness/`, `runner/turn/` |
+| fence-reads.md | reads | `core/dep_sources.rs`, `adapters/harness/`, `runner/turn/` |
 | fence-reach.md | hosts | `core/package_managers/` |
 | browser.md | a worker's browser: bridge, filter, tools | `core/{bridge,browse}.rs`, `adapters/bridge/`, `runner/browser.rs`, `core/settings/browser.rs`, `process/tools/` |
 | browser-proxy.md | the browser's proxy: origins, addresses, limits | `adapters/bridge/proxy/`, `adapters/forwarder/http.rs` |
