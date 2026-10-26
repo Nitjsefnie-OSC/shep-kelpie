@@ -21,6 +21,7 @@ mod adopt;
 mod cache;
 mod catch_up;
 mod changed;
+mod common;
 mod contribution;
 mod push;
 mod ref_folders;
@@ -684,11 +685,7 @@ const TRUSTED_CONFIG: [(&str, &str); 2] = [
 // `commondir` is checked to name the repo's.
 fn git_dirs(repo: &Path, worktree: &Path) -> Result<(PathBuf, PathBuf), WorktreeError> {
     let foreign = || WorktreeError::Foreign(worktree.to_owned());
-    let common = git(
-        repo,
-        ["rev-parse", "--path-format=absolute", "--git-common-dir"],
-    )?;
-    let common = canonical(Path::new(&common));
+    let common = common_dir(repo)?;
     let own = own_git_dir(&common, worktree).ok_or_else(foreign)?;
     let named = std::fs::read_to_string(own.join("commondir")).map_err(|_| foreign())?;
     if canonical(&own.join(named.trim())) != common {
@@ -751,11 +748,7 @@ fn own_git_dir(common: &Path, worktree: &Path) -> Option<PathBuf> {
 }
 
 fn common_dir(repo: &Path) -> Result<PathBuf, WorktreeError> {
-    let common = git(
-        repo,
-        ["rev-parse", "--path-format=absolute", "--git-common-dir"],
-    )?;
-    Ok(canonical(Path::new(&common)))
+    common::of(repo)
 }
 
 fn canonical(path: &Path) -> PathBuf {
