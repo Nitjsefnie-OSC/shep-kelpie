@@ -19,6 +19,8 @@
 //! can be named. Sessions are read newest first and cut to a total, so one
 //! ruling never copies a maintainer's whole history.
 
+mod locate;
+
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
@@ -26,6 +28,7 @@ use serde_json::Value;
 
 pub use crate::watch::Format;
 use crate::watch::{Said, SaidKind, said_in};
+pub use locate::{codex_rollout, find, written};
 
 /// How deep under a folder the maintainer names a session file may lie: Codex's
 /// year, month and day

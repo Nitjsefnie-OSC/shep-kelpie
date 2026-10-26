@@ -9,15 +9,13 @@
 
 use std::ffi::OsString;
 use std::num::NonZeroU32;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use serde::Deserialize;
 
 use super::{AgentCall, AgentError, AgentReply, CODEX, Files, Spent, Thread};
 use crate::ports::Usage;
-
-/// How deep under its `sessions` folder Codex keeps a rollout: year, month, day
-const DEPTH: usize = 3;
+use crate::transcripts;
 
 /// The input tokens of the last model request in the rollout of Codex session
 /// `thread`, cached ones included, or `None` when the call left no rollout or
@@ -68,7 +66,7 @@ fn spent(total: Tokens) -> Spent {
 }
 
 fn rollout_text(home: &Path, thread: &str) -> Option<String> {
-    let rollout = rollout_of(&home.join("sessions"), thread, DEPTH)?;
+    let rollout = transcripts::codex_rollout(&home.join("sessions"), thread)?;
     std::fs::read_to_string(rollout).ok()
 }
 
@@ -84,22 +82,6 @@ fn last_record(text: &str) -> Option<Tokens> {
         .rev()
         .filter(|line| line.contains("token_usage_record"))
         .find_map(record)
-}
-
-// The rollout is named for its thread: `rollout-<time>-<thread>.jsonl`.
-fn rollout_of(dir: &Path, thread: &str, depth: usize) -> Option<PathBuf> {
-    let suffix = format!("-{thread}.jsonl");
-    std::fs::read_dir(dir)
-        .ok()?
-        .filter_map(Result::ok)
-        .map(|entry| entry.path())
-        .find_map(|path| {
-            if path.is_dir() {
-                return rollout_of(&path, thread, depth.checked_sub(1)?);
-            }
-            let name = path.file_name()?.to_str()?;
-            (name.starts_with("rollout-") && name.ends_with(&suffix)).then_some(path)
-        })
 }
 
 // A `token_count` event's tokens, if the line is one and has usage: Codex

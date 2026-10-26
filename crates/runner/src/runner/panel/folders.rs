@@ -245,8 +245,8 @@ impl Runner {
         let at =
             jiff::Timestamp::from_second(i64::try_from(self.ports.clock.now().0).ok()?).ok()?;
         let session = call.session.id().0.as_str();
-        let file =
-            crate::watch::session_file(format, session, transcript.folder, transcript.threads, at)?;
+        let threads = transcript.threads.as_deref();
+        let file = transcripts::find(format, session, &transcript.folder, threads, at)?;
         let text = std::fs::read_to_string(file).ok()?;
         Some(transcripts::render(
             format,
