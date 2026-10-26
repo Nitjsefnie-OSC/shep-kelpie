@@ -28,6 +28,7 @@ mod pick;
 mod question;
 mod quiet;
 mod red;
+mod until;
 mod wake_prompt;
 
 const NOTHING: &str = "{\"pick\": null}";
