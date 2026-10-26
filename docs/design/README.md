@@ -30,13 +30,13 @@ Kelpie: dog of the maintainer's shepherd; one runner per project takes ready iss
 | runner-lock-worktrees.md | worktree jobs | `runner/worktree_jobs.rs` |
 | runner-lock-threads.md | handler threads | `runner/trigger/` |
 | fence.md | sandbox, guard, hooks | `core/{profile,guard,hooks}/` |
-| fence-reads.md | reads, sources | `core/dep_sources.rs`, `adapters/harness/`, `runner/turn/dep_reads.rs` |
+| fence-reads.md | reads, sources | `core/dep_sources.rs`, `adapters/harness/`, `runner/turn/` |
 | fence-reach.md | hosts | `core/package_managers/` |
-| browser.md | a worker's browser: bridge, filter, tools | `core/{bridge,browse}.rs`, `adapters/bridge/`, `runner/browser.rs`, `core/settings/browser.rs`, `process/tools/` |
+| browser.md | a worker's browser: bridge, filter, tools | `core/{bridge,browse,settings/browser}.rs`, `adapters/bridge/`, `runner/browser.rs`, `process/tools/` |
 | browser-proxy.md | the browser's proxy: origins, addresses, limits | `adapters/bridge/proxy/`, `adapters/forwarder/http.rs` |
 | browser-dev-server.md | a worker's dev server: launch, port, readiness | `runner/dev_server/`, `core/ports/dev_server.rs`, `adapters/dev_server/` |
 | compaction.md | when a session compacts, `compact_window`, `COMPACT` | `runner/compact/`, `adapters/{pi/compact,goose/compact,codex/context}.rs` |
-| skills.md | step skills, the skill copy, the wording skill | `core/skills/{mod,vendored,wording}.rs` |
+| skills.md | step skills, the skill copy, the wording skill | `core/skills/*.rs` |
 | plugins.md | repo plugins: sources, the copy of each, harness loading, their MCP | `core/skills/repo/`, `adapters/{skills,claude/mcp,pi/skills,codex/skills,goose/skills}.rs` |
 | agent-files.md | agent file, `extends`, baselines | `core/agents/`, `src/flock/add/` |
 | agents.md | harnesses, gateways | `adapters/`, `core/settings/agents/`, `process/spawn.rs` |
