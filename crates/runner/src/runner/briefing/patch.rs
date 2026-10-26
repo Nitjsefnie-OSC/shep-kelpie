@@ -43,11 +43,7 @@ pub(in crate::runner) fn merged(
 ) -> Result<Vec<u8>, String> {
     let main = format!("refs/remotes/origin/{base}");
     let head = format!("refs/heads/{branch}");
-    let resolve = |rev: &str| {
-        let found = git_line(repo, &["rev-parse", "--verify", "--quiet", rev]);
-        found.ok_or_else(|| format!("{rev} is not in the checkout"))
-    };
-    let (main, head) = (resolve(&main)?, resolve(&head)?);
+    let (main, head) = resolve(repo, [&main, &head])?;
     let in_main = ["merge-base", "--is-ancestor", &head, &main];
     if !git_succeeds(repo, &in_main) {
         return read(repo, &main, &head, None, worktree);
@@ -75,6 +71,28 @@ pub(in crate::runner) fn merged(
         ));
     };
     cut(repo, &[format!("{merge}^1"), merge], None, worktree)
+}
+
+// The commit each of `refs` names, from one git call, or why one is missing.
+// `rev-parse --verify` takes a single revision, so `for-each-ref` lists both.
+fn resolve(repo: &Path, refs: [&str; 2]) -> Result<(String, String), String> {
+    let listing = git_line(
+        repo,
+        &[
+            "for-each-ref",
+            "--format=%(objectname) %(refname)",
+            refs[0],
+            refs[1],
+        ],
+    )
+    .unwrap_or_default();
+    let named = |name: &str| {
+        let mut listed = listing.lines().filter_map(|line| line.split_once(' '));
+        let id = listed.find_map(|(id, listed)| (listed == name).then_some(id));
+        id.map(str::to_owned)
+            .ok_or_else(|| format!("{name} is not in the checkout"))
+    };
+    Ok((named(refs[0])?, named(refs[1])?))
 }
 
 // The first line git prints for `args`, if it succeeds and prints one
@@ -247,6 +265,29 @@ mod tests {
         for other in ["a.txt", "c.txt", "d.txt"] {
             assert!(!diff.contains(other), "{other} is in:\n{diff}");
         }
+    }
+
+    #[test]
+    fn a_missing_ref_is_named_in_the_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path();
+        git(repo, &["init", "--quiet", "--initial-branch=main"]);
+        write_in(repo, "a.txt", "base\n");
+        git(repo, &["add", "."]);
+        git(repo, &["commit", "--quiet", "-m", "base"]);
+        let work = Path::new("/work/7");
+
+        let neither = merged(repo, "feature", work, "main").unwrap_err();
+        assert_eq!(neither, "refs/remotes/origin/main is not in the checkout");
+
+        git(repo, &["update-ref", "refs/remotes/origin/main", "main"]);
+        let no_branch = merged(repo, "feature", work, "main").unwrap_err();
+        assert_eq!(no_branch, "refs/heads/feature is not in the checkout");
+
+        git(repo, &["update-ref", "-d", "refs/remotes/origin/main"]);
+        git(repo, &["branch", "feature"]);
+        let no_main = merged(repo, "feature", work, "main").unwrap_err();
+        assert_eq!(no_main, "refs/remotes/origin/main is not in the checkout");
     }
 
     #[test]
