@@ -707,6 +707,8 @@ mod pick_tests;
 #[cfg(test)]
 mod ready_tests;
 #[cfg(test)]
+mod repair_tests;
+#[cfg(test)]
 mod research_tests;
 #[cfg(test)]
 mod roles_tests;
