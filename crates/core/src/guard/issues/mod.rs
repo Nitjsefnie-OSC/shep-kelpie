@@ -32,6 +32,7 @@ use ledger::Ledger;
 
 mod gh;
 mod ledger;
+mod named;
 mod tickets;
 
 pub use ledger::{filed_in, record_issues};
@@ -214,6 +215,7 @@ pub fn judge_issues_with(
             rules,
             home: &home,
             ledger: &ledger,
+            checkout: &call.cwd,
         };
         if let Err(why) = judge(command, &gh)
             && !refusals.contains(&why)
