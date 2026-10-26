@@ -10,10 +10,10 @@
 #   - sandbox
 #   - msrv
 #   - conventional
+#   - doc-length
 # DELIBERATELY EXCLUDED (loud):
 #   - private-names: not in the keep list
 #   - windows: not in the keep list
-#   - file-size: not in the keep list
 
 name: OSC manual CI
 
@@ -31,6 +31,8 @@ permissions:
 concurrency:
   group: osc-manual-${{ github.repository }}-${{ inputs.target_ref }}
   cancel-in-progress: true
+env:
+  CARGO_TERM_COLOR: always
 jobs:
   lint:
     runs-on: ubuntu-latest
@@ -147,8 +149,6 @@ jobs:
   sandbox:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    env:
-      KELPIE_TOOLS: ${{ github.workspace }}/.kelpie-tools
     steps:
     - uses: actions/checkout@v7
       with:
@@ -165,15 +165,10 @@ jobs:
         fi
         printf 'checked-out SHA: %s\n' "$checked_out_sha"
     - run: rustup toolchain install stable --profile minimal
-    - name: Install what srt needs on Linux
-      run: sudo apt-get update && sudo apt-get install -y bubblewrap socat ripgrep
+    - name: Install what the sandbox needs on Linux
+      run: sudo apt-get update && sudo apt-get install -y bubblewrap ripgrep
     - name: Allow unprivileged user namespaces
       run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-    - name: Install the pinned srt
-      run: |
-        mkdir -p "$KELPIE_TOOLS"
-        cp crates/process/src/tools/package.json "$KELPIE_TOOLS/package.json"
-        (cd "$KELPIE_TOOLS" && npm install --no-audit --no-fund)
     - run: cargo test --locked --no-run
     - name: Run the sandbox tests
       run: |
@@ -263,3 +258,23 @@ jobs:
           exit 1
         fi
         echo "All $(git log --no-merges --oneline "$BASE..$HEAD" | wc -l | tr -d ' ') commit subject(s) are conventional."
+  doc-length:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+    - uses: actions/checkout@v7
+      with:
+        ref: ${{ inputs.target_ref }}
+    - name: Provenance
+      shell: bash
+      run: |
+        set -euo pipefail
+        echo "tested_target_ref=${{ inputs.target_ref }}"
+        checked_out_sha="$(git rev-parse HEAD)"
+        if [[ ! "$checked_out_sha" =~ ^[0-9a-f]{40}$ ]]; then
+          echo "::error::git rev-parse HEAD did not produce a 40-character commit SHA: $checked_out_sha"
+          exit 1
+        fi
+        printf 'checked-out SHA: %s\n' "$checked_out_sha"
+    - run: python3 -I scripts/test_doc_length.py
+    - run: python3 -I scripts/doc-length.py
