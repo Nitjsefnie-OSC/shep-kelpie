@@ -548,26 +548,58 @@ fn reads_reads_pis_session_files() {
     assert_eq!(group["docs"], 1);
 }
 
-#[test]
-fn a_codex_session_is_found_but_its_requests_are_not_read() {
+// A Codex 0.159.3 session that compacted: five requests, the fourth the compaction's own.
+fn codex_rig(session: &str) -> Rig {
     let rig = Rig::new();
-    rig.call(Some(7), "worker", "codex", "s-codex", 0);
+    rig.call(Some(1138), "worker", "codex", session, 0);
     let folder = rig.home.path().join(".codex/sessions");
-    std::fs::create_dir_all(folder.join("2026/10/03")).unwrap();
+    std::fs::create_dir_all(folder.join("2026/10/21")).unwrap();
+    let recorded = include_str!("../../../fixtures/codex-rollout-compacted.jsonl");
     std::fs::write(
-        folder.join("2026/10/03/rollout-2026-10-03T04-00-00-abc.jsonl"),
-        "{}\n",
+        folder.join("2026/10/21/rollout-2026-10-21T15-40-45-01a0f7fd.jsonl"),
+        recorded,
     )
     .unwrap();
-    rig.started("codex", "s-codex", &folder);
+    rig.started("codex", session, &folder);
+    rig
+}
+
+#[test]
+fn a_recorded_codex_rollout_reads_as_its_five_requests() {
+    let rig = codex_rig("s-codex");
 
     let out = rig.ask(&["koji", "--context"]).unwrap();
+    let row: Vec<&str> = out[2].split_whitespace().collect();
+    assert_eq!(
+        row,
+        [
+            "worker", "codex", "1", "5", "19,244", "19,478", "29,387", "68%", "0%"
+        ],
+        "the cached tokens are 79,104 of 116,705"
+    );
+
+    let out = rig.ask(&["koji", "--item", "1138"]).unwrap();
     assert!(
-        out.last()
-            .unwrap()
-            .starts_with("1 of 1 sessions are left out"),
+        out.last().unwrap().ends_with(".jsonl, 5 requests"),
         "{out:#?}"
     );
+}
+
+#[test]
+fn a_codex_rollout_shows_no_file_a_worker_read_or_edited() {
+    let rig = codex_rig("s-codex");
+
+    let out = rig.ask(&["koji", "--reads", "--json"]).unwrap();
+    let json: Value = serde_json::from_str(&out.join("\n")).unwrap();
+
+    let group = &json["groups"][0];
+    assert_eq!(group["harness"], "codex");
+    assert_eq!(
+        (group["sessions"].as_u64(), group["no_edit"].as_u64()),
+        (Some(0), Some(1)),
+        "a rollout names no file, so the session edited none"
+    );
+    assert_eq!(group["unread"], 0);
 }
 
 #[test]
