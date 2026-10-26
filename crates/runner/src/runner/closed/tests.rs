@@ -199,6 +199,7 @@ fn a_parked_item_stays_while_the_open_pull_requests_cannot_be_listed() {
     assert!(closed_with_no_change(step(&runner).unwrap()));
 }
 
+#[cfg(unix)]
 #[test]
 fn a_closed_issue_whose_end_could_not_be_saved_is_read_again_on_the_next_pass() {
     use std::os::unix::fs::PermissionsExt;

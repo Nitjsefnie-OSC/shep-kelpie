@@ -117,14 +117,19 @@ evicts nothing it runs on midway; a reviewer's round takes no lease at all.
 _Avoid_: proxy, router
 
 **Implementer**:
-An agent a project lists to build its work items. An issue's `agent:<name>`
-label picks one. With several listed, the issue writer labels an issue
-without one before the board opens it; with one, it runs on that one, the
-**default implementer**, the first listed, which may be a local model. A
-work item keeps the implementer it opened on, unless its first turn **falls
-back**: with `agents.fallback_after` set, a first turn that waited that long
-for its model moves to the next implementer listed. A label ending in `!`
-**pins** the work item, which never falls back.
+An agent kelpie can run a work item on, from a file whose role is
+`implementer`. A project lists the ones an unlabelled issue is picked from,
+and the chain its first turn **falls back** along. An issue's
+`agent:<name>` label picks one, listed or not. With several listed, the
+issue writer labels an issue without one before the board opens it, unless
+`agents.implementer_choice` is `order`, which takes the first listed with no
+call; with one, it runs on that one, the **default implementer**, the first
+listed, which may be a local model. A work item keeps the implementer it
+opened on, unless its first turn **falls back**: with
+`agents.fallback_after` set, a first turn that waited that long for its
+model moves to the next implementer listed. A label ending in `!` **pins**
+the work item, which never falls back, and an unlisted implementer never
+falls back either.
 _Avoid_: worker model, local worker
 
 **Waiting for model**:

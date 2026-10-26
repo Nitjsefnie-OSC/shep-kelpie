@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 use super::adopt::settings_of;
 use super::tests::{FRESH, WORKER_ID, World, id};
 use super::*;
-use crate::ports::Role;
+use crate::ports::{NotAdopted, Role};
 use crate::test::OpenSandbox;
 
 // Codex as a script that waits for a `go` file before it prints `FRESH`.
@@ -32,7 +32,7 @@ fn a_codex_call_that_is_not_a_workers_refuses_the_handover_naming_why() {
     let codex = waiting_codex(&w);
     let call = w.call(Role::Reviewer, Session::New(id(WORKER_ID)));
     assert_eq!(
-        codex.adoption(&call).unwrap_err(),
+        codex.adoption(&call).unwrap_err().to_string(),
         "only a worker's call is carried"
     );
 }
@@ -43,6 +43,8 @@ fn a_workers_codex_call_with_no_record_refuses_the_handover_naming_the_record() 
     let codex = waiting_codex(&w);
     let call = w.call(Role::Worker, Session::New(id(WORKER_ID)));
     let why = codex.adoption(&call).unwrap_err();
+    assert!(matches!(why, NotAdopted::RecordGone(_)), "{why:?}");
+    let why = why.to_string();
     assert!(
         why.starts_with("the call's record ") && why.contains("cannot be read"),
         "{why}"
@@ -75,8 +77,9 @@ fn a_workers_turn_is_carried_with_its_session_and_ends_when_the_call_does() {
     assert_eq!(adopted.session, Some(id(WORKER_ID)));
     assert_eq!(adopted.kept, None);
     let gone = codex.adoption(&call).unwrap_err();
+    assert!(matches!(gone, NotAdopted::RecordGone(_)), "{gone:?}");
     assert!(
-        gone.contains("cannot be read"),
+        gone.to_string().contains("cannot be read"),
         "a call that has ended is carried no more: {gone}"
     );
 }

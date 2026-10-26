@@ -45,8 +45,8 @@ mod triage;
 
 pub use agents::{
     Account, AgentHarness, AgentName, DoctorProbe, ExpertAgent, Harness, HarnessFacts, Implementer,
-    Limit, ModelServer, PmAgent, ResearcherWeb, RoleAgentNames, RoleAgents, SessionIds,
-    UsageReader,
+    ImplementerChoice, Limit, ModelServer, PmAgent, ResearcherWeb, RoleAgentNames, RoleAgents,
+    SessionIds, UsageReader,
 };
 pub use browser::Browser;
 pub use budget::{Budget, PerItemUsd};
@@ -501,6 +501,13 @@ pub struct Worker {
     /// load, since the sandbox would refuse to start. Empty when absent.
     #[serde(default, deserialize_with = "domains::allowed_domains")]
     pub allowed_domains: Vec<NonBlank>,
+    /// Whether a call that works an item also reaches the registries of the
+    /// package managers its worktree keeps a lockfile or manifest for, such as
+    /// `registry.npmjs.org` for a `bun.lock` and `crates.io` for a `Cargo.lock`,
+    /// with no entry in `allowed_domains`. Off, only `allowed_domains` adds
+    /// hosts. On when absent.
+    #[serde(default = "default_package_registries")]
+    pub package_registries: bool,
     /// Environment variables set to a folder inside the worker's build
     /// folder, for tool caches the sandbox would refuse elsewhere. Empty when
     /// absent.
@@ -527,6 +534,11 @@ pub struct Worker {
     /// compact near the model's own window.
     #[serde(default = "default_compact_window")]
     pub compact_window: u32,
+}
+
+/// The design's default for `worker.package_registries`
+fn default_package_registries() -> bool {
+    true
 }
 
 /// The design's default for `worker.compact_window`, in tokens

@@ -19,9 +19,9 @@ pub mod upgrade;
 use shep_kelpie_core::dep_sources;
 pub use shep_kelpie_core::{
     agents, board, bridge, browse, coderabbit, codex, confine, cubic, fence, forge_ledger,
-    forwarder, guard, home, hooks, ipc, lease, local_paths, local_tickets, metrics, pacer, ports,
-    profile, review_bot, settings, shep_home, shepherd, skills, state, ticket, totp, usage, watch,
-    webhook, work_item,
+    forwarder, guard, home, hooks, ipc, lease, local_paths, local_tickets, metrics, pacer,
+    package_managers, ports, profile, review_bot, settings, shep_home, shepherd, skills, state,
+    ticket, totp, usage, watch, webhook, work_item,
 };
 
 // The real ports and the forge, each kept under the name it had here

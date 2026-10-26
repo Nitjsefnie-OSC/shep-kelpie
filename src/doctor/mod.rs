@@ -11,6 +11,7 @@ mod github;
 mod machine;
 mod mcp;
 mod project;
+mod registries;
 mod rulings;
 
 use std::collections::BTreeMap;
@@ -24,12 +25,10 @@ use serde_json::{Map, Value};
 use crate::adapters::host::Host;
 use crate::adapters::{Base, Curl, CurlGithub, Gh, LocalReviewer, Openssl, SystemHost};
 use crate::agents::Agents;
-use crate::coderabbit::CodeRabbit;
 use crate::flock;
 use crate::github::{AppTokens, Apps, GithubApp};
 use crate::home::{ProjectName, ProjectPaths};
 use crate::ports::{Alerts, Clock, Forge, Meter, Reviewer, SystemClock};
-use crate::review_bot::Profile;
 use crate::settings::Settings;
 use crate::shep_home;
 use crate::shepherd::{self, Connection, Dial, Socket};
@@ -160,8 +159,6 @@ pub struct Probes<'a> {
     pub github: &'a dyn GithubApp,
     /// The local round's reviewer
     pub reviewer: &'a dyn Reviewer,
-    /// The pull request reviewer a project turns on
-    pub review_bot: &'a dyn Profile,
     /// The maintainer's webhook
     pub alerts: &'a dyn Alerts,
     /// The machine
@@ -396,7 +393,6 @@ pub fn main(args: &[String]) -> ExitCode {
             forge: &Gh::default(),
             github: &github,
             reviewer: &LocalReviewer::default(),
-            review_bot: &CodeRabbit,
             alerts: &Curl,
             host: &SystemHost,
             clock: &SystemClock,

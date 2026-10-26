@@ -5,6 +5,7 @@ use shep_handover::HandOverError;
 use super::super::{Hooks, JOIN_BOUND, Worker};
 use super::*;
 use crate::ports::{Adopted, Flying, Kept, KeptServer, SessionId, Timestamp};
+use crate::runner::{CARRY_WAIT, NotCarried, Pass, advance};
 use crate::settings::Harness;
 use crate::test::{CALL_PATIENCE, Hold, Rig, Scripted, ticket};
 use crate::ticket::TicketId;
@@ -100,6 +101,48 @@ fn a_refused_handover_leaves_the_runner_and_its_calls_as_they_were() {
 }
 
 #[test]
+fn a_handover_asked_while_passes_keep_starting_calls_is_tried_at_the_next_quiet_point() {
+    let rig = Rig::new("shep");
+    rig.edit_settings(|s| s.replace("active_items = 1", "active_items = 2"));
+    let runner = Arc::new(rig.open().unwrap());
+    rig.ask(&runner, "add", Some("7"));
+    rig.ask(&runner, "add", Some("8"));
+    let (seven, eight) = (Hold::default(), Hold::default());
+    rig.claude
+        .script([Scripted::Hold(seven.clone()), Scripted::Hold(eight.clone())]);
+    let (handing, tried) = refusing("stand-in", &Arc::default());
+    let hooks = Hooks {
+        on_wake: Box::new(|_| {}),
+        finished: Box::new(|_| {}),
+        handover: Arc::clone(&handing),
+    };
+    let (wake, woken) = mpsc::channel();
+    let (died, _) = mpsc::channel();
+    let held = rig.forge.hold_next_call();
+    let worker = Worker::spawn(Arc::clone(&runner), hooks, wake, woken, died);
+    assert!(held.waiting(CALL_PATIENCE), "the first pass never began");
+
+    // The request carries a wake of its own, so the loop is not woken by it.
+    let (elsewhere, _unheard) = mpsc::channel();
+    let asking = Arc::clone(&handing);
+    std::thread::spawn(move || asking.ask(&elsewhere));
+    eventually("the request", || handing.pending());
+    drop(held);
+
+    assert!(seven.entered(CALL_PATIENCE), "#7's turn never began");
+    assert!(eight.entered(CALL_PATIENCE), "#8's turn never began");
+    eventually("the handover tried", || {
+        tried.execs.load(Ordering::SeqCst) == 1
+    });
+    // Tried after the pass that started #7, before the one that started #8.
+    assert_eq!(*tried.carried.lock().unwrap(), [ticket(7)]);
+    assert!(!handing.pending());
+    seven.release();
+    eight.release();
+    assert!(worker.stop(JOIN_BOUND, || {}));
+}
+
+#[test]
 fn a_handover_with_nothing_in_flight_carries_nothing() {
     let rig = Rig::new("shep");
     let runner = Arc::new(rig.open().unwrap());
@@ -144,6 +187,133 @@ fn a_handover_waits_out_a_call_whose_stdin_is_being_fed() {
     assert!(!handing.pending());
     hold.release();
     assert!(worker.stop(JOIN_BOUND, || {}));
+}
+
+// A runner whose turn on issue 7 ended in the stand-in, so its record is gone, and
+// whose loop has not heard the end. The handover is asked on a thread of its own
+// and answers there.
+fn with_an_unheard_end() -> (
+    Rig,
+    Arc<Mutex<Runner>>,
+    Arc<Handing>,
+    Tried,
+    std::thread::JoinHandle<String>,
+) {
+    let rig = Rig::new("shep");
+    let runner = Arc::new(rig.open().unwrap());
+    rig.ask(&runner, "add", Some("7"));
+    let hold = Hold::default();
+    rig.claude.script([Scripted::Hold(hold.clone())]);
+    assert!(matches!(advance(&runner).unwrap(), Pass::Started));
+    assert!(hold.entered(CALL_PATIENCE), "the call never began");
+    let (handing, tried) = refusing("stand-in", &Arc::default());
+    let (wake, _unheard) = mpsc::channel();
+    let asking = Arc::clone(&handing);
+    let asked = std::thread::spawn(move || asking.ask(&wake));
+    eventually("the request", || handing.pending());
+    hold.release();
+    eventually("the record gone", || {
+        matches!(
+            runner.lock().unwrap().carry_calls(),
+            Err(NotCarried::Waiting(_))
+        )
+    });
+    (rig, runner, handing, tried, asked)
+}
+
+#[test]
+fn a_handover_waits_for_the_end_of_a_call_whose_record_is_gone_and_goes_once_it_is_heard() {
+    let (_rig, runner, handing, tried, asked) = with_an_unheard_end();
+
+    handing.attempt(&runner);
+
+    assert_eq!(tried.execs.load(Ordering::SeqCst), 0, "it did not wait");
+    assert!(handing.pending(), "the request was dropped");
+    crate::runner::step(&runner).unwrap();
+    handing.attempt(&runner);
+    assert_eq!(tried.execs.load(Ordering::SeqCst), 1);
+    assert!(tried.carried.lock().unwrap().is_empty());
+    assert!(!handing.pending());
+    let answer: serde_json::Value = serde_json::from_str(&asked.join().unwrap()).unwrap();
+    assert_eq!(answer["error"], "handover refused: stand-in");
+}
+
+#[test]
+fn a_handover_waiting_for_a_gone_record_can_be_withdrawn_and_stays_withdrawn() {
+    let (_rig, runner, handing, tried, _asked) = with_an_unheard_end();
+    handing.attempt(&runner);
+    assert!(handing.pending(), "the request did not wait");
+
+    let answer: serde_json::Value = serde_json::from_str(&handing.withdraw()).unwrap();
+
+    assert_eq!(answer["handover"], "withdrawn");
+    crate::runner::step(&runner).unwrap();
+    handing.attempt(&runner);
+    assert_eq!(
+        tried.execs.load(Ordering::SeqCst),
+        0,
+        "a withdrawn handover was made"
+    );
+    assert!(!handing.pending());
+}
+
+#[test]
+fn a_handover_is_refused_once_a_gone_record_has_been_waited_for_as_long_as_the_wait_allows() {
+    let (rig, runner, handing, tried, asked) = with_an_unheard_end();
+    handing.attempt(&runner);
+    assert!(handing.pending(), "the request did not wait");
+
+    rig.clock.advance(CARRY_WAIT.as_secs());
+    handing.attempt(&runner);
+
+    let answer: serde_json::Value = serde_json::from_str(&asked.join().unwrap()).unwrap();
+    let error = answer["error"].as_str().unwrap();
+    assert!(
+        error.starts_with("handover refused: the turn of #7 cannot be carried: the call's record "),
+        "{error}"
+    );
+    assert!(error.contains("cannot be read"), "{error}");
+    assert_eq!(tried.execs.load(Ordering::SeqCst), 0, "it execed anyway");
+    assert!(!handing.pending());
+}
+
+#[test]
+fn a_handover_is_refused_at_once_when_a_calls_record_is_there_and_cannot_be_read() {
+    let (rig, runner, handing, tried, asked) = with_an_unheard_end();
+    rig.claude.spoil_records();
+
+    handing.attempt(&runner);
+
+    let answer: serde_json::Value = serde_json::from_str(&asked.join().unwrap()).unwrap();
+    let error = answer["error"].as_str().unwrap();
+    assert!(
+        error.starts_with("handover refused: the turn of #7 cannot be carried: the call's record "),
+        "{error}"
+    );
+    assert_eq!(tried.execs.load(Ordering::SeqCst), 0, "it execed anyway");
+    assert!(!handing.pending());
+}
+
+// Asks for a handover while the record of the running call is gone, lets the
+// wait for its end run out, and gives the refusal the request is answered with.
+fn refused_once_the_wait_is_up(
+    rig: &Rig,
+    runner: &Arc<Mutex<Runner>>,
+    handing: &Arc<Handing>,
+    wake: Sender<()>,
+) -> serde_json::Value {
+    let asked = {
+        let handing = Arc::clone(handing);
+        std::thread::spawn(move || handing.ask(&wake))
+    };
+    eventually("the record seen gone", || {
+        matches!(
+            runner.lock().unwrap().carry_calls(),
+            Err(NotCarried::Waiting(_))
+        )
+    });
+    rig.clock.advance(CARRY_WAIT.as_secs());
+    serde_json::from_str(&asked.join().unwrap()).unwrap()
 }
 
 // Whether an `add 7` asked while a pass holds the runner's lock is answered from the posted copy.

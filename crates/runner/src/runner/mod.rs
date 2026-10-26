@@ -158,13 +158,13 @@ pub use drain::{CallRole, CallRunning, Draining};
 pub use finishing::StartError;
 #[cfg(any(test, feature = "test-support"))]
 pub use flight::step;
-pub use flight::{CarriedTurn, Pass, advance};
+pub use flight::{CARRY_WAIT, CarriedTurn, NotCarried, Pass, advance};
 pub use gpu::GpuStatus;
 pub use in_flight::Stopping;
 pub use ledger::count_stopped;
 pub use left::leave as leave_answer;
 pub use lineup::{Board, MoveError, Place};
-pub use looks::{BOARD_POLL, MAIN_CI_POLL};
+pub use looks::{BOARD_POLL, IDLE_POLL_MAX, MAIN_CI_POLL};
 pub use main_ci::RedStatus;
 pub use merge::DropError;
 pub use owner_template::{TemplateSource, source_of};
@@ -403,8 +403,17 @@ pub struct Runner {
     queued_reruns: gate::queued::Reruns,
     // The work items whose head's checks, as last listed, were none, in memory only
     no_checks: std::collections::BTreeSet<TicketId>,
+    // The review bots the forge showed reviewing on the repo before, in memory
+    // only: that never goes back, so a silent summon asks once
+    bots_reviewed: std::collections::BTreeSet<Bot>,
     // The build folders and the disk as last read while a turn ran, in memory only
     builds: builds::BuildWatch,
+    // The turns an `undrain keep` found ended for a pause, and until when they
+    // stay unstarted, in memory only
+    pause_hold: Option<drain::PauseHold>,
+    // The last `drain pause` line noted, so the CLI's poll notes one per change,
+    // in memory only
+    pause_line: Option<String>,
     // The ids of comments kelpie posted as the login `gh` acts as since the
     // last save, which the state file keeps: none of them is ever an answer
     posted: std::cell::RefCell<Vec<u64>>,
@@ -666,7 +675,10 @@ impl Runner {
             held_up: turn::held_up::HeldUps::default(),
             queued_reruns: gate::queued::Reruns::default(),
             no_checks: std::collections::BTreeSet::new(),
+            bots_reviewed: std::collections::BTreeSet::new(),
             builds: builds::BuildWatch::default(),
+            pause_hold: None,
+            pause_line: None,
             posted: std::cell::RefCell::default(),
             holds: lock_hold::Holds::default(),
         };
@@ -776,6 +788,7 @@ impl Runner {
             commit: crate::home::COMMIT,
             draining: self.draining_status(),
             run: self.run_status(),
+            board_poll_secs: self.looks.poll().as_secs(),
             forge_held_until: self.forge_hold.until(now),
             settings_refused: self.refusal.as_ref(),
             lock: self.holds.longest(),

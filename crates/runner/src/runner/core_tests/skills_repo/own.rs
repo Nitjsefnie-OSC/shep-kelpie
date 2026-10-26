@@ -60,6 +60,7 @@ fn a_skill_the_default_branch_gains_after_the_runner_started_loads_when_it_looks
     assert_eq!(runner.lock().unwrap().reread_plugins(), None);
 }
 
+#[cfg(unix)]
 #[test]
 fn a_link_in_the_default_branchs_claude_folder_is_left_out() {
     let rig = Rig::new("shep");

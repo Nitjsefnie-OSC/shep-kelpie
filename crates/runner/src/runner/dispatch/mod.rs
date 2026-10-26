@@ -117,7 +117,8 @@ impl Runner {
         };
         // A read that failed leaves no stamp, so it waits its backoff and no poll. Stamped before
         // anything the board does, so a change that does lets the next pass read again.
-        self.looks.reading_board(self.ports.clock.now());
+        let working = !self.state.work_items.is_empty();
+        self.looks.reading_board(self.ports.clock.now(), working);
         self.follow_order(&ready)?;
         self.trim_finished(&read.closed)?;
         self.trim_dropped(&ready)?;
@@ -157,7 +158,7 @@ impl Runner {
         // that may yet change, and one whose paths are unread may be one.
         let overlaps = self.parked_overlap(&ready);
         ready.retain(|issue| !overlaps.iter().any(|s| s.issue() == Some(issue.ticket)));
-        let implementers = self.agents.implementer_names();
+        let implementers = self.implementer_files();
         let all = takeable(
             &ready,
             &open,
@@ -170,7 +171,7 @@ impl Runner {
         let mut paced = false;
         let mut unlabelled: Vec<Skip> = Vec::new();
         loop {
-            let implementers = self.agents.implementer_names();
+            let implementers = self.implementer_files();
             let (finished, dropped) = (self.state.finished.clone(), self.state.dropped.clone());
             let order = self.state.order.clone();
             let pick = board::pick(&ready, &open, &finished, &dropped, &implementers, &order);

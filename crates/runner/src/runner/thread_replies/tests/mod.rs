@@ -173,7 +173,7 @@ fn a_reply_from_a_login_the_ruling_does_not_mention_changes_nothing_whatever_it_
     rig.forge.threads.grant_write("stranger");
     rig.writes_on(71, "stranger", "71 yes");
 
-    rig.next_look();
+    rig.next_poll(&runner);
     step(&runner).unwrap();
     rig.clock.advance(CHECKS_SETTLE);
     step(&runner).unwrap();

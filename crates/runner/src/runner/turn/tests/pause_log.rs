@@ -1,6 +1,7 @@
 //! What a pause says in the runner's log
 
 use super::*;
+use crate::runner::drain::PAUSE_HOLD;
 
 fn notes(runner: &Mutex<Runner>) -> Vec<String> {
     runner.lock().unwrap().take_notes()
@@ -64,6 +65,37 @@ fn the_start_that_resumes_a_paused_turn_says_so_once() {
             .iter()
             .any(|n| n.contains("resumed-after-pause")),
         "a later pass says nothing of the pause"
+    );
+}
+
+#[test]
+fn a_turn_held_after_a_pause_gave_up_says_it_resumed_once_when_the_hold_passes() {
+    let (rig, runner) = with_issue_7("shep");
+    step_paused_in_a_tool(&rig, &runner, Scripted::Say("done"));
+    rig.ask(&runner, "undrain", Some("keep"));
+    notes(&runner);
+
+    step(&runner).unwrap();
+    rig.clock.advance(PAUSE_HOLD - 1);
+    step(&runner).unwrap();
+    assert!(
+        !notes(&runner)
+            .iter()
+            .any(|n| n.contains("resumed-after-pause")),
+        "the turn is held and has not resumed"
+    );
+
+    rig.clock.advance(1);
+    rig.claude.script([Scripted::Reply(usage(1), Cost(9))]);
+    step(&runner).unwrap();
+    step(&runner).unwrap();
+    let said = notes(&runner);
+    assert_eq!(
+        said.iter()
+            .filter(|n| *n == "#7 resumed-after-pause")
+            .count(),
+        1,
+        "{said:?}"
     );
 }
 

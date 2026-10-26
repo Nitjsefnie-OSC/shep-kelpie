@@ -1,7 +1,7 @@
 //! Which issues other people opened are due for triage
 //!
 //! While `triage.pick` is not `off`, the runner lists the open issues once a
-//! [`BOARD_POLL`](super::BOARD_POLL), before a pass takes the lock
+//! board poll, before a pass takes the lock
 //! ([`poll_read`]), and `status` shows the untouched ones
 //! under `triage.due`, oldest first. An issue is untouched when it carries
 //! none of [`TRIAGE_LABELS`] but a `needs-triage` above `pruned_through`, no bot

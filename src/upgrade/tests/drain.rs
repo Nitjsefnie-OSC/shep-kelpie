@@ -153,9 +153,18 @@ async fn a_call_that_outlasts_its_ceiling_leaves_the_runner_undrained_on_the_old
     );
     assert!(err.contains("nothing was restarted for it"), "{err}");
     assert!(err.contains("it was sent `undrain`"), "{err}");
+    assert!(
+        err.starts_with("koji's runner was busy, not down, and answered slowly: "),
+        "{err}"
+    );
     let writes = rig.shepherd.writes();
     assert_eq!(restarted(&writes), ["kelpie"]);
     assert_eq!(triggers(&writes, "koji").last().unwrap(), "undrain");
+    let undrain = writes.iter().rev().find_map(|w| match w {
+        Request::Trigger { action, params, .. } if action == "undrain" => Some(params),
+        _ => None,
+    });
+    assert_eq!(undrain, Some(&None), "an upgrade ended no turn for a pause");
 }
 
 #[tokio::test]

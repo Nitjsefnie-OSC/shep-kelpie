@@ -28,6 +28,7 @@ fn kelpies_own_review_bots_are_written_and_hold_each_bots_window() {
                 window: window(reviews, hours),
                 reviews_on_ready: false,
                 rounds: None,
+                review_wait: None,
             })
         );
         assert_eq!((agent.runs.session(), agent.runs.local()), (None, None));
@@ -49,6 +50,23 @@ fn a_bot_file_takes_its_paths_and_rounds_and_codex_its_reviews_on_ready() {
     assert_eq!(cubic.paths[0].as_str(), "docs/**");
     let codex = agents.get(&name("codex")).unwrap().runs.bot().unwrap();
     assert!(codex.reviews_on_ready);
+}
+
+#[test]
+fn a_bot_file_takes_its_review_wait_in_minutes_and_none_means_45() {
+    let waited = CUBIC.replace("rounds: 2\n", "review_wait: 20\n");
+    let dir = folder(&[("cubic.md", &waited)]);
+    let agents = Agents::load(dir.path()).unwrap();
+    let cubic = agents.get(&name("cubic")).unwrap().runs.bot().unwrap();
+    assert_eq!(cubic.review_wait(), 20 * 60);
+    let unset = Agents::embedded();
+    let cubic = unset.get(&name("cubic")).unwrap().runs.bot().unwrap();
+    assert_eq!(cubic.review_wait(), 45 * 60);
+    let err = refused(&[(
+        "cubic.md",
+        &CUBIC.replace("rounds: 2\n", "review_wait: 0\n"),
+    )]);
+    assert!(err.contains("expected a nonzero u32"), "{err}");
 }
 
 #[test]
@@ -123,6 +141,10 @@ fn a_bot_whose_keys_its_harness_cannot_use_is_refused_naming_why() {
         (
             REVIEWER.replace("effort: high\n", "effort: high\nrounds: 1\n"),
             "runs on claude-code, which takes no `bot`, `reviews`, `hours`",
+        ),
+        (
+            REVIEWER.replace("effort: high\n", "effort: high\nreview_wait: 20\n"),
+            "`review_wait`: runs on claude-code, which takes no `bot`",
         ),
         (
             COMMAND.replace(

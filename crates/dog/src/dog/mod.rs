@@ -9,6 +9,7 @@
 //! change and loaded on start, with a review window for each review bot as
 //! its agent file in kelpie's home defines it.
 
+mod bus;
 pub mod desk;
 mod door;
 mod e2e;
@@ -25,12 +26,11 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use shep_client::shep_core::protocol::request::{ActionOutcome, Response};
-use shep_client::shep_core::protocol::{
-    BusEvent, ChildMessage, DogSectionToml, ProcessEventKind, Request, RpcErrorCode, SelectorSpec,
-};
+use shep_client::shep_core::protocol::{DogSectionToml, Request, RpcErrorCode, SelectorSpec};
 use shep_client::shep_core::status::ProcStatus;
-use shep_client::{EventStream, Lagged, ReconnectingClient, RequestError};
+use shep_client::{EventStream, ReconnectingClient, RequestError};
 use tokio::sync::mpsc;
+use tokio::time::Instant;
 
 use crate::agents::{self, Agents};
 use crate::home;
@@ -41,6 +41,7 @@ use crate::ports::{Clock, LocalPace, SystemClock};
 use crate::review_bot::Reviewers;
 use crate::shep_home;
 use crate::webhook::KelpieSettings;
+use bus::{Bus, Sent};
 use desk::{Delivery, Desk};
 use triggers::ACTIONS;
 
@@ -264,14 +265,14 @@ async fn serve() -> Result<(), String> {
     let socket = shep_home.join(home::SHEP_SOCKET);
     let identity = link::identity();
     let listener = link::connect(&socket, &identity, "for events").await?;
-    let client = link::connect(&socket, &identity, "for requests").await?;
+    let client = Arc::new(link::connect(&socket, &identity, "for requests").await?);
     let mut events = link::subscribe(&listener, link::BUDGET).await?;
 
     let file = BookFile::new(book_path()?);
     if let (Some(folder), Some(old)) = (file.path().parent(), home::old_dog_home()) {
         home::dog_may_start(&old, folder)?;
     }
-    if let Some(removed) = left_over::remove(&client, file.path()).await? {
+    if let Some(removed) = left_over::remove(&*client, file.path()).await? {
         println!("{removed}");
     }
     if let Some(folder) = file.path().parent() {
@@ -314,12 +315,12 @@ async fn serve() -> Result<(), String> {
             lock_desk(&desk).desk.tests.close();
         }
     }
-    let (deliver, mut to_deliver) = mpsc::unbounded_channel::<Vec<Delivery>>();
+    let (answered, mut to_deliver) = mpsc::unbounded_channel::<Vec<Delivery>>();
     for action in ACTIONS {
-        let (desk, deliver) = (Arc::clone(&desk), deliver.clone());
+        let (desk, answered) = (Arc::clone(&desk), answered.clone());
         shepherd.on_action(action, move |params, name| {
             let (body, grants) = lock_desk(&desk).change(|d| d.answer(name, params));
-            let _ = deliver.send(grants);
+            let _ = answered.send(grants);
             body
         });
     }
@@ -330,40 +331,38 @@ async fn serve() -> Result<(), String> {
 
     // Runners in the saved book that have since died or restarted are
     // reclaimed before the dog takes anything new.
-    let listed = flock(&client).await?;
-    let mut names = listed.names;
-    let restored = lock_desk(&desk).change(|d| d.resync(&listed.live));
+    let mut bus = Bus::new(Instant::now());
+    let restored = bus.read(flock(&client).await?, Instant::now(), &desk);
     shepherd.ready().map_err(|e| e.to_string())?;
     println!("up");
-    for grant in restored {
-        deliver_grant(&client, &grant).await;
-    }
+    deliver(&client, restored);
+    let (flocked, mut flocks) = mpsc::unbounded_channel();
     let mut ticks = tokio::time::interval(WINDOW_TICK);
     let ended = loop {
         let grants = tokio::select! {
-            event = events.next() => {
-                let read = match event {
-                    Some(event) => on_event(event, &desk, &client, &mut names).await,
-                    None => match rejoin(&listener, &client, &desk, &mut names).await {
-                        Ok((stream, grants)) => {
-                            events = stream;
-                            Ok(grants)
-                        }
-                        Err(e) => Err(e),
-                    },
-                };
-                match read {
-                    Ok(grants) => grants,
+            event = events.next() => match event {
+                Some(event) => bus.hear(event, &desk),
+                None => match rejoin(&listener, &client, &desk, &mut bus).await {
+                    Ok((stream, grants)) => {
+                        events = stream;
+                        grants
+                    }
                     Err(e) => break Err(e),
-                }
+                },
+            },
+            Some((sent, read)) = flocks.recv() => match read {
+                Ok(listed) => bus.read_back(sent, listed, Instant::now(), &desk),
+                Err(e) => break Err(e),
+            },
+            () = until(bus.read_at()) => {
+                read_apart(&client, bus.reading(), flocked.clone());
+                Vec::new()
             },
             Some(grants) = to_deliver.recv() => grants,
             _ = ticks.tick() => lock_desk(&desk).tick(),
             _ = stopped.recv() => break Ok(()),
         };
-        for grant in grants {
-            deliver_grant(&client, &grant).await;
-        }
+        deliver(&client, grants);
     };
     // Replies already queued reach the shepherd however the dog ends.
     let flushed = shepherd.flush(FLUSH_TIMEOUT).map_err(|e| e.to_string());
@@ -384,15 +383,15 @@ async fn rejoin(
     listener: &ReconnectingClient,
     client: &ReconnectingClient,
     desk: &Mutex<Kept>,
-    names: &mut HashMap<u32, String>,
+    bus: &mut Bus,
 ) -> Result<(EventStream, Vec<Delivery>), String> {
     println!("the shepherd's bus closed: waiting for it to come back");
     let events = link::subscribe(listener, link::BUDGET).await?;
     let deadline = tokio::time::Instant::now() + link::BUDGET;
     let grants = loop {
         link::wait_for(client, link::BUDGET).await?;
-        match resync(desk, client, names).await {
-            Ok(grants) => break grants,
+        match flock(client).await {
+            Ok(listed) => break bus.read(listed, Instant::now(), desk),
             Err(e) if tokio::time::Instant::now() >= deadline => return Err(e),
             Err(_) => link::pause().await,
         }
@@ -401,77 +400,22 @@ async fn rejoin(
     Ok((events, grants))
 }
 
-async fn on_event(
-    event: Result<BusEvent, Lagged>,
-    desk: &Mutex<Kept>,
-    client: &ReconnectingClient,
-    names: &mut HashMap<u32, String>,
-) -> Result<Vec<Delivery>, String> {
-    let event = match event {
-        Err(lagged) => {
-            println!("missed bus events ({lagged:?}): checking every runner");
-            return resync(desk, client, names).await;
-        }
-        Ok(event) => event,
-    };
-    match event {
-        BusEvent::Channel { id, message } => {
-            let Some((name, value)) = told(message) else {
-                return Ok(Vec::new());
-            };
-            if !names.contains_key(&id) {
-                *names = flock(client).await?.names;
-            }
-            let Some(sheep) = names.get(&id) else {
-                return Ok(Vec::new());
-            };
-            let heard = lock_desk(desk).change(|d| d.heard(sheep, &name, value));
-            if let Some(line) = heard.ignored {
-                println!("{line}");
-            }
-            Ok(heard.grants)
-        }
-        BusEvent::Process { event, info, .. } => {
-            names.insert(info.id, info.name.clone());
-            let live = match event {
-                ProcessEventKind::Restart => info.pid,
-                ProcessEventKind::Exit
-                | ProcessEventKind::Stop
-                | ProcessEventKind::Errored
-                | ProcessEventKind::Delete => None,
-                _ => return Ok(Vec::new()),
-            };
-            Ok(lock_desk(desk).change(|d| d.runner_is(&info.name, live)))
-        }
-        BusEvent::Dropped { count } => {
-            println!("the bus dropped {count} events: checking every runner");
-            resync(desk, client, names).await
-        }
-        _ => Ok(Vec::new()),
+// Waits until `at`, or for ever with none.
+async fn until(at: Option<Instant>) {
+    match at {
+        Some(at) => tokio::time::sleep_until(at).await,
+        None => std::future::pending().await,
     }
 }
 
-// The name and value of what a runner told the dog on its channel, or
-// `None` for a message that is not for the dog.
-fn told(message: ChildMessage) -> Option<(String, f64)> {
-    match message {
-        ChildMessage::Note { name, value } => Some((name, value)),
-        // A runner on a build from before notes sends the same totals as
-        // metric samples. An upgrade restarts the dog before its runners,
-        // so this path stays for one release, and goes in a later one.
-        ChildMessage::Metric { name, value, .. } => Some((name, value)),
-        _ => None,
-    }
-}
+type FlockTx = mpsc::UnboundedSender<(Sent, Result<Flock, String>)>;
 
-async fn resync(
-    desk: &Mutex<Kept>,
-    client: &ReconnectingClient,
-    names: &mut HashMap<u32, String>,
-) -> Result<Vec<Delivery>, String> {
-    let listed = flock(client).await?;
-    *names = listed.names;
-    Ok(lock_desk(desk).change(|d| d.resync(&listed.live)))
+// Reads the flock off the loop, so the events keep draining meanwhile.
+fn read_apart(client: &Arc<ReconnectingClient>, sent: Sent, back: FlockTx) {
+    let client = Arc::clone(client);
+    tokio::spawn(async move {
+        let _ = back.send((sent, flock(&client).await));
+    });
 }
 
 struct Flock {
@@ -494,6 +438,15 @@ async fn flock(client: &ReconnectingClient) -> Result<Flock, String> {
         .filter_map(|s| Some((s.name.clone(), s.pid?)))
         .collect();
     Ok(Flock { names, live })
+}
+
+// Sends each grant off the loop, so the events keep draining while it waits
+// on the runner.
+fn deliver(client: &Arc<ReconnectingClient>, grants: Vec<Delivery>) {
+    for grant in grants {
+        let client = Arc::clone(client);
+        tokio::spawn(async move { deliver_grant(&client, &grant).await });
+    }
 }
 
 // A grant that does not arrive is not retried: the runner raises its
@@ -532,12 +485,8 @@ async fn deliver_grant(client: &ReconnectingClient, grant: &Delivery) {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
-
     use super::*;
-    use crate::home::ProjectName;
-    use crate::lease::wire::Asker;
-    use crate::lease::{Epoch, LeaseKind};
+    use crate::lease::LeaseKind;
     use crate::ports::{Pace, Timestamp};
     use crate::review_bot::{Bot, ReviewWindow};
     use crate::test::{EPOCH, FakeClock, RecordedSink};
@@ -578,60 +527,47 @@ mod tests {
         desk.answer("take", Some("stand-in"));
     }
 
-    fn stand_in() -> LeaseKind {
-        LeaseKind::try_from("stand-in").unwrap()
-    }
+    // `deliver` is not async: the loop is back reading events as it returns,
+    // and the trigger goes out from a task of its own.
+    #[tokio::test]
+    async fn a_grant_is_sent_without_the_loop_waiting_on_it() {
+        use crate::home::ProjectName;
+        use crate::lease::Epoch;
+        use crate::test::CALL_PATIENCE;
+        use shep_client::dogs::DogIdentity;
+        use shep_client::testing::{
+            Handshake, control_address, fake_daemon_across_handovers, sample_ack,
+        };
 
-    // What the dog grants on hearing `message` on koji's channel.
-    fn granted(message: ChildMessage) -> Vec<Delivery> {
-        let mut desk = Desk::new(
-            Box::new(FakeClock::at(EPOCH)),
-            Reviewers::default(),
-            RecordedSink::default().recorder(),
+        let dir = tempfile::tempdir().unwrap();
+        let socket = control_address(dir.path());
+        let shepherd = fake_daemon_across_handovers(&socket, vec![Handshake::Accept(sample_ack())]);
+        let identity = DogIdentity::named("kelpie");
+        let client = Arc::new(
+            link::connect(&socket, &identity, "for requests")
+                .await
+                .unwrap(),
         );
-        let Some((name, value)) = told(message) else {
-            return Vec::new();
-        };
-        desk.heard("koji", &name, value).grants
-    }
-
-    fn koji_101() -> Delivery {
-        Delivery {
+        let grant = Delivery {
             project: ProjectName::try_from("koji").unwrap(),
-            kind: stand_in(),
+            kind: LeaseKind::try_from("stand-in").unwrap(),
             epoch: Epoch(101),
-        }
-    }
-
-    #[test]
-    fn a_runner_s_ask_sent_as_a_note_is_granted() {
-        let (name, value) = Asker::new(Epoch(101)).want(&stand_in());
-        assert_eq!(granted(ChildMessage::Note { name, value }), [koji_101()]);
-    }
-
-    // A runner still on a build from before notes, while an upgrade has
-    // restarted the dog and not yet the runner.
-    #[test]
-    fn an_older_build_s_ask_sent_as_a_metric_sample_is_still_granted() {
-        let (name, value) = Asker::new(Epoch(101)).want(&stand_in());
-        let sample = ChildMessage::Metric {
-            name,
-            value,
-            metric_type: None,
-            labels: BTreeMap::new(),
-            help: None,
         };
-        assert_eq!(granted(sample), [koji_101()]);
-    }
-
-    #[test]
-    fn a_reply_on_the_channel_grants_nothing() {
-        let reply = ChildMessage::ActionReply {
-            action: "lease.stand-in.want.101".into(),
-            body: "1".into(),
-            id: None,
+        deliver(&client, vec![grant]);
+        let sent = async {
+            loop {
+                let triggers = (shepherd.envelopes().into_iter())
+                    .filter(|(_, e)| matches!(&e.body, Request::Trigger { action, .. } if action == GRANT))
+                    .count();
+                if triggers == 1 {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
         };
-        assert_eq!(granted(reply), []);
+        tokio::time::timeout(CALL_PATIENCE, sent)
+            .await
+            .expect("no grant reached the shepherd");
     }
 
     #[test]

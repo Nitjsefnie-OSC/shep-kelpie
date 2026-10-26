@@ -1,0 +1,153 @@
+//! The package managers a project can keep, and the registries they fetch from
+//!
+//! One table for every reader: the sandbox of a call that works an item reaches
+//! the registries of the managers its worktree keeps a file for
+//! (`worker.package_registries`), the dev server's install runs the manager
+//! whose lockfile the checkout keeps, and `doctor` names each manager it finds.
+
+use std::path::Path;
+
+/// A package manager, known by the files a project keeps for it
+#[derive(Debug, PartialEq, Eq)]
+pub struct PackageManager {
+    /// The name `doctor` says
+    pub name: &'static str,
+    /// The lockfiles it writes, any of which shows the project uses it
+    pub lockfiles: &'static [&'static str],
+    /// The manifests it reads, which show the project uses it where no lockfile is kept
+    pub manifests: &'static [&'static str],
+    /// The registries it fetches from
+    pub hosts: &'static [&'static str],
+    /// The variables that put its cache in the build folder, with the folder in it
+    pub caches: &'static [(&'static str, &'static str)],
+    /// What installs the packages from the lockfile as it stands, with no package's install
+    /// script, for the managers the dev server installs with
+    pub install: Option<&'static str>,
+}
+
+const NPM_HOST: &str = "registry.npmjs.org";
+const YARN_HOST: &str = "registry.yarnpkg.com";
+const CARGO_HOSTS: &[&str] = &["crates.io", "index.crates.io", "static.crates.io"];
+const GO_HOSTS: &[&str] = &["proxy.golang.org", "sum.golang.org"];
+const PYTHON_HOSTS: &[&str] = &["pypi.org", "files.pythonhosted.org"];
+
+/// Every package manager kelpie knows, in the order a lockfile is looked for
+pub const MANAGERS: [PackageManager; 8] = [
+    PackageManager {
+        name: "npm",
+        lockfiles: &["package-lock.json"],
+        manifests: &["package.json"],
+        hosts: &[NPM_HOST],
+        caches: &[("npm_config_cache", "npm-cache")],
+        install: Some("npm ci --ignore-scripts --no-audit --no-fund"),
+    },
+    PackageManager {
+        name: "pnpm",
+        lockfiles: &["pnpm-lock.yaml"],
+        manifests: &[],
+        hosts: &[NPM_HOST],
+        caches: &[("npm_config_store_dir", "pnpm-store")],
+        install: Some("pnpm install --frozen-lockfile --ignore-scripts"),
+    },
+    PackageManager {
+        name: "yarn",
+        lockfiles: &["yarn.lock"],
+        manifests: &[],
+        hosts: &[YARN_HOST, NPM_HOST],
+        caches: &[("YARN_CACHE_FOLDER", "yarn-cache")],
+        install: Some("yarn install --frozen-lockfile --ignore-scripts"),
+    },
+    PackageManager {
+        name: "bun",
+        lockfiles: &["bun.lock", "bun.lockb"],
+        manifests: &[],
+        hosts: &[NPM_HOST],
+        caches: &[("BUN_INSTALL_CACHE_DIR", "bun-cache")],
+        install: Some("bun install --frozen-lockfile --ignore-scripts"),
+    },
+    PackageManager {
+        name: "cargo",
+        lockfiles: &["Cargo.lock"],
+        manifests: &["Cargo.toml"],
+        hosts: CARGO_HOSTS,
+        caches: &[],
+        install: None,
+    },
+    PackageManager {
+        name: "go",
+        lockfiles: &["go.sum"],
+        manifests: &["go.mod"],
+        hosts: GO_HOSTS,
+        caches: &[("GOMODCACHE", "go-mod"), ("GOCACHE", "go-build")],
+        install: None,
+    },
+    PackageManager {
+        name: "uv",
+        lockfiles: &["uv.lock"],
+        manifests: &[],
+        hosts: PYTHON_HOSTS,
+        caches: &[("UV_CACHE_DIR", "uv-cache")],
+        install: None,
+    },
+    PackageManager {
+        name: "pip",
+        lockfiles: &[],
+        manifests: &["requirements.txt", "pyproject.toml"],
+        hosts: PYTHON_HOSTS,
+        caches: &[("PIP_CACHE_DIR", "pip-cache")],
+        install: None,
+    },
+];
+
+/// Folders of a worktree that never hold a project's own manifest
+const SKIPPED: [&str; 3] = ["node_modules", "target", "vendor"];
+
+impl PackageManager {
+    /// Whether `folder` holds one of its lockfiles
+    pub fn locks(&self, folder: &Path) -> bool {
+        self.lockfiles.iter().any(|f| folder.join(f).is_file())
+    }
+
+    /// Whether `folder` holds one of its lockfiles or manifests
+    pub fn kept_in(&self, folder: &Path) -> bool {
+        self.locks(folder) || self.manifests.iter().any(|f| folder.join(f).is_file())
+    }
+}
+
+/// The package managers `worktree` keeps a lockfile or manifest for, in its root or in a
+/// folder directly under it, in the table's order
+///
+/// A folder one level down is read since a project often keeps its web app in one. A hidden
+/// folder and the ones in `SKIPPED` are not.
+pub fn found_in(worktree: &Path) -> Vec<&'static PackageManager> {
+    let below = std::fs::read_dir(worktree)
+        .into_iter()
+        .flatten()
+        .filter_map(Result::ok)
+        .filter(|entry| {
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            !name.starts_with('.') && !SKIPPED.contains(&name.as_ref())
+        })
+        .map(|entry| entry.path())
+        .filter(|path| path.is_dir());
+    let folders: Vec<_> = std::iter::once(worktree.to_owned()).chain(below).collect();
+    MANAGERS
+        .iter()
+        .filter(|m| folders.iter().any(|folder| m.kept_in(folder)))
+        .collect()
+}
+
+/// The registries of `managers`, each once, in the order they are first named
+pub fn registries(managers: &[&PackageManager]) -> Vec<&'static str> {
+    let mut hosts: Vec<&'static str> = Vec::new();
+    for host in managers.iter().flat_map(|m| m.hosts) {
+        if !hosts.contains(host) {
+            hosts.push(host);
+        }
+    }
+    hosts
+}
+
+#[cfg(test)]
+mod tests;

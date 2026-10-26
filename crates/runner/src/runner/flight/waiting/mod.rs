@@ -5,8 +5,8 @@
 //! (ten minutes with that off). Its first output clears the mark. A work
 //! item's first turn that waited `agents.fallback_after` is stopped and moves
 //! to the next implementer listed that no other item waits on. It has no
-//! session yet, so nothing is lost. A later turn, or one pinned by a `!`
-//! label, never moves.
+//! session yet, so nothing is lost. A later turn, one pinned by a `!` label,
+//! or one whose own agent the project does not list, never moves.
 
 use serde::Serialize;
 
@@ -17,7 +17,7 @@ use crate::ports::{AgentError, AgentReply, CallActivity, SessionId, Timestamp, W
 use crate::settings::{AgentName, GatewayName, LocalRound, ModelHost};
 use crate::state::StateError;
 use crate::ticket::TicketId;
-use crate::work_item::{Turn, new_session_id};
+use crate::work_item::{Turn, WorkItem, new_session_id};
 
 /// How long a turn shows no output before it is marked waiting, in seconds,
 /// with `agents.fallback_after` off
@@ -104,7 +104,11 @@ impl Runner {
         let after = self.settings.agents.fallback_after?;
         (self.flights.flying.iter())
             .filter(|(_, f)| f.first && f.fallback == Fallback::Stays && !f.ending.asked())
-            .filter(|(ticket, _)| self.state.item(**ticket).is_some_and(|i| !i.pinned))
+            .filter(|(ticket, _)| {
+                self.state
+                    .item(**ticket)
+                    .is_some_and(|item| self.can_fall_back(item))
+            })
             .filter_map(|(&ticket, _)| self.quiet_since(ticket))
             .map(|quiet| Timestamp(quiet.since.0.saturating_add(u64::from(after.get()) * 60)))
             .min()
@@ -123,7 +127,7 @@ impl Runner {
                 let waiting = self.model_wait(ticket)?;
                 let waited = now.0.saturating_sub(waiting.since.0);
                 let item = self.state.item(ticket)?;
-                (waited >= u64::from(after.get()) * 60 && !item.pinned)
+                (waited >= u64::from(after.get()) * 60 && self.can_fall_back(item))
                     .then(|| (ticket, item.agent.clone()))
             })
             .collect();
@@ -157,6 +161,12 @@ impl Runner {
                 }
             }
         }
+    }
+
+    // Whether `item`'s first turn may move to another implementer: its label
+    // pins it to no agent, and the project lists the one it runs on.
+    fn can_fall_back(&self, item: &WorkItem) -> bool {
+        !item.pinned && self.agents.implementer(&item.agent).is_some()
     }
 
     // The implementer listed after `from` that no other turn waits on, or

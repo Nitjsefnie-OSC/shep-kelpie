@@ -97,6 +97,23 @@ pub struct BotReviewer {
     /// The most reads it makes of a work item's pull request, whatever its
     /// passes. Once every pass when `None`.
     pub rounds: Option<NonZeroU32>,
+    /// Minutes after a summon before a bot that gave no review is passed
+    /// over. [`REVIEW_WAIT`] when `None`.
+    pub review_wait: Option<NonZeroU32>,
+}
+
+/// How long a bot is given to review after its summon when its file sets no
+/// `review_wait`, in seconds
+///
+/// A full review of a long branch took 24 minutes on shep.
+pub const REVIEW_WAIT: u64 = 45 * 60;
+
+impl BotReviewer {
+    /// Seconds after a summon before the bot is passed over for the pass
+    pub fn review_wait(&self) -> u64 {
+        self.review_wait
+            .map_or(REVIEW_WAIT, |minutes| u64::from(minutes.get()) * 60)
+    }
 }
 
 /// Each review bot's window, as its agent file defines it, for the dog's book

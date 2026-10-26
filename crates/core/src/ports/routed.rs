@@ -4,7 +4,8 @@ use std::fmt;
 use std::sync::Arc;
 
 use super::{
-    Adopted, AgentCall, AgentError, AgentReply, Agents, CallActivity, Ending, SessionId, Transcript,
+    Adopted, AgentCall, AgentError, AgentReply, Agents, CallActivity, Ending, NotAdopted,
+    SessionId, Transcript,
 };
 use crate::settings::Harness;
 
@@ -56,7 +57,7 @@ impl Agents for Routed {
         self.adapter(call).run(call, ending)
     }
 
-    fn adoption(&self, call: &AgentCall) -> Result<Adopted, String> {
+    fn adoption(&self, call: &AgentCall) -> Result<Adopted, NotAdopted> {
         self.adapter(call).adoption(call)
     }
 
