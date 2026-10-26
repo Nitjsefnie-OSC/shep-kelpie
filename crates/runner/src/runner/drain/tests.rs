@@ -14,6 +14,7 @@ use crate::runner::turn::paused::PAUSED;
 use crate::runner::turn::tests::step_paused_in_a_tool;
 use crate::runner::{CallRole, Pass, Runner, advance, answer, step};
 use crate::test::{CALL_PATIENCE, Hold, Rig, Scripted};
+use crate::work_item::Turn;
 
 // A running project with issue 7 open and its first turn due
 fn seven_due(project: &str) -> (Rig, Mutex<Runner>) {
@@ -412,6 +413,39 @@ fn an_undrain_keep_that_landed_while_a_pass_held_the_lock_still_holds() {
         prompts(&rig)
     );
     assert!(rig.claude.calls().len() > 1, "issue 8 never started");
+}
+
+// The pass that holds the lock while `undrain keep` lands reaches the turn
+// before it takes the ask up.
+#[test]
+fn an_undrain_keep_not_yet_taken_up_already_holds_the_paused_turn() {
+    let (rig, runner) = seven_paused_eight_due("shep");
+    let runner = Arc::new(runner);
+    let postings = runner.lock().unwrap().postings();
+    let pass = runner.lock().unwrap();
+    let asking = {
+        let (runner, postings) = (Arc::clone(&runner), Arc::clone(&postings));
+        std::thread::spawn(move || answer(&runner, &postings, "undrain", Some("keep")))
+    };
+    asking.join().unwrap();
+    let (seven, eight) = (&pass.state.work_items[0], &pass.state.work_items[1]);
+    assert!(pass.pause_held(seven), "the pass would start issue 7");
+    assert!(!pass.pause_held(eight), "issue 8's turn was not paused");
+    drop((pass, rig));
+}
+
+#[test]
+fn undrain_keep_holds_only_the_turns_that_were_paused_when_it_came() {
+    let (rig, runner) = seven_paused_eight_due("shep");
+    rig.ask(&runner, "undrain", Some("keep"));
+    let mut pass = runner.lock().unwrap();
+    // A turn that ends for a pause later on, say the `[builds]` limit's, is no
+    // turn a pause gave up on.
+    pass.state.work_items[1].turn = Turn::Next {
+        prompt: PAUSED.to_owned(),
+    };
+    assert!(pass.pause_held(&pass.state.work_items[0]));
+    assert!(!pass.pause_held(&pass.state.work_items[1]));
 }
 
 #[test]

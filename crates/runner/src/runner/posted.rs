@@ -198,6 +198,15 @@ impl Posted {
         self.wake.fetch_or(first, Ordering::SeqCst);
     }
 
+    /// Whether an `undrain keep` waits for the runner to take it up
+    pub(crate) fn keeping(&self) -> bool {
+        let pending = self
+            .pending
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        matches!(*pending, Some(Pending::Undrain { keep: true }))
+    }
+
     /// What a `drain` or `undrain` asked while a pass held the lock, if any is waiting
     ///
     /// Taking it is also what ends its ask for a pass, so a wake left over

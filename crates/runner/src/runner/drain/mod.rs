@@ -13,6 +13,8 @@
 //! worker turn in flight on a harness that can end it at a tool result: it
 //! resumes at the next start, which `undrain keep` puts off by [`PAUSE_HOLD`].
 
+use std::collections::BTreeSet;
+
 use serde::Serialize;
 
 use super::Runner;
@@ -26,6 +28,13 @@ use crate::work_item::WorkItem;
 
 /// Seconds a turn that ended for a pause stays unstarted after `undrain keep`
 pub(super) const PAUSE_HOLD: u64 = 10 * 60;
+
+/// The turns an `undrain keep` found ended for a pause, and until when they stay unstarted
+#[derive(Debug)]
+pub(super) struct PauseHold {
+    until: Timestamp,
+    issues: BTreeSet<TicketId>,
+}
 
 /// Where a pause set for a turn in flight ends it
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -173,17 +182,34 @@ impl Runner {
     // Withdraws the pauses, and holds the turns that ended for one when `keep`.
     fn lift_drain(&mut self, keep: bool) {
         let until = Timestamp(self.ports.clock.now().0.saturating_add(PAUSE_HOLD));
-        self.pause_hold = keep.then_some(until);
+        self.pause_hold = keep.then(|| PauseHold {
+            until,
+            issues: (self.state.work_items.iter())
+                .filter(|item| self.ended_by_pause(item))
+                .map(|item| item.issue)
+                .collect(),
+        });
         self.withdraw_pauses();
     }
 
-    // Whether `item`'s turn ended for a pause and the hold `undrain keep` set
-    // has not passed.
+    // Whether `item`'s turn ended for a pause that `pause` set, not one the
+    // build limits set.
+    fn ended_by_pause(&self, item: &WorkItem) -> bool {
+        resumes_pause(item) && !self.builds.holds_pause(item.issue)
+    }
+
+    // Whether `item`'s turn ended for a pause that gave up, and its hold has
+    // not passed. An `undrain keep` not yet taken up holds every such turn, so
+    // the pass that holds the lock while it lands cannot start one.
     pub(super) fn pause_held(&self, item: &WorkItem) -> bool {
-        let held = self
-            .pause_hold
-            .is_some_and(|until| self.ports.clock.now() < until);
-        held && resumes_pause(item)
+        if self.postings.keeping() {
+            return self.ended_by_pause(item);
+        }
+        (self.pause_hold.as_ref()).is_some_and(|hold| {
+            self.ports.clock.now() < hold.until
+                && hold.issues.contains(&item.issue)
+                && resumes_pause(item)
+        })
     }
 
     // Withdraws the pause set for each worker turn in flight.

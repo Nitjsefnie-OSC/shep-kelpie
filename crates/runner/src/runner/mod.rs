@@ -408,9 +408,9 @@ pub struct Runner {
     bots_reviewed: std::collections::BTreeSet<Bot>,
     // The build folders and the disk as last read while a turn ran, in memory only
     builds: builds::BuildWatch,
-    // Until when a turn that ended for a pause stays unstarted, set by an
-    // `undrain keep`, in memory only
-    pause_hold: Option<Timestamp>,
+    // The turns an `undrain keep` found ended for a pause, and until when they
+    // stay unstarted, in memory only
+    pause_hold: Option<drain::PauseHold>,
     // The ids of comments kelpie posted as the login `gh` acts as since the
     // last save, which the state file keeps: none of them is ever an answer
     posted: std::cell::RefCell<Vec<u64>>,
