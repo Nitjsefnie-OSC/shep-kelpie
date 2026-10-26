@@ -49,6 +49,6 @@ Review passes, bots, rulings. CI and the merge are in merge.md.
 - `rule` reaches a stopped runner via `<kelpie home>/<project>/answers/<ruling>` files applied next pass. `runner/trigger/`
 - One webhook (`discord` or `ntfy`) until shep carries questions; URL is a credential, passed to `curl` on stdin. ADR 0005, #333, `crates/core/src/webhook.rs`
 - ntfy reply carries TOTP (RFC 6238): a code posted on the alert sat on the topic it guarded. #111
-- `shep kelpie totp`: secret under `<kelpie home>/totp/` (0700, 0600, an owner-only ACL on Windows); every code seen in any post spent first; used steps hard-linked claims (runners agree); 5 wrong codes disable ntfy answers until `--unlock` at terminal. RFC 4226, #111
+- `shep kelpie totp`: secret under `<kelpie home>/totp/` (0700, 0600); every code seen in any post spent first; used steps hard-linked claims (runners agree); 5 wrong codes disable ntfy answers until `--unlock` at terminal. RFC 4226, #111
 - Topic read every 15s while alerted ruling waits, backing off to 5 min. Limits fail closed: topic writer can lock answers or fake alerts, not act without code. #111
 - `trusted` webhook with `token` needs codes only for merge yes. #298
