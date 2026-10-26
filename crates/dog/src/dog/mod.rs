@@ -38,7 +38,8 @@ use crate::lease::saved::{BookFile, SavedBook};
 use crate::lease::wire::{GRANT, grant_params};
 use crate::metrics::{Recorder, ShepherdSink};
 use crate::ports::{Clock, LocalPace, SystemClock};
-use crate::review_bot::Reviewers;
+use crate::review_bot::{Bot, Reviewers};
+use crate::settings::AgentName;
 use crate::shep_home;
 use crate::webhook::KelpieSettings;
 use bus::{Bus, Sent};
@@ -156,8 +157,8 @@ fn open(
 }
 
 // Each review bot's window, from its agent file in kelpie's home. Files
-// that cannot be read leave kelpie's own windows, and a runner refuses to
-// start on them anyway.
+// that cannot be read, or a bot's that cannot be used, leave kelpie's own
+// windows, and a runner that names them refuses them anyway.
 fn windows() -> Reviewers {
     match home::kelpie_home() {
         Ok(home) => windows_in(&home.join(agents::FOLDER)),
@@ -188,7 +189,17 @@ fn windows_in(folder: &std::path::Path) -> Reviewers {
         println!("{e}: booking each review bot's window as kelpie's own file has it");
         Agents::embedded()
     });
-    Reviewers::from_agents(&agents)
+    let own = Reviewers::from_agents(&Agents::embedded());
+    let broken = |bot: &Bot| agents.broken(&AgentName::kelpies(bot.as_str()));
+    (Bot::ALL.iter()).fold(Reviewers::from_agents(&agents), |windows, bot| {
+        match (broken(bot), own.window(*bot)) {
+            (Some(e), Some(window)) => {
+                println!("{e}: booking {bot}'s window as kelpie's own file has it");
+                windows.with(*bot, window)
+            }
+            _ => windows,
+        }
+    })
 }
 
 // Kelpie's section, for its leases. One that cannot be read holds them at

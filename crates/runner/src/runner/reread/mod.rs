@@ -82,6 +82,7 @@ impl Runner {
         }
         let gpu_metrics_url = kelpie.gpu_metrics_url.clone();
         let mut book = Agents::load(&self.paths.agents)?;
+        book.hold_for(self.state.work_items.iter().map(|item| &item.agent))?;
         let mut agents = settings.role_agents(&book)?;
         let gateways = kelpie.gateways();
         let mut lineup = settings.lineup(&book, &gateways, &self.home)?;

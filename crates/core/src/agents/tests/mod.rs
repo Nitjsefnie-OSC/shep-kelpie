@@ -48,9 +48,14 @@ fn folder(files: &[(&str, &str)]) -> tempfile::TempDir {
     dir
 }
 
+// What is wrong with the first file of `files` that is left out.
 fn refused(files: &[(&str, &str)]) -> String {
-    let dir = folder(files);
-    Agents::load(dir.path()).unwrap_err().to_string()
+    left_out(folder(files).path())
+}
+
+fn left_out(dir: &Path) -> String {
+    let agents = Agents::load(dir).unwrap();
+    agents.broken.values().next().unwrap().to_string()
 }
 
 #[test]
@@ -117,7 +122,7 @@ fn a_codex_agent_spends_the_codex_account() {
 #[test]
 fn a_file_that_does_not_parse_is_refused_naming_it() {
     let dir = folder(&[("broken.md", "role: implementer\n")]);
-    let err = Agents::load(dir.path()).unwrap_err().to_string();
+    let err = left_out(dir.path());
     let path = dir.path().join("broken.md");
     assert_eq!(
         err,
@@ -138,7 +143,7 @@ fn a_file_that_does_not_parse_is_refused_naming_it() {
 fn an_unknown_harness_is_refused_naming_the_file_and_the_key() {
     let gemini = QWEN.replace("harness: pi", "harness: gemini");
     let dir = folder(&[("qwen.md", &gemini)]);
-    let err = Agents::load(dir.path()).unwrap_err().to_string();
+    let err = left_out(dir.path());
     let path = dir.path().join("qwen.md");
     assert_eq!(
         err,

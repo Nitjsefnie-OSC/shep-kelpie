@@ -2,7 +2,7 @@
 
 The agent file, the shipped agents and how a file builds on one. Harnesses, gateways and the agent settings are in agents.md.
 
-- Agent = `<name>.md`, YAML frontmatter tagged `role` + Markdown body; bad file stops runner naming file + line. serde-saphyr (serde_yaml archived). ADR 0006, #313
+- Agent = `<name>.md`, YAML frontmatter tagged `role` + Markdown body; a file that cannot be read stops the runner. One that cannot be used is left out and logged, file + line, so it stops only what names it: a setting (refused, old settings stay on a reread), or an open work item's agent (a reread refused, a start stopped). A left-out name never falls back to the shipped agent. serde-saphyr (serde_yaml archived). ADR 0006, #313
 - Reread each wake (edits land live). Item keeps its agent, runs the file as it is now. #313
 - `extends` merges frontmatter keys as text before parsing (every check applies); parameters on a reference refused (each a new label + ledger key). #386, `crates/core/src/agents/extends.rs`
 - Shipped agents are kelpie's own, embedded from `agents/`; whole agents in `DEFAULTS`, baselines in `crates/core/src/agents/baseline.rs`; files in the folder say only what differs. `extends: kelpie:<name>` resolves to the embedded text, never a file: `:` is not in an `AgentName`, so it never collides with a file, every build uses its own baselines and `--rollback` needs nothing extra. A bare name in `extends` names a file only, no fallback to a shipped agent (`kelpie:nope` names the shipped ones, a bare name with no file says it names no file). #1190, `crates/core/src/agents/mod.rs`
