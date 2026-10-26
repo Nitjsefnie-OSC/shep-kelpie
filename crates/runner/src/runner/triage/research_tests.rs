@@ -314,6 +314,20 @@ fn a_pass_that_names_the_priority_the_issue_carries_changes_no_label() {
 }
 
 #[test]
+fn a_pass_that_names_the_priority_the_issue_carries_under_the_bare_name_changes_no_label() {
+    let (rig, runner) = filed_with("P1");
+    rig.forge
+        .set_repo_labels(&["P1", "priority: P1", "needs-triage"]);
+    let found = json!({ "priority": "P1" });
+    rig.claude.script_for(Role::Triager, [reply(found)]);
+
+    assert_eq!(step(&runner).unwrap(), None);
+
+    assert_eq!(moves(&rig), ["comment", "label needs-triage"]);
+    assert_eq!(rig.github.label_takes(), []);
+}
+
+#[test]
 fn a_priority_put_on_by_hand_while_the_pass_ran_stands_and_the_pass_priority_is_not_put_on() {
     let (rig, runner) = untouched();
     drop(runner);

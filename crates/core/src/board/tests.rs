@@ -256,6 +256,14 @@ fn a_priority_label_is_the_boards_name_or_the_bare_one_and_nothing_else() {
 }
 
 #[test]
+fn two_priority_labels_are_the_same_priority_whichever_form_each_is_in() {
+    assert!(same_priority("P1", "priority: P1"));
+    assert!(same_priority("priority: p1", "P1"));
+    assert!(!same_priority("P1", "priority: P2"));
+    assert!(!same_priority("bug", "bug"));
+}
+
+#[test]
 fn priorities_order_the_board_p0_to_p3_then_unlabelled_oldest_first_within_each() {
     let mut order = Vec::new();
     let mut issues = vec![

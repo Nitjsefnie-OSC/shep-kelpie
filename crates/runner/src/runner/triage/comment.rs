@@ -285,7 +285,7 @@ impl Runner {
         };
         let seen = self.triage_seen(issue);
         let others: Vec<&String> = (carried.iter())
-            .filter(|l| board::is_priority_label(l) && !l.eq_ignore_ascii_case(ours))
+            .filter(|l| board::is_priority_label(l) && !board::same_priority(l, ours))
             .collect();
         if let Some(hand) = others.iter().find(|l| !seen.contains(l)) {
             self.notes.push(format!(
@@ -297,7 +297,7 @@ impl Runner {
                 .collect();
             return self.put_labels(issue, &rest);
         }
-        let on = carried.iter().any(|l| l.eq_ignore_ascii_case(ours));
+        let on = carried.iter().any(|l| board::same_priority(l, ours));
         let put: Vec<String> = (labels.iter())
             .filter(|l| !(on && l.as_str() == ours))
             .cloned()
