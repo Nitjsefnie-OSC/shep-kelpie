@@ -347,6 +347,11 @@ pub(super) fn board_moved(before: &ProjectState, after: &ProjectState) -> bool {
 }
 
 impl Runner {
+    /// The time by the runner's clock
+    pub fn now(&self) -> crate::ports::Timestamp {
+        self.ports.clock.now()
+    }
+
     /// How long until the runner next reads the board, retries a failed
     /// step or tries a turn again whose model host could not be reached, or
     /// `None` with none waiting
