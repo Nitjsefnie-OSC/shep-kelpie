@@ -3,15 +3,14 @@
 //! came before it
 //!
 //! A transcript has one usage a request, where the ledger has one a call.
-//! Claude Code writes a request as a line for each block of its reply, all
-//! of them holding the request's usage, so they count once. A request is
-//! `after` the session's start if it is the first the file holds, after a
-//! gap if longer passed since the request before it than the cache keeps
-//! what that wrote, and after growth otherwise. Claude Code writes the cache
-//! for an hour and pi for five minutes, as a request's usage says when it
-//! writes. Codex writes a `token_usage_record` for each request, a
-//! compaction's own included, and is taken to keep a write five minutes. The request before may be an earlier call's, so a resumed call's
-//! first request reads the gap since its session last spoke.
+//! Claude Code writes a line for each block of a reply, all holding the
+//! request's usage, so they count once; Codex writes one record a request.
+//! A request is `after` the start if it is the file's first, after a gap if
+//! longer passed since the request before than the cache keeps what that
+//! wrote, and after growth otherwise. The cache keeps a write an hour on
+//! Claude Code's one-hour cache and five minutes otherwise. The request
+//! before may be an earlier call's, so a resumed call's first request reads
+//! the gap since its session last spoke.
 //! `docs/facts/transcript-requests.md`
 
 use std::collections::BTreeSet;
