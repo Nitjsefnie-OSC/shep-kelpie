@@ -2,7 +2,7 @@ use std::fs;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Mutex;
 
-use serde_json::json;
+use serde_json::{Value, json};
 
 use super::*;
 use crate::home::SHEP_SOCKET;
@@ -179,10 +179,14 @@ fn the_settings_file_fences_writes_to_this_worktree_and_its_git_paths() {
 #[test]
 fn a_worker_reads_its_worktree_inside_the_shepherds_home_and_not_shep_s_socket() {
     let (rig, runner) = with_issue_7("koji");
-    let shep = rig.home.path().join("shep");
+    let home = rig.home.path();
+    let shep = home.join("shep");
     write_in(&shep, SHEP_SOCKET, "");
     write_in(&shep, "dogs.toml", "");
     write_in(&shep, "kelpie/rotom/state.json", "{}");
+    // Another repo of the same home, private and holding its own secret.
+    write_in(home, "GitHub/rotom/.env", "SECRET=1\n");
+    write_in(home, "GitHub/rotom/src/lib.rs", "work\n");
     rig.claude.script([Scripted::Reply(usage(1), Cost(1))]);
     step(&runner).unwrap();
     let [seen] = rig.claude.seen().try_into().unwrap();
@@ -195,12 +199,14 @@ fn a_worker_reads_its_worktree_inside_the_shepherds_home_and_not_shep_s_socket()
 
     // The sandbox denies the whole home and lets the worker back into its own folders.
     let files = &seen.sandbox["filesystem"];
-    let shep_rule = format!("{}/**", shep.display());
+    let denied = files["denyRead"].as_array().unwrap();
     assert!(
-        files["denyRead"]
-            .as_array()
-            .unwrap()
-            .contains(&json!(shep_rule))
+        denied.contains(&json!(format!("{}/**", home.display()))),
+        "{denied:?}"
+    );
+    assert!(
+        !denied.contains(&json!(format!("{}/**", shep.display()))),
+        "the home already covers it: {denied:?}"
     );
     let allowed = files["allowRead"].as_array().unwrap();
     for own in [&worktree, &build] {
@@ -226,6 +232,7 @@ fn a_worker_reads_its_worktree_inside_the_shepherds_home_and_not_shep_s_socket()
         rule(&shep.join("dogs.toml")),
         rule(&kelpie.join("rotom/**")),
         rule(&kelpie.join("koji/state.json")),
+        rule(&home.join("GitHub/**")),
     ] {
         assert!(deny.contains(&denied.as_str()), "{denied} not in {deny:?}");
     }
@@ -237,6 +244,17 @@ fn a_worker_reads_its_worktree_inside_the_shepherds_home_and_not_shep_s_socket()
         });
         assert_eq!(hidden, None, "a rule hides {read:?}");
     }
+    // Its shell is held to the same set: the other repo's file is denied by the
+    // sandbox, and nothing allows it back.
+    let other = home.join("GitHub/rotom/.env");
+    let allowed = files["allowRead"].as_array().unwrap();
+    assert!(
+        allowed
+            .iter()
+            .filter_map(Value::as_str)
+            .all(|folder| !other.starts_with(folder.trim_end_matches("/**"))),
+        "{other:?} is allowed back: {allowed:?}"
+    );
 }
 
 #[test]

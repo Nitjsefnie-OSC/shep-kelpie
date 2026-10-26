@@ -2,6 +2,7 @@
 
 use std::ffi::OsString;
 use std::fmt;
+use std::path::Path;
 #[cfg(any(test, feature = "test-support"))]
 use std::path::PathBuf;
 use std::process::{Command, Output};
@@ -154,7 +155,13 @@ impl Cli for Claude {
 
     fn write_config(&self, call: &AgentCall, _: Option<&Upstream>) -> Result<(), AgentError> {
         write_settings(call, &self.unfenced_no_read)?;
-        sandbox::policy(call, &self.home, &self.unfenced_no_read).map(drop)
+        sandbox::policy(
+            call,
+            &self.home,
+            Path::new(&self.program),
+            &self.unfenced_no_read,
+        )
+        .map(drop)
     }
 
     // `claude` would start and fail with its own "not logged in", which a ruling
@@ -200,7 +207,12 @@ impl Cli for Claude {
     }
 
     fn policy(&self, call: &AgentCall, _: &Launch<'_>) -> Result<Policy, AgentError> {
-        sandbox::policy(call, &self.home, &self.unfenced_no_read)
+        sandbox::policy(
+            call,
+            &self.home,
+            Path::new(&self.program),
+            &self.unfenced_no_read,
+        )
     }
 
     fn parse(&self, call: &AgentCall, _: (), output: &Output) -> Result<AgentReply, AgentError> {
@@ -250,7 +262,7 @@ pub fn write_settings(call: &AgentCall, unfenced: &[String]) -> Result<(), Agent
         settings::compacting(&mut value, window, &again, &marks);
     }
     mcp::allow(&mut value, call);
-    let reads = settings::unfenced_reads(&call.cwd, &call.reach, unfenced);
+    let reads = settings::unfenced_reads(call, unfenced);
     if let Some(deny) = value["permissions"]["deny"].as_array_mut() {
         deny.extend(reads.into_iter().map(serde_json::Value::from));
     }

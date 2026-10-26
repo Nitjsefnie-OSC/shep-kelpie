@@ -268,7 +268,13 @@ mod tests {
         let call = worker(&w, vec![first.clone(), second.clone()]);
         let files = Files::of(&call);
 
-        let policy = policy(&call, &w.path("login"), &files, &[]);
+        let policy = policy(
+            &call,
+            &w.path("login"),
+            &files,
+            Path::new("/nowhere/codex"),
+            &[],
+        );
 
         for plugin in [&first, &second] {
             assert!(policy.read.contains(plugin), "{}", plugin.display());

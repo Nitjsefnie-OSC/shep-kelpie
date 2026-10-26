@@ -29,18 +29,19 @@ Kelpie: the maintainer's dog; one runner per project builds ready issues. Mainta
 | runner-lock.md | lock, hold metric | `runner/{lock_hold,off_lock}.rs` |
 | runner-lock-passes.md | queued verbs, board, threads | `runner/{queued,board_read,trigger}` |
 | runner-lock-worktrees.md | worktree jobs | `runner/worktree_jobs.rs` |
-| fence.md | sandbox, guard, hooks, reads | `core/{profile,guard,hooks}/` |
-| fence-reach.md | hosts, dep reads | `core/package_managers/` |
+| fence.md | sandbox, guard, hooks | `core/{profile,guard,hooks}/` |
+| fence-reads.md | reads | `core/dep_sources.rs`, `adapters/harness/`, `runner/turn/` |
+| fence-reach.md | hosts | `core/package_managers/` |
 | browser.md | a worker's browser: bridge, filter, tools | `core/{bridge,browse}.rs`, `adapters/bridge/`, `runner/browser.rs`, `core/settings/browser.rs`, `process/tools/` |
 | browser-proxy.md | the browser's proxy: origins, addresses, limits | `adapters/bridge/proxy/`, `adapters/forwarder/http.rs` |
 | browser-dev-server.md | a worker's dev server: launch, port, readiness | `runner/dev_server/`, `core/ports/dev_server.rs`, `adapters/dev_server/` |
-| compaction.md | when a session compacts, `compact_window`, `COMPACT` | `runner/compact/`, `adapters/{pi/compact,goose/compact}.rs`, `adapters/codex/context.rs` |
-| skills.md | step skills, the skill copy, the wording skill | `core/skills/{mod,vendored,wording}.rs` |
+| compaction.md | when a session compacts, `compact_window`, `COMPACT` | `runner/compact/`, `adapters/{pi/compact,goose/compact,codex/context}.rs` |
+| skills.md | step skills, the skill copy, the wording skill | `core/skills/*.rs` |
 | plugins.md | repo plugins: sources, the copy of each, harness loading, their MCP | `core/skills/repo/`, `adapters/{skills,claude/mcp,pi/skills,codex/skills,goose/skills}.rs` |
-| agent-files.md | agent file, `extends`, baselines | `core/agents/`, `src/flock/add/mod.rs` |
+| agent-files.md | agent file, `extends`, baselines | `core/agents/`, `src/flock/add/` |
 | agents.md | harnesses, gateways | `adapters/`, `core/settings/agents/`, `process/spawn.rs` |
 | cli-adapter.md | a new CLI | `adapters/cli/` |
-| handover.md | in-flight turns handed to a new image, `upgrade` | `src/sheep/handover/mod.rs`, `runner/flight/carry/`, `adapters/process/adopt/`, `src/upgrade/handover.rs` |
+| handover.md | in-flight turns handed to a new image, `upgrade` | `src/sheep/handover/`, `runner/flight/carry/`, `adapters/process/adopt/`, `src/upgrade/handover.rs` |
 | windows.md | `sh`, `env`, test fakes on Windows | `process/spawn.rs`, `test_support/` |
 | waits-and-spend.md | waits, held-up turns, failing steps, spend | `runner/{turn/unreachable,looks}/`, `adapters/{unreachable,codex}/`, `core/usage/`, `core/settings/agents/` |
 | review.md | review, bots, rulings | `runner/{review,ruling}/`, `core/webhook.rs` |
@@ -49,7 +50,7 @@ Kelpie: the maintainer's dog; one runner per project builds ready issues. Mainta
 | merge.md | CI, catching up, merge, after it | `runner/{gate,merge}/`, `runner/{close_merged,main_ci}.rs` |
 | stuck-checks.md | checks stuck on a finished run | `runner/gate/queued/` |
 | local-tickets.md | the local ticket store, `ticket` verbs, closing on merge | `core/local_tickets/`, `src/flock/ticket.rs`, `runner/close_merged.rs` |
-| github-app.md | App tokens, posting, answers | `runner/voice/`, `core/guard/gh.rs`, `crates/worker_folder/` |
+| github-app.md | App tokens, posting, answers | `runner/voice/`, `core/guard/gh.rs`, `worker_folder/` |
 | ruling-panel.md | panel | `runner/panel/`, `crates/panel/` |
 | contributions.md | others' pull requests: settings, detection | `core/settings/{contributions.rs,reviewers/}`, `runner/contributions/`, `core/state/contributions.rs` |
 | contribution-security.md | a contribution's security review | `runner/contributions/`, `runner/flight/security.rs`, `process/worktree/` |
@@ -70,7 +71,7 @@ Kelpie: the maintainer's dog; one runner per project builds ready issues. Mainta
 | triage-reader.md | who a comment is for | `runner/triage/facts.rs` |
 | triage-hand.md | `hand_ready` take-back | `runner/triage/hand.rs` |
 | log-lines.md | runner and dog log lines | `runner/drain/`, `runner/{skip_log,claim}.rs`, `runner/review_bot/lease_wait.rs`, `dog/desk.rs`, `dog/door/` |
-| metrics.md | kelpie's series, alerts, dashboard | `core/metrics/`, `core/ports/metrics.rs`, `assets/prometheus/`, `assets/grafana/` |
+| metrics.md | kelpie's series, alerts, dashboard | `core/metrics/`, `core/ports/metrics.rs`, `assets/{prometheus,grafana}/` |
 | metrics-work-items.md | work-item series, `finished` line | `core/usage/finished.rs`, `runner/ci_failure.rs` |
 | metrics-dog.md | leases, summons, forge | `core/metrics/{dog,forge,model_lease}.rs`, `dog/watch/` |
 | metrics-transcripts.md | series from a call's transcript: MCP, tools, `usage` | `crates/facts/`, `runner/transcript_count/`, `core/usage/` |

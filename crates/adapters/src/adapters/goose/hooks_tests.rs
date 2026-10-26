@@ -50,7 +50,14 @@ pub(super) fn policy_of(w: &World, call: &AgentCall) -> Policy {
     let goose = GooseCli::on(&Base::default());
     let upstream = goose.upstream(server(call).unwrap()).unwrap();
     let files = Files::of(&call.settings);
-    policy(call, &files, &upstream, &w.path("forwarder.sock"), &[])
+    policy(
+        call,
+        &files,
+        &upstream,
+        &w.path("forwarder.sock"),
+        Path::new("/nowhere/goose"),
+        &[],
+    )
 }
 
 pub(super) fn refused(result: Result<(), AgentError>) -> String {

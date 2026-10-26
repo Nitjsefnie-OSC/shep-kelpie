@@ -91,7 +91,14 @@ fn a_worker_with_a_window_writes_its_prompt_beside_the_settings_and_loads_the_ex
         .upstream(server(&call).unwrap())
         .unwrap();
     let socket = w.path("forwarder.sock");
-    let policy = policy(&call, &Files::of(&call), &upstream, &socket, &[]);
+    let policy = policy(
+        &call,
+        &Files::of(&call),
+        &upstream,
+        &socket,
+        Path::new("/nowhere/pi"),
+        &[],
+    );
     assert!(policy.read.contains(&w.path("settings.prompt.md")));
 }
 

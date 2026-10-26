@@ -11,7 +11,13 @@ fn a_workers_scratch_folder_is_where_it_may_bind_sockets_and_a_reviewers_is_not(
     let w = World::new();
     let policy = |call: &AgentCall| {
         let files = Files::of(call);
-        let policy = policy(call, &w.path("login"), &files, &[]);
+        let policy = policy(
+            call,
+            &w.path("login"),
+            &files,
+            Path::new("/nowhere/codex"),
+            &[],
+        );
         (policy.socket_folders, files.scratch)
     };
 

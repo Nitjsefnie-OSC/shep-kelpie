@@ -4,10 +4,10 @@
 //! A reviewer reads the source of the crate a call uses, and a worker the
 //! version its lockfile pins. Each folder comes from the tool's own variable,
 //! or its default home where that is unset, and one not on this machine adds
-//! nothing. A variable naming a folder relative to wherever the tool was run
-//! names nothing: each call runs its tool from a different folder. Nothing
-//! here is writable, and a credential file beside a readable folder stays in
-//! [`crate::profile::CREDENTIALS`].
+//! nothing. A variable naming a folder relative to where the tool ran names
+//! nothing: each call runs its tool from a different folder. Nothing here is
+//! writable, and a credential file beside a readable folder stays in
+//! [`crate::profile::CREDENTIALS`] or [`cargo_credentials`].
 
 use std::ffi::OsString;
 use std::path::{Component, MAIN_SEPARATOR_STR, Path, PathBuf};
@@ -176,6 +176,40 @@ fn normalize(path: &Path) -> PathBuf {
     out
 }
 
+/// The tool homes themselves, whole, where they are on this machine: what each
+/// tool reads to run at all, its binaries, its config and its cache, beside the
+/// sources it reads.
+///
+/// A call whose fence denies its home whole reads these back, or its own cargo
+/// cannot start. They are no wider than the homes the tools name for themselves,
+/// and a credential inside one stays denied by name, in [`cargo_credentials`].
+pub fn toolchain_homes(home: &Path, env: &dyn Env) -> Vec<PathBuf> {
+    let mut homes: Vec<PathBuf> = Vec::new();
+    for (name, default) in [("CARGO_HOME", ".cargo"), ("RUSTUP_HOME", ".rustup")] {
+        for dir in tool_homes(env, name, home, default) {
+            if dir.is_dir() && !homes.iter().any(|held| held == &dir) {
+                homes.push(dir);
+            }
+        }
+    }
+    homes
+}
+
+/// The credential files of each cargo home in `homes`, spelled for a deny rule
+///
+/// [`crate::profile::CREDENTIALS`] names the default home's alone, so a grant of
+/// the whole home `CARGO_HOME` moved elsewhere would open the registry token
+/// beside it. Each is named whether or not the file is there: a call that runs
+/// `cargo login` writes one while it runs, and the deny is made before it starts.
+pub fn cargo_credentials(homes: &[PathBuf]) -> Vec<String> {
+    homes
+        .iter()
+        .flat_map(|home| {
+            ["credentials", "credentials.toml"].map(|name| format!("{}/{}", home.display(), name))
+        })
+        .collect()
+}
+
 /// The dependency and toolchain sources `home`'s machine holds, as it holds them
 /// now, for a call that has no build folder of its own
 pub fn machine_sources(home: &Path) -> Vec<PathBuf> {
@@ -317,6 +351,28 @@ mod tests {
         );
 
         assert_eq!(found.folders(), [home.join(".cargo/registry/src")]);
+    }
+
+    #[test]
+    fn a_cargo_home_moved_by_its_variable_keeps_its_credentials_named() {
+        let dir = tempfile::tempdir().unwrap();
+        let (home, moved) = (dir.path(), dir.path().join("shep/cargo"));
+        file_at(&moved, "registry/src/serde-1.0.2/src/lib.rs");
+        file_at(&moved, "credentials.toml");
+        let env = Fixed(BTreeMap::from([(
+            "CARGO_HOME",
+            moved.to_string_lossy().into_owned(),
+        )]));
+
+        let homes = toolchain_homes(home, &env);
+        assert!(homes.contains(&moved), "{homes:?}");
+        // The home whole is what a call reads back, so each credential file it
+        // could hold is named beside it, the one not on disk included.
+        let named = cargo_credentials(&homes);
+        for name in ["credentials", "credentials.toml"] {
+            let own = moved.join(name).to_string_lossy().into_owned();
+            assert!(named.contains(&own), "{own}: {named:?}");
+        }
     }
 
     #[test]

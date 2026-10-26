@@ -20,10 +20,11 @@ use self::compact::Tokens;
 use self::shared::profile;
 use super::cli::{Cli, CliAdapter, Launch, Turn};
 use super::harness::{
-    Base, assignments, bind_in_scratch, call_policy, prompt_file, step_skill, tail,
+    Base, assignments, bind_in_scratch, call_policy, program_folder, prompt_file, step_skill, tail,
 };
 use super::process::record::CallFiles;
 use super::unreachable::reaches_no_host;
+use crate::dep_sources::ProcessEnv;
 use crate::fence;
 use crate::forwarder::Upstream;
 use crate::guard::{AFTER_FLAG, FOLDER_FLAG, Pause};
@@ -294,7 +295,12 @@ impl Cli for Pi {
     }
 
     fn policy(&self, call: &AgentCall, _: &Launch<'_>) -> Result<Policy, AgentError> {
-        Ok(fenced(call, &Files::of(call), &self.unfenced_no_read))
+        Ok(fenced(
+            call,
+            &Files::of(call),
+            Path::new(&self.program),
+            &self.unfenced_no_read,
+        ))
     }
 
     fn parse(&self, call: &AgentCall, _: (), output: &Output) -> Result<AgentReply, AgentError> {
@@ -543,7 +549,7 @@ fn guard_extension(fence: &Fence, web: bool) -> String {
 ///
 /// The model's host is not in it. The one host pi may dial is the forwarder's,
 /// which the adapter adds.
-fn fenced(call: &AgentCall, files: &Files, unfenced: &[String]) -> Policy {
+fn fenced(call: &AgentCall, files: &Files, program: &Path, unfenced: &[String]) -> Policy {
     let mut policy = call_policy(call, unfenced);
     policy.no_keychain = call.reach.block_keychain;
     // pi logs in nowhere, so no harness's login is its own, the maintainer's pi included.
@@ -557,6 +563,9 @@ fn fenced(call: &AgentCall, files: &Files, unfenced: &[String]) -> Policy {
     // Node aborts at start when it cannot stat its own stdout and stderr,
     // the files kelpie opens for them.
     let outputs = CallFiles::of(call);
+    // A fence denies the home folder whole, so pi's own files are named beside
+    // what the call is granted: its home, its extensions, its scratch, and the
+    // program it runs, wherever that sits.
     policy.read.extend(
         [
             files.home.clone(),
@@ -565,6 +574,7 @@ fn fenced(call: &AgentCall, files: &Files, unfenced: &[String]) -> Policy {
             files.scratch.clone(),
         ]
         .into_iter()
+        .chain(program_folder(program, &ProcessEnv, &files.home))
         .chain(call.compact_window.map(|_| files.prompt()))
         .chain([outputs.stdout, outputs.stderr])
         .chain(call.instructions.iter().cloned())
@@ -585,9 +595,10 @@ fn policy(
     files: &Files,
     upstream: &Upstream,
     forwarder: &Path,
+    program: &Path,
     unfenced: &[String],
 ) -> Policy {
-    let mut policy = fenced(call, files, unfenced);
+    let mut policy = fenced(call, files, program, unfenced);
     super::harness::dial_the_forwarder(&mut policy, upstream, forwarder);
     policy
 }

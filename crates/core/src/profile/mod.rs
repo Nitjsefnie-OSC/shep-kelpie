@@ -2,14 +2,17 @@
 //!
 //! The worker runs with no one to ask, so its sandbox is its whole fence.
 //! Writes go to its worktree, its build folder and what a commit and a push
-//! need, and never to agents' own files in the worktree. Credential
-//! paths are unreadable, hosts are GitHub's and the project's, and what only
-//! the project manager does is a command it may not run. Each harness's
-//! adapter enforces the fence its own way.
+//! need, and never to agents' own files in the worktree. Reads go to those
+//! folders, the git its commits run through, the toolchain its build runs and
+//! what its call is granted; the rest of the home, other repos and their
+//! `.env` files included, is denied, and credential paths are unreadable
+//! wherever they sit. Hosts are GitHub's and the project's, and a command only
+//! the project manager does is one it may not run, each adapter enforcing it.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+use crate::dep_sources::{self, ProcessEnv};
 use crate::fence;
 use crate::hooks::Hooks;
 use crate::lease::door;
@@ -246,6 +249,9 @@ pub struct WorkerProfile<'a> {
     pub registries: &'a [&'static str],
     /// Variables the project's settings point into the build folder
     pub build_env: &'a BTreeMap<EnvName, BuildDir>,
+    /// The machine's home folder, which the worker reads nothing of but the
+    /// folders it works in, the tools it runs and what its call is granted
+    pub home: &'a Path,
     /// The shepherd's home, whose `dogs.toml` holds the webhook's URL. The
     /// worker reads none of it but its own folders in kelpie's.
     pub shep_home: &'a Path,
@@ -288,24 +294,37 @@ impl WorkerProfile<'_> {
             .chain([git("refs/heads").join(self.base)])
             .chain(fence::deny_write(self.worktree))
             .collect();
-        // Kelpie's home is the shepherd's too unless `KELPIE_HOME` puts it elsewhere.
-        let homes = [self.shep_home, self.kelpie_home]
-            .into_iter()
-            .enumerate()
-            .filter(|&(i, home)| i == 0 || !home.starts_with(self.shep_home))
-            .map(|(_, home)| format!("{}/**", home.display()));
+        // The whole home is denied, and what the call needs is allowed back into
+        // it. Kelpie's home is the shepherd's too unless `KELPIE_HOME` puts it
+        // elsewhere, and either may sit outside the machine's home.
+        let homes = home_denials([self.home, self.shep_home, self.kelpie_home]);
+        // A tool home is read back whole, so each cargo home's own credential
+        // files are named with it: `CREDENTIALS` spells the default home alone,
+        // and `CARGO_HOME` may point anywhere the maintainer keeps it.
+        let tools = dep_sources::toolchain_homes(self.home, &ProcessEnv);
         let no_read = CREDENTIALS
             .iter()
             .chain(self.token.iter().flat_map(|_| &MAINTAINERS_LOGIN))
             .map(|&p| p.to_owned())
             .chain(homes)
+            .chain(dep_sources::cargo_credentials(&tools))
             .collect();
-        // A skill names a file under its plugin's folder, and every plugin of
-        // the project sits under its skills folder, so the worker reads there.
-        let read = [self.worktree, self.build, self.kelpie, self.skills]
-            .into_iter()
-            .map(Path::to_owned)
-            .collect();
+        // What the call reads back inside the denied home: the folders it works
+        // in, the git and toolchain its build runs, the plugins its skills name,
+        // and the config its `git` and `gh` start with. A credential named beside
+        // them stays in `no_read`, which the sandbox applies after every allow.
+        let read = [
+            self.worktree,
+            self.build,
+            self.kelpie,
+            self.git_common_dir,
+            self.skills,
+        ]
+        .into_iter()
+        .map(Path::to_owned)
+        .chain(tools)
+        .chain(self.login_carve_outs())
+        .collect();
         let no_commands = PM_ONLY
             .iter()
             .chain(&GH_DENY)
@@ -364,6 +383,17 @@ impl WorkerProfile<'_> {
         }
     }
 
+    // What the worker's own commands read of the home folder for their config:
+    // git's, and `gh`'s when the worker runs as the maintainer's login. A worker
+    // holding the App's token gets a `gh` config folder of its own in its build
+    // folder, and the maintainer's stays denied.
+    fn login_carve_outs(&self) -> impl Iterator<Item = PathBuf> {
+        [self.home.join(".gitconfig")]
+            .into_iter()
+            .chain(self.token.is_none().then(|| self.home.join(".config/gh")))
+            .filter(|path| path.exists())
+    }
+
     fn env(&self) -> BTreeMap<String, String> {
         let path = |p: &Path| p.to_string_lossy().into_owned();
         let cargo = ("CARGO_TARGET_DIR".to_owned(), path(self.build));
@@ -400,6 +430,22 @@ fn push_to_base(base: &str) -> impl Iterator<Item = String> {
     [" {b}", " {b} *", ":{b}*", "/{b}*"]
         .into_iter()
         .map(move |p| format!("git push *{}", p.replace("{b}", base)))
+}
+
+/// Each of `homes` as a deny over the folder whole, less one another already
+/// covers: denying `/k` needs no rule for `/k/shep`
+pub fn home_denials<'a>(homes: impl IntoIterator<Item = &'a Path>) -> Vec<String> {
+    let mut kept: Vec<&Path> = Vec::new();
+    for home in homes {
+        if kept.iter().any(|held| home.starts_with(held)) {
+            continue;
+        }
+        kept.retain(|held| !held.starts_with(home));
+        kept.push(home);
+    }
+    kept.into_iter()
+        .map(|home| format!("{}/**", home.display()))
+        .collect()
 }
 
 fn with_suffix(path: &Path, suffix: &str) -> PathBuf {

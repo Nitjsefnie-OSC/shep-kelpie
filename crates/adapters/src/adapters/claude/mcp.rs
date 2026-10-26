@@ -163,11 +163,18 @@ mod tests {
     fn the_sandbox_lets_a_call_read_the_config_that_names_its_servers() {
         let settings = Path::new("/k/worker/settings.json");
         let with = call(Role::Worker, Tools::Work, settings, reach());
-        let policy = sandbox::policy(&with, Path::new("/home"), &[]).unwrap();
+        let policy =
+            sandbox::policy(&with, Path::new("/home"), Path::new("/nowhere/claude"), &[]).unwrap();
         assert!(policy.read.contains(&mcp_file(settings)));
 
         let without = call(Role::Worker, Tools::Work, settings, Reach::default());
-        let policy = sandbox::policy(&without, Path::new("/home"), &[]).unwrap();
+        let policy = sandbox::policy(
+            &without,
+            Path::new("/home"),
+            Path::new("/nowhere/claude"),
+            &[],
+        )
+        .unwrap();
         assert!(!policy.read.contains(&mcp_file(settings)));
     }
 
@@ -204,7 +211,8 @@ mod tests {
             read(&settings)["permissions"]["allow"],
             json!(["mcp__playwright"])
         );
-        let policy = sandbox::policy(&with, Path::new("/home"), &[]).unwrap();
+        let policy =
+            sandbox::policy(&with, Path::new("/home"), Path::new("/nowhere/claude"), &[]).unwrap();
         assert_eq!(policy.sockets, [browser().socket]);
     }
 
@@ -221,7 +229,13 @@ mod tests {
         assert!(read(&mcp_file(&settings))["mcpServers"]["playwright"].is_null());
         let allowed = read(&settings)["permissions"]["allow"].to_string();
         assert!(!allowed.contains("playwright"), "{allowed}");
-        let policy = sandbox::policy(&without, Path::new("/home"), &[]).unwrap();
+        let policy = sandbox::policy(
+            &without,
+            Path::new("/home"),
+            Path::new("/nowhere/claude"),
+            &[],
+        )
+        .unwrap();
         assert!(policy.sockets.is_empty());
     }
 }
