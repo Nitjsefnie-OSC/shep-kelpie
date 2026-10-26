@@ -185,6 +185,48 @@ fn a_forge_refusal_is_explained_and_the_same_body_is_not_posted_again() {
 }
 
 #[test]
+fn an_earlier_refused_body_is_not_posted_after_a_different_refusal() {
+    const A: &str = "Read /forge-only/first before answering.";
+    const B: &str = "Read /forge-only/second before answering.";
+    let (rig, runner) = filed_before("pick = \"maintainer\"", MAINTAINER, asked(), |rig| {
+        rig.claude.script_for(
+            Role::Representative,
+            [Scripted::Say(A), Scripted::Say(B), Scripted::Say(A)],
+        );
+    });
+    let voice = {
+        let mut held = runner.lock().unwrap();
+        let voice = Arc::clone(&held.ports.voice);
+        held.ports.voice = Arc::new(GuardedVoice::new(
+            Arc::clone(&voice),
+            LocalPaths::new([Path::new("/forge-only")]),
+        ));
+        voice
+    };
+    for _ in 0..2 {
+        assert_eq!(step(&runner).unwrap(), None);
+        assert!(rig.github.comments().is_empty());
+        rig.next_look();
+    }
+
+    runner.lock().unwrap().ports.voice = voice;
+    assert_eq!(step(&runner).unwrap(), None);
+    assert_eq!(calls(&rig, Role::Representative).len(), 3);
+    assert!(
+        rig.github.comments().is_empty(),
+        "the earlier refused body was not sent twice"
+    );
+
+    rig.next_look();
+    assert_eq!(step(&runner).unwrap(), None);
+    assert_eq!(calls(&rig, Role::Representative).len(), 4);
+    assert_eq!(calls(&rig, Role::Triager).len(), 1);
+    let comments = rig.github.comments();
+    assert_eq!(comments.len(), 1);
+    assert!(comments[0].1.starts_with(ASK_WORDS));
+}
+
+#[test]
 fn two_refused_wordings_count_as_a_failure_and_five_failures_stop_the_issue() {
     let path = ["/home/", "rin", "/notes"].concat();
     let words = Box::leak(format!("Read {path} before answering.").into_boxed_str());

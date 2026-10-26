@@ -17,7 +17,7 @@ impl Runner {
         if let ForgeError::LocalPath { leak, .. } = error {
             tries.refused = Some(*leak);
         }
-        tries.refused_body = Some(body);
+        tries.refused_bodies.push(body);
         tries.body = None;
     }
 
@@ -25,7 +25,7 @@ impl Runner {
         let repeats = self
             .triage_tries
             .get(&issue)
-            .is_some_and(|t| t.refused_body.as_deref() == Some(body));
+            .is_some_and(|t| t.refused_bodies.iter().any(|refused| refused == body));
         if repeats {
             self.triage_tries.entry(issue).or_default().body = None;
             self.triage_failed(issue, "its wording repeats a refused comment", true);

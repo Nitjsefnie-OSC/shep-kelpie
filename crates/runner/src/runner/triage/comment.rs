@@ -109,9 +109,9 @@ pub(in crate::runner) struct Tries {
     pub(super) waiting: Option<Waiting>,
     // The comment as worded, kept until the forge takes it
     pub(super) body: Option<String>,
-    // A guard refusal stays with the research for the next wording call.
+    // The next wording call gets the guard's reason.
     pub(super) refused: Option<Leak>,
-    pub(super) refused_body: Option<String>,
+    pub(super) refused_bodies: Vec<String>,
     // The labels the research asked for that the repo has, put on after the
     // comment; the record keeps them from there
     labels: Vec<String>,
