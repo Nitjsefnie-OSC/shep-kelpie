@@ -411,6 +411,9 @@ pub struct Runner {
     // The turns an `undrain keep` found ended for a pause, and until when they
     // stay unstarted, in memory only
     pause_hold: Option<drain::PauseHold>,
+    // The last `drain pause` line noted, so the CLI's poll notes one per change,
+    // in memory only
+    pause_line: Option<String>,
     // The ids of comments kelpie posted as the login `gh` acts as since the
     // last save, which the state file keeps: none of them is ever an answer
     posted: std::cell::RefCell<Vec<u64>>,
@@ -675,6 +678,7 @@ impl Runner {
             bots_reviewed: std::collections::BTreeSet::new(),
             builds: builds::BuildWatch::default(),
             pause_hold: None,
+            pause_line: None,
             posted: std::cell::RefCell::default(),
             holds: lock_hold::Holds::default(),
         };
