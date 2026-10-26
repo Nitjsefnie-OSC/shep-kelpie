@@ -1,7 +1,7 @@
 //! The representative's agent file: a session on any harness, with the role,
 //! model and effort a file gives it
 
-use super::{folder, name, pair};
+use super::{OPUS_HIGH, folder, name, pair};
 use crate::agents::{Agents, Role};
 use crate::settings::{AgentHarness, Effort, Harness};
 
@@ -24,13 +24,12 @@ fn a_representative_file_loads_with_its_role_harness_model_and_effort() {
 }
 
 #[test]
-fn the_shipped_representative_is_opus_at_low_effort_on_claude_code() {
-    let agents = Agents::embedded();
+fn the_shipped_representative_has_the_voice_it_words_in() {
+    let agents = Agents::embedded().bind("representative", OPUS_HIGH);
 
     let representative = agents.get(&name("representative")).unwrap();
 
     assert_eq!(representative.role, Role::Representative);
-    assert_eq!(pair(representative), ("claude-opus-5-5", Effort::Low));
     assert_eq!(
         representative.runs.session().unwrap().0.harness,
         AgentHarness::ClaudeCode
@@ -45,7 +44,7 @@ fn the_shipped_representative_is_opus_at_low_effort_on_claude_code() {
 
 #[test]
 fn the_shipped_representatives_guide_is_the_text_the_wording_test_picked() {
-    let agents = Agents::embedded();
+    let agents = Agents::embedded().bind("representative", OPUS_HIGH);
     let prompt = agents
         .get(&name("representative"))
         .unwrap()

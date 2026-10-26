@@ -1,6 +1,6 @@
 //! The issue writer's agent file: a Claude Code session whose body is its prompt
 
-use super::{folder, model, name, pair, refused};
+use super::{OPUS_HIGH, folder, model, name, pair, refused};
 use crate::agents::{Agents, ISSUE_WRITER, Role};
 use crate::settings::{Account, AgentHarness, Effort, Limit};
 
@@ -8,11 +8,10 @@ const WRITER: &str = "---\nrole: issue-writer\nharness: claude-code\nmodel: clau
                       effort: high\n---\nWrite the issues.\n";
 
 #[test]
-fn kelpies_issue_writer_is_opus_at_medium_with_its_rules_as_its_prompt() {
-    let agents = Agents::embedded();
+fn kelpies_issue_writer_has_its_rules_as_its_prompt() {
+    let agents = Agents::embedded().bind(ISSUE_WRITER, OPUS_HIGH);
     let writer = agents.get(&name(ISSUE_WRITER)).unwrap();
     assert_eq!(writer.role, Role::IssueWriter);
-    assert_eq!(pair(writer), ("claude-opus-5-5", Effort::Medium));
     assert_eq!(model(writer).harness, AgentHarness::ClaudeCode);
     assert_eq!(super::limit(writer), &Limit::Account(Account::Claude));
     let prompt = writer.prompt.as_deref().unwrap();

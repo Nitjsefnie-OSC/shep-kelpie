@@ -16,9 +16,6 @@
 # against at {{BASE}} and the diff at {{DIFF}}, and adds the issue's
 # acceptance criteria after it.
 role: reviewer
-harness: claude-code
-model: claude-opus-5-5
-effort: high
 ---
 You are checking whether a pull request does what the issue asked. The change is the diff below, against `{{BASE}}`. You may open any file in this worktree with Read, Grep or Glob to check your work; do not run any command and do not edit anything. Another reviewer hunts defects and another checks coding standards, so report neither: report only where the change and the issue's requirements disagree.
 

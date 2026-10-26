@@ -1,16 +1,15 @@
 //! The advisor's and the researcher's agent files: a session on any harness
 //! with a prompt, and no other key a role of theirs lacks
 
-use super::{folder, name, pair, refused};
+use super::{OPUS_HIGH, folder, name, refused};
 use crate::agents::{Agents, Role};
-use crate::settings::{AgentHarness, Effort, Harness};
+use crate::settings::{AgentHarness, Harness};
 
 #[test]
-fn kelpies_own_advisor_is_opus_at_high_with_a_prompt_that_keeps_it_to_the_code() {
-    let agents = Agents::embedded();
+fn kelpies_own_advisor_has_a_prompt_that_keeps_it_to_the_code() {
+    let agents = Agents::embedded().bind("advisor", OPUS_HIGH);
     let advisor = agents.get(&name("advisor")).unwrap();
     assert_eq!(advisor.role, Role::Advisor);
-    assert_eq!(pair(advisor), ("claude-opus-5-5", Effort::High));
     let prompt = advisor.prompt.as_deref().unwrap();
     assert!(prompt.contains("`diff.patch`"), "{prompt}");
     assert!(prompt.contains("\"choice\""), "{prompt}");
@@ -18,7 +17,7 @@ fn kelpies_own_advisor_is_opus_at_high_with_a_prompt_that_keeps_it_to_the_code()
 
 #[test]
 fn kelpies_own_researcher_reads_what_is_outside_the_code() {
-    let agents = Agents::embedded();
+    let agents = Agents::embedded().bind("researcher", OPUS_HIGH);
     let researcher = agents.get(&name("researcher")).unwrap();
     assert_eq!(researcher.role, Role::Researcher);
     assert_eq!(

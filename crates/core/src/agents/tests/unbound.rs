@@ -1,4 +1,5 @@
 use super::*;
+use crate::agents::front;
 use crate::agents::baseline::Baseline;
 
 // A baseline with no binding keys, so a stub that extends it binds nothing.
@@ -6,6 +7,20 @@ const SCRIBE: Baseline = Baseline {
     name: "scribe",
     text: "---\nrole: pm\n---\nYou keep the project's notes.\n",
 };
+
+// The keys a binding is made of, which a baseline sets none of.
+const KEYS: [&str; 10] = [
+    "harness",
+    "model",
+    "effort",
+    "second_look",
+    "usage",
+    "url",
+    "gateway",
+    "context",
+    "tools",
+    "lease",
+];
 
 const STUB: &str = "---\nextends: kelpie:scribe\n---\n";
 
@@ -97,18 +112,31 @@ fn the_issue_writer_names_the_command_for_an_unbound_agent_and_for_a_bare_baseli
 }
 
 #[test]
-fn a_baseline_that_keeps_its_binding_resolves_with_no_file() {
-    let agents = Agents::load(folder(&[]).path()).unwrap();
+fn a_baseline_is_a_role_and_a_prompt_and_no_binding_key() {
     for shipped in baseline::ALL {
-        assert!(
-            agents.get(&name(shipped.name)).is_some(),
-            "{}",
-            shipped.name
-        );
-        assert_eq!(agents.unbound_command(&name(shipped.name)), None);
+        let name = shipped.name;
+        assert!(shipped.role().is_some(), "{name} names a role");
+        let (front, body) = front::split(shipped.text).unwrap();
+        assert!(!body.trim().is_empty(), "{name} has a prompt");
+        for key in KEYS {
+            let set = front.lines().any(|line| line.starts_with(&format!("{key}:")));
+            assert!(!set, "{name} sets `{key}`");
+        }
     }
-    assert!(agents.bare_baselines().is_empty());
-    Writer::of(&agents, &name("issue-writer")).unwrap();
+}
+
+#[test]
+fn a_baseline_binds_nothing_so_the_book_names_it_and_no_agent_runs_without_a_file() {
+    let agents = Agents::load(folder(&[]).path()).unwrap();
+    assert_eq!(agents.bare_baselines().len(), baseline::ALL.len());
+    for shipped in baseline::ALL {
+        let name = name(shipped.name);
+        assert!(agents.get(&name).is_none(), "{name}");
+        assert!(agents.unbound_command(&name).is_some(), "{name}");
+    }
+    Writer::of(&agents, &name("issue-writer")).unwrap_err();
+    let bound = agents.bind_all(OPUS_HIGH);
+    Writer::of(&bound, &name("issue-writer")).unwrap();
 }
 
 #[test]

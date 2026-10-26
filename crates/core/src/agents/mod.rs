@@ -573,6 +573,39 @@ impl Agents {
         self.agents.insert(named, agent);
         self
     }
+
+    /// The baseline `name` with `binding` after its `role` line, over any
+    /// agent of that name, for a test
+    ///
+    /// # Panics
+    ///
+    /// When `name` is no baseline, or the file with `binding` is not a usable
+    /// agent.
+    #[cfg(any(test, feature = "test-support"))]
+    #[track_caller]
+    pub fn bind(self, name: &str, binding: &str) -> Self {
+        let text = baseline::named(name)
+            .unwrap_or_else(|| panic!("`{name}` is no baseline"))
+            .text;
+        let (head, rest) = text
+            .split_once("\nrole: ")
+            .expect("a baseline names its role");
+        let (role, rest) = rest.split_once('\n').expect("a role ends its line");
+        self.with(name, &format!("{head}\nrole: {role}\n{binding}{rest}"))
+    }
+
+    /// Every baseline bound to `binding`, for a test that needs them to run
+    ///
+    /// # Panics
+    ///
+    /// When a baseline with `binding` is not a usable agent.
+    #[cfg(any(test, feature = "test-support"))]
+    #[track_caller]
+    pub fn bind_all(self, binding: &str) -> Self {
+        baseline::ALL
+            .iter()
+            .fold(self, |agents, shipped| agents.bind(shipped.name, binding))
+    }
 }
 
 /// Writes a stub for each of kelpie's own whole agents that `folder` lacks,

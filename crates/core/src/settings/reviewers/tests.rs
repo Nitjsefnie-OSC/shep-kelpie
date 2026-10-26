@@ -15,11 +15,16 @@ const OPUS: &str = "---\nrole: reviewer\nharness: claude-code\nmodel: claude-opu
 const GPU_BOX: &str = "---\nrole: reviewer\nharness: endpoint\nurl: http://gpu-box:11434/v1\n\
                        model: coder\ncontext: 32768\n---\n";
 
-// Kelpie's own agents, with a Claude reviewer on some paths and an endpoint.
+// Kelpie's own agents with every baseline bound, a Claude reviewer on some paths and an endpoint.
 fn book() -> Agents {
-    Agents::embedded()
+    bound(Agents::embedded())
         .with("opus", OPUS)
         .with("gpu-box", GPU_BOX)
+}
+
+// `agents` with each baseline bound to Opus 5.5 at high effort.
+fn bound(agents: Agents) -> Agents {
+    agents.bind_all("harness: claude-code\nmodel: claude-opus-5-5\neffort: high\n")
 }
 
 // The example's project, listing `list` when it is given, and its home.
@@ -196,7 +201,7 @@ fn a_bot_that_reviews_on_ready_is_refused_after_another_bot_and_kept_before_it()
     let (settings, home) = project(Some(r#"["coderabbit", "codex"]"#));
     assert!(
         settings
-            .lineup(&Agents::embedded(), &Gateways::default(), home.path())
+            .lineup(&bound(Agents::embedded()), &Gateways::default(), home.path())
             .is_ok(),
         "kelpie's own Codex file does not review on ready"
     );
