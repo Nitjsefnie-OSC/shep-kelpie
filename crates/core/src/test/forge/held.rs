@@ -41,6 +41,8 @@ pub enum At {
     Rerun,
     // The comment on an issue or a pull request, which a ruling released from its hold is posted as
     Comment,
+    // The merge of a pull request, which a green bump is given
+    Merge,
 }
 
 // Who reached the forge and who lets it go
@@ -153,6 +155,11 @@ impl FakeForge {
     /// Holds the next comment open, and lets every other call through
     pub fn hold_next_comment(&self) -> HeldCall {
         self.hold_open(At::Comment)
+    }
+
+    /// Holds the next merge open, and lets every other call through
+    pub fn hold_next_merge(&self) -> HeldCall {
+        self.hold_open(At::Merge)
     }
 
     fn hold_open(&self, at: At) -> HeldCall {

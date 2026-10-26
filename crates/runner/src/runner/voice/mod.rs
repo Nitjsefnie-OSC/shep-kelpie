@@ -10,14 +10,14 @@
 //! belongs to. Where no App covers the repo nothing here posts, and the
 //! runner writes as it did before.
 
+use std::sync::Arc;
+
 use self::card::ruling_comment;
 use super::Runner;
 use super::gate::short;
 use super::ruling::stuck_comment;
-use crate::board::make_missing_with;
 use crate::ports::{Finding, ForgeError, NewLabel, Severity, Voice};
 use crate::settings::ForgeSlug;
-use crate::settings::TicketSource;
 use crate::state::{Heard, MergeNotice, ProjectState, Ruling, RulingKind};
 use crate::ticket::TicketId;
 
@@ -170,17 +170,24 @@ impl Runner {
         Ok(id)
     }
 
+    /// What writes to the repo as the App where one covers it, which needs no lock
+    pub(super) fn writer(&self) -> Writer {
+        Writer {
+            forge: Arc::clone(&self.ports.forge),
+            tickets: Arc::clone(&self.ports.tickets),
+            voice: Arc::clone(&self.ports.voice),
+            remote: self.remote.clone(),
+            source: self.settings.tickets.source,
+            app: self.app_covers(),
+        }
+    }
+
     /// Makes each of `wanted` the repo lacks, as the App where one covers it
     pub(super) fn make_missing_labels<'a>(
         &self,
         wanted: impl IntoIterator<Item = NewLabel<'a>>,
     ) -> Result<(), String> {
-        let (forge, repo) = (self.ports.forge.as_ref(), &self.remote);
-        let app = self.app_covers();
-        make_missing_with(forge, repo, wanted, |label| match app {
-            true => self.ports.voice.create_label(repo, label),
-            false => forge.create_label(repo, label),
-        })
+        self.writer().make_missing_labels(wanted)
     }
 
     /// Opens an issue, as the App where one covers the repo
@@ -190,13 +197,7 @@ impl Runner {
         body: &str,
         labels: &[&str],
     ) -> Result<u64, ForgeError> {
-        match self.app_covers() {
-            true => (self.ports.voice).create_issue(&self.remote, title, body, labels),
-            // `gh` files a GitHub issue, so its ticket has an issue number.
-            false => (self.ports.tickets)
-                .create_issue(&self.remote, title, body, labels)
-                .and_then(|ticket| ticket.github().ok_or(ForgeError::NoIssue { ticket })),
-        }
+        self.writer().open_issue(title, body, labels)
     }
 
     /// Files a ticket in the project's own source, and returns its id
@@ -209,16 +210,7 @@ impl Runner {
         body: &str,
         labels: &[&str],
     ) -> Result<TicketId, ForgeError> {
-        match (self.settings.tickets.source, self.app_covers()) {
-            (TicketSource::Github, true) => (self.ports.voice)
-                .create_issue(&self.remote, title, body, labels)
-                .and_then(|number| {
-                    TicketId::from_issue(number).ok_or_else(|| {
-                        ForgeError::Unreadable("the forge numbered the issue zero".to_owned())
-                    })
-                }),
-            _ => (self.ports.tickets).file_ticket(&self.remote, title, body, labels),
-        }
+        self.writer().file_ticket(title, body, labels)
     }
 
     /// Comments on `ticket`: a GitHub issue as the App where one covers the
@@ -442,6 +434,8 @@ pub(super) fn said(kind: &RulingKind) -> String {
 }
 
 mod card;
+mod writer;
+pub(super) use self::writer::Writer;
 
 pub(super) use self::card::{
     ASK_THE_MAINTAINER, BOARD, PROBLEM, answer_for, asks_the_maintainer, brief, chosen, effect_of,

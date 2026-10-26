@@ -808,6 +808,7 @@ impl Forge for FakeForge {
     // and a head that moved since the caller looked.
     fn merge(&self, _repo: &ForgeSlug, number: u64, head: &str) -> Result<(), ForgeError> {
         self.ask()?;
+        self.wait_if_held(held::At::Merge);
         if self.merges_down.load(Ordering::SeqCst) {
             return Err(ForgeError::Failed("merges are down".into()));
         }

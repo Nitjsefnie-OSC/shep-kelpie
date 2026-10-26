@@ -747,6 +747,40 @@ fn a_trigger_is_answered_while_a_bumps_pull_request_is_read() {
 }
 
 #[test]
+fn a_trigger_is_answered_while_a_green_bump_is_merged() {
+    let (rig, runner) = bumping("");
+    let head = bump(&rig, 40, "Cargo.lock");
+    rig.forge.set_checks(&head, Checks::Passed);
+    assert_eq!(step(&runner).unwrap(), None);
+    rig.clock.advance(CHECKS_SETTLE);
+    let merge = rig.forge.hold_next_merge();
+
+    let (answered, pass) = rig.asked_while_held(&runner, merge, "add", Some("8"));
+
+    assert!(answered.is_some(), "the trigger waited for the merge");
+    pass.unwrap();
+    assert_eq!(rig.forge.merges(), [(40, head)]);
+    assert!(bumps(&rig, &runner).is_empty());
+}
+
+#[test]
+fn a_trigger_is_answered_while_a_red_bumps_pull_request_is_commented() {
+    let (rig, runner) = bumping("");
+    let head = bump(&rig, 40, "Cargo.lock");
+    rig.forge
+        .set_checks(&head, Checks::Failed(vec!["test".into()]));
+    assert_eq!(step(&runner).unwrap(), None);
+    rig.clock.advance(CHECKS_SETTLE);
+    let comment = rig.forge.hold_next_comment();
+
+    let (answered, pass) = rig.asked_while_held(&runner, comment, "add", Some("8"));
+
+    assert!(answered.is_some(), "the trigger waited for the comment");
+    pass.unwrap();
+    assert_eq!(rig.forge.comments().len(), 1, "the comment went up");
+}
+
+#[test]
 fn a_bump_closed_during_the_read_is_not_merged() {
     let (rig, runner) = bumping("");
     let head = bump(&rig, 40, "Cargo.lock");
