@@ -338,6 +338,7 @@ fn forge_lines(
         ),
     });
 
+    // parity: review-bot.summon-by-label
     let wanted: Vec<NewLabel> = (LABELS.into_iter())
         .filter(|l| bots.contains(&Bot::Coderabbit) || l.name != crate::coderabbit::LABEL)
         .collect();
