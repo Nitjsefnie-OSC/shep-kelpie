@@ -236,16 +236,25 @@ fn relative(finding: Finding, worktree: &Path) -> Finding {
     Finding { file, ..finding }
 }
 
-// The first clause of `what`, as its `. `, `: ` or `; ` ends it
+// The first clause of `what`, as its `. `, `: ` or `; ` ends it. The dot of
+// a dotted abbreviation such as `e.g.` does not end one.
 fn title_of(finding: &Finding) -> String {
     let what = finding.what.trim();
-    let breaks = [". ", ": ", "; "].map(|sep| what.find(sep));
-    let end = breaks.into_iter().flatten().filter(|at| *at > 0).min();
+    let stops = (what.match_indices(['.', ':', ';']))
+        .filter(|(at, _)| what[at + 1..].starts_with(' ') && *at > 0)
+        .filter(|(at, stop)| *stop != "." || !abbreviation(&what[..*at]));
+    let end = stops.map(|(at, _)| at).next();
     let clause = end.map_or(what, |at| what[..at].trim_end());
     if clause.chars().count() <= TITLE_LIMIT {
         return clause.to_owned();
     }
     cut(clause, TITLE_LIMIT - " …".chars().count())
+}
+
+// Whether `head` ends in a word of single letters between dots, as `e.g`
+fn abbreviation(head: &str) -> bool {
+    let word = head.rsplit(char::is_whitespace).next().unwrap_or(head);
+    word.contains('.') && word.split('.').all(|part| part.chars().count() == 1)
 }
 
 // Another issue whose body names the file, and whose title says the same or

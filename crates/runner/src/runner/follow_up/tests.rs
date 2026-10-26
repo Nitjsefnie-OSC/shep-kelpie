@@ -361,6 +361,21 @@ fn a_what_with_no_clause_break_over_72_characters_ends_on_a_whole_word_and_an_el
 }
 
 #[test]
+fn a_dotted_abbreviation_does_not_end_a_title() {
+    let what =
+        "Guard the shared map with a lock, e.g. a Mutex, so two workers cannot write it at once";
+    let found = [finding("src/lib.rs", what)];
+    let (rig, runner) = auto_ready_to_merge(&found, &lines(&found));
+
+    assert_eq!(after_merge(&runner), filed(&[900], &[], 0));
+    let [issue] = rig.forge.created().try_into().unwrap();
+    assert_eq!(
+        issue.title,
+        "Guard the shared map with a lock, e.g. a Mutex, so two workers cannot …"
+    );
+}
+
+#[test]
 fn a_finding_filed_before_under_its_80_character_title_is_not_filed_again() {
     let what = "Distinguish publication failures from directory-sync failures: On Unix, if the parent sync fails";
     let found = [finding("src/lib.rs", what)];
