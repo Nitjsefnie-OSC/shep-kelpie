@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 use serde_json::{Value, json};
 
 use super::marker::MARKER;
-use super::pick_tests::{issue, list, rig_with, status};
+use super::pick_tests::{MAINTAINER, issue, list, rig_with, status};
 use crate::github::ApiError;
 use crate::ports::{AgentError, CLEAN, OpenIssue, Role, Timestamp, Tools};
 use crate::runner::{Pass, Runner, advance, step};
@@ -24,6 +24,12 @@ pub(super) const APP: &str = "kelpie-shep-pm[bot]";
 
 // What the representative says, before kelpie's marker goes under it
 pub(super) const WORDS: &str = "Thanks for the report. I looked it over.";
+
+// The comment that hands an outside issue over: `words`, the maintainer's
+// mention, and the marker
+pub(super) fn handed(words: &str) -> String {
+    format!("{words}\n\ncc @{MAINTAINER}\n\n{MARKER}")
+}
 
 // A reply with nothing found, which a test fills in
 pub(super) fn nothing() -> Value {
@@ -151,10 +157,7 @@ fn an_untouched_issue_gets_one_comment_with_the_marker_and_needs_triage_last() {
 
     assert_eq!(step(&runner).unwrap(), None);
 
-    assert_eq!(
-        rig.github.comments(),
-        [(30, format!("{WORDS}\n\n{MARKER}"))]
-    );
+    assert_eq!(rig.github.comments(), [(30, handed(WORDS))]);
     assert_eq!(
         moves(&rig),
         ["comment", "make needs-triage", "label needs-triage"]
