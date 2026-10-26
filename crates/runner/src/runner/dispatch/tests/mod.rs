@@ -14,6 +14,8 @@ use crate::settings::{AgentName, Effort};
 use crate::state::{ProjectState, StateStore};
 use crate::test::{CALL_PATIENCE, Hold, Rig, Scripted, ticket};
 
+mod choice;
+
 fn running(project: &str) -> (Rig, Mutex<Runner>) {
     let rig = Rig::new(project);
     let runner = rig.open().unwrap();
@@ -464,29 +466,6 @@ fn an_agent_label_added_after_dispatch_changes_nothing() {
         .script([Scripted::Reply(Usage::default(), Cost(1))]);
     step(&runner).unwrap();
     assert_eq!(rig.claude.calls()[0].model, "claude-sonnet-5-5");
-}
-
-#[test]
-fn add_takes_the_agent_label_too_and_refuses_one_naming_no_listed_implementer() {
-    let (rig, runner) = running("xilriws");
-    rig.forge.label(8, "agent:opus-high");
-    assert_eq!(
-        rig.ask(&runner, "add", Some("8")),
-        json!({ "error": "label `agent:opus-high` names no agent the project lists in \
-                          `agents.implementers`, which are sonnet-high" })
-    );
-    rig.forge.label(9, "worker:haiku-low");
-    let item = &rig.ask(&runner, "add", Some("9"))["work_item"];
-    assert_eq!(item["agent"], json!("sonnet-high"));
-    let notes = runner.lock().unwrap().take_notes();
-    assert_eq!(
-        notes,
-        [
-            "issue #9 is labelled `worker:haiku-low`, which kelpie no longer reads, so it \
-          runs on the default implementer, sonnet-high: an `agent:<name>` label picks \
-          another that `agents.implementers` lists"
-        ]
-    );
 }
 
 // A runner runs from its start: no trigger comes before its first look.
@@ -947,7 +926,7 @@ fn a_slow_issue_writer_on_the_pick_opens_it_the_pass_after_it_answers() {
 
     passes_until(&runner, "asked the writer", || slow.entered(Duration::ZERO));
     for _ in 0..10 {
-        rig.next_look();
+        rig.next_poll(&runner);
         let pass = advance(&runner).unwrap();
         assert!(
             !matches!(pass, Pass::Report(StepReport::Dispatched { .. })),

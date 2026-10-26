@@ -14,6 +14,7 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use crate::package_managers::{MANAGERS, PackageManager};
 use crate::ports::DevRun;
 
 /// How long the install and the server together get to answer on the port
@@ -32,57 +33,15 @@ const SCRIPT: &str = "(cd \"$1\" && { { [ -d node_modules ] && [ ! -e \"$2\" ]; 
                       || { touch \"$2\" && INSTALL && rm -f \"$2\"; }; }) \
                       || exit 1; shift 2; exec \"$@\"";
 
-/// A package manager, known by its lockfile
-struct Manager {
-    lockfile: &'static str,
-    install: &'static str,
-    /// The registries it fetches from
-    hosts: &'static [&'static str],
-    /// The variables that put its cache in the build folder, with the folder in it
-    caches: &'static [(&'static str, &'static str)],
-}
-
-const MANAGERS: [Manager; 5] = [
-    Manager {
-        lockfile: "package-lock.json",
-        install: "npm ci --ignore-scripts --no-audit --no-fund",
-        hosts: &["registry.npmjs.org"],
-        caches: &[("npm_config_cache", "npm-cache")],
-    },
-    Manager {
-        lockfile: "pnpm-lock.yaml",
-        install: "pnpm install --frozen-lockfile --ignore-scripts",
-        hosts: &["registry.npmjs.org"],
-        caches: &[("npm_config_store_dir", "pnpm-store")],
-    },
-    Manager {
-        lockfile: "yarn.lock",
-        install: "yarn install --frozen-lockfile --ignore-scripts",
-        hosts: &["registry.yarnpkg.com", "registry.npmjs.org"],
-        caches: &[("YARN_CACHE_FOLDER", "yarn-cache")],
-    },
-    Manager {
-        lockfile: "bun.lock",
-        install: "bun install --frozen-lockfile --ignore-scripts",
-        hosts: &["registry.npmjs.org"],
-        caches: &[("BUN_INSTALL_CACHE_DIR", "bun-cache")],
-    },
-    Manager {
-        lockfile: "bun.lockb",
-        install: "bun install --frozen-lockfile --ignore-scripts",
-        hosts: &["registry.npmjs.org"],
-        caches: &[("BUN_INSTALL_CACHE_DIR", "bun-cache")],
-    },
-];
-
 /// The folder with a lockfile that `cwd` or the first folder above it, up to `worktree`, holds
-fn lockfile_folder(worktree: &Path, cwd: &Path) -> Option<(PathBuf, &'static Manager)> {
+fn lockfile_folder(worktree: &Path, cwd: &Path) -> Option<(PathBuf, &'static PackageManager)> {
     cwd.ancestors()
         .take_while(|folder| folder.starts_with(worktree))
         .find_map(|folder| {
             MANAGERS
                 .iter()
-                .find(|m| folder.join(m.lockfile).is_file())
+                .filter(|m| m.install.is_some())
+                .find(|m| m.locks(folder))
                 .map(|manager| (folder.to_owned(), manager))
         })
 }
@@ -96,6 +55,9 @@ pub(super) fn before(run: &mut DevRun, worktree: &Path, build: &Path) {
     let Some((folder, manager)) = lockfile_folder(worktree, &run.cwd) else {
         return;
     };
+    let Some(install) = manager.install else {
+        return;
+    };
     let mark = build.join(UNFINISHED);
     let server = std::mem::replace(
         &mut run.program,
@@ -103,7 +65,7 @@ pub(super) fn before(run: &mut DevRun, worktree: &Path, build: &Path) {
     );
     let mut args = vec![
         "-c".to_owned(),
-        SCRIPT.replace("INSTALL", manager.install),
+        SCRIPT.replace("INSTALL", install),
         "kelpie-dev-server".to_owned(),
         folder.display().to_string(),
         mark.display().to_string(),

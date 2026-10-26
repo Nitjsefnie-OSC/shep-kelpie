@@ -10,7 +10,9 @@ use crate::runner::contributions::security_tests::{contribute, contribution, rev
 use crate::runner::contributions::tests::{picking, poll};
 use crate::runner::{Runner, StepReport, step};
 use crate::test::ticket;
-use crate::test::{CALL_PATIENCE, Hold, Rig, Scripted};
+#[cfg(unix)]
+use crate::test::{CALL_PATIENCE, Hold};
+use crate::test::{Rig, Scripted};
 use crate::ticket::TicketId;
 
 // A worker's reply that ends on a question, which parks its work item
@@ -666,6 +668,7 @@ fn finished_seven(report: Option<StepReport>) -> bool {
     )
 }
 
+#[cfg(unix)]
 #[test]
 fn a_done_item_closed_with_no_commits_holds_no_slot() {
     use std::os::unix::fs::PermissionsExt;

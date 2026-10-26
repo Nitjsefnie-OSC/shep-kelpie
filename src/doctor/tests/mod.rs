@@ -190,7 +190,6 @@ impl Scene {
             forge: &self.forge,
             github: &self.app,
             reviewer: &self.reviewer,
-            review_bot: &CodeRabbit,
             alerts: &self.alerts,
             host: &self.host,
             clock: &self.clock,
@@ -505,7 +504,6 @@ async fn no_shepherd_is_a_missing_shepherd_naming_its_home() {
         forge: &scene.forge,
         github: &scene.app,
         reviewer: &scene.reviewer,
-        review_bot: &CodeRabbit,
         alerts: &scene.alerts,
         host: &scene.host,
         clock: &scene.clock,
@@ -571,19 +569,32 @@ async fn coderabbit_on_a_repo_that_is_not_public_is_missing_its_plan() {
 }
 
 #[tokio::test]
-async fn coderabbit_that_has_never_commented_is_unsure_and_does_not_fail_the_run() {
+async fn each_listed_review_bot_says_when_it_last_reviewed_on_the_repo() {
+    let scene = Scene::new().await;
+    scene.runs("golbat", |t| {
+        t["agents"]["reviewers"] = json!(["defect-hunter", "coderabbit", "cubic"])
+    });
+    let report = scene.report().await;
+    for (file, name) in [("coderabbit", "CodeRabbit"), ("cubic", "cubic")] {
+        assert_eq!(
+            ok(&report, &format!("golbat: {file}")),
+            format!("{name} last reviewed on shep-pm/golbat at 2025-10-09 08:53 UTC")
+        );
+    }
+}
+
+#[tokio::test]
+async fn a_review_bot_that_has_never_reviewed_on_the_repo_is_missing() {
     let scene = Scene::new().await;
     scene.runs("golbat", |t| {
         t["agents"]["reviewers"] = json!(["defect-hunter", "coderabbit"])
     });
-    scene.forge.set_review_bot_seen(false);
+    scene.forge.set_last_bot_review(None);
     let report = scene.report().await;
-    let Verdict::Unsure { what, next } = verdict(&report, "golbat: coderabbit") else {
-        panic!("{:#?}", report.render());
-    };
-    assert!(what.contains("has not commented"), "{what}");
-    assert!(next.contains("install it on shep-pm/golbat"), "{next}");
-    assert!(report.passed());
+    let (what, fix) = missing(&report, "golbat: coderabbit");
+    assert!(what.contains("has never reviewed"), "{what}");
+    assert!(fix.contains("install it on shep-pm/golbat"), "{fix}");
+    assert!(!report.passed());
 }
 
 // Writes kelpie's agent file `name.md` holding `text`, and lists it alone
@@ -669,6 +680,38 @@ async fn ci_that_skips_drafts_is_missing_where_ci_blocks_and_not_where_it_does_n
     assert!(fix.contains("set `ci.block` to false"), "{fix}");
     assert!(!report.passed());
     assert!(!subjects(&report).contains(&"golbat: ci on drafts"));
+}
+
+#[tokio::test]
+async fn ci_that_never_runs_on_a_pull_request_is_missing_where_ci_blocks() {
+    let scene = Scene::new().await;
+    scene.runs("golbat", |t| {
+        t["ci"]["block"] = json!(false);
+    });
+    let on_main =
+        "on:\n  push:\n    branches: [main]\njobs:\n  test:\n    runs-on: ubuntu-latest\n";
+    for project in ["koji", "golbat"] {
+        let folder = scene.home.join(project).join(".github/workflows");
+        crate::test::write_in(&folder, "release.yml", on_main);
+    }
+    let report = scene.report().await;
+    let (what, fix) = missing(&report, "koji: ci on pull requests");
+    assert!(
+        what.contains("no workflow runs on a pull request"),
+        "{what}"
+    );
+    assert!(!what.contains("  "), "{what}");
+    assert!(fix.contains("`pull_request`"), "{fix}");
+    assert!(fix.contains("set `ci.block` to false"), "{fix}");
+    assert!(!report.passed());
+    assert!(!subjects(&report).contains(&"golbat: ci on pull requests"));
+
+    // One workflow that runs on a pull request, or no workflows folder, is nothing to say.
+    let koji = scene.home.join("koji").join(".github/workflows");
+    crate::test::write_in(&koji, "ci.yml", "on: pull_request\njobs:\n  t:\n");
+    assert!(!subjects(&scene.report().await).contains(&"koji: ci on pull requests"));
+    std::fs::remove_dir_all(scene.home.join("koji").join(".github")).unwrap();
+    assert!(!subjects(&scene.report().await).contains(&"koji: ci on pull requests"));
 }
 
 #[tokio::test]
@@ -867,6 +910,7 @@ mod e2e;
 mod github;
 mod harnesses;
 mod plugins;
+mod registries;
 mod reviewers;
 mod sandbox;
 mod template;

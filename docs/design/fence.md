@@ -8,7 +8,7 @@ call reads is in fence-reads.md.
 - Kelpie's guard in every worker's settings; `worker.guard_hooks` adds Claude Code hooks; an unresolvable hook stops the runner at start and refuses a reread. #108, `runner/guard_hooks.rs`
 - Project `hooks` run own commands at `publish`, `commit`, `push`, `handover`, `command`, `write`, `turn_start`, `turn_end`, notices on every harness (`guard_hooks` reach Claude Code alone). A changed table is live: one `SharedHooks` handle held by the guarded ports and the runner, replaced by reread. ADR 0009, #454, #1120, `crates/core/src/hooks/`
 - Workers run `bypassPermissions` over `main` ruleset + OS sandbox + `kelpie guard` denylist; no auto mode (classifier outages blocked work). `crates/core/src/profile/mod.rs`
-- Sandbox and `kelpie confine` hold writes to worktree + build folder, hosts to GitHub, the model, `allowed_domains`. `crates/core/src/profile/mod.rs`
+- Sandbox and `kelpie confine` hold writes to worktree + build folder, hosts to GitHub, the model, `allowed_domains`, and the package registries of the call's worktree (`fence-reach.md`). `crates/core/src/profile/mod.rs`
 - Guard denies what only kelpie does (merge, ready, `review please`, `gh api`, pushes to `main`, credential reads); a worker's `git fetch` is answered (merge.md); label or ready change kelpie didn't make parks the worker. A goose reviewer, advisor, retro: `--goose --read-only` (agents.md). `crates/core/src/guard/mod.rs`
 - Agent files in worktree (`.claude`, `.mcp.json`, `.codex`, `.agents`, `.pi`, `.goose`) fenced, checked before each call; change parks `agent-files` (a review could plant a hook). #98
 - Every call runs whole inside kelpie's OS sandbox (`Sandbox` port), hooks and MCP included; Claude Code's own sandbox off (macOS can't nest). #128

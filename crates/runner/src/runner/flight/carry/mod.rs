@@ -5,11 +5,14 @@
 //! incoming one needs to finish the turn as it would have: the call's record
 //! on disk, its line in the usage ledger as it started, and when it started.
 //! Anything else in flight is not carried, and the handover is refused while
-//! it runs.
+//! it runs. A call whose record is gone has just ended unheard, so the
+//! handover waits [`CARRY_WAIT`] for the pass that hears it.
 
+use std::fmt;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
 use std::thread;
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
@@ -20,10 +23,37 @@ use super::super::in_flight::{Key, Open};
 use super::super::transcript_count::Mark;
 use super::{End, Flight, News, Tell, unstarted, waiting};
 use crate::lease::wire::AskerCarry;
-use crate::ports::{Adopted, Ending, Flying, Timestamp};
+use crate::ports::{Adopted, Ending, Flying, NotAdopted, Timestamp};
 use crate::settings::Harness;
 use crate::ticket::TicketId;
 use crate::work_item::WorkItem;
+
+/// How long a handover waits for the end of a call whose record is gone to be
+/// heard, before it is refused
+pub const CARRY_WAIT: Duration = Duration::from_secs(10);
+
+/// Why the turns in flight cannot be taken now
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NotCarried {
+    /// A call just ended and its end is not yet heard, so a pass later may
+    /// carry what this one cannot
+    Waiting(String),
+    /// Nothing a pass does makes the turns carryable
+    Refused(String),
+}
+
+impl fmt::Display for NotCarried {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let (Self::Waiting(why) | Self::Refused(why)) = self;
+        f.write_str(why)
+    }
+}
+
+impl From<String> for NotCarried {
+    fn from(why: String) -> Self {
+        Self::Refused(why)
+    }
+}
 
 /// A worker's turn as it crosses a handover
 // wire format: changing this is a change to the handover's state format
@@ -60,10 +90,13 @@ impl Runner {
     ///
     /// # Errors
     ///
-    /// Why the handover waits: a call in flight that is not a worker's turn,
-    /// a turn whose process has not started or has just ended, one that holds
-    /// a browser, or one a handover already carried.
-    pub fn carry_calls(&self) -> Result<Vec<CarriedTurn>, String> {
+    /// [`NotCarried::Refused`] for a call in flight that is not a worker's
+    /// turn, one that holds a browser, one a handover already carried, or one
+    /// whose record is there and cannot be read. [`NotCarried::Waiting`] for
+    /// a turn with no record, which has just ended or has not yet written
+    /// one, until [`CARRY_WAIT`] has passed since it was first seen so.
+    pub fn carry_calls(&mut self) -> Result<Vec<CarriedTurn>, NotCarried> {
+        let now = self.ports.clock.now();
         let flights = &self.flights;
         let others = [
             (flights.pm.is_some(), "the project manager's call"),
@@ -72,9 +105,7 @@ impl Runner {
             (flights.retro.is_some(), "the batch retro"),
         ];
         if let Some((_, what)) = others.iter().find(|(flying, _)| *flying) {
-            return Err(format!(
-                "{what} is in flight, and only a worker's turn is carried"
-            ));
+            return Err(format!("{what} is in flight, and only a worker's turn is carried").into());
         }
         for harness in Harness::ALL {
             let Some(why) = harness.facts().holds_handover_at_attach else {
@@ -85,45 +116,64 @@ impl Runner {
                 return Err(format!(
                     "#{issue} is attached, and the {name} session in the maintainer's terminal \
                      {why}"
-                ));
+                )
+                .into());
             }
         }
-        flights
-            .flying
-            .iter()
-            .map(|(&ticket, flight)| {
-                if flight.browser.is_some() {
-                    return Err(format!(
-                        "#{ticket}'s turn drives a browser, whose socket this image holds, \
-                         which the next image would not"
-                    ));
+        let flights = &mut self.flights;
+        let mut turns = Vec::new();
+        let mut waiting = None;
+        for (&ticket, flight) in &mut flights.flying {
+            if flight.browser.is_some() {
+                return Err(format!(
+                    "#{ticket}'s turn drives a browser, whose socket this image holds, \
+                     which the next image would not"
+                )
+                .into());
+            }
+            let Some(call) = &flight.watched.call else {
+                return Err(format!(
+                    "the call of #{ticket} is a review or one the last handover carried, \
+                     and only a worker's turn from this image is carried"
+                )
+                .into());
+            };
+            let adopted = match self.ports.agents.adoption(call) {
+                Ok(adopted) => {
+                    flight.record_gone = None;
+                    adopted
                 }
-                let Some(call) = &flight.watched.call else {
-                    return Err(format!(
-                        "the call of #{ticket} is a review or one the last handover carried, \
-                         and only a worker's turn from this image is carried"
-                    ));
-                };
-                let adopted = (self.ports.agents.adoption(call))
-                    .map_err(|why| format!("the turn of #{ticket} cannot be carried: {why}"))?;
-                let flying = adopted.flying.ok_or_else(|| {
-                    format!(
-                        "the record of #{ticket}'s turn notes no ceiling, so it cannot be timed"
-                    )
-                })?;
-                let open = (flights.ledger.peek(Key::Item(ticket))).ok_or_else(|| {
-                    format!("the turn of #{ticket} has no line in the usage ledger")
-                })?;
-                Ok(CarriedTurn {
-                    ticket,
-                    adopted,
-                    flying,
-                    started: flight.watched.started,
-                    open,
-                    requests: flight.requests.clone(),
-                })
-            })
-            .collect()
+                Err(NotAdopted::RecordGone(why)) => {
+                    let since = *flight.record_gone.get_or_insert(now);
+                    let why = format!("the turn of #{ticket} cannot be carried: {why}");
+                    if now.0.saturating_sub(since.0) >= CARRY_WAIT.as_secs() {
+                        return Err(NotCarried::Refused(why));
+                    }
+                    waiting.get_or_insert(why);
+                    continue;
+                }
+                Err(NotAdopted::Refused(why)) => {
+                    return Err(format!("the turn of #{ticket} cannot be carried: {why}").into());
+                }
+            };
+            let flying = adopted.flying.ok_or_else(|| {
+                format!("the record of #{ticket}'s turn notes no ceiling, so it cannot be timed")
+            })?;
+            let open = (flights.ledger.peek(Key::Item(ticket)))
+                .ok_or_else(|| format!("the turn of #{ticket} has no line in the usage ledger"))?;
+            turns.push(CarriedTurn {
+                ticket,
+                adopted,
+                flying,
+                started: flight.watched.started,
+                open,
+                requests: flight.requests.clone(),
+            });
+        }
+        match waiting {
+            Some(why) => Err(NotCarried::Waiting(why)),
+            None => Ok(turns),
+        }
     }
 
     /// The lease totals as the next image takes them up, if this runner's
@@ -218,6 +268,7 @@ impl Runner {
                 fallback: waiting::Fallback::Stays,
                 browser: None,
                 requests: None,
+                record_gone: None,
             },
         );
         self.board_changed();

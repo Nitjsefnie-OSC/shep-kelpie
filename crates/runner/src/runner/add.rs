@@ -72,8 +72,10 @@ impl Runner {
     /// [`AddError`] when the runner is finishing, the project has
     /// `concurrency.active_items` working or one for this issue open
     /// already, the issue cannot be read or is closed, or its `agent:` label names no
-    /// listed implementer, or the change cannot be saved. Nothing changes then.
+    /// implementer kelpie has an agent file for, or the change cannot be saved.
+    /// Nothing changes then.
     pub fn add(&mut self, ticket: TicketId) -> Result<AgentName, AddError> {
+        self.looks.poll_reset();
         self.add_allowed(ticket)?;
         let found = (self.ports.tickets.issue(&self.remote, ticket)).map_err(AddError::Forge)?;
         self.add_found(ticket, found)
@@ -131,19 +133,25 @@ impl Runner {
         ticket: TicketId,
         labels: &[String],
     ) -> Result<(AgentName, Option<String>), LabelError> {
-        let listed = self.agents.implementer_names();
-        if let Some(agent) = agent_label(labels, &listed)? {
+        if let Some(agent) = agent_label(labels, &self.implementer_files())? {
             return Ok((agent, None));
         }
         let agent = self.agents.default_implementer.name.clone();
         let note = old_worker_label(labels).map(|old| {
             format!(
                 "{} is labelled `{old}`, which kelpie no longer reads, so it runs on the \
-                 default implementer, {agent}: an `agent:<name>` label picks another that \
-                 `agents.implementers` lists",
+                 default implementer, {agent}: an `agent:<name>` label picks another \
+                 implementer",
                 ticket.named().to_lowercase()
             )
         });
         Ok((agent, note))
+    }
+
+    // Every agent an `agent:` label may name for this project: each agent
+    // file whose role is `implementer`, listed in `agents.implementers` or
+    // not. A listed one always has such a file, so this holds them all.
+    pub(super) fn implementer_files(&self) -> Vec<AgentName> {
+        self.book.implementer_files()
     }
 }

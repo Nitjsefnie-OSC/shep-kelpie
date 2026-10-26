@@ -60,7 +60,7 @@ mod pace;
 pub use handover::Carry;
 use handover::Handing;
 use look::Look;
-use pace::wait_after_pass;
+use pace::{Reread, wait_after_pass};
 
 /// Runs `project`'s runner until the shepherd stops it
 ///
@@ -409,7 +409,7 @@ type OnFinished = Box<dyn FnMut(&Arc<Mutex<Runner>>) + Send>;
 
 /// What the loop's thread runs beside its passes
 struct Hooks {
-    /// Each time it wakes from a wait, before its next pass
+    /// Each time it wakes from a wait, and between two passes once `INTERVAL` has passed
     on_wake: OnWake,
     /// Each time the runner's stop is due, once it finished
     finished: OnFinished,
@@ -537,6 +537,7 @@ fn work(
     woken: &Receiver<()>,
     stopping: &AtomicBool,
 ) {
+    let mut reread = Reread::at(&runner.lock().unwrap_or_else(PoisonError::into_inner));
     while !stopping.load(Ordering::SeqCst) {
         let (notes, stop) = {
             let mut runner = runner.lock().unwrap_or_else(PoisonError::into_inner);
@@ -558,10 +559,14 @@ fn work(
                     .log_step(&report);
                 println!("{line}");
                 if !report.waits() {
+                    busy_point(runner, hooks, stopping, &mut reread);
                     continue;
                 }
             }
-            Ok(Pass::Started) => continue,
+            Ok(Pass::Started) => {
+                busy_point(runner, hooks, stopping, &mut reread);
+                continue;
+            }
             Ok(Pass::Idle) => {}
             Err(e) => eprintln!("cannot save what a pass did: {e}"),
         }
@@ -577,8 +582,30 @@ fn work(
             // The quiet point: no pass is running, so no child of one is.
             hooks.handover.attempt(runner);
             (hooks.on_wake)(runner);
+            reread.done(&runner.lock().unwrap_or_else(PoisonError::into_inner));
             log_started(runner);
         }
+    }
+}
+
+// What a runner that always has work to do does between two passes, which no
+// wait comes between: the pending handover is tried, and the settings are
+// read again once INTERVAL has passed since they last were.
+fn busy_point(
+    runner: &Arc<Mutex<Runner>>,
+    hooks: &mut Hooks,
+    stopping: &AtomicBool,
+    reread: &mut Reread,
+) {
+    if stopping.load(Ordering::SeqCst) {
+        return;
+    }
+    hooks.handover.attempt(runner);
+    let due = reread.due(&runner.lock().unwrap_or_else(PoisonError::into_inner));
+    if due {
+        (hooks.on_wake)(runner);
+        reread.done(&runner.lock().unwrap_or_else(PoisonError::into_inner));
+        log_started(runner);
     }
 }
 

@@ -11,11 +11,11 @@ Kelpie: dog of the maintainer's shepherd; one runner per project takes ready iss
 - Needs shep 0.17.0+ (ADR 0016); `upgrade` refuses builds it would. shep-pm/shep#688, #319, #656, #914
 - Home: `$SHEP_HOME/kelpie` (`KELPIE_HOME`), shep plugin, folder per project; the dog's files stay under `$SHEP_HOME`. #253
 - The shepherd is reached through the `Dial` port (`core/shepherd/connection.rs`): `Socket` is the real one; tests dial `FakeShepherd`. #587
-- Socket path over 103 bytes: runner refuses to start. #1147
-- Home never moved from `~/.kelpie`: refuses to start naming each old file, exit 78 (`stop_exit_codes`). #311, #345
-- State file version 82 (`VERSION` in `core/state/mod.rs`); each change one way: rollback = finish or drop open items. `core/state/removed/mod.rs`
+- Socket path over 103 bytes: runner won't start. #1147
+- Home never moved from `~/.kelpie`: won't start, naming each old file, exit 78 (`stop_exit_codes`). #311, #345
+- State file version 85 (`VERSION` in `core/state/mod.rs`); each change one way: rollback = finish or drop open items. `core/state/removed/mod.rs`
 - Business code is Rust; Tauri GUI after MVP. #5
-- Crates under `crates/` use nothing above them; the root holds the binary and verbs (`src/{flock,upgrade,sheep,doctor,issues}/`, `src/schema.rs`). ADR 0015
+- Crates under `crates/` use nothing above them; the root holds the binary, verbs (`src/{flock,upgrade,sheep,doctor,issues}/`, `src/schema.rs`). ADR 0015
 - No budget numbers in agent prompts; no worker merges/posts as the maintainer (fence.md, github-app.md).
 
 ## Files
@@ -31,6 +31,7 @@ Kelpie: dog of the maintainer's shepherd; one runner per project takes ready iss
 | runner-lock-threads.md | handler threads | `runner/trigger/` |
 | fence.md | sandbox, guard, hooks | `core/{profile,guard,hooks}/` |
 | fence-reads.md | reads, sources | `core/dep_sources.rs`, `adapters/harness/`, `runner/turn/dep_reads.rs` |
+| fence-reach.md | hosts | `core/package_managers/` |
 | browser.md | a worker's browser: bridge, filter, tools | `core/{bridge,browse}.rs`, `adapters/bridge/`, `runner/browser.rs`, `core/settings/browser.rs`, `process/tools/` |
 | browser-proxy.md | the browser's proxy: origins, addresses, limits | `adapters/bridge/proxy/`, `adapters/forwarder/http.rs` |
 | browser-dev-server.md | a worker's dev server: launch, port, readiness | `runner/dev_server/`, `core/ports/dev_server.rs`, `adapters/dev_server/` |

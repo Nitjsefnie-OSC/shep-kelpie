@@ -9,8 +9,8 @@ use std::fmt;
 use std::sync::Arc;
 
 use super::{
-    Adopted, AgentCall, AgentError, AgentReply, Agents, CallActivity, Ending, SessionId,
-    Transcript, Voice,
+    Adopted, AgentCall, AgentError, AgentReply, Agents, CallActivity, Ending, NotAdopted,
+    SessionId, Transcript, Voice,
 };
 use crate::settings::ForgeSlug;
 
@@ -57,7 +57,7 @@ impl Agents for KeychainBlocked {
         self.agents.run(&self.blocking(call), ending)
     }
 
-    fn adoption(&self, call: &AgentCall) -> Result<Adopted, String> {
+    fn adoption(&self, call: &AgentCall) -> Result<Adopted, NotAdopted> {
         self.agents.adoption(call)
     }
 

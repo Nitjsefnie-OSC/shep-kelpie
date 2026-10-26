@@ -17,11 +17,11 @@
 //! pull request once the session ends. That session is the maintainer's:
 //! kelpie starts it and cleans up after it.
 //!
-//! Each listed implementer's `agent:` label is made on the repo the first
-//! time the issue writer needs it, since the forge refuses a label the repo
-//! lacks. A project whose tickets are the local store makes none, and its
-//! writer files with `shep kelpie ticket new` into the project's `tickets/`
-//! folder, which its sandbox may write and read, in place of `gh issue create`.
+//! Each agent file with `role: implementer` gets its `agent:` label made on
+//! the repo the first time the issue writer needs it, since the forge refuses
+//! a label the repo lacks. A project on the local ticket store makes none, and
+//! its writer files with `shep kelpie ticket new` into the project's
+//! `tickets/` folder, which its sandbox may write and read.
 
 use std::collections::BTreeMap;
 use std::ffi::OsStr;
@@ -45,7 +45,7 @@ use crate::ports::{
 };
 use crate::ports::{Clock, SystemClock};
 use crate::profile::CREDENTIALS;
-use crate::settings::{ForgeSlug, RoleAgents, Settings, TicketSource};
+use crate::settings::{AgentName, ForgeSlug, RoleAgents, Settings, TicketSource};
 use crate::skills;
 use crate::ticket::TicketId;
 use crate::usage;
@@ -68,6 +68,9 @@ pub struct Project<'a> {
     pub paths: &'a ProjectPaths,
     /// Its implementers, which an issue's `agent:` label names
     pub agents: &'a RoleAgents,
+    /// Every agent file with `role: implementer`, which an `agent:` label may
+    /// name, listed in `agents.implementers` or not
+    pub implementers: &'a [AgentName],
     /// The kelpie binary, which runs the guard
     pub kelpie: &'a Path,
     /// The maintainer's home folder, whose installed toolchain homes the writer
@@ -95,7 +98,8 @@ impl Mode {
 }
 
 /// Makes each label the issue writer files with that the repo lacks: the
-/// status label and every listed implementer's `agent:` label
+/// status label and the `agent:` label of every agent file with
+/// `role: implementer`, listed or not
 ///
 /// # Errors
 ///
@@ -108,7 +112,7 @@ pub fn make_labels(forge: &dyn Forge, project: &Project<'_>, mode: Mode) -> Resu
     let status = crate::flock::add::LABELS
         .into_iter()
         .find(|l| l.name == mode.status());
-    let agents = agent_labels(project.agents);
+    let agents = agent_labels(project.implementers);
     let wanted = status
         .into_iter()
         .chain(agents.iter().map(AgentLabel::new_label));
@@ -499,10 +503,9 @@ fn report(
             }
         };
         // As the board will read it once the maintainer labels it ready.
-        let names = project.agents.implementer_names();
         let mut lacks = Vec::new();
         let mut about = Vec::new();
-        match agent_label(&issue.labels, &names) {
+        match agent_label(&issue.labels, project.implementers) {
             Ok(Some(agent)) => about.push(format!("{AGENT_LABEL}{agent}")),
             Ok(None) => lacks.push(format!("no `{AGENT_LABEL}` label")),
             Err(e) => lacks.push(e.to_string()),

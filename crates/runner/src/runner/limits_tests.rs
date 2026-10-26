@@ -76,6 +76,30 @@ fn a_claude_worker_waits_on_claudes_window_and_never_reads_codexs() {
 }
 
 #[test]
+fn an_item_on_an_unlisted_implementer_paces_on_its_account_too() {
+    let (rig, runner) = named("shep", "");
+    rig.edit_settings(|s| s.replace("active_items = 1", "active_items = 2"));
+    rig.forge.label(7, "agent:codex");
+    rig.ask(&runner, "add", Some("7"));
+    rig.codex_meter.set(Rig::utilization(0, 55));
+    rig.forge.list_ready(8, false);
+
+    let (kind, reason) = held(step(&runner).unwrap());
+    assert_eq!(kind, HoldKind::Window);
+    assert!(
+        reason.starts_with("Codex's 5-hour window is at 55%"),
+        "{reason}"
+    );
+    assert_eq!((rig.meter.reads(), rig.codex_meter.reads()), (0, 1));
+    let pacer = rig.ask(&runner, "status", None)["pacer"].clone();
+    assert_eq!(pacer["codex"]["holding"]["kind"], "window");
+    assert!(
+        pacer.get("claude").is_some(),
+        "the listed implementer's account is read too: {pacer}"
+    );
+}
+
+#[test]
 fn a_project_all_on_codex_paces_on_codexs_own_windows() {
     let (rig, runner) = named("koji", ALL_CODEX);
     rig.forge.list_ready(7, false);

@@ -203,6 +203,7 @@ impl Runner {
     /// it, or the answer cannot be saved. The ruling stays pending then, and
     /// answering again is safe: a worktree already at an accepted head is left.
     pub fn rule(&mut self, id: TicketId, answer: Answer) -> Result<(), RuleError> {
+        self.looks.poll_reset();
         self.rule_by(id, answer, Settler::Terminal)
     }
 
@@ -285,6 +286,11 @@ impl Runner {
                 )
             )
         );
+        // A yes passes the head that got no check as skipped.
+        let unchecked = match (&answer, &ruling.kind) {
+            (Answer::Yes, RulingKind::Stuck(Stuck::NoChecks { head, .. })) => Some(head.clone()),
+            _ => None,
+        };
         // Any answer to a refused merge gives the next one its catch-up again.
         let refusal_answered = matches!(ruling.kind, RulingKind::Stuck(Stuck::MergeRefused { .. }));
         // Either answer to a work item over its budget lifts its cap, as far as
@@ -379,6 +385,9 @@ impl Runner {
             }
             if accepts.is_some() {
                 item.claude_files_accepted = accepts;
+            }
+            if unchecked.is_some() {
+                item.unchecked = unchecked;
             }
             if let Some(act::Act::Rerun { head }) = act {
                 item.reran = Some(head);
@@ -778,9 +787,10 @@ fn decide(
         // parked on it, so here the answer only clears the ruling.
         (Answer::Rework(_), RulingKind::Contribution(Held::Merge { .. })) => Phase::Implement,
         (Answer::Rework(_), _) => return Err(RuleError::NotAMerge(id)),
-        (Answer::Yes | Answer::No(_), RulingKind::Stuck(Stuck::CheckQueued { review, .. })) => {
-            queued::waiting_again(review, now)
-        }
+        (
+            Answer::Yes | Answer::No(_),
+            RulingKind::Stuck(Stuck::CheckQueued { review, .. } | Stuck::NoChecks { review, .. }),
+        ) => queued::waiting_again(review, now),
         // The jobs are rerun, so CI is looked at again, in the round it
         // interrupted when it did.
         (

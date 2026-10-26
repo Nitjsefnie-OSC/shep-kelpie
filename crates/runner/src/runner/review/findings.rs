@@ -303,6 +303,7 @@ pub(in crate::runner) fn still_failing_prompt(
 #[cfg(test)]
 mod tests {
     use crate::test::ticket;
+    #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
     use std::sync::Mutex;
 
@@ -473,6 +474,7 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_findings_file_that_cannot_be_written_is_an_error() {
         let dir = tempfile::tempdir().unwrap();
@@ -499,6 +501,7 @@ mod tests {
         std::fs::set_permissions(&folder, perms).unwrap();
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_findings_file_that_links_to_another_file_is_replaced_and_that_file_is_left_alone() {
         let dir = tempfile::tempdir().unwrap();
@@ -515,6 +518,7 @@ mod tests {
         assert!(text.contains("a.rs:1"), "{text}");
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_deferred_file_that_links_to_another_file_is_not_read() {
         let dir = tempfile::tempdir().unwrap();

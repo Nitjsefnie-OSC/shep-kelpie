@@ -458,6 +458,16 @@ impl Agents {
         self.agents.iter()
     }
 
+    /// Every agent file whose role is `implementer`, by name: every agent an
+    /// `agent:` label may name, listed in `agents.implementers` or not
+    pub fn implementer_files(&self) -> Vec<AgentName> {
+        self.agents
+            .iter()
+            .filter(|(_, agent)| agent.role == Role::Implementer)
+            .map(|(name, _)| name.clone())
+            .collect()
+    }
+
     /// A line for each `.md` file skipped because its name is no agent's
     pub fn skipped(&self) -> impl Iterator<Item = String> + '_ {
         self.skipped.iter().map(|path| {

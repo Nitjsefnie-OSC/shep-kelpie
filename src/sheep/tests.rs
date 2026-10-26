@@ -268,6 +268,21 @@ fn an_idle_runner_whose_board_is_shut_sleeps_rather_than_spins() {
     assert!(passes <= 2, "{passes} passes in a minute");
 }
 
+// Each pass of an idle runner with a quiet board, then the wait it computes
+#[test]
+fn an_idle_runner_with_a_quiet_board_sleeps_longer_between_passes() {
+    let rig = Rig::new("shep");
+    let runner = rig.open().unwrap();
+    let mut waits = Vec::new();
+    for _ in 0..5 {
+        advance(&runner).unwrap();
+        let wait = wait_after_pass(&runner.lock().unwrap());
+        rig.clock.advance(wait.as_secs());
+        waits.push(wait.as_secs());
+    }
+    assert_eq!(waits, [60, 120, 240, 300, 300]);
+}
+
 #[test]
 fn a_wake_reads_the_settings_again_but_a_stop_does_not() {
     let rig = Rig::new("shep");
@@ -292,6 +307,78 @@ fn a_wake_reads_the_settings_again_but_a_stop_does_not() {
     assert_eq!(
         wakes.load(Ordering::SeqCst),
         1,
+        "the stop read the settings"
+    );
+}
+
+// A worker on two ready issues, each of whose passes starts a call, with the
+// first pass held in the forge while the clock moves on `secs`, and the
+// settings reads it makes counted. `stop_first` asks it to stop meanwhile.
+fn busy_for(rig: &Rig, secs: u64, stop_first: bool) -> (Worker, Arc<AtomicUsize>, Hold, Hold) {
+    rig.edit_settings(|s| s.replace("active_items = 1", "active_items = 2"));
+    let runner = Arc::new(rig.open().unwrap());
+    rig.ask(&runner, "add", Some("7"));
+    rig.ask(&runner, "add", Some("8"));
+    let (seven, eight) = (Hold::default(), Hold::default());
+    rig.claude
+        .script([Scripted::Hold(seven.clone()), Scripted::Hold(eight.clone())]);
+    let rereads = Arc::new(AtomicUsize::new(0));
+    let counted = Arc::clone(&rereads);
+    let hooks = Hooks {
+        on_wake: Box::new(move |_| {
+            counted.fetch_add(1, Ordering::SeqCst);
+        }),
+        finished: Box::new(|_| {}),
+        handover: Handing::never(),
+    };
+    let (wake, woken) = mpsc::channel();
+    let (died, _) = mpsc::channel();
+    let held = rig.forge.hold_next_call();
+    let worker = Worker::spawn(runner, hooks, wake, woken, died);
+    assert!(held.waiting(CALL_PATIENCE), "the first pass never began");
+    rig.clock.advance(secs);
+    if stop_first {
+        worker.stopping.store(true, Ordering::SeqCst);
+    }
+    drop(held);
+    (worker, rereads, seven, eight)
+}
+
+#[test]
+fn a_runner_whose_passes_all_start_a_call_rereads_once_the_interval_has_passed() {
+    let rig = Rig::new("shep");
+    let (worker, rereads, seven, eight) = busy_for(&rig, pace::INTERVAL.as_secs(), false);
+
+    assert!(seven.entered(CALL_PATIENCE), "#7's turn never began");
+    assert!(eight.entered(CALL_PATIENCE), "#8's turn never began");
+    // Two passes started a call and neither was idle; the second came inside
+    // the interval of the read the first made.
+    assert_eq!(rereads.load(Ordering::SeqCst), 1);
+    assert!(worker.stop(JOIN_BOUND, || {}));
+    assert_eq!(rereads.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn a_runner_whose_passes_all_start_a_call_rereads_nothing_inside_the_interval() {
+    let rig = Rig::new("shep");
+    let secs = pace::INTERVAL.as_secs() - 1;
+    let (worker, rereads, seven, eight) = busy_for(&rig, secs, false);
+
+    assert!(seven.entered(CALL_PATIENCE), "#7's turn never began");
+    assert!(eight.entered(CALL_PATIENCE), "#8's turn never began");
+    assert_eq!(rereads.load(Ordering::SeqCst), 0);
+    assert!(worker.stop(JOIN_BOUND, || {}));
+}
+
+#[test]
+fn a_stop_between_two_busy_passes_rereads_nothing() {
+    let rig = Rig::new("shep");
+    let (worker, rereads, _seven, _eight) = busy_for(&rig, pace::INTERVAL.as_secs(), true);
+
+    assert!(worker.stop(JOIN_BOUND, || {}));
+    assert_eq!(
+        rereads.load(Ordering::SeqCst),
+        0,
         "the stop read the settings"
     );
 }

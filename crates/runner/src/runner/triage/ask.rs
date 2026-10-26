@@ -391,6 +391,13 @@ impl Runner {
 pub(super) const REPLY_HINT: &str = "Reply `ok` to take every recommended answer, and `Qn: ...` \
     to change one, such as `ok` then `Q2: ...` on the next line.";
 
+// Whether `body` is a triage comment that carries the questions for the author:
+// the first heading [`questions_block`] writes. A question's own text cannot
+// pass for it: [`unfenced`] took the mark out of the text the block holds.
+pub(super) fn holds_questions(body: &str) -> bool {
+    body.contains("\u{2753} Q1 - ")
+}
+
 // The comment whose questions the author answers and when the wait on them
 // began. A record saved by a kelpie that asked for a word holds an `asked`
 // instead of `questions`, and the triage comment it was saved with is the one
@@ -461,11 +468,7 @@ fn confirmed(answers: &str, recommended: &BTreeMap<usize, String>) -> String {
     let mut rest: Vec<&str> = Vec::new();
     let mut under: Option<usize> = None;
     for line in answers.lines() {
-        if line
-            .trim()
-            .trim_end_matches(['.', '!'])
-            .eq_ignore_ascii_case("ok")
-        {
+        if says_ok(line) {
             ok = true;
             under = None;
         } else if let Some((n, text)) = numbered(line) {
@@ -505,6 +508,33 @@ fn numbered(line: &str) -> Option<(usize, &str)> {
     let (head, text) = line.trim_start().split_once(':')?;
     let n = head.strip_prefix(['Q', 'q'])?;
     Some((n.parse().ok()?, text.trim()))
+}
+
+// A line that takes every recommended answer: `ok` alone, any case, a trailing
+// `.` or `!` allowed
+fn says_ok(line: &str) -> bool {
+    line.trim()
+        .trim_end_matches(['.', '!'])
+        .eq_ignore_ascii_case("ok")
+}
+
+// Whether the author's reply answers question `n` of the round it follows, read
+// the way [`confirmed`] reads it: a line that is only `ok` takes every question
+// of the round, a `Qn: ...` line takes that one. A reply in neither form answers
+// no question kelpie can name, whatever the second pass makes of it.
+pub(super) fn answers_one(reply: &str, n: usize) -> bool {
+    (reply.lines()).any(|line| says_ok(line) || numbered(line).is_some_and(|(m, _)| m == n))
+}
+
+// The text a question is compared by: as [`questions_block`] writes it, its first
+// line only, in one case. Both sides of the settled filter go through it, so what
+// was read back off a comment equals what the triager named.
+pub(super) fn question_key(text: &str) -> String {
+    let shaped = unfenced(text);
+    (shaped.lines().next())
+        .unwrap_or_default()
+        .trim()
+        .to_lowercase()
 }
 
 fn unfenced(text: &str) -> String {

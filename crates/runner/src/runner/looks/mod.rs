@@ -2,15 +2,14 @@
 //!
 //! The loop wakes for every call's news and every trigger that asks for
 //! work, so a pass is no measure of time. The board is read at most once a
-//! [`BOARD_POLL`], and at once after a change to what it would see: a work
-//! item opening or ending, a ruling leaving the list, the adopted pull
-//! requests queued changing, `finishing` ending, the project manager
-//! answering, the issue writer's call ending, and the board's briefing
-//! reading paths it had not compared. A step that fails waits [`RETRY_FIRST`] before it runs again,
-//! twice as long after each failure in a row up to [`RETRY_MAX`], and no
-//! less than the forge's rate-limit hold. Any other outcome ends the wait.
-//! A write of kelpie's own, a comment, a label, a merge, makes the next look
-//! due at once, since the read after it is the one that shows what it did.
+//! poll: [`BOARD_POLL`], doubling to [`IDLE_POLL_MAX`] while no work item is
+//! open and the board repeats. A moved board, a work item opening or ending,
+//! a trigger that asks for work and a write of kelpie's own end the backoff,
+//! and the board is read at once after a change to what it would see. A step
+//! that fails waits [`RETRY_FIRST`], twice as long after each failure in a
+//! row up to [`RETRY_MAX`], and no less than the forge's rate-limit hold.
+//! A write of kelpie's own makes the next look due at once, since the read
+//! after it is the one that shows what it did.
 
 use std::collections::BTreeMap;
 use std::time::Duration;
@@ -31,7 +30,16 @@ use crate::ticket::TicketId;
 /// for the maintainer's login. The open pull requests it lists are the
 /// pass's snapshot, which the rework check, the CI gate and the merge read
 /// instead of asking for each pull request.
+///
+/// An idle runner's poll grows to [`IDLE_POLL_MAX`].
 pub const BOARD_POLL: Duration = Duration::from_secs(60);
+
+/// The longest an idle runner goes between two reads of its board
+///
+/// The poll doubles from [`BOARD_POLL`] while no work item is open and the
+/// board does not move: 60, 120, 240, then 300 seconds. A ready label added
+/// meanwhile is seen within this.
+pub const IDLE_POLL_MAX: Duration = Duration::from_secs(5 * 60);
 
 /// How often the latest runs of `main`'s workflows are read, however often the
 /// loop wakes
@@ -66,6 +74,8 @@ pub struct Failing {
 #[derive(Debug, Default)]
 pub(super) struct Looks {
     board_read: Option<Timestamp>,
+    // How many times the poll has doubled since it was last [`BOARD_POLL`]
+    doublings: u32,
     // Whether something changed what the board would see since its last read
     board_moved: bool,
     // When the labels of dropped issues were last read on their own
@@ -90,11 +100,25 @@ pub(super) struct Looks {
 }
 
 impl Looks {
+    /// The poll every timer of the forge reads goes by: [`BOARD_POLL`], doubled
+    /// for each read in a row of an idle runner's board that showed nothing
+    /// new, up to [`IDLE_POLL_MAX`]
+    pub(super) fn poll(&self) -> Duration {
+        BOARD_POLL
+            .saturating_mul(2u32.saturating_pow(self.doublings))
+            .min(IDLE_POLL_MAX)
+    }
+
+    /// Ends the backoff: the poll is [`BOARD_POLL`] again
+    pub(super) fn poll_reset(&mut self) {
+        self.doublings = 0;
+    }
+
     /// Whether the labels of dropped issues are due a read at `now`: at most
-    /// one in each [`BOARD_POLL`], and none in one where the board itself was
+    /// one in each poll, and none in one where the board itself was
     /// read, since that reads them
     pub(super) fn dropped_due(&self, now: Timestamp) -> bool {
-        let poll = BOARD_POLL.as_secs();
+        let poll = self.poll().as_secs();
         let recent = |at: Option<Timestamp>| at.is_some_and(|at| now.0 < at.0.saturating_add(poll));
         !recent(self.dropped_read) && !recent(self.board_read)
     }
@@ -106,6 +130,8 @@ impl Looks {
 
     /// Whether the login's rate limits are due a read at `now`, which records
     /// the read: at most one in each [`BOARD_POLL`], a failed one included
+    ///
+    /// It keeps its own pace, whatever the board's poll has backed off to.
     pub(super) fn rate_limit_due(&mut self, now: Timestamp) -> bool {
         let poll = BOARD_POLL.as_secs();
         if self
@@ -138,7 +164,7 @@ impl Looks {
     }
 
     /// Whether the contributions are due to be followed at `now`, which
-    /// records the read: at most one in each [`BOARD_POLL`]
+    /// records the read: at most one in each poll
     pub(super) fn contributions_due(&mut self, now: Timestamp) -> bool {
         if self.contributions_wait(now).is_some() {
             return false;
@@ -153,11 +179,11 @@ impl Looks {
         let at = self
             .contributions_read?
             .0
-            .saturating_add(BOARD_POLL.as_secs());
+            .saturating_add(self.poll().as_secs());
         (now.0 < at).then(|| Duration::from_secs(at - now.0))
     }
 
-    /// Records that the bumps were followed at `now`, the most that happens in each [`BOARD_POLL`]
+    /// Records that the bumps were followed at `now`, the most that happens in each poll
     pub(super) fn dependencies_read(&mut self, now: Timestamp) {
         self.dependencies_read = Some(now);
     }
@@ -168,12 +194,12 @@ impl Looks {
         let at = self
             .dependencies_read?
             .0
-            .saturating_add(BOARD_POLL.as_secs());
+            .saturating_add(self.poll().as_secs());
         (now.0 < at).then(|| Duration::from_secs(at - now.0))
     }
 
     /// Whether the open issues are due to be listed for triage at `now`: none
-    /// was listed in the last [`BOARD_POLL`]
+    /// was listed in the last poll
     ///
     /// Stamps nothing. The read is made with the runner's lock let go, and
     /// [`Looks::triage_listed`] records it once it is applied, so a read that
@@ -203,7 +229,7 @@ impl Looks {
     /// How long until the open issues are next listed for triage, or `None`
     /// when they are due now
     pub(super) fn triage_wait(&self, now: Timestamp) -> Option<Duration> {
-        let at = self.triage_read?.0.saturating_add(BOARD_POLL.as_secs());
+        let at = self.triage_read?.0.saturating_add(self.poll().as_secs());
         (now.0 < at).then(|| Duration::from_secs(at - now.0))
     }
 
@@ -219,7 +245,16 @@ impl Looks {
 
     /// Records that the board is read at `now`, before the read, so a
     /// change the read itself makes lets the next pass read it again
-    pub(super) fn reading_board(&mut self, now: Timestamp) {
+    ///
+    /// With no work item `open` and nothing moved since the last read, the
+    /// poll doubles. A work item open keeps it at [`BOARD_POLL`].
+    pub(super) fn reading_board(&mut self, now: Timestamp, open: bool) {
+        let quiet = !open && !self.board_moved && self.board_read.is_some();
+        if open {
+            self.poll_reset();
+        } else if quiet && self.poll() < IDLE_POLL_MAX {
+            self.doublings += 1;
+        }
         self.board_read = Some(now);
         self.board_moved = false;
     }
@@ -267,8 +302,12 @@ impl Looks {
         })
     }
 
-    /// Records that a pass begins with `writes` of kelpie's made so far
+    /// Records that a pass begins with `writes` of kelpie's made so far, and
+    /// ends the backoff when there are more than the last pass began with
     pub(super) fn pass_began(&mut self, writes: u64) {
+        if self.written_since(writes) {
+            self.poll_reset();
+        }
         self.writes_seen = writes;
     }
 
@@ -278,9 +317,10 @@ impl Looks {
         writes > self.writes_seen
     }
 
-    /// Lets the board be read on the next pass
+    /// Lets the board be read on the next pass, and ends the backoff
     pub(super) fn board_moved(&mut self) {
         self.board_moved = true;
+        self.poll_reset();
     }
 
     /// Forgets the waits of work items no pass runs now: one that ended or
@@ -319,7 +359,7 @@ impl Looks {
     }
 
     fn board_due_at(&self) -> Option<Timestamp> {
-        let poll = BOARD_POLL.as_secs();
+        let poll = self.poll().as_secs();
         (self.board_read).map(|at| Timestamp(at.0.saturating_add(poll)))
     }
 }
@@ -347,6 +387,16 @@ pub(super) fn board_moved(before: &ProjectState, after: &ProjectState) -> bool {
 }
 
 impl Runner {
+    /// How often the runner reads its board now, which `status` shows
+    pub fn board_poll(&self) -> Duration {
+        self.looks.poll()
+    }
+
+    /// The time by the runner's clock
+    pub fn now(&self) -> crate::ports::Timestamp {
+        self.ports.clock.now()
+    }
+
     /// How long until the runner next reads the board, retries a failed
     /// step or tries a turn again whose model host could not be reached, or
     /// `None` with none waiting

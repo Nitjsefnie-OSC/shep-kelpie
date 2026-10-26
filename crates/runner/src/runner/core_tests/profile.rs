@@ -59,6 +59,7 @@ fn profile<'a>(hooks: &'a [GuardHook], domains: &'a [NonBlank]) -> WorkerProfile
         repo: Path::new("/k/repos/shep"),
         guard_hooks: hooks,
         allowed_domains: domains,
+        registries: &[],
         build_env: &NO_BUILD_ENV,
         home: Path::new("/Users/me"),
         shep_home: Path::new("/srv/shep"),
@@ -182,6 +183,7 @@ fn a_kelpie_home_outside_the_shepherds_is_denied_around_the_workers_own() {
         repo: Path::new("/r"),
         guard_hooks: &[],
         allowed_domains: &[],
+        registries: &[],
         build_env: &BTreeMap::new(),
         home: dir.path(),
         shep_home: &shep,
@@ -457,6 +459,7 @@ fn build_env_points_into_the_build_folder_beside_cargo() {
         repo: Path::new("/k/repos/shep"),
         guard_hooks: &[],
         allowed_domains: &[],
+        registries: &[],
         build_env: &build_env,
         home: Path::new("/Users/me"),
         shep_home: Path::new("/srv/shep"),
@@ -485,6 +488,23 @@ fn the_network_is_github_and_the_projects_own_domains_only() {
     let with_npm = strings(&extended["sandbox"]["network"]["allowedDomains"]);
     assert_eq!(with_npm[..hosts.len()], hosts[..]);
     assert_eq!(with_npm[hosts.len()..], ["registry.npmjs.org"]);
+}
+
+#[test]
+fn a_registry_the_project_lists_itself_is_named_once() {
+    let npm = [NonBlank::try_from("registry.npmjs.org".to_owned()).unwrap()];
+    let profile = WorkerProfile {
+        registries: &["registry.npmjs.org", "crates.io"],
+        ..profile(&[], &npm)
+    };
+    let s = profile.settings();
+    let hosts = strings(&s["sandbox"]["network"]["allowedDomains"]);
+
+    assert_eq!(
+        hosts.iter().filter(|h| **h == "registry.npmjs.org").count(),
+        1
+    );
+    assert_eq!(hosts.last(), Some(&"crates.io"));
 }
 
 #[test]

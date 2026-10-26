@@ -95,6 +95,7 @@ fn the_instructions_of_a_templated_repo_stay_under_8_kib_and_tell_the_question_b
     );
 }
 
+#[cfg(unix)]
 #[test]
 fn a_planted_link_at_the_template_file_is_replaced_and_its_target_is_left_alone() {
     let rig = Rig::new("koji");

@@ -203,6 +203,7 @@ fn a_failed_or_unreadable_reply_leaves_the_head_unpassed_and_it_is_read_at_the_n
     assert_eq!(contribution(&rig, &runner)["passed"], head);
 }
 
+#[cfg(unix)]
 #[test]
 fn a_binary_a_symlink_a_submodule_or_an_oversize_diff_is_flagged_and_never_passed() {
     type Edit = fn(&Path);

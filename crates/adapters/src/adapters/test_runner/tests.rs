@@ -74,6 +74,7 @@ impl World {
             repo: Path::new("/k/repo"),
             guard_hooks: &[],
             allowed_domains: &[],
+            registries: &[],
             build_env: &BTreeMap::new(),
             shep_home: Path::new("/k/shep"),
             door: &self.path("d.sock"),

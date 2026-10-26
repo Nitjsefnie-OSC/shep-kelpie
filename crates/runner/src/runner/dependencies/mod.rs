@@ -1,5 +1,5 @@
 //! Merging the bumps bots open, and closing the ones that break
-//! Under `dependencies.pick = "on"`, once a [`BOARD_POLL`](super::BOARD_POLL)
+//! Under `dependencies.pick = "on"`, once a board poll
 //! the runner records each open pull request from a listed bot, dropping one
 //! that left the board. A bump behind `main` is asked to rebase, once per head,
 //! only when it conflicts or the repo's rules require up to date; one only

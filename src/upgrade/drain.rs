@@ -71,6 +71,14 @@ impl Purpose {
         }
     }
 
+    // The params its `undrain` takes: a pause that gives up leaves the turns it ended stopped.
+    fn undrain_params(self) -> Option<&'static str> {
+        match self {
+            Self::Upgrade => None,
+            Self::Pause => Some("keep"),
+        }
+    }
+
     // What ends a runner's calls without a drain.
     fn cut(self) -> &'static str {
         match self {
@@ -249,9 +257,9 @@ pub async fn drain(
         }
         if !tool_only && waited.elapsed() >= limit {
             return Err(format!(
-                "{} after {}s, so {}",
+                "{name}'s runner was busy, not down, and answered slowly: {} after {}s, so {}",
                 busy.join(" and "),
-                limit.as_secs(),
+                waited.elapsed().as_secs(),
                 purpose.not_done()
             ));
         }
@@ -273,14 +281,23 @@ fn predates(name: &str, purpose: Purpose, say: &mut dyn FnMut(String)) -> Result
 
 /// Sends `name` `undrain`, and says so for a message when it was answered
 ///
-/// A failure to send it is let go: only a shepherd that cannot be reached
-/// leaves the runner draining, and its restart ends that.
+/// A pause sends `undrain keep`, so the turns it ended stay stopped for a
+/// while. A runner from before `keep` refuses the param and is sent a plain
+/// `undrain`. A failure to send it is let go: only a shepherd that cannot be
+/// reached leaves the runner draining, and its restart ends that.
 pub async fn undrain(client: &dyn Connection, name: &str, purpose: Purpose) -> String {
     let on = match purpose {
         Purpose::Upgrade => " on the old build",
         Purpose::Pause => "",
     };
-    match trigger(client, name, "undrain", None).await {
+    let mut answer = trigger(client, name, "undrain", purpose.undrain_params()).await;
+    if purpose.undrain_params().is_some()
+        && let Ok(Answered::Runner(body)) = &answer
+        && refusal(body).is_some()
+    {
+        answer = trigger(client, name, "undrain", None).await;
+    }
+    match answer {
         Ok(Answered::Runner(_)) => {
             format!(", and it was sent `undrain`, so it starts calls again{on}")
         }

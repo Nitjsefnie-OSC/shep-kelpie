@@ -20,6 +20,7 @@ use std::path::Path;
 use super::Runner;
 use super::report::{Begin, StepReport};
 use super::review::findings;
+use crate::board::briefing::cut;
 use crate::board::{READY, TRIAGE};
 use crate::ports::{Finding, ForgeError, NewLabel, OpenTicket, Severity};
 use crate::settings::{Filing, TicketSource};
@@ -27,8 +28,12 @@ use crate::state::{RulingKind, StateError};
 use crate::work_item::{FollowUps, WorkItem};
 
 // A GitHub title stops at 256 characters, and one this long is unreadable
-// in a list anyway.
-const TITLE_LIMIT: usize = 80;
+// in a list anyway. `cut` adds ` …` to its limit.
+const TITLE_LIMIT: usize = 72;
+
+// What a title was cut at before it ended at a clause, kept to match the
+// issues filed then.
+const LEGACY_TITLE_LIMIT: usize = 80;
 
 // How long the forge may keep refusing, counted from its first refusal,
 // before the maintainer is asked whether to try again. Issues switched off
@@ -231,8 +236,25 @@ fn relative(finding: Finding, worktree: &Path) -> Finding {
     Finding { file, ..finding }
 }
 
+// The first clause of `what`, as its `. `, `: ` or `; ` ends it. The dot of
+// a dotted abbreviation such as `e.g.` does not end one.
 fn title_of(finding: &Finding) -> String {
-    finding.what.trim().chars().take(TITLE_LIMIT).collect()
+    let what = finding.what.trim();
+    let stops = (what.match_indices(['.', ':', ';']))
+        .filter(|(at, _)| what[at + 1..].starts_with(' ') && *at > 0)
+        .filter(|(at, stop)| *stop != "." || !abbreviation(&what[..*at]));
+    let end = stops.map(|(at, _)| at).next();
+    let clause = end.map_or(what, |at| what[..at].trim_end());
+    if clause.chars().count() <= TITLE_LIMIT {
+        return clause.to_owned();
+    }
+    cut(clause, TITLE_LIMIT - " …".chars().count())
+}
+
+// Whether `head` ends in a word of single letters between dots, as `e.g`
+fn abbreviation(head: &str) -> bool {
+    let word = head.rsplit(char::is_whitespace).next().unwrap_or(head);
+    word.contains('.') && word.split('.').all(|part| part.chars().count() == 1)
 }
 
 // Another issue whose body names the file, and whose title says the same or
@@ -243,14 +265,16 @@ fn already_filed<'a>(
     title: &str,
     finding: &Finding,
 ) -> Option<&'a OpenTicket> {
-    // A title cut short at the limit could be any of several findings.
-    let cut = finding.what.trim().chars().count() > TITLE_LIMIT;
+    let what = finding.what.trim();
+    let legacy: String = what.chars().take(LEGACY_TITLE_LIMIT).collect();
     open.iter().find(|issue| {
+        let named = issue.title.trim();
+        // A title shorter than `what` could be any of several findings.
+        let titled = named.eq_ignore_ascii_case(what)
+            || ((named.eq_ignore_ascii_case(title) || named.eq_ignore_ascii_case(&legacy))
+                && issue.body.contains(what));
         issue.body.contains(&finding.file)
-            && ((issue.title.trim().eq_ignore_ascii_case(title)
-                && (!cut || issue.body.contains(finding.what.trim())))
-                || (finding.what.trim().len() >= MIN_BODY_MATCH
-                    && issue.body.contains(finding.what.trim())))
+            && (titled || (what.len() >= MIN_BODY_MATCH && issue.body.contains(what)))
     })
 }
 

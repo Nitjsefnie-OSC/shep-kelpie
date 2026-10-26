@@ -209,6 +209,8 @@ struct Flight {
     browser: Option<Box<dyn OpenBridge>>,
     // Where the turn's transcript stood as it began, for a handover to carry
     requests: Option<Mark>,
+    // When a handover first found the call's record gone, which ends with the flight
+    record_gone: Option<Timestamp>,
 }
 
 impl Flight {
@@ -536,6 +538,7 @@ impl Runner {
                 Launch::Turn { call, .. } => Mark::of(self.ports.agents.as_ref(), call),
                 Launch::Review(_) => None,
             },
+            record_gone: None,
         };
         // Only a turn has a ceiling to carry, for its record on disk.
         if flight.deadline.is_some() {
@@ -914,7 +917,7 @@ pub(crate) mod tests;
 pub(super) mod triage;
 mod waiting;
 
-pub use carry::CarriedTurn;
+pub use carry::{CARRY_WAIT, CarriedTurn, NotCarried};
 #[cfg(any(test, feature = "test-support"))]
 pub use step::step;
 pub(super) use waiting::Waiting;

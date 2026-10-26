@@ -8,9 +8,11 @@ use super::post::{POST_TRIES, REACT};
 use super::security_tests::{commit_on, contribute, contribution};
 use crate::github::ApiError;
 use crate::ports::{CLEAN, Finding, Role, Severity};
+use crate::runner::Runner;
 use crate::runner::coderabbit::tests::now;
 use crate::runner::review_bot::contribution_turns::{FINDING, contributed, until_summoned};
-use crate::runner::{Runner, step};
+#[cfg(unix)]
+use crate::runner::step;
 use crate::test::{REVIEW_ID, Rig, Scripted, ScriptedRound, SentReview};
 
 const FILE: &str = "one\ntwo\nthree\n";
@@ -354,6 +356,7 @@ fn a_push_is_read_and_posted_again() {
     assert_eq!(rig.github.comments().len(), 2, "one note a head");
 }
 
+#[cfg(unix)]
 #[test]
 fn a_post_the_state_could_not_keep_is_not_posted_again() {
     use std::os::unix::fs::PermissionsExt;

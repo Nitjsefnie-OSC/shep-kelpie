@@ -31,6 +31,11 @@ fn book() -> Agents {
 
 // The example's project with `names` as its `[agents]` table.
 fn project(names: &str) -> Settings {
+    try_project(names).unwrap()
+}
+
+// [`project`], with the refusal the table gives rather than a panic.
+fn try_project(names: &str) -> Result<Settings, SettingsError> {
     assert!(EXAMPLE.contains(LISTED), "the example's agents table moved");
     let entry = EXAMPLE.replace(LISTED, &format!("[app.dogs.kelpie.agents]\n{names}"));
     Settings::from_table(
@@ -39,7 +44,6 @@ fn project(names: &str) -> Settings {
         Path::new("/h"),
         Path::new("/p"),
     )
-    .unwrap()
 }
 
 fn pair(model: &RoleModel) -> (&str, Effort) {
@@ -145,6 +149,30 @@ fn the_issue_writer_is_the_file_agents_issue_writer_names() {
 
     let timed = project("implementers = [\"sonnet-high\"]\nfallback_after = 15\n");
     assert_eq!(timed.agents.fallback_after.map(|m| m.get()), Some(15));
+}
+
+#[test]
+fn implementer_choice_is_issue_writer_when_absent_and_takes_order() {
+    let absent = project("implementers = [\"sonnet-high\", \"opus-high\"]\n");
+    assert_eq!(
+        absent.agents.implementer_choice,
+        ImplementerChoice::IssueWriter
+    );
+    assert_eq!(ImplementerChoice::IssueWriter.as_str(), "issue-writer");
+
+    let ordered = project(
+        "implementers = [\"sonnet-high\", \"opus-high\"]\nimplementer_choice = \"order\"\n",
+    );
+    assert_eq!(ordered.agents.implementer_choice, ImplementerChoice::Order);
+    assert_eq!(ImplementerChoice::Order.as_str(), "order");
+
+    let err = try_project("implementers = [\"sonnet-high\"]\nimplementer_choice = \"first\"\n")
+        .unwrap_err()
+        .to_string();
+    assert!(
+        err.contains("agents.implementer_choice") && err.contains("unknown variant `first`"),
+        "{err}"
+    );
 }
 
 #[test]

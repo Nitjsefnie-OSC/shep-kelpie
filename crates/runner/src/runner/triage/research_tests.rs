@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 
-use super::comment::MARKER;
+use super::marker::MARKER;
 use super::pick_tests::{issue, list, rig_with, status};
 use crate::github::ApiError;
 use crate::ports::{AgentError, CLEAN, OpenIssue, Role, Timestamp, Tools};
@@ -769,6 +769,50 @@ fn a_restart_at_commented_still_puts_on_the_type_and_priority_the_comment_named(
     let triaged = triage(&rig, &runner);
     assert_eq!(triaged["issues"][0]["step"], "done");
     assert!(triaged["issues"][0].get("labels").is_none(), "{triaged}");
+}
+
+// The maintainer's `ready-for-agent` lands after the type and priority went on
+// and before `needs-triage` would: the check made before the labels had passed.
+#[test]
+fn a_triage_label_put_on_by_hand_after_the_priority_stands_and_needs_triage_is_not_put_on() {
+    let (rig, runner) = untouched();
+    drop(runner);
+    let record = json!({
+        "issue": 30, "comment": 101, "step": "commented", "labels": ["bug", "P2"],
+    });
+    crashed_with(&rig, record);
+    let runner = rig.open().unwrap();
+    rig.forge.label(30, "ready-for-agent");
+
+    assert_eq!(step(&runner).unwrap(), None);
+
+    assert_eq!(moves(&rig), ["label bug", "label P2"]);
+    assert_eq!(rig.forge.issue_labels(30), ["ready-for-agent"]);
+    assert_eq!(triage(&rig, &runner)["issues"][0]["step"], "done");
+    let told: Vec<String> = runner.lock().unwrap().take_notes();
+    assert!(
+        told.iter()
+            .any(|n| n.contains("ready-for-agent") && n.contains("stands")),
+        "{told:?}"
+    );
+}
+
+// Kelpie's own `needs-triage`, put on by a call whose answer was lost, is not
+// a label by hand: the step finishes and says nothing of the kind.
+#[test]
+fn a_needs_triage_kelpie_put_on_itself_is_not_read_as_by_hand_at_the_labelled_step() {
+    let (rig, runner) = untouched();
+    drop(runner);
+    crashed_at(&rig, 30, "labelled");
+    let runner = rig.open().unwrap();
+    rig.forge.label(30, "needs-triage");
+
+    assert_eq!(step(&runner).unwrap(), None);
+
+    assert_eq!(moves(&rig), ["make needs-triage", "label needs-triage"]);
+    assert_eq!(triage(&rig, &runner)["issues"][0]["step"], "done");
+    let told: Vec<String> = runner.lock().unwrap().take_notes();
+    assert!(!told.iter().any(|n| n.contains("by hand")), "{told:?}");
 }
 
 #[test]

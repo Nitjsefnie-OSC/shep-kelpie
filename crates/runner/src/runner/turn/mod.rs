@@ -319,6 +319,7 @@ impl Runner {
         // running carries on, since a turn is never interrupted, and start_over
         // resumes the same not-yet-begun turn after a session died unborn.
         let due = matches!(item.turn, Turn::Due | Turn::Next { .. });
+        let kept_paused = self.pause_held(item);
         let started = self.reads.has_started(item.issue);
         if let Some(begin) = self.pushed_by_someone_else()? {
             // A read the gate asks for is made and the step made again in the gate's phase, which
@@ -334,6 +335,9 @@ impl Runner {
         }
         if due && let Some(parked) = self.park_over_budget()? {
             return Ok(parked);
+        }
+        if due && kept_paused {
+            return Ok(self.idle(Reason::PauseHeld));
         }
         if due && let Some(why) = self.builds_hold() {
             return Ok(self.idle(why));
@@ -673,6 +677,7 @@ impl Runner {
             profile::write_login(&item.build, token)
                 .map_err(|e| format!("cannot write the worker's GitHub login: {e}"))?;
         }
+        let registries = self.registries(&item.worktree);
         let profile = WorkerProfile {
             worktree: &item.worktree,
             build: &item.build,
@@ -689,6 +694,7 @@ impl Runner {
             kelpie_home: &self.paths.kelpie_home,
             repo: &self.settings.git.checkout,
             allowed_domains: &self.settings.worker.allowed_domains,
+            registries: &registries,
             build_env: &self.settings.worker.build_env,
             home: &self.home,
             shep_home: &self.paths.shep_home,
@@ -702,6 +708,15 @@ impl Runner {
             fence.guard.hooks = self.hooks.get().as_ref().clone().in_folder(&item.worktree);
         }
         Ok(reach)
+    }
+
+    /// The registries of the package managers `worktree` keeps files for, none while
+    /// `worker.package_registries` is off
+    fn registries(&self, worktree: &Path) -> Vec<&'static str> {
+        if !self.settings.worker.package_registries {
+            return Vec::new();
+        }
+        crate::package_managers::registries(&crate::package_managers::found_in(worktree))
     }
 
     /// The agent `item`'s worker runs on: the one it opened on, as that
@@ -820,4 +835,4 @@ pub(super) fn write(folder: &Path, file: &Path, text: &str) -> Result<(), String
 }
 
 #[cfg(test)]
-mod tests;
+pub(super) mod tests;
