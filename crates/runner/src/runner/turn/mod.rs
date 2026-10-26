@@ -620,9 +620,9 @@ impl Runner {
                     .map_err(|e| format!("cannot read {}: {e}", ticket.shown()))?;
                 let comments = self.maintainer_comments(ticket, started.comments())?;
                 let first = first_prompt(ticket, &issue, &comments);
-                // Read in place: one `git ls-tree`, once, for a work item's first turn.
-                let tree = files_on(&self.settings.git.checkout, self.item_base(item));
-                let moved = moved_paths(&issue.body, &tree);
+                let moved = moved_paths(&issue.body, || {
+                    files_on(&self.settings.git.checkout, self.item_base(item))
+                });
                 self.skills
                     .invoke(Step::Implement, &format!("{first}{moved}"))
             }
@@ -845,19 +845,24 @@ fn install_failed(why: &str) -> String {
 }
 
 // What the worker is told of the paths its issue names that `main` lacks, or nothing. A path
-// the issue means to add is among them, so the note says it may be new.
-fn moved_paths(body: &str, tree: &[String]) -> String {
+// the issue means to add is among them, so the note says it may be new. `read_tree` is the files
+// on `main`, asked of git only when the body names a path.
+fn moved_paths(body: &str, read_tree: impl FnOnce() -> Vec<String>) -> String {
+    if missing_paths(body, &[]).is_empty() {
+        return String::new();
+    }
+    let tree = read_tree();
     // Without the files on `main`, every path would read as missing.
     let missing = if tree.is_empty() {
         Vec::new()
     } else {
-        missing_paths(body, tree)
+        missing_paths(body, &tree)
     };
     if missing.is_empty() {
         return String::new();
     }
     let named: Vec<String> = (missing.iter())
-        .map(|path| match closest(path, tree) {
+        .map(|path| match closest(path, &tree) {
             Some(near) => format!("`{path}` (closest on `main`: `{near}`)"),
             None => format!("`{path}`"),
         })
