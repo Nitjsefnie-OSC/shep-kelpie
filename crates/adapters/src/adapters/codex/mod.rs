@@ -16,7 +16,7 @@ use std::process::{Command, Output};
 use serde::{Deserialize, Serialize};
 
 use super::cli::{Cli, CliAdapter, Launch, Turn};
-use super::harness::{Base, Records, bind_in_scratch, call_policy, step_skill, tail};
+use super::harness::{Base, Records, assignments, bind_in_scratch, call_policy, step_skill, tail};
 use super::process::record::CallFiles;
 use super::unreachable::reaches_no_host;
 use crate::fence;
@@ -50,10 +50,10 @@ mod adopt_tests;
 mod attach_tests;
 
 #[cfg(test)]
-mod certificates_tests;
+mod context_tests;
 
 #[cfg(test)]
-mod context_tests;
+mod env_tests;
 
 #[cfg(test)]
 mod hook_tests;
@@ -262,8 +262,12 @@ impl Cli for Codex {
                 return Err(AgentError::NoSession(CODEX, call.session.id().clone()));
             }
         };
-        let mut command = crate::spawn::command(&self.program);
+        let fence = (call.reach.fence.iter()).flat_map(|fence| &fence.env);
+        let fence = fence.map(|(name, value)| (name.clone(), value.into()));
+        let mut command = crate::spawn::command("env");
         command
+            .args(assignments(fence))
+            .arg(&self.program)
             .args(argv)
             .current_dir(&call.cwd)
             .env("CODEX_HOME", &files.home)
@@ -273,9 +277,6 @@ impl Cli for Codex {
         // Codex checks certificates through the keychain on macOS.
         if cfg!(target_os = "macos") && call.reach.block_keychain {
             command.env("CODEX_CA_CERTIFICATE", SYSTEM_CERTIFICATES);
-        }
-        if let Some(fence) = &call.reach.fence {
-            command.envs(&fence.env);
         }
         Ok(command)
     }
