@@ -58,8 +58,8 @@ mod voice;
 
 pub use agent::{
     Adopted, AgentCall, AgentError, AgentReply, Agents, Browser, COMPACT, CallActivity, CodeGraph,
-    Cost, Ending, Fence, Flying, Guard, Kept, KeptServer, PM_NOTES, Reach, Role, Session,
-    SessionId, Tools, Transcript, Usage, Wait, written_at,
+    Cost, Ending, Fence, Flying, Guard, Kept, KeptServer, NotAdopted, PM_NOTES, Reach, Role,
+    Session, SessionId, Tools, Transcript, Usage, Wait, written_at,
 };
 pub use attachment::is_github_attachment;
 pub use bridge::{Bridges, OpenBridge, Playwright};

@@ -158,7 +158,7 @@ pub use drain::{CallRole, CallRunning, Draining};
 pub use finishing::StartError;
 #[cfg(any(test, feature = "test-support"))]
 pub use flight::step;
-pub use flight::{CarriedTurn, Pass, advance};
+pub use flight::{CARRY_WAIT, CarriedTurn, NotCarried, Pass, advance};
 pub use gpu::GpuStatus;
 pub use in_flight::Stopping;
 pub use ledger::count_stopped;

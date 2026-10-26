@@ -8,8 +8,8 @@ use std::time::{Duration, UNIX_EPOCH};
 
 use super::{FakeMeter, Hold, git, write_in};
 use crate::ports::{
-    Adopted, AgentCall, AgentError, AgentReply, Agents, CallActivity, Cost, Ending, Flying, Role,
-    SessionId, Usage, Utilization, Wait,
+    Adopted, AgentCall, AgentError, AgentReply, Agents, CallActivity, Cost, Ending, Flying,
+    NotAdopted, Role, SessionId, Usage, Utilization, Wait,
 };
 
 /// The file a killed worker leaves in its worktree, to find after a restart
@@ -150,6 +150,8 @@ pub struct FakeClaude {
     // The held calls now in flight, by issue, with what the runner noted of
     // each: the calls a handover could carry
     holding: Arc<Mutex<Vec<Holding>>>,
+    // Whether a held call's record reads as one that is there and is not valid
+    spoiled: Arc<AtomicBool>,
     // The sessions started for a terminal, and those whose terminal session ended
     started: Arc<Mutex<Vec<SessionId>>>,
     ended: Arc<Mutex<Vec<SessionId>>>,
@@ -219,6 +221,11 @@ impl FakeClaude {
         }
     }
 
+    /// Makes every held call's record one that is there and cannot be read
+    pub fn spoil_records(&self) {
+        self.spoiled.store(true, Ordering::SeqCst);
+    }
+
     /// Ends every held call with [`AgentError::Stopped`], so a test's held
     /// calls return once it stops the runner
     pub fn stop(&self) {
@@ -286,13 +293,27 @@ impl Agents for FakeClaude {
     }
 
     // A held call can be carried to a new image, as a real call's process can.
-    fn adoption(&self, call: &AgentCall) -> Result<Adopted, String> {
+    // One that returned has no record left, as a call that just ended has none.
+    fn adoption(&self, call: &AgentCall) -> Result<Adopted, NotAdopted> {
+        let record = call.settings.with_extension("call.json");
+        if self.spoiled.load(Ordering::SeqCst) {
+            return Err(format!(
+                "the call's record {} cannot be read: expected value at line 1 column 1",
+                record.display()
+            )
+            .into());
+        }
         let holding = self.holding.lock().unwrap();
-        let (_, flying) = (holding.iter().find(|(issue, _)| *issue == call.issue))
-            .ok_or("the stand-in holds no such call")?;
+        let held = holding.iter().find(|(issue, _)| *issue == call.issue);
+        let (_, flying) = held.ok_or_else(|| {
+            NotAdopted::RecordGone(format!(
+                "the call's record {} cannot be read: No such file or directory (os error 2)",
+                record.display()
+            ))
+        })?;
         Ok(Adopted {
             pid: 1,
-            record: call.settings.with_extension("call.json"),
+            record,
             resumes: Some(call.session.id().clone()),
             flying: *flying,
             harness: crate::settings::Harness::ClaudeCode,

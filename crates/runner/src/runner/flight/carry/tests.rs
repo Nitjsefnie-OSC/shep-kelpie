@@ -1,6 +1,7 @@
 use std::process::{Child, Command, Stdio};
+use std::sync::Mutex;
 
-use crate::runner::{Pass, advance};
+use crate::runner::{CARRY_WAIT, NotCarried, Pass, Runner, advance};
 use crate::test::{CALL_PATIENCE, Hold, Rig, Scripted};
 
 const PI: &str = "---\nrole: implementer\nharness: pi\nmodel: qwen3.8:27b\neffort: low\n\
@@ -38,7 +39,12 @@ fn a_handover_waits_while_a_pi_session_is_attached() {
     let attached = rig.ask(&runner, "attach", Some(&format!("7 {pid}")));
     assert_eq!(attached["attach"], "ready", "{attached}");
 
-    let why = runner.lock().unwrap().carry_calls().unwrap_err();
+    let why = runner
+        .lock()
+        .unwrap()
+        .carry_calls()
+        .unwrap_err()
+        .to_string();
     assert!(why.starts_with("#7 is attached"), "{why}");
 
     rig.ask(&runner, "detach", Some(&format!("7 {pid}")));
@@ -66,7 +72,12 @@ fn a_handover_waits_while_a_goose_session_is_attached() {
     let attached = rig.ask(&runner, "attach", Some(&format!("7 {pid}")));
     assert_eq!(attached["attach"], "ready", "{attached}");
 
-    let why = runner.lock().unwrap().carry_calls().unwrap_err();
+    let why = runner
+        .lock()
+        .unwrap()
+        .carry_calls()
+        .unwrap_err()
+        .to_string();
     assert!(why.starts_with("#7 is attached"), "{why}");
     assert!(why.contains("goose"), "{why}");
 
@@ -95,7 +106,12 @@ fn a_handover_waits_while_a_codex_session_is_attached() {
     let attached = rig.ask(&runner, "attach", Some(&format!("7 {pid}")));
     assert_eq!(attached["attach"], "ready", "{attached}");
 
-    let why = runner.lock().unwrap().carry_calls().unwrap_err();
+    let why = runner
+        .lock()
+        .unwrap()
+        .carry_calls()
+        .unwrap_err()
+        .to_string();
     assert!(why.starts_with("#7 is attached"), "{why}");
     assert!(why.contains("codex"), "{why}");
 
@@ -201,7 +217,12 @@ fn a_handover_waits_while_a_worker_turn_holds_a_browser() {
     assert!(matches!(advance(&runner).unwrap(), Pass::Started));
     assert!(hold.entered(CALL_PATIENCE), "the call never began");
 
-    let why = runner.lock().unwrap().carry_calls().unwrap_err();
+    let why = runner
+        .lock()
+        .unwrap()
+        .carry_calls()
+        .unwrap_err()
+        .to_string();
     assert!(why.starts_with("#7's turn drives a browser"), "{why}");
 
     hold.release();
@@ -251,4 +272,111 @@ fn a_carried_turn_s_requests_are_counted_when_the_next_image_adopts_it() {
     assert!(start.is_some_and(|written| written > 0.0), "{start:?}");
 
     hold.release();
+}
+
+// A turn whose call is held now, and whose record is gone once the call is released.
+fn in_a_held_turn(rig: &Rig) -> (Mutex<Runner>, Hold) {
+    let runner = rig.open().unwrap();
+    rig.ask(&runner, "add", Some("7"));
+    let hold = Hold::default();
+    rig.claude.script([Scripted::Hold(hold.clone())]);
+    assert!(matches!(advance(&runner).unwrap(), Pass::Started));
+    assert!(hold.entered(CALL_PATIENCE), "the call never began");
+    (runner, hold)
+}
+
+// Lets the held call end and waits until its record is gone, with its end not yet heard by a pass.
+fn ended_unheard(runner: &Mutex<Runner>, hold: &Hold) {
+    hold.release();
+    let began = std::time::Instant::now();
+    while !matches!(
+        runner.lock().unwrap().carry_calls(),
+        Err(NotCarried::Waiting(_))
+    ) {
+        assert!(began.elapsed() < CALL_PATIENCE, "the record never went");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+}
+
+#[test]
+fn a_turn_whose_record_is_gone_is_waited_for_until_its_end_is_heard() {
+    let rig = Rig::new("rotom");
+    let (runner, hold) = in_a_held_turn(&rig);
+    ended_unheard(&runner, &hold);
+
+    let waits = runner.lock().unwrap().carry_calls().unwrap_err();
+    assert!(
+        matches!(&waits, NotCarried::Waiting(why) if why.starts_with("the turn of #7 cannot be carried: the call's record ")),
+        "{waits:?}"
+    );
+
+    assert!(matches!(
+        advance(&runner).unwrap(),
+        Pass::Report(_) | Pass::Idle | Pass::Started
+    ));
+    let turns = runner.lock().unwrap().carry_calls();
+    assert!(
+        turns.as_ref().is_ok_and(Vec::is_empty),
+        "the end was heard, so nothing is left to carry: {turns:?}"
+    );
+}
+
+#[test]
+fn a_turn_whose_record_stays_gone_is_refused_once_the_wait_is_up() {
+    let rig = Rig::new("rotom");
+    let (runner, hold) = in_a_held_turn(&rig);
+    ended_unheard(&runner, &hold);
+
+    rig.clock.advance(CARRY_WAIT.as_secs() - 1);
+    let waits = runner.lock().unwrap().carry_calls().unwrap_err();
+    assert!(matches!(waits, NotCarried::Waiting(_)), "{waits:?}");
+
+    rig.clock.advance(1);
+    let refused = runner.lock().unwrap().carry_calls().unwrap_err();
+    let NotCarried::Refused(why) = refused else {
+        panic!("still waiting: {refused:?}");
+    };
+    assert!(
+        why.starts_with("the turn of #7 cannot be carried: the call's record "),
+        "{why}"
+    );
+    assert!(why.contains("cannot be read"), "{why}");
+}
+
+#[test]
+fn a_turn_whose_record_is_there_and_unreadable_is_refused_at_once() {
+    let rig = Rig::new("rotom");
+    let (runner, hold) = in_a_held_turn(&rig);
+    rig.claude.spoil_records();
+
+    let refused = runner.lock().unwrap().carry_calls().unwrap_err();
+
+    let NotCarried::Refused(why) = refused else {
+        panic!("waited: {refused:?}");
+    };
+    assert!(
+        why.starts_with("the turn of #7 cannot be carried: the call's record "),
+        "{why}"
+    );
+    hold.release();
+}
+
+// The wait is a flight's own: a turn that follows one seen with its record gone starts its wait afresh.
+#[test]
+fn a_gone_record_is_waited_for_afresh_by_the_turn_after_one_that_was_seen_gone() {
+    let rig = Rig::new("rotom");
+    let (runner, first) = in_a_held_turn(&rig);
+    let second = Hold::default();
+    rig.claude.script([Scripted::Hold(second.clone())]);
+    ended_unheard(&runner, &first);
+    rig.clock.advance(CARRY_WAIT.as_secs() * 2);
+
+    // One pass hears the first end, and the next starts the next turn of #7.
+    assert!(matches!(advance(&runner).unwrap(), Pass::Report(_)));
+    assert!(matches!(advance(&runner).unwrap(), Pass::Started));
+    assert!(second.entered(CALL_PATIENCE), "the next turn never began");
+
+    ended_unheard(&runner, &second);
+    let waits = runner.lock().unwrap().carry_calls().unwrap_err();
+    assert!(matches!(waits, NotCarried::Waiting(_)), "{waits:?}");
 }
