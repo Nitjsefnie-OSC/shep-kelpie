@@ -26,9 +26,9 @@ Kelpie: the maintainer's dog; one runner per project builds ready issues. Mainta
 | board.md | board, items, adoption | `core/board/`, `runner/{dispatch,adopt}/` |
 | pm.md | the project manager, its board | `runner/{pm,briefing}/` |
 | workers.md | runner loop, turns | `runner/{turn,flight}/` |
-| runner-lock.md | the runner's lock, hold metric | `runner/{lock_hold,off_lock}.rs`, `runner/trigger/` |
+| runner-lock.md | lock, hold metric | `runner/{lock_hold,off_lock}.rs` |
+| runner-lock-passes.md | queued verbs, board, threads | `runner/{queued,board_read,trigger}` |
 | runner-lock-worktrees.md | worktree jobs | `runner/worktree_jobs.rs` |
-| runner-lock-threads.md | handler threads | `runner/trigger/` |
 | fence.md | sandbox, guard, hooks, reads | `core/{profile,guard,hooks}/` |
 | fence-reach.md | hosts, dep reads | `core/package_managers/` |
 | browser.md | a worker's browser: bridge, filter, tools | `core/{bridge,browse}.rs`, `adapters/bridge/`, `runner/browser.rs`, `core/settings/browser.rs`, `process/tools/` |
