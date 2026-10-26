@@ -859,6 +859,21 @@ mod tests {
     }
 
     #[test]
+    fn a_second_pass_over_the_same_commits_asks_git_for_no_tree_or_ancestor() {
+        let w = World::new();
+        let asked = || commit::ASKED.with(std::cell::Cell::get);
+        w.write(SETTINGS, "{\"other\":true}\n");
+        let first = w.differ(None);
+        let after_first = asked();
+        assert!(after_first > 0, "the first pass reads the commits");
+
+        assert_eq!(w.differ(None), first);
+        assert!(matches_main(&w.repo(), &w.wt(), "main") == first.is_empty());
+
+        assert_eq!(asked(), after_first);
+    }
+
+    #[test]
     fn a_moved_origin_main_is_read_again() {
         let w = World::new();
         w.write(SETTINGS, "{\"moved\":true}\n");

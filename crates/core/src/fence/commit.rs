@@ -15,6 +15,21 @@ use crate::worktree::{self, WorktreeError, git};
 /// A fenced file's mode and blob, by its path
 pub(super) type Files = BTreeMap<String, (String, String)>;
 
+// Each kept result is a repo path, a few ids and the fenced paths of one
+// commit, a few hundred bytes. A map past this many entries starts over.
+const KEPT_MAX: usize = 256;
+
+#[cfg(test)]
+thread_local! {
+    // How many times git was asked for what the caches keep, on this thread.
+    pub(super) static ASKED: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+}
+
+fn asked() {
+    #[cfg(test)]
+    ASKED.with(|n| n.set(n.get() + 1));
+}
+
 /// Results kept by `K`, each read at most once
 struct Kept<K, V>(Mutex<BTreeMap<K, V>>);
 
@@ -38,6 +53,9 @@ impl<K: Ord, V: Clone> Kept<K, V> {
         }
         let value = read()?;
         let mut kept = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        if kept.len() >= KEPT_MAX {
+            kept.clear();
+        }
         Ok(kept.entry(key).or_insert(value).clone())
     }
 }
@@ -80,7 +98,10 @@ fn main_ref(base: &str) -> String {
 /// The commit `head` left `main` at, where `main` is a commit id
 pub(super) fn cut_at(repo: &Path, head: &str, main: &str) -> Result<String, WorktreeError> {
     let key = (repo.to_owned(), head.to_owned(), main.to_owned());
-    let read = || git(repo, ["merge-base", head, main]);
+    let read = || {
+        asked();
+        git(repo, ["merge-base", head, main])
+    };
     if is_full_id(head) && is_full_id(main) {
         CUT_AT.get_or_read(key, read)
     } else {
@@ -102,6 +123,7 @@ pub(super) fn files_in(repo: &Path, commit: &str) -> Result<Arc<Files>, Worktree
 // Git matches a pathspec by exact case, so the root is listed and matched
 // here. Two spellings of one path never match anything.
 fn in_commit(repo: &Path, commit: &str) -> Result<Files, WorktreeError> {
+    asked();
     let entries = |listing: String| -> Vec<(String, String, String)> {
         listing
             .split('\0')
@@ -165,6 +187,28 @@ mod tests {
         let spawn = || Err(WorktreeError::Spawn("no git".into()));
         assert!(kept.get_or_read("c", spawn).is_err());
         assert_eq!(kept.get_or_read("c", || read(3)), Ok(3));
+    }
+
+    #[test]
+    fn a_full_map_starts_over_rather_than_grow() {
+        let kept: Kept<usize, usize> = Kept::new();
+        for key in 0..KEPT_MAX {
+            kept.get_or_read(key, || Ok(key)).unwrap();
+        }
+        kept.get_or_read(KEPT_MAX, || Ok(KEPT_MAX)).unwrap();
+
+        let reads = Cell::new(0);
+        kept.get_or_read(0, || {
+            reads.set(1);
+            Ok(0)
+        })
+        .unwrap();
+        assert_eq!(
+            reads.get(),
+            1,
+            "an entry from before the restart is read again"
+        );
+        assert!(kept.0.lock().unwrap().len() <= KEPT_MAX);
     }
 
     #[test]
