@@ -143,6 +143,32 @@ fn a_waiting_pull_request_on_an_unlisted_labelled_implementer_is_held_by_its_acc
 }
 
 #[test]
+fn a_pull_request_held_by_its_labelled_account_leaves_the_ones_behind_it_to_start() {
+    let rig = Rig::new("shep");
+    rig.ci_on();
+    opened_80(&rig);
+    rig.push_by_hand("fix/other", "other.txt");
+    rig.forge.open_pull_request(81, "fix/other", &[6]);
+    rig.write_codex_implementer();
+    rig.forge.label(5, "agent:codex");
+    rig.codex_day_began(0);
+    rig.codex_meter.set(Rig::utilization(15, 0));
+    let runner = running(&rig);
+    rig.ask(&runner, "adopt", Some("80"));
+    rig.ask(&runner, "adopt", Some("81"));
+
+    assert!(matches!(
+        step(&runner).unwrap(),
+        Some(StepReport::Adopted {
+            pull_request: 81,
+            ..
+        })
+    ));
+    let status = rig.ask(&runner, "status", None);
+    assert_eq!(status["adopted"], waiting(&[80], false), "80 stays queued");
+}
+
+#[test]
 fn ready_for_agent_on_a_branch_not_kelpies_adopts_it_on_the_next_poll() {
     let rig = Rig::new("koji");
     opened_80(&rig);

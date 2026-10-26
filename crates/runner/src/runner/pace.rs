@@ -15,6 +15,7 @@ use serde::Serialize;
 use super::Runner;
 use super::report::{Begin, StepReport};
 use crate::agents::Runs;
+use crate::board::Skip;
 use crate::pacer::{Assessment, Hold, RECHECK_SECS, Reading, Scope, assess, named};
 use crate::ports::{PaddockHolder, Timestamp};
 use crate::settings::{Account, AgentHarness, AgentName, GatewayName, Limit, ModelHost};
@@ -53,6 +54,10 @@ pub(super) enum Started<T> {
     /// What the runner does instead of starting
     Held(Box<Begin>),
 }
+
+/// What a pass over the pull requests that ask to start found: the step it
+/// begins, each that could not start, and the first the pacer held
+pub(super) type Passed = (Option<Begin>, Vec<Skip>, Option<Begin>);
 
 impl Pace {
     /// The pacer's reading of the hold, or `None` when nothing holds

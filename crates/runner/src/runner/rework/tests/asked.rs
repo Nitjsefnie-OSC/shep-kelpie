@@ -69,6 +69,31 @@ fn a_rework_on_an_unlisted_labelled_implementer_is_held_by_its_account() {
 }
 
 #[test]
+fn a_rework_held_by_its_labelled_account_leaves_the_ones_after_it_to_start() {
+    let rig = Rig::new("webapp");
+    rig.push_by_hand("kelpie/6", "work.txt");
+    rig.forge.open_pull_request(70, "kelpie/6", &[6]);
+    rig.forge.review(70, review());
+    rig.forge.label_pull_request(70, READY);
+    reviewed_71(&rig);
+    rig.forge.label_pull_request(71, READY);
+    rig.write_codex_implementer();
+    rig.forge.label(6, "agent:codex");
+    rig.codex_day_began(0);
+    rig.codex_meter.set(Rig::utilization(15, 0));
+    let runner = running(&rig);
+
+    assert!(matches!(
+        step(&runner).unwrap(),
+        Some(StepReport::Reworked {
+            pull_request: 71,
+            ..
+        })
+    ));
+    assert_eq!(rig.forge.pull_request_labels(70), [READY], "70 asks again");
+}
+
+#[test]
 fn a_review_requesting_changes_starts_a_rework_once() {
     let rig = Rig::new("reactmap");
     reviewed_71(&rig);

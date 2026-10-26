@@ -12,7 +12,7 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 
 use super::Runner;
-use super::pace::Started;
+use super::pace::{Passed, Started};
 use super::report::{Begin, ReworkBy, StepReport};
 use super::trigger::{self, issue_list};
 use super::turn;
@@ -169,10 +169,7 @@ impl Runner {
     // returns each pull request that asked but could not start this poll. A
     // refusal that asking again would not change takes the label off,
     // records the review and goes to the pull request as a comment.
-    pub(super) fn rework_asked(
-        &mut self,
-        open: &[OpenPullRequest],
-    ) -> Result<(Option<Begin>, Vec<Skip>), StateError> {
+    pub(super) fn rework_asked(&mut self, open: &[OpenPullRequest]) -> Result<Passed, StateError> {
         let mut skipped = Vec::new();
         // A second ask waits for the work item in flight on its issue to end.
         let mut ours: Vec<(u64, TicketId)> = open
@@ -191,6 +188,8 @@ impl Runner {
             error: error.to_string(),
         };
         self.snapshot.keep_only(open);
+        // A pull request whose agent's account holds waits, and the ones after it still start.
+        let mut first_hold = None;
         for (number, ticket) in ours {
             // A rework is kelpie's own `kelpie/<issue>` branch, whose name holds
             // a GitHub issue number, which is how `ours` read it above.
@@ -238,11 +237,14 @@ impl Runner {
                 }
             }
             if let Some(held) = self.pace_dispatch()?.holds() {
-                return Ok((Some(held), skipped));
+                return Ok((Some(held), skipped, None));
             }
             let review = pr.review.as_ref().map(|r| r.id.clone());
             let begin = match self.start_rework_paced(number, pr) {
-                Ok(Started::Held(held)) => return Ok((Some(*held), skipped)),
+                Ok(Started::Held(held)) => {
+                    first_hold.get_or_insert(*held);
+                    continue;
+                }
                 Ok(Started::Opened(agent)) => Begin::Report(StepReport::Reworked {
                     issue: ticket,
                     pull_request: number,
@@ -262,9 +264,9 @@ impl Runner {
                     continue;
                 }
             };
-            return Ok((Some(begin), skipped));
+            return Ok((Some(begin), skipped, None));
         }
-        Ok((None, skipped))
+        Ok((None, skipped, first_hold))
     }
 
     // The outer error is a save that failed; the inner, a label that would

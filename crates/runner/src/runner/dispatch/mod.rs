@@ -129,12 +129,12 @@ impl Runner {
         }
         // An adopted pull request, then one asking for a rework, goes before
         // any ready issue, and one that cannot start is passed over like one.
-        let (begin, mut failed) = self.adopt_waiting(&open)?;
+        let (begin, mut failed, adopt_hold) = self.adopt_waiting(&open)?;
         if let Some(begin) = begin {
             self.set_failed_skips(failed);
             return Ok(begin);
         }
-        let (begin, reworks) = self.rework_asked(&open)?;
+        let (begin, reworks, rework_hold) = self.rework_asked(&open)?;
         failed.extend(reworks);
         if let Some(begin) = begin {
             self.set_failed_skips(failed);
@@ -168,6 +168,10 @@ impl Runner {
         ready.retain(|issue| !held.contains(&issue.ticket));
         let mut paced = false;
         let mut unlabelled: Vec<Skip> = Vec::new();
+        // Issues whose labelled agent's account holds, and the first such hold, which
+        // is what the step reports if no other issue can start.
+        let mut account_held: Vec<Skip> = Vec::new();
+        let mut first_hold = adopt_hold.or(rework_hold);
         loop {
             let implementers = self.implementer_files();
             let (finished, dropped) = (self.state.finished.clone(), self.state.dropped.clone());
@@ -177,9 +181,16 @@ impl Runner {
             skipped.extend(failed.iter().cloned());
             skipped.extend(overlaps.iter().cloned());
             skipped.extend(unlabelled.iter().cloned());
+            skipped.extend(account_held.iter().cloned());
             skipped.sort_by_key(Skip::issue);
             let takeable = takeable(&ready, &open, &finished, &dropped, &implementers);
             let Some(picked) = pick.issue else {
+                if failed.is_empty()
+                    && let Some(held) = first_hold
+                {
+                    self.set_skipped(skipped);
+                    return Ok(held);
+                }
                 let reason = failed
                     .iter()
                     .filter_map(|skip| match skip {
@@ -286,15 +297,15 @@ impl Runner {
             if let Some((agent, _)) = labelled {
                 let pace = self.pace_agent(&agent)?;
                 if let Some(hold) = pace.reason() {
-                    skipped.push(Skip::Paced {
+                    account_held.push(Skip::Paced {
                         issue: ticket,
                         hold: hold.to_owned(),
                     });
-                    skipped.sort_by_key(Skip::issue);
                 }
                 if let Some(held) = pace.holds() {
-                    self.set_skipped(skipped);
-                    return Ok(held);
+                    first_hold.get_or_insert(held);
+                    ready.retain(|i| i.ticket != ticket);
+                    continue;
                 }
             }
             match self.add(ticket) {

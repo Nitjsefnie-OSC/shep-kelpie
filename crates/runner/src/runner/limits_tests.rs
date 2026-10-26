@@ -140,6 +140,22 @@ fn a_ready_issue_on_an_unlisted_labelled_implementer_dispatches_when_its_account
 }
 
 #[test]
+fn an_issue_held_by_its_labelled_account_never_holds_a_ready_issue_behind_it() {
+    let (rig, runner) = codex_day_began(0);
+    rig.codex_meter.set(Rig::utilization(15, 0));
+    rig.forge.list_ready(8, false);
+
+    let report = step(&runner).unwrap();
+    assert!(
+        matches!(report, Some(StepReport::Dispatched { issue, .. }) if issue == ticket(8)),
+        "{report:?}"
+    );
+    let skipped = rig.ask(&runner, "status", None)["skipped"].clone();
+    assert_eq!(skipped[0]["reason"], "paced");
+    assert_eq!(skipped[0]["issue"], "7");
+}
+
+#[test]
 fn a_project_all_on_codex_paces_on_codexs_own_windows() {
     let (rig, runner) = named("koji", ALL_CODEX);
     rig.forge.list_ready(7, false);

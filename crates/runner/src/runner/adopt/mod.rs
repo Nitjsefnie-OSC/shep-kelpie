@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 
 use super::Runner;
 
-use super::pace::Started;
+use super::pace::{Passed, Started};
 use super::report::{Begin, StepReport};
 use super::rework::review_text;
 use super::trigger;
@@ -217,11 +217,9 @@ impl Runner {
     // Queues each open pull request labelled `ready-for-agent` whose branch
     // isn't `kelpie/N`. Starts the oldest that can. A refusal takes the label
     // off and is posted on the pull request. One merged or closed while it
-    // waited just leaves. Returns each that could not start.
-    pub(super) fn adopt_waiting(
-        &mut self,
-        open: &[OpenPullRequest],
-    ) -> Result<(Option<Begin>, Vec<Skip>), StateError> {
+    // waited just leaves. Returns each that could not start, and the first
+    // the pacer held, which stays queued while the ones behind it start.
+    pub(super) fn adopt_waiting(&mut self, open: &[OpenPullRequest]) -> Result<Passed, StateError> {
         let mut skipped = Vec::new();
         // A queue saved before the project moved to the local store is let go,
         // since an adopted pull request closes a GitHub issue.
@@ -235,7 +233,7 @@ impl Runner {
             {
                 self.let_go(waiting)?;
             }
-            return Ok((None, skipped));
+            return Ok((None, skipped, None));
         }
         if let Some(mut labelled) = self.labelled_for_adoption(open) {
             labelled.sort_unstable();
@@ -256,12 +254,18 @@ impl Runner {
         }
         let waiting: Vec<u64> = self.state.adopted.iter().map(|w| w.pull_request).collect();
         self.forget_unwaiting(&waiting)?;
+        // A pull request whose agent's account holds waits in the queue, and the ones
+        // behind it still start.
+        let mut first_hold = None;
         for number in waiting {
             if let Some(held) = self.pace_dispatch()?.holds() {
-                return Ok((Some(held), skipped));
+                return Ok((Some(held), skipped, None));
             }
             let begin = match self.start_adoption(number) {
-                Ok(Started::Held(held)) => return Ok((Some(*held), skipped)),
+                Ok(Started::Held(held)) => {
+                    first_hold.get_or_insert(*held);
+                    continue;
+                }
                 Ok(Started::Opened((issue, agent))) => {
                     self.adopt_failing.remove(&number);
                     Begin::Report(StepReport::Adopted {
@@ -289,9 +293,9 @@ impl Runner {
                     continue;
                 }
             };
-            return Ok((Some(begin), skipped));
+            return Ok((Some(begin), skipped, None));
         }
-        Ok((None, skipped))
+        Ok((None, skipped, first_hold))
     }
 
     // Notes that adopted pull request `number` could not start this pass, and
