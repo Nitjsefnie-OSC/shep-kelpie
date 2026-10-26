@@ -12,6 +12,10 @@ use crate::metrics::Recorder;
 // The longest hold `kelpie_runner_lock_holds_total{le="1"}` counts
 const SHORT: Duration = Duration::from_secs(1);
 
+// A hold longer than this is told in the log, so the call to move off the lock is found without
+// `status --json`
+const LONG: Duration = Duration::from_secs(5);
+
 // A source file and line. The sites are the lock calls the code has, so the map stays that size.
 type Site = (&'static str, u32);
 
@@ -31,8 +35,13 @@ struct Unsent {
 }
 
 impl Holds {
-    /// Notes that the lock was held `elapsed` since `site` took it
-    pub(super) fn record(&mut self, site: &'static Location<'static>, elapsed: Duration) {
+    /// Notes that the lock was held `elapsed` since `site` took it, and returns the line to log
+    /// when that is longer than [`LONG`]
+    pub(super) fn record(
+        &mut self,
+        site: &'static Location<'static>,
+        elapsed: Duration,
+    ) -> Option<String> {
         let longest = (self.longest)
             .entry((site.file(), site.line()))
             .or_default();
@@ -40,6 +49,14 @@ impl Holds {
         self.unsent.total += elapsed;
         self.unsent.short += u32::from(elapsed <= SHORT);
         self.unsent.all += 1;
+        (elapsed > LONG).then(|| {
+            format!(
+                "the runner's lock was held {:.1}s by {}:{}",
+                elapsed.as_secs_f64(),
+                site.file(),
+                site.line()
+            )
+        })
     }
 
     /// The longest hold of each site, in seconds, by `file:line`
@@ -95,7 +112,9 @@ impl DerefMut for Held<'_> {
 impl Drop for Held<'_> {
     fn drop(&mut self) {
         let elapsed = self.since.elapsed();
-        self.guard.holds.record(self.site, elapsed);
+        if let Some(line) = self.guard.holds.record(self.site, elapsed) {
+            self.guard.notes.push(line);
+        }
     }
 }
 
@@ -162,6 +181,19 @@ mod tests {
         assert_eq!(
             sink.value("kelpie_runner_lock_held_seconds_total", &[]),
             Some(4.75)
+        );
+    }
+
+    #[test]
+    fn a_hold_over_five_seconds_is_told_with_its_site_and_length() {
+        let mut holds = Holds::default();
+        let site = here();
+        let (file, line) = (site.file(), site.line());
+
+        assert_eq!(holds.record(site, Duration::from_secs(5)), None);
+        assert_eq!(
+            holds.record(site, Duration::from_millis(18_500)),
+            Some(format!("the runner's lock was held 18.5s by {file}:{line}"))
         );
     }
 
