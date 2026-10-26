@@ -29,13 +29,11 @@ pub(super) fn last_request_input(home: &Path, thread: &str) -> Option<u64> {
 }
 
 /// The tokens the session `thread` has spent in all, as its rollout's last
-/// `token_usage_record` counts them, or `None` when it has none, or none that
-/// reaches `reported`, the total the turn's own report gave
+/// `token_usage_record` counts them
 ///
-/// A compaction's own model request is in that count and not in the turn's
-/// report or the `token_count` events. A running total never falls, so a
-/// record under `reported` is an earlier turn's, left by a Codex that wrote
-/// none for this one.
+/// `None` when it has none that reaches `reported`, the total the turn's own
+/// report gave. A compaction's model request is in this count only. A running
+/// total never falls, so a record under `reported` is an earlier turn's.
 pub(super) fn thread_total(home: &Path, thread: &str, reported: Spent) -> Option<Spent> {
     let total = last_record(&rollout_text(home, thread)?)?;
     total.reaches(reported.into()).then(|| spent(total))

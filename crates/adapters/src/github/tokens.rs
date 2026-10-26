@@ -293,8 +293,7 @@ fn pushes_only(issued: IssuedToken) -> Result<IssuedToken, TokenError> {
 
 impl AppTokens {
     // A token of kelpie's kept until it nears its end. A worker's and a
-    // thread's are never kept: a worker's has the whole of its hour for the
-    // call that gets it, and both can push, so kelpie's own posts must never
+    // thread's are never kept: both can push, so kelpie's own posts must not
     // be handed them. A worker's `grant` names no `workflows`: the
     // installation says whether to ask for it.
     fn mint(&self, repo: &ForgeSlug, grant: Grant) -> Result<IssuedToken, TokenError> {

@@ -16,20 +16,17 @@ use crate::ticket::TicketId;
 // stops at its limit.
 const LIST_LIMIT: &str = "1000";
 
-// The REST endpoint answers 100 items a page, and an item is an issue or a pull
-// request, so the pages are read until `LIST_ISSUES` issues are in hand or the
-// endpoint runs out. `LIST_PAGES` bounds what one listing may cost: past it a
-// repo whose open pull requests crowd the pages out loses its oldest issues,
-// the way `gh` loses them at its own ceiling.
+// An item is an issue or a pull request, so pages are read until
+// `LIST_ISSUES` issues are in hand or the endpoint runs out. `LIST_PAGES`
+// bounds the cost: past it, open pull requests crowding the pages out lose the
+// oldest issues.
 const PER_PAGE: usize = 100;
 const LIST_ISSUES: usize = 1000;
 const LIST_PAGES: usize = 20;
 
-// `gh issue list --json` has no `authorAssociation` in gh 2.96, and the triage
-// limits read it, so the open issues come from the REST endpoint, which answers
-// it for every issue. The endpoint answers pull requests beside issues, which
-// are left out, and one page holds 100 items, so a repo with more open issues
-// costs one more call for each 100.
+// `gh issue list --json` has no `authorAssociation` in gh 2.96, which the
+// triage limits read, so the open issues come from the REST endpoint. Its
+// pull requests are left out, and each 100 more items cost one more call.
 pub(super) fn open_issues(repo: &ForgeSlug) -> Result<Vec<OpenIssue>, ForgeError> {
     let mut open = Vec::new();
     for page in 1..=LIST_PAGES {
@@ -290,12 +287,9 @@ fn parse_open_pulls(stdout: &[u8]) -> Result<Vec<OpenPull>, ForgeError> {
 }
 
 // The issues a pull request's body names with `Resolves`, `Fixes` or `Closes`,
-// each keyword read in any case, in the order they first appear. As GitHub
-// reads them, the keyword is a word of its own: it may carry a colon after it
-// (`Fixes: #12`, `Fixes:#12`) and markup or punctuation before it (`(Fixes
-// #12)`, `**Fixes #12**`), and a number ends at whitespace, punctuation or the
-// end of the body: `#12abc` and `#12_3` name nothing, since GitHub reads no
-// issue of that number.
+// in any case, in order. As GitHub reads them, the keyword is a word of its
+// own, with an optional colon after it and markup before it (`**Fixes #12**`).
+// A number ends at whitespace or punctuation: `#12abc` names nothing.
 fn closes_named_in(body: &str) -> Vec<u64> {
     const KEYWORDS: [&str; 3] = ["resolves", "fixes", "closes"];
     let words: Vec<&str> = body.split_whitespace().collect();

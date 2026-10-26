@@ -1,8 +1,7 @@
-// pi's own `grep` and `find` run `rg` and `fd`, which pi downloads from GitHub
-// when it finds neither in its own agent folder's `bin` nor on `PATH`. Each
-// kelpie call has a pi home of its own, whose `bin` is always empty, and the
-// sandbox refuses the download, so pi is told the call is offline and says the
-// tool is missing instead of trying (`docs/facts/tool-errors.md`).
+// pi's `grep` and `find` download `rg` and `fd` when neither is in its `bin` or
+// on `PATH`. A call's pi home has an empty `bin` and the sandbox refuses the
+// download, so pi is told it is offline and reports the tool missing
+// (`docs/facts/tool-errors.md`).
 
 use super::tests::{URL, WORKER_ID, World, id};
 use super::*;

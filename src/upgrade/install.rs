@@ -1,15 +1,11 @@
 //! Putting a build over the installed kelpie, the way shep upgrades itself
 //!
-//! The installed kelpie is the file the adopted dog runs, wherever that is.
-//! The new build is written beside it and renamed over it, so the running
-//! file's bytes are never edited in place, and a runner that restarts on its
-//! own finds the old build or the new one and never half of either. A fresh
-//! inode needs no re-signing by the system, so the copy is signed once, before
-//! the rename.
-//!
-//! Before the swap the file it replaces is copied into kelpie's `builds`
-//! folder, resolved if the installed path is a symlink, and `--rollback`
-//! puts that copy back the same way.
+//! The installed kelpie is the file the adopted dog runs. The new build is
+//! written beside it and renamed over it, so a runner that restarts on its own
+//! finds the old build or the new one, never half of either. A fresh inode
+//! needs no re-signing by the system, so the copy is signed once, before the
+//! rename. The replaced file is first copied into kelpie's `builds` folder,
+//! through a symlink if need be, and `--rollback` puts that copy back.
 
 use std::fs;
 use std::io::Read;

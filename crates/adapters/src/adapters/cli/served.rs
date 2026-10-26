@@ -20,11 +20,9 @@ pub(crate) struct Launched {
 }
 
 impl<C: Cli> CliAdapter<C> {
-    // A call on a gateway's model holds a lease on it, so the gateway
-    // evicts nothing it runs on midway and queues the call behind any other
-    // lease. Its ceiling counts from the grant. A lease the gateway took back
-    // ended the call, whatever the run says of it. The run is told the
-    // lease's id, so its chat calls name the turn they belong to.
+    // A call on a gateway's model holds a lease on it. Its ceiling counts from
+    // the grant, and a lease the gateway took back ended the call, whatever the
+    // run says. The run gets the lease's id, so its chat calls name their turn.
     pub(crate) fn leased<T>(
         &self,
         call: &AgentCall,

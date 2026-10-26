@@ -1,55 +1,3 @@
-crates/adapters/src/adapters/bridge/client/mod.rs	11	//! Kelpie's own MCP client, for the browser's server
-crates/adapters/src/adapters/bridge/client/tests.rs	5	// A session with the Playwright MCP server of `@playwright/mcp` 0.0.82, as kelpie speaks
-crates/adapters/src/adapters/bridge/mod.rs	15	//! The outside half of [`crate::bridge`]: the browser's MCP server behind one socket, for one call
-crates/adapters/src/adapters/bridge/proxy/mod.rs	11	//! The proxy every request of a call's browser goes through
-crates/adapters/src/adapters/bridge/proxy/mod.rs	5	// Whether `address` is globally routable. Every special-purpose range of the IANA
-crates/adapters/src/adapters/classifier.rs	12	//! The gateway's classifier: one POST to its route, and its answer read
-crates/adapters/src/adapters/claude/sandbox.rs	7	// A sheep has no `TMPDIR`, so a shell falls back to `/tmp`, which the
-crates/adapters/src/adapters/claude/sandbox.rs	7	// A shell's heredoc makes a temp file under `TMPDIR`, or `/tmp` with none,
-crates/adapters/src/adapters/claude/settings.rs	9,9	/// The only tools an issue writer's session starts with, as `--tools` takes
-crates/adapters/src/adapters/claude/settings.rs	5	// It may edit its notes file and nothing else, which `Edit(<notes>)` allows
-crates/adapters/src/adapters/cli/served.rs	5	// A call on a gateway's model holds a lease on it, so the gateway
-crates/adapters/src/adapters/codex/attach.rs	15	//! Codex's session in the maintainer's terminal
-crates/adapters/src/adapters/codex/context.rs	7,7	/// The tokens the session `thread` has spent in all, as its rollout's last
-crates/adapters/src/adapters/codex/context_tests.rs	6	// `turn.completed` runs from 67,840 input (38,272 cached) and 229 output to
-crates/adapters/src/adapters/codex/mod.rs	16	//! Codex, headless as `codex exec --json`, one process per call, on the
-crates/adapters/src/adapters/codex/mod.rs	9,9	/// The only folders in a call's Codex home the call may write: its
-crates/adapters/src/adapters/codex/mod.rs	6	// `codex exec --json` prints one event per line: the session it runs in,
-crates/adapters/src/adapters/codex_usage.rs	13	//! The Codex account's usage, read from `codex app-server`
-crates/adapters/src/adapters/forwarder/mod.rs	11	//! The outside half of [`crate::forwarder`]: one socket, for one call
-crates/adapters/src/adapters/forwarder/mod.rs	7	// The chat call as the model server gets it: its own path, and only the
-crates/adapters/src/adapters/gh/board.rs	5	// One query lists every open pull request with what the board, rework, gate
-crates/adapters/src/adapters/gh/issues.rs	5	// The REST endpoint answers 100 items a page, and an item is an issue or a pull
-crates/adapters/src/adapters/gh/issues.rs	5	// `gh issue list --json` has no `authorAssociation` in gh 2.96, and the triage
-crates/adapters/src/adapters/gh/issues.rs	7	// The issues a pull request's body names with `Resolves`, `Fixes` or `Closes`,
-crates/adapters/src/adapters/gh/review.rs	6	// Recorded from gh 2.96: `gh api graphql` with `QUERY` on shep-pm/shep#617.
-crates/adapters/src/adapters/gh/runs.rs	5	// `gh run list --branch main --status completed --limit 50 --json
-crates/adapters/src/adapters/gh/thread.rs	5	// GraphQL's answer to `REPLIES` for a pull request with two review
-crates/adapters/src/adapters/gh/tickets.rs	11	//! GitHub's issues as the ticket port (ADR 0014)
-crates/adapters/src/adapters/goose/attach.rs	13	//! goose's session in the maintainer's terminal
-crates/adapters/src/adapters/goose/compact.rs	11	//! What goose reports of its context and its compactions, and the call that
-crates/adapters/src/adapters/goose/hooks.rs	15	//! The plugin that fences a goose worker, reviewer, advisor and retro
-crates/adapters/src/adapters/goose/hooks.rs	5	// The root's `config.yaml` with the plugin on. goose keeps the map by the
-crates/adapters/src/adapters/goose/hooks.rs	7,7	/// The command goose runs for each tool call: `kelpie guard` with the
-crates/adapters/src/adapters/goose/mcp.rs	13	//! The MCP servers in a goose call's flags
-crates/adapters/src/adapters/goose/mod.rs	23	//! goose, headless as `goose run`, one process per call, on a model an
-crates/adapters/src/adapters/goose/mod.rs	5	// The terminal session runs on the session's model requests, so goose's totals will
-crates/adapters/src/adapters/goose/mod.rs	6	// The variables that move goose into the call's own root and point it at the
-crates/adapters/src/adapters/goose/mod.rs	6	// The prompt is one `--text=` argument, so one that starts with `-` is not read
-crates/adapters/src/adapters/goose/skills.rs	14	//! The skills a goose call loads, and a step's prompt as goose's skill command
-crates/adapters/src/adapters/goose/skills.rs	16,16	/// The prompt as goose's skill command, when the call's prompt runs a skill
-crates/adapters/src/adapters/goose/web.rs	13	//! The web a researcher on goose has: `duckduckgo-websearch`, run as a stdio MCP server
-crates/adapters/src/adapters/local/command.rs	5	// A fake script whose main round reports one file as skipped for size,
-crates/adapters/src/adapters/local/endpoint/mod.rs	13	//! Kelpie's own local reviewer, over an OpenAI-compatible server
-crates/adapters/src/adapters/paddock/mod.rs	12	//! Paddock's own routes, for a gateway of kind `paddock`, a shep dog
-crates/adapters/src/adapters/pi/env_tests.rs	5	// pi's own `grep` and `find` run `rg` and `fd`, which pi downloads from GitHub
-crates/adapters/src/adapters/pi/mod.rs	14	//! pi, headless as `pi -p`, one process per call, on a model an
-crates/adapters/src/adapters/pi/mod.rs	7	// pi's own `grep` and `find` run `rg` and `fd`, which pi downloads from
-crates/adapters/src/adapters/pi/tests.rs	5	// The real pi on the real model, under the real sandbox, recording what it
-crates/adapters/src/adapters/pi/web.rs	12	//! The web a researcher on pi has: `pi-web-access`, loaded from kelpie's tools
-crates/adapters/src/adapters/process/mod.rs	10,10	/// Runs `call`'s `command` with its stdout and stderr written to the
-crates/adapters/src/adapters/process/mod.rs	7,7	/// Like `output_within`, with `input` written to the child's stdin, the
-crates/adapters/src/github/tokens.rs	5	// A token of kelpie's kept until it nears its end. A worker's and a
 crates/panel/src/panel/tally/mod.rs	12	//! How the panel's votes decide a ruling
 crates/runner/src/runner/adopt/mod.rs	19	//! Adopting an open pull request kelpie didn't open
 crates/runner/src/runner/adopt/mod.rs	5	// Queues each open pull request labelled `ready-for-agent` whose branch
@@ -154,31 +102,4 @@ crates/runner/src/runner/turn/unreachable/mod.rs	5	// The call is replayed as it
 crates/runner/src/runner/voice/card/mod.rs	11	//! A ruling's comment in one short format
 crates/runner/src/runner/voice/mod.rs	11	//! What kelpie writes on GitHub for the maintainer, through its App
 crates/runner/src/test/mod.rs	7,7	/// A running project whose worker's first turn pushed `work.txt` on
-crates/test_support/src/test/script.rs	9,9	/// Writes an executable stand-in script that is safe to run at once.
-crates/test_support/src/test/script.rs	7,7	/// Makes an owner-only FIFO at `path`
 crates/trim/src/trim.rs	11	//! Claude Code features no call kelpie makes uses
-src/doctor/machine.rs	10,10	/// `rg` and `fd` on the `PATH`, which pi's own `grep` and `find` tools run,
-src/doctor/machine.rs	8,8	/// The sandbox runtime every agent runs in, with what this machine needs for
-src/doctor/mod.rs	5	// The sandbox fix is fitted to what the projects this run covers
-src/doctor/mod.rs	5	// Whether a project this run of doctor covers plans a dev server that binds
-src/flock/control/mod.rs	12	//! `shep kelpie start`, `pause`, `finish`, `status` and the triggers the
-src/flock/control/mod.rs	7,14	/// Starts `project`'s runner when it is down, then waits for it to answer
-src/flock/control/mod.rs	8,16	/// Puts `project`'s runner in finishing: its open work items run to their
-src/flock/control/mod.rs	8,14	/// Lets `project`'s runner end what it has running, then stops its sheep
-src/flock/control/mod.rs	8,12	/// Sends `project`'s runner `action` with `params`, an action that changes
-src/flock/rule/mod.rs	6	// A ruling answers to its ticket, or to the pull request it is about. Only
-src/flock/share.rs	10,13	/// Whether another project runs the checkout or repo `settings` name, asking
-src/flock/verbs/mod.rs	7,11	/// `-p <project>`, `--project <project>` or `--project=<project>` from
-src/issues/mod.rs	24	//! The issue writer: a request becomes issues an agent can build from
-src/issues/mod.rs	9,13	/// `program`, Claude Code, started on `request` with the `grill-with-docs`
-src/main.rs	75	//! `kelpie --schema` and `--version`: shep's probes, answered for lookout
-src/main.rs	5	// First of all, before anything opens a descriptor or starts a thread: a
-src/sheep/handover/mod.rs	16	//! A runner replacing its image with the installed build, in place
-src/sheep/mod.rs	11	//! A runner as a sheep: the shepherd channel wired to a [`Runner`]
-src/upgrade/drain.rs	20	//! Draining a runner before its restart or its stop, so neither cuts a call
-src/upgrade/install.rs	12	//! Putting a build over the installed kelpie, the way shep upgrades itself
-src/upgrade/mod.rs	20	//! `shep kelpie upgrade`: installs a new kelpie and restarts the dog and each
-src/upgrade/restart.rs	18	//! Restarting the dog and each runner onto the installed build
-src/upgrade/restart.rs	5,16	/// Restarts the dog and each running runner, saying what it does through `say`
-src/upgrade/seen.rs	11	//! The installed file as the last upgrade left it
-tests/commands_page.rs	28	//! The commands guide page names every `shep kelpie` verb and flag, and none

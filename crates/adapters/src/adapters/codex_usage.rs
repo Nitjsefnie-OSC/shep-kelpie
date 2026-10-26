@@ -1,12 +1,9 @@
 //! The Codex account's usage, read from `codex app-server`
 //!
 //! Its `account/rateLimits/read` request answers with the account's two
-//! windows and runs no model turn. The app server exits with no answer
-//! when its stdin closes first, so the requests go in and the pipe stays
-//! open until the answer comes back.
-//!
-//! The shape is the app server's generated JSON schema, and a live Plus
-//! account's answer matched it.
+//! windows and runs no model turn. The app server exits with no answer when
+//! its stdin closes first, so the pipe stays open until the answer comes back.
+//! The shape is the app server's generated JSON schema.
 //!
 //! It reads kelpie's own login, in `codex_home`, never the maintainer's
 //! `~/.codex`. It runs outside the sandbox, so a login near its expiry is

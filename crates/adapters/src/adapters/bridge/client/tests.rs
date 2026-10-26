@@ -4,11 +4,10 @@ use serde_json::Value;
 
 use super::*;
 
-// A session with the Playwright MCP server of `@playwright/mcp` 0.0.82, as kelpie speaks
-// it to a page that fails in three ways. Its `initialize` answer was captured from the
-// server. The server's tool answers were written from that version's source
-// (`Response.serialize` and the console and network tools), since Chromium cannot start in a
-// worker's sandbox to capture them. See `docs/facts/the-browser.md`.
+// A session with `@playwright/mcp` 0.0.82 on a page that fails in three ways.
+// Its `initialize` answer was captured. Its tool answers were written from that
+// version's source, since Chromium cannot start in a worker's sandbox.
+// See `docs/facts/the-browser.md`.
 const SESSION: &str = include_str!("../../../../../../fixtures/playwright-mcp-session.jsonl");
 
 // What the recording says kelpie sent, and what the server sent back.

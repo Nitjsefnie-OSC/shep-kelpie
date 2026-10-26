@@ -1,14 +1,11 @@
 //! GitHub's issues as the ticket port (ADR 0014)
 //!
-//! A GitHub project's tickets are its issues, so this is where kelpie reads
-//! and writes them: each method is the `gh` call for it, as the forge port
-//! made it before ADR 0014 took the issue half off `Forge`. The impl stands
-//! here rather than in `gh` itself, so no `gh` call site has both ports in
-//! scope at once.
+//! A GitHub project's tickets are its issues, so each method here is the `gh`
+//! call for one. The impl stands apart from `gh` itself, so no `gh` call site
+//! has both ports in scope at once.
 //!
 //! A GitHub ticket's id is its issue number, so each id is turned back into
-//! the number the `gh` call needs. A ticket of another source has no issue
-//! number, and this source has no such ticket.
+//! the number the `gh` call needs. A ticket of another source has none.
 
 use std::path::{Path, PathBuf};
 
