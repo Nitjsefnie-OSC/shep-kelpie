@@ -164,7 +164,7 @@ pub use in_flight::Stopping;
 pub use ledger::count_stopped;
 pub use left::leave as leave_answer;
 pub use lineup::{Board, MoveError, Place};
-pub use looks::{BOARD_POLL, MAIN_CI_POLL};
+pub use looks::{BOARD_POLL, IDLE_POLL_MAX, MAIN_CI_POLL};
 pub use main_ci::RedStatus;
 pub use merge::DropError;
 pub use owner_template::{TemplateSource, source_of};
@@ -784,6 +784,7 @@ impl Runner {
             commit: crate::home::COMMIT,
             draining: self.draining_status(),
             run: self.run_status(),
+            board_poll_secs: self.looks.poll().as_secs(),
             forge_held_until: self.forge_hold.until(now),
             settings_refused: self.refusal.as_ref(),
             lock: self.holds.longest(),

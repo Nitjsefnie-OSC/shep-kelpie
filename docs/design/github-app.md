@@ -38,7 +38,7 @@ Per-user App: tokens, posting, answering rulings on GitHub. The ruling panel is 
 
 ## Answering on GitHub
 
-- Answered by reply in thread, read once per `BOARD_POLL` without runner lock. #398
+- Answered by reply in thread, read once per board poll without runner lock. #398
 - Only the mentioned login with write access answers; merge answer names its id (no conversational yes merges; strangers can't make kelpie speak). #398
 - Kelpie's own `gh` comments recorded when posted, never read as answers (same login). #398
 - Reading starts from GitHub's timestamp on the ruling comment, never local clock. #398

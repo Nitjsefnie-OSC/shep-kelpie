@@ -48,7 +48,8 @@ fn add(runner: &Mutex<Runner>, ticket: TicketId) -> Result<(), String> {
 
 fn read_and_add(runner: &Mutex<Runner>, ticket: TicketId) -> Result<(), AddError> {
     let (tickets, remote) = {
-        let held = lock(runner);
+        let mut held = lock(runner);
+        held.looks.poll_reset();
         held.add_allowed(ticket)?;
         (held.ports.tickets.clone(), held.remote.clone())
     };

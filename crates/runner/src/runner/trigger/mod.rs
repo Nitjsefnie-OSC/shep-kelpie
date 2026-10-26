@@ -164,6 +164,10 @@ pub struct Status<'a> {
     /// waits for its sheep to stop
     #[serde(skip_serializing_if = "Option::is_none")]
     pub run: Option<crate::board::briefing::Run>,
+    /// How many seconds the runner goes between two reads of its board now:
+    /// 60 while a work item is open or the board moves, doubling up to 300
+    /// while it is idle and the board shows nothing new
+    pub board_poll_secs: u64,
     /// Until when the runner makes no forge call, the forge's rate limit
     /// used up, in seconds since the Unix epoch; left out when it makes them
     #[serde(skip_serializing_if = "Option::is_none")]
