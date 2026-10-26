@@ -70,7 +70,7 @@ Kelpie: dog of the maintainer's shepherd; one runner per project takes ready iss
 | log-lines.md | runner and dog log lines | `runner/drain/`, `runner/{skip_log,claim}.rs`, `runner/review_bot/lease_wait.rs`, `dog/desk.rs`, `dog/door/` |
 | metrics.md | kelpie's series, alerts, dashboard | `core/metrics/`, `core/ports/metrics.rs`, `assets/prometheus/`, `assets/grafana/` |
 | metrics-work-items.md | work-item series, `finished` line | `core/usage/finished.rs`, `runner/ci_failure.rs` |
-| metrics-dog.md | leases, summons, forge hold/calls/rate | `core/metrics/{dog,forge}.rs`, `dog/watch/` |
+| metrics-dog.md | leases, summons, bus events missed, forge hold/calls/rate | `core/metrics/{dog,forge}.rs`, `dog/watch/` |
 | metrics-transcripts.md | series from a call's transcript: MCP, tools, `usage` | `crates/facts/`, `runner/transcript_count/`, `core/usage/` |
 | budget.md | pacing, dog + leases, time, usage, settings | `runner/pace.rs`, `dog/`, `core/usage/`, `core/settings/`, `src/sheep/mod.rs` |
 

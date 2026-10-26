@@ -15,4 +15,5 @@ What the runner's out log (stdout and stderr) and the dog's log say about what k
 ## Dog
 
 - A grant of a build, test or e2e lease is logged only when the ask had to queue, with how many were ahead; a refusal is always logged. `dog/door/`
+- A lagged bus is logged once per lag, `missed bus events (Lagged { count: <n> }): checking every runner`, and a notice from the shepherd as `the bus dropped <n> events: checking every runner`; `kelpie_dog_bus_missed_total` has the events. The check reads the flock one at a time and not within 5 seconds of the last read coming back, so a burst of lags is one read, and the check can come after its line. `dog/bus.rs`
 - An ask the dog does not act on is logged once for each kind, direction and total in a run: `ignored <kind> want|return total <n> from <sheep> run <epoch>: the dog recorded <m> for this run`. The runner re-sends every kind's totals each pass while any one kind waits, so an equal total is the normal case and is silent; a total below the recorded one is not. `dog/desk.rs`

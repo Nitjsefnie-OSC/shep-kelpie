@@ -1,4 +1,4 @@
-//! The dog's leases, review bot summons and forge hold
+//! The dog's leases, review bot summons, forge hold and missed bus events
 //!
 //! Sent by the dog through the same [`Recorder`] a runner uses. The shepherd's
 //! metrics dog labels them `dog` and `source` where a runner's carry `sheep`.
@@ -42,6 +42,12 @@ const FORGE_HELD: Family = Family {
     help: "1 while the forge's rate limit holds every runner's calls, 0 when not.",
 };
 
+const BUS_MISSED: Family = Family {
+    name: "kelpie_dog_bus_missed_total",
+    kind: Counter,
+    help: "Events on the shepherd's bus the dog missed because it read too slowly or the shepherd dropped them.",
+};
+
 /// The only kind of login the dog's forge hold is for: the maintainer's `gh`
 /// login. The App's budget is its own, and its used-up answer holds nothing
 /// the dog keeps.
@@ -68,6 +74,12 @@ impl Recorder {
         let outcome = if accepted { "accepted" } else { "refused" };
         let labels = vec![("bot", bot.to_owned()), ("outcome", outcome.to_owned())];
         self.add(&SUMMONS, labels, 1.0);
+    }
+
+    /// Counts `missed` bus events the dog never read
+    pub fn bus_missed(&self, missed: u64) {
+        #[expect(clippy::cast_precision_loss, reason = "a count of events")]
+        self.add(&BUS_MISSED, Vec::new(), missed as f64);
     }
 
     /// Counts a forge hold that began
