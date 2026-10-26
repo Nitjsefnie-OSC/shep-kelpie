@@ -1,16 +1,12 @@
 //! Reading the board with the runner's lock let go
 //!
-//! The board's poll is a listing of the ready issues, a listing of the open pull requests, one read
-//! of each finished ticket's issue and, when the board lists no issue to close, the parents off its
-//! list. A pass would hold the lock through all of them, so [`read_board`] does it before the pass
-//! takes the lock: [`Runner::poll_job`] decides a poll is due and copies what it needs,
-//! [`BoardJob::run`] reads, and [`Runner::store_board_read`] keeps what was read for the pass.
-//!
-//! The pass uses it only if the board's step is reached, and then [`Runner::take_board_read`]
-//! hands it to `dispatch`, which stamps the look. A read the pass did not use, or that a write of
-//! kelpie's came after, is dropped and stamps nothing, so the next pass reads again. An earlier
-//! step of the rotation acting first is what leaves a read unused. A step that finds no read
-//! stored, as the board opening after the read was decided, reads in its place with the lock held.
+//! The poll lists the ready issues, the open pull requests, and each finished
+//! ticket's issue. A pass would hold the lock through all of it, so
+//! [`read_board`] runs first: [`Runner::poll_job`] decides a poll is due,
+//! [`BoardJob::run`] reads, and [`Runner::store_board_read`] keeps what was
+//! read. [`Runner::take_board_read`] hands it to `dispatch`, which stamps the
+//! look. A read a pass did not use, or one kelpie's own write follows, is
+//! dropped. The next pass reads again.
 
 use std::sync::{Arc, Mutex};
 

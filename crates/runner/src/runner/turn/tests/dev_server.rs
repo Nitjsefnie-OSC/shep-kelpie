@@ -27,11 +27,10 @@ fn project(launch: Option<&str>) -> Rig {
     rig
 }
 
-// The dev server planned for a second turn of work item 7, and what that turn is told
-//
-// The first turn begins the work item. Where a sandbox cannot bind the browser's socket it
-// fails, and the item and its worktree are there all the same. `edit` runs in the worktree
-// before the second turn is prepared.
+// The dev server planned for a second turn of work item 7, and what that turn
+// is told. The first turn begins the work item. Where a sandbox cannot bind
+// the browser's socket it fails, and the item and its worktree are there all
+// the same. `edit` runs in the worktree before the second turn is prepared.
 fn planned(rig: &Rig, edit: impl FnOnce(&Path)) -> (Option<DevRun>, String) {
     try_planned(rig, edit).unwrap()
 }

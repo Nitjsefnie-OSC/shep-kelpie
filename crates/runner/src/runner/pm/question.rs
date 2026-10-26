@@ -1,14 +1,12 @@
 //! Settling a worker's question or a follow-up ruling on the project manager's answer
 //!
-//! The item must be parked on a question ruling now. Its text then answers
-//! the ruling as the maintainer's would, led by `PM answered:`, and its
+//! The item must be parked on a question ruling now. Its text answers the
+//! ruling as the maintainer's would, led by `PM answered:`, and its
 //! escalation puts the ruling to the maintainer with the recommendation
-//! added. Anything else is dropped, and the ruling goes out as it stands.
-//!
-//! An item parked on a follow-up ruling takes an escalation alone through
+//! added. Anything else is dropped, and the ruling goes out as it stands. An
+//! item parked on a follow-up ruling takes an escalation alone through
 //! `answer`: its text is dropped, and so is an escalation whose choice is
-//! neither `yes` nor `no`. Its own `follow_up` key decides the ruling: a yes
-//! files the findings as the maintainer's yes does, a no drops them.
+//! neither `yes` nor `no`. Its own `follow_up` key decides the ruling.
 
 use super::act::{WORDS, plain};
 use super::answer::{Call, Decide, How, Settle};
@@ -322,15 +320,8 @@ impl Runner {
 
 // `asked` with the project manager's `choice` on a line of its own, and
 // first in the `- ` list that ends it if it has one: a choice it lists moves
-// up, and one it does not is added. The list stays last.
-//
-// Its `problem` replaces the worker's `Problem:` line, which leads the question,
-// and its `board` note goes under its recommendation.
-//
-// A question that lists fewer than two options takes its `candidates` as
-// the list, after the one it lists, if it lists one, up to [`MOST_OPTIONS`].
-// A recommendation that is no candidate is then shown as it is and not added
-// to the list.
+// up, and one it does not is added. Its `problem` replaces the worker's
+// `Problem:` line, and its `board` note goes under its recommendation.
 fn recommended(asked: &str, passed: &Passed<'_>) -> String {
     let Passed {
         choice,

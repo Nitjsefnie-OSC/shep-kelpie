@@ -1,21 +1,13 @@
 //! Slots: how many work items call models at once, and how many wait on rulings
 //!
-//! A slot bounds model calls: a worker's turn or a review. A work item
-//! takes one when it opens, and keeps it through CI and the merge. Parked
-//! on a ruling it gives the slot up: a parked worker runs no process, so an
-//! unanswered ruling never stalls the project. A `Done` item gives it up
-//! too, since its cleanup calls no model and may keep failing.
-//! `concurrency.pending_rulings` caps the items parked, and while that many
-//! wait the board opens nothing new. Answered, an item goes on without a
-//! slot through anything that calls no model (CI, a merge, its end), and
-//! waits for one, ahead of any new work item, once it needs a turn or a
-//! review.
-//!
-//! A contribution holds no slot while it waits on its contributor. A model
-//! call on it takes one for as long as it runs and gives it back after, and
-//! it starts only where one is free, ahead of any new work item. An item
-//! waiting for a slot is seated before such a call starts, and not while one
-//! runs.
+//! A slot bounds model calls: a worker's turn or a review. A work item takes
+//! one when it opens and keeps it through CI and the merge. Parked on a
+//! ruling it gives the slot up, so an unanswered ruling never stalls the
+//! project. A `Done` item gives it up too. `concurrency.pending_rulings` caps
+//! the items parked, and while that many wait the board opens nothing new.
+//! Answered, an item goes on without a slot through anything that calls no
+//! model, and waits for one, ahead of any new work item, once it needs a
+//! turn or a review. A contribution holds no slot while it waits on its contributor.
 
 use super::Runner;
 use crate::board::briefing::{Files, shared};
@@ -208,13 +200,10 @@ impl Runner {
         ))
     }
 
-    // The ready issues passed over against parked items' branches: one
-    // whose named paths share a file with one, by the overlap the board
-    // shows, and one that waits a pass to be read: every one while a parked
-    // branch's files are unknown, else, while a parked branch touches any
-    // file, one whose paths the board has not read from its body as it now
-    // stands. Both are read with the board's next write. A merged pull
-    // request's branch changes nothing more.
+    // The ready issues passed over against parked items' branches: one whose
+    // named paths share a file with one, by the overlap the board shows, and
+    // one that waits a pass to be read: every one while a parked branch's
+    // files are unknown, else one whose paths the board has not read from its body.
     pub(super) fn parked_overlap(&self, ready: &[ReadyIssue]) -> Vec<Skip> {
         let parked: Vec<(TicketId, Files)> = (self.state.work_items.iter())
             .filter(|i| self.held_back(i))

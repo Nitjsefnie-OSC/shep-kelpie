@@ -177,12 +177,10 @@ struct Cleared {
     by: u64,
 }
 
-// `red` after `runs`, the latest completed run of each workflow and event: a
-// red run keeps or adds its workflow, a successful one drops it, and any
-// other leaves it as it was. A red workflow's run from before the first one
-// kelpie read, or before the one it reran, is not its latest: while the
-// rerun's jobs go the run is not completed, and an older run shows in its
-// place. The forge numbers runs as they are made.
+// `red` holds the latest completed run of each workflow and event. A red
+// run keeps or adds its workflow, a successful one drops it. A red
+// workflow's run from before the one kelpie reran is not its latest. While
+// the rerun's jobs go the run is not completed, and an older run shows.
 fn still_red(red: &[RedWorkflow], runs: &[BranchRun]) -> Read {
     let mut next = red.to_vec();
     let mut failing = Vec::new();

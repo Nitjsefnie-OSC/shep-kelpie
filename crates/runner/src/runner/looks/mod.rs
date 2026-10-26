@@ -1,15 +1,13 @@
 //! How often a pass reads the forge
 //!
 //! The loop wakes for every call's news and every trigger that asks for
-//! work, so a pass is no measure of time. The board is read at most once a
-//! poll: [`BOARD_POLL`], doubling to [`IDLE_POLL_MAX`] while no work item is
-//! open and the board repeats. A moved board, a work item opening or ending,
-//! a trigger that asks for work and a write of kelpie's own end the backoff,
-//! and the board is read at once after a change to what it would see. A step
-//! that fails waits [`RETRY_FIRST`], twice as long after each failure in a
-//! row up to [`RETRY_MAX`], and no less than the forge's rate-limit hold.
-//! A write of kelpie's own makes the next look due at once, since the read
-//! after it is the one that shows what it did.
+//! work. A pass is no measure of time. The board is read at most once a
+//! poll, at [`BOARD_POLL`]. That doubles to [`IDLE_POLL_MAX`] while no work
+//! item is open and the board repeats. A board that moved, or an item opening
+//! or ending, ends the backoff. So does a trigger that asks for work, or a
+//! write of kelpie's own. A step that fails waits [`RETRY_FIRST`]. That
+//! doubles after each failure in a row, up to [`RETRY_MAX`]. Never less than
+//! the forge's rate-limit hold. A write of kelpie's own makes the next look due at once.
 
 use std::collections::BTreeMap;
 use std::time::Duration;

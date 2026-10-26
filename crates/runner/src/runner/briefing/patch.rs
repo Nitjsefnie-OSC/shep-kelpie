@@ -11,15 +11,13 @@ use crate::worktree::in_repo;
 /// branch cannot flood its context, and it reads the worktree for the rest
 pub(in crate::runner) const CAP: usize = 64 * 1024;
 
-/// `head`'s diff from where it left `main`, cut at [`CAP`], or why git
-/// could not give it
+/// `head`'s diff from where it left `main`, cut at [`CAP`], or why git could not give it
 ///
 /// `files` are the files it changes, as `git diff --name-only --no-renames`
-/// lists them, and `worktree` is where the worker's copy is: a cut diff's
-/// last line names them both, so the rest can be read there.
+/// lists them. `worktree` is where the worker's copy is. A cut diff's last
+/// line names both, so the rest can be read there.
 ///
-/// No external diff or text conversion runs, whatever git's config names,
-/// and no more than [`CAP`] bytes of git's output are held.
+/// No external diff or text conversion runs, whatever git's config names.
 pub(super) fn read(
     repo: &Path,
     main: &str,

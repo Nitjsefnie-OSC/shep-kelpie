@@ -1,14 +1,13 @@
 //! What kelpie writes into the advisor's and the researcher's folders
 //!
-//! Neither runs git, `gh` or a command, so each reads what is written for it
+//! Neither runs git, `gh` or a command. Each reads what is written for it
 //! before it is called. The folder is emptied first, so nothing of an
-//! earlier ruling is left to read.
-//!
-//! The advisor reads the codebase: the ruling, the work item's diff from
-//! main, and where the worktree and the checkout are. The researcher reads
-//! what is outside it: earlier rulings and their answers, the issue's and the
-//! pull request's threads, the worker's session, and the maintainer's own
-//! sessions where the project names their folders.
+//! earlier ruling is left to read. The advisor reads the codebase: the
+//! ruling and the work item's diff from main. It names the worktree and
+//! checkout paths. The researcher reads what is outside the code. It gets
+//! earlier rulings and their answers, and the worker's session. It reads
+//! the issue's and the pull request's threads. The maintainer's own
+//! sessions come in where the project names their folders.
 
 use std::fmt::Write as _;
 use std::path::Path;

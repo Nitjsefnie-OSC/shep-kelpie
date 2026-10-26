@@ -2,17 +2,12 @@
 //!
 //! `shep kelpie upgrade` and `pause` ask `status` and `drain` twice a second
 //! while they wait. A pass holds the runner's lock through its forge calls,
-//! and each of those waits its turn behind the login's pace, so a trigger that
-//! waits on the lock waits on GitHub and answers late or not at all. The loop
-//! therefore posts a copy of its status at each point where it has changed
-//! what `status` shows and asked the forge nothing, and those two triggers
-//! read the copy whenever the lock is held.
-//!
-//! A `drain` or `undrain` that lands while a pass holds the lock is answered
-//! from the copy too. Its flag is set here, where every step reads it, so no
-//! new call starts, and what it asks the runner itself to do (the retro over
-//! what finished, the pause for each turn in flight) is kept for the pass to
-//! take up at its next lock.
+//! and each of those waits its turn behind the login's pace, so a trigger
+//! that waits on the lock waits on GitHub and answers late or not at all. The
+//! loop therefore posts a copy of its status at each point where it has
+//! changed what `status` shows and asked the forge nothing, and those two
+//! triggers read the copy whenever the lock is held. A `drain` or `undrain`
+//! that lands while a pass holds the lock is answered from the copy too.
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -147,14 +142,9 @@ impl Posted {
     /// Records a `drain` for the runner to take up at its next lock
     ///
     /// The flag is set here, so no new call starts from now, whatever the pass
-    /// that holds the runner's lock goes on to read.
-    ///
-    /// A `drain pause` asked for once is asked for: a later plain `drain` poll
-    /// that lands in the same pass takes the pause back, so the two merge into
-    /// one ask that ends each turn in flight at its next tool call.
-    ///
-    /// Returns whether this is the first one since the runner took the last up,
-    /// which is the one that asks the loop for a pass.
+    /// that holds the runner's lock goes on to read. A `drain pause` asked for
+    /// once is asked for: a later plain `drain` poll takes the pause back.
+    /// Returns whether this is the first one since the runner took the last up.
     pub(crate) fn ask_drain(&self, at_tool: bool) -> bool {
         self.draining.store(true, Ordering::SeqCst);
         let mut pending = self
@@ -297,10 +287,8 @@ impl Runner {
     /// pass holds the runner's lock
     ///
     /// Called at each point where the runner has changed what `status` shows
-    /// and asked the forge nothing, so what a trigger reads is never held up
-    /// by a call that waits its turn behind the login's pace. It asks the
-    /// gateway nothing either: a pass posts at each of these points, and a
-    /// gateway read there would hold a trigger up behind the gateway.
+    /// and asked the forge or the gateway nothing. A trigger must not be held
+    /// up behind a call that waits its turn behind the login's pace.
     pub(super) fn post(&self) {
         let posted = self.status_of(self.posted_local_leases());
         let mut status = serde_json::to_value(posted).expect("status serializes to JSON");

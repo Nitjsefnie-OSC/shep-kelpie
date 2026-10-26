@@ -3,18 +3,11 @@
 //! After every [`EVERY`] work items finish, and when a drain starts with any
 //! finished since the last retro, the project manager's agent is called once
 //! to look back on them. It is a one-off call, not a turn of the standing
-//! session, so its report does not grow that session's context. Kelpie
-//! builds what it reads in code (see [`digest`]) from records it keeps, and
-//! the call's tools read and search and change nothing ([`crate::ports::Tools::Retro`]).
-//! Its reply is the report, which the runner saves under `retro-reports/unverified`
-//! in kelpie's home. The prompt names the kelpie build and the open known gaps
-//! ([`gaps`]) and asks for new findings only; the digest counts what only shows
-//! across items, and [`flakes`] feeds the CI fix turns. Kelpie never acts on a report: the maintainer reads
-//! them, consolidates them and fixes what is worth fixing.
-//!
-//! A retro that fails, times out, comes back empty or is cut short by a stop
-//! is logged and skipped, never retried: the batch it covered is not asked
-//! about again. It holds no slot, so no work item waits on it.
+//! session, so its report does not grow that session's context. Kelpie builds
+//! what it reads in code (see [`digest`]), and its tools change nothing. The
+//! reply is the report, saved under `retro-reports/unverified`. Kelpie never
+//! acts on a report. A retro that fails, times out or comes back empty is
+//! logged and skipped, never retried, and holds no slot.
 
 use std::fs::{self, OpenOptions};
 use std::io::Write;
@@ -156,11 +149,10 @@ impl Runner {
     /// Starts the batch retro if one is due and the project manager can run
     /// it, and says whether it did
     ///
-    /// Due is [`EVERY`] work items finished since the last retro, or any
-    /// when a drain has just started. A draining runner starts no other.
-    /// The retro is off unless the skills table names it. A batch that
-    /// cannot be asked for now, because the project manager is busy or held
-    /// back, is asked for on a later pass, except at a drain, which asks once.
+    /// Due is [`EVERY`] work items finished since the last retro, or any when
+    /// a drain has just started. A draining runner starts no other. The retro
+    /// is off unless the skills table names it. A batch that cannot be asked
+    /// for now is asked for on a later pass, except at a drain, which asks once.
     pub(super) fn retro_launched(&mut self) -> bool {
         let Some(agent) = self.agents.pm.clone() else {
             self.retro_book.at_drain = false;

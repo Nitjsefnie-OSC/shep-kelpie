@@ -1,41 +1,12 @@
 //! Whether a work item's failed CI is one its worker could have caught
 //!
-//! A worker runs the project's tests in its own sandbox before it pushes, so a red
-//! run whose failing tests a worker can run is one the worker could have caught.
-//! `docs/agents/sandbox-red-tests.md` lists the tests a worker's sandbox cannot
-//! run: a run red on those alone is one no worker could have caught, whatever it
-//! did. Kelpie reads the end of each failed run's log for a red CI prompt
-//! (`super::ci_help`), and the failing test names are taken from that same text.
-//!
-//! The names are cargo's, in the three places a log carries them: the
-//! `test <name> ... FAILED` line each failing test gets as it ends, the
-//! `---- <name> stdout ----` block for each one whose output cargo printed, and
-//! the list cargo ends a failing run with. A log holds one run per test binary,
-//! each with its own `test result: <n> passed; <m> failed` line and, when it
-//! failed, its own `to rerun pass` line naming the target it ran in. A name is
-//! judged against the target of its own run, since one tail holds several runs.
-//!
-//! Only an entry the doc lists whole makes a name sandbox-red. An entry the doc
-//! marks `some:` covers part of a module, and kelpie cannot tell which part, so a
-//! name in it counts as one the worker could have run.
-//!
-//! The list is of this crate's modules, so kelpie applies it only to the repo the doc
-//! describes, which is kelpie's own. On any other project kelpie holds no list, and
-//! every failing test there counts as one its worker could have run.
-//!
-//! A step whose name says it ran tests, whose failure kelpie cannot read as cargo's,
-//! is a test failure in a runner kelpie cannot name: pytest, jest, go test. It counts
-//! as one the worker could have run, since kelpie cannot say it is one no worker
-//! could have run. A step whose name says nothing of tests is no test failure, and
-//! neither is one that failed on a build: cargo's `error: could not compile` and
-//! rustc's `error[E0061]` are a build that never got as far as running a test, which
-//! is the commonest way a test job goes red without a test failing.
-//!
-//! A log is the last 6000 bytes of a run (`LOG_BYTES` in `crates/adapters/src/adapters/gh/runs.rs`),
-//! and kelpie reads the logs of at most three failed runs (`RUNS` there), so a head
-//! can hold failures kelpie never saw. Kelpie counts those `runnable`, never
-//! `sandbox-only`: it may understate what a worker could not have caught, never
-//! overstate what it could.
+//! A worker runs the project's tests in its sandbox before it pushes. A red
+//! run whose failing tests a worker could run is one it could have caught.
+//! `super::ci_help` reads the tail of each failed run for them. Only an
+//! entry of `docs/agents/sandbox-red-tests.md` that names a test whole makes
+//! it sandbox-red. The list is of this crate's modules, so it applies only
+//! to kelpie's own repo. A failure kelpie never saw, or cannot read as a
+//! test, counts as runnable.
 
 use std::collections::BTreeSet;
 
@@ -383,20 +354,12 @@ fn rerun_target(text: &str) -> Option<Target> {
 }
 
 impl Runner {
-    /// Counts a work item's failed CI at `head` once, by whether its worker could
-    /// have caught it. `logs` is what kelpie read of its failed runs: a run whose
-    /// logs kelpie could not read, or found none of, counts nothing, since kelpie
-    /// cannot say what failed there.
+    /// Counts a work item's failed CI at `head` once, by whether its worker could have caught it
     ///
-    /// The sandbox-red list is of this crate's modules, so it is used only on the repo
-    /// the doc that lists them describes. On any other project kelpie holds no list,
-    /// and a failing test there counts as one its worker could have run.
-    ///
-    /// One head counts once, and the work item's own record of the head it counted
-    /// says so. It is saved, so a runner that restarts on a red head does not count it
-    /// again, and it says nothing about what the gate did with the head after: a head
-    /// that went to a fix turn, one kelpie reran, and one a still-red ruling sent back
-    /// to CI by a `yes` are each counted once.
+    /// `logs` is what kelpie read of its failed runs. A run whose logs kelpie
+    /// cannot read counts nothing: kelpie cannot say what failed there. The
+    /// counted head is saved, so a restart does not count it again. It says
+    /// nothing about what the gate did with the head after.
     pub(super) fn count_ci_failure(&mut self, head: &str, logs: &Logs) -> Result<(), StateError> {
         let Logs::Read(logs) = logs else {
             return Ok(());
@@ -466,11 +429,10 @@ mod tests {
     // Run 38950550504 failed in `cargo doc --no-deps --locked`, with no test run at all.
     const NO_TEST: &str = include_str!("../../../../fixtures/gh-run-log-no-test.txt");
 
-    // Run 38567261082 failed while building its tests: `Run cargo test --locked
-    // --no-run` printed rustc's `error[E0061]` and cargo's `error: could not compile
-    // `shep-kelpie` (lib test)`, and no test ran. It is that job's part of the run's
-    // failed log, which is what `failure_tail` keeps when a test build is the failure
-    // in the tail. The run's other failed job, `msrv`, failed on the same error.
+    // Run 38567261082 failed while building its tests, and no test ran. Its
+    // log holds rustc's `error[E0061]` and cargo's `error: could not
+    // compile`. `failure_tail` keeps this job's part of the log when a test
+    // build fails.
     const COMPILE_FAILURE: &str =
         include_str!("../../../../fixtures/gh-run-log-compile-failure.txt");
 

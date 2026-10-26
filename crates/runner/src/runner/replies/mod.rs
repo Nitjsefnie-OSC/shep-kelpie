@@ -1,23 +1,13 @@
 //! Answering rulings from the webhook's topic
 //!
-//! On an ntfy webhook a reply on the topic answers a ruling when it ends
-//! with the maintainer's authenticator code (see [`crate::totp`]): `<id> yes
-//! <code>`, `<id> no <note> <code>` or `<id> <text> <code>`, read by the
-//! ruling's kind as `shep kelpie rule` reads it, and may name the project
-//! first. The code is checked against the time ntfy took the reply, which
-//! no sender can set. It is never on the topic before the maintainer sends
-//! it, so a reader of the topic can read rulings
-//! but not answer them, and each step's code answers once, whatever the
-//! reply that first sent it said: a right code is claimed before anything
-//! else about the reply is read. After [`FAILURES`] wrong codes, answers
-//! from the topic are off for every project until `shep kelpie totp --unlock`.
-//!
-//! A webhook the maintainer marks `trusted` (see [`Webhook`]) is one only
-//! their token can post to, so there a reply needs no code: `<id> no
-//! <note>`, `<id> rework <note>`, `<id> yes` on any ruling but a merge, and a
-//! worker's answer. A yes on a merge ruling still takes the code, since the
-//! topic alone never merges. The wrong-code lock turns off coded answers
-//! only.
+//! On an ntfy webhook a reply answers a ruling when it ends with the
+//! maintainer's authenticator code (see [`crate::totp`]): `<id> yes <code>`,
+//! `<id> no <note> <code>` or `<id> <text> <code>`. The code is checked
+//! against the time ntfy took the reply, which no sender can set, and each
+//! step's code answers once. After [`FAILURES`] wrong codes, answers from the
+//! topic are off for every project until `shep kelpie totp --unlock`. A
+//! webhook marked `trusted` (see [`Webhook`]) needs no code, except a yes on
+//! a merge ruling, since the topic alone never merges.
 
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
@@ -228,11 +218,10 @@ impl Runner {
         {
             return None;
         }
-        // A read after an id ntfy no longer holds returns its whole cache.
-        // It reaches three steps past the window, so the code of a reply just
-        // too old to act on is still spent before a replay of it is read: a
-        // reply spends the next step's code too, which a replay can still
-        // send up to three steps after the reply.
+        // A read after an id ntfy no longer holds returns its whole cache. It
+        // reaches three steps past the window, so the code of a reply just too
+        // old to act on is still spent before a replay of it is read. A reply
+        // spends the next step's code too, which a replay can still send.
         let floor = Timestamp(now.0.saturating_sub(WINDOW + 3 * STEP));
         let since = match &self.state.replies.last {
             Some(last) if last.time >= floor => Since::After(last.id.clone()),
@@ -264,12 +253,10 @@ impl Runner {
         }
     }
 
-    // Handles the oldest reply read, then moves past it. Its codes are
-    // spent first, and when they cannot be, it stays at the head of the
-    // queue and the read position stays behind it, so no later reply is
-    // handled before it. A save that fails between handling and moving on
-    // leaves the reply to be read again, when its step is found claimed by
-    // it and it is handled again.
+    // Handles the oldest reply read, then moves past it. Its codes are spent
+    // first, and when they cannot be, it stays at the head of the queue and no
+    // later reply is handled before it. A save that fails between handling and
+    // moving on leaves the reply to be read again, and found claimed by it.
     fn handle_next(&mut self) -> Option<Result<Handled, StateError>> {
         let now = self.ports.clock.now();
         if self.reading.held && self.reading.next.is_some_and(|at| now < at) {
@@ -308,15 +295,10 @@ impl Runner {
         Some(Ok(handled))
     }
 
-    // Claims the step of every right code anywhere in `reply`, before
-    // anything else about it is read: whether answers are on, whether it is
-    // kelpie's own or has text to answer with, which project it names, how
-    // old it is, or how the code was typed. Every text the post carries
-    // counts, its title included. A post kelpie cannot read in full claims
-    // every step a code sent with it could name.
-    //
-    // A secret that cannot be read, or a claim that cannot be written, is an
-    // error, never a reply with nothing to spend.
+    // Claims the step of every right code anywhere in `reply`, before anything
+    // else about it is read: whether answers are on, which project it names,
+    // how old it is, or how the code was typed. Every text the post carries
+    // counts, its title included. A secret that cannot be read is an error.
     fn spend(&self, reply: &Reply) -> Result<Spent, String> {
         let Some(auth) = &self.totp else {
             return Ok(Spent {

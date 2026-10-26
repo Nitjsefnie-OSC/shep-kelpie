@@ -1,15 +1,13 @@
 //! The gate between the worker's pull request and the merge ruling
 //!
 //! Each step looks once at the pull request's head. A label, ready or head
-//! change kelpie did not make parks the worker before anything else. A
-//! branch that changes agents' own files parks it next. A
-//! branch without the latest `main` is rebased and pushed, or merged when
-//! it is adopted or holds a merge already, and a conflict is
-//! the worker's next turn, naming the files. A conflict the worker left
-//! standing parks it on a ruling. A pending run, or none yet, waits for the
-//! next step. A red run is the worker's next turn, naming the checks that
-//! failed. A green run raises the merge ruling, or under `auto` merges. A
-//! project without CI skips the checks.
+//! change kelpie did not make parks the worker before anything else. A branch
+//! that changes agents' own files parks it next. A branch without the latest
+//! `main` is rebased and pushed. It is merged instead when it is adopted or
+//! holds a merge already. A conflict is the worker's next turn, naming the
+//! files. A conflict the worker left standing parks it on a ruling. A red run
+//! is the worker's next turn, naming the checks that failed. A green run
+//! raises the merge ruling, or under `auto` merges. A project without CI skips the checks.
 
 use super::Runner;
 use super::claude_files::Unchecked;
@@ -156,14 +154,10 @@ impl Runner {
         }
     }
 
-    // Green CI: `auto` merges by the path a yes takes, and `ask` raises the
-    // merge ruling with the pull request handed back `ready-for-human`. A
-    // pull request no reviewer read, one with a listed bot's threads
-    // unaddressed, or a head no round read and no fix turn of kelpie's
-    // pushed, gets the ruling under `auto` too, naming why; open nits are
-    // named and hold nothing. One an older state file left owing the listed
-    // bots a pass gets it first, and a bot the pass went on without that
-    // has since reviewed the head gets its late round first.
+    // Green CI: `auto` merges by the path a yes takes. `ask` raises the merge
+    // ruling with the pull request back `ready-for-human`. A head no reviewer
+    // read gets the ruling under `auto` too, naming why. The same when a
+    // listed bot's threads are unaddressed. Open nits hold nothing.
     fn passed(&mut self, number: u64, head: String) -> Result<Begin, StateError> {
         if self.bots_before_merge(&head)? {
             return self.review_step();
@@ -236,13 +230,10 @@ impl Runner {
         self.raise(number, kind)
     }
 
-    // A worker that pushed nothing after its last red run would get the
-    // same run again and again, so the second time the maintainer decides.
-    // A red run once the work item's fix turns reach `ci.fix_attempts`
-    // raises that ruling too, in place of a fix turn. A red run before a
-    // reviewer read the head sends the worker's fix back to that `review`.
-    // Each head read red is counted once, by whether its worker could have
-    // caught it (`super::ci_failure`).
+    // A worker that pushed nothing after a red run would get the same run
+    // again. The second time, the maintainer decides. A red run past
+    // `ci.fix_attempts` raises that ruling in place of a fix turn. A red run
+    // before a reviewer read the head sends the fix back to that `review`.
     pub(super) fn ci_failed(
         &mut self,
         number: u64,
@@ -317,11 +308,10 @@ impl Runner {
         Ok(begin)
     }
 
-    // The failure becomes the worker's next turn, and this head is marked red
-    // so a second failure at it goes to the maintainer instead. A red run's
-    // turn, `counted`, is one of those `ci.fix_attempts` caps, saved with it.
-    // The turn's end goes on to CI, or back to `review` where one was waiting
-    // for this head to be green.
+    // The failure becomes the worker's next turn. The head is marked red, so
+    // a second failure at it goes to the maintainer. A red run's turn,
+    // `counted`, is one of those `ci.fix_attempts` caps, saved with it. The
+    // turn's end goes on to CI, or back to `review` where one was waiting.
     pub(super) fn back_to_worker(
         &mut self,
         number: u64,

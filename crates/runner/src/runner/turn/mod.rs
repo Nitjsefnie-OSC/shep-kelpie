@@ -83,11 +83,9 @@ pub(super) const CONTINUE: &str = "Kelpie restarted while your last turn was run
 /// to the head the turn pushes
 ///
 /// It sits where the prompt asks for the push. A prompt may add further
-/// instructions after it, such as a review bot's thread lines.
-///
-/// It says nothing of how: the worker's instructions do ([`profile`]), for
-/// a worker that edits the pull request itself and for one that rewrites
-/// the file kelpie sets the body from.
+/// instructions after it. It says nothing of how: the worker's instructions
+/// do ([`profile`]), for a worker that edits the pull request itself and for
+/// one that rewrites the file kelpie sets the body from.
 pub(super) const KEEP_BODY_TRUE: &str = "Update the pull request's body so it matches the head \
     you push: what changed, the files touched, the test evidence, and the decisions you made.";
 
@@ -248,10 +246,9 @@ impl Runner {
     }
 
     // The open work items with no call in flight, none attached and none
-    // waiting for a slot, oldest first, then the board while it may open
-    // one, then the contributions' calls while the board is closed and a slot
-    // is free, from the one after the last to act, so one that keeps acting
-    // cannot starve the rest
+    // waiting for a slot, oldest first, then the board while it may open one,
+    // then the contributions' calls while the board is closed and a slot is
+    // free, from the one after the last to act, so one cannot starve the rest.
     pub(super) fn rotation(&self) -> Vec<Slot> {
         let items = (self.state.work_items.iter())
             .filter(|i| self.rotates(i))
@@ -460,10 +457,9 @@ impl Runner {
             }
             Ok(call) => {
                 // `prepare` mints the worker's GitHub token and prepares its
-                // worktree with the runner's lock held, and a `drain` that
-                // lands in that time sets its flag there without waiting for
-                // it. Checked again here, so the turn stays due rather than
-                // starting past the drain.
+                // worktree with the runner's lock held, and a `drain` that lands
+                // in that time sets its flag there without waiting for it.
+                // Checked again here, so the turn stays due rather than starting late.
                 if self.draining() {
                     self.token_wait.ends();
                     // No flight will take the bridge this turn's call opened.

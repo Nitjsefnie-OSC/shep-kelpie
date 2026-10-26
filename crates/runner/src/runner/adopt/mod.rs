@@ -1,22 +1,12 @@
 //! Adopting an open pull request kelpie didn't open
 //!
 //! The maintainer adopts one with `adopt <pr>`, or with `ready-for-agent` on
-//! one whose branch isn't `kelpie/N`, seen on the board's poll. Adopted pull
-//! requests wait in the state file for a free slot, one at a time, and go
-//! before the board's issues. Each starts on its branch as `origin` holds
-//! it, with its labels, ready state and head taken as kelpie's own, at a
-//! pass of the review bots the project lists, which each owe it a read of
-//! kelpie's own summon, or at CI when it lists none. A review asking for
-//! changes is the worker's first turn instead, and so is a contribution whose
-//! merge ruling the maintainer answered `rework`, which has the project's full
-//! pass queued behind that turn. The
-//! branch's owner may still be pushing, so only a push the worker's worktree
-//! holds is the worker's.
-//!
-//! A pull request is adopted only when kelpie's account opened it and it is
-//! not from a fork, unless its contributor released it (ADR 0010): then a fork is
-//! adopted onto `kelpie/<issue>` at the fork's head, if its owner allows
-//! edits by maintainers, and a branch in the repo itself under its own name.
+//! one whose branch isn't `kelpie/N`. They wait in the state file for a free
+//! slot, one at a time. They go before the board's issues. Each starts on its
+//! branch as `origin` holds it. A pass of the project's review bots comes
+//! first, or CI when it lists none. A review asking for changes starts at a
+//! worker's turn instead. Only a push the worker's worktree holds is the
+//! worker's. A fork is adopted only when its contributor released it (ADR 0010).
 
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -224,10 +214,9 @@ impl Runner {
     }
 
     // Queues each open pull request labelled `ready-for-agent` whose branch
-    // isn't `kelpie/N`, and lets go of any the label adopted that lost it.
-    // Then starts the oldest adopted one that can start. A refusal takes the
-    // label off and goes to the pull request as a comment, and one merged or
-    // closed while it waited just leaves. Returns each that could not start.
+    // isn't `kelpie/N`. Starts the oldest that can. A refusal takes the label
+    // off and is posted on the pull request. One merged or closed while it
+    // waited just leaves. Returns each that could not start.
     pub(super) fn adopt_waiting(
         &mut self,
         open: &[OpenPullRequest],
@@ -366,10 +355,9 @@ impl Runner {
     }
 
     // The labelled pull requests whose branch isn't `kelpie/N` that adoption
-    // queues. A labelled pull request of someone else's, a draft included, is
-    // left to the contributions, and when the logins that tell one cannot be
-    // read there is no answer, so the queue stays as it is. On the local store
-    // there is none, since an adopted pull request closes a GitHub issue.
+    // queues. Someone else's, a draft included, is left to the contributions.
+    // When the logins that tell one cannot be read, the queue stays as it is.
+    // The local store has none: an adopted pull request closes a GitHub issue.
     fn labelled_for_adoption(&mut self, open: &[OpenPullRequest]) -> Option<Vec<u64>> {
         if self.local_store() {
             return None;
@@ -436,11 +424,10 @@ impl Runner {
         posted.err().map(|e| e.to_string())
     }
 
-    // What adopting an open pull request starts from: the issue it closes
-    // lowest, or the one kelpie filed for a released contribution that closes
-    // none, and where its branch lives. Kelpie's own account's pull request
-    // from the repo itself is adopted; so is a contributor's whose record is
-    // released, from a fork too (ADR 0010).
+    // What adopting an open pull request starts from. The issue is the lowest
+    // one it closes, or the one kelpie filed for it. Kelpie's own pull request
+    // in the repo is adopted. A released contributor's is, from a fork too
+    // (ADR 0010).
     fn adoptable(&mut self, number: u64, pr: &Reviewed) -> Result<Adoptable, AdoptError> {
         match pr.state {
             PullRequestState::Open => {}
@@ -474,11 +461,10 @@ impl Runner {
         if !pr.pushable() {
             return Err(AdoptError::NoEdits(number));
         }
-        // A released contribution whose pull request closes no issue has the
-        // one kelpie filed for it on its record (`contribution-release.md`), and
-        // that one is what its work item hangs on even where the pull request
-        // closes another issue later: the filed one is the one the pull
-        // request's body names.
+        // A contribution whose pull request closes no issue takes the one
+        // kelpie filed for it (`contribution-release.md`). That one holds the
+        // work item even after the pull request closes another: the filed one
+        // is the one the pull request's body names.
         let filed = (released.as_ref())
             .and_then(|c| c.adopting.as_ref())
             .map(|a| a.issue);
@@ -634,10 +620,9 @@ impl Runner {
                 (Turn::Due, Phase::Implement, first)
             }
             // The maintainer answered the merge ruling `rework`: a worker
-            // changes the pull request first, and the project's full reviewers
-            // read what it pushed. A pass over the contributor's own head could
-            // come back clean and let the change the maintainer asked for go
-            // undone, so it is not what a rework starts at.
+            // changes the pull request first. The project's full reviewers read
+            // what it pushed. A pass over the contributor's head could come back
+            // clean and undo that change.
             None if taken_over => {
                 let pass = Some(Phase::Review(Review::first()));
                 (Turn::Due, Phase::Implement, pass)
