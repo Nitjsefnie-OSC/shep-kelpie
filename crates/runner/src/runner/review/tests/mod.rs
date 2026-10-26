@@ -870,6 +870,7 @@ fn a_path_the_worktree_already_holds_costs_its_finding_only_the_test() {
     assert_eq!(work, "work\n", "the branch's file is as it was");
 }
 
+#[cfg(unix)]
 #[test]
 fn a_linked_test_file_is_refused() {
     let (rig, runner) = at_round_2_asking_tests();

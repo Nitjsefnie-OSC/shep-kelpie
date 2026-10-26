@@ -233,12 +233,19 @@ fn index(graph: &CodeGraph, worktree: &Path, ending: &Ending) -> Result<(), Stri
 
 // Why the daemon's socket, `cbm-daemon-<uid>/cbm-<16 hex>.sock` under `runtime`, cannot bind
 // there, when its path is too long: the daemon says only that its endpoint could not be made.
-// The folder is this user's, so its owner is the uid.
+// The folder is this user's, so its owner is the uid. Windows has neither the folder nor the
+// socket path limit, so it says nothing.
+#[cfg(unix)]
 fn too_long(runtime: &Path) -> Option<String> {
     use std::os::unix::fs::MetadataExt;
     let uid = std::fs::metadata(runtime).ok()?.uid();
     let socket = runtime.join(format!("cbm-daemon-{uid}/cbm-{}.sock", "0".repeat(16)));
     crate::home::socket_fits(&socket).err()
+}
+
+#[cfg(windows)]
+fn too_long(_runtime: &Path) -> Option<String> {
+    None
 }
 
 // Runs the server's `args` over the graph's folders, saying `what` it was doing when it fails.

@@ -600,12 +600,14 @@ body
 
     // The worker can write its build folder, and kelpie reads and writes it as
     // the maintainer, outside the sandbox: a link there must lead nowhere.
+    #[cfg(unix)]
     fn key_the_worker_must_not_reach(rig: &Rig) -> PathBuf {
         let key = rig.home.path().join("key.pem");
         std::fs::write(&key, "-----BEGIN PRIVATE KEY-----\nthe-apps-key\n").unwrap();
         key
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_file_that_links_to_a_secret_is_refused_and_nothing_is_posted() {
         let (rig, runner) = with_issue_7(true);
@@ -654,6 +656,7 @@ body
         assert!(notes[2].contains("over"), "{notes:?}");
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_copy_that_links_to_a_file_leaves_that_file_alone() {
         let (rig, runner) = with_issue_7(true);

@@ -15,6 +15,7 @@
 //! spends no place of a triage cap.
 
 use crate::test::ticket;
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::sync::Mutex;
 
@@ -26,6 +27,7 @@ use super::pick_tests::{MAINTAINER, due, issue, list, rig_with};
 use super::research_tests::crashed_with;
 use super::research_tests::{WORDS, calls, crash, moves, reply, restart, triage};
 use super::spam::POSSIBLE_SPAM;
+#[cfg(unix)]
 use crate::github::ApiError;
 use crate::ports::{AuthorAssociation, ClassifierError, Clock, Role, Timestamp, Usage};
 use crate::runner::{Runner, step};
@@ -111,6 +113,7 @@ fn checks(rig: &Rig) -> Vec<CallLine> {
 }
 
 // Every label the App made, put on an issue or took off one, in order
+#[cfg(unix)]
 fn label_moves(rig: &Rig) -> Vec<String> {
     (rig.github.writes())
         .into_iter()
@@ -129,6 +132,7 @@ fn label_moves(rig: &Rig) -> Vec<String> {
 }
 
 // Runs one step with the state folder shut, so nothing can be saved
+#[cfg(unix)]
 fn step_with_the_state_shut(rig: &Rig, runner: &Mutex<Runner>) {
     let folder = rig.paths().state.parent().unwrap().to_owned();
     let mode = |m| std::fs::set_permissions(&folder, PermissionsExt::from_mode(m)).unwrap();
@@ -854,6 +858,7 @@ fn a_check_that_failed_is_asked_again_at_the_next_start() {
     assert_eq!(calls(&rig, Role::Triager).len(), 2);
 }
 
+#[cfg(unix)]
 #[test]
 fn a_failed_save_takes_possible_spam_off_and_the_issue_is_read_again() {
     let (rig, runner) = checked(0.9);
@@ -901,6 +906,7 @@ fn a_failed_save_takes_possible_spam_off_and_the_issue_is_read_again() {
     );
 }
 
+#[cfg(unix)]
 #[test]
 fn a_failed_save_and_a_failed_unlabel_is_told_in_a_note() {
     let (rig, runner) = checked(0.9);

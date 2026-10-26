@@ -85,10 +85,13 @@ impl Rig {
     /// shell script written to the rig's home as `name`, read when a
     /// runner next opens
     pub fn hook(&self, name: &str, points: &[&str], script: &str) {
-        use std::os::unix::fs::PermissionsExt;
         let file = self.home.path().join(name);
         std::fs::write(&file, format!("#!/bin/sh\n{script}\n")).unwrap();
-        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o755)).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
         let hooks: String = points
             .iter()
             .map(|point| {
