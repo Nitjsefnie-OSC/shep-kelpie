@@ -54,7 +54,12 @@ impl Runner {
                 }
             };
             match self.local.find(&words, Surface::Prose) {
-                None => return Some(words),
+                None => {
+                    if let Some(tries) = self.triage_tries.get_mut(&issue) {
+                        tries.refused = None;
+                    }
+                    return Some(words);
+                }
                 Some(leak) => {
                     self.triage_tries.entry(issue).or_default().refused = Some(leak);
                     if attempt == 1 {

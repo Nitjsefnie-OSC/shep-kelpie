@@ -3,9 +3,11 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use super::ask_tests::{ASK_WORDS, asked, asked_second, filed, filed_before};
+use super::ask_tests::{
+    A_WORDS, ASK_WORDS, asked, asked_second, filed, filed_before, settled, wrote,
+};
 use super::pick_tests::{MAINTAINER, issue, list};
-use super::research_tests::{calls, facts};
+use super::research_tests::{calls, facts, reply};
 use crate::local_paths::LocalPaths;
 use crate::ports::{GuardedVoice, Role};
 use crate::runner::step;
@@ -107,6 +109,33 @@ fn wording_naming_a_home_folder_is_worded_once_more_with_the_reason() {
     assert_eq!(comments.len(), 1);
     assert!(comments[0].1.starts_with(ASK_WORDS));
     assert!(!comments[0].1.contains(&path));
+}
+
+#[test]
+fn clean_wording_leaves_no_refusal_reason_for_the_authors_answers() {
+    let path = ["/home/", "rin", "/notes"].concat();
+    let words = Box::leak(format!("Read {path} before answering.").into_boxed_str());
+    let (rig, runner) = filed_before("pick = \"maintainer\"", MAINTAINER, asked(), |rig| {
+        rig.claude
+            .script_for(Role::Representative, [Scripted::Say(words)]);
+    });
+    assert_eq!(step(&runner).unwrap(), None);
+    assert_eq!(rig.github.comments().len(), 1);
+    let worded = calls(&rig, Role::Representative);
+    assert_eq!(worded.len(), 2);
+    assert!(worded[1].call.prompt.contains("The last wording named"));
+
+    wrote(&rig, MAINTAINER, "Q1: Linux, on start.");
+    rig.claude.script_for(Role::Triager, [reply(settled())]);
+    rig.claude
+        .script_for(Role::Representative, [Scripted::Say(A_WORDS)]);
+    rig.next_look();
+    assert_eq!(step(&runner).unwrap(), None);
+
+    let worded = calls(&rig, Role::Representative);
+    assert_eq!(worded.len(), 3);
+    assert!(!worded[2].call.prompt.contains("The last wording named"));
+    assert_eq!(rig.github.comments().len(), 2);
 }
 
 #[test]
