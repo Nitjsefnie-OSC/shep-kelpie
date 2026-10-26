@@ -594,6 +594,22 @@ fn each_codex_call_counts_its_own_requests_from_its_rollout() {
 }
 
 #[test]
+fn a_codex_call_of_any_role_but_the_worker_counts_no_request() {
+    let folder = short_tempdir();
+    let (counted, sink, _) = counted_with(Codex {
+        sessions: sessions_of(folder.path()),
+        threads: folder.path().join("threads"),
+    });
+    for role in [Role::Reviewer, Role::Pm] {
+        let mut call = codex_call(folder.path());
+        call.role = role;
+        counted.run(&call, &Ending::default()).unwrap();
+    }
+    assert_eq!(sink.total("kelpie_request_context_tokens"), 0.0);
+    assert_eq!(sink.total("kelpie_cache_write_tokens_total"), 0.0);
+}
+
+#[test]
 fn a_codex_call_counts_no_mcp_server_and_no_tool_error() {
     let folder = short_tempdir();
     let (counted, sink, notes) = counted_with(Codex {

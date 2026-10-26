@@ -58,9 +58,14 @@ enum Format {
 impl Format {
     // pi names no server that failed to connect: what its session leaves
     // available and what it answers say which connected, and its tool calls are
-    // counted as Claude Code's are. Codex's rollout is read for its requests alone.
+    // counted as Claude Code's are. Codex's rollout is read for its requests alone, and for a
+    // worker's calls alone, to keep a Codex reviewer's and project manager's series off the dog's cap.
     fn of(call: &AgentCall) -> Option<Self> {
-        Self::of_harness(call.harness.harness())
+        let harness = call.harness.harness();
+        match Self::of_harness(harness) {
+            Some(Self::Codex) if call.role != Role::Worker => None,
+            format => format,
+        }
     }
 
     fn of_harness(harness: Harness) -> Option<Self> {
