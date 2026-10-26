@@ -3,8 +3,9 @@
 use std::fmt;
 
 use super::Runner;
+use super::flight::label::is_agent_label;
 use super::trigger::issue_list;
-use crate::board::{LabelError, agent_label, old_worker_label, pinned};
+use crate::board::{AGENT_LABEL, LabelError, agent_label, old_worker_label, pinned};
 use crate::ports::{ForgeError, Issue};
 use crate::settings::AgentName;
 use crate::state::StateError;
@@ -32,6 +33,15 @@ pub enum AddError {
     Session(String),
     /// The work item could not be saved
     State(StateError),
+}
+
+// A label swap `add` made as it opened a work item
+struct Moved {
+    // The board event naming both implementers
+    event: String,
+    // The `agent:` label the issue had, and the one it has now
+    old: String,
+    new: String,
 }
 
 impl fmt::Display for AddError {
@@ -109,20 +119,85 @@ impl Runner {
         if !found.open {
             return Err(AddError::Closed(ticket));
         }
-        let (agent, note) = self
+        let (labelled, note) = self
             .labelled_agent(ticket, &found.labels)
             .map_err(AddError::Label)?;
         let session = new_session_id().map_err(|e| AddError::Session(e.to_string()))?;
         let mut next = self.state.clone();
-        let pinned = pinned(&found.labels);
+        let (agent, moved) = self.opening_agent(ticket, &found.labels, labelled);
         let mut item = self.fresh(ticket, found.title, agent.clone(), session);
-        item.pinned = pinned;
+        item.pinned = pinned(&found.labels);
         next.work_items.push(item);
         Self::label_ruled(&mut next, ticket);
-        self.save(next).map_err(AddError::State)?;
+        if let Some(moved) = &moved {
+            next.record_event(self.ports.clock.now(), moved.event.clone());
+        }
+        if let Err(e) = self.save(next) {
+            // No work item opened, so the issue keeps the label it had.
+            if let Some(moved) = moved {
+                let _ = self.swap_labels(ticket, &moved.new, &moved.old);
+            }
+            return Err(AddError::State(e));
+        }
         self.notes.extend(note);
         self.mark_held(ticket, true);
         Ok(agent)
+    }
+
+    // The implementer a work item for `ticket` opens on, given the one its
+    // `agent:` label names, and the move made, if any. A pinned label, or
+    // one with no free implementer to move to, keeps `labelled`. A label swap
+    // the forge refuses keeps it too, with a note, so label and item match.
+    fn opening_agent(
+        &mut self,
+        ticket: TicketId,
+        labels: &[String],
+        labelled: AgentName,
+    ) -> (AgentName, Option<Moved>) {
+        let label = labels.iter().find(|l| is_agent_label(l));
+        let to = label.filter(|_| !pinned(labels));
+        let to = to.and_then(|label| Some((label, self.opens_elsewhere(ticket, &labelled)?)));
+        let Some((label, to)) = to else {
+            return (labelled, None);
+        };
+        let new = format!("{AGENT_LABEL}{to}");
+        match self.swap_labels(ticket, label, &new) {
+            Ok(()) => {
+                let event = format!(
+                    "{}: its `{AGENT_LABEL}{labelled}` label moved to `{new}`, since a first \
+                     turn already waits on {labelled}'s model",
+                    ticket.shown()
+                );
+                let old = label.clone();
+                (to, Some(Moved { event, old, new }))
+            }
+            Err(e) => {
+                self.notes.push(format!(
+                    "{}: stays on {labelled}, whose model a work item waits on, since the \
+                     forge would not move its label to `{new}`: {e}",
+                    ticket.shown()
+                ));
+                (labelled, None)
+            }
+        }
+    }
+
+    // Puts the label `new` on `ticket` in place of `old`, the label it has.
+    // Leaves it as it was when either change fails.
+    fn swap_labels(&self, ticket: TicketId, old: &str, new: &str) -> Result<(), ForgeError> {
+        self.set_agent_label(ticket, new, true)?;
+        self.set_agent_label(ticket, old, false).inspect_err(|_| {
+            let _ = self.set_agent_label(ticket, new, false);
+        })
+    }
+
+    // Puts a label on, or takes it off, as the App where one covers the repo.
+    // A local ticket keeps its labels in the store.
+    fn set_agent_label(&self, ticket: TicketId, label: &str, on: bool) -> Result<(), ForgeError> {
+        match ticket.github() {
+            Some(number) => self.label_issue(number, label, on),
+            None => (self.ports.tickets).set_issue_label(&self.remote, ticket, label, on),
+        }
     }
 
     // The implementer a ticket with `labels` runs on: the one its `agent:`

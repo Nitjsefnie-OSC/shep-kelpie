@@ -228,6 +228,19 @@ pub enum Skip {
         #[serde(skip_serializing_if = "Option::is_none")]
         ruling: Option<TicketId>,
     },
+    /// The pacer holds every new work item, this pick among them
+    Paced {
+        /// The ticket
+        issue: TicketId,
+        /// The pacer's reading of the hold
+        hold: String,
+    },
+    /// The project manager is deciding, or said to start nothing, so this
+    /// pick waits
+    PmWaits {
+        /// The ticket
+        issue: TicketId,
+    },
     /// An adopted pull request that could not start this poll, and still waits
     Adopt {
         /// The pull request
@@ -257,7 +270,9 @@ impl Skip {
             | Self::Rework { issue, .. }
             | Self::Overlap { issue, .. }
             | Self::PathsUnread { issue, .. }
-            | Self::Unlabelled { issue, .. } => Some(*issue),
+            | Self::Unlabelled { issue, .. }
+            | Self::Paced { issue, .. }
+            | Self::PmWaits { issue } => Some(*issue),
             Self::Adopt { .. } => None,
         }
     }

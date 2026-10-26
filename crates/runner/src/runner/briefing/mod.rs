@@ -642,6 +642,8 @@ pub(super) fn passed_over(skip: &Skip, shown: &dyn Fn(String) -> String) -> (Str
             format!("has no `agent:` label, and waits on ruling {id}"),
             true,
         ),
+        Skip::Paced { hold, .. } => (format!("held by the pacer: {hold}"), true),
+        Skip::PmWaits { .. } => ("the project manager's pick waits".into(), true),
         Skip::Rework { error, .. } | Skip::Adopt { error, .. } => {
             (shown(events::quote(error)), true)
         }

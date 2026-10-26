@@ -411,6 +411,27 @@ fn a_pick_of_none_with_nothing_open_waits_half_an_hour_and_never_stalls() {
 }
 
 #[test]
+fn a_pick_held_while_the_project_manager_decides_shows_why_in_skipped_and_on_the_board() {
+    let (rig, runner) = with_pm("ditto");
+    rig.forge.list_ready(9, false);
+    rig.forge.list_ready(12, false);
+    rig.claude.script([Scripted::Say(
+        "{\"pick\": null, \"why\": \"#3 lands first.\"}",
+    )]);
+    answered(step(&runner).unwrap());
+
+    assert_eq!(step(&runner).unwrap(), None);
+
+    let skipped = rig.ask(&runner, "status", None)["skipped"].clone();
+    assert_eq!(skipped, json!([{ "reason": "pm-waits", "issue": "9" }]));
+    let board = std::fs::read_to_string(rig.paths().board).unwrap();
+    assert!(
+        board.contains("the project manager's pick waits"),
+        "{board}"
+    );
+}
+
+#[test]
 fn a_hold_over_every_ready_issue_with_nothing_open_goes() {
     let (rig, runner) = with_pm("ditto");
     rig.forge.list_ready(9, false);

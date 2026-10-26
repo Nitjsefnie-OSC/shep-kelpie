@@ -210,7 +210,15 @@ impl Runner {
                 });
             };
             if !paced {
-                if let Some(held) = self.pace_dispatch()?.holds() {
+                let pace = self.pace_dispatch()?;
+                if let Some(hold) = pace.reason() {
+                    skipped.push(Skip::Paced {
+                        issue: picked,
+                        hold: hold.to_owned(),
+                    });
+                    skipped.sort_by_key(Skip::issue);
+                }
+                if let Some(held) = pace.holds() {
                     self.set_skipped(skipped);
                     return Ok(held);
                 }
@@ -230,6 +238,8 @@ impl Runner {
                 Choice::Take(n) => n,
                 Choice::Rule => picked,
                 Choice::Wait => {
+                    skipped.push(Skip::PmWaits { issue: picked });
+                    skipped.sort_by_key(Skip::issue);
                     self.set_skipped(skipped);
                     return Ok(Begin::Idle);
                 }
@@ -255,7 +265,15 @@ impl Runner {
                     ready.retain(|i| i.ticket != ticket);
                     continue;
                 }
-                if let Some(held) = self.pace_writer()?.holds() {
+                let pace = self.pace_writer()?;
+                if let Some(hold) = pace.reason() {
+                    skipped.push(Skip::Paced {
+                        issue: ticket,
+                        hold: hold.to_owned(),
+                    });
+                    skipped.sort_by_key(Skip::issue);
+                }
+                if let Some(held) = pace.holds() {
                     self.set_skipped(skipped);
                     return Ok(held);
                 }
