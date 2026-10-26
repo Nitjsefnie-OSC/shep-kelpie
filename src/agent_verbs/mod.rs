@@ -313,7 +313,10 @@ fn new(folder: &Path, args: &[String]) -> Result<Vec<String>, String> {
                 .map(Harness::as_str)
                 .collect::<Vec<_>>()
                 .join(", ");
-            format!("{why}; harnesses that can serve `{}`: {serving}", ask.role.as_str())
+            format!(
+                "{why}; harnesses that can serve `{}`: {serving}",
+                ask.role.as_str()
+            )
         } else {
             why
         }
