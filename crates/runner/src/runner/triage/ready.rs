@@ -206,6 +206,20 @@ impl Runner {
         ))
     }
 
+    // The same, leaving `own` out of what the issue carries: the label the
+    // caller is about to write may already be on from a call whose answer was
+    // lost, and that one is kelpie's.
+    pub(super) fn triage_labelled_by_hand_but(
+        &self,
+        issue: u64,
+        own: &str,
+    ) -> Result<Option<String>, ForgeError> {
+        let carried: Vec<String> = (self.triage_labels_now(issue)?.into_iter())
+            .filter(|l| l != own)
+            .collect();
+        Ok(stood(&carried, &self.triage_seen(issue)))
+    }
+
     // Saves the record with the owed ready body dropped: a publish refusal
     // took it, so the issue ends `needs-triage` like any other
     pub(super) fn triage_ready_dropped(&mut self, issue: u64) -> Result<(), StateError> {

@@ -809,9 +809,10 @@ impl Runner {
                 }
                 TriageStep::Labelled => {
                     // The labels before this one took time, so a triage label
-                    // put on by hand since the pass began is read for again:
-                    // it stands, and `needs-triage` goes on nothing over it.
-                    match self.triage_labelled_by_hand(issue) {
+                    // put on by hand since the pass began stands, and
+                    // `needs-triage` goes on nothing over it. One already
+                    // there is this step's own, from a lost answer.
+                    match self.triage_labelled_by_hand_but(issue, TRIAGE) {
                         Ok(Some(label)) => {
                             self.notes.push(format!(
                                 "triage #{issue}: `{label}` went on by hand while its labels \

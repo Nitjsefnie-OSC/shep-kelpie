@@ -797,6 +797,24 @@ fn a_triage_label_put_on_by_hand_after_the_priority_stands_and_needs_triage_is_n
     );
 }
 
+// Kelpie's own `needs-triage`, put on by a call whose answer was lost, is not
+// a label by hand: the step finishes and says nothing of the kind.
+#[test]
+fn a_needs_triage_kelpie_put_on_itself_is_not_read_as_by_hand_at_the_labelled_step() {
+    let (rig, runner) = untouched();
+    drop(runner);
+    crashed_at(&rig, 30, "labelled");
+    let runner = rig.open().unwrap();
+    rig.forge.label(30, "needs-triage");
+
+    assert_eq!(step(&runner).unwrap(), None);
+
+    assert_eq!(moves(&rig), ["make needs-triage", "label needs-triage"]);
+    assert_eq!(triage(&rig, &runner)["issues"][0]["step"], "done");
+    let told: Vec<String> = runner.lock().unwrap().take_notes();
+    assert!(!told.iter().any(|n| n.contains("by hand")), "{told:?}");
+}
+
 #[test]
 fn a_research_on_an_issue_with_a_turn_in_flight_keeps_both_lines_on_the_ledger() {
     let rig = rig_with("pick = \"maintainer\"");
