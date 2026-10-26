@@ -98,9 +98,16 @@ jobs:
     env:
       RUSTDOCFLAGS: -D warnings
 
+  # `cargo test --locked` in three parts that run at once, split in
+  # scripts/test-part.sh. Each part keys its own cache, since each builds a
+  # different set of test targets.
   test:
     needs: changes
     if: ${{ !cancelled() && needs.changes.outputs.rust != 'false' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        part: [1, 2, 3]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -108,8 +115,9 @@ jobs:
       - run: rustup toolchain install stable --profile minimal
       - uses: Swatinem/rust-cache@v2
         with:
+          key: part-${{ matrix.part }}
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - run: cargo test --locked
+      - run: scripts/test-part.sh ${{ matrix.part }}
 
   # The tests `#[ignore]`d for needing a real shepherd. One of them is the
   # only test that sees shep answer `NotFound`, which the fake shepherd
