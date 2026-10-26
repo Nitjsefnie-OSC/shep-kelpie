@@ -18,6 +18,7 @@ use super::super::contributions::post::{forge_is_busy, refused_text};
 use super::super::representative::IssuePost;
 use super::addressed::Cover;
 use super::ask::{self, Purpose};
+use super::facts::{Reader, Wording, duplicate_facts, facts};
 use super::marker::{MARKER, duplicate_marker};
 use super::ready;
 use super::research::{Addressed, Found, Question};
@@ -420,15 +421,31 @@ impl Runner {
             },
             false => found.clone(),
         };
-        let mut facts = facts(
-            found,
-            &labels,
-            ready_body.is_some(),
+        // The comment that hands an outside issue over mentions the maintainer;
+        // the maintainer's own issue and the comment that asks do not.
+        let maintainer = self.maintainer();
+        let own = (maintainer.as_ref()).is_ok_and(|login| login.eq_ignore_ascii_case(author));
+        let mention = match (ask || own, &maintainer) {
+            (true, _) => None,
+            (false, Ok(login)) => Some(login.clone()),
+            (false, Err(why)) => {
+                self.unmentioned_triage(issue, &why.to_string());
+                None
+            }
+        };
+        let reader = match (own, mention.is_some()) {
+            (true, _) => Reader::Maintainer,
+            (false, true) => Reader::Mentioned,
+            (false, false) => Reader::Other,
+        };
+        let wording = Wording {
+            ready: ready_body.is_some(),
             ask,
             answers,
             local,
-            answers_body.is_some(),
-        );
+            settled: answers_body.is_some(),
+        };
+        let mut facts = facts(found, &labels, wording, reader);
         if plain {
             facts.push_str(PLAIN_FACTS);
         }
@@ -458,7 +475,10 @@ impl Runner {
                 Some((body, seen)) => (body, Some(seen)),
                 None => return Ok(()),
             },
-            false => (format!("{words}\n\n{MARKER}"), None),
+            false => {
+                let cc = (mention.as_deref()).map_or_else(String::new, |l| format!("cc @{l}\n\n"));
+                (format!("{words}\n\n{cc}{MARKER}"), None)
+            }
         };
         let tries = self.triage_tries.entry(issue).or_default();
         tries.body = Some(body);
@@ -473,6 +493,18 @@ impl Runner {
         tries.ask = ask;
         tries.answers_body = answers_body;
         self.send_triage(issue)
+    }
+
+    // Says in the log, once a run, that a comment that hands `issue` over goes
+    // up without the maintainer's mention, since no login could be read
+    fn unmentioned_triage(&self, issue: u64, why: &str) {
+        if self.triage_unmentioned_told.replace(true) {
+            return;
+        }
+        self.notes.push(format!(
+            "triage #{issue}: its comment is posted without a mention of the maintainer, since \
+             no login could be read: {why}; set `git.maintainer` to your GitHub login"
+        ));
     }
 
     // Whether what is posted to `issue`'s author is worded plain, with no path
@@ -845,119 +877,4 @@ impl Runner {
             }
         }
     }
-}
-
-// What the representative words the comment of a duplicate from: the other
-// item as `#n`, what it is, why the research says it covers this issue, and
-// the close that follows the comment
-fn duplicate_facts(named: &Addressed) -> String {
-    let why = named.why.trim();
-    let reason = match why.is_empty() {
-        true => String::new(),
-        false => format!(": {why}"),
-    };
-    let mut facts = String::from("Kelpie read the issue against the repo's main branch.\n");
-    facts.push_str(&format!(
-        "\n#{} is an open {} that already covers it{reason}.\n",
-        named.number,
-        named.item.word()
-    ));
-    facts.push_str(&format!(
-        "\nKelpie closes this issue as a duplicate of #{}, and puts no labels on it.\n",
-        named.number
-    ));
-    facts
-}
-
-// What the representative words the comment from: the labels that go on, the
-// related issues as `#n`, the files, tests and draft criteria, the questions,
-// whether the pass is sure enough to make the issue its board's, and how the
-// author's round ends: asking them the questions, reading their
-// answers as the last round, or reading the issue again after their own session
-// rewrote its body
-fn facts(
-    found: &Found,
-    labels: &[String],
-    ready: bool,
-    ask: bool,
-    answers: bool,
-    local: bool,
-    settled: bool,
-) -> String {
-    let mut facts = String::from("Kelpie read the issue against the repo's main branch.\n");
-    if !labels.is_empty() {
-        let when = match ask {
-            true => " when this triage ends",
-            false => "",
-        };
-        facts.push_str(&format!(
-            "\nKelpie labels it: {}{when}.\n",
-            labels.join(", ")
-        ));
-    }
-    if !found.related.is_empty() {
-        let related: Vec<String> = found.related.iter().map(|(n, _)| format!("#{n}")).collect();
-        facts.push_str(&format!("\nRelated open issues: {}.\n", related.join(", ")));
-    }
-    let lists = [
-        ("Files the work would touch", &found.files, "`"),
-        ("Tests that would pin it", &found.tests, "`"),
-        ("Draft acceptance criteria", &found.criteria, ""),
-    ];
-    for (heading, items, quote) in lists {
-        if items.is_empty() {
-            continue;
-        }
-        facts.push_str(&format!("\n{heading}:\n"));
-        for item in items {
-            facts.push_str(&format!("- {quote}{item}{quote}\n"));
-        }
-    }
-    match found.open.is_empty() {
-        true => facts.push_str("\nThere are no open questions.\n"),
-        false => {
-            facts.push_str("\nQuestions only the author can answer, each with the answer the research recommends:\n");
-            for (i, q) in found.open.iter().enumerate() {
-                let n = i + 1;
-                let (question, recommended) = (q.question.trim(), q.recommended.trim());
-                match recommended.is_empty() {
-                    true => facts.push_str(&format!("{n}. {question}\n")),
-                    false => {
-                        facts.push_str(&format!("{n}. {question} (recommended: {recommended})\n"))
-                    }
-                }
-            }
-        }
-    }
-    match ready {
-        true => facts.push_str(
-            "\nKelpie is sure of this issue: it rewrites the issue body from this report and \
-             labels it `ready-for-agent` for its board.\n",
-        ),
-        false => {
-            if settled {
-                facts.push_str(
-                    "\nKelpie writes the answers its author gave under the author's own text in \
-                     this issue's body, and never in place of it.\n",
-                );
-            }
-            match (ask, answers, local) {
-                (true, _, _) => facts.push_str(
-                    "\nKelpie posts these questions under your words, each with the answer the \
-                     research recommends, and under them a collapsed prompt the author can \
-                     paste into an agent session of their own. The author answers them all in \
-                     one comment, whatever they write, or rewrites the issue body from their \
-                     own session. Kelpie then reads the issue again, and what is still open \
-                     goes to the maintainer. With no reply the maintainer triages the issue as \
-                     it stands.\n",
-                ),
-                (false, true, _) | (false, false, true) => facts.push_str(
-                    "\nThis is the last round of questions: what is still open goes to the \
-                     maintainer.\n",
-                ),
-                (false, false, false) => facts.push_str("\nThe maintainer triages it next.\n"),
-            }
-        }
-    }
-    facts
 }

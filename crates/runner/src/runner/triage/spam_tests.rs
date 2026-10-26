@@ -25,7 +25,7 @@ use super::limits::DAY;
 use super::marker::MARKER;
 use super::pick_tests::{MAINTAINER, due, issue, list, rig_with};
 use super::research_tests::crashed_with;
-use super::research_tests::{WORDS, calls, crash, moves, reply, restart, triage};
+use super::research_tests::{WORDS, calls, crash, handed, moves, reply, restart, triage};
 use super::spam::POSSIBLE_SPAM;
 #[cfg(unix)]
 use crate::github::ApiError;
@@ -221,10 +221,7 @@ fn an_issue_at_the_threshold_is_spam_and_one_just_below_is_not() {
     );
     assert_eq!(record(&rig, &runner, 30)["spam"], 0.8);
     assert_eq!(record(&rig, &runner, 31).get("spam"), None);
-    assert_eq!(
-        rig.github.comments(),
-        [(31, format!("{WORDS}\n\n{MARKER}"))]
-    );
+    assert_eq!(rig.github.comments(), [(31, handed(WORDS))]);
 }
 
 #[test]
@@ -237,7 +234,7 @@ fn an_issue_under_the_threshold_is_researched() {
     assert_eq!(calls(&rig, Role::Triager).len(), 1);
     assert_eq!(
         rig.github.comments(),
-        [(30, format!("{WORDS}\n\n{MARKER}"))],
+        [(30, handed(WORDS))],
         "the pass went on as it was"
     );
     assert_eq!(
@@ -266,10 +263,7 @@ fn no_spam_table_means_no_check_at_all() {
     );
     assert_eq!(calls(&rig, Role::Triager).len(), 1);
     assert_eq!(checks(&rig), Vec::new(), "and no line on the ledger");
-    assert_eq!(
-        rig.github.comments(),
-        [(30, format!("{WORDS}\n\n{MARKER}"))]
-    );
+    assert_eq!(rig.github.comments(), [(30, handed(WORDS))]);
 }
 
 #[test]
@@ -292,10 +286,7 @@ fn an_unreachable_classifier_is_logged_once_and_the_issue_is_researched() {
     );
     assert_eq!(
         rig.github.comments(),
-        [
-            (30, format!("{WORDS}\n\n{MARKER}")),
-            (31, format!("{WORDS}\n\n{MARKER}")),
-        ]
+        [(30, handed(WORDS)), (31, handed(WORDS)),]
     );
     let notes: Vec<String> = (told(&runner))
         .into_iter()
@@ -502,10 +493,7 @@ fn the_maintainers_issues_and_the_verb_skip_the_check() {
         "and the verb's issue is not asked about"
     );
     assert_eq!(calls(&rig, Role::Triager).len(), 1);
-    assert_eq!(
-        rig.github.comments(),
-        [(30, format!("{WORDS}\n\n{MARKER}"))]
-    );
+    assert_eq!(rig.github.comments(), [(30, handed(WORDS))]);
 }
 
 #[test]
@@ -523,10 +511,7 @@ fn an_issue_labelled_possible_spam_is_triaged_when_the_verb_asks() {
 
     assert_eq!(rig.classifier.count(), 1, "the check is not asked again");
     assert_eq!(calls(&rig, Role::Triager).len(), 1);
-    assert_eq!(
-        rig.github.comments(),
-        [(30, format!("{WORDS}\n\n{MARKER}"))]
-    );
+    assert_eq!(rig.github.comments(), [(30, handed(WORDS))]);
     assert_eq!(record(&rig, &runner, 30).get("spam"), None);
     assert!(
         (written_on(&rig, 30))
@@ -560,10 +545,7 @@ fn a_possible_spam_no_record_of_kelpies_says_it_read_stands_when_the_verb_asks()
         1,
         "and the issue is triaged"
     );
-    assert_eq!(
-        rig.github.comments(),
-        [(30, format!("{WORDS}\n\n{MARKER}"))]
-    );
+    assert_eq!(rig.github.comments(), [(30, handed(WORDS))]);
     assert!(
         !(written_on(&rig, 30))
             .iter()
@@ -592,7 +574,7 @@ fn an_answer_just_under_the_threshold_is_researched_and_not_labelled() {
     );
     assert_eq!(
         rig.github.comments(),
-        [(30, format!("{WORDS}\n\n{MARKER}"))],
+        [(30, handed(WORDS))],
         "and its comment"
     );
     assert_eq!(record(&rig, &runner, 30).get("spam"), None);

@@ -278,7 +278,6 @@ crates/runner/src/runner/triage/ask.rs	6	// The author's answers with a reply of
 crates/runner/src/runner/triage/comment.rs	14	//! The comment that says what the research found, and the labels after it
 crates/runner/src/runner/triage/comment.rs	6	// The reply names a type `bug` and a priority `P2`. The board ranks by
 crates/runner/src/runner/triage/comment.rs	6	// Does what `issue`'s record says is left: the close of a duplicate, the
-crates/runner/src/runner/triage/comment.rs	6	// What the representative words the comment from: the labels that go on, the
 crates/runner/src/runner/triage/hand.rs	12	//! A maintainer's hand-labelled `ready-for-agent` issue taken back for triage
 crates/runner/src/runner/triage/heard.rs	21	//! Hearing the author's answers while a triage waits on them
 crates/runner/src/runner/triage/images.rs	11	//! The images in an issue's text, downloaded for the triager to read

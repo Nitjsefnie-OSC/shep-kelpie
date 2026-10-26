@@ -1,6 +1,6 @@
 # Design
 
-Kelpie: dog of the maintainer's shepherd; one runner per project takes ready issues off a board, workers build, PRs pass reviewers, CI, merge gate. Maintainer asked only via rulings.
+Kelpie: the maintainer's dog; one runner per project builds ready issues. Maintainer asked only via rulings.
 
 ## Always
 
@@ -67,6 +67,7 @@ Kelpie: dog of the maintainer's shepherd; one runner per project takes ready iss
 | triage-author.md | author's round: ask, answers, confirming, silence | `runner/triage/{ask,heard}.rs` |
 | triage-local.md | local session: prompt, body hash | `runner/triage/local.rs` |
 | triage-spam.md | the spam check: `triage.spam`, `possible-spam` | `runner/triage/spam.rs` |
+| triage-reader.md | who a comment is for | `runner/triage/facts.rs` |
 | triage-hand.md | `hand_ready` take-back | `runner/triage/hand.rs` |
 | log-lines.md | runner and dog log lines | `runner/drain/`, `runner/{skip_log,claim}.rs`, `runner/review_bot/lease_wait.rs`, `dog/desk.rs`, `dog/door/` |
 | metrics.md | kelpie's series, alerts, dashboard | `core/metrics/`, `core/ports/metrics.rs`, `assets/prometheus/`, `assets/grafana/` |
