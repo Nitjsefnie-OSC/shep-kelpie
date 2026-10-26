@@ -18,11 +18,11 @@ use super::super::code_graph::{indexed, remove};
 use super::super::in_flight::Key;
 use super::super::triage::ask::Purpose;
 use super::super::triage::images::{self, Pictures};
-use super::super::triage::research::{Found, Listed, read_reply};
+use super::super::triage::research::{Found, Listed, Unread, read_reply, repair_prompt};
 use super::{End, News};
 use crate::dep_sources::grant;
 use crate::metrics::Recorder;
-use crate::ports::{AgentCall, AgentError, Agents, Ending, Timestamp};
+use crate::ports::{AgentCall, AgentError, AgentReply, Agents, Ending, Session, Timestamp};
 use crate::settings::AuthorRole;
 use crate::state::StateError;
 use crate::ticket::TicketId;
@@ -316,8 +316,44 @@ fn researched(
         grant(call, std::slice::from_ref(&pictures.folder));
     }
     indexed(call, notes, metrics, ending);
+    let read = |text: &str| read_reply(text, issue, open, view, (*most, *role), notes);
     let ran = agents.prepare(call).and_then(|()| agents.run(call, ending));
-    let found = (ran.as_ref().ok())
-        .map(|reply| read_reply(&reply.text, issue, open, view, (*most, *role), notes));
+    let Ok(first) = &ran else {
+        return (End::Turn(ran), None);
+    };
+    let found = read(&first.text);
+    let Err(Unread::NotTriage(why)) = &found else {
+        return (End::Turn(ran), Some(found.map_err(|e| e.to_string())));
+    };
+    let (ran, found) = repaired(first, why, call, agents, ending, read);
     (End::Turn(ran), found)
+}
+
+// Asks the session `first` ran in, once, for its reply again with the parser's
+// `why` said, and reads what it answers. The repair is part of the same call:
+// `first`'s usage is added to the repair's, and an answer that is still no
+// triage is a failure like any other.
+fn repaired(
+    first: &AgentReply,
+    why: &str,
+    call: &mut AgentCall,
+    agents: &dyn Agents,
+    ending: &Ending,
+    read: impl Fn(&str) -> Result<Found, Unread>,
+) -> (
+    Result<AgentReply, AgentError>,
+    Option<Result<Found, String>>,
+) {
+    call.session = Session::Resume(first.session_id.clone());
+    call.prompt = repair_prompt(why);
+    // A resumed session keeps the instructions it began with.
+    call.instructions = None;
+    match agents.run(call, ending) {
+        Ok(mut second) => {
+            second.usage += first.usage;
+            let found = read(&second.text).map_err(|e| format!("its repair failed too: {e}"));
+            (Ok(second), Some(found))
+        }
+        Err(e) => (Err(e), None),
+    }
 }
