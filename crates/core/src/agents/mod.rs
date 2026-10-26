@@ -27,7 +27,7 @@ use std::time::Duration;
 
 use serde::Deserialize;
 
-use self::baseline::{Baseline, Unbound};
+use self::baseline::{Baseline, Unbound, shipped_text};
 use crate::board::AGENT_LABEL;
 use crate::review_bot::BotReviewer;
 use crate::settings::{
@@ -181,6 +181,22 @@ impl Role {
             Self::Representative => "representative",
             Self::Triager => "triager",
         }
+    }
+
+    /// The role an agent file calls `name`, if there is one
+    pub fn named(name: &str) -> Option<Self> {
+        [
+            Self::Implementer,
+            Self::Reviewer,
+            Self::IssueWriter,
+            Self::Pm,
+            Self::Advisor,
+            Self::Researcher,
+            Self::Representative,
+            Self::Triager,
+        ]
+        .into_iter()
+        .find(|role| role.as_str() == name)
     }
 }
 
@@ -391,21 +407,7 @@ impl Agents {
             texts.insert(name, (path, text));
         }
         let parent = |name: &str| match name.strip_prefix(extends::SHIPPED) {
-            Some(shipped) => DEFAULTS
-                .iter()
-                .find(|(default, ..)| *default == shipped)
-                .map(|(_, text, _)| *text)
-                .or_else(|| baselines.iter().find(|b| b.name == shipped).map(|b| b.text))
-                .map(extends::ParentText::Default)
-                .ok_or_else(|| {
-                    let own: Vec<&str> = (DEFAULTS.iter().map(|(name, ..)| *name))
-                        .chain(baselines.iter().map(|b| b.name))
-                        .collect();
-                    format!(
-                        "`extends: {name}` names no shipped agent: kelpie's own are {}",
-                        own.join(", ")
-                    )
-                }),
+            Some(shipped) => shipped_text(name, shipped, baselines),
             None => AgentName::try_from(name.to_owned())
                 .ok()
                 .and_then(|name| texts.get(&name))

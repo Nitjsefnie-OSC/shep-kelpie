@@ -9,8 +9,8 @@
 use std::path::{Path, PathBuf};
 
 use super::{
-    ADVISOR, DEFECT_HUNTER, ISSUE_WRITER, PM, REPRESENTATIVE, RESEARCHER, Role, SECURITY_REVIEWER,
-    TRIAGER, front,
+    ADVISOR, Agent, DEFAULTS, DEFECT_HUNTER, ISSUE_WRITER, PM, REPRESENTATIVE, RESEARCHER, Role,
+    SECURITY_REVIEWER, TRIAGER, extends, front,
 };
 use crate::settings::AgentName;
 
@@ -103,6 +103,49 @@ pub fn new_command(role: Role, baseline: Option<&str>, name: &str) -> String {
         command = format!("{command} --name {name}");
     }
     command
+}
+
+// The shipped file `shipped` that `extends` (`kelpie:<shipped>`) names, among
+// the whole agents and `baselines`.
+pub(super) fn shipped_text(
+    extends: &str,
+    shipped: &str,
+    baselines: &[Baseline],
+) -> Result<extends::ParentText<'static>, String> {
+    (DEFAULTS.iter())
+        .find(|(default, ..)| *default == shipped)
+        .map(|(_, text, _)| *text)
+        .or_else(|| baselines.iter().find(|b| b.name == shipped).map(|b| b.text))
+        .map(extends::ParentText::Default)
+        .ok_or_else(|| {
+            let own: Vec<&str> = (DEFAULTS.iter().map(|(name, ..)| *name))
+                .chain(baselines.iter().map(|b| b.name))
+                .collect();
+            format!(
+                "`extends: {extends}` names no shipped agent: kelpie's own are {}",
+                own.join(", ")
+            )
+        })
+}
+
+/// The agent the file `name` holding `text` would be, as the loader reads it
+///
+/// The file may extend only kelpie's own agents, since it is not yet beside
+/// any other.
+///
+/// # Errors
+///
+/// The message the loader gives for the file.
+pub fn check(name: &str, text: &str) -> Result<Agent, String> {
+    let parent = |parent: &str| match parent.strip_prefix(extends::SHIPPED) {
+        Some(shipped) => shipped_text(parent, shipped, &ALL),
+        None => Err(format!(
+            "`extends: {parent}` names no shipped agent: write `{}{parent}`",
+            extends::SHIPPED
+        )),
+    };
+    let merged = extends::merged(name, text, &parent)?;
+    front::parse_named(name, &merged.text).map_err(|message| merged.place(message))
 }
 
 /// An agent file that binds nothing, so the book leaves it out
