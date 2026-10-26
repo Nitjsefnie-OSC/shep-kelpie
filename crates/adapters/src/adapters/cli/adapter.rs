@@ -132,7 +132,7 @@ impl<C: Cli> CliAdapter<C> {
         };
         self.cli.ready(call)?;
         let scratch = self.cli.scratch(call);
-        match std::fs::remove_dir_all(&scratch) {
+        match crate::worktree::remove_tree(&scratch) {
             Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
                 return Err(AgentError::Setup(format!(
                     "cannot empty {}: {}",
