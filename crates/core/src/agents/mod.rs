@@ -609,6 +609,27 @@ impl Agents {
     }
 }
 
+/// Writes into `folder` a stub for each baseline that extends it and sets
+/// `binding`, for a test whose reads need every baseline to run
+///
+/// # Panics
+///
+/// When a file cannot be written.
+#[cfg(any(test, feature = "test-support"))]
+#[track_caller]
+pub fn write_bound_stubs(folder: &Path, binding: &str) {
+    fs::create_dir_all(folder).expect("the folder can be made");
+    for shipped in baseline::ALL.iter() {
+        let stub = format!(
+            "---\nextends: {}{}\n{binding}---\n",
+            extends::SHIPPED,
+            shipped.name
+        );
+        fs::write(folder.join(format!("{}.md", shipped.name)), stub)
+            .expect("a stub can be written");
+    }
+}
+
 /// Writes a stub for each of kelpie's own whole agents that `folder` lacks,
 /// never over a file, and refreshes the shipped files in `folder`'s `.defaults`
 ///
