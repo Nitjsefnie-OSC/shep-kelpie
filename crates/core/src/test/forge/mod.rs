@@ -866,6 +866,7 @@ impl Forge for FakeForge {
 
 pub use comments::AppComments;
 pub use held::HeldCall;
+pub(crate) use held::{At, Gate};
 pub use issues::CreatedIssue;
 
 use handed::FakePullRequest;

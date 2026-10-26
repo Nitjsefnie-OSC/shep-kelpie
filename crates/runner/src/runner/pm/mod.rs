@@ -485,7 +485,10 @@ impl Runner {
         if self.pm.down_until.is_some_and(|until| now < until) {
             return false;
         }
-        matches!(self.pace(Scope::Turn, &limit), Ok(super::pace::Pace::Clear))
+        matches!(
+            self.pace_now(Scope::Turn, &limit),
+            Ok(super::pace::Pace::Clear)
+        )
     }
 
     /// Starts the project manager's call if one is due and it can run,

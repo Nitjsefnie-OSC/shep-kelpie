@@ -305,7 +305,7 @@ impl Runner {
         let Some(limit) = limit else {
             return Ok(());
         };
-        match self.pace(Scope::Turn, limit) {
+        match self.pace_now(Scope::Turn, limit) {
             Ok(super::super::pace::Pace::Clear) => Ok(()),
             Ok(_) => Err("the pacer holds its account".to_owned()),
             Err(e) => Err(format!("its account's usage cannot be paced: {e}")),
