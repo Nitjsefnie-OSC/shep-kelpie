@@ -14,7 +14,6 @@ use std::sync::{Arc, Mutex, PoisonError};
 use serde::{Deserialize, Serialize};
 
 use super::Timestamp;
-use crate::guard::IssueRules;
 use crate::hooks::Hooks;
 use crate::settings::{AgentHarness, Effort, GuardHook, Harness};
 use crate::ticket::TicketId;
@@ -226,9 +225,6 @@ pub struct Guard {
     /// Folders besides the home folder whose paths stay off the forge: kelpie's
     /// home and the project's checkout
     pub folders: Vec<PathBuf>,
-    /// For the issue writer, what it may file. The guard then runs only the
-    /// commands that file, label and link issues, and git's read-only ones.
-    pub issues: Option<IssueRules>,
     /// The project's own hooks, which the guard runs on a commit, a push and
     /// the text of a `gh` command, whatever the harness
     pub hooks: Hooks,

@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
 
-use crate::guard::{AFTER_FLAG, FOLDER_FLAG, PAUSE_FLAG, RECORD_FLAG};
+use crate::guard::{AFTER_FLAG, FOLDER_FLAG, PAUSE_FLAG};
 use crate::hooks::GUARD_BUDGET;
 use crate::ports::{AgentCall, Fence, Guard, PM_NOTES, Reach, Tools};
 use crate::settings::{HookEvent, HookPoint};
@@ -423,16 +423,12 @@ fn hooks(fence: &Fence) -> Value {
         .folders
         .iter()
         .map(|p| shell_quote(&format!("{FOLDER_FLAG}{}", p.display())));
-    let issues = (guard.issues.iter())
-        .flat_map(|rules| rules.flags())
-        .map(|flag| shell_quote(&flag));
     // The project's own hooks, which the guard runs on a commit, a push and a post.
     let hooks = guard.hooks.flag().map(|flag| shell_quote(&flag));
     let base = guard.base_flag().map(|flag| shell_quote(&flag));
     let pushes = guard.kelpie_pushes_flag().map(shell_quote);
     let commands: Vec<String> = (commands.into_iter())
         .chain(folders)
-        .chain(issues)
         .chain(hooks)
         .chain(base)
         .chain(pushes)
@@ -446,11 +442,6 @@ fn hooks(fence: &Fence) -> Value {
     }
     pre.push(guarded);
     let mut post = Vec::new();
-    // The issue writer's ledger of what it filed and read, kept after each command.
-    if guard.issues.is_some() {
-        let record = format!("{} {RECORD_FLAG}", commands.join(" "));
-        post.push(entry(Some("Bash"), &record));
-    }
     // The project's `after_command` hooks, run on a command's result. Claude Code
     // fires one event for a command that succeeded and another for one that failed.
     let mut failed = Vec::new();
@@ -619,7 +610,6 @@ mod tests {
                     base: "main".into(),
                     kelpie_pushes: false,
                     folders: Vec::new(),
-                    issues: None,
                     hooks: Hooks::default(),
                 },
                 hooks: Vec::new(),
@@ -694,7 +684,6 @@ mod tests {
                     base: "main".into(),
                     kelpie_pushes: false,
                     folders: Vec::new(),
-                    issues: None,
                     hooks,
                 },
                 hooks: Vec::new(),
@@ -752,33 +741,6 @@ mod tests {
         }
         let pre = &s["hooks"]["PreToolUse"][0]["hooks"][0];
         assert_eq!(pre["timeout"], GUARD_BUDGET.as_secs() + GUARD_MARGIN);
-    }
-
-    // The issue writer's ledger recorder is one post entry; the project's
-    // `after_command` hooks are another, with the writer's rules on its line.
-    #[test]
-    fn the_issue_writer_gets_the_after_command_hook_beside_its_ledger_recorder() {
-        use crate::guard::IssueRules;
-        use crate::settings::HookPoint;
-        let mut reach = reach_with(hooks_at(&[HookPoint::AfterCommand]));
-        let fence = reach.fence.as_mut().unwrap();
-        fence.guard.issues = Some(IssueRules {
-            status: "ready".to_owned(),
-            agents: vec!["claude".to_owned()],
-            ledger: None,
-            tickets: None,
-        });
-
-        let s = settings(Tools::Work, &reach);
-
-        for event in ["PostToolUse", "PostToolUseFailure"] {
-            let posts = commands_of(&s["hooks"][event], "Bash");
-            let after: Vec<_> = posts.iter().filter(|c| c.ends_with(" --after")).collect();
-            assert_eq!(after.len(), 1, "{event}: {posts:?}");
-            assert!(after[0].contains("--issues"), "{event}: {}", after[0]);
-        }
-        let posts = commands_of(&s["hooks"]["PostToolUse"], "Bash");
-        assert!(posts.iter().any(|c| c.ends_with(" --record")), "{posts:?}");
     }
 
     #[test]
