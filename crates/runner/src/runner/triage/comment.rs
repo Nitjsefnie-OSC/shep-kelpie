@@ -270,8 +270,8 @@ impl Runner {
     }
 
     // Puts the labels the pass found on `issue`; `false` when a write failed.
-    // Its priority goes on first and then replaces the others the issue has,
-    // unless one went on by hand since the pass began: that stands.
+    // The pass has a priority only for an issue that began with none, and one
+    // that went on by hand since stands.
     pub(super) fn put_pass_labels(&mut self, issue: u64, labels: &[String]) -> bool {
         let Some(ours) = labels.iter().find(|l| board::is_priority_label(l)) else {
             return self.put_labels(issue, labels);
@@ -284,36 +284,20 @@ impl Runner {
                 return false;
             }
         };
-        let seen = self.triage_seen(issue);
-        let others: Vec<&String> = (carried.iter())
-            .filter(|l| board::is_priority_label(l) && !board::same_priority(l, ours))
-            .collect();
-        if let Some(hand) = others.iter().find(|l| !seen.contains(l)) {
+        let hand = (carried.iter())
+            .find(|l| board::is_priority_label(l) && !board::same_priority(l, ours));
+        if let Some(hand) = hand {
             self.notes.push(format!(
-                "triage #{issue}: `{hand}` went on by hand while the pass ran, so that stands:                  kelpie does not put `{ours}` on"
+                "triage #{issue}: `{hand}` went on by hand while the pass ran, so that stands: \
+                 kelpie does not put `{ours}` on"
             ));
-            let rest: Vec<String> = (labels.iter())
-                .filter(|l| !board::is_priority_label(l))
-                .cloned()
-                .collect();
-            return self.put_labels(issue, &rest);
         }
-        let on = carried.iter().any(|l| board::same_priority(l, ours));
+        let on = carried.iter().any(|l| board::is_priority_label(l));
         let put: Vec<String> = (labels.iter())
-            .filter(|l| !(on && l.as_str() == ours))
+            .filter(|l| !(on && board::is_priority_label(l)))
             .cloned()
             .collect();
-        if !self.put_labels(issue, &put) {
-            return false;
-        }
-        for old in others {
-            if let Err(e) = self.label_issue(issue, old, false) {
-                let why = format!("cannot take `{old}` off: {e}");
-                self.triage_failed(issue, &why, !forge_is_busy(&e));
-                return false;
-            }
-        }
-        true
+        self.put_labels(issue, &put)
     }
 
     // Puts each of `labels` on `issue`, stopping at the first the forge refuses
@@ -394,12 +378,13 @@ impl Runner {
         // The reply names a type `bug` and a priority `P2`. The board reads the label
         // `priority: P2`, so a priority is looked for under that name first, then the
         // bare `P2`; a repo with neither gets the board's name made. A type the repo
-        // does not have is never put on.
+        // does not have is never put on. A priority the issue began with stands.
         let mut labels: Vec<String> = Vec::new();
         if let Some(kind) = found.kind {
             labels.extend(board::repo_label(&have, kind).map(str::to_owned));
         }
-        if let Some(priority) = found.priority {
+        let ranked = (self.triage_seen(issue).iter()).any(|l| board::is_priority_label(l));
+        if let Some(priority) = found.priority.filter(|_| !ranked) {
             let named = board::repo_priority(&have, priority).map(str::to_owned);
             labels.extend(named.or_else(|| self.made_priority(issue, priority)));
         }

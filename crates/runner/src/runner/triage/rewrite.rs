@@ -50,8 +50,7 @@ impl Runner {
     }
 
     // Whether the issue check passes `issue` with `body` written over it and
-    // `labels`, the pass's, put on: a priority among them replaces the one the
-    // issue began with.
+    // the pass's `labels` put on
     pub(super) fn passes_with(&self, issue: u64, body: &str, labels: &[String]) -> bool {
         let listed = (self.triage_run.listing.as_ref())
             .and_then(|l| l.open.iter().find(|i| i.number == issue))
@@ -60,10 +59,7 @@ impl Runner {
             let read = super::ticket(issue).and_then(|t| self.ports.tickets.issue(&self.remote, t));
             read.ok().map(|found| found.title)
         });
-        let priority = labels.iter().any(|l| board::is_priority_label(l));
-        let mut after: Vec<String> = (self.triage_seen(issue).into_iter())
-            .filter(|l| !(priority && board::is_priority_label(l)))
-            .collect();
+        let mut after = self.triage_seen(issue);
         after.extend(labels.iter().cloned());
         check::check(&title.unwrap_or_default(), body, &after).is_empty()
     }

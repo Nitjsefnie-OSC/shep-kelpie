@@ -87,7 +87,7 @@ fn answers_on_an_outside_issue_go_under_the_authors_text_and_end_needs_triage() 
 }
 
 #[test]
-fn the_priority_the_answers_pass_ranks_replaces_the_one_the_issue_was_filed_with() {
+fn the_priority_the_issue_was_filed_with_stands_over_the_one_the_answers_pass_ranks() {
     let (rig, runner) = filed_before("pick = \"all\"", "newcomer", asked(), |rig| {
         let mut filed = issue(rig, 30, "newcomer", 5);
         filed.title = "Crash on start".to_owned();
@@ -112,11 +112,10 @@ fn the_priority_the_answers_pass_ranks_replaces_the_one_the_issue_was_filed_with
             "comment",
             "comment",
             "label bug",
-            "label P1",
             "label needs-triage"
         ]
     );
-    assert_eq!(rig.github.label_takes(), [(30, "P2".to_owned())]);
+    assert_eq!(rig.github.label_takes(), []);
 }
 
 #[test]

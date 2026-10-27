@@ -280,7 +280,7 @@ fn filed_with(label: &str) -> (Rig, Mutex<Runner>) {
 }
 
 #[test]
-fn the_priority_the_pass_ranks_replaces_the_one_the_issue_was_filed_with() {
+fn the_priority_the_issue_was_filed_with_stands_over_the_one_the_pass_ranks() {
     for filed in ["priority: P2", "P2"] {
         let (rig, runner) = filed_with(filed);
         let found = json!({ "priority": "P1" });
@@ -288,16 +288,8 @@ fn the_priority_the_pass_ranks_replaces_the_one_the_issue_was_filed_with() {
 
         assert_eq!(step(&runner).unwrap(), None, "{filed}");
 
-        assert_eq!(
-            moves(&rig),
-            ["comment", "label priority: P1", "label needs-triage"],
-            "{filed}"
-        );
-        assert_eq!(
-            rig.github.label_takes(),
-            [(30, filed.to_owned())],
-            "{filed}"
-        );
+        assert_eq!(moves(&rig), ["comment", "label needs-triage"], "{filed}");
+        assert_eq!(rig.github.label_takes(), [], "{filed}");
     }
 }
 
