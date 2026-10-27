@@ -1,23 +1,21 @@
 # The panel
 
-- Checked by the stand-ins only (#465): four votes fill a merge ruling's panel, an unreadable vote is an abstention, no prompt or folder carries another expert's vote, the settings of each role deny every writer and command (and the advisor the web) and read only the folders named, and the researcher's folder holds what is written above.
-  - No live Claude Code, Codex or pi run has voted on a ruling yet, and no expert's model was tried on a real ruling, so which of Opus 5.5 at high and Sonnet 5.5 at high is right for the advisor and the researcher is a guess to measure once rulings carry the panel's lines.
-- Not checked:
-  - That the sandbox's `srt` lets Claude Code's `WebFetch` reach a host named in `researcher.allowed_domains` (the allowlist is `strictAllowlist`, and a bare `*` was not tried, so every host is named).
-  - That Codex writes `cwd` in its `session_meta` line, which the table reads from what kelpie knows of Codex's rollout format, since no recorded rollout in `fixtures/` holds one; a session whose first lines name no `cwd` is left unread.
-  - That a Claude Code session resumed for the worker's vote sees the tools of a retro without its `Skill` call failing, as the retro itself was never run live (Workers).
+Closed at this build (ADR 0018): the panel is gone, and the project manager answers the kinds of ruling `rulings.pm_decides` gives it (see `docs/design/who-answers.md`). What follows is what was measured while the panel ran. None of it describes kelpie now.
+
+- Checked by the stand-ins only (#465): four votes filled a merge ruling's panel, an unreadable vote was an abstention, no prompt or folder carried another expert's vote, the settings of each role denied every writer and command (and the advisor the web) and read only the folders named, and the researcher's folder held what was written for it.
+  - No live Claude Code, Codex or pi run ever voted on a ruling, and no expert's model was tried on a real ruling, so whether Opus 5.5 at high or Sonnet 5.5 at high was right for the advisor and the researcher was never measured.
+- Never checked before it closed:
+  - That the sandbox's `srt` let Claude Code's `WebFetch` reach a host named in `researcher.allowed_domains` (the allowlist was `strictAllowlist`, and a bare `*` was not tried).
+  - That Codex writes `cwd` in its `session_meta` line, which the researcher's table read from what kelpie knew of Codex's rollout format, since no recorded rollout in `fixtures/` held one.
+  - That a Claude Code session resumed for the worker's vote saw the tools of a retro without its `Skill` call failing.
 - Checked by the stand-ins only (#466):
-  - 4-0 and 3-1 decide under `panel` and not under `shadow`; a 2-2 split, a `design` flag and an `ask` merge at 4-0 go to the maintainer.
-  - A `docs` item's ruling calls only the project manager and a `fix` item's the project manager and the advisor; a split or a `design` flag in a smaller panel asks the next one up.
-  - A kind on `rulings.pm_alone` is decided by the project manager's vote with no other call, a `design` flag or an abstention calls the type's panel, and a merge kind stops the runner naming `rulings.pm_alone`.
-  - A `no <note>` reply reopens a decided ruling.
-  - Every vote is a ledger line with its ruling, kind, expert, panel, cost and wall time; the usage report splits them by expert, kind and type; and the streak, the per-kind run, agreement and lone-correct count follow the maintainer's answers (the last over lines of `rulings.jsonl`).
-  - Also (#536): under `panel` a `fix` item's question asks all four, a `docs` item whose diff touches a `full_panel_paths` glob asks all four, a `design` flag from a smaller panel asks the full one, and an empty list changes nothing.
-  - `whatif` matches hand-computed counts and costs over recorded shadow rulings and ledger lines for all seven candidates, an escalation's votes included, and a shadow run through the runner shows in `status`; `agreed` and `lone` by kind count only the maintainer's answers.
-  - No live run has decided a ruling, and the work item's type was read from the stand-in forge's titles, not from a real pull request.
-- **Due: a Facts entry after a project's first 30 panel rulings** (`facts_due` in `status`, `measure/mod.rs`).
-  - It is to give, for that project, the cost per ruling and per expert (`shep kelpie usage`), each expert's agreement and lone-correct count, the abstentions, and what each smaller panel would have decided against the maintainer's answers (`panels` in `status`), and the `whatif` table (#536): for each of the seven candidate policies for who votes, the rulings it would have decided, how many of those matched the maintainer, how many it would have sent to the maintainer, and its cost per ruling.
-  - The maintainer uses it to keep, drop or downgrade an expert (Sonnet in place of Opus, say), to move a type to a smaller or larger panel, to pick the policy `panel` should mean, to list more kinds under `rulings.pm_alone`, and to switch `rulings.decide` to `panel`. Until it is written, which of these is right is a guess.
-- Accepted: a decision cannot be reopened from its thread once the runner has restarted, nor once its work item has moved to a worker's call or finished. The project manager's wake line counts a mixed wake's whole cost on its votes. The type is read at the ruling's take-up, so a pull request retitled after it is still judged by the old title.
-- The settings of the advisor and the researcher deny each other's folder entry by entry, as the folders are when the settings are written, so `ask_experts` makes both first; the sandbox denies the rest of kelpie's home whole in any case.
-  - The local test run cannot show the file-tool reads: `around` denies a folder it cannot list whole, and a worker's sandbox cannot list the maintainer's `~/.shep`, where its temporary folder is, so the project manager's read test (`it_reads_the_worktrees_and_checkout_and_none_of_kelpies_secrets`) and the panel's two fence tests failed there and passed with that one case let through for the run. CI, whose temporary folder is `/tmp`, runs them as written.
+  - 4-0 and 3-1 decided under `panel` and not under `shadow`; a 2-2 split, a `design` flag and an `ask` merge at 4-0 went to the maintainer.
+  - A `docs` item's ruling called only the project manager and a `fix` item's the project manager and the advisor; a split or a `design` flag in a smaller panel asked the next one up.
+  - A kind on `rulings.pm_alone` was decided by the project manager's vote with no other call, a `design` flag or an abstention called the type's panel, and a merge kind stopped the runner naming `rulings.pm_alone`.
+  - A `no <note>` reply reopened a decided ruling.
+  - Every vote was a ledger line with its ruling, kind, expert, panel, cost and wall time; the usage report split them by expert, kind and type; and the streak, the per-kind run, agreement and lone-correct count followed the maintainer's answers.
+  - Also (#536): under `panel` a `fix` item's question asked all four, a `docs` item whose diff touched a `full_panel_paths` glob asked all four, a `design` flag from a smaller panel asked the full one, and an empty list changed nothing.
+  - `whatif` matched hand-computed counts and costs over recorded shadow rulings and ledger lines for all seven candidates, an escalation's votes included.
+  - No live run decided a ruling, and the work item's type was read from the stand-in forge's titles, not from a real pull request.
+- The Facts entry due after a project's first 30 panel rulings (cost per ruling and per expert, agreement, lone-correct counts, abstentions, what each smaller panel would have decided, and the `whatif` table) was never written, so which experts and which policy were worth their cost was never measured.
+- The local test run could not show the experts' file-tool reads: a worker's sandbox cannot list the maintainer's `~/.shep`, where its temporary folder is, so the panel's two fence tests failed there and passed with that one case let through. CI, whose temporary folder is `/tmp`, ran them as written.

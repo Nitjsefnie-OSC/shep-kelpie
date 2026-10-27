@@ -42,7 +42,7 @@ Review passes, bots, rulings. CI and the merge are in merge.md.
 ## Rulings
 
 - Seven kinds: `merge`, `question`, `stuck` (reason), `agent-files`, `foreign-change`, `follow-up` (findings wait for a yes), `contribution` (with reason: `security`, `over-budget`, `question`, `waiting`, `no-edits`, `cannot-adopt`, `merge`; see `contribution-release.md`, `contribution-merge.md`). ADR 0006, #330, `runner/ruling/`
-- A `contribution` ruling has no work item and posts nothing on the contributor's pull request (it would accuse them and tip off an attacker): webhook, `status` and `rule` only. It never goes to the panel either (`contribution-merge.md`, `github-app.md`). #620, #629, #630
+- A `contribution` ruling has no work item and posts nothing on the contributor's pull request (it would accuse them and tip off an attacker): webhook, `status` and `rule` only. Nor to the PM (`contribution-merge.md`, `github-app.md`). #620, #629, #630
 - Ruling = log line + `status` entry + webhook post, one question; `no <note>` is worker's next turn. #89
 - A ruling is named by its ticket id where the maintainer reads it: `#<pr>`, `#<issue>` before there is a pull request (a question waits for its draft, `workers.md`), or `k12` locally. The question, the webhook title, kelpie's GitHub comment and card and `status`'s `id` show it, and a reply starts with it. #508, #509, #1010
 - `rule <ruling> <answer>` (`rule 427`, `rule k12`; one ruling per item within a project), refuses an answer older than the ruling. An answer file left under an old counter id is read once, then refused. #509. Each trigger is `shep kelpie <verb>`, project from folder unless `-p`. #119, #507

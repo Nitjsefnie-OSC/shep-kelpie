@@ -254,7 +254,6 @@ One page for each topic, indexed in [docs/guide/README.md](docs/guide/README.md)
 - [Agents](docs/guide/agents.md): agent files, gateways, pi and Codex
 - [Attaching to a worker](docs/guide/attach.md): steering a work item's worker by hand
 - [Rulings](docs/guide/rulings.md): the six kinds, how to answer them, and answers from GitHub and ntfy
-- [The panel](docs/guide/panel.md): the experts who vote on a ruling, how they decide, who votes and how to measure them
 - [The GitHub App](docs/guide/github-app.md): registering kelpie's App, what a worker's token can do, and the tools and login token
 - [Upgrading](docs/guide/upgrading.md): moving the dog and the runners onto a new build
 - [What shep does for it](docs/guide/shep.md): supervision, lambs, triggers, settings and logs

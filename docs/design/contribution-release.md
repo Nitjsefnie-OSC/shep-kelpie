@@ -18,7 +18,7 @@ How kelpie asks a contributor for a release and what it takes as one. ADR 0010. 
 
 - A yes, a thumbs up, or an ask open at `Quiet` with no answer is a release: `contributions[].released` is `{ at, how }`, `how` one of `yes`, `thumbs-up`, `silence`, `maintainer` or `rework`. The representative posts one line that the pull request is kelpie's now, then the release is recorded. After five failed posts it is recorded without the line. Nothing merges or touches the contributor's branch.
 - A no sets `nos`, restarts the clock and marks the reply answered. The next `Quiet` asks again (`asks` 2). A no is not answered in public.
-- A second ask met with silence is a release. A second no followed by `Quiet` raises the contribution ruling `waiting` (id the pull request's, no work item, never on the pull request or the panel, withdrawn with the pull request).
+- A second ask met with silence is a release. A second no followed by `Quiet` raises the contribution ruling `waiting` (id the pull request's, no work item, never on the pull request or to the project manager, withdrawn with the pull request).
 
 ## The ruling
 

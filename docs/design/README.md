@@ -51,7 +51,7 @@ Kelpie: the maintainer's dog; one runner per project builds ready issues. Mainta
 | stuck-checks.md | checks stuck on a finished run | `runner/gate/queued/` |
 | local-tickets.md | the local ticket store, `ticket` verbs, closing on merge | `core/local_tickets/`, `src/flock/ticket.rs`, `runner/close_merged.rs` |
 | github-app.md | App tokens, posting, answers | `runner/voice/`, `core/guard/gh.rs`, `worker_folder/` |
-| ruling-panel.md | panel | `runner/panel/`, `crates/panel/` |
+| who-answers.md | who answers | `runner/pm/rulings.rs` |
 | contributions.md | others' pull requests: settings, detection | `core/settings/{contributions.rs,reviewers/}`, `runner/contributions/`, `core/state/contributions.rs` |
 | contribution-security.md | a contribution's security review | `runner/contributions/`, `runner/flight/security.rs`, `process/worktree/` |
 | contribution-pass.md | reviewers' pass over a green head | `runner/contributions/pass.rs`, `process/worktree/` |
