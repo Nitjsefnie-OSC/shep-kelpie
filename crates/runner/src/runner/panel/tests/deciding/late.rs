@@ -132,22 +132,6 @@ fn a_late_shadow_vote_does_not_change_what_the_answer_did() {
 }
 
 #[test]
-fn status_counts_a_ruling_answered_before_the_panel_finished() {
-    let (rig, runner, hold) = advisor_held("late-status", SHADOW);
-    rig.ask(&runner, "rule", Some("71 yes"));
-    hold.release();
-    until_line(&rig, &runner, |l| !l["ballots"].is_null());
-
-    let panel = rig.ask(&runner, "status", None)["panel"].clone();
-
-    assert_eq!(panel["voted"], 1, "{panel}");
-    assert_eq!(panel["answered"], 1, "{panel}");
-    assert_eq!(panel["experts"]["advisor"]["votes"], 1, "{panel}");
-    assert_eq!(panel["experts"]["advisor"]["agreed"], 0, "{panel}");
-    assert_eq!(panel["experts"]["worker"]["agreed"], 1, "{panel}");
-}
-
-#[test]
 fn under_panel_an_early_answer_still_ends_the_vote() {
     let (rig, runner, hold) = advisor_held("late-panel", PANEL);
 
@@ -183,10 +167,6 @@ fn a_worker_ended_by_the_answer_abstains_as_overtaken_not_as_a_failed_call() {
         notes.contains("the worker abstains, since the maintainer answered the ruling first"),
         "{notes}"
     );
-    let experts = rig.ask(&runner, "status", None)["panel"]["experts"].clone();
-    assert_eq!(experts["worker"]["overtaken"], 1, "{experts}");
-    assert_eq!(experts["worker"]["abstained"], 0, "{experts}");
-    assert_eq!(experts["advisor"]["votes"], 1, "{experts}");
 }
 
 /// Every line of the project's usage ledger, as JSON

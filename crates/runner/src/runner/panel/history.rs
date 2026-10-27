@@ -6,6 +6,7 @@
 //! A file that cannot be read or written costs the researcher its history
 //! and nothing else.
 
+use std::collections::BTreeMap;
 use std::io::Write;
 use std::path::Path;
 
@@ -135,11 +136,6 @@ impl Record {
         }
     }
 
-    /// Whether the maintainer answered it
-    pub(super) fn by_maintainer(&self) -> bool {
-        !self.by_pm && !self.by_panel
-    }
-
     /// Adds the record to the file at `file`
     ///
     /// # Errors
@@ -223,6 +219,15 @@ pub(in crate::runner) fn records(file: &Path) -> Vec<Record> {
         .collect()
 }
 
+/// How many of `records` the project manager answered, by kind, for `status`
+pub(in crate::runner) fn pm_answers(records: &[Record]) -> BTreeMap<String, u32> {
+    let mut counts = BTreeMap::new();
+    for kind in (records.iter()).filter(|r| r.by_pm).filter_map(|r| r.kind) {
+        *counts.entry(kind.as_str().to_owned()).or_default() += 1;
+    }
+    counts
+}
+
 /// The latest answered rulings in the file at `file`, as text, oldest first
 ///
 /// Nothing, as text, for a file that is not there; a line that does not read
@@ -304,6 +309,30 @@ mod tests {
         assert_eq!(records.len(), 1);
         assert_eq!(records[0].id, ticket(3));
         assert!(read(&file).contains("yes"));
+    }
+
+    #[test]
+    fn status_counts_the_rulings_the_project_manager_answered_by_kind() {
+        let rebase = Ruling::new(
+            ticket(3),
+            "rebase",
+            RulingKind::from(Stuck::Rebase {
+                why: "conflicts".into(),
+                review: None,
+            }),
+        );
+        let question = asking(4, None, "Which flag?");
+        let yes = Answer::Yes;
+        let at = Timestamp(1);
+        let records = [
+            Record::of(&rebase, &yes, at, Answerer::Pm),
+            Record::of(&rebase, &yes, at, Answerer::Pm),
+            Record::of(&question, &yes, at, Answerer::Maintainer),
+        ];
+
+        let counts = pm_answers(&records);
+
+        assert_eq!(counts, BTreeMap::from([("rebase".to_owned(), 2)]));
     }
 
     fn asking(id: u64, pull_request: Option<u64>, asked: &str) -> Ruling {

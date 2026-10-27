@@ -150,43 +150,6 @@ fn the_maintainer_s_free_text_answer_still_reaches_the_worker() {
 }
 
 #[test]
-fn the_maintainer_may_answer_with_a_candidate_and_status_counts_the_question() {
-    let (rig, runner) = drafted("cand-status", SHADOW, ["B", "B", "B", "A"]);
-
-    rig.ask(&runner, "rule", Some("71 answer Use `--check`"));
-    let panel = rig.ask(&runner, "status", None)["panel"].clone();
-
-    assert_eq!(panel["decide"], "shadow");
-    assert_eq!(panel["voted"], 1);
-    assert_eq!(panel["answered"], 1);
-    assert_eq!(panel["streak"], 1);
-    assert_eq!(panel["pm_alone"]["question"], 1);
-    assert_eq!(panel["experts"]["worker"]["agreed"], 1);
-    assert_eq!(panel["experts"]["advisor"]["agreed"], 0);
-}
-
-#[test]
-fn a_free_text_answer_counts_the_question_as_voted_on_and_answered() {
-    let (rig, runner) = drafted("cand-text", SHADOW, ["B", "B", "B", "A"]);
-    rig.claude.script([Scripted::Say("renamed")]);
-
-    rig.ask(
-        &runner,
-        "rule",
-        Some("71 answer Use --check and say so in the help"),
-    );
-    let panel = rig.ask(&runner, "status", None)["panel"].clone();
-
-    assert_eq!(
-        (panel["voted"].clone(), panel["answered"].clone()),
-        (1.into(), 1.into())
-    );
-    assert_eq!(panel["streak"], 0, "no candidate was the answer");
-    assert_eq!(panel["experts"]["worker"]["votes"], 1);
-    assert_eq!(panel["experts"]["worker"]["agreed"], 0);
-}
-
-#[test]
 fn a_panel_that_decides_on_a_candidate_sends_the_worker_that_answer() {
     let (rig, runner) = asking("cand-decides", NO_OPTIONS, PANEL);
     rig.claude

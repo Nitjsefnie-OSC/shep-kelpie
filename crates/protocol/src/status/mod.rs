@@ -24,8 +24,8 @@ pub mod standing;
 pub mod work;
 
 pub use standing::{
-    AccountStatus, Agreement, CallRole, CallRunning, Draining, Expert, GpuStatus, PacerStatus,
-    Panel, RedStatus, Refusal, Score, Standing, TemplateSource,
+    AccountStatus, CallRole, CallRunning, Draining, GpuStatus, PacerStatus, RedStatus, Refusal,
+    TemplateSource,
 };
 pub use work::{
     BumpStatus, ClockStatus, ContributionDue, DailyStatus, DueStatus, Failing, Followed, Held,
@@ -85,10 +85,10 @@ pub struct Status {
     pub red_workflows: Vec<RedStatus>,
     /// Rulings waiting on the maintainer, oldest first
     pub rulings: Vec<RulingStatus>,
-    /// How the panel stands against the maintainer's answers, when the project
-    /// has one
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub panel: Option<Standing>,
+    /// How many rulings the project manager answered, by kind; left out while
+    /// it answered none
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub pm_answers: BTreeMap<String, u32>,
     /// Leases held
     pub leases: Vec<state::LeaseHeld>,
     /// The most recent finished work items, oldest first

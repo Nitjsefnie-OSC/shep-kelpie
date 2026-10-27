@@ -773,7 +773,7 @@ impl Runner {
             rulings: (self.state.rulings.iter())
                 .map(trigger::RulingStatus)
                 .collect(),
-            panel: self.panel_status(),
+            pm_answers: self.pm_answers(),
             leases: &self.state.leases,
             history: &self.state.history[self
                 .state

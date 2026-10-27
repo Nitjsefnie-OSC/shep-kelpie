@@ -104,10 +104,6 @@ fn a_ruling_that_waited_a_hold_for_a_drain_to_end_goes_to_the_maintainer_and_say
     let line = std::fs::read_to_string(rig.paths().rulings).unwrap();
     let record: serde_json::Value = serde_json::from_str(line.lines().next().unwrap()).unwrap();
     assert_eq!(record["skipped"], "draining", "{record}");
-    assert_eq!(
-        rig.ask(&runner, "status", None)["panel"]["skipped"],
-        serde_json::json!({ "draining": 1, "posted": 0, "repeated": 0, "setup": 0 })
-    );
 }
 
 #[test]

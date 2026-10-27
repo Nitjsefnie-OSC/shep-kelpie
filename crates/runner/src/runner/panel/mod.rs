@@ -28,8 +28,6 @@ mod calls;
 mod decided;
 mod folders;
 mod history;
-pub use measure::Standing;
-pub(in crate::runner) mod measure;
 #[cfg(test)]
 mod tests;
 
@@ -169,22 +167,13 @@ impl Runner {
         self.agents.advisor.is_some() || self.agents.researcher.is_some()
     }
 
-    /// How the panel stands against the maintainer's answers, for `status`;
-    /// none for a project with no panel
-    pub(super) fn panel_status(&self) -> Option<Standing> {
-        self.panel_enabled().then(|| {
-            let records = history::records(&self.paths.rulings);
-            // The ledger is read only when some ruling can be scored with it.
-            let scorable = (records.iter()).any(|r| r.verdict.as_ref().is_some_and(|v| v.shadow));
-            // A ledger that cannot be read leaves the costs unknown, not zero.
-            let costs = match scorable {
-                true => (crate::usage::read(self.ledger.path()))
-                    .ok()
-                    .map(|lines| crate::usage::vote_costs(&lines)),
-                false => Some(BTreeMap::new()),
-            };
-            measure::standing(self.settings.rulings.decide, &records, costs.as_ref())
-        })
+    /// How many rulings the project manager answered, by kind, for
+    /// `status`; none read for a project with no project manager
+    pub(super) fn pm_answers(&self) -> BTreeMap<String, u32> {
+        match self.agents.pm {
+            Some(_) => history::pm_answers(&history::records(&self.paths.rulings)),
+            None => BTreeMap::new(),
+        }
     }
 
     /// Whether ruling `id`'s comment waits on its panel
