@@ -49,7 +49,7 @@ pub(in crate::runner) struct Record {
     // Whether the project manager answered for the maintainer
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     by_pm: bool,
-    // The kind of ruling, as `rulings.pm_decides` names it, and none for a kind gone since
+    // The kind of ruling, as `rulings.pm_decides` names it; none for `unlabelled`
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -128,12 +128,17 @@ impl Record {
     }
 }
 
-// The kind a line names, if this build has it, so a line of a kind gone since still reads.
+// The kind a line names. `unlabelled` reads as none; any other unknown kind fails.
 fn known_kind<'de, D: serde::Deserializer<'de>>(
     deserializer: D,
 ) -> Result<Option<RulingName>, D::Error> {
-    let named = Option::<String>::deserialize(deserializer)?;
-    Ok(named.and_then(|name| RulingName::named(&name).ok()))
+    match Option::<String>::deserialize(deserializer)? {
+        Some(name) if name == "unlabelled" => Ok(None),
+        Some(name) => RulingName::named(&name)
+            .map(Some)
+            .map_err(serde::de::Error::custom),
+        None => Ok(None),
+    }
 }
 
 // Why a failed turn failed, as `rulings.jsonl` keeps it, so the same failure
@@ -217,7 +222,7 @@ mod tests {
         assert_eq!(records[0].id, ticket(3));
     }
 
-    // The issue writer's `unlabelled` kind is gone, and its line keeps all but the kind.
+    // An `unlabelled` line reads with no kind and keeps every other field.
     #[test]
     fn an_answered_unlabelled_ruling_is_read_with_no_kind() {
         let dir = tempfile::tempdir().unwrap();
@@ -231,6 +236,19 @@ mod tests {
         assert_eq!(records.len(), 1);
         assert_eq!((records[0].id, records[0].kind), (ticket(4), None));
         assert_eq!(records[0].by(), Answerer::Pm);
+    }
+
+    // A kind no build ever had fails the line, which is skipped.
+    #[test]
+    fn a_line_of_a_kind_no_build_had_is_skipped() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("rulings.jsonl");
+        let text = serde_json::json!({
+            "id": 5, "at": 100, "issue": 7, "pull_request": null,
+            "asked": "q", "answer": "yes", "kind": "no-such-kind",
+        });
+        std::fs::write(&file, format!("{text}\n")).unwrap();
+        assert_eq!(records(&file), Vec::new());
     }
 
     // A line the panel decided, from a build that had one, still reads its
