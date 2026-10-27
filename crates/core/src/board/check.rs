@@ -186,10 +186,8 @@ fn touched(body: &str) -> Option<Vec<&str>> {
     if !bare(text).is_empty() {
         return Some(backticked(text));
     }
-    let below = body
-        .lines()
-        .skip(at + 1)
-        .skip_while(|l| l.trim().is_empty());
+    let below = (outside_fences(body).skip_while(|&(i, _)| i <= at)).map(|(_, l)| l);
+    let below = below.skip_while(|l| l.trim().is_empty());
     let list = below.take_while(|l| is_list_item(l));
     Some(list.flat_map(backticked).collect())
 }
@@ -220,7 +218,7 @@ fn labelled_line<'a>(body: &'a str, label: &str) -> Option<&'a str> {
 // The first line `label` starts, past list and bold marks: its index, and
 // what follows the label.
 fn labelled<'a>(body: &'a str, label: &str) -> Option<(usize, &'a str)> {
-    body.lines().enumerate().find_map(|(at, l)| {
+    outside_fences(body).find_map(|(at, l)| {
         let l = l.trim_start_matches(|c: char| c.is_whitespace() || c == '-' || c == '*');
         l.strip_prefix(label).map(|text| (at, text))
     })
@@ -275,20 +273,45 @@ fn heading(line: &str) -> Option<(usize, &str)> {
 }
 
 // The lines under the heading `name`, at any level and in any case, up to the
-// next heading of its level or above. `None` without that heading.
+// next heading of its level or above, fenced lines left out. `None` without
+// that heading.
 fn section<'a>(body: &'a str, name: &str) -> Option<Vec<&'a str>> {
-    let mut fenced = false;
-    let mut lines = body.lines().map(|line| {
-        if line.trim_start().starts_with("```") {
-            fenced = !fenced;
-            return (line, None);
-        }
-        (line, heading(line).filter(|_| !fenced))
-    });
+    let mut lines = outside_fences(body).map(|(_, line)| (line, heading(line)));
     let (level, _) =
         lines.find_map(|(_, h)| h.filter(|(_, text)| text.eq_ignore_ascii_case(name)))?;
     let under = lines
         .take_while(|(_, h)| !h.is_some_and(|(l, _)| l <= level))
         .map(|(line, _)| line);
     Some(under.collect())
+}
+
+// The lines of `body` outside its code fences, each with its index. The lines
+// that open and close a fence are left out too, and an unclosed one runs to
+// the end.
+fn outside_fences(body: &str) -> impl Iterator<Item = (usize, &str)> {
+    let mut open: Option<(char, usize)> = None;
+    body.lines().enumerate().filter(move |(_, line)| {
+        match (open, fence(line)) {
+            (None, Some((mark, length, info))) if !(mark == '`' && info.contains('`')) => {
+                open = Some((mark, length));
+            }
+            (Some((mark, length)), Some((closing, at_least, rest)))
+                if closing == mark && at_least >= length && rest.trim().is_empty() =>
+            {
+                open = None;
+            }
+            (open, _) => return open.is_none(),
+        }
+        false
+    })
+}
+
+// The mark a line starts a fence with, `` ` `` or `~`, its length and what
+// follows it, for three or more of the mark behind at most three spaces.
+fn fence(line: &str) -> Option<(char, usize, &str)> {
+    let rest = line.trim_start_matches(' ');
+    let mark = rest.chars().next().filter(|&c| c == '`' || c == '~')?;
+    let length = rest.chars().take_while(|&c| c == mark).count();
+    let fenced = line.len() - rest.len() <= 3 && length >= 3;
+    fenced.then(|| (mark, length, &rest[length..]))
 }

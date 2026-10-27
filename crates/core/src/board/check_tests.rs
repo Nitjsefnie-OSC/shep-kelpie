@@ -171,7 +171,7 @@ fn acceptance_criteria_need_a_checklist_item() {
 }
 
 #[test]
-fn a_section_ends_at_the_next_heading_of_its_level_and_skips_code_fences() {
+fn a_section_ends_at_the_next_heading_of_its_level() {
     let later = BODY.replace(
         "\n- [ ] `board::tests::a_thing` passes\n",
         "\n## Notes\n\n- [ ] not a criterion\n",
@@ -179,9 +179,51 @@ fn a_section_ends_at_the_next_heading_of_its_level_and_skips_code_fences() {
     assert_eq!(of(&later), [Failure::NoCriteriaItems]);
     let deeper = BODY.replace("\n- [ ] `board", "\n### Tests\n\n- [ ] `board");
     assert_eq!(of(&deeper), []);
-    let fenced = "Touches: `src/board.rs`\n\n## What to build\n\n- A thing\n\n```\n\
-        ## Acceptance criteria\n\n- [ ] in a fence\n```\n";
-    assert_eq!(of(fenced), [Failure::NoCriteria]);
+}
+
+#[test]
+fn a_tilde_fence_and_a_longer_backtick_fence_hide_what_they_hold() {
+    let hidden = "## Acceptance criteria\n\n- [ ] in a fence\n";
+    let head = "Touches: `src/board.rs`\n\n## What to build\n\n- A thing\n\n";
+    for (open, close) in [
+        ("~~~", "~~~"),
+        ("````", "````"),
+        ("~~~~ md", "~~~~~"),
+        ("```", "```"),
+    ] {
+        let body = format!("{head}{open}\n{hidden}{close}\n");
+        assert_eq!(of(&body), [Failure::NoCriteria], "{open}");
+    }
+    // A shorter mark, or the other one, closes nothing, so what follows stays in.
+    for (open, inner) in [("````", "```"), ("~~~", "```"), ("```", "~~~")] {
+        let body = format!("{head}{open}\n{inner}\n{hidden}");
+        assert_eq!(of(&body), [Failure::NoCriteria], "{open} {inner}");
+    }
+    let closed = format!("{head}~~~\nx\n~~~\n\n{hidden}");
+    assert_eq!(of(&closed), []);
+}
+
+#[test]
+fn a_fenced_line_is_no_part_of_a_section_and_no_labelled_line() {
+    let fenced = BODY.replace("- [ ] `board", "```\n- [ ] x\n```\n- `board");
+    assert_eq!(of(&fenced), [Failure::NoCriteriaItems]);
+    let only_code = BODY.replace("- A thing\n", "~~~\nfn a() {}\n~~~\n");
+    assert_eq!(of(&only_code), [Failure::NoWhatToBuild]);
+    let touches = BODY.replace(
+        "Touches: `src/board.rs`",
+        "```\nTouches: `src/board.rs`\n```",
+    );
+    assert_eq!(of(&touches), [Failure::NoTouches]);
+    let blocked = format!("~~~\nBlocked by: the workspace\n~~~\n\n{BODY}");
+    assert_eq!(of(&blocked), []);
+    let reach = BODY.replace("src/board.rs", "crates/adapters/src/adapters/pi/x.rs")
+        + "\n```\nHarness reach: pi\n```\n";
+    assert_eq!(
+        of(&reach),
+        [Failure::NoHarnessReach(
+            "crates/adapters/src/adapters/pi/x.rs".to_owned()
+        )]
+    );
 }
 
 #[test]
