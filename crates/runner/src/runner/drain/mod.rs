@@ -77,8 +77,6 @@ pub enum CallRole {
     Reviewer,
     /// The project manager's wake
     Pm,
-    /// The issue writer, labelling an issue
-    IssueWriter,
     /// The security review, reading a contribution's head
     Security,
     /// The triager, researching an untouched issue
@@ -101,7 +99,6 @@ impl CallRole {
             Self::Worker => "worker",
             Self::Reviewer => "reviewer",
             Self::Pm => "pm",
-            Self::IssueWriter => "issue_writer",
             Self::Security => "security",
             Self::Triager => "triager",
             Self::Retro => "retro",
@@ -282,7 +279,6 @@ impl Runner {
     /// holds the runner's lock can answer what is running.
     pub(super) fn drain_state(&self) -> Draining {
         let pm = self.agents.pm.is_some().then_some(super::pm::CEILING);
-        let labelling = (self.flights.labelling()).map(|_| super::flight::label::CEILING);
         let securing = (self.flights.securing()).then_some(super::flight::security::CEILING);
         let triaging = (self.flights.triaging()).map(|_| super::flight::triage::CEILING);
         let retro = self
@@ -291,7 +287,6 @@ impl Runner {
             .then_some(super::retro::CEILING);
         let ceiling = (self.turn_ceiling().as_secs())
             .max(pm.unwrap_or(0))
-            .max(labelling.unwrap_or(0))
             .max(securing.unwrap_or(0))
             .max(triaging.unwrap_or(0))
             .max(retro.unwrap_or(0));

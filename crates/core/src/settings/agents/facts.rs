@@ -69,7 +69,7 @@ pub struct HarnessFacts {
     pub resumable_session: bool,
     /// Whether it can read the repository
     pub repo_reads: bool,
-    /// Whether its adapter wires kelpie's PM and issue-writer guards
+    /// Whether its adapter wires kelpie's PM guard
     pub role_guard: bool,
     /// Why a handover waits while a session on it is open in the maintainer's
     /// terminal, if it does

@@ -54,8 +54,6 @@ pub(super) struct Flights {
     flying: BTreeMap<TicketId, Flight>,
     // The project manager's call, its ceiling and its hold
     pm: Option<(Timestamp, Ending)>,
-    // The issue writer's call labelling an issue
-    labelling: Option<label::Labelling>,
     // The security review of a contribution's head
     securing: Option<security::Securing>,
     // The triager's research of an untouched issue
@@ -85,7 +83,6 @@ impl Default for Flights {
         Self {
             flying: BTreeMap::new(),
             pm: None,
-            labelling: None,
             securing: None,
             triaging: None,
             proving: proving::Proving::default(),
@@ -102,11 +99,6 @@ impl Default for Flights {
 }
 
 impl Flights {
-    /// The issue the issue writer is labelling, while it is
-    pub(super) fn labelling(&self) -> Option<TicketId> {
-        self.labelling.as_ref().map(|l| l.issue)
-    }
-
     /// Whether `ticket`'s work item has a call in flight
     pub(super) fn flying(&self, ticket: TicketId) -> bool {
         self.flying.contains_key(&ticket)
@@ -245,13 +237,11 @@ impl Runner {
         let pm = (self.flights.pm.iter())
             .filter(|(_, ending)| !ending.asked())
             .map(|(deadline, _)| *deadline);
-        let labelling = (self.flights.labelling.iter()).filter_map(label::Labelling::ceiling);
         let securing = (self.flights.securing.iter()).filter_map(security::Securing::ceiling);
         let triaging = (self.flights.triaging.iter()).filter_map(triage::Triaging::ceiling);
         let retro = (self.flights.retro.iter()).filter_map(retro::Retrospecting::ceiling);
         turns
             .chain(pm)
-            .chain(labelling)
             .chain(securing)
             .chain(triaging)
             .chain(retro)
@@ -272,9 +262,6 @@ impl Runner {
             && *deadline <= now
         {
             ending.end();
-        }
-        if let Some(labelling) = &self.flights.labelling {
-            labelling.end_overdue(now);
         }
         if let Some(securing) = &self.flights.securing {
             securing.end_overdue(now);
@@ -398,13 +385,6 @@ impl Runner {
                 compact,
             },
             Begin::Review(action) => Launch::Review(action),
-            Begin::Label(issue) => {
-                let report = self.ask_writer(&issue)?;
-                // The issue writer's call is in flight from here, and the pass
-                // goes on holding the runner's lock.
-                self.post();
-                return Ok(report.map_or(Pass::Started, Pass::Report));
-            }
             Begin::Secure(job) => {
                 self.launch_security(job);
                 self.post();
@@ -786,7 +766,6 @@ fn hear_news(shared: &Mutex<Runner>, news: News) -> Result<Option<StepReport>, S
             runner.told(ticket, wait);
             return Ok(None);
         }
-        News::Labelled { issue, end } => return runner.label_ended(issue, end),
         News::Secured {
             pull_request,
             head,
@@ -891,7 +870,6 @@ fn hear_news(shared: &Mutex<Runner>, news: News) -> Result<Option<StepReport>, S
 
 mod calls;
 mod carry;
-pub(super) mod label;
 mod news;
 mod proving;
 mod rotation;

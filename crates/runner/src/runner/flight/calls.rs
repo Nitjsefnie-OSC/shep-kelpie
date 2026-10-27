@@ -9,7 +9,6 @@ impl super::Flights {
     pub(super) fn idle(&self) -> bool {
         self.flying.is_empty()
             && self.pm.is_none()
-            && self.labelling.is_none()
             && self.securing.is_none()
             && self.triaging.is_none()
             && !self.proof_running()
@@ -30,10 +29,6 @@ impl super::Flights {
             issue: None,
             role: CallRole::Pm,
         });
-        let labelling = self.labelling.iter().map(|l| CallRunning {
-            issue: Some(l.issue),
-            role: CallRole::IssueWriter,
-        });
         let securing = self.securing.iter().map(|_| CallRunning {
             issue: None,
             role: CallRole::Security,
@@ -50,7 +45,7 @@ impl super::Flights {
             issue: None,
             role: CallRole::E2e,
         });
-        (items.chain(pm).chain(labelling).chain(securing))
+        (items.chain(pm).chain(securing))
             .chain(triaging)
             .chain(retro)
             .chain(proof)

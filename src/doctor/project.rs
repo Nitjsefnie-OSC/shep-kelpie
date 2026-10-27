@@ -409,13 +409,6 @@ fn implementers(subject: String, settings: &Settings, paths: &ProjectPaths) -> (
             skipped.join("; "),
             "correct or rename the file it names, or move it out of kelpie's `agents` folder",
         ),
-        Ok(roles) if roles.implementers.len() > 1 => Line::ok(
-            subject,
-            format!(
-                "the issue writer, {}, labels an issue with no `agent:` label",
-                settings.agents.issue_writer
-            ),
-        ),
         Ok(roles) => Line::ok(
             subject,
             format!(

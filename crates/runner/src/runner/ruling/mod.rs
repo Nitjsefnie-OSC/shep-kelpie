@@ -799,10 +799,7 @@ fn decide(
             head: None,
             since: now,
         },
-        (
-            Answer::No(_),
-            RulingKind::Stuck(Stuck::Unlabelled { .. } | Stuck::AdoptFailed { .. }),
-        ) => {
+        (Answer::No(_), RulingKind::Stuck(Stuck::AdoptFailed { .. })) => {
             return Err(RuleError::YesOnly(id));
         }
         // A fix turn resumes in its round, which checks it pushed.
@@ -925,9 +922,7 @@ fn decide(
             closed: false,
         },
         // No work item is parked on it, so an answer only clears it.
-        (Answer::Yes, RulingKind::Stuck(Stuck::Unlabelled { .. } | Stuck::AdoptFailed { .. })) => {
-            Phase::Implement
-        }
+        (Answer::Yes, RulingKind::Stuck(Stuck::AdoptFailed { .. })) => Phase::Implement,
         // The turn ends under the same round, which checks the worktree again.
         (
             Answer::Yes,

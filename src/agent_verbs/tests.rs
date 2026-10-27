@@ -215,7 +215,7 @@ fn list_shows_every_baseline_as_missing_a_file_in_an_empty_folder() {
     let dir = tempfile::tempdir().unwrap();
     let lines = agents(dir.path(), "list").unwrap();
     let missing = lines.iter().filter(|l| l.contains("baseline, no file"));
-    assert_eq!(missing.count(), 8, "{lines:#?}");
+    assert_eq!(missing.count(), 7, "{lines:#?}");
 }
 
 #[test]
@@ -404,7 +404,7 @@ fn new_checks_the_needs_kept_in_an_unbound_file_before_writing() {
 
     let err = agents(dir.path(), codex).unwrap_err();
 
-    assert!(err.contains("PM and issue-writer guards"), "{err}");
+    assert!(err.contains("kelpie's PM guard"), "{err}");
     assert!(err.contains("claude-code"), "{err}");
     assert_eq!(file(dir.path(), "mine"), stub);
     agents(dir.path(), &codex.replace("codex", "claude-code")).unwrap();
@@ -435,29 +435,28 @@ fn new_honors_fewer_needs_when_binding_an_unbound_file() {
 }
 
 #[test]
-fn new_refuses_to_bind_pm_and_issue_writer_without_role_guards_even_with_fewer_needs() {
-    for role in ["pm", "issue-writer"] {
-        for needs in ["[]", "[repo-reads]"] {
-            let dir = tempfile::tempdir().unwrap();
-            let stub = format!("---\nrole: {role}\nneeds: {needs}\n---\nMy instructions.\n");
-            std::fs::write(dir.path().join(format!("{role}.md")), &stub).unwrap();
-            for harness in ["codex", "pi", "goose"] {
-                let err = agents(
-                    dir.path(),
-                    &format!("new {role} --harness {harness} --model m --effort high"),
-                )
-                .unwrap_err();
-                assert!(err.contains("runs on claude-code"), "{err}");
-                assert!(err.contains(&format!("not {harness}")), "{err}");
-                assert_eq!(file(dir.path(), role), stub);
-            }
-            agents(
+fn new_refuses_to_bind_pm_without_its_role_guard_even_with_fewer_needs() {
+    let role = "pm";
+    for needs in ["[]", "[repo-reads]"] {
+        let dir = tempfile::tempdir().unwrap();
+        let stub = format!("---\nrole: {role}\nneeds: {needs}\n---\nMy instructions.\n");
+        std::fs::write(dir.path().join(format!("{role}.md")), &stub).unwrap();
+        for harness in ["codex", "pi", "goose"] {
+            let err = agents(
                 dir.path(),
-                &format!("new {role} --harness claude-code --model m --effort high"),
+                &format!("new {role} --harness {harness} --model m --effort high"),
             )
-            .unwrap();
-            assert!(Agents::load(dir.path()).unwrap().get(&name(role)).is_some());
+            .unwrap_err();
+            assert!(err.contains("runs on claude-code"), "{err}");
+            assert!(err.contains(&format!("not {harness}")), "{err}");
+            assert_eq!(file(dir.path(), role), stub);
         }
+        agents(
+            dir.path(),
+            &format!("new {role} --harness claude-code --model m --effort high"),
+        )
+        .unwrap();
+        assert!(Agents::load(dir.path()).unwrap().get(&name(role)).is_some());
     }
 }
 
@@ -605,7 +604,6 @@ fn init_claude_code_binds_every_role_it_serves_and_the_files_load() {
         [
             "defect-hunter.md",
             "implementer.md",
-            "issue-writer.md",
             "pm.md",
             "representative.md",
             "security-reviewer.md",
@@ -641,7 +639,6 @@ fn init_claude_code_binds_every_role_it_serves_and_the_files_load() {
         ("reviewer", "spec"),
         ("reviewer", "security-reviewer"),
         ("pm", "pm"),
-        ("issue-writer", "issue-writer"),
         ("representative", "representative"),
         ("triager", "triager"),
     ] {
@@ -907,12 +904,6 @@ fn detect_gives_each_role_the_first_harness_in_order_that_serves_it() {
     bound("defect-hunter", "pi");
     bound("representative", "codex");
     bound("pm", "claude-code");
-    assert!(
-        said.iter()
-            .any(|l| l
-                .starts_with("issue-writer: none: pi lacks kelpie's PM and issue-writer guards")),
-        "{said:#?}"
-    );
     assert!(
         said.iter()
             .any(|l| l.starts_with("triager: none: pi has no row in agents/models.toml")),

@@ -192,17 +192,6 @@ impl Runner {
         Ok(Pace::Clear)
     }
 
-    /// Paces the issue writer's call on its account, Claude's since it runs
-    /// on Claude Code alone, when no listed role spends that account and so
-    /// [`Runner::pace_dispatch`] has not read it
-    pub(super) fn pace_writer(&mut self) -> Result<Pace, StateError> {
-        let claude = Limit::Account(Account::Claude);
-        if self.spent_accounts().contains(&Account::Claude) {
-            return Ok(Pace::Clear);
-        }
-        self.pace(Scope::Dispatch, &claude)
-    }
-
     /// Paces a new work item on `agent`'s own account, one the project may not
     /// list, when no listed role spends it and so [`Runner::pace_dispatch`] has
     /// not read it

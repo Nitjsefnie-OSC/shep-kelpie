@@ -116,5 +116,3 @@ Then stop Prometheus, move the block folders `promtool` made into its data folde
 ## By work item
 
 The endpoint has no work item, pull request or session in its labels, so its series stay few. To see one work item's calls and cost, use `shep kelpie usage`, which reads the project's usage ledger (see [Commands](commands.md)). Both are written from the same call lines, so they agree.
-
-`shep kelpie issue` runs the issue writer outside the runner, so its calls are in the ledger but not on the endpoint.

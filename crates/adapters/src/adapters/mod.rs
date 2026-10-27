@@ -45,7 +45,6 @@ pub use crate::metrics::ShepherdSink;
 pub use bridge::PlaywrightBridges;
 pub use classifier::GatewayClassifier;
 pub use claude::settings::settings as claude_settings;
-pub use claude::settings::write_only as claude_write_only;
 #[cfg(any(test, feature = "test-support"))]
 pub use claude::write_settings as write_claude_settings;
 pub use claude::{ClaudeCli, LOGIN_FIX, LOGIN_VAR, LoginToken};

@@ -323,7 +323,9 @@ fn an_attached_session_is_not_told_of_a_browser_it_lacks() {
     let runner = runner.lock().unwrap();
     let item = runner.current().expect("an item").clone();
     let session = crate::ports::Session::Resume(item.session.clone());
-    let attach = runner.prepare(&item, session, Some(String::new())).unwrap();
+    let attach = runner
+        .prepare(&item, session, Some(String::new()), None)
+        .unwrap();
     let told = fs::read_to_string(attach.instructions.as_ref().unwrap()).unwrap();
     assert!(!told.contains("playwright"), "{told}");
     assert_eq!(attach.reach.browser, None);

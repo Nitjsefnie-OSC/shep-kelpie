@@ -109,18 +109,6 @@ fn vendored_files(skill: &str) -> Vec<String> {
     found
 }
 
-// Every vendored skill's name, sorted
-fn every_vendored_skill() -> Vec<&'static str> {
-    let mut names: Vec<&'static str> = vendored::FILES
-        .iter()
-        .filter_map(|(path, _)| path.strip_prefix("skills/")?.split_once('/'))
-        .map(|(_group, rest)| rest.split('/').next().unwrap())
-        .collect();
-    names.sort_unstable();
-    names.dedup();
-    names
-}
-
 fn call_of(rig: &Rig, role: Role) -> AgentCall {
     rig.claude
         .all_calls()
@@ -494,15 +482,6 @@ fn a_step_outside_the_workers_four_names_no_skill_until_the_project_names_one() 
             "writing-for-agents",
         ]
     );
-}
-
-#[test]
-fn the_issue_writers_copy_still_holds_every_vendored_skill() {
-    let dir = tempfile::tempdir().unwrap();
-    let plugin = dir.path().join("plugin");
-    let command = write_vendored(&plugin, GRILL_WITH_DOCS).unwrap();
-    assert_eq!(command, "/mattpocock:grill-with-docs");
-    assert_eq!(skills_in(&plugin), every_vendored_skill());
 }
 
 #[test]

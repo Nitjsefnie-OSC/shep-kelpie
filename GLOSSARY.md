@@ -10,9 +10,10 @@ _Avoid_: harness (the working name before 2026-09-25), control room
 
 ## The flow
 
-1. **Issue.** The maintainer and the issue writer turn a request into an
-   issue with acceptance criteria, one pull request's worth, labelled with
-   the agent that should build it.
+1. **Issue.** The maintainer, or any agent session, writes an issue with
+   kelpie's issue skill: acceptance criteria, one pull request's worth, and
+   the agent that should build it as a label where one is wanted. The
+   **issue check** says it holds every part.
 2. **Pick.** The project manager's agent picks the next ready issue, or,
    without one, the board takes it by priority, then age; either opens a
    work item for it.
@@ -96,7 +97,7 @@ goose call is not paused this way, and runs to its end.
 
 **Agent**:
 A definition file, `<kelpie home>/agents/<name>.md`, naming what it is for
-(its **role**: `implementer`, `reviewer`, `issue-writer`, `pm` and the
+(its **role**: `implementer`, `reviewer`, `pm` and the
 others), its harness, the model and effort it runs on, and its prompt as the
 body. A file is a **baseline** plus a **binding**, or says both itself.
 Kelpie ships whole agents and baselines, and `add` writes the whole ones
@@ -141,14 +142,11 @@ _Avoid_: proxy, router
 
 **Implementer**:
 An agent kelpie can run a work item on, from a file whose role is
-`implementer`. A project lists the ones an unlabelled issue is picked from,
-and the chain its first turn **falls back** along. An issue's
-`agent:<name>` label picks one, listed or not. With several listed, the
-issue writer labels an issue without one before the board opens it, unless
-`agents.implementer_choice` is `order`, which takes the first listed with no
-call; with one, it runs on that one, the **default implementer**, the first
-listed, which may be a local model. A work item keeps the implementer it
-opened on, unless its first turn **falls back**: with
+`implementer`. A project lists the ones an issue runs on, and the chain its
+first turn **falls back** along. An issue's `agent:<name>` label picks one,
+listed or not. An issue without one runs on the **default implementer**,
+the first listed, which may be a local model. A work item keeps the
+implementer it opened on, unless its first turn **falls back**: with
 `agents.fallback_after` set, a first turn that waited that long for its
 model moves to the next implementer listed. A label ending in `!` **pins**
 the work item, which never falls back, and an unlisted implementer never
@@ -161,17 +159,6 @@ it, told its gateway is busy, or silent past `agents.fallback_after` (ten
 minutes with that off). `status` and the board show since when, and why.
 Its first output clears it.
 _Avoid_: stalled, hung
-
-**Issue writer**:
-The agent that turns a request into an issue: it researches, scopes the work
-to one pull request or splits it, writes the acceptance criteria and labels
-the implementer. `shep kelpie issue "<request>"` runs it headless and files
-the issue for the maintainer to read; with `--interactive` it runs in the
-maintainer's terminal and files it ready for a worker. With several
-implementers listed, the runner also asks it to pick the implementer for a
-ready issue with no `agent:` label, and puts that label on the issue itself.
-`agents.issue_writer` names its agent file.
-_Avoid_: planner, planning call
 
 **Issue check**:
 Kelpie's code check that an issue holds every part an implementer builds
@@ -223,7 +210,7 @@ adopted dog, `kelpie`, holds the leases. Each **project** runs as a
 turn, a reviewer's session or the PM's wake, is that sheep's **lamb**.
 A stop is shep's: the runner exits, shep's stop ends every lamb it left
 (ADR 0005), and a restart resumes each work item from its session. The sessions the
-maintainer opens by hand, `--interactive`, `attach` and `shep kelpie pm`,
+maintainer opens by hand, `attach` and `shep kelpie pm`,
 run in the maintainer's terminal and are not lambs.
 
 ## What they handle

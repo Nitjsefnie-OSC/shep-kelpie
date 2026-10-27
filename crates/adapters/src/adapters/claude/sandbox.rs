@@ -383,7 +383,7 @@ mod tests {
             ..w.call(Role::Reviewer)
         };
         assert!(policy(&reviewer).socket_folders.is_empty());
-        assert!(policy(&w.call(Role::IssueWriter)).socket_folders.is_empty());
+        assert!(policy(&w.call(Role::Triager)).socket_folders.is_empty());
     }
 
     #[test]
@@ -527,8 +527,8 @@ mod tests {
     fn every_role_gets_a_temp_folder_its_sandbox_can_write_and_srt_keeps_its_own() {
         let w = World::new();
         let cli = w.cli(Arc::new(OpenSandbox::default()));
-        let issue_writer = w.call(Role::IssueWriter);
-        for call in [w.worker(), w.call(Role::Reviewer), issue_writer] {
+        let triager = w.call(Role::Triager);
+        for call in [w.worker(), w.call(Role::Reviewer), triager] {
             let command = cli.sandboxed_command(&call).unwrap();
             let policy = policy(&call, &w.path("home"), &w.path("claude"), &[]).unwrap();
             let role = call.role;
@@ -574,8 +574,8 @@ mod tests {
             !format!("{with:?}").contains(token),
             "Debug shows the token"
         );
-        let issue_writer = w.call(Role::IssueWriter);
-        for call in [w.worker(), w.call(Role::Reviewer), issue_writer] {
+        let triager = w.call(Role::Triager);
+        for call in [w.worker(), w.call(Role::Reviewer), triager] {
             let role = call.role;
             let login = |cli: &ClaudeCli, command: Cmd| {
                 let command = command(cli, &call).unwrap();

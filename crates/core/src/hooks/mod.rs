@@ -50,8 +50,6 @@ const REASON_LIMIT: usize = 1000;
 pub enum Role {
     /// A worker: its commits, pushes, handover and pull request
     Worker,
-    /// The issue writer, whose issues reach the forge as its own `gh` calls
-    IssueWriter,
     /// Kelpie itself: rulings, replies on review threads, the issues it files
     Kelpie,
 }
@@ -62,7 +60,6 @@ impl Role {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Worker => "worker",
-            Self::IssueWriter => "issue-writer",
             Self::Kelpie => "kelpie",
         }
     }

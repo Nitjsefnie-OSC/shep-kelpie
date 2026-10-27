@@ -843,9 +843,9 @@ fn looped(rig: &Rig, runner: &Mutex<Runner>, want: usize) -> (Vec<TicketId>, u64
 const LOCAL_CODER: &str = "---\nrole: implementer\nharness: stand-in\nmodel: qwen3-coder\n\
                            effort: low\nusage: none\n---\n";
 
-// 10-25, the shep runner: two implementers, 12 slots, #1 to #5 open and labelled by the issue
-// writer, every first turn on its pick waiting on its lease, and #430 next on the board,
-// takeable and unlabelled. Their turns wait until the returned holds are released.
+// 10-25, the shep runner: two implementers, 12 slots, #1 to #5 open on the first listed,
+// every first turn waiting on its lease, and #430 next on the board, takeable and unlabelled.
+// Their turns wait until the returned holds are released.
 fn afternoon() -> (Rig, Mutex<Runner>, Vec<Hold>) {
     let rig = Rig::new("shep");
     rig.write_agent("coder", LOCAL_CODER);
@@ -862,8 +862,6 @@ fn afternoon() -> (Rig, Mutex<Runner>, Vec<Hold>) {
     );
     (rig, runner, queues)
 }
-
-const PICKS_CODER: Scripted = Scripted::Say("Local.\n{\"agent\": \"coder\"}");
 
 // Passes, without moving the clock, until `done`
 fn passes_until(runner: &Mutex<Runner>, what: &str, done: impl Fn() -> bool) {
@@ -882,62 +880,19 @@ fn all_waiting_on_a_lease(rig: &Rig, runner: &Mutex<Runner>, count: usize) -> bo
     items.len() == count && items.iter().all(|item| item["waiting"]["why"] == "lease")
 }
 
-// 10-25: the shep runner labelled and opened nothing for 37 minutes with #430 takeable and
-// 5 of 12 slots taken. This passes, so it rules out as the gate: a first turn waiting on its
-// lease, the issue writer's end making the board due, an opening making the next read due, and
-// the writer's next call starting while earlier turns wait. Each issue opens with no poll waited.
+// 10-25: the shep runner opened nothing for 37 minutes with #430 takeable and 5 of 12 slots
+// taken. This rules out as the gate a first turn waiting on its lease, and an opening making
+// the next read due. Each issue opens with no poll waited.
 #[test]
-fn labelling_chains_into_opening_the_next_issue_while_every_first_turn_waits_on_its_lease() {
+fn opening_chains_into_the_next_issue_while_every_first_turn_waits_on_its_lease() {
     let (rig, runner, queues) = afternoon();
-    rig.claude
-        .script_for(Role::IssueWriter, [1, 2, 3, 4, 5, 430].map(|_| PICKS_CODER));
 
     let (opened, slept) = looped(&rig, &runner, 6);
 
     assert_eq!(opened, [1, 2, 3, 4, 5, 430].map(ticket), "after {slept}s");
     assert_eq!(slept, 0, "a board poll was waited for");
-    let writers = (rig.claude.all_calls().into_iter()).filter(|c| c.role == Role::IssueWriter);
-    assert_eq!(writers.count(), 6, "one issue writer call each");
-    let labels = rig.forge.issue_labels(430);
-    assert!(labels.contains(&"agent:coder".to_owned()), "{labels:?}");
     passes_until(&runner, "waited on its lease", || {
         all_waiting_on_a_lease(&rig, &runner, 6)
     });
-    queues.iter().for_each(Hold::release);
-}
-
-// Rules out a slow issue writer call as the gate: the board polls ten times while it runs and
-// opens nothing, and its end alone makes the next read due, so #430 opens with no poll waited.
-#[test]
-fn a_slow_issue_writer_on_the_pick_opens_it_the_pass_after_it_answers() {
-    let (rig, runner, queues) = afternoon();
-    let slow = Hold::default();
-    rig.claude
-        .script_for(Role::IssueWriter, [1, 2, 3, 4, 5].map(|_| PICKS_CODER));
-    rig.claude.script_for(
-        Role::IssueWriter,
-        [Scripted::HoldThenSay(
-            slow.clone(),
-            "Local.\n{\"agent\": \"coder\"}",
-        )],
-    );
-    let (opened, _) = looped(&rig, &runner, 5);
-    assert_eq!(opened, [1, 2, 3, 4, 5].map(ticket));
-
-    passes_until(&runner, "asked the writer", || slow.entered(Duration::ZERO));
-    for _ in 0..10 {
-        rig.next_poll(&runner);
-        let pass = advance(&runner).unwrap();
-        assert!(
-            !matches!(pass, Pass::Report(StepReport::Dispatched { .. })),
-            "{pass:?}"
-        );
-    }
-    slow.release();
-    assert!(slow.answered(CALL_PATIENCE), "the writer never answered");
-
-    let (opened, slept) = looped(&rig, &runner, 1);
-    assert_eq!(opened, [ticket(430)], "after {slept}s");
-    assert_eq!(slept, 0, "a board poll was waited for");
     queues.iter().for_each(Hold::release);
 }

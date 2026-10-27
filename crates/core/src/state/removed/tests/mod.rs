@@ -16,6 +16,7 @@ mod reviewers;
 mod ruling_kinds;
 mod shots;
 mod timings;
+mod unlabelled;
 mod worker;
 
 fn store_in(dir: &Path) -> StateStore {

@@ -259,7 +259,6 @@ impl From<&r::CallRole> for wire::CallRole {
             r::CallRole::Worker => Self::Worker,
             r::CallRole::Reviewer => Self::Reviewer,
             r::CallRole::Pm => Self::Pm,
-            r::CallRole::IssueWriter => Self::IssueWriter,
             r::CallRole::Security => Self::Security,
             r::CallRole::Triager => Self::Triager,
             r::CallRole::Retro => Self::Retro,

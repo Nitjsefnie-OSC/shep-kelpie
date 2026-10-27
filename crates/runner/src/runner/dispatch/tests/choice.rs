@@ -1,5 +1,5 @@
-// `agents.implementer_choice = "order"`, and an `agent:` label naming an
-// implementer the project does not list
+// An issue with no `agent:` label opens on the first implementer listed, and
+// an `agent:` label may name one the project does not list
 
 use serde_json::json;
 use std::sync::Mutex;
@@ -12,14 +12,12 @@ const CODER: &str = "---\nrole: implementer\nharness: stand-in\nmodel: qwen3-cod
 const CODER2: &str = "---\nrole: implementer\nharness: stand-in\nmodel: qwen3-coder2\n\
                        effort: low\nusage: none\n---\n";
 
-// A project listing `listed`, each on a local model of its own, with
-// `agents.implementer_choice = "order"`
+// A project listing `listed`, each on a local model of its own
 fn in_order(project: &str, listed: &[&str]) -> (Rig, Mutex<Runner>) {
     let rig = Rig::new(project);
     rig.write_agent("coder", CODER);
     rig.write_agent("coder2", CODER2);
     rig.implementers(listed);
-    rig.implementers_in_order();
     let runner = rig.open().unwrap();
     (rig, runner)
 }
@@ -31,14 +29,14 @@ fn dispatched_on(report: Option<StepReport>, issue: u64, agent: &str) -> bool {
 }
 
 #[test]
-fn implementer_choice_order_opens_an_unlabelled_issue_on_the_first_listed_with_no_call() {
+fn an_unlabelled_issue_opens_on_the_first_listed_with_no_call() {
     let (rig, runner) = in_order("acme", &["coder", "coder2"]);
     rig.forge.list_ready(6, false);
     assert!(
         dispatched_on(step(&runner).unwrap(), 6, "coder"),
         "the first listed implementer takes it"
     );
-    assert_eq!(rig.claude.calls(), [], "no issue writer call");
+    assert_eq!(rig.claude.calls(), [], "no call before the turn");
     assert!(
         !(rig.forge.issue_labels(6))
             .iter()
@@ -57,12 +55,12 @@ fn implementer_choice_order_opens_an_unlabelled_issue_on_the_first_listed_with_n
 }
 
 #[test]
-fn implementer_choice_order_leaves_an_issues_own_label_in_charge() {
+fn an_issues_own_label_stays_in_charge() {
     let (rig, runner) = in_order("acme", &["coder", "coder2"]);
     rig.forge.list_ready(6, false);
     rig.forge.label(6, "agent:coder2");
     assert!(dispatched_on(step(&runner).unwrap(), 6, "coder2"));
-    assert_eq!(rig.claude.calls(), [], "no issue writer call");
+    assert_eq!(rig.claude.calls(), [], "no call before the turn");
 
     rig.claude.script([Scripted::Say("done")]);
     step(&runner).unwrap();

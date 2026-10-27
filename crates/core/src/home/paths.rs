@@ -123,14 +123,13 @@ pub struct ProjectPaths {
     graphs: PathBuf,
     graph_runtimes: PathBuf,
     browsers: PathBuf,
-    issues: PathBuf,
     triage: PathBuf,
 }
 
 impl ProjectPaths {
     /// `<kelpie home>/<project>/`, holding the project's state and worker
-    /// files, and its `worktrees`, `builds`, `code-graphs`, `cbm`, `browser` and `issues` folders, beside
-    /// kelpie's own `totp`, `agents` and `tools`
+    /// files, and its `worktrees`, `builds`, `code-graphs`, `cbm` and `browser`
+    /// folders, beside kelpie's own `totp`, `agents` and `tools`
     pub fn under(kelpie_home: &Path, shep_home: &Path, project: &ProjectName) -> Self {
         let folder = kelpie_home.join(project.as_str());
         Self {
@@ -156,7 +155,6 @@ impl ProjectPaths {
             graphs: folder.join("code-graphs"),
             graph_runtimes: folder.join("cbm"),
             browsers: folder.join("browser"),
-            issues: folder.join("issues"),
             triage: folder.join("triage"),
         }
     }
@@ -268,12 +266,6 @@ impl ProjectPaths {
     /// goes when the call ends
     pub fn triage_images(&self, ticket: TicketId) -> PathBuf {
         self.triage.join(format!("{ticket}-images"))
-    }
-
-    /// The folder for the issue writer's settings, prompt and checkouts,
-    /// apart from every work item's
-    pub fn issues(&self) -> PathBuf {
-        self.issues.clone()
     }
 }
 

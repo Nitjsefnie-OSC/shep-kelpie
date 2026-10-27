@@ -139,39 +139,29 @@ fn a_local_implementer_listed_first_is_the_default_and_may_be_the_only_one() {
 }
 
 #[test]
-fn the_issue_writer_is_the_file_agents_issue_writer_names() {
-    let settings = project("implementers = [\"sonnet-high\"]\n");
-    assert_eq!(settings.agents.issue_writer.as_str(), "issue-writer");
-    assert_eq!(settings.agents.fallback_after, None);
+fn agents_issue_writer_is_refused_naming_the_skill_and_the_migration() {
+    let err = try_project("implementers = [\"sonnet-high\"]\nissue_writer = \"scribe\"\n")
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("agents.issue_writer"), "{err}");
+    assert!(err.contains("the issue writer is gone"), "{err}");
+    assert!(err.contains("`issue` skill"), "{err}");
+    assert!(err.contains("shep kelpie settings migrate"), "{err}");
+}
 
-    let writer = "---\nrole: issue-writer\nharness: claude-code\nmodel: claude-sonnet-5-5\n\
-                  effort: low\n---\nWrite issues.\n";
-    let named = project("implementers = [\"sonnet-high\"]\nissue_writer = \"scribe\"\n");
-    assert!(named.role_agents(&book().with("scribe", writer)).is_ok());
-    let err = named.role_agents(&book()).unwrap_err().to_string();
-    assert!(
-        err.contains("`agents.issue_writer` names scribe, which has no agent file"),
-        "{err}"
-    );
-    let wrong = project("implementers = [\"sonnet-high\"]\nissue_writer = \"opus-high\"\n");
-    let err = wrong.role_agents(&book()).unwrap_err().to_string();
-    assert!(
-        err.contains("whose agent file's role is `implementer`"),
-        "{err}"
-    );
+#[test]
+fn fallback_after_is_off_when_absent_and_read_in_minutes() {
+    let settings = project("implementers = [\"sonnet-high\"]\n");
+    assert_eq!(settings.agents.fallback_after, None);
 
     let timed = project("implementers = [\"sonnet-high\"]\nfallback_after = 15\n");
     assert_eq!(timed.agents.fallback_after.map(|m| m.get()), Some(15));
 }
 
 #[test]
-fn implementer_choice_is_issue_writer_when_absent_and_takes_order() {
+fn implementer_choice_is_order_when_absent_and_refuses_the_issue_writer_by_name() {
     let absent = project("implementers = [\"sonnet-high\", \"opus-high\"]\n");
-    assert_eq!(
-        absent.agents.implementer_choice,
-        ImplementerChoice::IssueWriter
-    );
-    assert_eq!(ImplementerChoice::IssueWriter.as_str(), "issue-writer");
+    assert_eq!(absent.agents.implementer_choice, ImplementerChoice::Order);
 
     let ordered = project(
         "implementers = [\"sonnet-high\", \"opus-high\"]\nimplementer_choice = \"order\"\n",
@@ -186,6 +176,12 @@ fn implementer_choice_is_issue_writer_when_absent_and_takes_order() {
         err.contains("agents.implementer_choice") && err.contains("unknown variant `first`"),
         "{err}"
     );
+
+    let written = "implementers = [\"sonnet-high\"]\nimplementer_choice = \"issue-writer\"\n";
+    let err = try_project(written).unwrap_err().to_string();
+    assert!(err.contains("agents.implementer_choice"), "{err}");
+    assert!(err.contains("`issue-writer` is gone"), "{err}");
+    assert!(err.contains("shep kelpie settings migrate"), "{err}");
 }
 
 #[test]
@@ -212,18 +208,6 @@ fn an_implementer_whose_file_is_a_reviewers_is_refused_naming_its_role() {
         "setting `agents`: `agents.implementers` names defect-hunter, whose agent file's \
          role is `reviewer`: list it where that role goes, or name an agent whose role is \
          `implementer`"
-    );
-}
-
-#[test]
-fn the_issue_writer_listed_as_an_implementer_is_refused_naming_its_role() {
-    let err = project("implementers = [\"issue-writer\"]\n")
-        .role_agents(&book())
-        .unwrap_err()
-        .to_string();
-    assert!(
-        err.contains("whose agent file's role is `issue-writer`"),
-        "{err}"
     );
 }
 
@@ -491,8 +475,8 @@ fn naming_an_agent_whose_file_cannot_be_used_is_refused_and_never_given_kelpies_
 // Baselines that bind nothing, as the shipped ones are once their keys move to bindings.
 const BARE: [Baseline; 2] = [
     Baseline {
-        name: "issue-writer",
-        text: "---\nrole: issue-writer\n---\nYou write.\n",
+        name: "pm",
+        text: "---\nrole: pm\n---\nYou manage.\n",
     },
     Baseline {
         name: "defect-hunter",
@@ -503,12 +487,16 @@ const BARE: [Baseline; 2] = [
 #[test]
 fn naming_a_baseline_that_binds_nothing_and_has_no_file_is_refused_with_the_command() {
     let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("box.md"), BOX).unwrap();
     let bare = Agents::load_over(dir.path(), &BARE).unwrap();
-    let err = project("").role_agents(&bare).unwrap_err().to_string();
+    let err = project("implementers = [\"box\"]\npm = \"pm\"\n")
+        .role_agents(&bare)
+        .unwrap_err()
+        .to_string();
     assert_eq!(
         err,
-        "setting `agents`: `agents.issue_writer` names issue-writer, which is unbound: run \
-         `shep kelpie agents new issue-writer`"
+        "setting `agents`: `agents.pm` names pm, which is unbound: run \
+         `shep kelpie agents new pm`"
     );
     let err = project("implementers = [\"defect-hunter\"]\n")
         .role_agents(&bare)

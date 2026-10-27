@@ -95,8 +95,8 @@ fn a_verb_after_the_project_goes_first() {
     assert_eq!(moved("--project=koji gate"), words("gate --project=koji"));
     assert_eq!(moved("-p koji timings 5"), words("timings -p koji 5"));
     assert_eq!(
-        moved("-p koji issue --interactive add a thing"),
-        words("issue -p koji --interactive add a thing")
+        moved("-p koji issue check --draft a.md"),
+        words("issue -p koji check --draft a.md")
     );
     assert_eq!(moved("-p koji attach 7"), words("attach -p koji 7"));
     assert_eq!(moved("-p koji tell hold #4"), words("tell -p koji hold #4"));
@@ -158,10 +158,16 @@ async fn verb_line_on(
 }
 
 #[tokio::test]
-async fn issue_check_never_reaches_the_issue_writer_as_a_request() {
-    // Without the arm, this would start the issue writer, a real agent.
+async fn issue_check_here_is_the_usage_and_a_request_is_refused_naming_the_skill() {
     let said = verb_line("issue", "-p koji check 7", None).await;
     assert_eq!(said, Err(USAGE.to_owned()));
+
+    for line in ["-p koji add a thing", "-p koji --interactive add a thing"] {
+        let refused = verb_line("issue", line, None).await.unwrap_err();
+        assert!(refused.contains("went with the issue writer"), "{refused}");
+        assert!(refused.contains("`issue` skill"), "{refused}");
+        assert!(refused.contains("shep kelpie issue check"), "{refused}");
+    }
 }
 
 #[tokio::test]
