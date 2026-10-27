@@ -14,7 +14,7 @@ mod glob;
 mod help;
 mod pm;
 pub mod rule;
-mod set;
+pub(crate) mod set;
 pub(crate) mod share;
 pub(crate) mod ticket;
 mod usage;

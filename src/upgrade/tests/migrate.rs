@@ -97,3 +97,121 @@ async fn a_rollback_does_not_migrate() {
     assert_eq!(std::fs::read_to_string(stub).unwrap(), STUB);
     assert!(said.iter().all(|l| l != WROTE), "{said:?}");
 }
+
+const SETTLED: &str = "project koji: wrote rulings.pm_decides.rebase = true";
+
+// A stand-in build that answers `version --json`, appends each migration it is
+// asked for to `log`, and for `settings migrate` prints `reply` and exits `exit`.
+fn settling(log: &Path, reply: &str, exit: u8) -> String {
+    let json = format!(r#"{{"kelpie":"0.3.0","shep":"0.17.0","protocol":{PROTOCOL_VERSION}}}"#);
+    format!(
+        "#!/bin/sh\n\
+         case \"$1 $2\" in\n\
+         'version --json') echo '{json}' ;;\n\
+         'agents migrate') echo \"$1 $2\" >> '{log}'; echo '{WROTE}' ;;\n\
+         'settings migrate') echo \"$1 $2 $SHEP_HOME\" >> '{log}'; echo '{reply}' >&2; \
+         echo '{reply}'; exit {exit} ;;\n\
+         esac\n",
+        log = log.display()
+    )
+}
+
+#[tokio::test]
+async fn an_install_runs_the_installed_build_s_settings_migration_after_the_agents_one() {
+    let rig = Rig::new().await;
+    let log = rig.builds.join("migrated");
+    let new = rig.builds.join("new");
+    write_script(&new, &settling(&log, SETTLED, 0));
+
+    let (ran, said) = rig.install(&new).await;
+
+    ran.unwrap();
+    let shep_home = rig.shepherd.home().display();
+    assert_eq!(
+        std::fs::read_to_string(&log).unwrap(),
+        format!("agents migrate\nsettings migrate {shep_home}\n"),
+    );
+    let at = |needle: &str| said.iter().position(|l| l.contains(needle));
+    let settled = at(SETTLED).unwrap_or_else(|| panic!("{said:?}"));
+    assert!(at(WROTE).unwrap() < settled, "{said:?}");
+    assert!(settled < at("restarting onto it").unwrap(), "{said:?}");
+}
+
+#[tokio::test]
+async fn a_settings_migration_that_fails_is_said_and_the_restarts_go_on() {
+    let mut rig = Rig::new().await;
+    let log = rig.builds.join("migrated");
+    let new = rig.builds.join("new");
+    write_script(&new, &settling(&log, "project koji: not migrated", 1));
+
+    let (ran, said) = rig.install(&new).await;
+
+    ran.unwrap();
+    let failed = (said.iter())
+        .find(|l| l.contains("the settings were not migrated"))
+        .unwrap_or_else(|| panic!("{said:?}"));
+    assert!(failed.contains("project koji: not migrated"), "{failed}");
+    assert!(failed.contains("shep kelpie settings migrate"), "{failed}");
+    assert_eq!(rig.restarts(), ["kelpie", "koji"]);
+}
+
+// Settings for koji that load, on a git checkout under `shepherd`'s scratch home.
+fn loading(shepherd: &FakeShepherd) -> Map<String, Value> {
+    let root = shepherd.scratch("koji-checkout");
+    let status = crate::flock::git_in(&root).args(["init", "-q"]).status();
+    assert!(status.unwrap().success());
+    let text = format!(
+        "[git]\ncheckout = \"{}\"\nremote = \"shep-pm/koji\"\nmerging = \"ask\"\n\
+         issues = \"ask\"\n[ci]\nblock = true\nfix_attempts = -1\n\
+         [concurrency]\nactive_items = 1\npending_rulings = 2\n[budget]\nper_item_usd = 10\n\
+         [agents]\nimplementers = [\"sonnet-high\"]\nreviewers = [\"standards\"]\n\
+         [pacing]\nenabled = true\nkickoff_hours = 8\n[worker]\nallowed_domains = []\n\
+         build_env = {{}}\nguard_hooks = []\nturn_timeout = 60\n",
+        root.display()
+    );
+    crate::settings::table_of(&text).unwrap()
+}
+
+#[tokio::test]
+async fn a_bare_upgrade_writes_the_missing_kinds_into_a_table_that_loads() {
+    let shepherd = FakeShepherd::on(crate::shepherd::SHEP_VERSION);
+    let table = loading(&shepherd);
+    let mut rig = Rig::holding_on(shepherd, false, table).await;
+    crate::agents::write_bound_stubs(
+        &rig.home.join("agents"),
+        "harness: claude-code\nmodel: claude-opus-5-5\neffort: high\n",
+    );
+    rig.cargo_installs("0.3.0", "0.17.0");
+
+    let (ran, said) = rig.upgrade(Action::Installed).await;
+
+    ran.unwrap();
+    let wrote = (said.iter())
+        .find(|l| l.starts_with("project koji: wrote "))
+        .unwrap_or_else(|| panic!("{said:?}"));
+    assert!(
+        wrote.contains("rulings.pm_decides.rebase = true"),
+        "{wrote}"
+    );
+    assert!(said.iter().all(|l| !l.contains("not migrated")), "{said:?}");
+    let (koji, _) = rig.shepherd.sheep("koji").unwrap();
+    let written = koji.dogs.get(crate::shepherd::DOG).unwrap().as_map();
+    assert_eq!(written["rulings"]["pm_decides"]["question"], false);
+    assert_eq!(rig.restarts(), ["kelpie", "koji"]);
+}
+
+#[tokio::test]
+async fn a_bare_upgrade_migrates_the_settings_in_process() {
+    let mut rig = Rig::new().await;
+    rig.cargo_installs("0.3.0", "0.17.0");
+
+    let (ran, said) = rig.upgrade(Action::Installed).await;
+
+    ran.unwrap();
+    // The rig's table for koji does not load, so this process's own step refuses it.
+    let failed = (said.iter())
+        .find(|l| l.contains("the settings were not migrated"))
+        .unwrap_or_else(|| panic!("{said:?}"));
+    assert!(failed.contains("project koji: not migrated"), "{failed}");
+    assert_eq!(rig.restarts(), ["kelpie", "koji"]);
+}
