@@ -15,10 +15,10 @@ use std::sync::{Arc, Mutex};
 use super::super::Runner;
 use super::super::trigger::lock;
 use super::{ticket, untouched};
-use crate::board::READY;
+use crate::board::{READY, check};
 use crate::ports::{Forge, ForgeError, Issue, OpenIssue, OpenPull, Tickets, Timestamp};
 use crate::settings::{ForgeSlug, TriagePick};
-use crate::state::{StateError, TriageStep};
+use crate::state::{CheckTriage, StateError, TriageStep};
 
 /// A poll the runner decided is due, which needs no lock
 pub(in crate::runner) struct PollJob {
@@ -37,6 +37,8 @@ pub(in crate::runner) struct PollJob {
     triage: Option<(Timestamp, u64)>,
     /// The verb's asks when the job was built, to tell a read that predates one
     asked: u64,
+    /// The key of each issue's check result that needs no new check
+    checked: BTreeMap<u64, u64>,
 }
 
 /// What a poll read
@@ -99,7 +101,15 @@ impl PollJob {
             || self.triage.is_some_and(|(since, pruned_through)| {
                 (open.iter()).any(|i| untouched(i, since, pruned_through, None, true))
             });
-        hand_labelled || to_triage
+        // The maintainer's issue the check passes is made ready only where no
+        // open pull request closes it.
+        let to_check = (open.iter()).any(|i| {
+            let key = check::key(&i.title, &i.body, &i.labels);
+            !i.author_is_bot
+                && self.checked.get(&i.number) != Some(&key)
+                && check::check(&i.title, &i.body, &i.labels).is_empty()
+        });
+        hand_labelled || to_triage || to_check
     }
 }
 
@@ -152,6 +162,10 @@ impl Runner {
             research: triage.is_some() && (!self.triage_queue.is_empty() || !waiting.is_empty()),
             triage: triage.map(|t| (t.since, t.pruned_through)),
             asked: self.looks.triage_asks(),
+            checked: (self.state.checks.iter())
+                .filter(|c| c.triage != CheckTriage::Ran)
+                .map(|c| (c.issue, c.key))
+                .collect(),
         };
         Some((now, job))
     }
@@ -195,7 +209,7 @@ impl Runner {
         let Some((since, pruned_through)) =
             (self.state.triage.as_ref()).map(|t| (t.since, t.pruned_through))
         else {
-            self.check_issues(&open, &busy);
+            self.check_issues(&open, pulls.as_ref(), &busy);
             return Ok(());
         };
         self.flights.triage_retry();
@@ -214,7 +228,7 @@ impl Runner {
         self.resume_triage()?;
         // The check reads the listing before the take-back and the due list,
         // which reach only an issue it refused.
-        self.check_issues(&open, &busy);
+        self.check_issues(&open, pulls.as_ref(), &busy);
         let only = match self.settings.triage.pick {
             TriagePick::Maintainer => match self.maintainer() {
                 Ok(login) => Some(login),

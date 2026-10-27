@@ -15,7 +15,7 @@ use super::TRIAGE_LABELS;
 use super::comment::NEEDS_TRIAGE;
 use super::ready::READY_LABEL;
 use crate::board::{READY, ReadyIssue, Skip, TRIAGE, check};
-use crate::ports::OpenIssue;
+use crate::ports::{ForgeError, OpenIssue, OpenPull};
 use crate::settings::TriagePick;
 use crate::state::{CheckTriage, IssueCheck, TriageStep};
 
@@ -38,7 +38,12 @@ impl Runner {
     // and does what the result asks. One in `busy` was under a pass when the poll
     // began, and waits for a listing made after its end. A write that fails leaves
     // the old result, so the next poll tries it again.
-    pub(super) fn check_issues(&mut self, open: &[OpenIssue], busy: &BTreeSet<u64>) {
+    pub(super) fn check_issues(
+        &mut self,
+        open: &[OpenIssue],
+        pulls: Option<&Result<Vec<OpenPull>, ForgeError>>,
+        busy: &BTreeSet<u64>,
+    ) {
         let mut kept: Vec<IssueCheck> = (self.state.checks.iter())
             .filter(|c| open.iter().any(|i| i.number == c.issue))
             .cloned()
@@ -77,7 +82,7 @@ impl Runner {
                 (false, false) => (CheckTriage::Owed, Act::Kept),
             };
             let done = match act {
-                Act::Passed => self.check_passed(issue),
+                Act::Passed => self.check_passed(issue, pulls),
                 Act::Refused => self.check_refused(issue, &failures),
                 Act::Kept => true,
             };
@@ -162,8 +167,13 @@ impl Runner {
     // Makes the maintainer's passing issue ready, taking `needs-triage` off, and
     // puts `needs-triage` on anyone else's. A triage label other than those
     // two stands, and an issue the board has had a work item for is left as it
-    // is. Whether nothing is left to write.
-    fn check_passed(&mut self, issue: &OpenIssue) -> bool {
+    // is. So is one an open pull request in `pulls` closes, until it no longer
+    // does. Whether nothing is left to write.
+    fn check_passed(
+        &mut self,
+        issue: &OpenIssue,
+        pulls: Option<&Result<Vec<OpenPull>, ForgeError>>,
+    ) -> bool {
         let number = issue.number;
         let decided = (issue.labels.iter())
             .any(|l| l != READY && l != TRIAGE && TRIAGE_LABELS.contains(&l.as_str()));
@@ -174,7 +184,13 @@ impl Runner {
             return false;
         };
         let wanted: &[(&str, bool)] = match issue.author.eq_ignore_ascii_case(&maintainer) {
-            true => &[(READY, true), (TRIAGE, false)],
+            true => match pulls {
+                Some(Ok(pulls)) if pulls.iter().any(|p| p.closes.contains(&number)) => {
+                    return false;
+                }
+                Some(Ok(_)) => &[(READY, true), (TRIAGE, false)],
+                _ => return false,
+            },
             false if carries(&issue.labels, READY) => &[],
             false if self.settings.triage.pick == TriagePick::Off => &[],
             false => &[(TRIAGE, true)],

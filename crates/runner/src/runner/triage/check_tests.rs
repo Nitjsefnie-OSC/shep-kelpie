@@ -91,6 +91,18 @@ fn a_passing_maintainers_issue_loses_its_needs_triage_and_a_hand_decision_stands
 }
 
 #[test]
+fn a_passing_maintainers_issue_an_open_pull_request_closes_is_not_made_ready() {
+    let (rig, runner) = checking("pick = \"off\"", MAINTAINER, PASSING, &PASSING_LABELS);
+    rig.forge.list_open_pull(77, "Fix the crash", &[30]);
+
+    assert_eq!(step(&runner).unwrap(), None);
+    assert_eq!(moves(&rig), Vec::<String>::new());
+    rig.next_look();
+    assert_eq!(step(&runner).unwrap(), None);
+    assert_eq!(moves(&rig), Vec::<String>::new());
+}
+
+#[test]
 fn another_persons_issue_that_passes_waits_at_needs_triage_with_no_triage_call() {
     let (rig, runner) = checking("pick = \"all\"", "newcomer", PASSING, &PASSING_LABELS);
 
