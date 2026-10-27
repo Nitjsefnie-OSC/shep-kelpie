@@ -294,6 +294,7 @@ fn settings(
     if let Some(Value::Object(agents)) = table.get_mut("agents") {
         agents.insert("reviewers".into(), Value::Array(reviewers));
     }
+    super::set::migrate::pm_decides(&mut table);
     Settings::from_table(&table, name.as_str(), place.home, place.folder)
         .map_err(|e| e.to_string())?;
     Ok(table)
