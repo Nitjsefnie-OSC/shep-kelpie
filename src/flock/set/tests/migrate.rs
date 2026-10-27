@@ -210,3 +210,26 @@ async fn the_issue_writers_implementer_choice_is_deleted_and_order_is_left() {
     scene.migrate().await.unwrap();
     assert_eq!(scene.table()["agents"]["implementer_choice"], "order");
 }
+
+#[tokio::test]
+async fn the_issue_writers_unlabelled_kind_is_deleted_from_the_map_and_the_list() {
+    let map = with_rulings("pm_decides = { unlabelled = true, rebase = false }");
+    let list = with_rulings("pm_alone = [\"unlabelled\", \"question\"]");
+    let scene = Scene::holding_each(&map, &list).await;
+
+    let said = scene.migrate().await.unwrap();
+
+    assert!(
+        said[0].contains("unlabelled from rulings.pm_alone"),
+        "{said:?}"
+    );
+    assert!(
+        said[1].contains("rulings.pm_decides.unlabelled"),
+        "{said:?}"
+    );
+    for table in [scene.table_of("eevee"), scene.table()] {
+        let map = map_of(&table);
+        assert!(map.get("unlabelled").is_none(), "{map:?}");
+        assert_eq!(map.len(), RulingName::ALL.len() - 4, "{map:?}");
+    }
+}

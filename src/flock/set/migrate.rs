@@ -6,7 +6,8 @@
 //! `rulings.full_panel_paths`, `agents.advisor`, `agents.researcher` and
 //! `researcher` table are deleted, and so are `advisor` and `researcher` in
 //! `repo_setup.roles`. `agents.implementer_choice = "issue-writer"` is deleted,
-//! since the issue writer is gone and `order` is the default. Each table is
+//! since the issue writer is gone and `order` is the default, and so is its
+//! `unlabelled` kind from `rulings.pm_decides` and the old list. Each table is
 //! checked as `set` checks it, and one the runner would refuse is not written.
 
 use std::path::PathBuf;
@@ -36,6 +37,9 @@ const PANEL_ROLES: [&str; 2] = ["advisor", "researcher"];
 
 /// The choice of implementer that went with the issue writer, which deleting the key replaces
 const WRITER_CHOICE: (&str, &str) = ("agents.implementer_choice", "issue-writer");
+
+/// The kind of ruling that went with the issue writer, which raised it
+const WRITER_KIND: &str = "unlabelled";
 
 /// Runs `shep kelpie settings migrate`, printing a line for each project it changed
 pub fn main() -> ExitCode {
@@ -120,6 +124,7 @@ async fn project(
         return Ok(None);
     };
     let listed = lookup(&table, PM_ALONE).is_some();
+    let gone_kinds = writer_kind(&mut table);
     let wrote = pm_decides(&mut table);
     let mut removed: Vec<String> = (listed && lookup(&table, PM_ALONE).is_none())
         .then(|| PM_ALONE.to_owned())
@@ -128,6 +133,7 @@ async fn project(
     removed.extend(panel_keys(&mut table).into_iter().map(str::to_owned));
     removed.extend(panel_roles(&mut table));
     removed.extend(writer_choice(&mut table));
+    removed.extend(gone_kinds);
     let said: Vec<String> = [("wrote", wrote.join(", ")), ("removed", removed.join(", "))]
         .into_iter()
         .filter(|(_, keys)| !keys.is_empty())
@@ -185,6 +191,27 @@ fn writer_choice(table: &mut Map<String, Value>) -> Option<String> {
         .filter(|held| held.as_str() == Some(value))?;
     agents.remove(key);
     Some(format!("{} = {value:?}", WRITER_CHOICE.0))
+}
+
+// Deletes `unlabelled` from `rulings.pm_decides` and the old list, and names each it deleted.
+fn writer_kind(table: &mut Map<String, Value>) -> Vec<String> {
+    let ((outer, map_key), (_, list_key)) = (leaves(PM_DECIDES), leaves(PM_ALONE));
+    let Some(rulings) = table.get_mut(outer).and_then(Value::as_object_mut) else {
+        return Vec::new();
+    };
+    let mut removed = Vec::new();
+    let map = rulings.get_mut(map_key).and_then(Value::as_object_mut);
+    if map.and_then(|map| map.remove(WRITER_KIND)).is_some() {
+        removed.push(format!("{PM_DECIDES}.{WRITER_KIND}"));
+    }
+    if let Some(Value::Array(list)) = rulings.get_mut(list_key) {
+        let before = list.len();
+        list.retain(|kind| kind.as_str() != Some(WRITER_KIND));
+        if list.len() < before {
+            removed.push(format!("{WRITER_KIND} from {PM_ALONE}"));
+        }
+    }
+    removed
 }
 
 /// Writes into `table` the kinds `rulings.pm_decides` is missing, at their

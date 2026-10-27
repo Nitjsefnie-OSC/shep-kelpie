@@ -7,7 +7,7 @@ use super::trigger::issue_list;
 use crate::board::{AGENT_LABEL, LabelError, agent_label, old_worker_label, pinned};
 use crate::ports::{ForgeError, Issue};
 use crate::settings::AgentName;
-use crate::state::{ProjectState, Ruling, RulingKind, StateError, Stuck};
+use crate::state::StateError;
 use crate::ticket::TicketId;
 use crate::work_item::new_session_id;
 
@@ -117,7 +117,6 @@ impl Runner {
         let mut item = self.fresh(ticket, found.title, agent.clone(), session);
         item.pinned = pinned(&found.labels);
         next.work_items.push(item);
-        label_ruled(&mut next, ticket);
         if let Some(moved) = &moved {
             next.record_event(self.ports.clock.now(), moved.event.clone());
         }
@@ -223,11 +222,4 @@ impl Runner {
 // Whether `label` is an `agent:` label, its prefix in any case.
 fn is_agent_label(label: &str) -> bool {
     (label.get(..AGENT_LABEL.len())).is_some_and(|p| p.eq_ignore_ascii_case(AGENT_LABEL))
-}
-
-// Clears the ruling `ticket` waited on unlabelled, from `next`, once a work item opens for it.
-fn label_ruled(next: &mut ProjectState, ticket: TicketId) {
-    let unlabelled = |r: &Ruling| matches!(r.kind, RulingKind::Stuck(Stuck::Unlabelled { .. }));
-    next.rulings
-        .retain(|r| !(r.issue == Some(ticket) && unlabelled(r)));
 }

@@ -8,6 +8,7 @@
 //! reviewer it recorded. `deep` and `claude` are `defect-hunter`, and a review
 //! bot round is a pass of the listed bots. A pending ruling of a folded kind is
 //! a `stuck` one; of a removed kind, the file is refused (`local-model-spilled`).
+//! A pending `unlabelled` one, the issue writer's, is withdrawn.
 
 use serde_json::{Map, Value, json};
 
@@ -87,6 +88,39 @@ pub(super) fn removed_ruling(value: &Value) -> Option<(u64, String)> {
         let id = ruling.get("id")?.as_u64()?;
         RULINGS.contains(&kind).then(|| (id, kind.to_owned()))
     })
+}
+
+/// Withdraws each pending `unlabelled` ruling, which the issue writer raised
+/// on an issue no work item holds, and the place read to in its thread
+///
+/// Its issue goes back to the board, which opens it on the first implementer listed.
+pub(super) fn withdraw_unlabelled(value: &mut Value) {
+    let Some(state) = value.as_object_mut() else {
+        return;
+    };
+    let unlabelled = |ruling: &Value| {
+        let kind = ruling.get("kind");
+        let reason = kind
+            .and_then(|kind| kind.get("reason"))
+            .and_then(Value::as_str);
+        kind.and_then(|kind| kind.get("kind"))
+            .and_then(Value::as_str)
+            == Some("stuck")
+            && reason == Some("unlabelled")
+    };
+    let Some(Value::Array(rulings)) = state.get_mut("rulings") else {
+        return;
+    };
+    let withdrawn: Vec<String> = (rulings.iter().filter(|ruling| unlabelled(ruling)))
+        .filter_map(|ruling| ticket(ruling.get("id")))
+        .map(|id| id.to_string())
+        .collect();
+    rulings.retain(|ruling| !unlabelled(ruling));
+    for read in ["heard", "unmentioned"] {
+        if let Some(Value::Object(read)) = state.get_mut(read) {
+            read.retain(|id, _| !withdrawn.contains(id));
+        }
+    }
 }
 
 /// Drops what removed features saved, and moves the whole-issue check's and

@@ -49,8 +49,12 @@ pub(in crate::runner) struct Record {
     // Whether the project manager answered for the maintainer
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     by_pm: bool,
-    // The kind of ruling, as `rulings.pm_decides` names it
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    // The kind of ruling, as `rulings.pm_decides` names it, and none for a kind gone since
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "known_kind"
+    )]
     pub(in crate::runner) kind: Option<RulingName>,
     // The option the answer is, when it is one of the ruling's
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -122,6 +126,14 @@ impl Record {
             .and_then(|mut f| writeln!(f, "{line}"));
         opened.map_err(|e| format!("cannot add to {}: {}", file.display(), e.kind()))
     }
+}
+
+// The kind a line names, if this build has it, so a line of a kind gone since still reads.
+fn known_kind<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<RulingName>, D::Error> {
+    let named = Option::<String>::deserialize(deserializer)?;
+    Ok(named.and_then(|name| RulingName::named(&name).ok()))
 }
 
 // Why a failed turn failed, as `rulings.jsonl` keeps it, so the same failure
@@ -203,6 +215,22 @@ mod tests {
         let records = records(&file);
         assert_eq!(records.len(), 1);
         assert_eq!(records[0].id, ticket(3));
+    }
+
+    // The issue writer's `unlabelled` kind is gone, and its line keeps all but the kind.
+    #[test]
+    fn an_answered_unlabelled_ruling_is_read_with_no_kind() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("rulings.jsonl");
+        let text = serde_json::json!({
+            "id": 4, "at": 100, "issue": 7, "pull_request": null,
+            "asked": "q", "answer": "yes", "by_pm": true, "kind": "unlabelled",
+        });
+        std::fs::write(&file, format!("{text}\n")).unwrap();
+        let records = records(&file);
+        assert_eq!(records.len(), 1);
+        assert_eq!((records[0].id, records[0].kind), (ticket(4), None));
+        assert_eq!(records[0].by(), Answerer::Pm);
     }
 
     // A line the panel decided, from a build that had one, still reads its
