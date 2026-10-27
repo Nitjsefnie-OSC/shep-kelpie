@@ -183,12 +183,12 @@ impl Runner {
     // Why the project manager may not decide `ruling`, where it may not: the
     // kinds the settings refuse it, and those `pm_answers_ruling` never gives it.
     pub(super) fn pm_may_decide(&self, ruling: &Ruling) -> Result<(), String> {
-        let name = RulingName::of(&ruling.kind);
-        if name.pm_default().is_none() {
-            let name = name.as_str();
-            return Err(format!(
-                "the project manager never decides a `{name}` ruling"
-            ));
+        never_decided(RulingName::of(&ruling.kind))?;
+        if matches!(
+            ruling.kind,
+            RulingKind::Question { .. } | RulingKind::FollowUp { .. }
+        ) {
+            return Err("a question or follow-up wakes the project manager on its own wake".into());
         }
         if ruling.kind.is_contribution() {
             return Err("a contribution's ruling is never the project manager's".into());
@@ -204,6 +204,9 @@ impl Runner {
         }
         if brief(ruling).1 < 2 {
             return Err("it lists fewer than two options to pick from".into());
+        }
+        if self.pm_answered_before(ruling) {
+            return Err("the project manager already answered this failed turn".into());
         }
         Ok(())
     }
@@ -308,6 +311,11 @@ impl Runner {
         let ruling = (self.state.rulings.iter().find(|r| r.id == id))
             .ok_or_else(|| "it no longer waits".to_owned())?;
         let number = ruling.number();
+        if ruling.kind.is_contribution() {
+            return Err(format!(
+                "`{number} no` would only clear a contribution's ruling, so it takes no approach"
+            ));
+        }
         let Some(text) = n.checked_sub(1).and_then(|at| ruling.approaches.get(at)) else {
             return Err(match ruling.approaches.len() {
                 0 => format!(
@@ -371,6 +379,21 @@ impl Runner {
             Err(_) => text.to_owned(),
         };
         self.say(thread, &text);
+    }
+}
+
+/// Whether the project manager may decide a ruling named `name`
+///
+/// # Errors
+///
+/// The reason, for a kind the project manager never decides.
+pub(super) fn never_decided(name: RulingName) -> Result<(), String> {
+    match name.pm_default() {
+        Some(_) => Ok(()),
+        None => Err(format!(
+            "the project manager never decides a `{}` ruling",
+            name.as_str()
+        )),
     }
 }
 

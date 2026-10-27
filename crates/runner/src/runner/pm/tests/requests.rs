@@ -3,10 +3,16 @@
 use std::time::Duration;
 
 use super::asked::{
-    advanced_until, approaches, comments, decided, foreign_put, pending, posted, vote,
+    advanced_until, approaches, comments, decided, foreign_put, merge_put, pending, posted,
+    replied, vote,
 };
-use crate::ports::Role;
-use crate::test::{Hold, Rig, Scripted};
+use crate::ports::{Role, Timestamp};
+use crate::runner::Answer;
+use crate::runner::ruling::{Answerer, Record};
+use crate::runner::voice::RECOMMENDS;
+use crate::state::{Held, Resume, Ruling, RulingKind, Stuck};
+use crate::test::{Hold, Rig, Scripted, ticket};
+use crate::work_item::{Phase, Turn};
 
 // A ruling raised again under the same id while the project manager works
 
@@ -131,4 +137,82 @@ fn a_request_pending_when_the_runner_stops_is_asked_again_when_it_starts() {
         !text.contains("\"asked\""),
         "the request is settled: {text}"
     );
+}
+
+// What the maintainer may ask about one ruling
+
+#[test]
+fn pm_decide_is_refused_on_a_question_and_on_a_failure_it_already_answered() {
+    let (rig, runner) = super::with_pm("asked-decide-rules");
+    let runner = runner.lock().unwrap();
+    let question = RulingKind::Question {
+        asked: "Which?".into(),
+        resume: Resume::Nothing,
+    };
+    let refused = runner.pm_may_decide(&Ruling::new(ticket(7), "Which?", question));
+    assert!(refused.unwrap_err().contains("its own wake"));
+
+    let failing = Ruling {
+        issue: Some(ticket(7)),
+        ..Ruling::new(
+            ticket(7),
+            "harness exited with 1",
+            RulingKind::from(Stuck::TurnFailed {
+                why: "harness exited with 1".into(),
+                phase: Phase::Implement,
+                retry: Turn::Due,
+                restore: Vec::new(),
+                setup: false,
+            }),
+        )
+    };
+    assert_eq!(runner.pm_may_decide(&failing), Ok(()));
+    let record = Record::of(&failing, &Answer::Yes, Timestamp(1), Answerer::Pm);
+    record.append(&rig.paths().rulings).unwrap();
+    let refused = runner.pm_may_decide(&failing).unwrap_err();
+    assert!(
+        refused.contains("already answered this failed turn"),
+        "{refused}"
+    );
+}
+
+#[test]
+fn pm_n_on_a_contribution_s_ruling_is_refused_since_no_only_clears_it() {
+    let (_rig, runner) = super::with_pm("asked-take-contribution");
+    let mut runner = runner.lock().unwrap();
+    let kind = RulingKind::Contribution(Held::Merge { head: "abc".into() });
+    runner.state.rulings.push(Ruling {
+        approaches: vec!["Wait for the author".into()],
+        ..Ruling::new(ticket(71), "Merge it?", kind)
+    });
+
+    let refused = runner.approach(ticket(71), 1).unwrap_err();
+    assert!(
+        refused.contains("`71 no` would only clear a contribution's ruling"),
+        "{refused}"
+    );
+}
+
+#[test]
+fn a_second_recommendation_replaces_the_first() {
+    let (rig, runner) = merge_put("asked-recommend-twice", true);
+    rig.claude.script_for(
+        Role::Pm,
+        [
+            Scripted::Say(vote('A', "FIRST-WHY")),
+            Scripted::Say(vote('B', "SECOND-WHY")),
+        ],
+    );
+    replied(&rig, &runner, "71 pm recommend", |c| {
+        c.contains("FIRST-WHY")
+    });
+    rig.clock.advance(5);
+    replied(&rig, &runner, "71 pm recommend", |c| {
+        c.contains("SECOND-WHY")
+    });
+
+    let question = runner.lock().unwrap().state.rulings[0].question.clone();
+    assert_eq!(question.matches(RECOMMENDS).count(), 1, "{question}");
+    assert!(question.contains("SECOND-WHY"), "{question}");
+    assert!(!question.contains("FIRST-WHY"), "{question}");
 }

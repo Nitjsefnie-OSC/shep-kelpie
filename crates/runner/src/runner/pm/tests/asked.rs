@@ -4,11 +4,12 @@
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
+use super::super::asked::never_decided;
 use super::{name_pm, pm_seen};
 use crate::ports::{AgentError, Checks, Role};
 use crate::runner::flight::advance;
 use crate::runner::{Runner, StepReport, step};
-use crate::settings::Harness;
+use crate::settings::{Harness, RulingName};
 use crate::state::{Held, Ruling, RulingKind, Stuck};
 use crate::test::ticket;
 use crate::test::{CALL_PATIENCE, Hold, Rig, Scripted};
@@ -447,18 +448,22 @@ fn pm_decide_on_a_merge_is_refused_naming_the_kind_and_wakes_nothing() {
 
 #[test]
 fn pm_decide_is_refused_on_every_kind_the_project_manager_never_decides() {
+    let never: Vec<RulingName> = (RulingName::ALL.into_iter())
+        .filter(|n| n.pm_default().is_none())
+        .collect();
+    assert!(never.iter().any(|n| n.as_str() == "local-model-spilled"));
+    for name in never {
+        let refused = never_decided(name).unwrap_err();
+        assert!(
+            refused.contains(&format!("`{}`", name.as_str())),
+            "{refused}"
+        );
+    }
     let (_rig, runner) = super::with_pm("asked-decide-refused");
     let runner = runner.lock().unwrap();
-    let security = RulingKind::Contribution(Held::Security {
-        head: "abc".into(),
-        lines: Vec::new(),
-    });
     let merge = RulingKind::Contribution(Held::Merge { head: "abc".into() });
-    for (kind, name) in [(security, "security"), (merge, "contribution-merge")] {
-        let ruling = Ruling::new(ticket(9), "q", kind);
-        let refused = runner.pm_may_decide(&ruling).unwrap_err();
-        assert!(refused.contains(&format!("`{name}`")), "{refused}");
-    }
+    let refused = runner.pm_may_decide(&Ruling::new(ticket(9), "q", merge));
+    assert!(refused.unwrap_err().contains("`contribution-merge`"));
     let rebase = RulingKind::from(Stuck::Rebase {
         why: "conflicts".into(),
         review: None,

@@ -52,7 +52,7 @@ impl Runner {
 
     // Whether the project manager already answered the failed turn `ruling`
     // is, on the same work item. That answer did not settle it.
-    fn pm_answered_before(&self, ruling: &Ruling) -> bool {
+    pub(super) fn pm_answered_before(&self, ruling: &Ruling) -> bool {
         let records = ruling::records(&self.paths.rulings);
         records.iter().any(|r| r.decided_by_pm(ruling))
     }
@@ -220,8 +220,10 @@ fn with_words(ruling: &Ruling, answer: &PmAnswer) -> Ruling {
     if !answer.why.is_empty() {
         words.push_str(&format!("\n{SAYS} {}", answer.why));
     }
+    // A later recommendation replaces an earlier one.
+    let question = ruling.question.split(&format!("\n\n{RECOMMENDS}")).next();
     Ruling {
-        question: format!("{}\n\n{words}", ruling.question),
+        question: format!("{}\n\n{words}", question.unwrap_or_default()),
         ..ruling.clone()
     }
 }

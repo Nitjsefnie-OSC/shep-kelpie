@@ -98,11 +98,13 @@ The kinds are `question`, `agent-files`, `foreign-change`, `follow-up`, `rebase`
 
 A ruling that comes to you carries no pick from the project manager, and no wake runs for it. On a project that names one (`agents.pm`), you can ask in the ruling's thread, starting with its id as any reply does:
 
-- `14 pm recommend`: the project manager reads the ruling and posts its pick and why in the thread, as `**Project manager: A**. <why>`, with the reply that gives it, such as `14 yes`. The ruling stays yours, and you answer it with the replies above.
-- `14 pm options`: for when none of the options is right. The project manager posts up to 5 other approaches, numbered, and `14 pm 2` takes the second: on a ruling with fixed options it is your `14 no <note>` with the approach as the note, and on a worker's question it is your answer. The approaches stay on the ruling through a restart, and `pm <n>` with none, or past the last, is refused, saying which.
+- `14 pm recommend`: the project manager reads the ruling and posts its pick and why in the thread, as `**Project manager: A**. <why>`, with the reply that gives it, such as `14 yes`. The ruling stays yours, and you answer it with the replies above. Asking again replaces the earlier pick.
+- `14 pm options`: for when none of the options is right. The project manager posts up to 5 other approaches, numbered, and `14 pm 2` takes the second: on a ruling with fixed options it is your `14 no <note>` with the approach as the note, and on a worker's question it is your answer. The approaches stay on the ruling through a restart, and `pm <n>` with none, past the last, or on a contribution's ruling, which a `no` would only clear, is refused, saying which.
 - `14 pm decide`: hands this one ruling to the project manager, as if its kind were `true` in `rulings.pm_decides`. It is refused, saying why, on the kinds set `true` is refused for (`merge`, `security`, `contribution-merge`, `local-model-spilled`) and on the rulings that come to you whatever the map says. What the project manager would have to hand back to you comes back with its pick in the thread.
 
 Kelpie reacts with a thumbs up to a request it took. With no project manager named, each is refused with a reply saying so. A second request while the project manager is on the ruling is answered once and starts nothing. A wake that fails, times out or gives no answer says in the thread that the project manager did not answer, and the ruling stays yours. What it posts is plain text, so it cannot mention anyone or link anywhere.
+
+On a worker's question, an answer that is exactly `14 pm recommend`, `14 pm options`, `14 pm decide` or `14 pm <n>` is that request, not your answer; any other answer that opens with `pm` is your answer as written.
 
 ## The webhook
 
