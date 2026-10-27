@@ -476,3 +476,25 @@ fn the_guard_lets_the_web_packages_tools_through_and_no_other_it_does_not_know()
     // Any other fenced call has none of them, whatever `--tools` says.
     assert_eq!(refused(false), [true; 5]);
 }
+
+#[test]
+fn a_pi_worker_reads_the_script_its_command_hook_runs_and_not_its_siblings() {
+    let w = World::new();
+    let mut call = w.fenced(URL, Path::new("/k/kelpie"), Session::New(id(WORKER_ID)));
+    let folder = w.path("x");
+    call.reach.fence.as_mut().unwrap().guard.hooks = crate::test::hook_beside_another(&folder);
+    let upstream = PiCli::on(&Base::default())
+        .upstream(server(&call).unwrap())
+        .unwrap();
+    let files = Files::of(&call);
+    let socket = w.path("forwarder.sock");
+    let policy = policy(
+        &call,
+        &files,
+        &upstream,
+        &socket,
+        Path::new("/nowhere/pi"),
+        &[],
+    );
+    crate::test::assert_reads_the_hook_alone(&policy, &folder);
+}
