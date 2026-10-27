@@ -75,6 +75,34 @@ fn a_maintainers_issue_that_passes_goes_ready_with_no_triage_call() {
 }
 
 #[test]
+fn a_first_check_of_many_passing_issues_writes_a_poll_s_share_and_carries_the_rest() {
+    let (rig, runner) = checking("pick = \"off\"", MAINTAINER, PASSING, &PASSING_LABELS);
+    for number in 31..80 {
+        let mut more = filed(&rig, MAINTAINER, PASSING, &PASSING_LABELS);
+        more.number = number;
+        list(&rig, more);
+    }
+
+    for (poll, written) in [(1, 20), (2, 40), (3, 50)] {
+        if poll > 1 {
+            rig.next_look();
+        }
+        assert_eq!(step(&runner).unwrap(), None, "poll {poll}");
+        assert_eq!(moves(&rig).len(), written, "poll {poll}");
+    }
+    assert!(moves(&rig).iter().all(|m| m == "label ready-for-agent"));
+    let labelled: std::collections::BTreeSet<u64> = (rig.github.writes().into_iter())
+        .filter_map(|(_, call)| call.path.rsplit('/').nth(1)?.parse().ok())
+        .collect();
+    assert_eq!(labelled, (30..80).collect(), "each issue once");
+    assert_eq!(checks(&rig).as_array().unwrap().len(), 50);
+
+    rig.next_look();
+    assert_eq!(step(&runner).unwrap(), None);
+    assert_eq!(moves(&rig).len(), 50, "nothing is left to write");
+}
+
+#[test]
 fn a_passing_maintainers_issue_loses_its_needs_triage_and_a_hand_decision_stands() {
     let mut labels = PASSING_LABELS.to_vec();
     labels.push("needs-triage");

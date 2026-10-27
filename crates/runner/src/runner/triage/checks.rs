@@ -11,6 +11,7 @@
 use std::collections::BTreeSet;
 
 use super::super::Runner;
+use super::super::contributions::post::forge_is_busy;
 use super::TRIAGE_LABELS;
 use super::comment::NEEDS_TRIAGE;
 use super::ready::READY_LABEL;
@@ -27,6 +28,23 @@ enum Act {
     Refused,
     // Nothing to write
     Kept,
+}
+
+/// The most forge writes one poll's check makes. The rest wait for the next poll.
+pub(super) const CHECK_WRITES: usize = 20;
+
+// What one poll's check may still write, and what it read once for all issues
+struct Poll<'a> {
+    // The writes left this poll
+    writes: usize,
+    // The forge said it is busy, so the check stops until the next poll
+    busy: bool,
+    // The labels made on the repo this poll
+    made: BTreeSet<&'static str>,
+    // The maintainer's login, if it can be read
+    maintainer: Option<String>,
+    // The open pull requests the poll read
+    pulls: Option<&'a Result<Vec<OpenPull>, ForgeError>>,
 }
 
 fn carries(labels: &[String], label: &str) -> bool {
@@ -48,7 +66,17 @@ impl Runner {
             .filter(|c| open.iter().any(|i| i.number == c.issue))
             .cloned()
             .collect();
+        let mut poll = Poll {
+            writes: CHECK_WRITES,
+            busy: false,
+            made: BTreeSet::new(),
+            maintainer: self.maintainer().ok(),
+            pulls,
+        };
         for issue in open.iter().filter(|i| !i.author_is_bot) {
+            if poll.busy {
+                break;
+            }
             // A pass under way writes the body and labels itself, and its end
             // is what the next check reads.
             if busy.contains(&issue.number) || self.triage_busy(issue.number) {
@@ -82,8 +110,8 @@ impl Runner {
                 (false, false) => (CheckTriage::Owed, Act::Kept),
             };
             let done = match act {
-                Act::Passed => self.check_passed(issue, pulls),
-                Act::Refused => self.check_refused(issue, &failures),
+                Act::Passed => self.check_passed(issue, &mut poll),
+                Act::Refused => self.check_refused(issue, &failures, &mut poll),
                 Act::Kept => true,
             };
             if !done {
@@ -166,25 +194,21 @@ impl Runner {
 
     // Makes the maintainer's passing issue ready, taking `needs-triage` off, and
     // puts `needs-triage` on anyone else's. A triage label other than those
-    // two stands, and an issue the board has had a work item for is left as it
-    // is. So is one an open pull request in `pulls` closes, until it no longer
-    // does. Whether nothing is left to write.
-    fn check_passed(
-        &mut self,
-        issue: &OpenIssue,
-        pulls: Option<&Result<Vec<OpenPull>, ForgeError>>,
-    ) -> bool {
+    // two stands. An issue the board has had a work item for is left as it is.
+    // So is one an open pull request closes, until it no longer does. Whether
+    // nothing is left to write.
+    fn check_passed(&mut self, issue: &OpenIssue, poll: &mut Poll) -> bool {
         let number = issue.number;
         let decided = (issue.labels.iter())
             .any(|l| l != READY && l != TRIAGE && TRIAGE_LABELS.contains(&l.as_str()));
         if decided || self.has_work_item(number) {
             return true;
         }
-        let Ok(maintainer) = self.maintainer() else {
+        let Some(maintainer) = poll.maintainer.as_deref() else {
             return false;
         };
-        let wanted: &[(&str, bool)] = match issue.author.eq_ignore_ascii_case(&maintainer) {
-            true => match pulls {
+        let wanted: &[(&str, bool)] = match issue.author.eq_ignore_ascii_case(maintainer) {
+            true => match poll.pulls {
                 Some(Ok(pulls)) if pulls.iter().any(|p| p.closes.contains(&number)) => {
                     return false;
                 }
@@ -199,20 +223,27 @@ impl Runner {
             if carries(&issue.labels, label) == on {
                 continue;
             }
-            let made = match on {
-                true if label == READY => self.make_missing_labels([READY_LABEL]),
-                true => self.make_missing_labels([NEEDS_TRIAGE]),
-                false => Ok(()),
-            };
-            if let Err(why) = made {
-                self.notes
-                    .push(format!("check #{number}: cannot make `{label}`: {why}"));
+            if poll.writes == 0 {
                 return false;
             }
+            if on && !poll.made.contains(label) {
+                let made = match label == READY {
+                    true => self.make_missing_labels([READY_LABEL]),
+                    false => self.make_missing_labels([NEEDS_TRIAGE]),
+                };
+                if let Err(why) = made {
+                    self.notes
+                        .push(format!("check #{number}: cannot make `{label}`: {why}"));
+                    return false;
+                }
+                poll.made.insert(label);
+            }
+            poll.writes -= 1;
             if let Err(e) = self.label_issue(number, label, on) {
                 let how = if on { "label it" } else { "take off" };
                 self.notes
                     .push(format!("check #{number}: cannot {how} `{label}`: {e}"));
+                poll.busy = forge_is_busy(&e);
                 return false;
             }
             if label == READY {
@@ -228,14 +259,18 @@ impl Runner {
     // Says on the maintainer's `issue` once what the check still refuses after
     // its triage. Anyone else's is told in plain words, which the check's are
     // not, and its triage comment already handed it to the maintainer.
-    fn check_refused(&mut self, issue: &OpenIssue, failures: &[String]) -> bool {
+    fn check_refused(&mut self, issue: &OpenIssue, failures: &[String], poll: &mut Poll) -> bool {
         let number = issue.number;
-        let Ok(maintainer) = self.maintainer() else {
+        let Some(maintainer) = poll.maintainer.as_deref() else {
             return false;
         };
-        if !issue.author.eq_ignore_ascii_case(&maintainer) {
+        if !issue.author.eq_ignore_ascii_case(maintainer) {
             return true;
         }
+        if poll.writes == 0 {
+            return false;
+        }
+        poll.writes -= 1;
         let listed: Vec<String> = failures.iter().map(|f| format!("- {f}")).collect();
         let text = format!(
             "Kelpie checked this issue again after its triage, and the issue check still \
@@ -255,6 +290,7 @@ impl Runner {
                 self.notes.push(format!(
                     "check #{number}: cannot say what the check refused: {e}"
                 ));
+                poll.busy = forge_is_busy(&e);
                 false
             }
         }
