@@ -28,16 +28,7 @@ const TAKES: &str = "`pm` takes `recommend`, `options`, `decide` or an approach'
 /// The most approaches a ruling keeps
 const APPROACHES: usize = 5;
 
-/// What the maintainer asks of the project manager about a ruling
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(in crate::runner) enum Asked {
-    /// Its pick and why, posted in the thread, the ruling still theirs
-    Recommend,
-    /// Other approaches, for when none of its options is right
-    Options,
-    /// Its answer, as if `rulings.pm_decides` left the ruling to it
-    Decide,
-}
+pub(in crate::runner) use crate::state::PmAsked as Asked;
 
 /// A reply to a ruling that starts with `pm`
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -145,6 +136,7 @@ impl Runner {
         }
         let (text, request) = (brief(ruling).0, Request::of(asked, ruling));
         self.pm.asking.insert(id, self.ports.clock.now());
+        self.mark_asked(id, Some(asked));
         self.pm_due(Wake::Answer {
             id,
             asked: text,

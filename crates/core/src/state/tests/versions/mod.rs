@@ -281,8 +281,8 @@ fn a_ruling_saved_without_raised_loads_and_a_raised_time_is_kept() {
     assert_eq!(store.load().unwrap(), Some(loaded));
 }
 
-// A version 87 ruling has no `approaches`, so it loads with none, and the
-// approaches a ruling gains save and load back.
+// A version 87 ruling has no `approaches` or `asked`, so it loads with
+// neither, and those a ruling gains save and load back.
 #[test]
 fn a_version_87_ruling_loads_with_no_approaches_and_keeps_those_it_gains() {
     let dir = tempfile::tempdir().unwrap();
@@ -296,11 +296,14 @@ fn a_version_87_ruling_loads_with_no_approaches_and_keeps_those_it_gains() {
     let mut old = serde_json::to_value(&state).unwrap();
     old["version"] = 87.into();
     assert!(old["rulings"][0].get("approaches").is_none());
+    assert!(old["rulings"][0].get("asked").is_none());
     fs::write(dir.path().join(STATE_FILE), old.to_string()).unwrap();
 
     let mut loaded = store.load().unwrap().expect("a saved state");
     assert!(loaded.rulings[0].approaches.is_empty());
+    assert_eq!(loaded.rulings[0].asked, None);
     loaded.rulings[0].approaches = vec!["Split the parser out first".into()];
+    loaded.rulings[0].asked = Some(PmAsked::Options);
     store.save(&loaded).unwrap();
     let text = fs::read_to_string(dir.path().join(STATE_FILE)).unwrap();
     let saved: serde_json::Value = serde_json::from_str(&text).unwrap();
@@ -309,6 +312,7 @@ fn a_version_87_ruling_loads_with_no_approaches_and_keeps_those_it_gains() {
         saved["rulings"][0]["approaches"],
         serde_json::json!(["Split the parser out first"])
     );
+    assert_eq!(saved["rulings"][0]["asked"], "options");
     assert_eq!(store.load().unwrap(), Some(loaded));
 }
 
@@ -841,6 +845,7 @@ fn an_older_state_file_loads_and_a_contribution_ruling_survives_a_save_and_a_loa
         effects: Vec::new(),
         raised: Some(Timestamp(1)),
         approaches: Vec::new(),
+        asked: None,
     });
     store.save(&state).unwrap();
     let text = fs::read_to_string(dir.path().join(STATE_FILE)).unwrap();

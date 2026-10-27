@@ -2,7 +2,9 @@
 
 use std::time::Duration;
 
-use super::asked::{advanced_until, approaches, comments, decided, foreign_put, pending, vote};
+use super::asked::{
+    advanced_until, approaches, comments, decided, foreign_put, pending, posted, vote,
+};
 use crate::ports::Role;
 use crate::test::{Hold, Rig, Scripted};
 
@@ -99,4 +101,34 @@ fn pm_decide_is_checked_again_when_its_answer_comes() {
         left()
     );
     assert!(pending(&rig));
+}
+
+#[test]
+fn a_request_pending_when_the_runner_stops_is_asked_again_when_it_starts() {
+    let (rig, runner) = foreign_put("asked-restart");
+    let hold = Hold::default();
+    rig.claude.script_for(
+        Role::Pm,
+        [
+            Scripted::HoldThenSay(hold.clone(), vote('A', "LOST")),
+            Scripted::Say(vote('A', "PM-WHY")),
+        ],
+    );
+    rig.writes_on(71, "octocat", "71 pm recommend");
+    rig.next_look();
+    advanced_until(&runner, || hold.entered(Duration::ZERO));
+    assert!(rig.github.reactions().len() == 1, "the request was taken");
+    drop(runner);
+    hold.release();
+
+    let runner = rig.open().unwrap();
+    let said = posted(&rig, &runner, |c| c.contains("**Project manager: A**"));
+
+    assert!(said.contains("PM-WHY"), "{said}");
+    assert!(!comments(&rig).iter().any(|c| c.contains("LOST")));
+    let text = std::fs::read_to_string(rig.paths().state).unwrap();
+    assert!(
+        !text.contains("\"asked\""),
+        "the request is settled: {text}"
+    );
 }

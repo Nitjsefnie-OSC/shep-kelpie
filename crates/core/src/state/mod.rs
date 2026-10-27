@@ -29,7 +29,7 @@ pub use notices::{MainNotice, MergeNotice, Notice};
 pub use projects::Projects;
 pub use red::{Handled, RedWorkflow};
 pub use removed::OldWorker;
-pub use ruling::Ruling;
+pub use ruling::{PmAsked, Ruling};
 pub use triage::{
     TRIAGE_CALLS_KEPT, TRIAGED_KEPT, TriageAsked, TriageHeld, TriageLocal, TriageQuestions,
     TriageState, TriageStep, Triaged,

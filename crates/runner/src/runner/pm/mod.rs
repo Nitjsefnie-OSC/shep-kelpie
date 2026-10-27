@@ -516,6 +516,7 @@ impl Runner {
     // Everything before the launch is checked again by the try that follows a read, and drops
     // or defers the same, so a try that hands back reads has changed nothing the next does not.
     fn wake(&mut self, reads: bool) -> Woke {
+        self.pm_requests_kept();
         let Some(agent) = self.agents.pm.clone() else {
             return Woke::Did(false);
         };
@@ -857,21 +858,7 @@ impl Runner {
         // Its answers to the rulings it was asked about; one it gave none on
         // goes to the maintainer. They are part of what kelpie did, so they
         // are applied before the note below names the wake's actions.
-        let mut asked: Vec<TicketId> = Vec::new();
-        let mut requested = Vec::new();
-        for wake in &flying.wakes {
-            match wake {
-                Wake::Answer {
-                    id, request: None, ..
-                } => asked.push(*id),
-                Wake::Answer {
-                    id,
-                    request: Some(request),
-                    ..
-                } => requested.push((*id, *request)),
-                _ => {}
-            }
-        }
+        let (asked, requested) = requests::split(&flying.wakes);
         if !asked.is_empty() {
             let answers = answer
                 .votes
