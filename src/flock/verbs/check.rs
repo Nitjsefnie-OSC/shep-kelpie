@@ -114,6 +114,7 @@ async fn ticket_in(dial: &dyn Dial, at: Place<'_>, ticket: TicketId) -> Result<C
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
+    use std::process::ExitCode;
 
     use super::*;
 
@@ -176,11 +177,15 @@ mod tests {
         let file = file.display().to_string();
         let mut args = words(&format!("check --draft {file} --label kind:feat --label"));
         args.push("priority: P4".to_owned());
-        assert_eq!(main(&lookup, &args), 0);
+        let verb = |args: &[String]| super::super::main_with(&lookup, "issue", args);
+        assert_eq!(verb(&args), ExitCode::SUCCESS);
         let unlabelled = words(&format!("check --draft {file}"));
-        assert_eq!(main(&lookup, &unlabelled), 1);
+        assert_eq!(verb(&unlabelled), ExitCode::from(1));
         let gone = words(&format!("check --draft {file}.gone"));
-        assert_eq!(main(&lookup, &gone), 2);
+        assert_eq!(verb(&gone), ExitCode::from(2));
+        // Any other verb still needs the shepherd's home, and says so.
+        let status = super::super::main_with(&lookup, "status", &[]);
+        assert_eq!(status, ExitCode::FAILURE);
     }
 
     #[test]

@@ -2,7 +2,7 @@
 
 mod check;
 
-use std::ffi::OsStr;
+use std::ffi::{OsStr, OsString};
 use std::io::{BufRead, IsTerminal, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -115,11 +115,15 @@ it against files.";
 
 /// Runs `kelpie <command> <args>` for one of [`VERBS`]
 pub fn main(command: &str, args: &[String]) -> ExitCode {
-    // Before `SHEP_HOME` is asked for, which a worker's sandbox has none of.
-    if check::asked(command, args) {
-        return ExitCode::from(check::main(&|name| std::env::var_os(name), args));
+    main_with(&|name| std::env::var_os(name), command, args)
+}
+
+// `main`, with `env` giving each variable.
+fn main_with(env: &dyn Fn(&str) -> Option<OsString>, command: &str, args: &[String]) -> ExitCode {
+    if let Some(code) = without_shep_home(env, command, args) {
+        return code;
     }
-    let ran = crate::shep_home::required(crate::shep_home::FLOCK_FIX)
+    let ran = crate::shep_home::from(env("SHEP_HOME"), crate::shep_home::FLOCK_FIX)
         .and_then(|shep_home| shepherd::block_on(run(&Socket, &shep_home, command, args)));
     match ran {
         Ok(lines) => {
@@ -133,6 +137,16 @@ pub fn main(command: &str, args: &[String]) -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+
+// The exit code of the one verb that runs with no `SHEP_HOME`, the issue
+// check, which a worker's sandbox runs. `None` for every other verb.
+fn without_shep_home(
+    env: &dyn Fn(&str) -> Option<OsString>,
+    command: &str,
+    args: &[String],
+) -> Option<ExitCode> {
+    check::asked(command, args).then(|| ExitCode::from(check::main(env, args)))
 }
 
 async fn run(
