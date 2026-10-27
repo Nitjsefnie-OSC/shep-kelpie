@@ -9,7 +9,7 @@ use serde_json::{Value, json};
 use super::pick_tests::{MAINTAINER, issue, list, rig_with};
 use super::checks::CHECK_TRIES;
 use super::ready_tests::said;
-use super::research_tests::{APP, WORDS, calls, moves, pump, reply};
+use super::research_tests::{APP, WORDS, calls, moves, pump, reply, under};
 use crate::github::ApiError;
 use crate::ports::Timestamp;
 use crate::ports::{OpenIssue, Role};
@@ -167,7 +167,7 @@ fn a_failing_issue_is_triaged_and_a_rewrite_that_still_fails_gets_one_comment() 
     assert_eq!(rig.github.comments().len(), 1, "the triage comment");
     assert_eq!(
         rig.github.issue_edits(),
-        [(30, format!("{FAILING}\n\n{STILL}"))],
+        [(30, under(FAILING, STILL))],
         "a rewrite the check refuses goes under the maintainer's text"
     );
     assert_eq!(
@@ -201,6 +201,36 @@ fn a_failing_issue_is_triaged_and_a_rewrite_that_still_fails_gets_one_comment() 
     }
     assert_eq!(rig.github.comments().len(), 2);
     assert_eq!(calls(&rig, Role::Triager).len(), 1);
+}
+
+#[test]
+fn a_later_rewrite_the_check_refuses_replaces_kelpies_section_and_keeps_the_rest() {
+    let (rig, runner) = checking("pick = \"maintainer\"", MAINTAINER, FAILING, &[]);
+    let found = json!({ "type": "bug", "kind": "fix", "priority": "P2", "body": STILL });
+    rig.claude.script_for(Role::Triager, [reply(found)]);
+    assert_eq!(step(&runner).unwrap(), None);
+    let first = under(FAILING, STILL);
+    assert_eq!(rig.github.issue_edits(), [(30, first.clone())]);
+    let labels = ["bug", "P2", "kind:fix", "needs-triage"];
+    list(&rig, filed(&rig, MAINTAINER, &first, &labels));
+    rig.next_look();
+    assert_eq!(step(&runner).unwrap(), None);
+    assert_eq!(rig.github.comments().len(), 2, "the still-failing comment");
+
+    // The maintainer adds a line under kelpie's section.
+    let edited = format!("{first}\n\nOn Linux only.");
+    list(&rig, filed(&rig, MAINTAINER, &edited, &labels));
+    let again = "Touches: `src/start.rs`\n\nIt crashes on Linux.";
+    rig.claude
+        .script_for(Role::Triager, [reply(json!({ "body": again }))]);
+    rig.claude
+        .script_for(Role::Representative, [Scripted::Say(WORDS)]);
+    rig.next_look();
+    assert_eq!(step(&runner).unwrap(), None);
+
+    assert_eq!(calls(&rig, Role::Triager).len(), 2);
+    let whole = format!("{}\n\nOn Linux only.", under(FAILING, again));
+    assert_eq!(rig.github.issue_edits().last(), Some(&(30, whole)));
 }
 
 // The issue as `a_failing_issue_is_triaged...` leaves it: triaged, its

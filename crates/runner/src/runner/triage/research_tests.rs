@@ -117,6 +117,11 @@ pub(super) fn moves(rig: &Rig) -> Vec<String> {
 }
 
 // Steps until `done`, hearing each call's end as the loop would
+// `body` with `text` under it, as kelpie's one section of an issue's body
+pub(super) fn under(body: &str, text: &str) -> String {
+    format!("{body}\n\n<!-- kelpie:under -->\n{text}\n<!-- /kelpie:under -->")
+}
+
 pub(super) fn pump(runner: &Mutex<Runner>, mut done: impl FnMut() -> bool) {
     let by = Instant::now() + CALL_PATIENCE;
     while !done() {

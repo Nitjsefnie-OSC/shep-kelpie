@@ -8,7 +8,7 @@ use serde_json::{Value, json};
 use super::marker::MARKER;
 use super::pick_tests::{MAINTAINER, issue, list, rig_with};
 use super::research_tests::{
-    WORDS, calls, crashed_with, facts, moves, nothing, pump, reply, triage,
+    WORDS, calls, crashed_with, facts, moves, nothing, pump, reply, triage, under,
 };
 use crate::github::ApiError;
 use crate::ports::Role;
@@ -203,7 +203,7 @@ fn a_rewrite_the_check_refuses_goes_under_the_body_and_ends_needs_triage() {
             rig.github.issue_edits(),
             [(
                 30,
-                format!("It crashes when I run it.\n\n{}", body.trim_end())
+                under("It crashes when I run it.", body.trim_end())
             )],
             "a rewrite the check refuses never overwrites: {body}"
         );
@@ -251,8 +251,8 @@ fn a_reply_with_an_open_question_or_no_priority_is_not_made_ready() {
 
     assert_eq!(step(&runner).unwrap(), None, "{found}");
 
-    let under = format!("It crashes when I run it.\n\n{}", BODY.trim_end());
-    assert_eq!(rig.github.issue_edits(), [(30, under)]);
+    let written = under("It crashes when I run it.", BODY.trim_end());
+    assert_eq!(rig.github.issue_edits(), [(30, written)]);
     assert_eq!(
         moves(&rig).last().map(String::as_str),
         Some("label needs-triage"),

@@ -8,7 +8,9 @@ use serde_json::{Value, json};
 use super::ask::REPLY_HINT;
 use super::marker::MARKER;
 use super::pick_tests::{MAINTAINER, issue, list, rig_with};
-use super::research_tests::{APP, calls, crashed_with, handed, moves, reply, restart, triage};
+use super::research_tests::{
+    APP, calls, crashed_with, handed, moves, reply, restart, triage, under,
+};
 use crate::github::ApiError;
 use crate::ports::{Clock, Role};
 use crate::runner::{Runner, step};
@@ -306,7 +308,7 @@ fn a_github_followed_by_answers_is_read_as_answers_and_no_question_is_posted_aga
         rig.github.issue_edits(),
         [(
             30,
-            "It crashes when I run it.\n\n## Settled\n\n- Linux, on start.".to_owned()
+            under("It crashes when I run it.", "## Settled\n\n- Linux, on start.")
         )]
     );
     assert_eq!(record(&rig, &runner)["step"], "done");

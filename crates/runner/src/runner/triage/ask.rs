@@ -33,6 +33,24 @@ pub(in crate::runner) enum Purpose {
     LocalRead,
 }
 
+// The lines around the text kelpie writes under an issue's own
+const UNDER_OPEN: &str = "<!-- kelpie:under -->";
+const UNDER_CLOSE: &str = "<!-- /kelpie:under -->";
+
+/// `body` with `text` as its one kelpie section. It goes in place of an
+/// earlier section, or else under the body.
+pub(in crate::runner) fn under_text(body: &str, text: &str) -> String {
+    let section = format!("{UNDER_OPEN}\n{}\n{UNDER_CLOSE}", text.trim());
+    let earlier = body.find(UNDER_OPEN).and_then(|start| {
+        let len = body[start..].find(UNDER_CLOSE)?;
+        Some((start, start + len + UNDER_CLOSE.len()))
+    });
+    match earlier {
+        Some((start, end)) => format!("{}{section}{}", &body[..start], &body[end..]),
+        None => format!("{}\n\n{section}", body.trim()),
+    }
+}
+
 /// What writing the settled answers under the issue author's text came to
 pub(in crate::runner) enum Write {
     /// It went on, and its step is saved
@@ -322,7 +340,7 @@ impl Runner {
                 return Settled::Held;
             }
         };
-        let whole = format!("{}\n\n{}", body.trim(), settled.trim());
+        let whole = under_text(&body, settled);
         if let Some(leak) = self.local.find(&whole, crate::local_paths::Surface::Prose) {
             self.notes.push(format!(
                 "triage #{issue}: the answers it would write name {leak}, so they are not \
