@@ -173,7 +173,7 @@ pub(in crate::runner) fn touches(paths: &[NonBlank], changed: &[String]) -> bool
 
 /// Whether `path` matches `glob`: `*` and `?` stay inside one folder,
 /// `**` spans folders, and `**/` may match none
-pub(in crate::runner) fn matches(glob: &str, path: &str) -> bool {
+fn matches(glob: &str, path: &str) -> bool {
     matches_bytes(glob.as_bytes(), path.as_bytes())
 }
 

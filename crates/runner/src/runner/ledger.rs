@@ -151,12 +151,9 @@ impl Runner {
             .and_then(|session| self.ledger.session_cost(session))
             .unwrap_or(Cost(0));
         let now = self.ports.clock.now();
-        let mut line = open
+        let line = open
             .draft
             .line(now, ended, spent, before, self.pacer_lines());
-        if open.draft.role() == Role::Pm {
-            line.votes = self.pm_vote_marks(result);
-        }
         self.ledger.append(&Line::Call(line));
     }
 

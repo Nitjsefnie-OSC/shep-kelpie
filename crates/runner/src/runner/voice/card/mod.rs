@@ -1,13 +1,11 @@
 //! A ruling's comment in one short format
 //!
 //! Every kind renders the same way: a title, what happened, a table of what
-//! each option does, the panel's words, and short ways to answer. The same
-//! options are what a reaction or a ticked box on the comment is read
-//! against ([`thumbs`] and [`ticked`]), so what the comment offers and what
-//! kelpie accepts cannot drift apart. The panel's list holds each expert's
-//! vote once it has voted, and the option it stood behind as the
-//! recommendation. A ruling the panel has not voted on holds the project
-//! manager's words where it gave any.
+//! each option does, the project manager's words, and short ways to answer.
+//! The same options are what a reaction or a ticked box on the comment is
+//! read against ([`thumbs`] and [`ticked`]), so what the comment offers and
+//! what kelpie accepts cannot drift apart. The project manager's words are
+//! its pick and why, where it gave any.
 
 use super::super::contributions::{
     ADOPT_ANYWAY, CLOSE_WITH_THANKS, KEEP_WAITING, LEAVE_OPEN, flagged_lines,
@@ -17,7 +15,6 @@ use super::super::ruling::{needs_pass, stuck_comment};
 use super::super::words::{NO_NOTE, Wants};
 use super::super::{Action, Answer};
 use super::merge_notes;
-use crate::panel::Voter;
 use crate::state::{Held, Ruling, RulingKind, Stuck};
 use crate::ticket::TicketId;
 use crate::work_item::Phase;
@@ -30,7 +27,7 @@ const SENDS_ANSWER: &str = "Sends the worker this answer";
 
 /// The candidate answer that leaves a product call to the maintainer
 ///
-/// The panel can vote for it, and a vote for it decides nothing: it is no
+/// The project manager can pick it, and that pick decides nothing: it is no
 /// answer to send the worker.
 pub(in crate::runner) const ASK_THE_MAINTAINER: &str = "Ask the maintainer";
 
@@ -80,8 +77,7 @@ pub(super) fn ruling_comment(mention: Option<&str>, ruling: &Ruling) -> String {
     let mut blocks = card.opening();
     blocks.push(table(&card.choices, &ruling.kind));
     blocks.extend(card.on_the_board());
-    blocks.extend(panel(ruling, &card.choices));
-    blocks.extend(recommendation(ruling));
+    blocks.extend(pm_words(ruling, &card.choices));
     blocks.push(match mention {
         Some(login) => answering(login, ruling.number(), &ruling.kind, &card.choices),
         None => unmentioned(ruling.number(), &ruling.kind, &card.choices),
@@ -89,9 +85,9 @@ pub(super) fn ruling_comment(mention: Option<&str>, ruling: &Ruling) -> String {
     blocks.join("\n\n")
 }
 
-/// What an expert on the panel is shown of `ruling`: its title, what
-/// happened and the table of its options, as the comment opens, and how
-/// many options there are
+/// What the project manager is shown of `ruling`: its title, what happened
+/// and the table of its options, as the comment opens, and how many options
+/// there are
 pub(in crate::runner) fn brief(ruling: &Ruling) -> (String, usize) {
     let card = Card::for_ruling(ruling);
     let mut blocks = card.opening();
@@ -103,13 +99,13 @@ pub(in crate::runner) fn brief(ruling: &Ruling) -> (String, usize) {
 /// A ruling's comment once it is settled, to edit over the one it was posted as
 ///
 /// `line` says how it was settled and that nothing waits on the maintainer.
-/// The question stays under it, with the panel's words, and no option, tick,
+/// The question stays under it, with the project manager's words, and no option, tick,
 /// reaction or reply is offered.
 pub(in crate::runner) fn settled_comment(ruling: &Ruling, line: &str) -> String {
     let card = Card::for_ruling(ruling);
     let mut blocks = vec![line.to_owned()];
     blocks.extend(card.opening());
-    blocks.extend(panel(ruling, &card.choices));
+    blocks.extend(pm_words(ruling, &card.choices));
     blocks.join("\n\n")
 }
 
@@ -746,71 +742,15 @@ pub(in crate::runner) const PROBLEM: &str = "Problem:";
 /// What leads the line where the project manager says what the board shows
 pub(in crate::runner) const BOARD: &str = "PM board:";
 
-/// What leads the project manager's pick in a worker's question
-const RECOMMENDS: &str = "PM recommends:";
+/// What leads the project manager's pick in a ruling it left to the maintainer
+pub(in crate::runner) const RECOMMENDS: &str = "PM recommends:";
 
 /// What leads the project manager's reasons, in a question and in a ruling it
 /// put to the maintainer
-const SAYS: &str = "PM says:";
+pub(in crate::runner) const SAYS: &str = "PM says:";
 
-// The panel's list: each expert's line once the panel has voted, in the
-// order the table lists them; before, and in a ruling raised before the
-// panel, the project manager's words where it gave any
-fn panel(ruling: &Ruling, choices: &[Choice]) -> Option<String> {
-    let Some(ballots) = ruling.panel.as_ref().filter(|b| !b.is_empty()) else {
-        return pm_words(ruling, choices);
-    };
-    let lines: Vec<String> = Voter::ALL
-        .into_iter()
-        .filter_map(|voter| {
-            let ballot = ballots.iter().find(|b| b.voter == voter)?;
-            let name = voter.name();
-            Some(match &ballot.vote {
-                Some(vote) => format!("- **{name}** ({}): {}", vote.choice, inert(&vote.why)),
-                // An abstaining project manager may still have left its words.
-                None if voter == Voter::Pm => pm_words(ruling, choices)
-                    .and_then(|words| words.lines().nth(1).map(str::to_owned))
-                    .unwrap_or_else(|| format!("- **{name}**: abstained")),
-                None => format!("- **{name}**: abstained"),
-            })
-        })
-        .collect();
-    Some(format!("**Panel**\n{}", lines.join("\n")))
-}
-
-// The option the panel stood behind, once it has voted, as the comment ends
-// its list: `**Recommendation: A** (3 of 4)`.
-fn recommendation(ruling: &Ruling) -> Option<String> {
-    let advice = ruling.verdict.as_ref()?.advice?;
-    Some(format!(
-        "**Recommendation: {}** ({} of {})",
-        advice.choice, advice.agree, advice.of
-    ))
-}
-
-// `text` as plain words in a comment kelpie posts, so a vote a page steered
-// cannot mention anyone, link anywhere or format the line: markdown's marks
-// are escaped, a link's `://` and `www.` are broken and an `@` is followed by
-// a zero-width space
-fn inert(text: &str) -> String {
-    let mut out = String::with_capacity(text.len());
-    for c in text.chars() {
-        match c {
-            '\\' | '`' | '*' | '_' | '[' | ']' | '(' | ')' | '<' | '>' | '#' | '|' | '~' | '&'
-            | '!' => {
-                out.push('\\');
-                out.push(c);
-            }
-            '@' => out.push_str("@\u{200b}"),
-            _ => out.push(c),
-        }
-    }
-    out.replace("://", ":\u{200b}//")
-        .replace("www.", "www\u{200b}.")
-        .replace("WWW.", "WWW\u{200b}.")
-}
-
-// The project manager's words alone, where it gave any
+// The project manager's pick and why, where it gave any:
+// `**Project manager: A**. Its why.`
 fn pm_words(ruling: &Ruling, choices: &[Choice]) -> Option<String> {
     let says = after_last(&ruling.question, SAYS);
     let picked = after_last(&ruling.question, RECOMMENDS).and_then(|pick| {
@@ -818,13 +758,12 @@ fn pm_words(ruling: &Ruling, choices: &[Choice]) -> Option<String> {
         let at = choices.iter().position(|c| plain(&c.name) == plain(pick))?;
         ('A'..='Z').nth(at)
     });
-    let line = match (picked, says) {
+    Some(match (picked, says) {
         (None, None) => return None,
-        (Some(key), None) => format!("- **PM** ({key})"),
-        (Some(key), Some(words)) => format!("- **PM** ({key}): {words}"),
-        (None, Some(words)) => format!("- **PM**: {words}"),
-    };
-    Some(format!("**Panel**\n{line}"))
+        (Some(key), None) => format!("**Project manager: {key}**"),
+        (Some(key), Some(words)) => format!("**Project manager: {key}**. {words}"),
+        (None, Some(words)) => format!("**Project manager**: {words}"),
+    })
 }
 
 // The rest of the line after the last `lead` in `text`

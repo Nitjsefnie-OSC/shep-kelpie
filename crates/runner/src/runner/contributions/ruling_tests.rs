@@ -260,14 +260,12 @@ fn a_yes_that_names_no_head_trusts_nothing() {
 }
 
 #[test]
-fn the_panel_does_not_vote_on_it_under_rulings_decide_panel() {
+fn the_project_manager_is_not_asked_to_answer_it() {
     let (rig, runner) = picking("all");
     rig.edit_settings(|s| {
         let listed = "\nimplementers = [\"sonnet-high\"]\n";
         assert!(s.contains(listed), "the example's implementers moved");
-        let named = format!("{listed}advisor = \"advisor\"\nresearcher = \"researcher\"\n");
-        let s = s.replace(listed, &named);
-        format!("{s}\n[app.dogs.kelpie.rulings]\ndecide = \"panel\"\n")
+        s.replace(listed, &format!("{listed}pm = \"pm\"\n"))
     });
     drop(runner);
     let runner = rig.open().unwrap();
@@ -281,14 +279,10 @@ fn the_panel_does_not_vote_on_it_under_rulings_decide_panel() {
 
     let waiting = rulings(&rig, &runner);
     assert_eq!(waiting.len(), 1, "the maintainer is asked");
-    assert_eq!(waiting[0].get("panel"), None);
-    assert_eq!(waiting[0].get("verdict"), None);
-    assert_eq!(waiting[0].get("skipped"), None);
-    let experts = [Role::Advisor, Role::Researcher, Role::Worker, Role::Pm];
     let asked: Vec<_> = (rig.claude.all_seen().into_iter())
-        .filter(|s| experts.contains(&s.call.role))
+        .filter(|s| s.call.role == Role::Pm && s.call.prompt.contains("waits on your answer"))
         .collect();
-    assert_eq!(asked.len(), 0, "no expert was asked");
+    assert_eq!(asked.len(), 0, "the project manager was not asked");
     assert_eq!(
         rig.alerts.posts().len(),
         1,

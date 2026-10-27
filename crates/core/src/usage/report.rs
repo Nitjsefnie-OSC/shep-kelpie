@@ -86,10 +86,8 @@ pub fn report(
     out.push(totals("project manager", &calls, Role::Pm));
     out.push(totals("issue writer", &calls, Role::IssueWriter));
     out.extend(retros(&calls));
-    out.extend(votes(&calls));
     out.extend(posts(&calls));
     out.extend(triage(&calls));
-    out.extend(super::panel::split(&calls));
     let recorded: BTreeSet<TicketId> = finished.iter().map(|item| item.issue).collect();
     out.extend(unrecorded(&calls, &recorded));
     out
@@ -250,11 +248,6 @@ fn posts(calls: &[&CallLine]) -> Option<String> {
 // The triager's research calls, totalled apart from the work items, if any ran
 fn triage(calls: &[&CallLine]) -> Option<String> {
     of_kind("triager", CallKind::Triage, calls)
-}
-
-// The panel's votes on rulings, totalled apart from the work items, if any ran
-fn votes(calls: &[&CallLine]) -> Option<String> {
-    of_kind("panel votes", CallKind::Vote, calls)
 }
 
 // The calls of `kind`, totalled as `name`, if any ran

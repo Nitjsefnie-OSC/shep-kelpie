@@ -799,7 +799,7 @@ impl Runner {
                 }
             }
             // Their MCP servers go in the call's own config, since Claude Code's
-            // `--strict-mcp-config` drops every other. A call that only reads (a vote, a retro)
+            // `--strict-mcp-config` drops every other. A call that only reads (a retro)
             // is given none that could write.
             if call.harness.loads_mcp() && call.tools != Tools::Retro {
                 // A server the call already names is kelpie's own (a researcher's web), which

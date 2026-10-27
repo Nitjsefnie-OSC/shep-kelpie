@@ -6,7 +6,8 @@
 //! reruns its failed jobs, once, before it spends a turn. A head that fails
 //! again goes to the worker with the log, saying so. Anything kelpie cannot
 //! read or rerun leaves the red run to the worker. A still-red ruling offers
-//! the same rerun as an option, for the maintainer or the panel to choose.
+//! the same rerun as an option, for the maintainer or the project manager to
+//! choose.
 
 use super::super::ci_help::Logs;
 use crate::runner::Runner;

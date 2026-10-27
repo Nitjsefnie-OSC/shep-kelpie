@@ -201,7 +201,7 @@ fn passed_on(rig: &Rig, runner: &Mutex<Runner>, answer: &'static str) -> String 
 }
 
 #[test]
-fn candidates_are_dropped_where_the_project_has_no_panel_to_vote_on_them() {
+fn the_candidates_the_project_manager_drafts_reach_the_maintainer() {
     let (rig, runner) = asking("vulpix", ASKS);
     let text = passed_on(
         &rig,
@@ -210,7 +210,7 @@ fn candidates_are_dropped_where_the_project_has_no_panel_to_vote_on_them() {
          maintainer\"], \"why\": \"a product call\"}}",
     );
     assert!(text.contains("PM says: a product call"), "{text}");
-    assert!(!text.contains("Use --check"), "{text}");
+    assert!(text.contains("Use --check"), "{text}");
 }
 
 #[test]

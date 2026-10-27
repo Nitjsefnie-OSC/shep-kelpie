@@ -262,7 +262,6 @@ impl From<&r::CallRole> for wire::CallRole {
             r::CallRole::IssueWriter => Self::IssueWriter,
             r::CallRole::Security => Self::Security,
             r::CallRole::Triager => Self::Triager,
-            r::CallRole::Panel => Self::Panel,
             r::CallRole::Retro => Self::Retro,
             r::CallRole::E2e => Self::E2e,
             r::CallRole::Attached(name) => Self::Attached((*name).to_owned()),

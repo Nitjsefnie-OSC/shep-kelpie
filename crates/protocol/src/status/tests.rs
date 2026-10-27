@@ -103,4 +103,6 @@ fn a_status_from_a_build_with_the_panel_still_reads() {
     old["panel"] = json!({"decide": "panel", "voted": 3, "pm_alone": {"rebase": 2}});
     let status: Status = serde_json::from_value(old).expect("the old status reads");
     assert!(status.pm_answers.is_empty());
+    let role: CallRole = serde_json::from_value(json!("panel")).unwrap();
+    assert_eq!(role, CallRole::Attached("panel".into()));
 }

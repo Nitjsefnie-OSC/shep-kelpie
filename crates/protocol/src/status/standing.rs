@@ -81,8 +81,6 @@ pub enum CallRole {
     Security,
     /// The triager, researching an untouched issue
     Triager,
-    /// The panel's experts, voting on a ruling
-    Panel,
     /// The project manager's agent, running a batch retro
     Retro,
     /// The e2e run of a dependency bump's head
@@ -101,7 +99,6 @@ impl CallRole {
             Self::IssueWriter => "issue_writer".to_owned(),
             Self::Security => "security".to_owned(),
             Self::Triager => "triager".to_owned(),
-            Self::Panel => "panel".to_owned(),
             Self::Retro => "retro".to_owned(),
             Self::E2e => "e2e".to_owned(),
             Self::Attached(name) => name.clone(),
@@ -124,7 +121,6 @@ impl<'de> Deserialize<'de> for CallRole {
             "issue_writer" => Self::IssueWriter,
             "security" => Self::Security,
             "triager" => Self::Triager,
-            "panel" => Self::Panel,
             "retro" => Self::Retro,
             "e2e" => Self::E2e,
             other => Self::Attached(other.to_owned()),

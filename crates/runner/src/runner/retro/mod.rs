@@ -13,7 +13,7 @@ use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::PathBuf;
 
-use super::{Runner, StepReport, panel};
+use super::{Runner, StepReport, ruling};
 use crate::home::Build;
 use crate::ports::{AgentCall, AgentError, AgentReply, Session, Timestamp};
 use crate::skills::Step;
@@ -236,7 +236,7 @@ impl Runner {
     ) -> Result<AgentCall, String> {
         let (since, _) = self.last_retro();
         let journal = journal::read(&self.paths.journal);
-        let rulings = panel::records(&self.paths.rulings);
+        let rulings = ruling::records(&self.paths.rulings);
         let ledger = usage::read(self.ledger.path()).unwrap_or_default();
         let gaps = gaps::open(&self.paths.retro_reports, self.project.as_str());
         let digest = digest::build(&digest::Records {

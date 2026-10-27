@@ -185,29 +185,34 @@ fn a_report_totals_the_retros_apart_from_the_builds_and_the_project_managers_wak
     assert!(!none.iter().any(|l| l.starts_with("retro")), "{none:#?}");
 }
 
-// Rulings of a kind that has since gone stay in the ledger: their calls'
-// tokens and cost still count.
+// A build with the panel wrote its experts' votes as `vote` calls and marked
+// the project manager's wakes with the votes they cast: the votes pass over,
+// and the wake still counts.
 #[test]
-fn a_call_that_voted_on_a_ruling_of_a_removed_kind_still_reads() {
+fn a_ledger_from_a_build_with_the_panel_reads_its_wakes_and_passes_over_its_votes() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join(FILE);
-    let text = json!({
-        "line": "call", "at": 100, "issue": null, "role": "pm", "kind": "wake",
-        "usage": { "input": 10, "cache_write": 0, "cache_read": 0, "output": 0 },
-        "units": 10, "cost_usd": 0.5, "seconds": 5, "ended": "answered",
-        "votes": [{
-            "ruling": "3", "ruling_kind": "local-model-spilled", "voter": "pm",
-            "panel": "fix", "work": "feat",
-        }],
+    let mark = json!({
+        "ruling": "3", "ruling_kind": "merge", "voter": "pm", "panel": "fix", "work": "feat",
     });
-    std::fs::write(&path, format!("{text}\n")).unwrap();
+    let line = |role: &str, kind: &str| {
+        json!({
+            "line": "call", "at": 100, "issue": null, "role": role, "kind": kind,
+            "usage": { "input": 10, "cache_write": 0, "cache_read": 0, "output": 0 },
+            "units": 10, "cost_usd": 0.5, "seconds": 5, "ended": "answered",
+            "votes": [mark],
+        })
+    };
+    let text = format!("{}\n{}\n", line("advisor", "vote"), line("pm", "wake"));
+    std::fs::write(&path, text).unwrap();
+
     let lines = read(&path).unwrap();
-    assert_eq!(lines.len(), 1);
+
+    assert_eq!(lines.len(), 1, "{lines:?}");
     let Line::Call(call) = &lines[0] else {
         panic!("{lines:?}")
     };
-    assert_eq!(call.cost_usd, Some(0.5));
-    assert_eq!(call.votes[0].ruling, ticket(3));
+    assert_eq!((call.kind, call.cost_usd), (CallKind::Wake, Some(0.5)));
 }
 
 #[test]
@@ -320,110 +325,6 @@ fn a_ledger_that_cannot_be_read_is_read_again_for_a_session_s_cost() {
     assert_eq!(ledger.session_cost(&session), Cost::from_usd(1.5));
 }
 
-// A vote's call: `voter` voted `choice` on `ruling` of `kind` on `work`, the
-// call taking `seconds` and costing `usd`.
-fn voted(
-    voter: &str,
-    ruling: u64,
-    kind: &str,
-    work: &str,
-    choice: Option<&str>,
-    seconds: u64,
-    usd: f64,
-) -> Line {
-    let call_kind = if voter == "pm" { "wake" } else { "vote" };
-    let mut mark = json!({
-        "ruling": ruling, "ruling_kind": kind, "voter": voter, "panel": "fix", "work": work,
-    });
-    if let Some(choice) = choice {
-        mark["choice"] = json!(choice);
-    }
-    let line: CallLine = serde_json::from_value(json!({
-        "at": 100 + ruling, "issue": null, "role": voter, "kind": call_kind,
-        "usage": { "input": 10, "cache_write": 0, "cache_read": 0, "output": 0 },
-        "units": 10, "cost_usd": usd, "seconds": seconds, "ended": "answered",
-        "votes": [mark],
-    }))
-    .unwrap();
-    Line::Call(line)
-}
-
-// The row of `table` (`expert`, `kind` or `type`) for `group`, as its cells
-fn cells(report: &[String], table: &str, group: &str) -> Vec<String> {
-    let start = report
-        .iter()
-        .position(|l| l.starts_with(table))
-        .unwrap_or_else(|| panic!("no {table} table in {report:#?}"));
-    let row = report[start + 1..]
-        .iter()
-        .take_while(|l| l.starts_with("  "))
-        .find(|l| l.trim().starts_with(group))
-        .unwrap_or_else(|| panic!("no {group} row in {report:#?}"));
-    row.split_whitespace().map(str::to_owned).collect()
-}
-
-#[test]
-fn a_report_splits_the_panels_votes_by_expert_kind_and_type() {
-    let lines = [
-        voted("advisor", 1, "merge", "fix", Some("A"), 10, 0.40),
-        voted("advisor", 2, "still-red", "feat", None, 30, 0.20),
-        voted("researcher", 1, "merge", "fix", Some("B"), 20, 0.10),
-        voted("pm", 1, "merge", "fix", Some("A"), 6, 0.06),
-        voted("pm", 2, "still-red", "feat", Some("A"), 8, 0.04),
-    ];
-
-    let report = report("koji", &lines, None, &[]);
-
-    assert!(
-        report
-            .iter()
-            .any(|l| l.starts_with("panel votes on 2 rulings, $0.40 a ruling")),
-        "{report:#?}"
-    );
-    // 2 calls, $0.60, the median of 10s and 30s, 1 abstention, $0.30 a ruling
-    assert_eq!(
-        cells(&report, "expert", "advisor"),
-        ["advisor", "2", "$0.60", "20s", "1", "$0.30"]
-    );
-    assert_eq!(
-        cells(&report, "expert", "pm"),
-        ["pm", "2", "$0.10", "7s", "0", "$0.05"]
-    );
-    assert_eq!(
-        cells(&report, "kind", "merge"),
-        ["merge", "3", "$0.56", "10s", "0", "$0.56"]
-    );
-    assert_eq!(
-        cells(&report, "kind", "still-red"),
-        ["still-red", "2", "$0.24", "19s", "1", "$0.24"]
-    );
-    assert_eq!(
-        cells(&report, "type", "fix"),
-        ["fix", "3", "$0.56", "10s", "0", "$0.56"]
-    );
-    assert_eq!(
-        cells(&report, "type", "feat"),
-        ["feat", "2", "$0.24", "19s", "1", "$0.24"]
-    );
-}
-
-#[test]
-fn a_wake_that_voted_on_two_rulings_shares_its_cost_between_them() {
-    let Line::Call(mut wake) = voted("pm", 1, "merge", "fix", Some("A"), 12, 0.50) else {
-        unreachable!()
-    };
-    let mut second = wake.votes[0].clone();
-    second.ruling = ticket(2);
-    wake.votes.push(second);
-
-    let report = report("koji", &[Line::Call(wake)], None, &[]);
-
-    assert_eq!(
-        cells(&report, "expert", "pm"),
-        ["pm", "2", "$0.50", "12s", "0", "$0.25"]
-    );
-}
-
 #[test]
 fn a_report_totals_the_representatives_posts_apart_from_the_work_items() {
     let lines = [
@@ -457,33 +358,6 @@ fn triager_calls_total_on_a_line_of_their_own() {
         total.starts_with("triager: 2 calls, 500 units, $1.00"),
         "{total}"
     );
-}
-
-#[test]
-fn a_report_of_a_ledger_with_no_votes_has_no_panel_section() {
-    let lines = [call(5, None, Role::Pm, CallKind::Wake, 100)];
-
-    let report = report("koji", &lines, None, &[]);
-
-    assert!(
-        report.iter().all(|l| !l.starts_with("panel votes on")),
-        "{report:#?}"
-    );
-}
-
-#[test]
-fn a_vote_line_keeps_its_ruling_and_choice_through_the_ledger_file() {
-    let dir = tempfile::tempdir().unwrap();
-    let line = voted("advisor", 3, "merge", "docs", Some("B"), 9, 0.1);
-    append_to(&dir.path().join(FILE), &line).unwrap();
-
-    let read = read(&dir.path().join(FILE)).unwrap();
-
-    assert_eq!(read, [line]);
-    let Line::Call(call) = &read[0] else {
-        unreachable!()
-    };
-    assert_eq!(call.votes[0].choice, Some('B'));
 }
 
 fn ledger_line(text: &str) -> Line {

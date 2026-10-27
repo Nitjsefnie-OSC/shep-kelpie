@@ -50,7 +50,7 @@ pub(super) struct Answer {
     pub(super) follow_up: Option<Decide>,
     /// What to do about each workflow still red on `main` after its rerun
     pub(super) red: Vec<RedCall>,
-    /// Its votes on rulings before the panel: each ruling, and the object it voted with
+    /// Its answers to the rulings left to it: each ruling, and the object it answered with
     pub(super) votes: Vec<(TicketId, Map<String, Value>)>,
     /// The whole of its standing notes, which replaces the file kelpie holds.
     /// None leaves the file as it is, and empty text clears it.

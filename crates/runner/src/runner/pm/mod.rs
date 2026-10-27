@@ -38,12 +38,11 @@ mod notes;
 mod prompt;
 mod question;
 mod red;
+mod rulings;
 #[cfg(test)]
 mod tests;
 mod wakes;
 
-#[cfg(test)]
-pub(super) use call::SECRET_SHAPED;
 pub(super) use ci_logs::wake_off_lock;
 pub use maintainer::{Held, PmAttaching, PmError, PmStatus, Settled};
 
@@ -164,11 +163,11 @@ pub(super) enum Wake {
         /// The head that stayed red
         head: String,
     },
-    /// A ruling is before the panel, and the project manager votes on it
-    Vote {
+    /// A ruling waits on the project manager's answer
+    Answer {
         /// The ruling
         id: TicketId,
-        /// What it asks and the options, as the experts are shown it
+        /// What it asks and the options
         asked: String,
     },
 }
@@ -183,7 +182,7 @@ impl Wake {
             (Self::LeaseWait { ticket: a, .. }, Self::LeaseWait { ticket: b, .. }) => a == b,
             (Self::Question { id: a, .. }, Self::Question { id: b, .. }) => a == b,
             (Self::FollowUp { id: a, .. }, Self::FollowUp { id: b, .. }) => a == b,
-            (Self::Vote { id: a, .. }, Self::Vote { id: b, .. }) => a == b,
+            (Self::Answer { id: a, .. }, Self::Answer { id: b, .. }) => a == b,
             (Self::Red { workflow: a, .. }, Self::Red { workflow: b, .. }) => a == b,
             _ => false,
         }
@@ -223,7 +222,7 @@ enum Kind {
 /// Whether nobody waits on `wake`, so it can wait [`HOLD_FOR`] for the rest
 ///
 /// A free slot, a `tell`, a worker's question, a follow-up ruling, a ruling to
-/// vote on and a pick are each waited on: the board holds a slot, a ruling is
+/// answer and a pick are each waited on: the board holds a slot, a ruling is
 /// held back from the maintainer, or the maintainer is asking. A stuck item, a
 /// conflict and a lease wait are each reasons the runner itself noticed, and no
 /// one is waiting on them.
@@ -600,30 +599,22 @@ impl Runner {
                 Wake::Conflict(..) | Wake::Stuck { .. } => self.pm.lapsed = true,
                 Wake::LeaseWait { .. } | Wake::Red { .. } => self.pm.lapsed = true,
                 // The ruling goes to the maintainer, who need not wait on it again.
-                Wake::Question { id, .. } | Wake::FollowUp { id, .. } => {
+                Wake::Question { id, .. } | Wake::FollowUp { id, .. } | Wake::Answer { id, .. } => {
                     self.pm.asking.remove(&id);
                 }
-                // The panel votes without it.
-                Wake::Vote { id, .. } => self.panel_pm_gone(id),
             }
         }
     }
 
-    /// Whether ruling `id`'s comment waits on the project manager's answer or
-    /// on the panel's votes, and so is not posted yet
+    /// Whether ruling `id` waits on the project manager's answer, at most
+    /// one wake, and so is not posted to the maintainer yet
     pub(super) fn ruling_held(&self, id: TicketId) -> bool {
-        self.pm_holds_ruling(id) || self.panel_holds_ruling(id)
-    }
-
-    /// Whether question ruling `id` waits on the project manager's answer,
-    /// at most one wake, and so is not posted to the maintainer yet
-    pub(super) fn pm_holds_ruling(&self, id: TicketId) -> bool {
         !self.draining() && self.pm_has_asked(id)
     }
 
-    /// Whether question ruling `id` was put to the project manager, at most
-    /// one wake ago, a drain or not: the panel leaves it to the project manager
-    pub(super) fn pm_has_asked(&self, id: TicketId) -> bool {
+    // Whether ruling `id` was put to the project manager, at most one wake
+    // ago, a drain or not.
+    fn pm_has_asked(&self, id: TicketId) -> bool {
         let now = self.ports.clock.now();
         let by = |since: &Timestamp| now.0 < since.0.saturating_add(CEILING);
         self.agents.pm.is_some() && self.pm.asking.get(&id).is_some_and(by)
@@ -662,8 +653,6 @@ impl Runner {
     /// Settles the comment of each held ruling whose hold has ended and which still waits on the
     /// maintainer, as the project manager left it, and returns the posts to make
     pub(super) fn release_posts(&mut self) -> Vec<PostJob> {
-        // A ruling the project manager's hold has let go of may be the panel's now.
-        self.panel_pass();
         // A ruling held when the runner last stopped is still to be posted.
         let kept: Vec<TicketId> = (self.state.rulings.iter())
             .filter(|r| r.unposted)
@@ -847,27 +836,25 @@ impl Runner {
             Some(Err(why)) => dropped.push(why),
             None => {}
         }
-        // Its votes on the rulings it was asked about; one it gave none on
-        // abstains. They are part of what kelpie did, so they are recorded
-        // before the note below names the wake's actions.
+        // Its answers to the rulings it was asked about; one it gave none on
+        // goes to the maintainer. They are part of what kelpie did, so they
+        // are applied before the note below names the wake's actions.
         let asked: Vec<TicketId> = (flying.wakes.iter())
             .filter_map(|w| match w {
-                Wake::Vote { id, .. } => Some(*id),
+                Wake::Answer { id, .. } => Some(*id),
                 _ => None,
             })
             .collect();
         if !asked.is_empty() {
-            let votes = answer
+            let answers = answer
                 .votes
                 .iter()
                 .map(|(id, fields)| {
-                    (
-                        *id,
-                        crate::panel::from_fields(fields, self.panel_options(*id)),
-                    )
+                    let options = self.ruling_options(*id);
+                    (*id, crate::pm_answer::from_fields(fields, options))
                 })
                 .collect();
-            acted.extend(self.panel_pm_answered(&asked, votes));
+            acted.extend(self.pm_answered(&asked, answers));
         }
         // One line of what the wake was for, what kelpie did with it, and the
         // answer's own `why`, so a wake that wrote nothing of its own left its

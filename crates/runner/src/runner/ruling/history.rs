@@ -1,10 +1,9 @@
-//! The rulings the maintainer answered, kept for the researcher to read
+//! The rulings that were answered, kept for `status` and the retro
 //!
 //! One JSON object a line in `<project>/rulings.jsonl`, appended as an
 //! answer is saved. The state file keeps only the rulings that wait, so
-//! without this the researcher could not find how an earlier one went.
-//! A file that cannot be read or written costs the researcher its history
-//! and nothing else.
+//! without this nothing could say how an earlier one went. A file that
+//! cannot be read or written costs that history and nothing else.
 
 use std::collections::BTreeMap;
 use std::io::Write;
@@ -12,15 +11,11 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-use crate::panel::{Ballot, Skip, Verdict, Voter};
 use crate::ports::Timestamp;
 use crate::runner::Answer;
 use crate::settings::RulingName;
 use crate::state::{Ruling, RulingKind, Stuck};
 use crate::ticket::TicketId;
-
-/// How many of the latest answered rulings the researcher is shown
-const LAST: usize = 60;
 
 /// The most of a ruling's question kept, in characters
 const QUESTION: usize = 1_200;
@@ -32,12 +27,11 @@ pub(in crate::runner) enum Answerer {
     Maintainer,
     /// The project manager, for the maintainer
     Pm,
-    /// The panel, by its votes
-    Panel,
 }
 
 /// A ruling and how it was answered
-// wire format: changing this is a breaking change to the rulings file
+// wire format: changing this is a breaking change to the rulings file. It
+// names no `deny_unknown_fields`, so a line an older build wrote still reads.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(in crate::runner) struct Record {
     pub(in crate::runner) id: TicketId,
@@ -56,27 +50,12 @@ pub(in crate::runner) struct Record {
     // Whether the project manager answered for the maintainer
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     by_pm: bool,
-    // Whether the panel decided it
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub(super) by_panel: bool,
     // The kind of ruling, as `rulings.pm_decides` names it
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(in crate::runner) kind: Option<RulingName>,
     // The option the answer is, when it is one of the ruling's
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(super) chose: Option<char>,
-    // What the panel concluded, and each expert's ballot, once it voted
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(super) verdict: Option<Verdict>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub(in crate::runner) ballots: Vec<Ballot>,
-    // Why the panel cast no vote on it, if it listed two options or more and none was cast
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(super) skipped: Option<Skip>,
-    // Who abstained since the answer came before their vote, which an
-    // expert's failed call does not say
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub(super) overtaken: Vec<Voter>,
+    chose: Option<char>,
 }
 
 impl Record {
@@ -104,35 +83,29 @@ impl Record {
             pull_request: ruling.pull_request,
             asked: asked_of(ruling),
             stem: stem_of(ruling),
-            answer: crate::runner::panel::folders::clip(&answer, QUESTION),
+            answer: clip(&answer, QUESTION),
             by_pm: by == Answerer::Pm,
-            by_panel: by == Answerer::Panel,
             kind: Some(RulingName::of(&ruling.kind)),
             chose,
-            verdict: ruling.verdict.clone(),
-            ballots: ruling.panel.clone().unwrap_or_default(),
-            skipped: ruling.skipped,
-            overtaken: Vec::new(),
         }
     }
 
-    /// Whether the panel decided the same question as `ruling` asks, for the
-    /// same work item: its pull request's number names a ruling once there is
-    /// one, so the ticket is what stays the same
-    pub(super) fn decided_by_panel(&self, ruling: &Ruling) -> bool {
+    /// Whether the project manager answered the same question as `ruling`
+    /// asks, for the same work item: its pull request's number names a ruling
+    /// once there is one, so the ticket is what stays the same
+    pub(in crate::runner) fn decided_by_pm(&self, ruling: &Ruling) -> bool {
         let item = match (self.issue, ruling.issue) {
             (Some(was), Some(is)) => was == is,
             _ => self.id == ruling.id,
         };
-        self.by_panel && item && self.stem.is_some() && self.stem == stem_of(ruling)
+        self.by_pm && item && self.stem.is_some() && self.stem == stem_of(ruling)
     }
 
     /// Who answered it
     pub(in crate::runner) fn by(&self) -> Answerer {
-        match (self.by_pm, self.by_panel) {
-            (true, _) => Answerer::Pm,
-            (_, true) => Answerer::Panel,
-            _ => Answerer::Maintainer,
+        match self.by_pm {
+            true => Answerer::Pm,
+            false => Answerer::Maintainer,
         }
     }
 
@@ -154,7 +127,7 @@ impl Record {
 
 // What a worker asked in `ruling`, as `rulings.jsonl` keeps it.
 // A failed turn's stem is why it failed, so the same failure again on the
-// same work item is one the panel already decided.
+// same work item is one the project manager already answered.
 fn stem_of(ruling: &Ruling) -> Option<String> {
     let stem = match &ruling.kind {
         RulingKind::Stuck(Stuck::TurnFailed { why, .. }) => {
@@ -165,57 +138,33 @@ fn stem_of(ruling: &Ruling) -> Option<String> {
         }
         kind => crate::runner::voice::question_stem(kind)?,
     };
-    Some(crate::runner::panel::folders::clip(&stem, QUESTION))
+    Some(clip(&stem, QUESTION))
 }
 
 // What `ruling` asks, less the table of options, as `rulings.jsonl` keeps it.
 fn asked_of(ruling: &Ruling) -> String {
     let (brief, _) = crate::runner::voice::brief(ruling);
     let asked = brief.split("\n\n| | Option").next().unwrap_or_default();
-    crate::runner::panel::folders::clip(asked.trim_start_matches('#').trim(), QUESTION)
+    clip(asked.trim_start_matches('#').trim(), QUESTION)
 }
 
-/// Sets `fields` on ruling `id`'s line in the file at `file`, leaving every
-/// other line and field as it is; a file with no such line is left alone
-///
-/// # Errors
-///
-/// What went wrong, for the log.
-pub(in crate::runner) fn amend(
-    file: &Path,
-    id: TicketId,
-    fields: Vec<(&str, serde_json::Value)>,
-) -> Result<(), String> {
-    let text = std::fs::read_to_string(file)
-        .map_err(|e| format!("cannot read {}: {}", file.display(), e.kind()))?;
-    let mut lines: Vec<String> = text.lines().map(str::to_owned).collect();
-    let at = lines.iter().rposition(|line| {
-        let value = serde_json::from_str::<serde_json::Value>(line).ok();
-        value.is_some_and(|v| {
-            serde_json::from_value::<TicketId>(v["id"].clone()).is_ok_and(|read| read == id)
-        })
-    });
-    let Some(at) = at else {
-        return Ok(());
-    };
-    let mut value: serde_json::Value =
-        serde_json::from_str(&lines[at]).map_err(|e| e.to_string())?;
-    for (name, field) in fields {
-        value[name] = field;
+// `text` cut to `most` characters, with an ellipsis.
+fn clip(text: &str, most: usize) -> String {
+    match text.char_indices().nth(most) {
+        Some((at, _)) => format!("{}…", &text[..at]),
+        None => text.to_owned(),
     }
-    lines[at] = serde_json::to_string(&value).map_err(|e| e.to_string())?;
-    let kept = file.with_extension("jsonl.tmp");
-    let wrote =
-        std::fs::write(&kept, lines.join("\n") + "\n").and_then(|()| std::fs::rename(&kept, file));
-    wrote.map_err(|e| format!("cannot rewrite {}: {}", file.display(), e.kind()))
 }
 
 /// Every ruling answered in the file at `file`, oldest first; a line that
-/// does not read is skipped
+/// does not read is skipped, and so is one the panel decided, since neither
+/// the maintainer nor the project manager answered it
 pub(in crate::runner) fn records(file: &Path) -> Vec<Record> {
     let text = std::fs::read_to_string(file).unwrap_or_default();
     (text.lines())
-        .filter_map(|line| serde_json::from_str(line).ok())
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .filter(|line| line.get("by_panel") != Some(&serde_json::Value::Bool(true)))
+        .filter_map(|line| serde_json::from_value(line).ok())
         .collect()
 }
 
@@ -226,52 +175,6 @@ pub(in crate::runner) fn pm_answers(records: &[Record]) -> BTreeMap<String, u32>
         *counts.entry(kind.as_str().to_owned()).or_default() += 1;
     }
     counts
-}
-
-/// The latest answered rulings in the file at `file`, as text, oldest first
-///
-/// Nothing, as text, for a file that is not there; a line that does not read
-/// is skipped.
-pub(super) fn read(file: &Path) -> String {
-    let text = std::fs::read_to_string(file).unwrap_or_default();
-    let records: Vec<Record> = (text.lines())
-        .filter_map(|line| serde_json::from_str(line).ok())
-        .collect();
-    let start = records.len().saturating_sub(LAST);
-    let mut out = String::from("# Earlier rulings and how they were answered\n\n");
-    if records.is_empty() {
-        out.push_str("(none kept yet)\n");
-    }
-    for record in &records[start..] {
-        let mut about = Vec::new();
-        about.extend(record.issue.map(|t| t.named().to_lowercase()));
-        about.extend(record.pull_request.map(|n| format!("pull request #{n}")));
-        let about = match about.is_empty() {
-            true => String::new(),
-            false => format!(" ({})", about.join(", ")),
-        };
-        let by = match (record.by_pm, record.by_panel) {
-            (true, _) => "Answered by the project manager, not the maintainer",
-            (_, true) => "Decided by the panel, not the maintainer",
-            _ => "Answered by the maintainer",
-        };
-        out.push_str(&format!(
-            "## Ruling {}{about}, on {}\n\n{}\n\n{by}: {}\n\n",
-            record.id,
-            day(record.at),
-            record.asked,
-            record.answer
-        ));
-    }
-    out
-}
-
-// The day `at` falls on, in UTC.
-fn day(at: Timestamp) -> String {
-    i64::try_from(at.0)
-        .ok()
-        .and_then(|s| jiff::Timestamp::from_second(s).ok())
-        .map_or_else(|| at.0.to_string(), |t| t.strftime("%Y-%m-%d").to_string())
 }
 
 #[cfg(test)]
@@ -292,7 +195,6 @@ mod tests {
         )
         .unwrap();
         assert_eq!(records(&file), Vec::new());
-        assert!(read(&file).contains("(none kept yet)"));
     }
 
     // An answered ruling of a kind that has since gone stays in the history.
@@ -308,7 +210,33 @@ mod tests {
         let records = records(&file);
         assert_eq!(records.len(), 1);
         assert_eq!(records[0].id, ticket(3));
-        assert!(read(&file).contains("yes"));
+    }
+
+    // A line the panel decided, from a build that had one, still reads its
+    // other fields, but it is no answer the maintainer or the project manager
+    // gave, so it is skipped.
+    #[test]
+    fn a_line_from_a_build_with_the_panel_reads_and_one_the_panel_decided_is_skipped() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("rulings.jsonl");
+        let line = |id: u64, by_panel: bool| {
+            serde_json::json!({
+                "id": id, "at": 100, "issue": 7, "pull_request": 71,
+                "asked": "Merge?", "answer": "yes", "kind": "merge", "chose": "A",
+                "by_panel": by_panel, "skipped": "draining",
+                "verdict": {"work": "feat", "tier": "full", "risky": false, "shadow": true},
+                "ballots": [{"voter": "advisor", "vote": null}, {"voter": "worker", "vote":
+                    {"choice": "A", "why": "w", "design": false}}],
+                "overtaken": ["worker"],
+            })
+        };
+        std::fs::write(&file, format!("{}\n{}\n", line(3, false), line(4, true))).unwrap();
+
+        let records = records(&file);
+
+        let ids: Vec<TicketId> = records.iter().map(|r| r.id).collect();
+        assert_eq!(ids, [ticket(3)]);
+        assert_eq!(records[0].by(), Answerer::Maintainer);
     }
 
     #[test]
@@ -352,18 +280,27 @@ mod tests {
             ruling,
             &Answer::Text("A".into()),
             Timestamp(1),
-            Answerer::Panel,
+            Answerer::Pm,
         )
     }
 
     // The ruling's id is its pull request's number once there is one, so a
     // question asked again after the pull request opened is the same question.
     #[test]
-    fn a_question_asked_again_under_a_pull_request_is_the_one_the_panel_decided() {
+    fn a_question_asked_again_under_a_pull_request_is_the_one_the_project_manager_answered() {
         let before = decided(&asking(7, None, "Which flag?\n- `--a`\n- `--b`"));
 
-        assert!(before.decided_by_panel(&asking(71, Some(71), "Which flag?\n- `--a`\n- `--b`")));
-        assert!(!before.decided_by_panel(&asking(71, Some(71), "Which command?")));
+        assert!(before.decided_by_pm(&asking(71, Some(71), "Which flag?\n- `--a`\n- `--b`")));
+        assert!(!before.decided_by_pm(&asking(71, Some(71), "Which command?")));
+        let by_maintainer = Record {
+            by_pm: false,
+            ..before
+        };
+        assert!(!by_maintainer.decided_by_pm(&asking(
+            71,
+            Some(71),
+            "Which flag?\n- `--a`\n- `--b`"
+        )));
     }
 
     fn failing(id: u64, why: &str) -> Ruling {
@@ -382,12 +319,12 @@ mod tests {
     }
 
     // The same failure on the same work item, whitespace aside, is the one the
-    // panel decided, and another failure is not.
+    // project manager answered, and another failure is not.
     #[test]
-    fn a_turn_that_fails_again_the_same_way_is_the_failure_the_panel_decided() {
+    fn a_turn_that_fails_again_the_same_way_is_the_failure_the_project_manager_answered() {
         let before = decided(&failing(71, "harness  exited\nwith 1"));
 
-        assert!(before.decided_by_panel(&failing(72, "harness exited with 1")));
-        assert!(!before.decided_by_panel(&failing(72, "harness exited with 2")));
+        assert!(before.decided_by_pm(&failing(72, "harness exited with 1")));
+        assert!(!before.decided_by_pm(&failing(72, "harness exited with 2")));
     }
 }
