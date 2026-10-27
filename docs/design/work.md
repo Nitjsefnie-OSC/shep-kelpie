@@ -1,6 +1,6 @@
 # Work
 
-Projects, slots, issue writer. The board and work items are in `board.md`, the project manager in `pm.md`.
+Projects, slots, issue writer, the issue check. The board and work items are in `board.md`, the project manager in `pm.md`.
 
 ## Projects
 
@@ -25,8 +25,12 @@ Projects, slots, issue writer. The board and work items are in `board.md`, the p
 
 - A path in backticks in an issue a writer files that matches no file on `main` goes back once: the guard refuses the filing, the ledger keeps the path, and the same issue passes on its next try. Retros: 8 of 27 reported an issue naming a moved or renamed file. `core/guard/issues/named.rs`, #1322
 - The first prompt of a work item names the paths its issue names that `main` lacks as "may have moved", with the closest file that ends the same way. One `git ls-tree`, read in place and only when the body names a path. A folder on `main` resolves, and a name with no `/` counts only with an extension files on `main` have. `runner/turn/mod.rs`, #1322
+- The issue check reads structure, not quality: `board::check::check` over an issue's title, body and labels returns every part it lacks or holds malformed, each naming the part. The parts: a title; a `Touches:` line (in a list or bold too) naming a path in backticks; `What to build` with text under it and `Acceptance criteria` with a `- [ ]` item, as headings at any level and case, a section ending at the next heading of its level or above, fences skipped; a `Harness reach:` line with text when a `Touches:` path has a part after `adapters/` named for `claude`, `pi`, `codex` or `goose`; a `Blocked by:` line, when there is one, naming `#<n>` or `k<n>`; one priority label (`board::is_priority_label`, so a bare `P2` too); one kind label, `bug` or `enhancement`. Sources: the issue writer's and triager's body shape, `CLAUDE.md`'s pi rule, `docs/agents/issue-tracker.md`'s `Blocked by:` line, `docs/agents/triage-labels.md` and the triager's `type`. ADR 0018, `core/board/check.rs`
+- `shep kelpie issue check <ticket>` reads the ticket through `ports.tickets` (`Routed`, as the issue writer's read-back), prints that it passes or each failure, and exits non-zero on one. `check` as the first word after `issue` is always the subcommand and takes one ticket id. `src/issues/check.rs`, `src/flock/verbs/mod.rs`
+- The issue skill (`skills.md`) holds the same format; its example passing the check, and its naming every part the check reads, are tested. `core/skills/issue.rs`
 
 ## Not built
 
 - Overlapping items bundled when small, chained otherwise; today overlap shows as a conflict turn. `docs/design-log.md` Decided, not built
+- The board running the issue check on each new or edited issue, and the triager only on one that fails it. ADR 0018
 - Oversized work split into chained items by the worker; today issue writer scopes first. ADR 0006
