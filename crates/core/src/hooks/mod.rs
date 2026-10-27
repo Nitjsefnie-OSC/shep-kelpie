@@ -179,6 +179,11 @@ impl Hooks {
         self.list.is_empty()
     }
 
+    /// Each hook's command, as the shell runs it
+    pub fn commands(&self) -> impl Iterator<Item = &str> {
+        self.list.iter().map(|e| e.command.as_str())
+    }
+
     /// Whether any hook runs at `point`
     pub fn has(&self, point: HookPoint) -> bool {
         self.list.iter().any(|e| e.point == point)

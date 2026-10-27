@@ -30,6 +30,8 @@ use crate::home::Build;
 use crate::shep_home;
 use crate::shepherd::{self, Dial};
 
+pub use migrate::main as migrate_main;
+
 /// What the maintainer asked `upgrade` to do
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Action {
@@ -144,10 +146,11 @@ pub struct Scene<'a> {
 /// # Errors
 ///
 /// A message when the build cannot be had, run or installed, when the
-/// shepherd cannot be reached or runs a shep the build refuses, or
-/// when a restart fails. Nothing is installed or restarted on the first
-/// three. A failure after the swap says what is installed and the command
-/// that finishes the restarts, `upgrade --binary` on the installed file.
+/// shepherd cannot be reached or runs a shep the build refuses, when the
+/// settings are not migrated, or when a restart fails. Nothing is installed or
+/// restarted on the first three, and nothing restarted on the fourth. A
+/// failure after the swap says what is installed and the command that
+/// finishes the restarts, `upgrade --binary` on the installed file.
 pub async fn run(
     scene: &Scene<'_>,
     action: &Action,
@@ -277,7 +280,16 @@ pub async fn run(
             say(format!("{build} is installed already"));
         }
     }
-    migrate::run(scene, action, layout.installed(), &*client, say).await;
+    // A runner whose settings the new build would refuse is better left on the old one.
+    migrate::run(scene, action, layout.installed(), &*client, say)
+        .await
+        .map_err(|why| {
+            format!(
+                "the settings were not migrated: {why}\nNothing was restarted. Once that is put \
+                 right, `shep kelpie settings migrate` migrates them and {finish} restarts onto \
+                 the new build"
+            )
+        })?;
     say(format!(
         "restarting onto it: if this stops before it finishes, {finish} finishes the restarts"
     ));

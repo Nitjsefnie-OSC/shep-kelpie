@@ -12,6 +12,8 @@ use crate::forwarder::{Upstream, WORKER_HOST};
 use crate::ports::{AgentCall, Fence, Forward, Policy, Tools};
 use crate::profile::CREDENTIALS;
 
+use super::hook_reads::fenced_policy;
+
 /// What a fenced session may do, from its fence alone
 pub fn fence_policy(fence: &Fence) -> Policy {
     Policy {
@@ -36,14 +38,15 @@ pub fn fence_policy(fence: &Fence) -> Policy {
 }
 
 /// What a call is held to before its harness adds its own needs: its fence's
-/// policy, or with no fence the credentials and `unfenced` unread
+/// policy with what its hooks run, or with no fence the credentials and
+/// `unfenced` unread
 ///
 /// Every harness starts here, so a call with no fence is denied `unfenced`
 /// whichever one runs it. What that call reads back inside those homes, and what
 /// stays denied under them, is in `unfenced_reads`.
 pub(crate) fn call_policy(call: &AgentCall, unfenced: &[String]) -> Policy {
     match &call.reach.fence {
-        Some(fence) => fence_policy(fence),
+        Some(fence) => fenced_policy(fence, &ProcessEnv),
         None => {
             let no_read = CREDENTIALS.iter().map(|&p| p.to_owned());
             let mut policy = Policy {
@@ -136,7 +139,7 @@ fn bare(program: &Path) -> bool {
 }
 
 // `program` in each `PATH` folder, the first that holds a file of its name
-fn on_path(program: &Path, env: &dyn Env) -> Option<PathBuf> {
+pub(super) fn on_path(program: &Path, env: &dyn Env) -> Option<PathBuf> {
     env.get("PATH")
         .iter()
         .flat_map(|paths| env::split_paths(paths))
@@ -186,7 +189,7 @@ fn interpreter(file: &Path, env: &dyn Env, home: &Path) -> Vec<PathBuf> {
 }
 
 // The `#!` line of `file`, and nothing when it is no script
-fn shebang(file: &Path) -> Option<String> {
+pub(super) fn shebang(file: &Path) -> Option<String> {
     let mut head = [0u8; 256];
     let read = std::fs::File::open(file).ok()?.read(&mut head).ok()?;
     let text = String::from_utf8_lossy(&head[..read]);
