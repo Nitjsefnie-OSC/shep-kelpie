@@ -248,8 +248,13 @@ impl Runner {
     // step, unless a triage label the maintainer put on by hand stands, which
     // leaves the record with no further label and no write.
     pub(super) fn answers_write(&mut self, issue: u64, body: &str) -> Result<Write, StateError> {
-        match self.triage_labelled_by_hand(issue) {
-            Ok(Some(label)) => {
+        match self.triage_before_write(issue) {
+            Ok((None, true)) => {
+                self.triage_body_moved(issue)?;
+                self.triage_answers_commented(issue)?;
+                return Ok(Write::Refused);
+            }
+            Ok((Some(label), _)) => {
                 self.notes.push(format!(
                     "triage #{issue}: `{label}` went on by hand, so that stands: kelpie writes \
                      no answers into its body and labels it no further"
@@ -260,7 +265,7 @@ impl Runner {
                 )?;
                 return Ok(Write::Held);
             }
-            Ok(None) => {}
+            Ok((None, false)) => {}
             Err(e) => {
                 let why = format!("cannot read its labels: {e}");
                 self.triage_failed(issue, &why, !forge_is_busy(&e));

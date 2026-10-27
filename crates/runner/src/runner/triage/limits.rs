@@ -315,6 +315,7 @@ impl Runner {
                 questions: None,
                 local: None,
                 spam: None,
+                begun: None,
             });
             triage.prune();
         }

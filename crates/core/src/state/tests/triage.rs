@@ -80,6 +80,7 @@ fn a_file_saved_before_this_version_loads_with_no_records() {
         questions: None,
         local: None,
         spam: None,
+        begun: None,
     });
     store.save(&loaded).unwrap();
     let text = fs::read_to_string(dir.path().join(STATE_FILE)).unwrap();
@@ -126,6 +127,7 @@ fn a_file_saved_before_this_version_loads_with_no_duplicate() {
             questions: None,
             local: None,
             spam: None,
+            begun: None,
         }]
     );
 
@@ -145,6 +147,7 @@ fn a_file_saved_before_this_version_loads_with_no_duplicate() {
         questions: None,
         local: None,
         spam: None,
+        begun: None,
     });
     store.save(&loaded).unwrap();
     let text = fs::read_to_string(dir.path().join(STATE_FILE)).unwrap();
@@ -179,6 +182,7 @@ fn the_oldest_finished_records_go_past_the_cap() {
         questions: None,
         local: None,
         spam: None,
+        begun: None,
     };
     let mut triage = TriageState {
         since: Timestamp(1),
@@ -232,6 +236,7 @@ fn a_prune_past_the_cap_lets_the_records_that_hold_no_call_go_first() {
                 questions: None,
                 local: None,
                 spam: None,
+                begun: None,
             })
             .collect(),
         unrecorded: Vec::new(),
@@ -284,6 +289,7 @@ fn a_record_that_closed_a_duplicate_is_kept_past_the_cap() {
                 questions: None,
                 local: None,
                 spam: None,
+                begun: None,
             })
             .collect(),
         unrecorded: Vec::new(),
@@ -396,6 +402,7 @@ fn a_file_saved_before_this_version_loads_with_no_ask() {
         }),
         local: None,
         spam: None,
+        begun: None,
     });
     store.save(&loaded).unwrap();
     let text = fs::read_to_string(dir.path().join(STATE_FILE)).unwrap();
@@ -505,6 +512,7 @@ fn a_file_saved_before_this_version_loads_with_no_limit_record() {
         questions: None,
         local: None,
         spam: None,
+        begun: None,
     });
     store.save(&loaded).unwrap();
     let text = fs::read_to_string(dir.path().join(STATE_FILE)).unwrap();
@@ -544,6 +552,7 @@ fn a_record_keeps_the_time_of_every_call_its_issue_made() {
         questions: None,
         local: None,
         spam: None,
+        begun: None,
     };
     for n in 0..(TRIAGE_CALLS_KEPT + 3) {
         record.add_call(Timestamp(1_792_051_200 + n as u64));
@@ -617,6 +626,7 @@ fn a_taken_back_record_saves_as_taken_and_is_not_pruned() {
         questions: None,
         local: None,
         spam: None,
+        begun: None,
     };
     let mut state = ProjectState::new();
     let cap = TRIAGED_KEPT as u64;

@@ -25,7 +25,7 @@ fn sure() -> Value {
 }
 
 // The same reply as leaked text, for a scripted call held open
-fn said(found: Value) -> &'static str {
+pub(super) fn said(found: Value) -> &'static str {
     let mut all = nothing();
     for (key, value) in found.as_object().expect("an object") {
         all[key] = value.clone();

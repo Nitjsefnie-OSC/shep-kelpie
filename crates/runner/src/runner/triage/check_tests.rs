@@ -8,13 +8,14 @@ use serde_json::{Value, json};
 
 use super::pick_tests::{MAINTAINER, issue, list, rig_with};
 use super::checks::CHECK_TRIES;
-use super::research_tests::{APP, WORDS, calls, moves, reply};
+use super::ready_tests::said;
+use super::research_tests::{APP, WORDS, calls, moves, pump, reply};
 use crate::github::ApiError;
 use crate::ports::Timestamp;
 use crate::ports::{OpenIssue, Role};
 use crate::runner::slots_tests::dispatched;
-use crate::runner::{Runner, step};
-use crate::test::{Rig, Scripted};
+use crate::runner::{Pass, Runner, advance, step};
+use crate::test::{CALL_PATIENCE, Hold, Rig, Scripted};
 
 // A body the issue check passes, with the labels it needs beside it
 pub(super) const PASSING: &str = "Touches: `src/start.rs`\n\n## What to build\n\n- Fix the \
@@ -302,6 +303,41 @@ fn a_rewrite_that_passes_states_its_assumptions_and_goes_ready_with_its_kind_mad
     assert_eq!(step(&runner).unwrap(), None);
     assert_eq!(rig.github.comments().len(), 1);
     assert_eq!(moves(&rig).len(), 6);
+}
+
+#[test]
+fn a_maintainers_edit_made_while_the_triager_ran_survives_its_rewrite() {
+    let edited = "It crashes when I run it, on Linux.";
+    for rewrite in [ASSUMED, STILL] {
+        let (rig, runner) = checking("pick = \"maintainer\"", MAINTAINER, FAILING, &[]);
+        let found = json!({ "type": "bug", "kind": "fix", "priority": "P2", "body": rewrite });
+        let hold = Hold::default();
+        rig.claude.script_for(
+            Role::Triager,
+            [Scripted::HoldThenSay(hold.clone(), said(found))],
+        );
+
+        assert!(matches!(advance(&runner).unwrap(), Pass::Started));
+        assert!(hold.entered(CALL_PATIENCE), "the research never began");
+        list(&rig, filed(&rig, MAINTAINER, edited, &[]));
+        hold.release();
+        pump(&runner, || rig.github.comments().len() == 2);
+
+        assert_eq!(rig.github.issue_edits(), [], "{rewrite}");
+        let notice = &rig.github.comments()[1].1;
+        assert!(notice.contains("it was edited while kelpie read it"), "{notice}");
+        assert!(!moves(&rig).contains(&"label ready-for-agent".to_owned()));
+
+        // The edit is checked at the next look, and triaged as any edit is.
+        rig.claude.script_for(Role::Triager, [reply(json!({}))]);
+        rig.claude
+            .script_for(Role::Representative, [Scripted::Say(WORDS)]);
+        let labels = ["bug", "P2", "kind:fix", "needs-triage"];
+        list(&rig, filed(&rig, MAINTAINER, edited, &labels));
+        rig.next_look();
+        assert_eq!(step(&runner).unwrap(), None);
+        assert_eq!(calls(&rig, Role::Triager).len(), 2, "{rewrite}");
+    }
 }
 
 #[test]

@@ -158,6 +158,8 @@ pub(in crate::runner) struct Tries {
     // The issue body with the settled answers under its author's text, kept
     // until the record carries it
     pub(in crate::runner) answers_body: Option<String>,
+    // The hash of the body the current call was made from
+    pub(super) begun: Option<u64>,
     // The questions an earlier triage round on this issue asked and its author
     // answered, which a pass asked again over the issue may not ask a second
     // time
@@ -763,6 +765,7 @@ impl Runner {
             questions,
             local,
             spam: None,
+            begun: (self.triage_tries.get(&issue)).and_then(|t| t.begun),
         };
         for at in made {
             record.add_call(at);

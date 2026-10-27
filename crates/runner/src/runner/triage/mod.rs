@@ -411,6 +411,7 @@ impl Runner {
         if tries.seen.is_none() {
             tries.seen = Some(taken.unwrap_or_else(|| this.labels.clone()));
         }
+        tries.begun = Some(local::body_hash(&this.body));
         // The author's login comes from the same listing that made the call, so
         // a call that never posted is still counted against their cap.
         if tries.author.is_none() {

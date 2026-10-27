@@ -269,6 +269,12 @@ pub struct Triaged {
     /// Left out unless the check read the issue as spam.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub spam: Option<Probability>,
+    /// The hash of the body this pass was made from. Kelpie writes no body
+    /// over an issue whose body has changed since.
+    ///
+    /// Left out for a record saved before it existed, which is written as before.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub begun: Option<u64>,
 }
 
 impl Triaged {

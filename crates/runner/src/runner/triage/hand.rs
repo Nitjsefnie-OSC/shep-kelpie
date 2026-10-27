@@ -165,6 +165,7 @@ impl Runner {
             questions: None,
             local: None,
             spam: None,
+            begun: None,
         });
         self.save(next)?;
         self.notes.push(format!(

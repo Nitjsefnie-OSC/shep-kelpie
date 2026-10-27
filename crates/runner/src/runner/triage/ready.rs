@@ -17,7 +17,8 @@ use crate::board::has_criteria;
 use crate::board::{READY, TRIAGE};
 use crate::local_paths::{Leak, Surface};
 use crate::ports::{ForgeError, NewLabel};
-use crate::state::{StateError, TriageStep};
+use super::local::body_hash;
+use crate::state::{CheckTriage, StateError, TriageStep};
 
 /// Made on a repo that lacks it before the first issue that passes the issue
 /// check is made ready
@@ -111,8 +112,13 @@ impl Runner {
     // label the maintainer put on by hand since the pass began stands, which
     // leaves the record with no further label and no body write.
     pub(super) fn ready_write(&mut self, issue: u64, body: &str) -> Result<ReadyWrite, StateError> {
-        match self.triage_labelled_by_hand(issue) {
-            Ok(Some(label)) => {
+        match self.triage_before_write(issue) {
+            Ok((None, true)) => {
+                self.triage_body_moved(issue)?;
+                self.triage_ready_dropped(issue)?;
+                return Ok(ReadyWrite::Refused);
+            }
+            Ok((Some(label), _)) => {
                 self.notes.push(format!(
                     "triage #{issue}: `{label}` went on while its triage was still running, so \
                      that stands: kelpie labels it no further and writes no new body"
@@ -121,7 +127,7 @@ impl Runner {
                 self.triage_tries.remove(&issue);
                 return Ok(ReadyWrite::Held);
             }
-            Ok(None) => {}
+            Ok((None, false)) => {}
             Err(e) => {
                 let why = format!("cannot read its labels: {e}");
                 self.triage_failed(issue, &why, !forge_is_busy(&e));
@@ -196,6 +202,44 @@ impl Runner {
             &self.triage_labels_now(issue)?,
             &self.triage_seen(issue),
         ))
+    }
+
+    // What `issue` holds just before its body is written, from one read: the
+    // triage label put on by hand since the pass began, and whether its body
+    // changed since the pass read it.
+    pub(super) fn triage_before_write(
+        &self,
+        issue: u64,
+    ) -> Result<(Option<String>, bool), ForgeError> {
+        let found = (self.ports.tickets).issue(&self.remote, super::ticket(issue)?)?;
+        let begun = (self.triage_tries.get(&issue))
+            .and_then(|t| t.begun)
+            .or_else(|| self.triage_record(issue).and_then(|t| t.begun));
+        let moved = begun.is_some_and(|begun| begun != body_hash(&found.body));
+        let carried: Vec<String> = (found.labels.into_iter())
+            .filter(|l| TRIAGE_LABELS.contains(&l.as_str()))
+            .collect();
+        Ok((stood(&carried, &self.triage_seen(issue)), moved))
+    }
+
+    // Says that `issue`'s body was edited under its pass, so kelpie writes none
+    // over the edit. The issue's check no longer waits on the pass: the next
+    // poll checks the edit.
+    pub(super) fn triage_body_moved(&mut self, issue: u64) -> Result<(), StateError> {
+        self.notes.push(format!(
+            "triage #{issue}: its body was edited while its triage ran, so kelpie writes no \
+             body over the edit, and the issue ends `{TRIAGE}`"
+        ));
+        self.notice_on(
+            issue,
+            "Kelpie did not write into this issue's body: it was edited while kelpie read it. \
+             Kelpie checks the edit at its next look.",
+        );
+        let mut next = self.state.clone();
+        if let Some(kept) = next.checks.iter_mut().find(|c| c.issue == issue) {
+            kept.triage = CheckTriage::None;
+        }
+        self.save(next)
     }
 
     // The same, leaving `own` out of what the issue carries: the label the
