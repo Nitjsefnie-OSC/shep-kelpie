@@ -165,13 +165,9 @@ fn the_issue_writer_is_the_file_agents_issue_writer_names() {
 }
 
 #[test]
-fn implementer_choice_is_issue_writer_when_absent_and_takes_order() {
+fn implementer_choice_is_order_when_absent_and_refuses_the_issue_writer_by_name() {
     let absent = project("implementers = [\"sonnet-high\", \"opus-high\"]\n");
-    assert_eq!(
-        absent.agents.implementer_choice,
-        ImplementerChoice::IssueWriter
-    );
-    assert_eq!(ImplementerChoice::IssueWriter.as_str(), "issue-writer");
+    assert_eq!(absent.agents.implementer_choice, ImplementerChoice::Order);
 
     let ordered = project(
         "implementers = [\"sonnet-high\", \"opus-high\"]\nimplementer_choice = \"order\"\n",
@@ -186,6 +182,12 @@ fn implementer_choice_is_issue_writer_when_absent_and_takes_order() {
         err.contains("agents.implementer_choice") && err.contains("unknown variant `first`"),
         "{err}"
     );
+
+    let written = "implementers = [\"sonnet-high\"]\nimplementer_choice = \"issue-writer\"\n";
+    let err = try_project(written).unwrap_err().to_string();
+    assert!(err.contains("agents.implementer_choice"), "{err}");
+    assert!(err.contains("`issue-writer` is gone"), "{err}");
+    assert!(err.contains("shep kelpie settings migrate"), "{err}");
 }
 
 #[test]

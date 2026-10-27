@@ -187,3 +187,26 @@ async fn the_panels_expert_keys_and_roles_are_deleted_and_named_and_the_table_lo
     assert!(table.get("researcher").is_none(), "{table:?}");
     assert_eq!(table["repo_setup"]["roles"], serde_json::json!(["worker"]));
 }
+
+#[tokio::test]
+async fn the_issue_writers_implementer_choice_is_deleted_and_order_is_left() {
+    let chosen = |value: &str| {
+        TABLE.replace(
+            "[agents]\n",
+            &format!("[agents]\nimplementer_choice = \"{value}\"\n"),
+        )
+    };
+    let scene = Scene::holding(&chosen("issue-writer")).await;
+
+    let said = scene.migrate().await.unwrap();
+
+    assert!(
+        said[1].contains("removed agents.implementer_choice = \"issue-writer\""),
+        "{said:?}"
+    );
+    assert!(scene.table()["agents"].get("implementer_choice").is_none());
+
+    let scene = Scene::holding(&chosen("order")).await;
+    scene.migrate().await.unwrap();
+    assert_eq!(scene.table()["agents"]["implementer_choice"], "order");
+}

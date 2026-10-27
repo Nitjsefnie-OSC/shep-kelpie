@@ -22,11 +22,6 @@ pub(super) enum News {
     Pm(End),
     // The batch retro's call ended
     Retro(End),
-    // The issue writer's call labelling an issue ended
-    Labelled {
-        issue: TicketId,
-        end: End,
-    },
     // The e2e run of a bump's head ended
     Proved(super::proving::Proof),
     // A contribution's head was read for security, to a verdict or to none

@@ -30,7 +30,7 @@ use crate::work_item::new_session_id;
 
 pub(in crate::runner) mod reading;
 
-/// How long a call may run before it is ended, as the issue writer's is
+/// How long a call may run before it is ended
 const CEILING: Duration = Duration::from_secs(15 * 60);
 
 /// What one post is made from

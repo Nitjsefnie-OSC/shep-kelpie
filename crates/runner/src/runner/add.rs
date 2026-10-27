@@ -3,12 +3,11 @@
 use std::fmt;
 
 use super::Runner;
-use super::flight::label::is_agent_label;
 use super::trigger::issue_list;
 use crate::board::{AGENT_LABEL, LabelError, agent_label, old_worker_label, pinned};
 use crate::ports::{ForgeError, Issue};
 use crate::settings::AgentName;
-use crate::state::StateError;
+use crate::state::{ProjectState, Ruling, RulingKind, StateError, Stuck};
 use crate::ticket::TicketId;
 use crate::work_item::new_session_id;
 
@@ -25,8 +24,6 @@ pub enum AddError {
     Closed(TicketId),
     /// The issue's `agent:` label cannot be used
     Label(LabelError),
-    /// The issue writer is labelling the issue
-    Labelling(TicketId),
     /// `finish` holds the board back, so no new work item opens
     Finishing,
     /// No random session id could be drawn, with the OS's reason
@@ -56,11 +53,6 @@ impl fmt::Display for AddError {
             Self::Forge(e) => write!(f, "cannot read the issue: {e}"),
             Self::Closed(ticket) => write!(f, "{} is closed", ticket.shown()),
             Self::Label(e) => e.fmt(f),
-            Self::Labelling(ticket) => write!(
-                f,
-                "the issue writer is labelling {}: add it once that call ends",
-                ticket.shown()
-            ),
             Self::Finishing => f.write_str(
                 "the runner is finishing, so it opens no new work item: `shep kelpie start` \
                  lets it pick again",
@@ -99,9 +91,6 @@ impl Runner {
         if self.state.item(ticket).is_some() {
             return Err(AddError::InFlight(vec![ticket]));
         }
-        if self.flights.labelling() == Some(ticket) {
-            return Err(AddError::Labelling(ticket));
-        }
         if !self.slot_free() {
             return Err(AddError::InFlight(self.slot_issues()));
         }
@@ -128,7 +117,7 @@ impl Runner {
         let mut item = self.fresh(ticket, found.title, agent.clone(), session);
         item.pinned = pinned(&found.labels);
         next.work_items.push(item);
-        Self::label_ruled(&mut next, ticket);
+        label_ruled(&mut next, ticket);
         if let Some(moved) = &moved {
             next.record_event(self.ports.clock.now(), moved.event.clone());
         }
@@ -229,4 +218,16 @@ impl Runner {
     pub(super) fn implementer_files(&self) -> Vec<AgentName> {
         self.book.implementer_files()
     }
+}
+
+// Whether `label` is an `agent:` label, its prefix in any case.
+fn is_agent_label(label: &str) -> bool {
+    (label.get(..AGENT_LABEL.len())).is_some_and(|p| p.eq_ignore_ascii_case(AGENT_LABEL))
+}
+
+// Clears the ruling `ticket` waited on unlabelled, from `next`, once a work item opens for it.
+fn label_ruled(next: &mut ProjectState, ticket: TicketId) {
+    let unlabelled = |r: &Ruling| matches!(r.kind, RulingKind::Stuck(Stuck::Unlabelled { .. }));
+    next.rulings
+        .retain(|r| !(r.issue == Some(ticket) && unlabelled(r)));
 }

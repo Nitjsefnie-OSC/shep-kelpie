@@ -5,8 +5,9 @@
 //! there is never changed. The panel's `rulings.decide`,
 //! `rulings.full_panel_paths`, `agents.advisor`, `agents.researcher` and
 //! `researcher` table are deleted, and so are `advisor` and `researcher` in
-//! `repo_setup.roles`. Each table is checked as `set` checks it, and one the
-//! runner would refuse is not written.
+//! `repo_setup.roles`. `agents.implementer_choice = "issue-writer"` is deleted,
+//! since the issue writer is gone and `order` is the default. Each table is
+//! checked as `set` checks it, and one the runner would refuse is not written.
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -32,6 +33,9 @@ const ROLES: &str = "repo_setup.roles";
 
 /// The panel's experts, which `repo_setup.roles` no longer takes
 const PANEL_ROLES: [&str; 2] = ["advisor", "researcher"];
+
+/// The choice of implementer that went with the issue writer, which deleting the key replaces
+const WRITER_CHOICE: (&str, &str) = ("agents.implementer_choice", "issue-writer");
 
 /// Runs `shep kelpie settings migrate`, printing a line for each project it changed
 pub fn main() -> ExitCode {
@@ -123,6 +127,7 @@ async fn project(
         .collect();
     removed.extend(panel_keys(&mut table).into_iter().map(str::to_owned));
     removed.extend(panel_roles(&mut table));
+    removed.extend(writer_choice(&mut table));
     let said: Vec<String> = [("wrote", wrote.join(", ")), ("removed", removed.join(", "))]
         .into_iter()
         .filter(|(_, keys)| !keys.is_empty())
@@ -169,6 +174,17 @@ fn panel_roles(table: &mut Map<String, Value>) -> Vec<String> {
         .collect();
     roles.retain(|role| !gone(role));
     removed
+}
+
+// Deletes `agents.implementer_choice` when it holds `issue-writer`, and names it.
+fn writer_choice(table: &mut Map<String, Value>) -> Option<String> {
+    let ((outer, key), value) = (leaves(WRITER_CHOICE.0), WRITER_CHOICE.1);
+    let agents = table.get_mut(outer).and_then(Value::as_object_mut)?;
+    agents
+        .get(key)
+        .filter(|held| held.as_str() == Some(value))?;
+    agents.remove(key);
+    Some(format!("{} = {value:?}", WRITER_CHOICE.0))
 }
 
 /// Writes into `table` the kinds `rulings.pm_decides` is missing, at their

@@ -100,7 +100,6 @@ impl Runner {
         let flights = &self.flights;
         let others = [
             (flights.pm.is_some(), "the project manager's call"),
-            (flights.labelling.is_some(), "the issue writer's call"),
             (flights.retro.is_some(), "the batch retro"),
         ];
         if let Some((_, what)) = others.iter().find(|(flying, _)| *flying) {

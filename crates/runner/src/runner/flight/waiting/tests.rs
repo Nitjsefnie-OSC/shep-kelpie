@@ -202,9 +202,8 @@ fn a_pinned_item_never_falls_back() {
 }
 
 #[test]
-fn with_implementer_choice_order_a_first_turn_waiting_past_fallback_after_moves_to_the_next() {
+fn an_unlabelled_issues_first_turn_waiting_past_fallback_after_moves_to_the_next() {
     let rig = rig("acme", &["coder", "sonnet-high"], Some(15));
-    rig.implementers_in_order();
     rig.forge.list_ready(7, false);
     let runner = rig.open().unwrap();
     let report = step(&runner).unwrap();
