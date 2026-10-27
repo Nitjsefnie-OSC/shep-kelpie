@@ -123,57 +123,6 @@ const PM_DENY: [&str; 10] = [
     "NotebookEdit",
 ];
 
-/// The only tools the advisor's session has, as `--tools` takes them: it
-/// reads and searches files, and writes nothing, since its reply is its vote
-pub(crate) const ADVISE_TOOLS: &str = "Read,Glob,Grep";
-
-/// The only tools the researcher's session has, as `--tools` takes them: it
-/// reads and searches files, and fetches and searches the web, read only
-pub(crate) const RESEARCH_TOOLS: &str = "Read,Glob,Grep,WebFetch,WebSearch";
-
-/// What the advisor and the researcher never use, denied as well in case
-/// `--tools` lets one through: commands, sub-agents, skills, messages, every
-/// file writer and the rest a worker is denied. The researcher's web tools
-/// are the one difference, so they are not here.
-const EXPERT_DENY: [&str; 15] = [
-    "Agent",
-    "Task",
-    "Bash",
-    "BashOutput",
-    "KillShell",
-    "Skill",
-    "SendMessage",
-    "Edit",
-    "Write",
-    "MultiEdit",
-    "NotebookEdit",
-    "Monitor",
-    "RemoteTrigger",
-    "Workflow",
-    "EnterWorktree",
-];
-
-/// [`EXPERT_DENY`] and the web, which the advisor is not let
-const ADVISE_DENY: [&str; 17] = [
-    "Agent",
-    "Task",
-    "Bash",
-    "BashOutput",
-    "KillShell",
-    "Skill",
-    "SendMessage",
-    "Edit",
-    "Write",
-    "MultiEdit",
-    "NotebookEdit",
-    "Monitor",
-    "RemoteTrigger",
-    "Workflow",
-    "EnterWorktree",
-    "WebFetch",
-    "WebSearch",
-];
-
 /// Every tool name a Claude Code call can reach, denied outright to an answer
 pub(crate) const NO_TOOLS: [&str; 12] = [
     "Agent",
@@ -230,9 +179,7 @@ pub fn settings(tools: Tools, reach: &Reach) -> Value {
         deny.extend(fence.no_commands.iter().map(|c| format!("Bash({c})")));
     }
     deny.extend(tool_denies(tools, reach).map(str::to_owned));
-    if let (Tools::Issues | Tools::Pm | Tools::Advise | Tools::Research, Some(fence)) =
-        (tools, &reach.fence)
-    {
+    if let (Tools::Issues | Tools::Pm, Some(fence)) = (tools, &reach.fence) {
         deny.extend(reads_only(&fence.guard.worktree, &reach.read));
     }
     // Headless, a tool nothing allows is refused, and the retro skill calls another.
@@ -269,8 +216,6 @@ pub fn settings(tools: Tools, reach: &Reach) -> Value {
             permissions["allow"] = json!([rule("Edit", &notes)]);
             pm_hooks(fence)
         }
-        // Their reply is the vote, so a file tool that got past the allow-list is refused.
-        Tools::Advise | Tools::Research => refusing_hooks(),
         // Its session asks no one, so a write nothing allows is refused. Only a reviewer
         // given a folder to write has one, and `confine` holds its tools to that folder.
         Tools::Review if !fence.write.is_empty() => {
@@ -381,9 +326,6 @@ fn tool_denies(tools: Tools, reach: &Reach) -> impl Iterator<Item = &'static str
         Tools::Issues => &ISSUES_DENY,
         Tools::Pm => &PM_DENY,
         Tools::Retro => &RETRO_DENY,
-        // The advisor's web is denied; the researcher's is the one thing it is let.
-        Tools::Advise => &ADVISE_DENY,
-        Tools::Research => &EXPERT_DENY,
     };
     // An answer that may read a folder keeps Read and nothing else.
     let reads = tools == Tools::Answer && !reach.read.is_empty();
@@ -570,12 +512,6 @@ fn pm_hooks(fence: &Fence) -> Value {
     .map(|p| shell_quote(&p.to_string_lossy()))
     .join(" ");
     json!({ "PreToolUse": [entry(Some(FILE_TOOLS), &command)] })
-}
-
-// The advisor's and the researcher's: every file tool is refused before it runs.
-fn refusing_hooks() -> Value {
-    let refuse = "echo 'kelpie: this call writes no files' >&2; exit 2";
-    json!({ "PreToolUse": [entry(Some(FILE_TOOLS), refuse)] })
 }
 
 fn entry(matcher: Option<&str>, command: &str) -> Value {
@@ -892,7 +828,7 @@ mod tests {
             // file denies `NotebookEdit` through `trimmed`, so that one is asserted. Kelpie's
             // sandbox holds the writes of the other three, so no deny is asserted for them yet.
             Tools::Review => &["Edit", "Write", "MultiEdit"],
-            Tools::Answer | Tools::Issues | Tools::Retro | Tools::Advise | Tools::Research => &[],
+            Tools::Answer | Tools::Issues | Tools::Retro => &[],
         }
     }
 
@@ -905,9 +841,7 @@ mod tests {
             Tools::Answer => Some(Tools::Issues),
             Tools::Issues => Some(Tools::Pm),
             Tools::Pm => Some(Tools::Retro),
-            Tools::Retro => Some(Tools::Advise),
-            Tools::Advise => Some(Tools::Research),
-            Tools::Research => None,
+            Tools::Retro => None,
         }
     }
 
@@ -944,8 +878,6 @@ mod tests {
             Tools::Issues,
             Tools::Pm,
             Tools::Retro,
-            Tools::Advise,
-            Tools::Research,
         ] {
             let s = settings(tools, &Reach::default());
             for key in [
@@ -965,8 +897,6 @@ mod tests {
                 Tools::Issues => &ISSUES_DENY,
                 Tools::Pm => &PM_DENY,
                 Tools::Retro => &RETRO_DENY,
-                Tools::Advise => &ADVISE_DENY,
-                Tools::Research => &EXPERT_DENY,
             };
             assert_eq!(s["permissions"]["deny"], deny_with_trim(own), "{tools:?}");
             // What kelpie's own calls use stays, unless the role denies it itself.

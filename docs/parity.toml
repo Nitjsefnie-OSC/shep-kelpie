@@ -131,15 +131,8 @@ pi = "yes"
 codex = "yes"
 goose = "yes"
 
-[harness.web-research]
-what = "The researcher searches and fetches the web"
-claude-code = "yes"
-pi = "yes"
-codex = "yes"
-goose = "yes"
-
 [harness.reviewer-reads-repo]
-what = "Reviewers, advisors and the retro read the repo"
+what = "Reviewers and the retro read the repo"
 claude-code = "yes"
 pi = "yes"
 codex = "yes"
@@ -154,13 +147,6 @@ goose = "yes"
 
 [harness.reviewer]
 what = "Runs a reviewer"
-claude-code = "yes"
-pi = "yes"
-codex = "yes"
-goose = "yes"
-
-[harness.advisor]
-what = "Runs an advisor"
 claude-code = "yes"
 pi = "yes"
 codex = "yes"

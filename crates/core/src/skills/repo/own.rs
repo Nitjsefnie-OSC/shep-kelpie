@@ -2,8 +2,8 @@
 //!
 //! A repo sets Claude Code up without a plugin too: `.claude/skills/`,
 //! `agents/`, `commands/` and the hooks in `settings.json`. A call in a
-//! worktree loads them from there, but the project manager, the advisor, the
-//! researcher and the issue writer run in folders of their own. So kelpie reads
+//! worktree loads them from there, but the project manager and the issue
+//! writer run in folders of their own. So kelpie reads
 //! them from `origin`'s default branch, never a worker's branch, and writes
 //! them as one more plugin, `kelpie-repo`. Its hooks go to `hooks/hooks.json`,
 //! where they run beside the call's own and cannot replace them, and its

@@ -1,4 +1,4 @@
-//! A Codex reviewer, advisor and retro: a shell that reads, and no patch
+//! A Codex reviewer and retro: a shell that reads, and no patch
 
 use std::path::{Path, PathBuf};
 
@@ -122,39 +122,36 @@ fn a_codex_call_reads_the_dependency_sources_it_is_given_and_no_credential_of_th
 }
 
 #[test]
-fn a_retro_and_an_advisor_have_a_read_only_shell_and_no_write_in_the_sandbox() {
+fn a_retro_has_a_read_only_shell_and_no_write_in_the_sandbox() {
     let w = World::new();
-    for (role, tools) in [(Role::Worker, Tools::Retro), (Role::Advisor, Tools::Advise)] {
-        let mut call = w.fenced(Path::new("/k/kelpie"), Session::Resume(id(WORKER_ID)));
-        call.role = role;
-        call.tools = tools;
-        assert!(
-            !call.reach.fence.as_ref().unwrap().write.is_empty(),
-            "the fence it runs under can write"
-        );
+    let mut call = w.fenced(Path::new("/k/kelpie"), Session::Resume(id(WORKER_ID)));
+    call.tools = Tools::Retro;
+    assert!(
+        !call.reach.fence.as_ref().unwrap().write.is_empty(),
+        "the fence it runs under can write"
+    );
 
-        let argv = strings(&call, None, None);
+    let argv = strings(&call, None, None);
 
-        assert!(!shell_is_off(&argv), "{tools:?}");
-        let shell = hook_for(&argv, "^Bash$").expect("a hook judges the shell");
-        assert!(shell.contains("'--read-only'"), "{tools:?}: {shell}");
-        refuses_every_patch(&hook_for(&argv, "^apply_patch$").unwrap());
+    assert!(!shell_is_off(&argv), "{argv:?}");
+    let shell = hook_for(&argv, "^Bash$").expect("a hook judges the shell");
+    assert!(shell.contains("'--read-only'"), "{shell}");
+    refuses_every_patch(&hook_for(&argv, "^apply_patch$").unwrap());
 
-        let files = Files::of(&call);
-        let policy = policy(
-            &call,
-            &w.path("login"),
-            &files,
-            Path::new("/nowhere/codex"),
-            &[],
-        );
-        let mut own: Vec<_> = WRITTEN.map(|name| files.home.join(name)).into();
-        own.extend([files.home.join(INSTALLATION_ID), files.scratch.clone()]);
-        let mut written = policy.write.clone();
-        written.sort();
-        own.sort();
-        assert_eq!(written, own, "{tools:?}");
-    }
+    let files = Files::of(&call);
+    let policy = policy(
+        &call,
+        &w.path("login"),
+        &files,
+        Path::new("/nowhere/codex"),
+        &[],
+    );
+    let mut own: Vec<_> = WRITTEN.map(|name| files.home.join(name)).into();
+    own.extend([files.home.join(INSTALLATION_ID), files.scratch.clone()]);
+    let mut written = policy.write.clone();
+    written.sort();
+    own.sort();
+    assert_eq!(written, own);
 }
 
 #[test]
@@ -181,7 +178,7 @@ fn a_worker_keeps_the_workers_guard_and_its_write_folders() {
 #[test]
 fn a_call_with_no_fence_has_no_shell() {
     let w = World::new();
-    for tools in [Tools::Review, Tools::Advise, Tools::Retro] {
+    for tools in [Tools::Review, Tools::Retro] {
         let mut call = reviewer(&w, None);
         call.tools = tools;
 

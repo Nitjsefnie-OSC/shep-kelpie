@@ -77,7 +77,7 @@ fn the_claude_code_rows_equal_the_legacy_table() {
     assert_eq!(
         file.rows_for(Harness::ClaudeCode).len(),
         legacy::TABLE.len() + 1,
-        "the ten baselines and the implementer, and nothing else"
+        "the eight baselines and the implementer, and nothing else"
     );
 
     let shipped = Agents::embedded();

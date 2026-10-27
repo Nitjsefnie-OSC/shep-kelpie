@@ -158,3 +158,23 @@ fn a_kind_the_map_does_not_know_is_refused_by_name() {
     assert!(unknown.contains("rulings.pm_decides"), "{unknown}");
     assert!(unknown.contains("coffee"), "{unknown}");
 }
+
+#[test]
+fn the_panels_expert_settings_are_refused_by_name() {
+    let table = "[app.dogs.kelpie.agents]\n";
+    let removed = [
+        ("agents.advisor", "advisor = \"advisor\"\n"),
+        ("agents.researcher", "researcher = \"researcher\"\n"),
+    ];
+    for (key, line) in removed {
+        let err = parse_err(&EXAMPLE.replace(table, &format!("{table}{line}")));
+        assert!(
+            err.contains(&format!("`{key}` is no longer a setting")),
+            "{key}: {err}"
+        );
+        assert!(err.contains("shep kelpie settings migrate"), "{key}: {err}");
+    }
+    let research = "[app.dogs.kelpie.researcher]\nallowed_domains = [\"docs.rs\"]\n";
+    let err = parse_err(&format!("{EXAMPLE}\n{research}"));
+    assert!(err.contains("`researcher` is no longer a setting"), "{err}");
+}

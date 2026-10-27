@@ -9,14 +9,12 @@ import { statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 
-// WEB names the tools of the web package: empty unless the call loads it.
 type Checks = {
 	kelpie: string;
 	confine: string[];
 	guard: string[];
 	after: string[] | null;
 	pause: { requested: string; ended: string };
-	web: string[];
 };
 const CHECKS: Checks = __CHECKS__;
 
@@ -121,7 +119,7 @@ export default function (pi: any) {
 							tool_name: event.toolName === "write" ? "Write" : "Edit",
 							tool_input: { file_path: file, content: written(input) },
 						});
-		} else if (!["read", "grep", "find", "ls", ...CHECKS.web].includes(event.toolName)) {
+		} else if (!["read", "grep", "find", "ls"].includes(event.toolName)) {
 			why = `kelpie runs no ${event.toolName} tool for a worker`;
 		}
 		if (why !== undefined) return { block: true, reason: `${MARK}${why}` };

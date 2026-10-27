@@ -308,11 +308,11 @@ async fn set_leaves_every_other_key_as_it_was() {
 async fn set_makes_the_table_a_key_is_in_when_the_settings_have_none() {
     let scene = Scene::new().await;
     scene
-        .set("researcher.allowed_domains", r#"["crates.io"]"#)
+        .set("browser.domains", r#"["crates.io"]"#)
         .await
         .unwrap();
     assert_eq!(
-        scene.table()["researcher"]["allowed_domains"],
+        scene.table()["browser"]["domains"],
         serde_json::json!(["crates.io"])
     );
 }
@@ -598,14 +598,11 @@ async fn two_projects_moved_onto_one_checkout_are_refused_and_nothing_is_written
 async fn get_prints_one_line_per_project_and_says_not_set_where_the_key_is_missing() {
     let scene = Scene::new().await;
     scene
-        .set("researcher.allowed_domains", r#"["crates.io"]"#)
+        .set("browser.domains", r#"["crates.io"]"#)
         .await
         .unwrap();
     assert_eq!(
-        scene
-            .get_all("*", "researcher.allowed_domains")
-            .await
-            .unwrap(),
+        scene.get_all("*", "browser.domains").await.unwrap(),
         ["project eevee: not set", r#"project koji: ["crates.io"]"#,]
     );
     assert_eq!(

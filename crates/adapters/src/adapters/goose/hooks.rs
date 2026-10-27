@@ -1,4 +1,4 @@
-//! The plugin that fences a goose worker, reviewer, advisor and retro
+//! The plugin that fences a goose worker, reviewer and retro
 //!
 //! goose runs a `PreToolUse` hook before every tool call and refuses the call
 //! when it exits 2. `on_failure: block` makes a hook that cannot run refuse too.
@@ -90,7 +90,7 @@ pub(super) fn write(
     let manifest = json!({
         "name": PLUGIN,
         "version": env!("CARGO_PKG_VERSION"),
-        "description": "Kelpie's fence: judges every tool call of a worker, reviewer, advisor or retro before it runs",
+        "description": "Kelpie's fence: judges every tool call of a worker, reviewer or retro before it runs",
     });
     put(&plugin.join("plugin.json"), &manifest)?;
     put(

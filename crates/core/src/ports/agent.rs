@@ -33,10 +33,6 @@ pub enum Role {
     IssueWriter,
     /// The project manager's session, resumed across its wakes
     Pm,
-    /// The advisor's one-shot session, which votes on a ruling
-    Advisor,
-    /// The researcher's one-shot session, which votes on a ruling
-    Researcher,
     /// The representative's one-shot session, which words a post to a
     /// contributor and reads and runs nothing
     Representative,
@@ -58,8 +54,6 @@ mod role_tests {
         assert_eq!(Role::Reviewer.as_str(), "reviewer");
         assert_eq!(name(Role::IssueWriter), "issue-writer");
         assert_eq!(Role::IssueWriter.as_str(), "issue-writer");
-        assert_eq!(name(Role::Advisor), "advisor");
-        assert_eq!(name(Role::Researcher), "researcher");
         assert_eq!(name(Role::Representative), "representative");
         assert_eq!(Role::Representative.as_str(), "representative");
         assert_eq!(name(Role::Triager), "triager");
@@ -75,8 +69,6 @@ impl Role {
             Self::Reviewer => "reviewer",
             Self::IssueWriter => "issue-writer",
             Self::Pm => "pm",
-            Self::Advisor => "advisor",
-            Self::Researcher => "researcher",
             Self::Representative => "representative",
             Self::Triager => "triager",
         }
@@ -122,18 +114,9 @@ pub enum Tools {
     /// The project manager's: reading its working folder, and adding to
     /// the end of [`PM_NOTES`] there, which a hook holds it to
     Pm,
-    /// The project manager's batch retro, or a vote on a ruling: reading and
-    /// searching its folders, with no file written, no command and no
-    /// crew. Its reply is the report, or the vote.
+    /// The project manager's batch retro: reading and searching its folders,
+    /// with no file written, no command and no crew. Its reply is the report.
     Retro,
-    /// The advisor's vote on a ruling: reading its folder, the worktrees and
-    /// the checkout, with no file written, no command and no crew. Its reply
-    /// is the vote.
-    Advise,
-    /// The researcher's vote on a ruling: reading its folder, and the web,
-    /// fetch and search, read only, with no file written, no command and no
-    /// crew. Its reply is the vote.
-    Research,
 }
 
 /// The project manager's own notes, the one file in its folder it may change
@@ -165,10 +148,6 @@ pub struct Reach {
     /// inside the call's sandbox, so the hosts they reach still need the
     /// call's allowed domains.
     pub mcp_servers: BTreeMap<String, serde_json::Value>,
-    /// Extension packages it loads, each a folder under kelpie's tools. Only
-    /// pi has extensions to load, and the researcher's call is the one that
-    /// names one, for its web.
-    pub extensions: Vec<PathBuf>,
 }
 
 /// The code graph of a worktree, served to a session over MCP

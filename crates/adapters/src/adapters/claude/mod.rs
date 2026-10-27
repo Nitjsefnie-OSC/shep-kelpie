@@ -346,8 +346,6 @@ fn profile(call: &AgentCall) -> Vec<OsString> {
     let tools = match (call.role, call.tools) {
         (_, Kind::Retro) => Some(settings::RETRO_TOOLS),
         (Role::Pm, _) => Some(settings::PM_TOOLS),
-        (_, Kind::Advise) => Some(settings::ADVISE_TOOLS),
-        (_, Kind::Research) => Some(settings::RESEARCH_TOOLS),
         (_, Kind::Work) => Some(own.unwrap_or(settings::WORK_TOOLS)),
         (_, Kind::Review) => Some(own.unwrap_or(crate::settings::CLAUDE_REVIEW_TOOLS)),
         // Its call loads the repo's plugins and their servers on purpose, so

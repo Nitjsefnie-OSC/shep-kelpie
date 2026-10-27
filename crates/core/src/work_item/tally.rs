@@ -149,12 +149,7 @@ impl WorkItem {
                 Role::Worker => &mut tally.worker,
                 Role::Reviewer => &mut tally.reviewer,
                 // None is ever a work item's call.
-                Role::IssueWriter
-                | Role::Pm
-                | Role::Advisor
-                | Role::Researcher
-                | Role::Representative
-                | Role::Triager => continue,
+                Role::IssueWriter | Role::Pm | Role::Representative | Role::Triager => continue,
             };
             role.calls = role.calls.saturating_add(1);
             role.tokens += call.usage;

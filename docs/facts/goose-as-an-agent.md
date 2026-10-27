@@ -7,7 +7,7 @@ Written 2026-10-13 for #787 (slice 3 of #784) against goose 1.54.0, the version 
 - `goose run --no-profile --output-format stream-json --text=<prompt>`
   - `--text=<prompt>` is one argument, so a prompt that starts with `-` is not read as a flag.
   - `--system=<text>` carries the text of the call's instructions file. goose takes text, not a path. It is sent on every call, a resumed one too, since goose builds its system prompt afresh each time.
-  - A researcher gets no `--with-extension` or `--recipe`, and no `--with-builtin` but `skills` (see Skills): the model is offered no tool. A worker gets `--with-builtin developer` (see A worker inside the fence), and so does a new session of a reviewer, advisor or retro in a fence (see A reviewer, an advisor and a retro).
+  - A call with no fence gets no `--with-extension` or `--recipe`, and no `--with-builtin` but `skills` (see Skills): the model is offered no tool. A worker gets `--with-builtin developer` (see A worker inside the fence), and so does a new session of a reviewer or retro in a fence (see A reviewer and a retro).
 - `call.effort` is not passed. goose's openai provider has no reasoning-effort flag or variable.
 - Session identity: goose picks its own session ids and `stream-json` never prints one.
   - A name set with `--name` is kept as given (`user_provided_name` in `crates/goose-cli/src/cli.rs`), and `--resume --name` finds the session whose name or id matches.
@@ -92,17 +92,17 @@ Written 2026-10-14 for #788, from goose's v1.54.0 source and docs. No model turn
 - goose cannot run an `after_command` hook. Its `PostToolUse` payload names the tool and its input but not the result, and a hook's output is never read back by the model, so `kelpie guard --after` has nothing to judge and nowhere to report. A goose worker beside one is refused at load.
 - A vote resumes a worker's session under another settings file (`vote-settings-<n>.json`). goose's files are keyed on the settings path, so the resume finds a root with no session and returns `NoSession`, as pi and Codex do. A retro under it is no different: `prepare` writes its plugin, and the run is `NoSession`.
 
-## A reviewer, an advisor and a retro
+## A reviewer and a retro
 
 Written 2026-10-14 for #789, from the same source reading as the worker's. No model turn was run.
 
-- goose has no read tool, only `shell` and `tree`, so a reviewer, advisor or retro in a fence is offered the `developer` builtin behind the fence's plugin, as Codex is given a shell. `GOOSE_MODE=auto`, as the worker's, since `chat` would reject the tool calls.
+- goose has no read tool, only `shell` and `tree`, so a reviewer or retro in a fence is offered the `developer` builtin behind the fence's plugin, as Codex is given a shell. `GOOSE_MODE=auto`, as the worker's, since `chat` would reject the tool calls.
 - The plugin's command is `kelpie guard <common dir> <worktree> [--hooks=...] --goose=<build folder> --read-only`. `shell` runs only what `kelpie guard --read-only` lists (the Codex list, `crates/core/src/guard/reading/mod.rs`, no git, no redirect), and the project's `command` hooks judge what it lets through. `tree` is the `ls` of its path through the same guard. `write`, `edit` and every other tool name are refused with "this call writes no file".
 - The reviewer's fence has the worktree as code and an empty folder of its own, as a Codex reviewer's does, and no write folder. goose has no way to write a test into a folder, so a goose reviewer is never asked for tests.
-- A retro and an advisor run under a fence that can write (the worker's, or the advisor's with none). The sandbox's `write` is cleared for both, so the hook is the first layer and the sandbox the second. goose's own data, state and scratch folders stay writable.
+- A retro runs under a fence that can write (the worker's). The sandbox's `write` is cleared for it, so the hook is the first layer and the sandbox the second. goose's own data, state and scratch folders stay writable.
 - A resumed session is given no `--with-builtin`: goose restores a session's own extension set, and a retro resumes the worker's session. Whatever that set holds, `shell`, `write` and `edit` pass the hook and are refused there. A resumed worker is still given the builtin.
-- A call with no fence, and the researcher in any fence, is offered no extension and runs in `GOOSE_MODE=chat`.
-- A reviewer's prompt names Read, Grep and Glob, so goose's gets one more paragraph naming the shell, `tree` and the commands it runs. The advisor's and the retro's prompts name no such tool.
+- A call with no fence is offered no extension and runs in `GOOSE_MODE=chat`.
+- A reviewer's prompt names Read, Grep and Glob, so goose's gets one more paragraph naming the shell, `tree` and the commands it runs. The retro's prompt names no such tool.
 - Not run: a reviewer reading a repo through the shell on a real model, and whether a resumed session keeps `developer` in its restored set. #798 records a reviewer.
 
 ### Risks for #798 to measure
@@ -128,14 +128,14 @@ Written for #794, from goose's v1.54.0 source. No model turn was run: #798 runs 
   - The set is fixed when the session is created. A server added after the session began is not seen by it, and goose cannot remove one.
   - kelpie records the keys a new session is created with (`<root>/servers/<session id>.json`, which the call cannot write). A resumed call's hook and `GOOSE_MODE` follow that record, not the set the call loads by then, so a server renamed or removed on `main` stays allowed for the session that holds it and a new one is not. A session with no record holds none. A retro resumes the worker's session but is handed no server, so its hook names none: goose still restores the set, and the hook refuses its tools.
 - Two servers whose keys are alike (`Docs` and `docs`, or a URL's key and a stdio name) would end the run. Only the first loads, in the order of the flags with the code graph last, and a repo server never replaces it, whether it shares its name or only its key.
-- The sandbox reads the code graph's binary and index and writes only its index (`fence_the_graph`), as for the other harnesses. A host a server reaches is still named in `worker.allowed_domains`, or `researcher.allowed_domains`.
+- The sandbox reads the code graph's binary and index and writes only its index (`fence_the_graph`), as for the other harnesses. A host a server reaches is still named in `worker.allowed_domains`.
 - Not run: the flags against a real server, the `tool_name` in the hook's payload (read as `<key>__<tool>` from goose's source), and whether goose warns, not fails, on a skipped env key.
 
 ## Skills
 
 Written for #793, from goose's v1.54.0 source. No model turn was run: #798 runs a real one. The `goose` binary was not run for this slice either.
 
-- The `skills` platform extension (`crates/goose/src/skills/client.rs`) puts every discovered skill's name and description in the system prompt and offers a `load_skill` tool. It is on by default, so `--no-profile` drops it and `--with-builtin skills` brings it back. Every call is given it (`Work`, `Review`, `Advise`, `Research`, `Retro`), beside `developer` where there is one, and a resumed call too: goose keeps a builtin once.
+- The `skills` platform extension (`crates/goose/src/skills/client.rs`) puts every discovered skill's name and description in the system prompt and offers a `load_skill` tool. It is on by default, so `--no-profile` drops it and `--with-builtin skills` brings it back. Every call is given it (`Work`, `Review`, `Retro`, `Answer`), beside `developer` where there is one, and a resumed call too: goose keeps a builtin once.
 - Discovery order (`all_skill_dirs_with_config` in `crates/goose/src/skills/mod.rs`): the worktree's `.agents/skills`, `.goose/skills` and `.claude/skills`, project plugins, then the real home's `~/.agents/skills`, `<GOOSE_PATH_ROOT>/config/skills`, `~/.claude/skills`, `~/.config/agents/skills`, and the skills of user plugins. The first skill of a name wins.
   - `GOOSE_PATH_ROOT` moves the config folder and the plugin folder, and not the home. So left alone a call lists the maintainer's own skills from the real home.
   - A skill's name is the `name` line of its `SKILL.md`, and a skill without one is skipped. Folders inside one root are read in directory order, so two skills of one name in one root are not stable.
@@ -148,7 +148,7 @@ Written for #793, from goose's v1.54.0 source. No model turn was run: #798 runs 
   - `~/.agents/skills`, `~/.claude/skills` and `~/.config/agents/skills` are unreadable to the call, and `<root>/config/skills` is unwritable, so the call cannot plant a skill for its next turn. The worktree's own `.agents/skills`, `.goose/skills` and `.claude/skills` still load, as on Claude Code: a worker cannot add one, since all three folders are write-fenced (`fence::HARNESSES`).
   - A step prompt `/<plugin>:<skill> <rest>` becomes `/<name> <rest>` for the skill's `name` line, so goose injects the skill. When that `SKILL.md` holds `$ARGUMENTS` or a `$` followed by a digit, the prompt stays as written and the model loads the skill with `load_skill`; a call in `chat` cannot, so its prompt is the skill's text without the front matter, its placeholders filled in (`$ARGUMENTS` is `<rest>`, `$ARGUMENTS[n]` and `$n` its nth shell-split word, from 0), then `ARGUMENTS: <rest>`. goose's own substitution (`apply_skill_arguments`) was not read for this: the fill-in follows goose's documented placeholders, and #798 checks it. A skill that a worktree folder (`.agents/skills`, `.goose/skills`, `.claude/skills`) holds one of the same name beside is sent as its text too: goose reads those first (from the review of #847; not run). The stub of a builtin is never written where the path exists, which on a case-folding file system is where a plugin's `Web-Search` is linked. A prompt naming a skill no plugin holds is left as it is, and so is one naming a skill called like a goose command (`COMMANDS` in `crates/adapters/src/adapters/goose/skills.rs`, a guess at a superset: the source of `execute_commands.rs` could not be read for this fix, and #798 settles the list).
   - The fence hook lets `load_skill` through for every kind (`Work`, the read-only guard and a reviewer's tests guard). `load_skill` reads files inside goose, so the sandbox's read rules bound it.
-- A call that runs in `GOOSE_MODE=chat` (no shell and no MCP server: a researcher where the web package is not installed, and a call with no fence) lists the skills, but `chat` rejects a tool call, so it cannot call `load_skill`. Its step prompt still runs as the slash command, or carries the skill's text where the skill holds a placeholder. Not run: whether goose lists skills at all in `chat`.
+- A call that runs in `GOOSE_MODE=chat` (no shell and no MCP server: a call with no fence) lists the skills, but `chat` rejects a tool call, so it cannot call `load_skill`. Its step prompt still runs as the slash command, or carries the skill's text where the skill holds a placeholder. Not run: whether goose lists skills at all in `chat`.
 - Not run: the tool's name in the hook's payload (read as bare `load_skill`, as `developer`'s tools are bare, and a prefixed name would be refused), that goose follows a link in `config/skills`, that it lists a stub in place of its builtin, and the `/<name>` command on a real turn.
 - What every prompt now carries, counted from the `SKILL.md` files (the `name:` and `description:` lines, a newline each, in bytes):
   - The 15 skills of the vendored mattpocock plugin (`skills/skills/*/*/SKILL.md`): 2721 bytes.
@@ -157,6 +157,8 @@ Written for #793, from goose's v1.54.0 source. No model turn was run: #798 runs 
   - Each plugin's skills the repo and its marketplaces add come on top, and the repo's own `kelpie-repo` plugin is one.
 
 ## The researcher's web
+
+Closed (ADR 0018): the researcher went with the ruling panel, and its web with it. Kelpie no longer pins or installs `duckduckgo-websearch`, and `goose/web.rs` and `adapters::goose::escapes` are gone. What follows is what was measured; none of it describes kelpie now.
 
 Measured 2026-10-14 for #797, with Node 26.11.1 and npm, no model and no GPU. Each candidate was installed in an empty folder at its latest version, started over stdio, and sent `initialize` and `tools/list`. goose v1.54.0 ships no search or fetch tool, and a pi package cannot be loaded into it.
 
@@ -194,7 +196,7 @@ Written for #790. The event shapes are from goose's source, not a recorded turn.
 - A settings path is reused by every call of its role and issue, so the file is not a session's history. The watch reads a path's newest session only: a `session-started` that names a root already named drops the earlier goose session, and a resumed session reads the emptied file from its start.
 - A `message` line has `message.created` in seconds, which is its time. Its content blocks the watch renders: `text` (said, or prompt for a `user` message), `thinking`, `toolRequest` (`toolCall.value.name` and `arguments`) and `toolResponse` (`toolResult.value.content`, with `isError` or `status: "error"` shown as `error: ...`).
 - An `error` event has no time, so the watch gives it the time of the line before it in the file, or the call's start when it is the first. It is shown as a `result` line `error: <text>`.
-- `transcripts::format_of(Harness::Goose)` stays `None`. No file holds a whole session, since the stdout file is emptied per call, so the researcher's panel gets no worker-session text on goose.
+- goose's `HarnessFacts::transcript` stays `None`. No file holds a whole session, since the stdout file is emptied per call.
 
 ## Context and compaction
 

@@ -178,7 +178,7 @@ impl Stopping {
         let mut stopped = Vec::new();
         for (key, open) in open.into_iter().filter(|(_, open)| !open.no_model) {
             let line = open.unreported(at, Ended::Stopped);
-            let (role, session) = (line.role, open.draft.session().is_some());
+            let (role, session) = (line.role.known(), open.draft.session().is_some());
             if let Err(e) = append_to(&self.ledger, &Line::Call(line)) {
                 eprintln!(
                     "cannot add a stopped call to {}: {e}",
@@ -187,7 +187,7 @@ impl Stopping {
                 continue;
             }
             // A local round is counted as a round, not as a reviewer's call.
-            if let (Some(ticket), true) = (key.ticket(), session) {
+            if let (Some(ticket), true, Some(role)) = (key.ticket(), session, role) {
                 stopped.push((ticket, role));
             }
         }

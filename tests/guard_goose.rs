@@ -41,7 +41,7 @@ impl Worker {
     }
 
     // The same with `flags` after the build folder: `--read-only` is a
-    // reviewer's, advisor's and retro's.
+    // reviewer's and a retro's.
     fn hook_with(&self, tool: &str, input: Value, flags: &[&str]) -> Output {
         let mut hook = Command::new(KELPIE)
             .arg("guard")

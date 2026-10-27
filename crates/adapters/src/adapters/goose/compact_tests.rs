@@ -31,14 +31,12 @@ const BEFORE: Spent = Spent {
 };
 
 // Every role, so a new one fails to compile here until it is placed.
-fn every_role() -> [Role; 8] {
+fn every_role() -> [Role; 6] {
     const _: fn(Role) = |role| match role {
         Role::Worker
         | Role::Reviewer
         | Role::IssueWriter
         | Role::Pm
-        | Role::Advisor
-        | Role::Researcher
         | Role::Representative
         | Role::Triager => {}
     };
@@ -47,8 +45,6 @@ fn every_role() -> [Role; 8] {
         Role::Reviewer,
         Role::IssueWriter,
         Role::Pm,
-        Role::Advisor,
-        Role::Researcher,
         Role::Representative,
         Role::Triager,
     ]

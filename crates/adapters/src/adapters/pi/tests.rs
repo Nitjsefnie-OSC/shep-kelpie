@@ -90,9 +90,9 @@ fn the_guard_extension_names_the_base_branch_only_when_it_is_not_the_default() {
     let w = World::new();
     let mut call = w.fenced(URL, Path::new("/k/kelpie"), Session::New(id(WORKER_ID)));
     let fence = call.reach.fence.as_mut().unwrap();
-    assert!(!guard_extension(fence, false).contains("--base="));
+    assert!(!guard_extension(fence).contains("--base="));
     fence.guard.base = "v2".to_owned();
-    assert!(guard_extension(fence, false).contains("--base=v2"));
+    assert!(guard_extension(fence).contains("--base=v2"));
 }
 
 #[test]
@@ -401,8 +401,6 @@ fn every_kind_of_call_that_loads_a_plugins_skills_keeps_read_and_trusts_no_proje
         Tools::Issues,
         Tools::Pm,
         Tools::Retro,
-        Tools::Advise,
-        Tools::Research,
     ];
     for tools in kinds {
         for reads in [false, true] {
@@ -603,44 +601,6 @@ fn the_sandbox_lets_pi_write_only_its_sessions_and_reach_only_the_forwarder() {
         policy.forward.map(|f| f.host),
         Some("model.kelpie.test".into())
     );
-}
-
-#[test]
-fn the_researchers_policy_reaches_its_allowed_domains_and_the_search_host_and_nothing_else() {
-    let w = World::new();
-    let mut call = w.fenced(URL, Path::new("/k/kelpie"), Session::New(id(FRESH_ID)));
-    call.role = Role::Researcher;
-    call.tools = Tools::Research;
-    call.reach.extensions = vec![w.path("kelpie/tools/node_modules/pi-web-access")];
-    let hosts = ["docs.rs", "*.rust-lang.org"];
-    call.reach.fence.as_mut().unwrap().hosts = hosts.map(str::to_owned).to_vec();
-    let upstream = PiCli::on(&Base::default())
-        .upstream(server(&call).unwrap())
-        .unwrap();
-    let policy = policy(
-        &call,
-        &Files::of(&call),
-        &upstream,
-        &w.path("f.sock"),
-        &NO_PROGRAM,
-        &[],
-    );
-    assert_eq!(policy.hosts, [hosts[0], hosts[1], "mcp.exa.ai"]);
-    // The model's host is still shut, whatever the project lists.
-    assert_eq!(
-        policy.denied_hosts,
-        ["192.0.2.9", "localhost", "127.0.0.1", "[::1]"]
-    );
-    assert_eq!(policy.denied_addresses, ["192.0.2.9"]);
-    // The package and the folder npm put its dependencies in are readable.
-    assert!(
-        policy
-            .read
-            .contains(&w.path("kelpie/tools/node_modules/pi-web-access"))
-    );
-    assert!(policy.read.contains(&w.path("kelpie/tools/node_modules")));
-    // It writes its cache in its scratch folder, as any call may.
-    assert!(!policy.write.contains(&w.path("kelpie/tools/node_modules")));
 }
 
 // The shepherd's home holds the sheep entries' `env`, a gateway's key with

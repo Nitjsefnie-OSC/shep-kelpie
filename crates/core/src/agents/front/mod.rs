@@ -33,8 +33,6 @@ enum Front {
     Reviewer(Reviewer),
     IssueWriter(OnClaude),
     Pm(OnClaude),
-    Advisor(Expert),
-    Researcher(Expert),
     Representative(Expert),
     Triager(Expert),
 }
@@ -44,6 +42,15 @@ enum Front {
 struct Tag {
     role: Role,
 }
+
+// The `role` key as plain text, so a role no longer in [`Role`] can be named
+#[derive(Debug, Deserialize)]
+struct Written {
+    role: String,
+}
+
+/// The roles an agent file may no longer name
+const GONE: [&str; 2] = ["advisor", "researcher"];
 
 // An implementer's keys: a session on a harness
 #[derive(Debug, Deserialize)]
@@ -84,9 +91,9 @@ struct OnClaude {
     effort: Effort,
 }
 
-// The advisor's, the researcher's, the representative's and the triager's keys: a session on
-// any harness. None takes `tools`: each is held to its reads by the kind of
-// call kelpie makes.
+// The representative's and the triager's keys: a session on any harness.
+// Neither takes `tools`: each is held to its reads by the kind of call kelpie
+// makes.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Expert {
@@ -215,13 +222,13 @@ pub(super) fn parse(text: &str) -> Result<Agent, String> {
     // A blank first line stands for the opening `---`, so a message's line is the file's.
     let yaml = format!("\n{front}");
     let refused = |e: serde_saphyr::Error| yaml_error(&yaml, &e);
-    let front = match serde_saphyr::from_str::<Tag>(&yaml).map_err(refused)?.role {
+    let tag = serde_saphyr::from_str::<Tag>(&yaml)
+        .map_err(|e| gone_at_role(&yaml).unwrap_or_else(|| refused(e)))?;
+    let front = match tag.role {
         Role::Implementer => Front::Implementer(serde_saphyr::from_str(&yaml).map_err(refused)?),
         Role::Reviewer => Front::Reviewer(serde_saphyr::from_str(&yaml).map_err(refused)?),
         Role::IssueWriter => Front::IssueWriter(serde_saphyr::from_str(&yaml).map_err(refused)?),
         Role::Pm => Front::Pm(serde_saphyr::from_str(&yaml).map_err(refused)?),
-        Role::Advisor => Front::Advisor(serde_saphyr::from_str(&yaml).map_err(refused)?),
-        Role::Researcher => Front::Researcher(serde_saphyr::from_str(&yaml).map_err(refused)?),
         Role::Representative => {
             Front::Representative(serde_saphyr::from_str(&yaml).map_err(refused)?)
         }
@@ -230,10 +237,7 @@ pub(super) fn parse(text: &str) -> Result<Agent, String> {
     let leased = match &front {
         Front::Implementer(keys) => keys.lease.is_some(),
         Front::Reviewer(keys) => keys.lease.is_some(),
-        Front::Advisor(keys)
-        | Front::Researcher(keys)
-        | Front::Representative(keys)
-        | Front::Triager(keys) => keys.lease.is_some(),
+        Front::Representative(keys) | Front::Triager(keys) => keys.lease.is_some(),
         Front::IssueWriter(_) | Front::Pm(_) => false,
     };
     if leased {
@@ -279,14 +283,30 @@ pub(super) fn parse(text: &str) -> Result<Agent, String> {
             keys.agent(Role::IssueWriter, prompt, &yaml, "the issue writer")
         }
         Front::Pm(keys) => keys.agent(Role::Pm, prompt, &yaml, "the project manager"),
-        Front::Advisor(keys) => keys.agent(Role::Advisor, prompt, &yaml, "the advisor"),
-        Front::Researcher(keys) => keys.agent(Role::Researcher, prompt, &yaml, "the researcher"),
         Front::Representative(keys) => {
             keys.agent(Role::Representative, prompt, &yaml, "the representative")
         }
         Front::Triager(keys) => keys.agent(Role::Triager, prompt, &yaml, "the triager"),
     }?;
     Ok(agent)
+}
+
+/// The refusal of a file whose role is `role`, if that is one of [`GONE`]
+pub(super) fn gone(role: &str) -> Option<String> {
+    GONE.contains(&role)
+        .then(|| format!("the `{role}` role went with the ruling panel, so delete the file"))
+}
+
+/// The refusal of the agent file `text`, if its own `role` is one of [`GONE`]
+pub(super) fn gone_role_of(text: &str) -> Option<String> {
+    let (front, _) = split(text)?;
+    gone(&serde_saphyr::from_str::<Written>(front).ok()?.role)
+}
+
+// The refusal at the `role` key, if `yaml` names one of `GONE`.
+fn gone_at_role(yaml: &str) -> Option<String> {
+    let role = serde_saphyr::from_str::<Written>(yaml).ok()?.role;
+    gone(&role).map(|why| at_key(yaml, "role", &why))
 }
 
 impl Expert {

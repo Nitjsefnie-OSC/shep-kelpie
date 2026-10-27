@@ -61,10 +61,10 @@ fn lease_calls(server: &StandInEndpoint) -> Vec<String> {
 }
 
 #[test]
-fn a_researchers_turn_holds_a_lease_from_start_to_end_and_a_failed_one_too() {
+fn a_reviewers_turn_holds_a_lease_from_start_to_end_and_a_failed_one_too() {
     let server = StandInEndpoint::start([]).like_paddock(KEY, &["qwen3.8:27b"]);
     let w = World::new();
-    let researcher = on_gateway(&w, Role::Researcher);
+    let reviewer = on_gateway(&w, Role::Reviewer);
     let began = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let told = Arc::clone(&began);
     let waits = Arc::new(std::sync::Mutex::new(Vec::new()));
@@ -74,8 +74,8 @@ fn a_researchers_turn_holds_a_lease_from_start_to_end_and_a_failed_one_too() {
         move |wait| waited.lock().unwrap().push(wait),
     );
     let goose = goose_on(&w, &server, FRESH, 0);
-    goose.prepare(&researcher).unwrap();
-    let reply = goose.run(&researcher, &ending).unwrap();
+    goose.prepare(&reviewer).unwrap();
+    let reply = goose.run(&reviewer, &ending).unwrap();
     // The ledger takes a call with tokens and no cost as unpriced.
     assert!(
         reply.usage.input > 0 && reply.session_cost.is_none(),
@@ -93,16 +93,16 @@ fn a_researchers_turn_holds_a_lease_from_start_to_end_and_a_failed_one_too() {
     assert_eq!(*waits.lock().unwrap(), [crate::ports::Wait::Lease]);
 
     let failing = goose_on(&w, &server, "", 1);
-    let err = failing.run(&researcher, &Ending::default()).unwrap_err();
+    let err = failing.run(&reviewer, &Ending::default()).unwrap_err();
     assert!(matches!(err, AgentError::Failed(..)), "{err:?}");
     assert_eq!(lease_calls(&server), [held, held].concat());
 }
 
 #[test]
-fn a_researcher_turn_on_an_openai_gateway_starts_at_once_and_asks_no_paddock_route() {
+fn a_reviewer_turn_on_an_openai_gateway_starts_at_once_and_asks_no_paddock_route() {
     let server = StandInEndpoint::start([]).like_openai(KEY, &["qwen3.8:27b"]);
     let w = World::new();
-    let researcher = on_gateway(&w, Role::Researcher);
+    let reviewer = on_gateway(&w, Role::Reviewer);
     let told = Arc::new(std::sync::Mutex::new(Vec::new()));
     let (began, waited) = (Arc::clone(&told), Arc::clone(&told));
     let ending = Ending::telling(
@@ -110,8 +110,8 @@ fn a_researcher_turn_on_an_openai_gateway_starts_at_once_and_asks_no_paddock_rou
         move |wait| waited.lock().unwrap().push(format!("{wait:?}")),
     );
     let goose = goose_of_kind(&w, &server, GatewayKind::Openai, FRESH, 0);
-    goose.prepare(&researcher).unwrap();
-    let reply = goose.run(&researcher, &ending).unwrap();
+    goose.prepare(&reviewer).unwrap();
+    let reply = goose.run(&reviewer, &ending).unwrap();
     assert!(reply.usage.input > 0, "{reply:?}");
     assert_eq!(
         *told.lock().unwrap(),
@@ -148,7 +148,7 @@ fn the_key_reaches_the_gateway_only_from_the_forwarder_and_no_file_holds_it() {
     let server = StandInEndpoint::start([Answer::Says("hello")]).like_paddock(KEY, &[]);
     let w = World::new();
     let goose = goose_on(&w, &server, FRESH, 0);
-    let call = on_gateway(&w, Role::Researcher);
+    let call = on_gateway(&w, Role::Reviewer);
     goose.prepare(&call).unwrap();
     let (command, forwarder) = goose.sandboxed_command(&call, None).unwrap();
 
