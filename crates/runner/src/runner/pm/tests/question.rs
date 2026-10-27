@@ -116,7 +116,7 @@ fn a_question_posted_while_draining_is_edited_to_say_the_project_manager_answere
     let [(comment, body)] = rig.github.edits().try_into().unwrap();
     assert_eq!(comment, 100);
     let first = "**Settled.** The project manager answered: Use --dry-run: the issue says it \
-                 matches shep (why: #7 names the flag). Nothing waits on the maintainer.";
+                 matches shep (why: \\#7 names the flag). Nothing waits on the maintainer.";
     assert_eq!(body.lines().next(), Some(first));
     assert!(
         body.contains("### Should it be `--dry-run` or `--check`?"),
@@ -201,7 +201,7 @@ fn passed_on(rig: &Rig, runner: &Mutex<Runner>, answer: &'static str) -> String 
 }
 
 #[test]
-fn candidates_are_dropped_where_the_project_has_no_panel_to_vote_on_them() {
+fn the_candidates_the_project_manager_drafts_reach_the_maintainer() {
     let (rig, runner) = asking("vulpix", ASKS);
     let text = passed_on(
         &rig,
@@ -210,7 +210,7 @@ fn candidates_are_dropped_where_the_project_has_no_panel_to_vote_on_them() {
          maintainer\"], \"why\": \"a product call\"}}",
     );
     assert!(text.contains("PM says: a product call"), "{text}");
-    assert!(!text.contains("Use --check"), "{text}");
+    assert!(text.contains("Use --check"), "{text}");
 }
 
 #[test]

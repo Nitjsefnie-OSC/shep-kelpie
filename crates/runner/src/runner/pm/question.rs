@@ -101,9 +101,7 @@ impl Runner {
                 let words = |text: &Option<String>| {
                     (text.as_ref()).map(|t| plain(&self.shown(t.clone()), WORDS))
                 };
-                // With no panel there is nothing to vote on candidates.
-                let drafted = settle.candidates.iter().filter(|_| self.panel_enabled());
-                let candidates = drafted
+                let candidates = (settle.candidates.iter())
                     .map(|c| plain(&self.shown(c.clone()), WORDS))
                     .collect();
                 let passed = Passed {

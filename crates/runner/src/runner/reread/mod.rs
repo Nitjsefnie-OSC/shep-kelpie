@@ -71,9 +71,6 @@ impl Runner {
                 setting: "browser.enabled",
                 reason,
             })?;
-        if settings.rulings != self.settings.rulings {
-            self.notes.extend(settings.rulings.unused_under_always());
-        }
         let gpu_metrics_url = kelpie.gpu_metrics_url.clone();
         let mut book = Agents::load(&self.paths.agents)?;
         book.hold_for(self.state.work_items.iter().map(|item| &item.agent))?;

@@ -20,5 +20,5 @@ The calls that change a work item's worktree run with the runner's lock let go. 
 
 - Forge writes and their saves, and `contributions/`.
 - `start_adoption`'s remove and prepare: the item does not exist yet, so a job has no key.
-- `worker_reach` from the review checks, the panel and attach, which have no step to make again.
+- `worker_reach` from the review checks and attach, which have no step to make again.
 - `friction_of`'s read of the item's journal, and the worker token's mint in `prepared`.

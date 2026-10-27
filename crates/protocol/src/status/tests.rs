@@ -30,7 +30,7 @@ fn empty_optional_fields_are_left_out() {
     status.triage = None;
     status.standing = Vec::new();
     status.red_workflows = Vec::new();
-    status.panel = None;
+    status.pm_answers = BTreeMap::new();
     status.gpu = None;
     status.disk_free_bytes = None;
     status.local_leases = BTreeMap::new();
@@ -50,7 +50,7 @@ fn empty_optional_fields_are_left_out() {
         "triage",
         "standing",
         "red_workflows",
-        "panel",
+        "pm_answers",
         "gpu",
         "disk_free_bytes",
         "local_leases",
@@ -95,4 +95,14 @@ fn a_ruling_shows_the_number_its_answer_names_it_by() {
         ruling.ruling.issue.map(|t| t.to_string()).as_deref(),
         Some("7")
     );
+}
+
+#[test]
+fn a_status_from_a_build_with_the_panel_still_reads() {
+    let mut old = recorded();
+    old["panel"] = json!({"decide": "panel", "voted": 3, "pm_alone": {"rebase": 2}});
+    let status: Status = serde_json::from_value(old).expect("the old status reads");
+    assert!(status.pm_answers.is_empty());
+    let role: CallRole = serde_json::from_value(json!("panel")).unwrap();
+    assert_eq!(role, CallRole::Attached("panel".into()));
 }

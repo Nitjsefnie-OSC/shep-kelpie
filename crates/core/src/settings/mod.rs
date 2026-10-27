@@ -65,7 +65,7 @@ pub use local::{ContextSize, Endpoint, EndpointUrl, LocalCommand, LocalRound};
 pub use local_rounds::{KeepDays, LocalRounds, RoundsFolder};
 pub use repo_setup::{CallRole, MarketplaceSource, Part, PluginId, RepoSetup};
 pub use reviewers::{ListedReviewer, default_reviewers};
-pub use rulings::{Decide, PM_ALONE, PM_DECIDES, RulingName, Rulings};
+pub use rulings::{PM_ALONE, PM_DECIDES, RulingName, Rulings};
 pub use skills::{SkillChoice, SkillName, StepSkills};
 pub use tickets::{TicketSource, Tickets};
 pub use triage::{AuthorRole, ClassifierPath, Triage, TriagePick, TriageSpam};
@@ -100,8 +100,8 @@ pub struct Settings {
     /// What the researcher may read besides what kelpie writes for it
     #[serde(default)]
     pub researcher: Researcher,
-    /// Whether the panel decides a ruling, and which kinds the project
-    /// manager decides alone. Its defaults when absent.
+    /// Which kinds of ruling the project manager answers for the
+    /// maintainer. None when absent.
     #[serde(default)]
     pub rulings: Rulings,
     /// Whether and how kelpie picks up other people's pull requests. It
@@ -172,6 +172,9 @@ const BOT_FILES: &str = "review bots are reviewer agent files on the `bot` harne
                          in `agents.reviewers` and run once a pass in their place";
 const ONCE_A_PASS: &str = "a review bot reads once a pass, so no round cap is counted";
 const GROUPED: &str = "every project setting sits in a table now";
+const PANEL: &str = "the ruling panel is gone: the project manager answers the kinds \
+                     `rulings.pm_decides` sets `true`, and the maintainer the rest";
+const MIGRATE: &str = "delete it, or run `shep kelpie settings migrate`, which does";
 
 // The keys removed features left behind
 const REMOVED: &[Removed] = &[
@@ -315,6 +318,16 @@ const REMOVED: &[Removed] = &[
         because: BOT_FILES,
         fix: "list each bot's file, `coderabbit`, `cubic` or `codex`, in `agents.reviewers` \
               where its read should come, which `shep kelpie add` writes out",
+    },
+    Removed {
+        key: "rulings.decide",
+        because: PANEL,
+        fix: MIGRATE,
+    },
+    Removed {
+        key: "rulings.full_panel_paths",
+        because: PANEL,
+        fix: MIGRATE,
     },
     Removed {
         key: "coderabbit.enabled",

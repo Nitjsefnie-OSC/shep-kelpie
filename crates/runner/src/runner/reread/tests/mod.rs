@@ -79,7 +79,7 @@ fn a_changed_rulings_table_takes_effect_at_once() {
     let rig = Rig::new("shep");
     let runner = rig.open().unwrap();
     let next = settings_with(&rig, |s| {
-        format!("{s}\n[app.dogs.kelpie.rulings]\ndecide = \"panel\"\npm_alone = [\"still-red\"]\n")
+        format!("{s}\n[app.dogs.kelpie.rulings]\npm_alone = [\"still-red\"]\n")
     });
     let mut runner = runner.lock().unwrap();
     let line = runner.reread(next, rig.kelpie_settings()).unwrap();
@@ -87,46 +87,8 @@ fn a_changed_rulings_table_takes_effect_at_once() {
         line.as_deref(),
         Some("settings changed: rulings now in effect")
     );
-    assert_eq!(
-        runner.settings().rulings.decide,
-        crate::settings::Decide::Panel
-    );
-}
-
-#[test]
-fn a_reread_under_always_names_the_rulings_settings_it_ignores() {
-    let rig = Rig::new("shep");
-    let runner = rig.open().unwrap();
-    let next = settings_with(&rig, |s| {
-        format!(
-            "{s}\n[app.dogs.kelpie.rulings]\ndecide = \"always\"\n\
-             pm_alone = [\"still-red\"]\nfull_panel_paths = [\"src/**\"]\n"
-        )
-    });
-    let mut runner = runner.lock().unwrap();
-    runner.take_notes();
-    runner.reread(next, rig.kelpie_settings()).unwrap();
-    let notes = runner.take_notes().join("\n");
-    assert!(
-        notes.contains("rulings.decide is \"always\"")
-            && notes.contains("rulings.pm_alone")
-            && notes.contains("rulings.full_panel_paths"),
-        "{notes}"
-    );
-}
-
-#[test]
-fn a_reread_under_always_with_neither_setting_says_nothing_of_them() {
-    let rig = Rig::new("shep");
-    let runner = rig.open().unwrap();
-    let next = settings_with(&rig, |s| {
-        format!("{s}\n[app.dogs.kelpie.rulings]\ndecide = \"always\"\n")
-    });
-    let mut runner = runner.lock().unwrap();
-    runner.take_notes();
-    runner.reread(next, rig.kelpie_settings()).unwrap();
-    let notes = runner.take_notes().join("\n");
-    assert!(!notes.contains("no effect"), "{notes}");
+    let rulings = &runner.settings().rulings;
+    assert!(rulings.pm_decides(crate::settings::RulingName::StillRed));
 }
 
 // A settings file with an entry the sandbox would refuse never becomes

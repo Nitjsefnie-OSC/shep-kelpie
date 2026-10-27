@@ -137,17 +137,11 @@ impl Runner {
         if (self.state.rulings.iter()).any(|r| r.id == id && r.kind.is_contribution()) {
             return None;
         }
-        // A question the project manager may answer, or a ruling the panel has
-        // yet to vote on, is not the maintainer's yet, so its comment waits
-        // for the hold to end.
-        if self.panel_enabled() {
-            self.mark_unposted(id, true);
-        }
-        self.panel_open_all();
+        // A ruling the project manager may answer is not the maintainer's yet,
+        // so its comment waits for the hold to end.
         if self.pm_holds_comment(id) {
             return None;
         }
-        self.panel_unvoted(id);
         self.mark_unposted(id, false);
         let ruling = self.state.rulings.iter().find(|r| r.id == id)?;
         let post = if number.is_none()

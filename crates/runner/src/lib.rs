@@ -13,8 +13,9 @@ pub mod runner;
 // The modules of `shep-kelpie-core` the runner uses, each kept under the name it had here
 use shep_kelpie_core::{
     agents, board, bridge, dep_sources, fence, forge_ledger, guard, home, hooks, lease,
-    local_paths, local_tickets, metrics, pacer, package_managers, ports, profile, review_bot,
-    settings, skills, state, ticket, totp, transcripts, usage, webhook, work_item,
+    local_paths, local_tickets, metrics, pacer, package_managers, pm_answer, ports, profile,
+    review_bot, settings, skills, state, ticket, totp, transcripts, usage, webhook, work_item,
+    work_kind,
 };
 
 // What only the runner's tests and the rig use of core
@@ -28,8 +29,7 @@ use shep_kelpie_protocol::{reply, request, status};
 
 // The leaf crates, each module kept under the name it had here
 use shep_kelpie_facts::{mcp_use, request_use, tool_error};
-use shep_kelpie_panel::panel;
-use shep_kelpie_process::{spawn, terminal, tools, worktree};
+use shep_kelpie_process::{spawn, terminal, worktree};
 #[cfg(test)]
 use shep_kelpie_trim::trim;
 use shep_kelpie_worker_folder::worker_folder;

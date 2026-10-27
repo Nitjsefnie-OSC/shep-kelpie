@@ -7,13 +7,13 @@
 //! settled and by whom, and the lines that invite an answer go. The same
 //! words tell a later reply in the thread what became of the ruling.
 
-use super::super::voice::settled_comment;
+use super::super::voice::{inert, settled_comment};
 use super::super::words::NO_NOTE;
 use super::super::{Answer, RuleError};
 use super::{LATE, Runner};
 use crate::ports::Timestamp;
 use crate::runner::alert::backoff;
-use crate::runner::panel::Answerer;
+use crate::runner::ruling::Answerer;
 use crate::state::Ruling;
 use crate::ticket::TicketId;
 
@@ -69,9 +69,6 @@ pub(in crate::runner) enum Settler {
         why: String,
         unread: bool,
     },
-    /// The panel, by its votes. Its decision is posted as a comment of its
-    /// own, so no ruling's comment is edited.
-    Panel,
 }
 
 /// What came of a ruling that is gone from the state
@@ -104,12 +101,8 @@ impl Outcome {
                 line: None,
                 told: format!("is already answered in its own thread: {words}"),
             },
-            Settler::Panel => Self {
-                line: None,
-                told: format!("is already decided by the panel: {words}"),
-            },
             Settler::Pm { answer, why, .. } => {
-                let (answer, why) = (bare(answer), bare(why));
+                let (answer, why) = (bare(answer), inert(&bare(why)));
                 let because = match why.is_empty() {
                     true => String::new(),
                     false => format!(" (why: {why})"),
@@ -165,7 +158,6 @@ impl Runner {
         let outcome = Outcome::answered(&by, &answer);
         let answerer = match by {
             Settler::Pm { .. } => Answerer::Pm,
-            Settler::Panel => Answerer::Panel,
             _ => Answerer::Maintainer,
         };
         let unread = matches!(by, Settler::Pm { unread: true, .. });

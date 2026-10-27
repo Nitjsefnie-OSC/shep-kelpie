@@ -23,7 +23,6 @@ test-support = [
 [dependencies]
 shep-kelpie-core.workspace = true
 shep-kelpie-facts.workspace = true
-shep-kelpie-panel.workspace = true
 shep-kelpie-process.workspace = true
 shep-kelpie-protocol.workspace = true
 shep-kelpie-worker-folder.workspace = true

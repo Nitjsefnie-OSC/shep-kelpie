@@ -21,7 +21,7 @@ An entry whose parenthesis begins `some:` lists only part of the module: kelpie 
 | `ps` cannot say whether a process runs | `runner::attach`, `runner::flight::carry` (some: the 6 tests that attach a pi, goose or Codex session), `runner::pm::tests::attach`, `runner::slots_tests`, `runner::turn::tests::held` (some: the 2 tests that attach) |
 | Process groups: a group check or signal the sandbox does not allow | `adapters::process` (some: 4 tests, the fourth the group an unserved handover ends), `adapters::dev_server` (some: the tests that start a server, whose group the guard stops), `adapters::claude::calls` (some: 1 test, the stop) |
 | A socket path past 104 bytes once a worker's long `TMPDIR` is in front of it | `runner::code_graph` (some: 1 test, whose path that fits outside a worker does not inside one) |
-| The temp folder is under `~/.shep`, which these tests' fences refuse to read | `issues::tests` (some: 2 tests), `runner::panel::tests::fences` (some: 2), `runner::pm::tests::code` (some: 1) |
+| The temp folder is under `~/.shep`, which these tests' fences refuse to read | `issues::tests` (some: 2 tests), `runner::pm::tests::code` (some: 1) |
 
 ## The tests behind `short_tempdir`
 

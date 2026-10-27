@@ -349,31 +349,6 @@ fn a_representatives_call_with_no_fence_is_set_up_with_no_tool_and_in_chat_mode(
 }
 
 #[test]
-fn a_vote_resuming_the_workers_session_under_its_vote_settings_is_refused_and_finds_no_session() {
-    // The runner resumes a worker's session for a vote under
-    // `vote-settings-<n>.json`, with a retro's tools. pi and Codex keep their
-    // sessions beside the settings path, so a resume under another finds none
-    // and is `NoSession`. goose does the same, a retro's tools or a worker's.
-    let w = World::new();
-    let goose = stand_in(&w, FRESH);
-    // The worker's first turn ran, so its own root holds its session.
-    let first = worker(&w, Session::New(id(FRESH_ID)));
-    goose.prepare(&first).unwrap();
-    let files = Files::of(&first.settings);
-    files.keep(&id(FRESH_ID), output::Spent::default()).unwrap();
-    assert!(files.spent(&id(FRESH_ID)).unwrap().is_some());
-
-    let mut vote = worker(&w, Session::Resume(id(FRESH_ID)));
-    vote.settings = w.path("vote-settings-7.json");
-    for tools in [Tools::Retro, Tools::Work] {
-        vote.tools = tools;
-        goose.prepare(&vote).unwrap();
-        let err = goose.run(&vote, &Ending::default()).unwrap_err();
-        assert_eq!(err, AgentError::NoSession(Harness::Goose, id(FRESH_ID)));
-    }
-}
-
-#[test]
 fn a_config_file_with_other_settings_keeps_them_and_has_the_plugin_on() {
     let w = World::new();
     let call = worker(&w, Session::New(id(FRESH_ID)));

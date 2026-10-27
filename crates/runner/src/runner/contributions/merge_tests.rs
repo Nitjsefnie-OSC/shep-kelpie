@@ -486,21 +486,19 @@ fn a_no_starts_no_fix_turn() {
 }
 
 #[test]
-fn the_panel_does_not_vote_on_the_merge_ruling() {
+fn the_project_manager_is_not_asked_to_answer_the_merge_ruling() {
     let (rig, runner, _) = ruled_on();
     for _ in 0..3 {
         poll(&rig, &runner);
     }
 
     let calls = rig.claude.all_seen();
-    let panel = [Role::Pm, Role::Advisor, Role::Researcher];
     let asked: Vec<Role> = (calls.iter().map(|s| s.call.role))
-        .filter(|r| panel.contains(r))
+        .filter(|r| *r == Role::Pm)
         .collect();
-    assert_eq!(asked, [], "the panel was not called");
+    assert_eq!(asked, [], "the project manager was not called");
     let waiting = rulings(&rig, &runner);
     assert_eq!(waiting.len(), 1, "it waits for the maintainer");
-    assert_eq!(waiting[0].get("panel"), None, "{}", waiting[0]);
 }
 
 #[test]

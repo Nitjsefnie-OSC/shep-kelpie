@@ -106,7 +106,6 @@ mod owner_template;
 #[cfg(test)]
 mod owner_template_tests;
 mod pace;
-mod panel;
 mod parent;
 mod pm;
 mod points;
@@ -353,8 +352,6 @@ pub struct Runner {
     told_points: points::Told,
     // The project manager's wakes and decisions, in memory only
     pm: pm::Desk,
-    // The panel's votes on the rulings, in memory only
-    panel: panel::Desk,
     // What the batch retro keeps between passes, in memory only
     retro_book: retro::Book,
     // What the loop posts for `status` and `drain`, and the drain flag they
@@ -655,7 +652,6 @@ impl Runner {
             tickets_source,
             told_points: spoken,
             pm: pm::Desk::default(),
-            panel: panel::Desk::default(),
             retro_book: retro::Book::default(),
             postings,
             finish: finishing::Finish::default(),
@@ -773,7 +769,7 @@ impl Runner {
             rulings: (self.state.rulings.iter())
                 .map(trigger::RulingStatus)
                 .collect(),
-            panel: self.panel_status(),
+            pm_answers: self.pm_answer_counts(),
             leases: &self.state.leases,
             history: &self.state.history[self
                 .state

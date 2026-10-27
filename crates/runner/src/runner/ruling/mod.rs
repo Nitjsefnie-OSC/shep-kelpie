@@ -25,6 +25,8 @@ use crate::work_item::{Known, Phase, Review, ReviewStage, Turn, WorkItem, foreig
 use crate::worktree::{self};
 
 mod act;
+mod history;
+pub(super) use history::{Answerer, Record, pm_answers, records};
 mod post;
 pub(super) use post::PostJob;
 mod prompts;
@@ -153,7 +155,7 @@ pub enum RuleError {
     Threads(u64, String),
     /// The worktree could not be brought to the head a yes accepted
     Adopt(String, String),
-    /// A ruling the panel decided could not be reopened
+    /// A ruling the project manager answered could not be reopened
     Reopen(TicketId, String),
     /// The ruling lists no option for this action
     NotOffered(TicketId, Action),
@@ -257,13 +259,12 @@ impl Runner {
     }
 
     // Applies an answer, and says whether it was taken, not after the branch moved.
-    // `by` says who gave it, which the record of it says: the researcher reads
-    // it, and the panel's measurements count only the maintainer's.
+    // `by` says who gave it, which the record of it says.
     pub(super) fn apply(
         &mut self,
         id: TicketId,
         answer: Answer,
-        by: super::panel::Answerer,
+        by: Answerer,
         unread: bool,
     ) -> Result<bool, RuleError> {
         let at = self.state.rulings.iter().position(|r| r.id == id);
@@ -273,9 +274,8 @@ impl Runner {
         let ruling = next.rulings.remove(at);
         let act = act::plan(id, &answer, &ruling.kind)?;
         let asked = act::asked(&ruling, &answer, by);
-        // Kept for the researcher once the answer is saved.
-        let record = super::panel::Record::of(&ruling, &answer, now, by);
-        let outlived = ruling.clone();
+        // Kept in the rulings history once the answer is saved.
+        let record = Record::of(&ruling, &answer, now, by);
         // Whether the findings a merged pull request left are filed or dropped.
         let follow_up = match (&answer, &ruling.kind) {
             (Answer::Yes, RulingKind::FollowUp { .. }) => Some(true),
@@ -554,11 +554,10 @@ impl Runner {
             }
         }
         self.save(next).map_err(RuleError::State)?;
-        match record.append(&self.paths.rulings) {
-            Ok(()) => self.panel_outlives(outlived),
-            Err(why) => self
-                .notes
-                .push(format!("ruling {id} is not kept for the researcher: {why}")),
+        if let Err(why) = record.append(&self.paths.rulings) {
+            self.notes.push(format!(
+                "ruling {id} is not kept in the rulings history: {why}"
+            ));
         }
         Ok(true)
     }

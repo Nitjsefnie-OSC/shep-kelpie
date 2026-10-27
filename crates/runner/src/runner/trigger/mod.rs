@@ -116,10 +116,10 @@ pub struct Status<'a> {
     pub red_workflows: Vec<super::RedStatus>,
     /// Rulings waiting on the maintainer, oldest first
     pub rulings: Vec<RulingStatus<'a>>,
-    /// How the panel stands against the maintainer's answers, when the
-    /// project has one
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub panel: Option<super::panel::Standing>,
+    /// How many rulings the project manager answered, by kind; left out
+    /// while it answered none
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub pm_answers: BTreeMap<String, u32>,
     /// Leases held
     pub leases: &'a [LeaseHeld],
     /// The most recent finished work items, oldest first

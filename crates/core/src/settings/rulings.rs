@@ -15,39 +15,13 @@ pub const PM_DECIDES: &str = "rulings.pm_decides";
 /// `true` in `rulings.pm_decides`
 pub const PM_ALONE: &str = "rulings.pm_alone";
 
-/// Whether the panel decides a ruling or only votes on it
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "kebab-case")]
-pub enum Decide {
-    /// The panel votes and posts on every ruling, and the maintainer still
-    /// answers it. Kelpie counts how often the panel's recommendation matched.
-    #[default]
-    Shadow,
-    /// The panel decides a ruling when three experts agree on one option and
-    /// none flagged `design`, or a smaller panel agrees, as the work item's
-    /// type sets. Anything else goes to the maintainer.
-    Panel,
-    /// The panel decides every ruling it votes on, and the maintainer is asked
-    /// only when no expert voted. All four experts are asked at once, whatever
-    /// the work item's type; the option with the most votes wins, a `design`
-    /// flag does not stop it, and a tie goes to the project manager's choice,
-    /// else the option listed first, though a tie never merges. `pm_decides`
-    /// and `full_panel_paths` have no effect.
-    Always,
-}
-
 /// How rulings are decided
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, JsonSchema)]
 #[serde(try_from = "Written")]
 pub struct Rulings {
-    /// Whether the panel decides a ruling. `shadow` when absent.
-    pub decide: Decide,
     /// Whether the project manager decides each kind of ruling, `true`, or
     /// the maintainer does. A kind it does not name is the maintainer's.
     pub pm_decides: BTreeMap<RulingName, bool>,
-    /// Globs of paths that call the full panel for a ruling on a work item
-    /// whose diff from its merge base touches one, whatever its type.
-    pub full_panel_paths: Vec<String>,
     // Whether `pm_decides` was read from the old list, for the lines that name the key
     #[schemars(skip)]
     from_list: bool,
@@ -57,12 +31,9 @@ pub struct Rulings {
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 struct Written {
-    /// Whether the panel decides a ruling. `shadow` when absent.
-    #[serde(default)]
-    decide: Decide,
-    /// Whether the project manager decides each kind of ruling with its own
-    /// vote on any type of work, `true`, when it flags no `design` and does
-    /// not abstain, or the maintainer does, `false`. A kind it does not name
+    /// Whether the project manager answers each kind of ruling, `true`, when
+    /// it flags no `design` and does not abstain, or the maintainer does,
+    /// `false`. A kind it does not name
     /// is the maintainer's. `merge`, `security`, `contribution-merge` and
     /// `local-model-spilled` are refused as `true`.
     #[serde(default)]
@@ -73,11 +44,6 @@ struct Written {
     #[serde(default)]
     #[schemars(skip)]
     pm_alone: Option<Vec<RulingName>>,
-    /// Globs of paths that call the full panel for a ruling on a work item
-    /// whose diff from its merge base touches one, whatever its type. `*` and
-    /// `?` stay inside a folder and `**` spans folders. Empty when absent.
-    #[serde(default)]
-    full_panel_paths: Vec<String>,
 }
 
 impl TryFrom<Written> for Rulings {
@@ -96,9 +62,7 @@ impl TryFrom<Written> for Rulings {
             (None, None) => (BTreeMap::new(), false),
         };
         Ok(Self {
-            decide: written.decide,
             pm_decides,
-            full_panel_paths: written.full_panel_paths,
             from_list,
         })
     }
@@ -151,12 +115,12 @@ pub enum RulingName {
     AdoptFailed,
     /// A work item or a contribution is over its budget
     OverBudget,
-    /// The security review flagged a contribution's head. The panel never
-    /// votes on it, so `pm_decides` refuses it.
+    /// The security review flagged a contribution's head. The project
+    /// manager never answers it, so `pm_decides` refuses it.
     Security,
     /// A contribution's pass has ended and its CI is green on the head. The
-    /// maintainer decides every merge of someone else's work, and the panel
-    /// never votes on it, so `pm_decides` refuses it.
+    /// maintainer decides every merge of someone else's work, so
+    /// `pm_decides` refuses it.
     ContributionMerge,
     /// The local model sat on the CPU. No ruling is raised for it now, and
     /// the name stays so ledger and history lines written before it went
@@ -224,12 +188,12 @@ impl RulingName {
         match self {
             Self::Merge => Some("a merge ruling is never decided by the project manager alone"),
             Self::Security => Some(
-                "a ruling on a contribution never goes to the panel, since text from a stranger \
-                 must not reach a vote",
+                "a ruling on a contribution never goes to the project manager, since text from \
+                 a stranger must not reach it",
             ),
             Self::ContributionMerge => Some(
                 "the maintainer decides every merge of someone else's work, and a contribution's \
-                 ruling never goes to the panel",
+                 ruling never goes to the project manager",
             ),
             Self::LocalModelSpilled => Some(
                 "`local-model-spilled` is no longer a kind of ruling, since kelpie no longer \
@@ -318,22 +282,6 @@ impl Rulings {
             true => PM_ALONE,
             false => PM_DECIDES,
         }
-    }
-
-    /// Notes naming each of `pm_decides` and `full_panel_paths` that is set
-    /// under `decide = "always"`, which ignores it
-    pub fn unused_under_always(&self) -> Vec<String> {
-        let set = [
-            (self.key(), self.pm_decides.values().any(|pm| *pm)),
-            (
-                "rulings.full_panel_paths",
-                !self.full_panel_paths.is_empty(),
-            ),
-        ];
-        (set.into_iter())
-            .filter(|(_, set)| *set && self.decide == Decide::Always)
-            .map(|(name, _)| format!("rulings.decide is \"always\", so {name} has no effect"))
-            .collect()
     }
 
     /// Why the kinds are refused, if they are, naming the key they were read

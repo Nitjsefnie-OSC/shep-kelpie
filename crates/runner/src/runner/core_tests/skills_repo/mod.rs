@@ -8,6 +8,7 @@ use crate::runner::step;
 use crate::test::{Rig, Scripted, Synced, git};
 
 mod frontmatter;
+mod mcp;
 mod narrow;
 mod own;
 mod parts;

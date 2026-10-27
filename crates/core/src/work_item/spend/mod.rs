@@ -92,7 +92,8 @@ impl WorkItem {
                 Role::Reviewer => &mut spend.reviewer,
                 // It runs before any work item opens, so none records it.
                 Role::IssueWriter => continue,
-                // The panel, the project manager, the representative and the triager are the project's, so no work item records them.
+                // The project manager, the advisor, the researcher, the representative and the triager are
+                // the project's, so no work item records them.
                 Role::Pm
                 | Role::Advisor
                 | Role::Researcher

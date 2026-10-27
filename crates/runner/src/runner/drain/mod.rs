@@ -83,8 +83,6 @@ pub enum CallRole {
     Security,
     /// The triager, researching an untouched issue
     Triager,
-    /// The panel's experts, voting on a ruling
-    Panel,
     /// The project manager's agent, running a batch retro
     Retro,
     /// The e2e run of a dependency bump's head, on the project's e2e host
@@ -106,7 +104,6 @@ impl CallRole {
             Self::IssueWriter => "issue_writer",
             Self::Security => "security",
             Self::Triager => "triager",
-            Self::Panel => "panel",
             Self::Retro => "retro",
             Self::E2e => "e2e",
             Self::Attached(name) => name,
@@ -292,14 +289,12 @@ impl Runner {
             .flights
             .retro_running()
             .then_some(super::retro::CEILING);
-        let panel = (self.flights.panel_running()).then_some(super::panel::CEILING);
         let ceiling = (self.turn_ceiling().as_secs())
             .max(pm.unwrap_or(0))
             .max(labelling.unwrap_or(0))
             .max(securing.unwrap_or(0))
             .max(triaging.unwrap_or(0))
-            .max(retro.unwrap_or(0))
-            .max(panel.unwrap_or(0));
+            .max(retro.unwrap_or(0));
         let attached = Harness::ALL.into_iter().flat_map(|harness| {
             let role = harness.facts().attached_role.map(CallRole::Attached);
             (role.into_iter()).flat_map(move |role| {
