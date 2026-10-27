@@ -3,7 +3,7 @@
 use std::ffi::OsString;
 use std::path::PathBuf;
 
-use super::{Files, PROVIDER, mcp, mcp_config, tools_of, web};
+use super::{Files, PROVIDER, mcp, mcp_config, tools_of};
 use crate::adapters::skills::skill_dirs;
 use crate::ports::{AgentCall, COMPACT};
 
@@ -49,7 +49,6 @@ pub(super) fn profile(call: &AgentCall, files: &Files, skill: Option<PathBuf>) -
     if call.reach.fence.is_some() {
         argv.extend(["--extension".into(), files.guard().into()]);
     }
-    argv.extend(web::flags(call));
     // The step's skill comes first, so its name wins a collision. Its text is in
     // the prompt, but any other skill needs `read` to open and only costs context.
     if let Some(skill) = skill {

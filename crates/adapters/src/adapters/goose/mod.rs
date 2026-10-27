@@ -1,10 +1,9 @@
 //! goose, headless as `goose run`, one process per call, on an OpenAI-compatible model
 //!
 //! Each call runs inside kelpie's sandbox in a goose root of its own, so the
-//! maintainer's goose setup never loads. A researcher gets only `skills` and
-//! its MCP web ([`web`]). A worker gets `developer`, and every tool call goes
-//! through the `PreToolUse` plugin ([`hooks`]); a fenced reviewer, advisor and
-//! retro get its read-only guard, reading through a `shell`. A call loads MCP
+//! maintainer's goose setup never loads. A worker gets `developer`, and every
+//! tool call goes through the `PreToolUse` plugin ([`hooks`]); a fenced
+//! reviewer, advisor and retro get its read-only guard, reading through a `shell`. A call loads MCP
 //! servers as flags of a new session ([`mcp`]) and its plugins' skills ([`skills`]).
 //! goose dials a forwarder outside the sandbox, which passes on only the chat
 //! completions call. A gateway model gets its key and holds its lease per call.
@@ -44,7 +43,6 @@ pub(crate) mod hooks;
 pub(crate) mod mcp;
 mod output;
 mod skills;
-pub(crate) mod web;
 
 #[cfg(test)]
 mod activity_tests;
@@ -71,9 +69,6 @@ mod mcp_tests;
 mod reading_tests;
 
 #[cfg(test)]
-mod escapes;
-
-#[cfg(test)]
 mod review_tests;
 
 #[cfg(test)]
@@ -87,9 +82,6 @@ mod tests;
 
 #[cfg(test)]
 mod unreachable_tests;
-
-#[cfg(test)]
-mod web_tests;
 
 /// The oldest goose kelpie is built for: `on_failure: block` hooks need 1.48 or
 /// later, and 1.53.0 is the source the adapter is written from. The target is 1.54.0.
@@ -535,7 +527,6 @@ fn env_args(
             serde_json::json!(CONTEXT_FILES).to_string().into(),
         ));
     }
-    vars.extend(web::env(call));
     vars.extend(compact::threshold_var(call, server.context.get()));
     // The fence adds its variables, and none replaces one that closes a door.
     if let Some(fence) = &call.reach.fence {
@@ -612,7 +603,6 @@ fn fenced(call: &AgentCall, files: &Files, program: &Path, unfenced: &[String]) 
     bind_in_scratch(&mut policy, call, &files.scratch);
     crate::adapters::mcp::fence_the_graph(&mut policy, call);
     crate::adapters::mcp::fence_the_browser(&mut policy, call);
-    web::open(call, &mut policy);
     policy
 }
 

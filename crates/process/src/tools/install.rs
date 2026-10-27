@@ -324,7 +324,7 @@ cp "$0.body" "$out"
 
         let packages = step(&lines, 1);
         let pinned = pinned_in(rig.tools.dir());
-        assert_eq!(pinned.len(), 3, "{pinned:?}");
+        assert_eq!(pinned.len(), 1, "{pinned:?}");
         for (name, version) in &pinned {
             let named = format!("{name} {version}");
             assert!(packages[0].contains(&named), "{named} not in {packages:?}");

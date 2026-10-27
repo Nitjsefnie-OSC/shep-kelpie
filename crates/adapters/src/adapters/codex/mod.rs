@@ -570,15 +570,7 @@ fn overrides(
         [
             // Codex's levels share Claude Code's names; a model refuses one it lacks.
             config("model_reasoning_effort", call.effort.as_str()),
-            // Only the researcher searches the web, which reads and writes nothing here.
-            config(
-                "web_search",
-                if call.tools == Tools::Research {
-                    "live"
-                } else {
-                    "disabled"
-                },
-            ),
+            config("web_search", "disabled"),
             config("check_for_update_on_startup", false),
             config(
                 "sqlite_home",
@@ -664,10 +656,6 @@ fn prompt(call: &AgentCall) -> Result<String, AgentError> {
 /// `apply_patch` is how Codex writes files, and `Bash` is every command. A
 /// reviewer's, advisor's and retro's commands go to the read-only guard.
 fn hooks(fence: &Fence, tools: Tools) -> toml::Value {
-    // A researcher has no shell, and writes no file.
-    if tools == Tools::Research {
-        return no_writes();
-    }
     let guard = &fence.guard;
     let quoted = |p: &Path| shell_quote(&p.to_string_lossy());
     let mut confine = vec![
