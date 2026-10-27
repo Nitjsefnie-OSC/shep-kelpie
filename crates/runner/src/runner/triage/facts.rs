@@ -204,9 +204,9 @@ fn maintainers(found: &Found, ask: bool, stood: bool, rewrite: bool) -> String {
             "A triage label they put on by hand stands, so kelpie labels it no further."
         }
         (false, false) if rewrite => {
-            "Kelpie rewrites the issue body from this report, in the issue format, but its \
-             issue check still refuses the issue, so it ends at `needs-triage`, waiting on \
-             them, and kelpie says what the check refused."
+            "Kelpie's issue check still refuses the rewrite, so kelpie writes it under their \
+             own text in the body, the issue ends at `needs-triage`, waiting on them, and \
+             kelpie says what the check refused."
         }
         (false, false) => "It ends at `needs-triage`, waiting on them.",
     };

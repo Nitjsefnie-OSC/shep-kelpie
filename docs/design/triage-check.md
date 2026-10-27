@@ -20,7 +20,7 @@ ADR 0018, cut 3: the board runs the issue check (`work.md`) on every new or edit
 ## Today's triage steps
 
 - `ready` stays. The check's pass now reaches it, and the `sure` rule is gone (`triage-pass.md`).
-- `needs-triage` stays as the queue label. A rewrite that still fails ends there, and so does another person's passing issue.
+- `needs-triage` stays as the queue label. A rewrite that still fails goes under the maintainer's text and ends there, and so does another person's passing issue.
 - `triage.pick`, `triage.since` and `pruned_through` stay, but they decide only which failing issues reach the triager. The check runs whatever they say.
 - `hand_ready` keeps its meaning for another person's passing issue, which waits, and for the take-back swap. The maintainer's failing hand-labelled issue is held and triaged under either value (`triage-hand.md`).
 - The author's round, `wait_days` and `local` stay, now only for questions the triager has no good answer for.

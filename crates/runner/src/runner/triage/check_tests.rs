@@ -119,8 +119,8 @@ fn a_failing_issue_is_triaged_and_a_rewrite_that_still_fails_gets_one_comment() 
     assert_eq!(rig.github.comments().len(), 1, "the triage comment");
     assert_eq!(
         rig.github.issue_edits(),
-        [(30, STILL.to_owned())],
-        "the maintainer's issue is rewritten in place"
+        [(30, format!("{FAILING}\n\n{STILL}"))],
+        "a rewrite the check refuses goes under the maintainer's text"
     );
     assert_eq!(
         moves(&rig),

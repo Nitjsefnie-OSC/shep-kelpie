@@ -605,8 +605,8 @@ fn a_body_rewritten_again_under_the_local_read_call_is_not_answered_by_it() {
     );
     assert_eq!(
         rig.github.issue_edits(),
-        [(30, "## Settled\n\n- Linux, on start.".to_owned())],
-        "only the newer read's body is written"
+        [(30, format!("{twice}\n\n## Settled\n\n- Linux, on start."))],
+        "only the newer read's body is written, under the author's text"
     );
     assert_eq!(
         moves(&rig),

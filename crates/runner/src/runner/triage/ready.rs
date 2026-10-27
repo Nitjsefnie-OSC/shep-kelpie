@@ -4,7 +4,8 @@
 //! The rewrite runs for an issue whose author is [`Runner::maintainer`],
 //! ignoring case, with no open question and a `body`. Where the check passes the
 //! issue as the pass leaves it, the body goes over the issue's, then the labels,
-//! `ready-for-agent` last; where it does not, the issue ends `needs-triage`. The
+//! `ready-for-agent` last; where it does not, it goes under the issue's text and
+//! the issue ends `needs-triage`. The
 //! comment is worded first, so it promises nothing for a body the local guard
 //! would refuse or while a hand-put triage label stands.
 
@@ -40,7 +41,7 @@ pub(super) fn is_issue_body(body: &str) -> bool {
 pub(in crate::runner) enum Ready {
     /// The body to write over the issue's, which the check passes
     Body(String),
-    /// The body to write over the issue's, which the check still refuses
+    /// The body to write under the issue's text, which the check still refuses
     Rewrite(String),
     /// Not this issue: an outside author, a reply with an open question or no
     /// body, or no maintainer to ask for
@@ -52,7 +53,7 @@ pub(in crate::runner) enum Ready {
 
 /// Whether kelpie is going to rewrite `issue`, with `labels` the pass puts on,
 /// and whether that makes it ready. Only an issue whose author is
-/// `Runner::maintainer()`, ignoring case, is ever rewritten in place or made
+/// `Runner::maintainer()`, ignoring case, is ever rewritten or made
 /// ready. The body is read against the same local guard every App post goes
 /// through: the comment is worded before the body is written, so text the
 /// guard would refuse is dropped here rather than promised there.

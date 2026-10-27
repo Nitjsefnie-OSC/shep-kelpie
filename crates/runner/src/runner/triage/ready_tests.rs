@@ -184,7 +184,7 @@ fn an_outside_issue_it_is_sure_of_still_ends_needs_triage() {
 }
 
 #[test]
-fn a_rewrite_the_check_refuses_is_written_over_the_body_and_ends_needs_triage() {
+fn a_rewrite_the_check_refuses_goes_under_the_body_and_ends_needs_triage() {
     let bodies = [
         // No acceptance criteria section.
         "Touches:\n- `src/start.rs`\n\n## What to build\n\n- Fix the crash.\n",
@@ -201,8 +201,11 @@ fn a_rewrite_the_check_refuses_is_written_over_the_body_and_ends_needs_triage() 
 
         assert_eq!(
             rig.github.issue_edits(),
-            [(30, body.trim_end().to_owned())],
-            "the maintainer's issue is rewritten in place: {body}"
+            [(
+                30,
+                format!("It crashes when I run it.\n\n{}", body.trim_end())
+            )],
+            "a rewrite the check refuses never overwrites: {body}"
         );
         assert_eq!(
             moves(&rig),
@@ -240,7 +243,7 @@ fn a_reply_with_an_open_question_or_no_priority_is_not_made_ready() {
         "{open}"
     );
 
-    // With no priority the check refuses the rewrite: it goes over the body,
+    // With no priority the check refuses the rewrite: it goes under the body,
     // and the issue ends `needs-triage`.
     let found = json!({ "type": "bug", "kind": "fix", "body": BODY });
     let (rig, runner) = filed("maintainer", MAINTAINER);
@@ -248,7 +251,8 @@ fn a_reply_with_an_open_question_or_no_priority_is_not_made_ready() {
 
     assert_eq!(step(&runner).unwrap(), None, "{found}");
 
-    assert_eq!(rig.github.issue_edits(), [(30, BODY.trim_end().to_owned())]);
+    let under = format!("It crashes when I run it.\n\n{}", BODY.trim_end());
+    assert_eq!(rig.github.issue_edits(), [(30, under)]);
     assert_eq!(
         moves(&rig).last().map(String::as_str),
         Some("label needs-triage"),

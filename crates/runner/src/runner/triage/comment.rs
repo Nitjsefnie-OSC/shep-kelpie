@@ -427,8 +427,8 @@ impl Runner {
             && !found.open.is_empty()
             && self.askable(author);
         let ready = ready::readiness(self, issue, author, found, &labels);
-        // A rewrite the check still refuses goes over the body as settled answers
-        // do, and the issue ends `needs-triage`.
+        // A rewrite the check still refuses is written as settled answers are,
+        // and the issue ends `needs-triage`.
         let (ready_body, rewrite) = match (stood.as_ref(), ready) {
             (Some(label), _) => {
                 self.notes.push(format!(
@@ -467,6 +467,12 @@ impl Runner {
                 Some(ask::Settled::Held) => return Ok(()),
             },
             _ => None,
+        };
+        // A rewrite the check refuses goes under the author's text, never in place of it.
+        let rewrite = match rewrite.map(|body| self.settled_answers(issue, &body)) {
+            Some(ask::Settled::Body(whole)) => Some(whole),
+            Some(ask::Settled::Not) | None => None,
+            Some(ask::Settled::Held) => return Ok(()),
         };
         let rewritten = rewrite.is_some();
         let answers_body = answers_body.or(rewrite);

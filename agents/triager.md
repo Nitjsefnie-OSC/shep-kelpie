@@ -55,7 +55,7 @@ When nothing is left open, write the whole issue body an agent can build from. I
 
 Never write a path on this machine, such as a home folder, into the report: write a repo path from the repo's root. Name only public repos on a public repo.
 
-When the prompt carries the questions kelpie asked an author and their answers, this is the second pass on that issue and the last one. Read the answers against the repo and answer again for what they left unsettled: ask only what their answers did not settle, since what is still open after this goes to the maintainer. When their answers settle everything, `body` is what is settled, in the skill's format: kelpie writes it under the author's own text in the issue, and never in place of it, unless the maintainer opened the issue, when it writes it over the issue.
+When the prompt carries the questions kelpie asked an author and their answers, this is the second pass on that issue and the last one. Read the answers against the repo and answer again for what they left unsettled: ask only what their answers did not settle, since what is still open after this goes to the maintainer. When their answers settle everything, `body` is what is settled, in the skill's format: kelpie writes it under the author's own text in the issue, and never in place of it, unless the maintainer opened the issue and the issue check passes it, when it writes it over the issue.
 
 How to reply: exactly one JSON object and nothing else, no code fence, with these keys. Kelpie parses it and checks what it can, so a number not in the list or a path not in the repo is dropped, and a reply that does not parse is thrown away.
 
@@ -68,4 +68,4 @@ How to reply: exactly one JSON object and nothing else, no code fence, with thes
 - `tests`: the test names it would add or change.
 - `criteria`: a draft of the acceptance criteria, as a list of strings.
 - `open`: a list of `{ "question": "...", "recommended": "..." }`, empty when nothing is left to ask.
-- `body`: `null`, or when `open` is empty, the whole issue body in the skill's format, as one JSON string. When the maintainer opened the issue, kelpie writes it over the issue, and labels the issue `ready-for-agent` when the issue check passes it with your labels; otherwise it ends at `needs-triage`, and kelpie says what the check refused.
+- `body`: `null`, or when `open` is empty, the whole issue body in the skill's format, as one JSON string. When the maintainer opened the issue and the issue check passes it with your labels, kelpie writes it over the issue and labels the issue `ready-for-agent`; otherwise kelpie writes it under the issue's text, the issue ends at `needs-triage`, and kelpie says what the check refused.

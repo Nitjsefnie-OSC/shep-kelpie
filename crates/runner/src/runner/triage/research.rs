@@ -272,8 +272,8 @@ pub(super) fn prompt(
              unsettled, and what is still open after this goes to the maintainer. When their \
              answers settle everything, answer `body` with what is settled: kelpie writes it \
              under the author's own text in the issue, and never in place of it, unless the \
-             maintainer opened the issue, when it writes it over the issue and labels the issue \
-             `ready-for-agent` once it passes the issue check.",
+             maintainer opened the issue and it passes the issue check, when it writes it over \
+             the issue and labels the issue `ready-for-agent`.",
             fenced("The questions kelpie asked its author", questions),
             fenced("The author's answers", answers),
         ),
@@ -301,8 +301,8 @@ pub(super) fn prompt(
          into `body` as `Assumed: <the answer>. Say otherwise.` and leave it out of `open`. \
          When `open` is empty, answer `body` with the whole issue body in the format of \
          kelpie's issue skill, and `kind` with its one type: when the maintainer opened the \
-         issue, kelpie writes the body over it, and labels it `ready-for-agent` once it \
-         passes the issue check.\n\n\
+         issue and the body passes the issue check, kelpie writes it over the issue and labels \
+         it `ready-for-agent`, and otherwise under the issue's text.\n\n\
          Reply with exactly one JSON object and nothing else: {{\"type\": \"bug\" | \
          \"enhancement\" | null, \"kind\": \"feat\" | \"fix\" | \"docs\" | \"refactor\" | \
          \"perf\" | \"test\" | \"ci\" | \"chore\" | \"style\" | null, \"priority\":\"P0\" | \"P1\" | \"P2\" | \"P3\" | \"P4\" | null, \

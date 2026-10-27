@@ -187,8 +187,11 @@ fn a_restart_while_waiting_on_the_answers_keeps_the_questions_and_their_clock() 
     assert_eq!(calls(&rig, Role::Triager).len(), 2);
     assert_eq!(
         rig.github.issue_edits(),
-        [(30, "## Settled\n\n- Linux, on start.".to_owned())],
-        "the maintainer's own issue is rewritten in place"
+        [(
+            30,
+            "It crashes when I run it.\n\n## Settled\n\n- Linux, on start.".to_owned()
+        )],
+        "a partial reply never overwrites the maintainer's text"
     );
     assert_eq!(
         moves(&rig),
