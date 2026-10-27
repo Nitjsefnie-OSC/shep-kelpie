@@ -1,5 +1,7 @@
 //! `shep kelpie <verb>`: the command line, read into a trigger for a project
 
+mod check;
+
 use std::ffi::OsStr;
 use std::io::{BufRead, IsTerminal, Write};
 use std::path::{Path, PathBuf};
@@ -62,6 +64,9 @@ usage: shep kelpie add [<project>] [--base <branch>]
                                          plans them with you in claude
        shep kelpie issue check <ticket>  whether an issue holds every part an
                                          implementer builds from, each missing one named
+       shep kelpie issue check --draft <file> [--label <label>]...
+                                         the same for an issue not yet filed, its title
+                                         the file's first line, with no shepherd
        shep kelpie attach <ticket>       steers its worker's session here
        shep kelpie tell \"<note>\"         a note for the project manager's next wake
        shep kelpie pm                    steers the project manager's session here
@@ -110,6 +115,10 @@ it against files.";
 
 /// Runs `kelpie <command> <args>` for one of [`VERBS`]
 pub fn main(command: &str, args: &[String]) -> ExitCode {
+    // Before `SHEP_HOME` is asked for, which a worker's sandbox has none of.
+    if check::asked(command, args) {
+        return ExitCode::from(check::main(&|name| std::env::var_os(name), args));
+    }
     let ran = crate::shep_home::required(crate::shep_home::FLOCK_FIX)
         .and_then(|shep_home| shepherd::block_on(run(&Socket, &shep_home, command, args)));
     match ran {
@@ -366,20 +375,9 @@ async fn run(
             };
             set::set(&client, &name, place, key, value).await
         }
-        ("issue", ["check", rest @ ..]) => {
-            let [text] = rest else {
-                return Err(USAGE.to_owned());
-            };
-            let ticket = text.parse::<TicketId>();
-            let ticket = ticket.map_err(|_| format!("{text:?} is not a ticket id"))?;
-            let here = Here {
-                client: &client,
-                shep_home,
-                kelpie_home: &kelpie_home,
-                home: &home,
-            };
-            issue_check(here, &project().await?, ticket).await
-        }
+        // `main` runs the check itself. This arm, ahead of the request's, keeps
+        // `check` from ever reaching the issue writer as a request to file.
+        ("issue", ["check", ..]) => Err(USAGE.to_owned()),
         ("issue", [_, ..]) => {
             let here = Here {
                 client: &client,
@@ -431,22 +429,6 @@ async fn load(here: &Here<'_>, name: &ProjectName) -> Result<(ProjectPaths, Load
     let loaded = source::load(&tables, name.as_str(), here.home, &paths.folder)
         .map_err(|e| e.to_string())?;
     Ok((paths, loaded))
-}
-
-// `issue check <ticket>`: the issue check, on the ticket as its source holds it.
-async fn issue_check(
-    here: Here<'_>,
-    name: &ProjectName,
-    ticket: TicketId,
-) -> Result<Vec<String>, String> {
-    let (paths, loaded) = load(&here, name).await?;
-    let remote = crate::runner::check_checkout(&loaded.settings).map_err(|e| e.to_string())?;
-    let tickets = Routed::new(
-        Arc::new(Gh::default()),
-        LocalTickets::new(paths.tickets()),
-        loaded.settings.tickets.source,
-    );
-    issues::check::run(&tickets, &remote, ticket)
 }
 
 // `issue [--interactive] <request>`: the issue writer, run here rather than

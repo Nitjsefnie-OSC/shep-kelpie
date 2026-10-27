@@ -44,4 +44,12 @@ It is filed with the labels `enhancement` and `priority: P4`.
 
 ## Check it
 
-Once the issue is filed, run `shep kelpie issue check <n>` on it. It checks structure, not quality: each part above is there and well formed. It prints each part the issue lacks or holds malformed. Fix each one on the issue, by editing its body or labels, and run the check again until it passes. An issue that passes is ready for an implementer.
+Before filing, write the issue to a file, its title on the first line and its body below, and check the draft with the labels you will file it with:
+
+```sh
+shep kelpie issue check --draft <file> --label <label> --label <label>
+```
+
+It needs no shepherd, settings or network, so it runs in a kelpie worker's sandbox too; there, run the kelpie binary your instructions name for `lease run` in place of `shep kelpie`. It checks structure, not quality: each part above is there and well formed. It prints each part the draft lacks or holds malformed and exits 1, or exits 0 when it passes. Fix each one and check again until it passes, then file it.
+
+Once it is filed, run `shep kelpie issue check <n>` on it where you can, which reads the issue as the project's tickets hold it. A worker's sandbox cannot reach them, so a worker checks only its draft. An issue that passes is ready for an implementer.

@@ -84,6 +84,7 @@ mod tests {
             assert!(format.contains(&format!("`{harness}`")), "{harness}");
         }
         assert!(TEXT.contains("`shep kelpie issue check <n>`"), "{TEXT}");
+        assert!(TEXT.contains("shep kelpie issue check --draft <file>"), "{TEXT}");
     }
 
     #[test]
