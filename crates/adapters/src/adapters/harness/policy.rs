@@ -420,7 +420,8 @@ mod tests {
     #[test]
     fn an_unfenced_call_reads_the_toolchain_and_config_under_the_denied_home() {
         let dir = tempfile::tempdir().unwrap();
-        for folder in [".cargo", ".rustup"] {
+        let tools = [".cargo", ".rustup", "go/bin", "go/pkg/mod", ".bun"];
+        for folder in tools {
             std::fs::create_dir_all(dir.path().join(folder)).unwrap();
         }
         std::fs::write(dir.path().join(".gitconfig"), "[user]\n").unwrap();
@@ -435,7 +436,7 @@ mod tests {
             ),
         ]);
         let carve = unfenced_reads(&unfenced_call(dir.path()), &[glob(dir.path())], &env);
-        for folder in [".cargo", ".rustup", ".gitconfig"] {
+        for folder in tools.iter().chain(&[".gitconfig"]) {
             let own = dir.path().join(folder);
             assert!(carve.read.contains(&own), "{own:?} in {:?}", carve.read);
         }
