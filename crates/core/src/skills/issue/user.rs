@@ -43,13 +43,13 @@ pub fn install(kelpie_home: &Path, home: &Path) -> Vec<String> {
     links.filter_map(|link| linked(&link, &target)).collect()
 }
 
+// The folder stays, so no link to it dangles, and `SKILL.md` is replaced
+// whole by a rename over it.
 fn write_copy(target: &Path) -> io::Result<()> {
-    match fs::remove_dir_all(target) {
-        Err(e) if e.kind() != io::ErrorKind::NotFound => return Err(e),
-        _ => {}
-    }
     fs::create_dir_all(target)?;
-    fs::write(target.join("SKILL.md"), TEXT)
+    let written = target.join(".SKILL.md.new");
+    fs::write(&written, TEXT)?;
+    fs::rename(&written, target.join("SKILL.md"))
 }
 
 // Makes `link` point at `target`, unless it already does or is someone
@@ -144,6 +144,27 @@ mod tests {
         }
         assert_eq!(said.len(), 2, "{said:?}");
         assert_eq!(install(kelpie.path(), home.path()), Vec::<String>::new());
+    }
+
+    // The folder stays where it is, so a link to it never dangles, and the
+    // new text lands whole.
+    #[cfg(unix)]
+    #[test]
+    fn the_copy_is_rewritten_in_its_own_folder_through_a_rename() {
+        use std::os::unix::fs::MetadataExt;
+        let (home, kelpie) = (home(), tempfile::tempdir().unwrap());
+        let target = copy(kelpie.path());
+        fs::create_dir_all(&target).unwrap();
+        fs::write(target.join("SKILL.md"), "an old build's text").unwrap();
+        let folder = fs::metadata(&target).unwrap().ino();
+        install(kelpie.path(), home.path());
+        assert_eq!(fs::metadata(&target).unwrap().ino(), folder);
+        assert_eq!(fs::read_to_string(target.join("SKILL.md")).unwrap(), TEXT);
+        let names: Vec<_> = fs::read_dir(&target)
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
+        assert_eq!(names, ["SKILL.md"]);
     }
 
     #[test]
