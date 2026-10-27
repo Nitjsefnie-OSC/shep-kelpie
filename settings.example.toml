@@ -364,8 +364,12 @@ compact_window = 200000
 # `ready-for-agent` by hand, when it has no triage record, no work item and no
 # open pull request: kelpie saves a record, then swaps the label for
 # `needs-triage`, before the board's pick, and the pass asks its questions and
-# puts `ready-for-agent` back once it is sure. It needs `pick` to be
-# `maintainer` or `all`, and any worker gets the issue after.
+# puts `ready-for-agent` back once the issue check passes its rewrite. It needs
+# `pick` to be `maintainer` or `all`, and any worker gets the issue after.
+#
+# Whatever `pick` says, kelpie runs the issue check on each new or edited open
+# issue. The maintainer's issue that passes is labelled `ready-for-agent`, and
+# anyone else's waits at `needs-triage`. Only an issue that fails is triaged.
 #
 # Four limits are checked before any issue's research call, so a burst of issues
 # or one noisy author cannot spend the triager's budget. Each is 0 for off, and
