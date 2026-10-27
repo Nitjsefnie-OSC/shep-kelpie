@@ -161,19 +161,6 @@ mod tests {
             .replace("# configuration = \"web\"", "configuration = \"web\"")
             .replace("# routes = [\"/\"]", "routes = [\"/\"]")
             .replace("# pm = \"pm\"", "pm = \"pm\"")
-            .replace("# advisor = \"advisor\"", "advisor = \"advisor\"")
-            .replace(
-                "# researcher = \"researcher\"",
-                "researcher = \"researcher\"",
-            )
-            .replace(
-                "# [app.dogs.kelpie.researcher]\n# transcripts =",
-                "[app.dogs.kelpie.researcher]\ntranscripts =",
-            )
-            .replace(
-                "# allowed_domains = [\"docs.rs\"]",
-                "allowed_domains = [\"docs.rs\"]",
-            )
             .replace(
                 "# [app.dogs.kelpie.rulings.pm_decides]\n# question =",
                 "[app.dogs.kelpie.rulings.pm_decides]\nquestion =",

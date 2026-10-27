@@ -244,17 +244,16 @@ async fn a_pi_reviewer_of_contributions_gets_a_pi_line_only_while_contributions_
     }
 }
 
-// A goose researcher on a server of its own, which no gateway fronts: the one
-// role goose runs until its adapter is built
-const GOOSE: &str = "---\nrole: researcher\nharness: goose\nmodel: qwen3.8:27b\neffort: low\n\
-                     url: http://box:11434/v1\ncontext: 65536\n---\nVote.\n";
+// A goose reviewer on a server of its own, which no gateway fronts
+const GOOSE: &str = "---\nrole: reviewer\nharness: goose\nmodel: qwen3.8:27b\neffort: low\n\
+                     url: http://box:11434/v1\ncontext: 65536\n---\nReview.\n";
 
 impl Scene {
     /// Lists a goose agent for `golbat`, which `koji` does not run
     fn runs_goose_on_golbat(&self) {
         crate::test::write_in(&self.kelpie_home.join("agents"), "goose.md", GOOSE);
         self.runs("golbat", |t| {
-            t.insert("agents".into(), json!({ "researcher": "goose" }));
+            t.insert("agents".into(), json!({ "reviewers": ["goose"] }));
         });
     }
 }

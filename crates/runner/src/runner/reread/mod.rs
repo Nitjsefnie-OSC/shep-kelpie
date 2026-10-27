@@ -325,18 +325,14 @@ pub fn check_gateway_shapes(
     gateways.check_listed_without_keys(book, listed(agents, lineup))
 }
 
-// Every agent a project runs a call on: its implementers, its reviewers, its advisor
-// and its researcher.
+// Every agent a project runs a call on: its implementers and its reviewers.
 fn listed<'a>(
     agents: &'a RoleAgents,
     lineup: &'a [ListedReviewer],
 ) -> impl Iterator<Item = &'a AgentName> + 'a {
     let implementers = agents.implementers.iter().map(|i| &i.name);
     let reviewers = lineup.iter().map(|r| &r.name);
-    let experts = agents.advisor.iter().chain(agents.researcher.iter());
-    implementers
-        .chain(reviewers)
-        .chain(experts.map(|e| &e.name))
+    implementers.chain(reviewers)
 }
 
 #[cfg(test)]

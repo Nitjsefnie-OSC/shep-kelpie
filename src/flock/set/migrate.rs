@@ -2,9 +2,11 @@
 //!
 //! A project's old `rulings.pm_alone` list becomes `rulings.pm_decides`, and
 //! each kind of ruling the map lacks is written at its default. A key already
-//! there is never changed. The panel's `rulings.decide` and
-//! `rulings.full_panel_paths` are deleted. Each table is checked as `set` checks it, and one
-//! the runner would refuse is not written.
+//! there is never changed. The panel's `rulings.decide`,
+//! `rulings.full_panel_paths`, `agents.advisor`, `agents.researcher` and
+//! `researcher` table are deleted, and so are `advisor` and `researcher` in
+//! `repo_setup.roles`. Each table is checked as `set` checks it, and one the
+//! runner would refuse is not written.
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -17,7 +19,19 @@ use crate::settings::{PM_ALONE, PM_DECIDES, RulingName};
 use crate::shepherd::{self, Connection, Socket};
 
 /// The panel's keys, which no build reads now and the runner refuses
-const PANEL_KEYS: [&str; 2] = ["rulings.decide", "rulings.full_panel_paths"];
+const PANEL_KEYS: [&str; 5] = [
+    "rulings.decide",
+    "rulings.full_panel_paths",
+    "agents.advisor",
+    "agents.researcher",
+    "researcher",
+];
+
+/// The list of roles that may still name the panel's experts
+const ROLES: &str = "repo_setup.roles";
+
+/// The panel's experts, which `repo_setup.roles` no longer takes
+const PANEL_ROLES: [&str; 2] = ["advisor", "researcher"];
 
 /// Runs `shep kelpie settings migrate`, printing a line for each project it changed
 pub fn main() -> ExitCode {
@@ -103,11 +117,12 @@ async fn project(
     };
     let listed = lookup(&table, PM_ALONE).is_some();
     let wrote = pm_decides(&mut table);
-    let mut removed: Vec<&str> = (listed && lookup(&table, PM_ALONE).is_none())
-        .then_some(PM_ALONE)
+    let mut removed: Vec<String> = (listed && lookup(&table, PM_ALONE).is_none())
+        .then(|| PM_ALONE.to_owned())
         .into_iter()
         .collect();
-    removed.extend(panel_keys(&mut table));
+    removed.extend(panel_keys(&mut table).into_iter().map(str::to_owned));
+    removed.extend(panel_roles(&mut table));
     let said: Vec<String> = [("wrote", wrote.join(", ")), ("removed", removed.join(", "))]
         .into_iter()
         .filter(|(_, keys)| !keys.is_empty())
@@ -125,12 +140,33 @@ async fn project(
 fn panel_keys(table: &mut Map<String, Value>) -> Vec<&'static str> {
     let mut removed = Vec::new();
     for setting in PANEL_KEYS {
-        let (outer, key) = leaves(setting);
-        let rulings = table.get_mut(outer).and_then(Value::as_object_mut);
-        if rulings.and_then(|rulings| rulings.remove(key)).is_some() {
+        let held = match setting.split_once('.') {
+            Some((outer, _)) => table.get_mut(outer).and_then(Value::as_object_mut),
+            None => Some(&mut *table),
+        };
+        let key = leaves(setting).1;
+        if held.and_then(|held| held.remove(key)).is_some() {
             removed.push(setting);
         }
     }
+    removed
+}
+
+// Deletes the panel's experts from `repo_setup.roles`, and names each it deleted.
+fn panel_roles(table: &mut Map<String, Value>) -> Vec<String> {
+    let (outer, key) = leaves(ROLES);
+    let roles = table.get_mut(outer).and_then(|setup| setup.get_mut(key));
+    let Some(Value::Array(roles)) = roles else {
+        return Vec::new();
+    };
+    let gone = |role: &Value| {
+        role.as_str()
+            .is_some_and(|role| PANEL_ROLES.contains(&role))
+    };
+    let removed = (roles.iter().filter(|role| gone(role)))
+        .map(|role| format!("{role} from {ROLES}"))
+        .collect();
+    roles.retain(|role| !gone(role));
     removed
 }
 
@@ -179,7 +215,7 @@ pub fn pm_decides(table: &mut Map<String, Value>) -> Vec<String> {
     wrote
 }
 
-// The table and the key in it that a dotted `rulings.<key>` setting names.
+// The table and the key in it that a dotted `<table>.<key>` setting names.
 fn leaves(setting: &'static str) -> (&'static str, &'static str) {
     setting.split_once('.').unwrap_or(("", setting))
 }

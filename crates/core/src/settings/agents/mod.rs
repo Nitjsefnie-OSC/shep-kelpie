@@ -290,19 +290,9 @@ pub struct RoleAgentNames {
     /// on rulings alone.
     #[serde(default)]
     pub pm: Option<AgentName>,
-    /// The advisor, from kelpie's agent files, such as `advisor`: one of
-    /// the four experts who vote on each ruling, reading the codebase. When
-    /// absent, no advisor votes.
-    #[serde(default)]
-    pub advisor: Option<AgentName>,
-    /// The researcher, from kelpie's agent files, such as `researcher`: one
-    /// of the four experts who vote on each ruling, reading what is outside
-    /// the codebase. When absent, no researcher votes.
-    #[serde(default)]
-    pub researcher: Option<AgentName>,
     /// The representative, from kelpie's agent files: the one voice that
     /// words every post to a contributor. A project that picks contributions
-    /// needs it, so unlike the advisor it has a default. `representative`
+    /// needs it, so unlike the project manager it has a default. `representative`
     /// when absent.
     #[serde(default = "default_representative")]
     pub representative: AgentName,
@@ -317,8 +307,6 @@ impl Default for RoleAgentNames {
             fallback_after: None,
             reviewers: None,
             pm: None,
-            advisor: None,
-            researcher: None,
             representative: default_representative(),
         }
     }
@@ -369,8 +357,7 @@ pub struct PmAgent {
     pub prompt: Option<String>,
 }
 
-/// The agent a project names in `agents.advisor`, `agents.researcher` or
-/// `agents.representative`
+/// The agent a project names in `agents.representative`
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExpertAgent {
     /// Its name
@@ -383,8 +370,7 @@ pub struct ExpertAgent {
     pub prompt: Option<String>,
 }
 
-/// The project's implementers, project manager, advisor and researcher, from
-/// the agents it names
+/// The project's implementers and project manager, from the agents it names
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RoleAgents {
     /// The project's implementers, in its order, each once
@@ -394,10 +380,6 @@ pub struct RoleAgents {
     pub default_implementer: Implementer,
     /// The project manager, when the project names one
     pub pm: Option<PmAgent>,
-    /// The advisor, when the project names one
-    pub advisor: Option<ExpertAgent>,
-    /// The researcher, when the project names one
-    pub researcher: Option<ExpertAgent>,
 }
 
 impl RoleAgents {
@@ -470,48 +452,11 @@ impl Settings {
             }
             None => None,
         };
-        let advisor = self.expert(
-            agents,
-            &self.agents.advisor,
-            "agents.advisor",
-            Role::Advisor,
-        )?;
-        let researcher = self.expert(
-            agents,
-            &self.agents.researcher,
-            "agents.researcher",
-            Role::Researcher,
-        )?;
         Ok(RoleAgents {
             implementers,
             default_implementer,
             pm,
-            advisor,
-            researcher,
         })
-    }
-
-    // The advisor or researcher `named` at `at`, if the project names one
-    fn expert(
-        &self,
-        agents: &Agents,
-        named: &Option<AgentName>,
-        at: &'static str,
-        role: Role,
-    ) -> Result<Option<ExpertAgent>, SettingsError> {
-        let Some(name) = named else {
-            return Ok(None);
-        };
-        let agent = find(agents, name, at, "agents", role)?;
-        let Runs::Session { model, limit } = &agent.runs else {
-            unreachable!("an expert's file only parses to a session")
-        };
-        Ok(Some(ExpertAgent {
-            name: name.clone(),
-            model: model.clone(),
-            limit: limit.clone(),
-            prompt: agent.prompt.clone(),
-        }))
     }
 
     /// The representative the project names in `agents.representative`

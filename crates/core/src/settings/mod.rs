@@ -97,9 +97,6 @@ pub struct Settings {
     pub pacing: Pacing,
     /// What every worker is started with
     pub worker: Worker,
-    /// What the researcher may read besides what kelpie writes for it
-    #[serde(default)]
-    pub researcher: Researcher,
     /// Which kinds of ruling the project manager answers for the
     /// maintainer. None when absent.
     #[serde(default)]
@@ -330,6 +327,21 @@ const REMOVED: &[Removed] = &[
         fix: MIGRATE,
     },
     Removed {
+        key: "agents.advisor",
+        because: PANEL,
+        fix: MIGRATE,
+    },
+    Removed {
+        key: "agents.researcher",
+        because: PANEL,
+        fix: MIGRATE,
+    },
+    Removed {
+        key: "researcher",
+        because: PANEL,
+        fix: MIGRATE,
+    },
+    Removed {
         key: "coderabbit.enabled",
         because: BOT_FILES,
         fix: "for `true`, list `coderabbit` where its read should come, as in \
@@ -481,26 +493,6 @@ pub struct Pacing {
 
 fn default_pacing_enabled() -> bool {
     true
-}
-
-/// What the researcher, one of the experts who vote on each ruling, may read
-/// beyond what kelpie writes into its folder
-#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct Researcher {
-    /// Folders of the maintainer's own agent sessions for this project,
-    /// which the researcher reads, read only. Each is a harness's folder of
-    /// sessions, such as one under `~/.claude/projects`; `~/` is the home
-    /// folder, and a relative path is taken from the project's folder in
-    /// kelpie's home. Off while empty, which it is when absent.
-    #[serde(default)]
-    pub transcripts: Vec<PathBuf>,
-    /// Domains the researcher's web fetch may reach, such as a library's
-    /// docs. Its web search needs none. Each is a host with an optional
-    /// leading `*.` and `:port`, as in `worker.allowed_domains`. Empty when
-    /// absent.
-    #[serde(default, deserialize_with = "domains::allowed_domains")]
-    pub allowed_domains: Vec<NonBlank>,
 }
 
 /// What every worker is started with
@@ -835,7 +827,6 @@ impl Settings {
                     .as_mut()
                     .map(RoundsFolder::path_mut),
             )
-            .chain(self.researcher.transcripts.iter_mut())
             .chain(self.skills.paths_mut())
     }
 }

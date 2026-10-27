@@ -154,19 +154,6 @@ implementers = ["sonnet-high"]
 # Absent, the board's rule picks (priority, then age) and a stuck item
 # waits on its ruling, as it does whenever the project manager is down.
 # pm = "pm"
-# The panel that votes on each ruling before you are asked (the worker and the
-# project manager are the other two): an advisor, from a file whose role is
-# `advisor`, which reads the codebase, and a researcher, from a file whose role
-# is `researcher`, which reads everything outside it: earlier rulings and
-# their answers, the issue and pull request threads, the worker's session,
-# your own agent sessions (`[researcher]` below) and the web. Kelpie's own are
-# Opus 5.5 at high and Sonnet 5.5 at high. Neither runs git, gh or a
-# command, or writes anything but its vote. A ruling that lists two options or
-# more waits up to 20 minutes for the votes, then lists them as the panel.
-# Absent, no panel votes.
-# advisor = "advisor"
-# The researcher's agent file, named as the advisor's is.
-# researcher = "researcher"
 # The issue writer's agent file, which `shep kelpie issue` runs and which
 # labels an unlabelled issue. `issue-writer` when absent.
 # issue_writer = "issue-writer"
@@ -294,18 +281,6 @@ compact_window = 200000
 # point = "command"
 # command = "~/bin/git-gate"
 
-# What the researcher may read beyond what kelpie writes into its folder.
-# `transcripts` names folders of your own agent sessions (Claude Code's
-# `~/.claude/projects`, Codex's `~/.codex/sessions`, pi's
-# `~/.pi/agent/sessions`), read only and off while empty; only a session that
-# ran in this project's checkout is read, the latest dozen, and only what was
-# asked and said. `allowed_domains` are the hosts its web fetch may reach, such
-# as a library's docs; its web search needs none. An entry is written as
-# `worker.allowed_domains` is, a host with an optional leading `*.`.
-# [app.dogs.kelpie.researcher]
-# transcripts = ["~/.claude/projects"]
-# allowed_domains = ["docs.rs"]
-
 # The host that runs the project's end-to-end tests, which a worker cannot run
 # in its sandbox. A worker asks for a run with `kelpie lease e2e`: the dog
 # copies the worktree to `host`, runs `command` there and copies `results`
@@ -332,8 +307,10 @@ compact_window = 200000
 # `shep kelpie add`, `upgrade` and `shep kelpie settings migrate` write each
 # other kind it is missing, at the value below, and never change one it has.
 # The old `pm_alone` list still loads, as `true` for each kind it names, and
-# the migration turns it into the map. It also deletes the panel's `decide`
-# and `full_panel_paths`, which the runner refuses.
+# the migration turns it into the map. It also deletes the panel's `decide`,
+# `full_panel_paths`, `agents.advisor`, `agents.researcher` and `[researcher]`
+# table, and `advisor` and `researcher` from `repo_setup.roles`, which the
+# runner refuses.
 # [app.dogs.kelpie.rulings.pm_decides]
 # question = false
 # agent-files = false
@@ -488,10 +465,10 @@ compact_window = 200000
 # plugins. `own = false` leaves the repo's own files out and keeps its plugins.
 # A call in a worktree that matches the default branch loads those files from
 # it, and does not get them twice. `roles` lists the calls that get plugins and
-# the repo's own files, from `worker`, `reviewer`, `issue-writer`, `pm`,
-# `advisor` and `researcher`, all of them when absent. `parts` lists which
-# parts load, from `skills`, `agents`, `commands`, `hooks` and `mcp`, all of
-# them when absent: a hook runs beside kelpie's own and cannot replace them.
+# the repo's own files, from `worker`, `reviewer`, `issue-writer` and `pm`,
+# all of them when absent. `parts` lists which parts load, from `skills`,
+# `agents`, `commands`, `hooks` and `mcp`, all of them when absent: a hook
+# runs beside kelpie's own and cannot replace them.
 # `mcp` adds the MCP servers of a plugin and of the repo's `.mcp.json` on its
 # default branch to those calls; the hosts they reach need `allowed_domains`.
 # `skip` lists plugins, as `name@marketplace`, left out though the repo turns
@@ -503,7 +480,7 @@ compact_window = 200000
 # [app.dogs.kelpie.repo_setup]
 # plugins = true
 # own = true
-# roles = ["worker", "reviewer", "issue-writer", "pm", "advisor", "researcher"]
+# roles = ["worker", "reviewer", "issue-writer", "pm"]
 # parts = ["skills", "agents", "commands", "hooks", "mcp"]
 # skip = ["noisy@house"]
 # extra = { "style@lab" = "github:acme/lab#v2" }

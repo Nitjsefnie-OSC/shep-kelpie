@@ -161,3 +161,29 @@ async fn a_table_whose_map_is_whole_has_the_panels_key_deleted_alone() {
     assert_eq!(said[1], "project koji: removed rulings.decide", "{said:?}");
     assert!(scene.table()["rulings"].get("decide").is_none());
 }
+
+#[tokio::test]
+async fn the_panels_expert_keys_and_roles_are_deleted_and_named_and_the_table_loads() {
+    let experts = TABLE.replace(
+        "[agents]\n",
+        "[agents]\nadvisor = \"advisor\"\nresearcher = \"researcher\"\n",
+    );
+    let lines = "[researcher]\nallowed_domains = [\"docs.rs\"]\n\n\
+                 [repo_setup]\nroles = [\"worker\", \"advisor\", \"researcher\"]\n";
+    let scene = Scene::holding(&format!("{experts}\n{lines}")).await;
+
+    let said = scene.migrate().await.unwrap();
+
+    assert!(
+        said[1].contains(
+            "removed agents.advisor, agents.researcher, researcher, \
+             \"advisor\" from repo_setup.roles, \"researcher\" from repo_setup.roles"
+        ),
+        "{said:?}"
+    );
+    let table = scene.table();
+    assert!(table["agents"].get("advisor").is_none(), "{table:?}");
+    assert!(table["agents"].get("researcher").is_none(), "{table:?}");
+    assert!(table.get("researcher").is_none(), "{table:?}");
+    assert_eq!(table["repo_setup"]["roles"], serde_json::json!(["worker"]));
+}

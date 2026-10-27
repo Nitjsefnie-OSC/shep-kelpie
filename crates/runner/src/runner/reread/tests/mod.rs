@@ -44,22 +44,6 @@ fn a_changed_setting_takes_effect_at_once() {
 }
 
 #[test]
-fn a_changed_researcher_table_takes_effect_at_once() {
-    let rig = Rig::new("shep");
-    let runner = rig.open().unwrap();
-    let next = settings_with(&rig, |s| {
-        format!("{s}\n[app.dogs.kelpie.researcher]\nallowed_domains = [\"docs.rs\"]\n")
-    });
-    let mut runner = runner.lock().unwrap();
-    let line = runner.reread(next, rig.kelpie_settings()).unwrap();
-    assert_eq!(
-        line.as_deref(),
-        Some("settings changed: researcher now in effect")
-    );
-    assert_eq!(runner.settings().researcher.allowed_domains.len(), 1);
-}
-
-#[test]
 fn a_changed_budget_takes_effect_at_once() {
     let rig = Rig::new("shep");
     let runner = rig.open().unwrap();
@@ -97,21 +81,13 @@ fn a_changed_rulings_table_takes_effect_at_once() {
 fn a_reread_with_a_bad_entry_keeps_the_running_settings() {
     let bad = "productionresultssa*.blob.core.windows.net";
     let worker = "allowed_domains = [\"crates.io\", \"index.crates.io\", \"static.crates.io\"]";
-    for table in ["worker", "researcher"] {
-        let rig = Rig::new("shep");
-        let runner = rig.open().unwrap();
-        let before = runner.lock().unwrap().settings().clone();
-        rig.edit_settings(|s| match table {
-            "worker" => s.replace(worker, &format!("allowed_domains = [\"{bad}\"]")),
-            _ => format!("{s}\n[app.dogs.kelpie.researcher]\nallowed_domains = [\"{bad}\"]\n"),
-        });
-        let err = rig.try_settings().expect_err("the entry should be refused");
-        assert!(
-            err.to_string().contains(&format!("`{bad}`")),
-            "{table}: {err}"
-        );
-        assert_eq!(runner.lock().unwrap().settings(), &before, "{table}");
-    }
+    let rig = Rig::new("shep");
+    let runner = rig.open().unwrap();
+    let before = runner.lock().unwrap().settings().clone();
+    rig.edit_settings(|s| s.replace(worker, &format!("allowed_domains = [\"{bad}\"]")));
+    let err = rig.try_settings().expect_err("the entry should be refused");
+    assert!(err.to_string().contains(&format!("`{bad}`")), "{err}");
+    assert_eq!(runner.lock().unwrap().settings(), &before);
 }
 
 #[test]
