@@ -28,6 +28,7 @@ pub mod local_tickets;
 pub mod metrics;
 pub mod pacer;
 pub mod package_managers;
+pub mod pm_answer;
 pub mod ports;
 pub mod profile;
 pub mod review_bot;
@@ -43,6 +44,7 @@ pub mod usage;
 pub mod watch;
 pub mod webhook;
 pub mod work_item;
+pub mod work_kind;
 
 // The leaf crates under `crates/`, each module kept under the name it had here
 pub use shep_kelpie_facts::{mcp_use, request_use, tool_error};

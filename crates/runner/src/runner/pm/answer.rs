@@ -724,7 +724,7 @@ mod tests {
         let rulings: Vec<TicketId> = answer.votes.iter().map(|(id, _)| *id).collect();
         assert_eq!(rulings, [ticket(4), ticket(5)]);
         assert_eq!(
-            crate::panel::from_fields(&answer.votes[0].1, 2).map(|v| v.choice),
+            crate::pm_answer::from_fields(&answer.votes[0].1, 2).map(|v| v.choice),
             Ok('A')
         );
         assert_eq!(answer.unread.len(), 2, "{:?}", answer.unread);

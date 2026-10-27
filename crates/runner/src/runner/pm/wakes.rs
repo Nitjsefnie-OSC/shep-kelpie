@@ -247,7 +247,9 @@ impl Runner {
             .map(|id| {
                 let fields = answer.votes.iter().find(|(ruling, _)| *ruling == id);
                 let choice = fields
-                    .and_then(|(_, f)| crate::panel::from_fields(f, self.panel_options(id)).ok())
+                    .and_then(|(_, f)| {
+                        crate::pm_answer::from_fields(f, self.panel_options(id)).ok()
+                    })
                     .map(|vote| vote.choice);
                 match self.panel.plan(id) {
                     Some(plan) => plan.mark(id, Voter::Pm, choice),

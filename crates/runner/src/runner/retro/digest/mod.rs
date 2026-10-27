@@ -11,11 +11,11 @@ use std::fmt::Write;
 use serde::Serialize;
 
 use super::journal::{self, Entry, Stamped};
-use crate::panel::work_of;
 use crate::runner::panel::{Answerer, Record};
 use crate::state::Finished;
 use crate::ticket::TicketId;
 use crate::usage::{CallKind, CallLine, Ended, FinishedLine, Line, RoleLine};
+use crate::work_kind::work_kind;
 
 mod across;
 
@@ -218,7 +218,7 @@ pub(super) fn build(records: &Records<'_>) -> String {
 }
 
 fn item(out: &mut String, records: &Records<'_>, finished: &Finished, run: (usize, usize)) {
-    let work = work_of(Some(&finished.title)).kind;
+    let work = work_kind(&finished.title);
     let revival = match run.1 > 1 {
         true => format!(", run {} of {}", run.0, run.1),
         false => String::new(),
