@@ -402,28 +402,19 @@ impl Runner {
     /// What dispatch starts out of `takeable`, the ready issues the board
     /// could take now: the project manager's pick, or nothing while it said
     /// so, or it is asked where two or more could start; else the board rule's.
-    /// `waiting` are those out of `takeable` only for now, as the issue writer
-    /// labels them, which a list of picks keeps its place for.
-    pub(super) fn pm_pick(&mut self, takeable: &[TicketId], waiting: &[TicketId]) -> Choice {
+    pub(super) fn pm_pick(&mut self, takeable: &[TicketId]) -> Choice {
         if self.agents.pm.is_none() {
             return Choice::Rule;
         }
         match self.pm.pick.take() {
             Some(Pick::Issues(mut named)) => {
-                // The head stays until its work item opens (`pm_started`), so
-                // the issue writer labelling it first does not lose its place.
-                // One it cannot start falls to the next it named, and when
-                // none is left, to the board rule.
+                // The head stays until its work item opens (`pm_started`). One
+                // it cannot start falls to the next it named, and when none is
+                // left, to the board rule.
                 while let Some(&n) = named.first() {
                     if takeable.contains(&n) {
                         self.pm.pick = Some(Pick::Issues(named));
                         return Choice::Take(n);
-                    }
-                    if waiting.contains(&n) {
-                        // The issue writer has it: the next it named can start.
-                        let rest = named.iter().copied().find(|t| takeable.contains(t));
-                        self.pm.pick = Some(Pick::Issues(named));
-                        return rest.map_or(Choice::Wait, Choice::Take);
                     }
                     named.remove(0);
                     self.pick_dropped(n, "it is not an issue the board can take now".to_owned());

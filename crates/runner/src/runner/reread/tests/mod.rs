@@ -453,31 +453,9 @@ fn a_fresh_repo_gets_every_implementers_label_when_the_runner_opens() {
 }
 
 #[test]
-fn the_issue_writer_the_fallback_or_the_choice_alone_is_a_change() {
+fn the_fallback_alone_is_a_change() {
     let rig = Rig::new("shep");
-    let scribe = "---\nrole: issue-writer\nharness: claude-code\nmodel: claude-sonnet-5-5\n\
-                  effort: low\n---\nWrite issues.\n";
-    rig.write_agent("scribe", scribe);
     let runner = rig.open().unwrap();
-    let named = settings_with(&rig, |s| {
-        s.replace(
-            "\nimplementers = ",
-            "\nissue_writer = \"scribe\"\nimplementers = ",
-        )
-    });
-    let line = runner.lock().unwrap().reread(named, rig.kelpie_settings());
-    assert_eq!(
-        line.unwrap().as_deref(),
-        Some("settings changed: agents now in effect")
-    );
-    let runner_settings = runner
-        .lock()
-        .unwrap()
-        .settings()
-        .agents
-        .issue_writer
-        .clone();
-    assert_eq!(runner_settings.as_str(), "scribe");
     let next = settings_with(&rig, |s| {
         s.replace(
             "\nimplementers = ",
@@ -493,20 +471,5 @@ fn the_issue_writer_the_fallback_or_the_choice_alone_is_a_change() {
     assert_eq!(
         runner.settings().agents.fallback_after.map(|m| m.get()),
         Some(15)
-    );
-    let chosen = settings_with(&rig, |s| {
-        s.replace(
-            "\nfallback_after = 15\nimplementers = ",
-            "\nfallback_after = 15\nimplementer_choice = \"order\"\nimplementers = ",
-        )
-    });
-    let line = runner.reread(chosen, rig.kelpie_settings()).unwrap();
-    assert_eq!(
-        line.as_deref(),
-        Some("settings changed: agents now in effect")
-    );
-    assert_eq!(
-        runner.settings().agents.implementer_choice,
-        crate::settings::ImplementerChoice::Order
     );
 }

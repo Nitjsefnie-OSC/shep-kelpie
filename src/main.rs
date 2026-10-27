@@ -17,7 +17,7 @@ use std::process::ExitCode;
 
 use shep_kelpie::confine::{APPEND, Verdict, judge_append, judge_with};
 use shep_kelpie::guard::{self, Checkout};
-use shep_kelpie::hooks::{Hooks, Role};
+use shep_kelpie::hooks::Hooks;
 use shep_kelpie::tools::Tools;
 
 /// A PreToolUse hook's exit code that refuses the tool call
@@ -46,9 +46,7 @@ fn main() -> ExitCode {
         [command, rest @ ..] if command == "lease" => shep_kelpie::lease::cli::main(rest),
         [role, git_common_dir, worktree, local @ ..] if role == "guard" => {
             let home = std::env::var_os("HOME").map(PathBuf::from);
-            let (issues, local) = guard::issue_rules(local);
-            let (record, local) = guard::record_flag(&local);
-            let (pin, local) = guard::pin_flag(&local);
+            let (pin, local) = guard::pin_flag(local);
             let (here, local) = guard::here_flag(&local);
             let (after, local) = guard::after_flag(&local);
             let (reading, local) = guard::reading_flag(&local);
@@ -116,30 +114,8 @@ fn main() -> ExitCode {
                 }
                 return ExitCode::SUCCESS;
             }
-            if let Some(rules) = issues.as_ref().filter(|_| record) {
-                guard::record_issues(&input[..], rules);
-                return ExitCode::SUCCESS;
-            }
             if after {
-                let role = match issues {
-                    Some(_) => Role::IssueWriter,
-                    None => Role::Worker,
-                };
-                return hook(guard::judge_after(
-                    &input[..],
-                    &hooks,
-                    role,
-                    Path::new(worktree),
-                ));
-            }
-            if let Some(rules) = issues {
-                return hook(guard::judge_issues_with(
-                    &input[..],
-                    home.as_deref(),
-                    paths,
-                    &hooks,
-                    &rules,
-                ));
+                return hook(guard::judge_after(&input[..], &hooks, Path::new(worktree)));
             }
             if here {
                 let folder = std::env::current_dir()

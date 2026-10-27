@@ -665,13 +665,6 @@ pub enum Stuck {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         phase: Option<Phase>,
     },
-    /// The issue writer could not label an issue with no `agent:` label,
-    /// which no work item holds. Any answer clears it, and the board reads
-    /// the issue again.
-    Unlabelled {
-        /// Why
-        why: String,
-    },
     /// An adopted pull request cannot start, and no work item holds it. Any
     /// answer clears it, and the board tries again every poll.
     AdoptFailed {
@@ -883,6 +876,7 @@ impl StateStore {
             return Err(StateError::RemovedRuling { path, id, kind });
         }
         removed::drop_removed_fields(&mut value);
+        removed::withdraw_unlabelled(&mut value);
         if found <= BUILT_IN_REVIEWERS {
             removed::name_reviewers_as_files(&mut value);
         }

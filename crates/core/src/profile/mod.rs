@@ -367,7 +367,6 @@ impl WorkerProfile<'_> {
                 base: self.base.to_owned(),
                 kelpie_pushes: self.kelpie_pushes,
                 folders: vec![self.kelpie_home.to_owned(), self.repo.to_owned()],
-                issues: None,
                 hooks: Hooks::default(),
             },
             hooks: self.guard_hooks.to_vec(),

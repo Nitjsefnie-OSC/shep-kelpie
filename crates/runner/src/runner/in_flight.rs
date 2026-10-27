@@ -68,8 +68,6 @@ pub(super) fn gpu_seconds(
 pub(super) enum Key {
     /// The worker's or a reviewer's call on the work item for `ticket`
     Item(TicketId),
-    /// The issue writer's call labelling `ticket`'s issue
-    Label(TicketId),
     /// The triager's research of `ticket`
     Triage(TicketId),
     /// The project manager's call
@@ -82,7 +80,7 @@ impl Key {
     /// The ticket of a work item's call, which its ended line names
     pub(super) fn ticket(&self) -> Option<TicketId> {
         match self {
-            Self::Item(ticket) | Self::Label(ticket) | Self::Triage(ticket) => Some(*ticket),
+            Self::Item(ticket) | Self::Triage(ticket) => Some(*ticket),
             Self::Manager | Self::Retro => None,
         }
     }

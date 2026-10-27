@@ -28,7 +28,7 @@ pub(super) const READY_LABEL: NewLabel<'static> = NewLabel {
 };
 
 // Whether `body` is an agent-ready issue body: it names `Touches:` and has
-// acceptance criteria, as the issue writer files them
+// acceptance criteria, as the issue skill writes them
 pub(super) fn is_issue_body(body: &str) -> bool {
     has_criteria(body)
         && body

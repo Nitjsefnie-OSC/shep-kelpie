@@ -49,8 +49,12 @@ pub(in crate::runner) struct Record {
     // Whether the project manager answered for the maintainer
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     by_pm: bool,
-    // The kind of ruling, as `rulings.pm_decides` names it
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    // The kind of ruling, as `rulings.pm_decides` names it; none for `unlabelled`
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "known_kind"
+    )]
     pub(in crate::runner) kind: Option<RulingName>,
     // The option the answer is, when it is one of the ruling's
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -121,6 +125,19 @@ impl Record {
             .open(file)
             .and_then(|mut f| writeln!(f, "{line}"));
         opened.map_err(|e| format!("cannot add to {}: {}", file.display(), e.kind()))
+    }
+}
+
+// The kind a line names. `unlabelled` reads as none; any other unknown kind fails.
+fn known_kind<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<RulingName>, D::Error> {
+    match Option::<String>::deserialize(deserializer)? {
+        Some(name) if name == "unlabelled" => Ok(None),
+        Some(name) => RulingName::named(&name)
+            .map(Some)
+            .map_err(serde::de::Error::custom),
+        None => Ok(None),
     }
 }
 
@@ -203,6 +220,35 @@ mod tests {
         let records = records(&file);
         assert_eq!(records.len(), 1);
         assert_eq!(records[0].id, ticket(3));
+    }
+
+    // An `unlabelled` line reads with no kind and keeps every other field.
+    #[test]
+    fn an_answered_unlabelled_ruling_is_read_with_no_kind() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("rulings.jsonl");
+        let text = serde_json::json!({
+            "id": 4, "at": 100, "issue": 7, "pull_request": null,
+            "asked": "q", "answer": "yes", "by_pm": true, "kind": "unlabelled",
+        });
+        std::fs::write(&file, format!("{text}\n")).unwrap();
+        let records = records(&file);
+        assert_eq!(records.len(), 1);
+        assert_eq!((records[0].id, records[0].kind), (ticket(4), None));
+        assert_eq!(records[0].by(), Answerer::Pm);
+    }
+
+    // A kind no build ever had fails the line, which is skipped.
+    #[test]
+    fn a_line_of_a_kind_no_build_had_is_skipped() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("rulings.jsonl");
+        let text = serde_json::json!({
+            "id": 5, "at": 100, "issue": 7, "pull_request": null,
+            "asked": "q", "answer": "yes", "kind": "no-such-kind",
+        });
+        std::fs::write(&file, format!("{text}\n")).unwrap();
+        assert_eq!(records(&file), Vec::new());
     }
 
     // A line the panel decided, from a build that had one, still reads its

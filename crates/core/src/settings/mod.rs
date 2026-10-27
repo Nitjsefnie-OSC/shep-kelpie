@@ -171,6 +171,8 @@ const ONCE_A_PASS: &str = "a review bot reads once a pass, so no round cap is co
 const GROUPED: &str = "every project setting sits in a table now";
 const PANEL: &str = "the ruling panel is gone: the project manager answers the kinds \
                      `rulings.pm_decides` sets `true`, and the maintainer the rest";
+const WRITER: &str = "the issue writer is gone, and an issue is written with kelpie's \
+                      `issue` skill, which every harness has";
 const MIGRATE: &str = "delete it, or run `shep kelpie settings migrate`, which does";
 
 // The keys removed features left behind
@@ -339,6 +341,11 @@ const REMOVED: &[Removed] = &[
     Removed {
         key: "researcher",
         because: PANEL,
+        fix: MIGRATE,
+    },
+    Removed {
+        key: "agents.issue_writer",
+        because: WRITER,
         fix: MIGRATE,
     },
     Removed {

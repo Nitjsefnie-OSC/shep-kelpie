@@ -1,11 +1,11 @@
 //! The issue check: whether an issue holds every part an implementer builds from
 //!
 //! It reads structure, not quality: each part is there and well formed. The
-//! parts are what the issue writer and the triager write, the blockers and
-//! harness reach `CLAUDE.md` asks for, and the labels the board and the
-//! triager set. The issue skill, `skills/kelpie/issue/SKILL.md`, gives the
-//! same format to the agent that writes an issue, and a test holds the two
-//! together.
+//! parts are what an issue body holds, as the triager writes one, the
+//! blockers and harness reach `CLAUDE.md` asks for, and the labels the board
+//! and the triager set. The issue skill, `skills/kelpie/issue/SKILL.md`, gives
+//! the same format to the agent that writes an issue, and a test holds the
+//! two together.
 
 use std::fmt;
 
@@ -231,12 +231,6 @@ pub fn touched(body: &str) -> Option<Vec<&str>> {
 fn is_list_item(line: &str) -> bool {
     let line = line.trim_start();
     line.starts_with("- ") || line.starts_with("* ")
-}
-
-/// What follows `Touches:` on the first line it starts, which may sit in a
-/// list or in bold
-pub fn touches_line(body: &str) -> Option<&str> {
-    labelled_line(body, TOUCHES)
 }
 
 /// The type a `kind:` label names, in any case and with any spaces, or `None`

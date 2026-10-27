@@ -220,15 +220,6 @@ pub enum Skip {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         unknown: Option<TicketId>,
     },
-    /// It has no `agent:` label, and waits for the issue writer to pick
-    /// one, or, with `ruling`, for the maintainer to answer that ruling
-    Unlabelled {
-        /// The ticket
-        issue: TicketId,
-        /// The ruling it waits on, since the issue writer could not pick
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        ruling: Option<TicketId>,
-    },
     /// The issue check refused it, and it waits for its triage or an edit
     Check {
         /// The ticket
@@ -278,7 +269,6 @@ impl Skip {
             | Self::Rework { issue, .. }
             | Self::Overlap { issue, .. }
             | Self::PathsUnread { issue, .. }
-            | Self::Unlabelled { issue, .. }
             | Self::Check { issue, .. }
             | Self::Paced { issue, .. }
             | Self::PmWaits { issue } => Some(*issue),

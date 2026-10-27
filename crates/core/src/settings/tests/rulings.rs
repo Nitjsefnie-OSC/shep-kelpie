@@ -133,8 +133,7 @@ fn after(kind: RulingName) -> Option<RulingName> {
         Unpushed => Some(PushRefused),
         PushRefused => Some(TurnTimeout),
         TurnTimeout => Some(TurnFailed),
-        TurnFailed => Some(Unlabelled),
-        Unlabelled => Some(AdoptFailed),
+        TurnFailed => Some(AdoptFailed),
         AdoptFailed => Some(OverBudget),
         OverBudget => Some(Security),
         Security => Some(ContributionMerge),
@@ -157,6 +156,18 @@ fn a_kind_the_map_does_not_know_is_refused_by_name() {
     ));
     assert!(unknown.contains("rulings.pm_decides"), "{unknown}");
     assert!(unknown.contains("coffee"), "{unknown}");
+}
+
+#[test]
+fn the_issue_writers_unlabelled_kind_is_refused_by_name_in_the_map_and_the_list() {
+    for lines in [
+        "pm_decides = { unlabelled = true }",
+        "pm_alone = [\"unlabelled\"]",
+    ] {
+        let err = parse_err(&format!("{EXAMPLE}\n[app.dogs.kelpie.rulings]\n{lines}\n"));
+        assert!(err.contains("`unlabelled` is no longer a kind"), "{err}");
+        assert!(err.contains("shep kelpie settings migrate"), "{err}");
+    }
 }
 
 #[test]

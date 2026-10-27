@@ -256,12 +256,6 @@ fn the_file_format_is_pinned() {
         }),
     ));
     state.rulings.push(ruling(
-        10,
-        RulingKind::from(Stuck::Unlabelled {
-            why: "its call failed".into(),
-        }),
-    ));
-    state.rulings.push(ruling(
         11,
         RulingKind::from(Stuck::CheckQueued {
             head: "c0ffee".into(),
@@ -371,11 +365,6 @@ fn the_file_format_is_pinned() {
                     "head": "a1",
                     "pushed": "b2",
                     "review": { "round": 1, "stage": { "stage": "round" }, "unread": true },
-                })),
-                pinned(10, serde_json::json!({
-                    "kind": "stuck",
-                    "reason": "unlabelled",
-                    "why": "its call failed",
                 })),
                 pinned(11, serde_json::json!({
                     "kind": "stuck",

@@ -88,15 +88,8 @@ fn a_goose_reviewer_on_a_gateway_with_a_context_loads_and_reads_no_usage() {
 }
 
 #[test]
-fn an_issue_writer_and_a_pm_still_run_on_claude_code_alone() {
-    for role in ["issue-writer", "pm"] {
-        let text = format!(
-            "---\nrole: {role}\nharness: goose\nmodel: qwen3.8:27b\neffort: low\n---\nGo.\n"
-        );
-        let err = refused(&[("g.md", &text)]);
-        assert!(
-            err.contains("runs on claude-code, not goose"),
-            "{role}: {err}"
-        );
-    }
+fn a_pm_still_runs_on_claude_code_alone() {
+    let text = "---\nrole: pm\nharness: goose\nmodel: qwen3.8:27b\neffort: low\n---\nGo.\n";
+    let err = refused(&[("g.md", text)]);
+    assert!(err.contains("runs on claude-code, not goose"), "{err}");
 }

@@ -398,7 +398,6 @@ fn every_kind_of_call_that_loads_a_plugins_skills_keeps_read_and_trusts_no_proje
         Tools::Work,
         Tools::Review,
         Tools::Answer,
-        Tools::Issues,
         Tools::Pm,
         Tools::Retro,
     ];

@@ -10,7 +10,7 @@ An issue meant for kelpie is written the same way wherever it comes from. One is
 ## The format
 
 - **Title**: a plain sentence saying what will be true, in the repo's words.
-- **`Touches:`**: a line naming the files the change edits, each path in backticks, new ones marked `(new)`. List every file a changed type, field or signature forces an edit in, found by searching for it.
+- **`Touches:`**: a line naming the files the change edits, each path in backticks, new ones marked `(new)`. List every file a changed type, field or signature forces an edit in, found by searching for it. A piece whose `Touches:` passes 13 files is split.
 - **`## What to build`**: one line of why, then bullets naming the files, types, functions and shapes to add or change, and what stays unchanged where a builder might wander.
 - **`## Acceptance criteria`**: `- [ ]` items the pull request is checked against. Named tests by their full module path, each pinning one behaviour and its failure cases, then the repo's own check commands in its documented shape. Say which tests only CI can run, and require nothing the builder cannot get, such as a live model or a CI result.
 - **`Harness reach:`**: when `Touches:` names one harness's adapter (a `claude`, `pi`, `codex` or `goose` file or folder under `adapters/`), a line saying which harnesses the change reaches. A change to one adapter reaches pi in the same issue, or names the open pi issue that does. Codex may follow in its own issue.

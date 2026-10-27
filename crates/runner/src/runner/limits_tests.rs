@@ -451,16 +451,11 @@ fn a_review_round_on_a_local_agent_runs_on_that_agent() {
 }
 
 #[test]
-fn beside_a_local_implementer_listed_first_the_issue_writer_labels_an_issue_and_claude_paces_it() {
+fn beside_a_local_implementer_listed_first_an_issue_labelled_for_sonnet_is_paced_on_claude() {
     let (rig, runner) = named("rotom", "implementers = [\"coder\", \"sonnet-high\"]\n");
     rig.forge.list_ready(7, false);
+    rig.forge.label(7, "agent:sonnet-high");
     rig.meter.set(Rig::utilization(0, 1));
-    rig.claude
-        .script([Scripted::Say("{\"agent\": \"sonnet-high\"}")]);
-    assert!(matches!(
-        step(&runner).unwrap(),
-        Some(StepReport::Labelled { issue, .. })
-     if issue == ticket(7)));
     assert!(dispatched(&step(&runner).unwrap()));
 
     rig.clock.advance(RECHECK_SECS);
@@ -544,28 +539,6 @@ fn a_role_with_priced_and_unpriced_calls_counts_both() {
     assert_eq!((worker.calls, worker.unpriced_calls), (3, 1));
     assert_eq!(worker.tokens.input, 1 + 10 + 5);
     assert_eq!(worker.cost_usd, Some(Cost(5 + 3).usd()));
-}
-
-#[test]
-fn the_issue_writer_waits_on_claudes_window_when_no_listed_role_spends_claude() {
-    let (rig, runner) = named(
-        "eevee",
-        "implementers = [\"coder\", \"codex\"]\nreviewers = [\"coder-review\"]\n",
-    );
-    rig.forge.list_ready(7, false);
-    rig.codex_meter.set(Rig::utilization(0, 0));
-    rig.meter.set(Rig::utilization(0, 55));
-    let (kind, _) = held(step(&runner).unwrap());
-    assert_eq!(kind, HoldKind::Window);
-    assert_eq!(rig.claude.all_calls(), [], "no issue writer call");
-
-    rig.clock.advance(RECHECK_SECS);
-    rig.meter.set(Rig::utilization(0, 1));
-    rig.claude.script([Scripted::Say("{\"agent\": \"coder\"}")]);
-    assert!(matches!(
-        step(&runner).unwrap(),
-        Some(StepReport::Labelled { issue, .. }) if issue == ticket(7)
-    ));
 }
 
 // `/usage` takes seconds, so a step reads it with the runner's lock let go: a trigger sent

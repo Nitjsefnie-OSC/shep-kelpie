@@ -2,7 +2,7 @@
 
 The operator reference for shep-kelpie, one page for each topic. [Getting started](../../README.md#getting-started) comes first.
 
-- [Writing issues](issues.md): the issue writer, `shep kelpie issue` and the `agent:` label
+- [Writing issues](issues.md): the `issue` skill, `shep kelpie issue check` and the `agent:` label
 - [Local tickets](tickets.md): a project's tickets as files in kelpie's home, and `shep kelpie ticket`
 - [The board and the project manager](board.md): what decides whether and when an issue starts, the briefing and the project manager
 - [Contributions](contributions.md): pull requests from other people, and their security review

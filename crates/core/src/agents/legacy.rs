@@ -3,8 +3,8 @@
 //! A baseline once carried its `harness`, `model`, `effort` and `second_look`,
 //! so a stub with only `extends: kelpie:<name>` inherited them. The baselines
 //! now bind nothing, and [`migrate`] writes into each such stub the binding it
-//! used to inherit, so it loads as it did. A stub of a baseline whose role went
-//! with the ruling panel is deleted instead.
+//! used to inherit, so it loads as it did. A stub of a baseline whose role
+//! the loader refuses is deleted instead.
 
 use std::fmt;
 use std::fs;
@@ -45,12 +45,11 @@ const fn row(
 }
 
 /// Every baseline's binding, as its file shipped before the baselines dropped their models
-pub const TABLE: [Row; 8] = [
+pub const TABLE: [Row; 7] = [
     row("defect-hunter", "claude-opus-5-5", "high", true),
     row("security-reviewer", "claude-opus-5-5", "high", false),
     row("spec", "claude-opus-5-5", "high", false),
     row("standards", "claude-opus-5-5", "high", false),
-    row("issue-writer", "claude-opus-5-5", "medium", false),
     row("pm", "claude-opus-5-5", "medium", false),
     row("representative", "claude-opus-5-5", "low", false),
     row("triager", "claude-opus-5-5", "medium", false),
@@ -112,8 +111,8 @@ pub struct Report {
     pub wrote: Vec<Wrote>,
     /// The files it left alone, which set another session `harness` without a `model` or `effort`
     pub skipped: Vec<Skipped>,
-    /// The stubs of a gone baseline, which it deletes
-    pub deleted: Vec<String>,
+    /// The stubs of a gone baseline, which it deletes, each with what its role went with
+    pub deleted: Vec<Skipped>,
     /// The files of a gone role or baseline it left alone, which are not such stubs
     pub left: Vec<Skipped>,
 }
@@ -123,7 +122,7 @@ impl Report {
     pub fn lines(&self) -> Vec<String> {
         let wrote = self.wrote.iter().map(ToString::to_string);
         let deleted = (self.deleted.iter())
-            .map(|file| format!("{file}: deleted, its role went with the ruling panel"));
+            .map(|gone| format!("{}: deleted, its role {}", gone.file, gone.why));
         let left = (self.left.iter()).map(|left| format!("{}: left, {}", left.file, left.why));
         wrote
             .chain(deleted)
@@ -154,9 +153,9 @@ pub fn pending(folder: &Path) -> Result<Report, AgentsError> {
 ///
 /// A file whose own text has `extends: kelpie:<baseline>` gets each of `harness`, `model`,
 /// `effort` and (for `defect-hunter`) `second_look` it does not set, after its `extends` line.
-/// One on another session `harness` lacking `model` or `effort` is skipped, and one on
-/// `command`, `endpoint` or `bot` left alone. A stub of the gone `advisor` or `researcher`
-/// holding only its binding is deleted, any other left. A second run writes nothing.
+/// One on another session `harness` lacking `model` or `effort` is skipped, one on `command`,
+/// `endpoint` or `bot` left alone. A bare stub of a gone role (`advisor`, `researcher`,
+/// `issue-writer`) is deleted, any other left. A second run writes nothing.
 ///
 /// # Errors
 ///
@@ -201,8 +200,11 @@ fn plan(folder: &Path) -> Result<(Report, Vec<Planned>), AgentsError> {
             Judged::Leave => {}
             Judged::Skip(why) => report.skipped.push(Skipped { file, why }),
             Judged::Left(why) => report.left.push(Skipped { file, why }),
-            Judged::Delete => {
-                report.deleted.push(file);
+            Judged::Delete(went) => {
+                report.deleted.push(Skipped {
+                    file,
+                    why: went.to_owned(),
+                });
                 planned.push(Planned { path, text: None });
             }
             Judged::Write { text, added } => {
@@ -221,7 +223,7 @@ enum Judged {
     Leave,
     Skip(String),
     Left(String),
-    Delete,
+    Delete(&'static str),
     Write {
         text: String,
         added: Vec<(&'static str, &'static str)>,
@@ -232,9 +234,9 @@ enum Judged {
 fn judge(text: &str) -> Judged {
     let parent = extends::shipped_parent(text);
     if let Some(gone) = parent.as_deref()
-        && let Some(why) = front::gone(gone)
+        && let (Some(why), Some(went)) = (front::gone(gone), front::went(gone))
     {
-        return gone_role(text, gone, &why);
+        return gone_role(text, gone, &why, went);
     }
     if let Some(why) = front::gone_role_of(text) {
         return Judged::Left(why);
@@ -295,13 +297,14 @@ fn judge(text: &str) -> Judged {
     }
 }
 
-// What to do with a file extending `parent`, a gone baseline, refused with `why`.
-fn gone_role(text: &str, parent: &str, why: &str) -> Judged {
+// What to do with a file extending `parent`, a gone baseline, refused with `why`,
+// whose role `went` with what replaced it.
+fn gone_role(text: &str, parent: &str, why: &str, went: &'static str) -> Judged {
     let binding = extends::own(text)
         .is_some_and(|own| own.keys.iter().all(|key| BINDING.contains(&key.as_str())));
     let body = front::split(text).map_or("", |(_, body)| body);
     match binding && body.trim().is_empty() {
-        true => Judged::Delete,
+        true => Judged::Delete(went),
         false => Judged::Left(format!(
             "{why}. It extends `kelpie:{parent}` and holds more than a binding, so move what you \
              need from it to another agent first"

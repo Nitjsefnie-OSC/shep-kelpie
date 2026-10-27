@@ -118,3 +118,35 @@ fn a_question_from_a_worker_that_hands_over_opens_the_draft_from_its_file_and_po
     assert_eq!(thread, 500);
     assert!(body.contains("`--dry-run` or `--check`"), "{body}");
 }
+
+// Claude Code can fail to find a session it wrote, and
+// the session kelpie starts in its place must still be sent the answer.
+#[test]
+fn an_answer_reaches_the_worker_across_a_restart_and_a_session_started_over() {
+    let (rig, runner) = with_issue_7("acme");
+    rig.claude.script([Scripted::Say(ASKS)]);
+    step(&runner).unwrap();
+    let asked = rig.claude.calls()[0].clone();
+    let id = asked.session.id().clone();
+    rig.ask(&runner, "rule", Some("7 answer use --dry-run"));
+    // The answer is kept across a restart before the call it is sent in.
+    drop(runner);
+    let runner = rig.open().unwrap();
+    rig.claude.script([
+        Scripted::Fail(AgentError::NoSession(
+            crate::settings::Harness::ClaudeCode,
+            id.clone(),
+        )),
+        Scripted::Reply(usage(1), Cost(1)),
+    ]);
+
+    step(&runner).unwrap();
+
+    let [_, resumed, again] = rig.claude.calls().try_into().unwrap();
+    let answer = "The maintainer answered your question:\n\nuse --dry-run\n";
+    assert_eq!(resumed.session, Session::Resume(id.clone()));
+    assert_eq!(resumed.prompt, answer);
+    assert_eq!(again.session, Session::New(id));
+    assert!(again.prompt.starts_with(&asked.prompt), "{}", again.prompt);
+    assert!(again.prompt.ends_with(answer), "{}", again.prompt);
+}

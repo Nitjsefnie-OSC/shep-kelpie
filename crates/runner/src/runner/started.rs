@@ -44,19 +44,19 @@ mod tests {
     use crate::settings::{AgentHarness, Effort};
     use crate::test::Rig;
 
-    // The issue writer's call, for work item `issue`, where 0 is none
-    fn writer(issue: u64) -> AgentCall {
+    // The triager's call, for work item `issue`, where 0 is none
+    fn triager(issue: u64) -> AgentCall {
         AgentCall {
             issue: crate::ticket::TicketId::from_issue(issue),
             ..AgentCall::new(
-                Role::IssueWriter,
-                Tools::Issues,
+                Role::Triager,
+                Tools::Review,
                 AgentHarness::ClaudeCode,
                 "sonnet-high",
                 Effort::Low,
                 Session::New(SessionId("s-7".into())),
                 PathBuf::from("/work"),
-                "Write.",
+                "Triage.",
             )
         }
     }
@@ -65,7 +65,7 @@ mod tests {
     fn a_call_for_no_issue_is_logged_with_no_work_item() {
         let rig = Rig::new("koji");
         let runner = rig.open().unwrap();
-        runner.lock().unwrap().call_started(&writer(0), "writer");
+        runner.lock().unwrap().call_started(&triager(0), "scout");
         let [step] = runner.lock().unwrap().take_started().try_into().unwrap();
         let StepReport::SessionStarted {
             issue, role, agent, ..
@@ -75,7 +75,7 @@ mod tests {
         };
         assert_eq!(
             (issue, role, agent.as_str()),
-            (None, Role::IssueWriter, "writer"),
+            (None, Role::Triager, "scout"),
             "{step:?}"
         );
         assert_eq!(
@@ -84,7 +84,7 @@ mod tests {
             "no work item is named: {step:?}"
         );
         // A call for a work item keeps naming its ticket.
-        runner.lock().unwrap().call_started(&writer(7), "writer");
+        runner.lock().unwrap().call_started(&triager(7), "scout");
         let [step] = runner.lock().unwrap().take_started().try_into().unwrap();
         assert_eq!(serde_json::to_value(&step).unwrap()["issue"], json!("7"));
     }

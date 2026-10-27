@@ -102,8 +102,8 @@ fn an_unmentioned_ruling_names_only_the_terminal_answers_its_options_allow() {
         disputes: None,
     };
     let no_rework = ruling_comment(None, &ruling(ticket(1), kind));
-    let stuck = RulingKind::Stuck(Stuck::Unlabelled {
-        why: "the writer named no agent".into(),
+    let stuck = RulingKind::Stuck(Stuck::AdoptFailed {
+        why: "its branch is held by a worktree".into(),
     });
     let only_yes = ruling_comment(None, &ruling(ticket(1), stuck));
 
@@ -249,13 +249,13 @@ fn a_failed_turn_offers_a_restore_naming_the_files_it_puts_back() {
 
 #[test]
 fn a_stuck_ruling_that_a_no_cannot_answer_offers_only_a_yes() {
-    let kind = RulingKind::Stuck(Stuck::Unlabelled {
-        why: "the writer named no agent".into(),
+    let kind = RulingKind::Stuck(Stuck::AdoptFailed {
+        why: "its branch is held by a worktree".into(),
     });
 
     assert_eq!(
         rendered(&ruling(ticket(1), kind)),
-        expected!("stuck-unlabelled.md")
+        expected!("stuck-adopt-failed.md")
     );
 }
 

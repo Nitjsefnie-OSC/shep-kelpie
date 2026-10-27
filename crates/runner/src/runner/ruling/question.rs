@@ -266,15 +266,6 @@ pub(in crate::runner) fn question(
                     why.trim()
                 );
             }
-            Stuck::Unlabelled { why } => {
-                return format!(
-                    "The issue writer could not pick an implementer for {about}: {}. Label \
-                     it `agent:<name>` for one `agents.implementers` lists, then answer {yes}: \
-                     the board takes it once this is answered, and an issue still unlabelled \
-                     goes to the issue writer again.",
-                    why.trim()
-                );
-            }
         },
         RulingKind::Question { asked, .. } => {
             return format!(

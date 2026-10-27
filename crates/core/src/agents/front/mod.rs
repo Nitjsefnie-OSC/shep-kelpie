@@ -31,7 +31,6 @@ use bot::at_key;
 enum Front {
     Implementer(Implementer),
     Reviewer(Reviewer),
-    IssueWriter(OnClaude),
     Pm(OnClaude),
     Representative(Expert),
     Triager(Expert),
@@ -49,8 +48,15 @@ struct Written {
     role: String,
 }
 
-/// The roles an agent file may no longer name
-const GONE: [&str; 2] = ["advisor", "researcher"];
+/// The roles an agent file may not name, each with the reason its refusal gives
+const GONE: [(&str, &str); 3] = [
+    ("advisor", "went with the ruling panel"),
+    ("researcher", "went with the ruling panel"),
+    (
+        "issue-writer",
+        "went with the issue writer, and an issue is written with kelpie's `issue` skill",
+    ),
+];
 
 // An implementer's keys: a session on a harness
 #[derive(Debug, Deserialize)]
@@ -77,8 +83,8 @@ struct Implementer {
     tools: Option<NonBlank>,
 }
 
-// The issue writer's and the project manager's keys: a Claude Code
-// session, since each is held by a Claude Code hook
+// The project manager's keys: a Claude Code session, since it is held by a
+// Claude Code hook
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct OnClaude {
@@ -227,7 +233,6 @@ pub(super) fn parse(text: &str) -> Result<Agent, String> {
     let front = match tag.role {
         Role::Implementer => Front::Implementer(serde_saphyr::from_str(&yaml).map_err(refused)?),
         Role::Reviewer => Front::Reviewer(serde_saphyr::from_str(&yaml).map_err(refused)?),
-        Role::IssueWriter => Front::IssueWriter(serde_saphyr::from_str(&yaml).map_err(refused)?),
         Role::Pm => Front::Pm(serde_saphyr::from_str(&yaml).map_err(refused)?),
         Role::Representative => {
             Front::Representative(serde_saphyr::from_str(&yaml).map_err(refused)?)
@@ -238,7 +243,7 @@ pub(super) fn parse(text: &str) -> Result<Agent, String> {
         Front::Implementer(keys) => keys.lease.is_some(),
         Front::Reviewer(keys) => keys.lease.is_some(),
         Front::Representative(keys) | Front::Triager(keys) => keys.lease.is_some(),
-        Front::IssueWriter(_) | Front::Pm(_) => false,
+        Front::Pm(_) => false,
     };
     if leased {
         return Err(at_key(&yaml, "lease", LEASE_GONE));
@@ -279,9 +284,6 @@ pub(super) fn parse(text: &str) -> Result<Agent, String> {
                 second_look: keys.second_look,
             })
         }
-        Front::IssueWriter(keys) => {
-            keys.agent(Role::IssueWriter, prompt, &yaml, "the issue writer")
-        }
         Front::Pm(keys) => keys.agent(Role::Pm, prompt, &yaml, "the project manager"),
         Front::Representative(keys) => {
             keys.agent(Role::Representative, prompt, &yaml, "the representative")
@@ -293,8 +295,14 @@ pub(super) fn parse(text: &str) -> Result<Agent, String> {
 
 /// The refusal of a file whose role is `role`, if that is one of [`GONE`]
 pub(super) fn gone(role: &str) -> Option<String> {
-    GONE.contains(&role)
-        .then(|| format!("the `{role}` role went with the ruling panel, so delete the file"))
+    went(role).map(|went| format!("the `{role}` role {went}, so delete the file"))
+}
+
+/// What the role `role` went with, if it is one of [`GONE`]
+pub(super) fn went(role: &str) -> Option<&'static str> {
+    GONE.iter()
+        .find(|(gone, _)| *gone == role)
+        .map(|(_, went)| *went)
 }
 
 /// The refusal of the agent file `text`, if its own `role` is one of [`GONE`]
@@ -350,18 +358,14 @@ fn check_needs(
     explicit: Option<&[Need]>,
     yaml: &str,
 ) -> Result<(), String> {
-    let guard = matches!(role, Role::Pm | Role::IssueWriter).then_some(&Need::RoleGuard);
+    let guard = (role == Role::Pm).then_some(&Need::RoleGuard);
     let needs = explicit.unwrap_or_else(|| role.needs()).iter().chain(guard);
-    // parity: harness.issue-writer, harness.pm
+    // parity: harness.pm
     let Some(need) = needs.clone().find(|need| !need.met_by(harness)) else {
         return Ok(());
     };
     let name = harness.as_str();
     let message = match (role, need) {
-        (Role::IssueWriter, Need::RoleGuard) => format!(
-            "the issue writer runs on claude-code, not {name}: \
-             `--interactive` starts `claude`, and its guard is a Claude Code hook"
-        ),
         (Role::Pm, Need::RoleGuard) => format!(
             "the project manager runs on claude-code, not {name}: \
              a Claude Code hook is what holds its writes to its notes"

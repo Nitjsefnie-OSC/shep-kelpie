@@ -196,7 +196,6 @@ impl Runner {
                     base: self.settings.git.base().to_owned(),
                     kelpie_pushes: false,
                     folders: vec![kelpie.clone(), self.settings.git.checkout.clone()],
-                    issues: None,
                     hooks: Hooks::default(),
                 },
                 hooks: Vec::new(),

@@ -75,8 +75,6 @@ pub enum CallRole {
     Reviewer,
     /// The project manager's wake
     Pm,
-    /// The issue writer, labelling an issue
-    IssueWriter,
     /// The security review, reading a contribution's head
     Security,
     /// The triager, researching an untouched issue
@@ -96,7 +94,6 @@ impl CallRole {
             Self::Worker => "worker".to_owned(),
             Self::Reviewer => "reviewer".to_owned(),
             Self::Pm => "pm".to_owned(),
-            Self::IssueWriter => "issue_writer".to_owned(),
             Self::Security => "security".to_owned(),
             Self::Triager => "triager".to_owned(),
             Self::Retro => "retro".to_owned(),
@@ -118,7 +115,6 @@ impl<'de> Deserialize<'de> for CallRole {
             "worker" => Self::Worker,
             "reviewer" => Self::Reviewer,
             "pm" => Self::Pm,
-            "issue_writer" => Self::IssueWriter,
             "security" => Self::Security,
             "triager" => Self::Triager,
             "retro" => Self::Retro,

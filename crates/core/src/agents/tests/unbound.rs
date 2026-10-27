@@ -92,22 +92,20 @@ fn extends_resolves_in_the_whole_agents_and_in_the_baselines() {
 }
 
 #[test]
-fn the_issue_writer_names_the_command_for_an_unbound_agent_and_for_a_bare_baseline_with_no_file() {
+fn the_command_is_named_for_an_unbound_agent_and_for_a_bare_baseline_with_no_file() {
     let bare = Baseline {
-        name: "issue-writer",
-        text: "---\nrole: issue-writer\n---\nYou write.\n",
+        name: "pm",
+        text: "---\nrole: pm\n---\nYou manage.\n",
     };
-    let dir = folder(&[("scribe.md", "---\nrole: issue-writer\n---\nYou write.\n")]);
+    let dir = folder(&[("boss.md", "---\nrole: pm\n---\nYou manage.\n")]);
     let agents = Agents::load_over(dir.path(), &[bare]).unwrap();
-    let err = Writer::of(&agents, &name("scribe")).unwrap_err();
     assert_eq!(
-        err,
-        "`scribe` is unbound: run `shep kelpie agents new issue-writer --name scribe`"
+        agents.unbound_command(&name("boss")).as_deref(),
+        Some("shep kelpie agents new pm --name boss")
     );
-    let err = Writer::of(&agents, &name("issue-writer")).unwrap_err();
     assert_eq!(
-        err,
-        "`issue-writer` is unbound: run `shep kelpie agents new issue-writer`"
+        agents.unbound_command(&name("pm")).as_deref(),
+        Some("shep kelpie agents new pm")
     );
 }
 
@@ -136,9 +134,8 @@ fn a_baseline_binds_nothing_so_the_book_names_it_and_no_agent_runs_without_a_fil
         assert!(agents.get(&name).is_none(), "{name}");
         assert!(agents.unbound_command(&name).is_some(), "{name}");
     }
-    Writer::of(&agents, &name("issue-writer")).unwrap_err();
     let bound = agents.bind_all(OPUS_HIGH);
-    Writer::of(&bound, &name("issue-writer")).unwrap();
+    assert!(bound.get(&name("pm")).is_some());
 }
 
 #[test]
