@@ -441,11 +441,11 @@ fn the_guard_extension_lets_the_turn_go_on_when_it_cannot_leave_its_marker() {
 }
 
 #[test]
-fn a_pi_worker_reads_the_script_its_command_hook_runs_and_not_its_siblings() {
+fn a_pi_worker_reads_the_script_its_command_hook_runs_and_its_folder() {
     let w = World::new();
     let mut call = w.fenced(URL, Path::new("/k/kelpie"), Session::New(id(WORKER_ID)));
     let folder = w.path("x");
     call.reach.fence.as_mut().unwrap().guard.hooks = crate::test::hook_beside_another(&folder);
     let policy = fenced(&call, &Files::of(&call), Path::new("/nowhere/pi"), &[]);
-    crate::test::assert_reads_the_hook_alone(&policy, &folder);
+    crate::test::assert_reads_the_hook_and_its_folder(&policy, &folder);
 }

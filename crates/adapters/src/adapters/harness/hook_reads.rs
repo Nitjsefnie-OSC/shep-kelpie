@@ -2,9 +2,10 @@
 //!
 //! A fence denies the home folder whole, and the guard runs the project's hooks
 //! inside the sandbox. Each hook is granted its program, the interpreter a
-//! script names, and every file its command line names, each through its links.
-//! Files only, never a folder. A file under a credential or login deny is not
-//! granted: that deny still wins.
+//! script names, and every file its command line names, each through its links,
+//! with the folder each sits in: a script loads its neighbours and its
+//! `package.json` from there. Never the home or a folder above it. A path under
+//! a credential or login deny is not granted: that deny still wins.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -22,7 +23,7 @@ pub(super) fn fenced_policy(fence: &Fence, env: &dyn Env) -> Policy {
     policy
 }
 
-// Each file the hooks run or name, but one a deny that still wins covers
+// Each file the hooks run or name and its folder, but one a deny that still wins covers
 fn hook_files(fence: &Fence, env: &dyn Env) -> Vec<PathBuf> {
     let home = env.get("HOME").map(PathBuf::from);
     let home = home.as_deref();
@@ -30,6 +31,7 @@ fn hook_files(fence: &Fence, env: &dyn Env) -> Vec<PathBuf> {
         (fence.guard.hooks.commands()).chain(fence.hooks.iter().map(|hook| hook.command.as_str()));
     let named: BTreeSet<PathBuf> = commands
         .flat_map(|command| named_files(command, home, env))
+        .flat_map(|file| with_folder(file, home))
         .collect();
     let denies = kept_denies(fence, home);
     named
@@ -107,6 +109,14 @@ fn named_files(command: &str, home: Option<&Path>, env: &dyn Env) -> Vec<PathBuf
             std::iter::once(file).chain(real)
         })
         .collect()
+}
+
+// `file` and the folder it sits in, unless that folder is the home or holds it
+fn with_folder(file: PathBuf, home: Option<&Path>) -> impl Iterator<Item = PathBuf> {
+    let folder = (file.parent())
+        .filter(|folder| home.is_some_and(|home| !home.starts_with(folder)))
+        .map(Path::to_owned);
+    std::iter::once(file).chain(folder)
 }
 
 // What a script's shebang runs, as a file
@@ -222,16 +232,30 @@ mod tests {
     }
 
     #[test]
-    fn a_command_hook_grants_the_file_it_names_and_not_its_folders_siblings() {
+    fn a_command_hook_grants_the_file_it_names_and_its_folder_and_not_the_home() {
         let home = tempfile::tempdir().unwrap();
         let gate = file(&home.path().join("x/gate.js"), "process.exit(0)\n");
-        file(&home.path().join("x/other.js"), "secret\n");
+        file(&home.path().join("x/lib/other.js"), "module.exports = 0\n");
         let fence = worker_fence(home.path(), &["/opt/homebrew/bin/node ~/x/gate.js"]);
         let policy = fenced_policy(&fence, &home_env(home.path(), &[]));
-        assert_eq!(reads_under(&policy, &home.path().join("x")), [real(gate)]);
-        let folders = [home.path().to_owned(), home.path().join("x")];
+        let folder = home.path().join("x");
+        assert_eq!(reads_under(&policy, &folder), [real(folder), real(gate)]);
         assert!(
-            folders.iter().all(|f| !policy.read.contains(f)),
+            !policy.read.contains(&home.path().to_owned()),
+            "{:?}",
+            policy.read
+        );
+    }
+
+    #[test]
+    fn a_hook_script_in_the_home_itself_grants_the_script_alone() {
+        let home = tempfile::tempdir().unwrap();
+        let gate = file(&home.path().join("gate.sh"), "#!/bin/sh\n");
+        let fence = worker_fence(home.path(), &["sh ~/gate.sh"]);
+        let policy = fenced_policy(&fence, &home_env(home.path(), &[]));
+        assert!(policy.read.contains(&gate), "{:?}", policy.read);
+        assert!(
+            !policy.read.contains(&home.path().to_owned()),
             "{:?}",
             policy.read
         );
@@ -271,11 +295,16 @@ mod tests {
         let target = real.canonicalize().unwrap();
         assert!(policy.read.contains(&target), "{:?}", policy.read);
         assert!(policy.read.contains(&link), "{:?}", policy.read);
-        assert!(!policy.read.contains(&target.parent().unwrap().to_owned()));
+        let folders = [target.parent().unwrap(), link.parent().unwrap()];
+        assert!(
+            folders
+                .iter()
+                .all(|f| policy.read.contains(&f.to_path_buf()))
+        );
     }
 
     #[test]
-    fn a_hook_program_on_the_path_grants_its_file_and_its_interpreter_and_no_folder() {
+    fn a_hook_program_on_the_path_grants_its_file_and_its_interpreter_with_their_folders() {
         let home = tempfile::tempdir().unwrap();
         let bin = home.path().join(".local/bin");
         let gate = file(&bin.join("kelpie-gate"), "#!/usr/bin/env node\n");
@@ -283,12 +312,15 @@ mod tests {
         let node = file(&node_bin.join("node"), "binary\n");
         let fence = worker_fence(home.path(), &["FOO=1 kelpie-gate --strict"]);
         let policy = fenced_policy(&fence, &home_env(home.path(), &[&bin, &node_bin]));
-        assert_eq!(reads_under(&policy, &bin), [real(gate)]);
-        assert_eq!(reads_under(&policy, &node_bin), [real(node)]);
+        assert_eq!(reads_under(&policy, &bin), [real(bin), real(gate)]);
+        assert_eq!(
+            reads_under(&policy, &node_bin),
+            [real(node_bin), real(node)]
+        );
     }
 
     #[test]
-    fn a_guard_hook_grants_the_file_it_names() {
+    fn a_guard_hook_grants_the_file_it_names_and_its_folder() {
         let home = tempfile::tempdir().unwrap();
         let gate = file(&home.path().join("x/gate.js"), "process.exit(0)\n");
         let mut fence = worker_fence(home.path(), &[]);
@@ -298,6 +330,7 @@ mod tests {
             command: NonBlank::try_from("node ~/x/gate.js".to_owned()).unwrap(),
         }];
         let policy = fenced_policy(&fence, &home_env(home.path(), &[]));
-        assert_eq!(reads_under(&policy, &home.path().join("x")), [real(gate)]);
+        let folder = home.path().join("x");
+        assert_eq!(reads_under(&policy, &folder), [real(folder), real(gate)]);
     }
 }

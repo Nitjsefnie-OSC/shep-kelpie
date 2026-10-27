@@ -387,13 +387,13 @@ mod tests {
     }
 
     #[test]
-    fn a_worker_reads_the_script_its_command_hook_runs_and_not_its_siblings() {
+    fn a_worker_reads_the_script_its_command_hook_runs_and_its_folder() {
         let w = World::new();
         let mut call = w.worker();
         let folder = w.path("home/x");
         call.reach.fence.as_mut().unwrap().guard.hooks = crate::test::hook_beside_another(&folder);
         let policy = policy(&call, &w.path("home"), &w.path("claude"), &[]).unwrap();
-        crate::test::assert_reads_the_hook_alone(&policy, &folder);
+        crate::test::assert_reads_the_hook_and_its_folder(&policy, &folder);
     }
 
     #[test]
