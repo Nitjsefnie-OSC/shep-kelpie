@@ -928,15 +928,15 @@ fn a_research_on_an_issue_with_a_turn_in_flight_keeps_both_lines_on_the_ledger()
     research.release();
     pump(&runner, || {
         let lines = usage::read(&rig.paths().folder.join(usage::FILE)).unwrap_or_default();
-        let kinds: Vec<(CallKind, Role)> = lines
+        let kinds: Vec<_> = lines
             .into_iter()
             .filter_map(|line| match line {
                 Line::Call(call) if call.issue == Some(ticket(30)) => Some((call.kind, call.role)),
                 _ => None,
             })
             .collect();
-        kinds.contains(&(CallKind::Turn, Role::Worker))
-            && kinds.contains(&(CallKind::Triage, Role::Triager))
+        let has = |kind: CallKind, role: Role| kinds.contains(&(kind.into(), role.into()));
+        has(CallKind::Turn, Role::Worker) && has(CallKind::Triage, Role::Triager)
     });
 }
 

@@ -152,7 +152,7 @@ impl Cells {
     }
 
     fn of(call: &CallLine) -> Self {
-        let kind = serde_json::to_value(call.kind)
+        let kind = serde_json::to_value(&call.kind)
             .ok()
             .and_then(|v| v.as_str().map(str::to_owned))
             .unwrap_or_default();

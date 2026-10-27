@@ -102,6 +102,72 @@ pub enum CallKind {
     SpamCheck,
 }
 
+/// A call line's role: one this build has, or a retired one by the name a
+/// line wrote, which still counts
+// wire format: the role's name, as `Role` writes it
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum LedgerRole {
+    /// A role this build has
+    Known(Role),
+    /// A role an older build had
+    Retired(String),
+}
+
+impl LedgerRole {
+    /// The role's name, as the ledger writes it
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::Known(role) => role.as_str(),
+            Self::Retired(name) => name,
+        }
+    }
+
+    /// The role, if this build has it
+    pub fn known(&self) -> Option<Role> {
+        match self {
+            Self::Known(role) => Some(*role),
+            Self::Retired(_) => None,
+        }
+    }
+}
+
+impl From<Role> for LedgerRole {
+    fn from(role: Role) -> Self {
+        Self::Known(role)
+    }
+}
+
+impl PartialEq<Role> for LedgerRole {
+    fn eq(&self, role: &Role) -> bool {
+        *self == Self::Known(*role)
+    }
+}
+
+/// A call line's kind: one this build has, or a retired one by the name a
+/// line wrote, which still counts
+// wire format: the kind's name, as `CallKind` writes it
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum LedgerKind {
+    /// A kind this build has
+    Known(CallKind),
+    /// A kind an older build had
+    Retired(String),
+}
+
+impl From<CallKind> for LedgerKind {
+    fn from(kind: CallKind) -> Self {
+        Self::Known(kind)
+    }
+}
+
+impl PartialEq<CallKind> for LedgerKind {
+    fn eq(&self, kind: &CallKind) -> bool {
+        *self == Self::Known(*kind)
+    }
+}
+
 /// How a call ended
 // wire format: changing this is a breaking change to the usage ledger
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -152,9 +218,9 @@ pub struct CallLine {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pull_request: Option<u64>,
     /// The role it was made for
-    pub role: Role,
+    pub role: LedgerRole,
     /// What it was
-    pub kind: CallKind,
+    pub kind: LedgerKind,
     /// The agent it ran on, unknown on an imported line
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent: Option<String>,
