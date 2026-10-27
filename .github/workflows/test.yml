@@ -160,7 +160,9 @@ jobs:
   sandbox:
     needs: changes
     if: ${{ !cancelled() && needs.changes.outputs.rust != 'false' }}
-    runs-on: ubuntu-latest
+    # Pinned: on ubuntu-26.04 the sysctl below is not enough, and crabpot's
+    # unshare of the PID and mount namespaces fails with EPERM.
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
