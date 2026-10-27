@@ -446,8 +446,7 @@ pub(super) use self::writer::Writer;
 
 pub(super) use self::card::{
     ASK_THE_MAINTAINER, BOARD, PROBLEM, RECOMMENDS, SAYS, answer_for, asks_the_maintainer, brief,
-    chosen, effect_of, is_the_maintainers, named, phrases, question_stem, settled_comment, thumbs,
-    ticked,
+    chosen, effect_of, is_the_maintainers, named, phrases, settled_comment, thumbs, ticked,
 };
 
 #[cfg(test)]
