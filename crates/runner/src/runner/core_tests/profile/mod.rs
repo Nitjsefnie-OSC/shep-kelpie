@@ -91,6 +91,8 @@ fn on_a_repo_the_app_covers_a_worker_holds_the_apps_token_and_never_the_maintain
         BTreeMap::from([
             ("CARGO_TARGET_DIR".to_owned(), "/k/targets/shep/7".to_owned()),
             ("KELPIE_LEASE_SOCKET".to_owned(), "/k/dog/lease.sock".to_owned()),
+            ("GOCACHE".to_owned(), "/k/targets/shep/7/go-build".to_owned()),
+            ("BUN_INSTALL_CACHE_DIR".to_owned(), "/k/targets/shep/7/bun-cache".to_owned()),
             ("GH_CONFIG_DIR".to_owned(), "/k/targets/shep/7/gh".to_owned()),
             ("GH_PROMPT_DISABLED".to_owned(), "1".to_owned()),
             ("GIT_TERMINAL_PROMPT".to_owned(), "0".to_owned()),
@@ -137,8 +139,10 @@ fn with_no_app_a_worker_runs_as_the_maintainer_and_its_git_still_skips_housekeep
     assert_eq!(
         names,
         [
+            "BUN_INSTALL_CACHE_DIR",
             "CARGO_TARGET_DIR",
             "GIT_CONFIG_PARAMETERS",
+            "GOCACHE",
             "KELPIE_LEASE_SOCKET"
         ]
     );
@@ -265,6 +269,7 @@ fn build_env_points_into_the_build_folder_beside_cargo() {
             "CARGO_TARGET_DIR": "/k/targets/lab/7",
             "BUN_INSTALL_CACHE_DIR": "/k/targets/lab/7/bun",
             "GIT_CONFIG_PARAMETERS": housekeeping::PARAMETERS,
+            "GOCACHE": "/k/targets/lab/7/go-build",
             "KELPIE_LEASE_SOCKET": "/k/dog/lease.sock",
         })
     );

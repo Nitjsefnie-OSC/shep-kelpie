@@ -200,6 +200,79 @@ fn a_worker_reads_its_own_toolchain_and_no_other_repo_of_the_home() {
     }
 }
 
+// A Go and web project's push hook runs `golangci-lint` from `~/go/bin`, and its
+// builds read Go's module cache and run bun from `~/.bun`.
+#[test]
+fn a_worker_reads_go_s_and_bun_s_homes_and_builds_into_its_own_caches() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().canonicalize().unwrap();
+    let (worktree, build) = (home.join("wt/shep/7"), home.join("targets/shep/7"));
+    for rel in [
+        "go/bin/golangci-lint",
+        "go/pkg/mod/x/go.mod",
+        "go/src/other/main.go",
+        ".bun/bin/bun",
+        "other-repo/.env",
+    ] {
+        let path = home.join(rel);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, "x\n").unwrap();
+    }
+    let s = WorkerProfile {
+        worktree: &worktree,
+        build: &build,
+        git_common_dir: &home.join("checkouts/shep/.git"),
+        git_dir: &home.join("checkouts/shep/.git/worktrees/7"),
+        branch: "kelpie/7",
+        base: "main",
+        kelpie_pushes: false,
+        kelpie: Path::new("/opt/kelpie"),
+        kelpie_home: &home,
+        repo: &home.join("checkouts/shep"),
+        guard_hooks: &[],
+        allowed_domains: &[],
+        registries: &[],
+        build_env: &BTreeMap::new(),
+        home: &home,
+        shep_home: &home,
+        skills: &home.join("skills"),
+        door: Path::new("/s/kelpie/dog/lease.sock"),
+        token: None,
+    }
+    .settings();
+
+    let allow = strings(&s["sandbox"]["filesystem"]["allowRead"]);
+    for folder in ["go/bin", "go/pkg/mod", ".bun"] {
+        let own = home.join(folder);
+        assert!(allow.contains(&own.to_str().unwrap()), "{own:?}: {allow:?}");
+    }
+    for sibling in ["go", "go/src", "other-repo"] {
+        let other = home.join(sibling);
+        assert!(
+            !allow.contains(&other.to_str().unwrap()),
+            "{other:?}: {allow:?}"
+        );
+    }
+    let deny = strings(&s["permissions"]["deny"]);
+    let lint = home.join("go/bin/golangci-lint");
+    assert!(
+        !deny.iter().any(|r| covers(r, lint.to_str().unwrap())),
+        "{lint:?} in {deny:?}"
+    );
+    assert_eq!(
+        s["env"]["GOCACHE"],
+        build.join("go-build").to_str().unwrap()
+    );
+    assert_eq!(
+        s["env"]["BUN_INSTALL_CACHE_DIR"],
+        build.join("bun-cache").to_str().unwrap()
+    );
+    for secret in ["~/.netrc", "~/.npmrc"] {
+        let denied = strings(&s["sandbox"]["filesystem"]["denyRead"]);
+        assert!(denied.contains(&secret), "{secret}: {denied:?}");
+    }
+}
+
 // A `Read(...)` rule reaches `path` when the folder it names is a prefix of it
 fn covers(rule: &str, path: &str) -> bool {
     let Some(inner) = rule.strip_prefix("Read(").and_then(|r| r.strip_suffix(')')) else {
