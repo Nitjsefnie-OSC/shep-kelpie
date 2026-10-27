@@ -493,3 +493,16 @@ async fn set_with_a_glob_writes_the_matching_projects_and_a_plain_name_still_wri
         .unwrap_err();
     assert!(refused.contains("z*"), "{refused}");
 }
+
+#[tokio::test]
+async fn issue_check_takes_one_ticket_id_and_nothing_else() {
+    for line in ["check", "check 7 8"] {
+        assert_eq!(
+            verb("issue", line, None).await,
+            Err(USAGE.to_owned()),
+            "{line}"
+        );
+    }
+    let said = verb("issue", "check seven", None).await;
+    assert_eq!(said, Err("\"seven\" is not a ticket id".to_owned()));
+}

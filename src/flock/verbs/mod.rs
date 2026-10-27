@@ -14,14 +14,14 @@ use crate::agents::{Agents, Writer};
 use crate::home::{ProjectName, ProjectPaths};
 use crate::issues::{self, Mode, Project};
 use crate::local_tickets::{LocalTickets, Routed};
-use crate::settings::source;
+use crate::settings::source::{self, Loaded};
 use crate::shepherd::{self, Connection, Dial, Socket};
 use crate::state::Projects;
 use crate::ticket::TicketId;
 use crate::upgrade::restart::{Interrupt, Patience};
 
 /// The verbs [`main`] runs: every trigger a runner takes, `add`, which also
-/// registers a checkout, `issue`, which runs the issue writer itself, and
+/// registers a checkout, `issue`, which runs the issue writer or the issue check itself, and
 /// `attach` and `pm`, which run a worker's or the project manager's session
 /// here, `usage`, which reads the usage ledger here, `watch`, which
 /// follows the runner's log and the sessions' transcripts here, `ticket`, which
@@ -60,6 +60,8 @@ usage: shep kelpie add [<project>] [--base <branch>]
        shep kelpie issue \"<request>\"     files issues for it, for you to read
        shep kelpie issue --interactive \"<request>\"
                                          plans them with you in claude
+       shep kelpie issue check <ticket>  whether an issue holds every part an
+                                         implementer builds from, each missing one named
        shep kelpie attach <ticket>       steers its worker's session here
        shep kelpie tell \"<note>\"         a note for the project manager's next wake
        shep kelpie pm                    steers the project manager's session here
@@ -364,6 +366,20 @@ async fn run(
             };
             set::set(&client, &name, place, key, value).await
         }
+        ("issue", ["check", rest @ ..]) => {
+            let [text] = rest else {
+                return Err(USAGE.to_owned());
+            };
+            let ticket = text.parse::<TicketId>();
+            let ticket = ticket.map_err(|_| format!("{text:?} is not a ticket id"))?;
+            let here = Here {
+                client: &client,
+                shep_home,
+                kelpie_home: &kelpie_home,
+                home: &home,
+            };
+            issue_check(here, &project().await?, ticket).await
+        }
         ("issue", [_, ..]) => {
             let here = Here {
                 client: &client,
@@ -408,6 +424,31 @@ struct Here<'a> {
     home: &'a Path,
 }
 
+// The project's paths and settings, as its runner would load them.
+async fn load(here: &Here<'_>, name: &ProjectName) -> Result<(ProjectPaths, Loaded), String> {
+    let tables = shepherd::read_tables_with(here.client, name.as_str()).await?;
+    let paths = ProjectPaths::under(here.kelpie_home, here.shep_home, name);
+    let loaded = source::load(&tables, name.as_str(), here.home, &paths.folder)
+        .map_err(|e| e.to_string())?;
+    Ok((paths, loaded))
+}
+
+// `issue check <ticket>`: the issue check, on the ticket as its source holds it.
+async fn issue_check(
+    here: Here<'_>,
+    name: &ProjectName,
+    ticket: TicketId,
+) -> Result<Vec<String>, String> {
+    let (paths, loaded) = load(&here, name).await?;
+    let remote = crate::runner::check_checkout(&loaded.settings).map_err(|e| e.to_string())?;
+    let tickets = Routed::new(
+        Arc::new(Gh::default()),
+        LocalTickets::new(paths.tickets()),
+        loaded.settings.tickets.source,
+    );
+    issues::check::run(&tickets, &remote, ticket)
+}
+
 // `issue [--interactive] <request>`: the issue writer, run here rather than
 // by the runner, since the maintainer waits on it or works in it.
 async fn issue(here: Here<'_>, name: &ProjectName, args: &[&str]) -> Result<Vec<String>, String> {
@@ -419,10 +460,7 @@ async fn issue(here: Here<'_>, name: &ProjectName, args: &[&str]) -> Result<Vec<
     if request.trim().is_empty() || request.starts_with('-') {
         return Err(USAGE.to_owned());
     }
-    let tables = shepherd::read_tables_with(here.client, name.as_str()).await?;
-    let paths = ProjectPaths::under(here.kelpie_home, here.shep_home, name);
-    let loaded = source::load(&tables, name.as_str(), here.home, &paths.folder)
-        .map_err(|e| e.to_string())?;
+    let (paths, loaded) = load(&here, name).await?;
     crate::spawn::hide(loaded.kelpie.gateways().key_vars());
     let agents = Agents::load(&paths.agents).map_err(|e| e.to_string())?;
     let listed = (loaded.settings.role_agents(&agents)).map_err(|e| e.to_string())?;

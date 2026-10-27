@@ -37,6 +37,7 @@ use crate::ticket::TicketId;
 use crate::usage;
 use crate::worktree;
 
+pub mod check;
 mod docs;
 mod prompt;
 
