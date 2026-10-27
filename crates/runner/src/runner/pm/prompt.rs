@@ -476,7 +476,7 @@ pub(super) fn reason(wake: &Wake) -> String {
         Wake::Answer { id, asked, request } => {
             let mut out = match request {
                 None => format!("ruling {id} waits on your answer:\n"),
-                Some(request) => super::asked::lead(*request, *id),
+                Some(request) => super::asked::lead(request.asked, *id),
             };
             for line in asked.lines() {
                 match line.is_empty() {

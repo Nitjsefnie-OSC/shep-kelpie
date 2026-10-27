@@ -31,6 +31,7 @@ mod pick;
 mod question;
 mod quiet;
 mod red;
+mod requests;
 mod rulings;
 mod until;
 mod wake_prompt;

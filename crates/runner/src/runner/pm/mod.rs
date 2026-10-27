@@ -39,6 +39,7 @@ mod notes;
 mod prompt;
 mod question;
 mod red;
+mod requests;
 mod rulings;
 #[cfg(test)]
 mod tests;
@@ -173,7 +174,7 @@ pub(super) enum Wake {
         asked: String,
         /// What the maintainer asked of it, or none where the project
         /// leaves the ruling to it
-        request: Option<asked::Asked>,
+        request: Option<requests::Request>,
     },
 }
 
@@ -609,9 +610,8 @@ impl Runner {
                 }
                 Wake::Answer { id, request, .. } => {
                     self.pm.asking.remove(&id);
-                    let ruling = self.state.rulings.iter().find(|r| r.id == id).cloned();
-                    if let (Some(ruling), Some(_)) = (ruling, request) {
-                        self.pm_did_not_answer(&ruling);
+                    if let Some(request) = request {
+                        self.pm_request_lost(id, request);
                     }
                 }
             }

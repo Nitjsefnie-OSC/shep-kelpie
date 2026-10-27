@@ -15,7 +15,7 @@ use crate::test::{CALL_PATIENCE, Hold, Rig, Scripted};
 
 /// A project whose worker is parked on merge ruling 71, posted to the
 /// maintainer, who may write; with a project manager where `pm` says
-fn merge_put(project: &str, pm: bool) -> (Rig, Mutex<Runner>) {
+pub(super) fn merge_put(project: &str, pm: bool) -> (Rig, Mutex<Runner>) {
     let (rig, runner, head) = Rig::with_pull_request_set(project, |rig| {
         rig.with_app();
         rig.maintainer("octocat");
@@ -35,7 +35,7 @@ fn merge_put(project: &str, pm: bool) -> (Rig, Mutex<Runner>) {
 }
 
 /// The project manager's vote on ruling 71 for `choice`, saying `why`
-fn vote(choice: char, why: &str) -> &'static str {
+pub(super) fn vote(choice: char, why: &str) -> &'static str {
     let text = format!(
         "{{\"pick\": null, \"votes\": [{{\"ruling\": 71, \"choice\": \"{choice}\", \"why\": \
          \"{why}\", \"design\": false}}]}}"
@@ -44,7 +44,7 @@ fn vote(choice: char, why: &str) -> &'static str {
 }
 
 /// The comments posted on the threads, oldest first
-fn comments(rig: &Rig) -> Vec<String> {
+pub(super) fn comments(rig: &Rig) -> Vec<String> {
     rig.github.comments().into_iter().map(|(_, b)| b).collect()
 }
 
@@ -55,7 +55,7 @@ fn card(rig: &Rig) -> Option<String> {
 
 /// Writes `reply` as the maintainer, and steps until a comment `wanted`
 /// matches is posted, which it returns
-fn replied(
+pub(super) fn replied(
     rig: &Rig,
     runner: &Mutex<Runner>,
     reply: &str,
@@ -67,7 +67,7 @@ fn replied(
 }
 
 /// Steps until a comment `wanted` matches is posted, which it returns
-fn posted(rig: &Rig, runner: &Mutex<Runner>, wanted: impl Fn(&str) -> bool) -> String {
+pub(super) fn posted(rig: &Rig, runner: &Mutex<Runner>, wanted: impl Fn(&str) -> bool) -> String {
     let deadline = Instant::now() + CALL_PATIENCE;
     loop {
         if let Some(found) = comments(rig).into_iter().find(|c| wanted(c)) {
@@ -84,7 +84,7 @@ fn posted(rig: &Rig, runner: &Mutex<Runner>, wanted: impl Fn(&str) -> bool) -> S
 }
 
 /// Advances the runner, without waiting on a call in flight, until `done`
-fn advanced_until(runner: &Mutex<Runner>, done: impl Fn() -> bool) {
+pub(super) fn advanced_until(runner: &Mutex<Runner>, done: impl Fn() -> bool) {
     let deadline = Instant::now() + CALL_PATIENCE;
     while !done() {
         assert!(Instant::now() < deadline, "the runner never got there");
@@ -94,7 +94,7 @@ fn advanced_until(runner: &Mutex<Runner>, done: impl Fn() -> bool) {
 }
 
 /// Whether ruling 71 still waits
-fn pending(rig: &Rig) -> bool {
+pub(super) fn pending(rig: &Rig) -> bool {
     let text = std::fs::read_to_string(rig.paths().state).unwrap();
     let state: serde_json::Value = serde_json::from_str(&text).unwrap();
     state["rulings"].as_array().is_some_and(|r| !r.is_empty())
@@ -245,7 +245,7 @@ fn a_second_request_while_its_wake_runs_is_answered_once_and_not_queued() {
 // Other approaches, asked for with `pm options` and taken with `pm <n>`
 
 /// The project manager's two approaches to ruling 71, the second as `second`
-fn approaches(second: &str) -> &'static str {
+pub(super) fn approaches(second: &str) -> &'static str {
     let text = format!(
         "{{\"pick\": null, \"votes\": [{{\"ruling\": 71, \"approaches\": [\"Split the parser \
          out first\", \"{second}\"]}}]}}"
@@ -357,7 +357,7 @@ fn pm_n_with_no_approaches_or_past_the_last_is_refused_and_says_why() {
 
 /// A project with a project manager whose worker is parked on ruling 71,
 /// a label put on its pull request outside kelpie, posted to the maintainer
-fn foreign_put(project: &str) -> (Rig, Mutex<Runner>) {
+pub(super) fn foreign_put(project: &str) -> (Rig, Mutex<Runner>) {
     let (rig, runner, _) = Rig::with_pull_request_set(project, |rig| {
         rig.with_app();
         rig.maintainer("octocat");
@@ -376,7 +376,7 @@ fn foreign_put(project: &str) -> (Rig, Mutex<Runner>) {
 }
 
 /// The project manager's vote on ruling 71 for `choice`, flagged `design`
-fn decided(choice: char, design: bool) -> &'static str {
+pub(super) fn decided(choice: char, design: bool) -> &'static str {
     let text = format!(
         "{{\"pick\": null, \"votes\": [{{\"ruling\": 71, \"choice\": \"{choice}\", \"why\": \
          \"PM-WHY\", \"design\": {design}}}]}}"

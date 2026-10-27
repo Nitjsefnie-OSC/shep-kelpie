@@ -12,6 +12,7 @@ use serde_json::{Map, Value};
 
 use super::Wake;
 use super::act::{WORDS, plain};
+use super::requests::Request;
 use crate::pm_answer::{PmAnswer, WHY_LONGEST, from_fields};
 use crate::ports::ThreadComment;
 use crate::runner::voice::{answer_for, brief, inert, named};
@@ -142,12 +143,12 @@ impl Runner {
         if asked == Asked::Decide {
             self.pm_may_decide(ruling)?;
         }
-        let text = brief(ruling).0;
+        let (text, request) = (brief(ruling).0, Request::of(asked, ruling));
         self.pm.asking.insert(id, self.ports.clock.now());
         self.pm_due(Wake::Answer {
             id,
             asked: text,
-            request: Some(asked),
+            request: Some(request),
         });
         Ok(())
     }
@@ -156,18 +157,21 @@ impl Runner {
     /// which the maintainer asked about, and says what each did, for the log
     pub(super) fn pm_requested(
         &mut self,
-        requested: &[(TicketId, Asked)],
+        requested: &[(TicketId, Request)],
         votes: &[(TicketId, Map<String, Value>)],
     ) -> Vec<String> {
         let mut done = Vec::new();
-        for &(id, asked) in requested {
+        for &(id, request) in requested {
             self.pm.asking.remove(&id);
-            let Some(ruling) = self.state.rulings.iter().find(|r| r.id == id).cloned() else {
-                done.push(format!("left ruling {id}: it was answered meanwhile"));
-                continue;
+            let ruling = match self.ruling_asked(id, request) {
+                Ok(ruling) => ruling,
+                Err(why) => {
+                    done.push(why);
+                    continue;
+                }
             };
             let fields = (votes.iter().rev()).find(|(vote, _)| *vote == id);
-            let acted = match (fields, asked) {
+            let acted = match (fields, request.asked) {
                 (Some((_, fields)), Asked::Recommend) => self.pm_recommend(&ruling, fields),
                 (Some((_, fields)), Asked::Options) => self.pm_options(&ruling, fields),
                 (Some((_, fields)), Asked::Decide) => self.pm_decide(&ruling, fields),
@@ -219,8 +223,19 @@ impl Runner {
         ruling: &Ruling,
         fields: &Map<String, Value>,
     ) -> Result<String, String> {
+        let id = ruling.id;
+        // What may have changed since it was asked: a drain, an earlier answer.
+        if let Err(why) = self.pm_may_decide(ruling) {
+            let number = ruling.number();
+            let said = format!(
+                "The project manager's answer on ruling #{number} was not applied, since {why}. \
+                 It is still yours."
+            );
+            self.pm_says(ruling, &said);
+            return Ok(format!("left ruling {id} to the maintainer, since {why}"));
+        }
         let answer = self.pm_vote(ruling, fields)?;
-        let (id, choice) = (ruling.id, answer.choice);
+        let choice = answer.choice;
         match self.pm_decides(ruling, &answer) {
             Ok(()) => Ok(format!("answered ruling {id} with option {choice}")),
             Err(why) => {
@@ -354,7 +369,7 @@ impl Runner {
     }
 
     // Posts `text` in `ruling`'s thread, to the maintainer where they are known.
-    fn pm_says(&mut self, ruling: &Ruling, text: &str) {
+    pub(super) fn pm_says(&mut self, ruling: &Ruling, text: &str) {
         let Some(thread) = (ruling.pull_request).or_else(|| ruling.issue.and_then(|t| t.github()))
         else {
             return;
