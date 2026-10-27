@@ -260,11 +260,10 @@ impl Runner {
         }
     }
 
-    // Wakes the project manager for each question ruling `now` raises, each
-    // follow-up ruling asking whether to file findings, and each ruling it
-    // answers for the maintainer. The ruling is held back from the maintainer
-    // for its answer, unless the manager is down or the ruling is held by the
-    // maintainer's terminal.
+    // Wakes the project manager for each question, follow-up and ruling it
+    // answers for the maintainer that `now` raises. The ruling is held back
+    // from the maintainer for its answer, unless the manager is down or the
+    // ruling is held by the maintainer's terminal.
     fn pm_asked(&mut self, now: &ProjectState) {
         let at = self.ports.clock.now();
         let passed = (self.pm.down_until).is_some_and(|until| at < until);
