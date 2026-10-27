@@ -10,9 +10,7 @@ use super::ask_tests::{
 };
 use super::marker::MARKER;
 use super::pick_tests::{MAINTAINER, issue, list};
-use super::research_tests::{
-    calls, crashed_with, moves, nothing, pump, reply, restart, under,
-};
+use super::research_tests::{calls, crashed_with, moves, nothing, pump, reply, restart, under};
 use crate::ports::Role;
 use crate::runner::{Pass, Runner, advance, step};
 use crate::test::{CALL_PATIENCE, Hold, Rig, Scripted};
@@ -71,7 +69,10 @@ fn answers_on_an_outside_issue_go_under_the_authors_text_and_end_needs_triage() 
         rig.github.issue_edits(),
         [(
             30,
-            under("It crashes when I run it.", "## Settled\n\n- Linux, on start.")
+            under(
+                "It crashes when I run it.",
+                "## Settled\n\n- Linux, on start."
+            )
         )],
         "under the author's text, never in place of it"
     );
@@ -110,12 +111,7 @@ fn the_priority_the_issue_was_filed_with_stands_over_the_one_the_answers_pass_ra
 
     assert_eq!(
         moves(&rig),
-        [
-            "comment",
-            "comment",
-            "label bug",
-            "label needs-triage"
-        ]
+        ["comment", "comment", "label bug", "label needs-triage"]
     );
     assert_eq!(rig.github.label_takes(), []);
 }
@@ -190,7 +186,10 @@ fn a_restart_while_waiting_on_the_answers_keeps_the_questions_and_their_clock() 
         rig.github.issue_edits(),
         [(
             30,
-            under("It crashes when I run it.", "## Settled\n\n- Linux, on start.")
+            under(
+                "It crashes when I run it.",
+                "## Settled\n\n- Linux, on start."
+            )
         )],
         "a partial reply never overwrites the maintainer's text"
     );
@@ -414,7 +413,10 @@ fn answers_whose_issue_body_cannot_be_read_post_nothing_and_are_tried_again() {
         rig.github.issue_edits(),
         [(
             30,
-            under("It crashes when I run it.", "## Settled\n\n- Linux, on start.")
+            under(
+                "It crashes when I run it.",
+                "## Settled\n\n- Linux, on start."
+            )
         )],
         "under the author's text, once the body can be read"
     );

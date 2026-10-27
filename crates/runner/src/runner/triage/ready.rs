@@ -1,23 +1,23 @@
 //! The maintainer's own issue the pass rewrites, made agent-ready when the
 //! issue check passes it
 //!
-//! The rewrite runs for an issue whose author is [`Runner::maintainer`],
-//! ignoring case, with no open question and a `body`. Where the check passes the
-//! issue as the pass leaves it, the body goes over the issue's, then the labels,
-//! `ready-for-agent` last; where it does not, it goes under the issue's text and
-//! the issue ends `needs-triage`. The
-//! comment is worded first, so it promises nothing for a body the local guard
-//! would refuse or while a hand-put triage label stands.
+//! The rewrite runs for an issue by [`Runner::maintainer`], ignoring case. The
+//! reply must have a `body` and no open question. Where the check passes the
+//! issue as left, the body goes over the issue's. Then the labels
+//! go on, `ready-for-agent` last. Otherwise the body goes under the issue's
+//! text, and the issue ends `needs-triage`. The comment is worded first. It
+//! promises nothing the local guard would refuse, or while a hand-put triage
+//! label stands.
 
 use super::super::Runner;
 use super::super::contributions::post::{forge_is_busy, refused_text};
 use super::TRIAGE_LABELS;
+use super::local::body_hash;
 use super::research::Found;
 use crate::board::has_criteria;
 use crate::board::{READY, TRIAGE};
 use crate::local_paths::{Leak, Surface};
 use crate::ports::{ForgeError, NewLabel};
-use super::local::body_hash;
 use crate::state::{CheckTriage, StateError, TriageStep};
 
 /// Made on a repo that lacks it before the first issue that passes the issue
@@ -204,9 +204,9 @@ impl Runner {
         ))
     }
 
-    // What `issue` holds just before its body is written, from one read: the
-    // triage label put on by hand since the pass began, and whether its body
-    // changed since the pass read it.
+    // What `issue` holds just before its body is written, from one read. That
+    // is the triage label put on by hand since the pass began. It is also
+    // whether the body changed since the pass read it.
     pub(super) fn triage_before_write(
         &self,
         issue: u64,

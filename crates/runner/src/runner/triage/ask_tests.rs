@@ -308,7 +308,10 @@ fn a_github_followed_by_answers_is_read_as_answers_and_no_question_is_posted_aga
         rig.github.issue_edits(),
         [(
             30,
-            under("It crashes when I run it.", "## Settled\n\n- Linux, on start.")
+            under(
+                "It crashes when I run it.",
+                "## Settled\n\n- Linux, on start."
+            )
         )]
     );
     assert_eq!(record(&rig, &runner)["step"], "done");

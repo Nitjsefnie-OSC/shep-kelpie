@@ -1,12 +1,12 @@
 //! The issue check the board runs on every open issue
 //!
-//! Each poll checks every open issue that is new to it or edited since
-//! ([`check::key`]), whatever `triage.pick` says, and keeps the result in
-//! `checks`. The maintainer's issue that passes is labelled `ready-for-agent`,
-//! and anyone else's waits at `needs-triage` for the maintainer. One that fails
-//! is owed the triager, where the pick rule reaches it, and the board holds a
-//! ready one meanwhile. Once its pass ends the issue is checked again, and a
-//! rewrite that still fails gets one comment naming what the check refused.
+//! Each poll checks every open issue that is new or edited ([`check::key`]).
+//! It does so whatever `triage.pick` says, and keeps the result in `checks`.
+//! The maintainer's passing issue is labelled `ready-for-agent`. Anyone else's
+//! waits at `needs-triage` for the maintainer. A failing issue is owed the
+//! triager, where the pick rule reaches it. The board holds a ready one
+//! meanwhile. Once its pass ends the issue is checked again. A rewrite that
+//! still fails gets one comment naming what the check refused.
 
 use std::collections::BTreeSet;
 
@@ -30,7 +30,7 @@ enum Act {
     Kept,
 }
 
-/// The most forge writes one poll's check makes. The rest wait for the next poll.
+/// The most forge writes one poll's check makes; the rest wait for the next poll
 pub(super) const CHECK_WRITES: usize = 20;
 
 // What one poll's check may still write, and what it read once for all issues
@@ -60,10 +60,10 @@ fn carries(labels: &[String], label: &str) -> bool {
 }
 
 impl Runner {
-    // Checks each issue in `open` that is new, edited, or whose triage ended since,
-    // and does what the result asks. One in `busy` was under a pass when the poll
-    // began, and waits for a listing made after its end. A write that fails leaves
-    // the old result, so the next poll tries it again.
+    // Checks each issue in `open` that is new, edited, or past its triage. Then
+    // does what the result asks. One in `busy` was under a pass when the poll
+    // began, and waits for a later listing. A write that fails keeps the old
+    // result, so the next poll tries it again.
     pub(super) fn check_issues(
         &mut self,
         open: &[OpenIssue],
@@ -85,8 +85,8 @@ impl Runner {
             if poll.busy {
                 break;
             }
-            // A pass under way writes the body and labels itself, and its end
-            // is what the next check reads.
+            // A pass under way writes its own body and labels. The next check
+            // reads its end.
             if busy.contains(&issue.number) || self.triage_busy(issue.number) {
                 continue;
             }
@@ -101,12 +101,12 @@ impl Runner {
                 .iter()
                 .map(ToString::to_string)
                 .collect();
-            // An issue triaged before is owed a new pass for an edit, and not for
-            // the check's first read of it.
+            // An issue triaged before is owed a new pass for an edit. The check's
+            // first read of it owes none.
             let triaged = self.triage_record(issue.number).is_some();
-            // A pass that rewrote nothing the check reads, as silence leaves
-            // it, said all it had in its own comment, and a triage label put
-            // on by hand is the maintainer's word on it.
+            // A pass that rewrote nothing the check reads said all it had in its
+            // comment. Silence leaves it so. A triage label put on by hand is the
+            // maintainer's word on it.
             let decided = (issue.labels.iter())
                 .any(|l| l != READY && l != TRIAGE && TRIAGE_LABELS.contains(&l.as_str()));
             let (triage, act) = match (failures.is_empty(), ran) {
@@ -141,8 +141,8 @@ impl Runner {
         }
         let mut next = self.state.clone();
         next.checks = kept.clone();
-        // The results can be read again from the forge, so a save that fails
-        // keeps them in memory and holds up nothing else.
+        // The results can be read again from the forge. A save that fails keeps
+        // them in memory and holds up nothing else.
         if let Err(e) = self.save(next) {
             self.notes
                 .push(format!("cannot save the issue check's results: {e}"));
@@ -150,7 +150,6 @@ impl Runner {
         }
     }
 
-    // Whether a triage pass on `issue` is under way. A pass given up on is not.
     pub(super) fn triage_busy(&self, issue: u64) -> bool {
         let unfinished = self.triage_record(issue).is_some_and(|t| {
             !matches!(
@@ -176,9 +175,9 @@ impl Runner {
         (self.state.checks.iter()).any(|c| c.issue == issue && c.triage == CheckTriage::Edited)
     }
 
-    // The ready issues the check refused, as the board's skips: one whose
-    // result is for the text it holds now, or whose triage ran and is not yet
-    // checked again
+    // The ready issues the check refused, as the board's skips. A result counts
+    // for the text the issue holds now. It also counts while its triage waits
+    // to be checked.
     pub(in crate::runner) fn check_holds(&self, ready: &[ReadyIssue]) -> Vec<Skip> {
         (ready.iter())
             .filter_map(|issue| {
@@ -200,10 +199,9 @@ impl Runner {
             .collect()
     }
 
-    // Makes the maintainer's passing issue ready, taking `needs-triage` off, and
-    // puts `needs-triage` on anyone else's. A triage label other than those
-    // two stands. An issue the board has had a work item for is left as it is.
-    // So is one an open pull request closes, until it no longer does. Whether
+    // Makes the maintainer's passing issue ready and takes `needs-triage` off.
+    // Puts `needs-triage` on anyone else's. Another triage label stands. So does
+    // an issue with a work item, or one an open pull request closes. Whether
     // nothing is left to write.
     fn check_passed(&mut self, issue: &OpenIssue, poll: &mut Poll) -> bool {
         let number = issue.number;
@@ -264,11 +262,10 @@ impl Runner {
         true
     }
 
-    // Says on the maintainer's `issue` once what the check still refuses after
-    // its triage. Anyone else's is not told: the check's words are not plain,
-    // and its triage comment already handed it to the maintainer. The comment
-    // ends in a marker for `key`, so a post whose answer was lost is found and
-    // not made again.
+    // Says once on the maintainer's `issue` what the check still refuses after
+    // its triage. Anyone else's was handed over by its triage comment. The
+    // comment ends in a marker for `key`. A post whose answer was lost is
+    // found by it and not made again.
     fn check_refused(
         &mut self,
         issue: &OpenIssue,
@@ -329,8 +326,8 @@ impl Runner {
     }
 
     // Logs why telling `issue` failed. A busy forge stops the poll's check and
-    // counts for nothing. Past [`CHECK_TRIES`] other failures the check gives up
-    // the comment. Whether the result is kept.
+    // counts for nothing. After [`CHECK_TRIES`] other failures the comment is
+    // given up. Whether the result is kept.
     fn check_tell_failed(&mut self, issue: u64, why: &str, busy: bool, poll: &mut Poll) -> bool {
         self.notes.push(format!("check #{issue}: {why}"));
         if busy {

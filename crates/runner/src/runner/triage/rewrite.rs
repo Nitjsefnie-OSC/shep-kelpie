@@ -1,10 +1,10 @@
 //! The triager's rewrite: the issue's kind label, and whether the issue check
 //! passes the issue as the pass leaves it
 //!
-//! A pass puts one `kind:<type>` label on, made where the repo lacks it, and
-//! none on an issue that already carries a kind label. Whether the maintainer's
-//! rewritten issue goes ready is the check's call, on the listed title, the new
-//! body, and the labels the pass began with as its own change them.
+//! A pass puts one `kind:<type>` label on, made where the repo lacks it. It
+//! puts none on an issue that already carries a kind label. The check decides
+//! whether the maintainer's rewritten issue goes ready. It reads the listed
+//! title and the new body. Its labels are the pass's start and its own.
 
 use super::super::Runner;
 use crate::board::{self, check};

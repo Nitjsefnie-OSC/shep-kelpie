@@ -101,7 +101,7 @@ impl PollJob {
             || self.triage.is_some_and(|(since, pruned_through)| {
                 (open.iter()).any(|i| untouched(i, since, pruned_through, None, true))
             });
-        // The maintainer's issue the check passes is made ready only where no
+        // The check makes the maintainer's passing issue ready only where no
         // open pull request closes it.
         let to_check = (open.iter()).any(|i| {
             let key = check::key(&i.title, &i.body, &i.labels);
@@ -226,8 +226,8 @@ impl Runner {
         // what the next pass is made on.
         self.watch_local_waits(&local)?;
         self.resume_triage()?;
-        // The check reads the listing before the take-back and the due list,
-        // which reach only an issue it refused.
+        // The check reads the listing before the take-back and the due list.
+        // Those reach only an issue it refused.
         self.check_issues(&open, pulls.as_ref(), &busy);
         let only = match self.settings.triage.pick {
             TriagePick::Maintainer => match self.maintainer() {

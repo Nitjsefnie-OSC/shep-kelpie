@@ -1,8 +1,8 @@
 //! What the issue check last said of each open issue, kept per issue and edit
 //!
-//! The board checks an issue when it is new to it or its key changed, so an
-//! unchanged issue is neither checked nor triaged twice. A result also holds
-//! where the triager stands on that edit.
+//! The board checks an issue when it is new or its key changed. An unchanged
+//! issue is neither checked nor triaged twice. A result also holds where the
+//! triager stands on that edit.
 
 use serde::{Deserialize, Serialize};
 

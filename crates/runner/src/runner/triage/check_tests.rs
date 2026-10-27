@@ -6,8 +6,8 @@ use std::sync::Mutex;
 
 use serde_json::{Value, json};
 
-use super::pick_tests::{MAINTAINER, issue, list, rig_with};
 use super::checks::CHECK_TRIES;
+use super::pick_tests::{MAINTAINER, issue, list, rig_with};
 use super::ready_tests::said;
 use super::research_tests::{APP, WORDS, calls, moves, pump, reply, under};
 use crate::github::ApiError;
@@ -150,7 +150,11 @@ fn another_persons_issue_that_passes_waits_at_needs_triage_with_no_triage_call()
 
     let (rig, runner) = checking("pick = \"off\"", "newcomer", PASSING, &PASSING_LABELS);
     assert_eq!(step(&runner).unwrap(), None);
-    assert_eq!(moves(&rig), Vec::<String>::new(), "no queue while triage is off");
+    assert_eq!(
+        moves(&rig),
+        Vec::<String>::new(),
+        "no queue while triage is off"
+    );
 }
 
 // A rewrite still short of the format: it names its files and no more
@@ -355,7 +359,10 @@ fn a_maintainers_edit_made_while_the_triager_ran_survives_its_rewrite() {
 
         assert_eq!(rig.github.issue_edits(), [], "{rewrite}");
         let notice = &rig.github.comments()[1].1;
-        assert!(notice.contains("it was edited while kelpie read it"), "{notice}");
+        assert!(
+            notice.contains("it was edited while kelpie read it"),
+            "{notice}"
+        );
         assert!(!moves(&rig).contains(&"label ready-for-agent".to_owned()));
 
         // The edit is checked at the next look, and triaged as any edit is.

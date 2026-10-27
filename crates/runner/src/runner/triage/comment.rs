@@ -272,8 +272,8 @@ impl Runner {
     }
 
     // Puts the labels the pass found on `issue`; `false` when a write failed.
-    // The pass has a priority only for an issue that began with none, and one
-    // that went on by hand since stands.
+    // The pass has a priority only for an issue that began with none. One put
+    // on by hand since stands.
     pub(super) fn put_pass_labels(&mut self, issue: u64, labels: &[String]) -> bool {
         let Some(ours) = labels.iter().find(|l| board::is_priority_label(l)) else {
             return self.put_labels(issue, labels);

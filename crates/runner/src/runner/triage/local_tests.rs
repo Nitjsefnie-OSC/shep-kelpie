@@ -305,7 +305,10 @@ fn kelpies_own_body_edit_does_not_start_a_triage() {
         .script_for(Role::Representative, [Scripted::Say(A_WORDS)]);
     rig.next_look();
     assert_eq!(step(&runner).unwrap(), None);
-    let written = under("It crashes when I run it.", "## Settled\n\n- Linux, on start.");
+    let written = under(
+        "It crashes when I run it.",
+        "## Settled\n\n- Linux, on start.",
+    );
     assert_eq!(rig.github.issue_edits(), [(30, written.clone())]);
 
     // The forge now holds what kelpie wrote. Triaged again by hand, its author

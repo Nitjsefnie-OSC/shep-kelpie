@@ -201,10 +201,7 @@ fn a_rewrite_the_check_refuses_goes_under_the_body_and_ends_needs_triage() {
 
         assert_eq!(
             rig.github.issue_edits(),
-            [(
-                30,
-                under("It crashes when I run it.", body.trim_end())
-            )],
+            [(30, under("It crashes when I run it.", body.trim_end()))],
             "a rewrite the check refuses never overwrites: {body}"
         );
         assert_eq!(
