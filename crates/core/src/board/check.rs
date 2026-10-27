@@ -175,10 +175,10 @@ pub fn check(title: &str, body: &str, labels: &[String]) -> Vec<Failure> {
     failures
 }
 
-// The paths in backticks the issue says it touches: on its `Touches:` line,
-// or the list under that line when it holds no text, or the section under a
-// `Touches` heading. `None` without either.
-fn touched(body: &str) -> Option<Vec<&str>> {
+/// The paths in backticks the issue says it touches: on its `Touches:` line,
+/// or the list under that line when it holds no text, or the section under a
+/// `Touches` heading. `None` without either.
+pub fn touched(body: &str) -> Option<Vec<&str>> {
     let Some((at, text)) = labelled(body, TOUCHES) else {
         let name = TOUCHES.trim_end_matches(':');
         return section(body, name).map(|lines| lines.into_iter().flat_map(backticked).collect());
