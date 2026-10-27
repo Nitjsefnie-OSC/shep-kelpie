@@ -93,6 +93,10 @@ fn on_a_repo_the_app_covers_a_worker_holds_the_apps_token_and_never_the_maintain
             ("KELPIE_LEASE_SOCKET".to_owned(), "/k/dog/lease.sock".to_owned()),
             ("GOCACHE".to_owned(), "/k/targets/shep/7/go-build".to_owned()),
             ("BUN_INSTALL_CACHE_DIR".to_owned(), "/k/targets/shep/7/bun-cache".to_owned()),
+            (
+                "GOLANGCI_LINT_CACHE".to_owned(),
+                "/k/targets/shep/7/golangci-lint".to_owned(),
+            ),
             ("GH_CONFIG_DIR".to_owned(), "/k/targets/shep/7/gh".to_owned()),
             ("GH_PROMPT_DISABLED".to_owned(), "1".to_owned()),
             ("GIT_TERMINAL_PROMPT".to_owned(), "0".to_owned()),
@@ -143,6 +147,7 @@ fn with_no_app_a_worker_runs_as_the_maintainer_and_its_git_still_skips_housekeep
             "CARGO_TARGET_DIR",
             "GIT_CONFIG_PARAMETERS",
             "GOCACHE",
+            "GOLANGCI_LINT_CACHE",
             "KELPIE_LEASE_SOCKET"
         ]
     );
@@ -237,10 +242,16 @@ fn writes_go_only_to_the_worktree_the_build_folder_and_what_a_commit_and_push_ne
 
 #[test]
 fn build_env_points_into_the_build_folder_beside_cargo() {
-    let build_env = BTreeMap::from([(
-        EnvName::try_from("BUN_INSTALL_CACHE_DIR".to_owned()).unwrap(),
-        BuildDir::try_from("bun".to_owned()).unwrap(),
-    )]);
+    let build_env = BTreeMap::from([
+        (
+            EnvName::try_from("BUN_INSTALL_CACHE_DIR".to_owned()).unwrap(),
+            BuildDir::try_from("bun".to_owned()).unwrap(),
+        ),
+        (
+            EnvName::try_from("GOLANGCI_LINT_CACHE".to_owned()).unwrap(),
+            BuildDir::try_from("lint".to_owned()).unwrap(),
+        ),
+    ]);
     let s = WorkerProfile {
         worktree: Path::new("/k/wt/lab/7"),
         build: Path::new("/k/targets/lab/7"),
@@ -270,6 +281,7 @@ fn build_env_points_into_the_build_folder_beside_cargo() {
             "BUN_INSTALL_CACHE_DIR": "/k/targets/lab/7/bun",
             "GIT_CONFIG_PARAMETERS": housekeeping::PARAMETERS,
             "GOCACHE": "/k/targets/lab/7/go-build",
+            "GOLANGCI_LINT_CACHE": "/k/targets/lab/7/lint",
             "KELPIE_LEASE_SOCKET": "/k/dog/lease.sock",
         })
     );

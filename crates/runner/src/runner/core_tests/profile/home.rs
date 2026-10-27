@@ -264,6 +264,10 @@ fn a_worker_reads_go_s_and_bun_s_homes_and_builds_into_its_own_caches() {
         build.join("go-build").to_str().unwrap()
     );
     assert_eq!(
+        s["env"]["GOLANGCI_LINT_CACHE"],
+        build.join("golangci-lint").to_str().unwrap()
+    );
+    assert_eq!(
         s["env"]["BUN_INSTALL_CACHE_DIR"],
         build.join("bun-cache").to_str().unwrap()
     );
