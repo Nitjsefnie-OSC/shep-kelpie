@@ -9,7 +9,7 @@ Each ADR below is one decision that is hard to reverse. A later ADR can reopen p
 - 0003 [Runners live in the maintainer's own shepherd](0003-runners-live-in-the-maintainer-s-own-shepherd.md): runners and the dog are sheep of the maintainer's own shepherd, and kelpie is adopted as a dog.
 - 0004 [The adopted kelpie is the lease dog](0004-the-adopted-kelpie-is-the-lease-dog.md): the adopted `kelpie` holds the leases through the shepherd channel shep 0.12 gives it, and `kelpie-dog` is gone.
 - 0005 [shep stops every lamb](0005-shep-stops-every-lamb.md): shep's stop reaches every lamb in the tree, and kelpie drops its own stop ladder, orphan sweep and pid files.
-- 0006 [One agent builds, reviewers run once in series](0006-one-agent-builds-reviewers-run-once.md): the issue says what done means, one agent builds it, and each listed reviewer reads once with one fix turn, with no loop and no judge. 0011 reopened the parked shots and preview half.
+- 0006 [One agent builds, reviewers run once in series](0006-one-agent-builds-reviewers-run-once.md): the issue says what done means, one agent builds it, and each listed reviewer reads once with one fix turn, with no loop and no judge. 0011 reopened the parked shots and preview half, and 0018 the fixed reviewer order and the issue writer's pick.
 - 0007 [Review rules for a live pull request](0007-review-rules-for-a-live-pull-request.md): nits and a merge ruling's `no` get a fix turn, a late bot is read, and a parked item frees its slot.
 - 0008 [No reviewer reads a head until CI has passed on it](0008-no-reviewer-reads-a-head-until-ci-has-passed-on-it.md): a reviewer starts, or a bot is summoned, only on a pushed head that is green, and a red run is the worker's CI fix turn first.
 - 0009 [A project's own hooks run at kelpie's points](0009-a-projects-own-hooks-run-at-kelpies-points.md): `hooks` runs a project's commands at `publish`, `commit`, `push`, `handover` and nine points for the events Claude Code and Codex offer (`command`, `write`, `after_command`, `turn_start`, `turn_end`, `reset`, `ruling`, `ci`, `done`), for every harness and role, with `worker.guard_hooks` kept as the Claude Code-only layer.
@@ -21,6 +21,7 @@ Each ADR below is one decision that is hard to reverse. A later ADR can reopen p
 - 0015 [Crates use only what is below them](0015-crates-use-only-what-is-below-them.md): the code is a Cargo workspace where a crate uses only what is below or beside it, so a module that reaches the wrong way fails to build, with five leaf crates and a dev-only `test_support` first.
 - 0016 [Kelpie takes any shepherd from its pinned shep on](0016-kelpie-takes-any-shepherd-from-its-pinned-shep-on.md): kelpie refuses only a shepherd on an earlier shep than it is built with, and leaves wire compatibility to shep's protocol handshake.
 - 0017 [The runner answers on a socket of its own](0017-the-runner-answers-on-a-socket-of-its-own.md): each runner answers a typed, versioned protocol and pushes its status stream on a local socket under kelpie's home, and the verbs use `shep trigger` for one release when no runner answers.
+- 0018 [The project manager decides, and the dog picks the agent](0018-the-pm-decides-and-the-dog-picks-the-agent.md): the panel, the issue writer and per-project agent lists go, the project manager answers the ruling kinds `rulings.pm_decides` gives it, an issue skill and a code check replace the issue writer with the triager only on issues that fail it, and the dog's agent board picks each implementer and reviewer at dispatch from the agent files by kind, tier, availability and `agents.slack`. Reopens two lines of 0006.
 
 ## Decided against
 
@@ -77,6 +78,14 @@ Check this list before proposing an option. Where a later ADR reopened the decis
 - keep `shep trigger` as the verbs' only path to a runner (0017)
 - status events as diffs from the first release (0017)
 - refuse a runner's start over a too-long socket path (0017)
+- keep the ruling panel with fewer voters (0018)
+- keep the issue writer and give it the queue (0018)
+- triage every issue, with fewer questions (0018)
+- a `max_wait` per agent (0018)
+- concurrency in the agent file (0018)
+- reviewers at once on one green head (0018)
+- project lineups inherited from the operator's defaults, shep-pm/shep#1079 (0018)
+- a project manager that watches every lock and meter itself (0018)
 
 ### Decided against without an ADR
 
