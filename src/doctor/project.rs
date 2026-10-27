@@ -17,8 +17,8 @@ use crate::ports::{Forge, NewLabel, Timestamp, Visibility};
 use crate::review_bot::{Bot, Login, Profile};
 use crate::runner::{NO_ORIGIN, check_checkout, check_instructions, source_of};
 use crate::settings::{
-    Account, AgentName, DoctorProbe, ForgeSlug, Gateways, Harness, Limit, Pick, RoleModel,
-    Settings, SettingsError, TicketSource,
+    Account, AgentName, DoctorProbe, ForgeSlug, Gateways, Harness, Limit, PM_DECIDES, Pick,
+    RoleModel, Settings, SettingsError, TicketSource,
 };
 use crate::webhook::KelpieSettings;
 
@@ -225,6 +225,7 @@ pub(super) fn checks(
     if let Some(kelpie) = kelpie {
         lines.push(rulings::channel(at("rulings"), kelpie));
     }
+    lines.extend(rulings::unnamed_kinds(at(PM_DECIDES), &settings));
     lines
 }
 
