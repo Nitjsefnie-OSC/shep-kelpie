@@ -1,11 +1,11 @@
 //! The rulings the project manager answers for the maintainer
 //!
 //! A ruling whose kind `rulings.pm_decides` sets `true` wakes the project
-//! manager, and its comment waits for the answer, at most one wake. An answer
-//! that picks an option is applied at once and posted headed "Answered by the
-//! project manager", where a `no <note>` reopens it. An abstention, a `design`
-//! flag, a merge under `ask` or an option only the maintainer can carry out
-//! goes to the maintainer, with the project manager's pick on the card.
+//! manager. Its comment waits for the answer, at most one wake. An answer
+//! that picks an option is applied at once. It is posted headed "Answered by
+//! the project manager", where a `no <note>` reopens it. An abstention, a
+//! `design` flag or a merge under `ask` goes to the maintainer. The card
+//! shows the project manager's pick.
 
 use std::collections::BTreeMap;
 
@@ -14,10 +14,7 @@ use crate::pm_answer::PmAnswer;
 use crate::runner::Runner;
 use crate::runner::ruling;
 use crate::runner::thread_replies::Settler;
-use crate::runner::voice::{
-    RECOMMENDS, SAYS, answer_for, asks_the_maintainer, brief, is_the_maintainers, named,
-    settled_comment,
-};
+use crate::runner::voice::{RECOMMENDS, SAYS, answer_for, brief, named, settled_comment};
 use crate::settings::{Merging, RulingName};
 use crate::state::{Ruling, RulingKind, Stuck};
 use crate::ticket::TicketId;
@@ -26,9 +23,9 @@ impl Runner {
     /// Whether the project manager answers `ruling` for the maintainer
     ///
     /// Its kind is one `rulings.pm_decides` gives it, and it lists two options
-    /// or more. A question and a follow-up have wakes of their own, and a
+    /// or more. A question and a follow-up have wakes of their own. A
     /// contribution's ruling is never the project manager's. A turn kelpie
-    /// could not set up is the maintainer's alone, and so is a question the
+    /// could not set up is the maintainer's alone. So is a failed turn the
     /// project manager already answered on the same work item. In a drain it
     /// goes to the maintainer.
     pub(super) fn pm_answers_ruling(&self, ruling: &Ruling) -> bool {
@@ -53,8 +50,8 @@ impl Runner {
         answers && !self.pm_answered_before(ruling)
     }
 
-    // Whether the project manager answered the question `ruling` asks
-    // already, on the same work item: that answer did not settle it.
+    // Whether the project manager already answered the failed turn `ruling`
+    // is, on the same work item. That answer did not settle it.
     fn pm_answered_before(&self, ruling: &Ruling) -> bool {
         let records = ruling::records(&self.paths.rulings);
         records.iter().any(|r| r.decided_by_pm(ruling))
@@ -62,7 +59,7 @@ impl Runner {
 
     /// How many rulings the project manager answered, by kind, for
     /// `status`; none read for a project with no project manager
-    pub(in crate::runner) fn pm_answers(&self) -> BTreeMap<String, u32> {
+    pub(in crate::runner) fn pm_answer_counts(&self) -> BTreeMap<String, u32> {
         match self.agents.pm {
             Some(_) => ruling::pm_answers(&ruling::records(&self.paths.rulings)),
             None => BTreeMap::new(),
@@ -134,18 +131,13 @@ impl Runner {
         if answer.design {
             return Err("it flagged design".into());
         }
+        // The settings file refuses `merge` as `true`, so this holds only a
+        // merge a hand-edited state brings.
         let merge = matches!(ruling.kind, RulingKind::Merge { .. });
         if merge && self.settings.git.merging == Merging::Ask {
             return Err("a merge under `ask` is the maintainer's".into());
         }
         let picked = named(&ruling.kind, key);
-        // A candidate the maintainer carries out is no answer for the worker.
-        if picked.as_deref().is_some_and(asks_the_maintainer) {
-            return Err("its pick is to ask the maintainer".into());
-        }
-        if picked.as_deref().is_some_and(is_the_maintainers) {
-            return Err("its pick is for the maintainer to carry out".into());
-        }
         let note = format!("Answered by the project manager: {}", answer.why);
         let Some(ruled) = answer_for(&ruling.kind, key, &note) else {
             return Err(format!("option {key} is not one it lists"));

@@ -43,8 +43,7 @@ pub(in crate::runner) struct Record {
     pull_request: Option<u64>,
     asked: String,
     pub(in crate::runner) answer: String,
-    // What a worker's question says as it asked it, which the project manager's
-    // rewording of the card leaves as it is, or why a turn failed
+    // Why a turn failed, for a failed turn
     #[serde(default, skip_serializing_if = "Option::is_none")]
     stem: Option<String>,
     // Whether the project manager answered for the maintainer
@@ -90,9 +89,9 @@ impl Record {
         }
     }
 
-    /// Whether the project manager answered the same question as `ruling`
-    /// asks, for the same work item: its pull request's number names a ruling
-    /// once there is one, so the ticket is what stays the same
+    /// Whether the project manager answered the same failed turn as `ruling`,
+    /// for the same work item: its pull request's number names a ruling once
+    /// there is one, so the ticket is what stays the same
     pub(in crate::runner) fn decided_by_pm(&self, ruling: &Ruling) -> bool {
         let item = match (self.issue, ruling.issue) {
             (Some(was), Some(is)) => was == is,
@@ -125,20 +124,14 @@ impl Record {
     }
 }
 
-// What a worker asked in `ruling`, as `rulings.jsonl` keeps it.
-// A failed turn's stem is why it failed, so the same failure again on the
-// same work item is one the project manager already answered.
+// Why a failed turn failed, as `rulings.jsonl` keeps it, so the same failure
+// again on the same work item is one the project manager already answered.
 fn stem_of(ruling: &Ruling) -> Option<String> {
-    let stem = match &ruling.kind {
-        RulingKind::Stuck(Stuck::TurnFailed { why, .. }) => {
-            format!(
-                "turn-failed: {}",
-                why.split_whitespace().collect::<Vec<_>>().join(" ")
-            )
-        }
-        kind => crate::runner::voice::question_stem(kind)?,
+    let RulingKind::Stuck(Stuck::TurnFailed { why, .. }) = &ruling.kind else {
+        return None;
     };
-    Some(clip(&stem, QUESTION))
+    let why = why.split_whitespace().collect::<Vec<_>>().join(" ");
+    Some(clip(&format!("turn-failed: {why}"), QUESTION))
 }
 
 // What `ruling` asks, less the table of options, as `rulings.jsonl` keeps it.
@@ -282,25 +275,6 @@ mod tests {
             Timestamp(1),
             Answerer::Pm,
         )
-    }
-
-    // The ruling's id is its pull request's number once there is one, so a
-    // question asked again after the pull request opened is the same question.
-    #[test]
-    fn a_question_asked_again_under_a_pull_request_is_the_one_the_project_manager_answered() {
-        let before = decided(&asking(7, None, "Which flag?\n- `--a`\n- `--b`"));
-
-        assert!(before.decided_by_pm(&asking(71, Some(71), "Which flag?\n- `--a`\n- `--b`")));
-        assert!(!before.decided_by_pm(&asking(71, Some(71), "Which command?")));
-        let by_maintainer = Record {
-            by_pm: false,
-            ..before
-        };
-        assert!(!by_maintainer.decided_by_pm(&asking(
-            71,
-            Some(71),
-            "Which flag?\n- `--a`\n- `--b`"
-        )));
     }
 
     fn failing(id: u64, why: &str) -> Ruling {

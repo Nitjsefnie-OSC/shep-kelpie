@@ -3,16 +3,17 @@
 //! and a `no <note>` on its answer reopens the ruling
 
 use std::sync::Mutex;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
-use super::{NOTHING, name_pm, pm_seen};
+use super::{NOTHING, name_pm, pm_seen, step_until};
 use crate::ports::{AgentError, Checks, Role, Timestamp};
+use crate::runner::flight::advance;
 use crate::runner::ruling::{Answerer, Record};
 use crate::runner::{Answer, CHECKS_SETTLE, Runner, StepReport, step};
 use crate::settings::{Merging, RulingName};
 use crate::state::{Ruling, RulingKind, Stuck};
 use crate::test::ticket;
-use crate::test::{CALL_PATIENCE, Rig, Scripted};
+use crate::test::{CALL_PATIENCE, Hold, Rig, Scripted};
 use crate::work_item::{Phase, Turn};
 
 /// A project whose project manager answers merge rulings, with CI green and
@@ -60,17 +61,17 @@ fn comments(rig: &Rig) -> Vec<String> {
 }
 
 /// The comment that asks the maintainer, if one was posted
-fn asking(rig: &Rig) -> Option<String> {
+pub(super) fn asking(rig: &Rig) -> Option<String> {
     (comments(rig).into_iter()).find(|body| body.starts_with("### Merge this pull request"))
 }
 
 /// The comment that says the project manager answered, if one was posted
-fn answered(rig: &Rig) -> Option<String> {
+pub(super) fn answered(rig: &Rig) -> Option<String> {
     (comments(rig).into_iter()).find(|body| body.starts_with("**Answered by the project manager"))
 }
 
 /// Steps until one of the two comments is posted
-fn settled(rig: &Rig, runner: &Mutex<Runner>) {
+pub(super) fn settled(rig: &Rig, runner: &Mutex<Runner>) {
     let deadline = Instant::now() + CALL_PATIENCE;
     while Instant::now() < deadline {
         step(runner).unwrap();
@@ -337,4 +338,102 @@ fn a_no_that_names_no_ruling_says_how_to_reopen_it() {
     assert!(said.contains("Ruling #71 was not reopened"), "{said}");
     assert!(said.contains("`71 no <note>`"), "{said}");
     assert!(rig.github.reactions().is_empty(), "nothing was taken");
+}
+
+// A ruling held for the project manager's answer
+
+/// Whether ruling 71's comment is still to be posted, as the state keeps it
+fn unposted(rig: &Rig) -> bool {
+    let text = std::fs::read_to_string(rig.paths().state).unwrap();
+    let state: serde_json::Value = serde_json::from_str(&text).unwrap();
+    state["rulings"][0]["unposted"] == true
+}
+
+/// Advances the runner until the project manager's call for ruling 71 is
+/// held open
+fn wake_held(rig: &Rig, runner: &Mutex<Runner>) -> Hold {
+    let hold = Hold::default();
+    rig.claude.script_for(
+        Role::Pm,
+        [Scripted::HoldThenSay(hold.clone(), answers('A', false))],
+    );
+    advanced_until(runner, || hold.entered(Duration::ZERO));
+    hold
+}
+
+/// Advances the runner, without waiting on a call in flight, until `done`
+fn advanced_until(runner: &Mutex<Runner>, done: impl Fn() -> bool) {
+    let deadline = Instant::now() + CALL_PATIENCE;
+    while !done() {
+        assert!(Instant::now() < deadline, "the runner never got there");
+        advance(runner).unwrap();
+        std::thread::yield_now();
+    }
+}
+
+#[test]
+fn a_runner_restarted_while_a_ruling_is_held_posts_its_comment() {
+    let (rig, runner) = left_to_pm("pm-restart", Merging::Auto);
+    assert_eq!(asking(&rig), None, "the comment waits on the answer");
+    assert!(unposted(&rig));
+    drop(runner);
+    rig.claude.script_for(Role::Pm, [Scripted::Say(NOTHING)]);
+
+    let runner = rig.open().unwrap();
+    settled(&rig, &runner);
+
+    assert!(asking(&rig).is_some(), "{:?}", comments(&rig));
+    assert!(!unposted(&rig));
+}
+
+#[test]
+fn a_ruling_whose_work_item_is_dropped_while_held_is_never_posted() {
+    let (rig, runner) = left_to_pm("pm-dropped", Merging::Auto);
+    rig.claude
+        .script_for(Role::Pm, [Scripted::Say(answers('A', false))]);
+    rig.ask(&runner, "drop", Some("7"));
+
+    for _ in 0..5 {
+        step(&runner).unwrap();
+    }
+
+    assert_eq!(asking(&rig), None, "{:?}", comments(&rig));
+    assert_eq!(answered(&rig), None, "{:?}", comments(&rig));
+}
+
+#[test]
+fn a_ruling_held_through_a_drain_goes_to_the_maintainer_and_says_why() {
+    let (rig, runner) = left_to_pm("pm-drained", Merging::Auto);
+    let hold = wake_held(&rig, &runner);
+
+    rig.ask(&runner, "drain", None);
+    advanced_until(&runner, || asking(&rig).is_some());
+
+    let card = asking(&rig).expect("the ruling is posted for the maintainer");
+    assert!(!card.contains("**Project manager"), "{card}");
+    let notes = runner.lock().unwrap().take_notes().join("\n");
+    assert!(
+        notes.contains(
+            "ruling 71 goes to the maintainer without the project manager's answer, since the \
+             runner drains"
+        ),
+        "{notes}"
+    );
+    hold.release();
+}
+
+#[test]
+fn an_answer_after_the_maintainer_was_alerted_is_dropped_and_the_ruling_still_waits() {
+    let (rig, runner) = left_to_pm("pm-late", Merging::Auto);
+    let hold = wake_held(&rig, &runner);
+    rig.ask(&runner, "drain", None);
+    advanced_until(&runner, || !rig.alerts.posts().is_empty());
+
+    hold.release();
+    let report = step_until(&runner, |r| matches!(r, StepReport::PmAnswered { .. }));
+
+    let (_, acted, _) = super::answered(Some(report));
+    assert_eq!(acted, ["left ruling 71: it already went to the maintainer"]);
+    assert!(pending(&rig), "the ruling still waits");
+    assert_eq!(answered(&rig), None, "no answer was posted");
 }

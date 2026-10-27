@@ -653,36 +653,9 @@ pub(in crate::runner) fn asks_the_maintainer(option: &str) -> bool {
     option.eq_ignore_ascii_case(ASK_THE_MAINTAINER)
 }
 
-/// Whether `option` is one only the maintainer can carry out, which is the
-/// candidate that leaves a question to them, or one that begins "You"
-pub(in crate::runner) fn is_the_maintainers(option: &str) -> bool {
-    let first = option
-        .trim()
-        .trim_start_matches('`')
-        .split_whitespace()
-        .next();
-    asks_the_maintainer(option) || first.is_some_and(|w| w.eq_ignore_ascii_case("you"))
-}
-
 // Whether answering with `choice` sends the worker nothing.
 fn leaves_it(choice: &Choice) -> bool {
     asks_the_maintainer(&choice.name)
-}
-
-/// What a worker's question says, as the worker asked it: less the project
-/// manager's lines, the options it lists and the spacing. None for a ruling
-/// that is not a question.
-pub(in crate::runner) fn question_stem(kind: &RulingKind) -> Option<String> {
-    let RulingKind::Question { asked, .. } = kind else {
-        return None;
-    };
-    Some(
-        split_question(asked)
-            .stem
-            .split_whitespace()
-            .collect::<Vec<_>>()
-            .join(" "),
-    )
 }
 
 // A worker's question without the project manager's lines, split into what it
@@ -752,7 +725,7 @@ pub(in crate::runner) const SAYS: &str = "PM says:";
 // The project manager's pick and why, where it gave any:
 // `**Project manager: A**. Its why.`
 fn pm_words(ruling: &Ruling, choices: &[Choice]) -> Option<String> {
-    let says = after_last(&ruling.question, SAYS);
+    let says = after_last(&ruling.question, SAYS).map(super::inert);
     let picked = after_last(&ruling.question, RECOMMENDS).and_then(|pick| {
         let plain = |text: &str| text.trim().trim_matches('`').to_lowercase();
         let at = choices.iter().position(|c| plain(&c.name) == plain(pick))?;

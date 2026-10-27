@@ -7,7 +7,7 @@
 //! settled and by whom, and the lines that invite an answer go. The same
 //! words tell a later reply in the thread what became of the ruling.
 
-use super::super::voice::settled_comment;
+use super::super::voice::{inert, settled_comment};
 use super::super::words::NO_NOTE;
 use super::super::{Answer, RuleError};
 use super::{LATE, Runner};
@@ -102,7 +102,7 @@ impl Outcome {
                 told: format!("is already answered in its own thread: {words}"),
             },
             Settler::Pm { answer, why, .. } => {
-                let (answer, why) = (bare(answer), bare(why));
+                let (answer, why) = (bare(answer), inert(&bare(why)));
                 let because = match why.is_empty() {
                     true => String::new(),
                     false => format!(" (why: {why})"),
