@@ -229,6 +229,13 @@ pub enum Skip {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         ruling: Option<TicketId>,
     },
+    /// The issue check refused it, and it waits for its triage or an edit
+    Check {
+        /// The ticket
+        issue: TicketId,
+        /// Each part the check found missing or malformed, in its words
+        failures: Vec<String>,
+    },
     /// The pacer holds every new work item, this pick among them
     Paced {
         /// The ticket
@@ -272,6 +279,7 @@ impl Skip {
             | Self::Overlap { issue, .. }
             | Self::PathsUnread { issue, .. }
             | Self::Unlabelled { issue, .. }
+            | Self::Check { issue, .. }
             | Self::Paced { issue, .. }
             | Self::PmWaits { issue } => Some(*issue),
             Self::Adopt { .. } => None,

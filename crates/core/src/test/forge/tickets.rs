@@ -101,6 +101,7 @@ impl Tickets for FakeForge {
     }
 
     fn open_issues(&self, _repo: &ForgeSlug) -> Result<Vec<OpenIssue>, ForgeError> {
+        self.issue_listings.fetch_add(1, Ordering::SeqCst);
         self.ask()?;
         // The listing is as the forge had it when the read began, however long a
         // held read takes to come back.

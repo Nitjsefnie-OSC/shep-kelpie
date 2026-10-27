@@ -22,7 +22,7 @@ use crate::board::{self, TRIAGE};
 use crate::local_paths::Leak;
 use crate::ports::{NewLabel, Timestamp};
 use crate::settings::AuthorRole;
-use crate::state::{StateError, TriageLocal, TriageQuestions, TriageStep, Triaged};
+use crate::state::{CheckTriage, StateError, TriageLocal, TriageQuestions, TriageStep, Triaged};
 
 /// How many times a step may fail for an issue before kelpie stops trying it
 pub(super) const TRIES: u32 = 5;
@@ -766,6 +766,11 @@ impl Runner {
             record.add_call(at);
         }
         triage.issues.push(record);
+        // The triager ran on the issue as the check last read it, so its end
+        // is checked again.
+        if let Some(kept) = next.checks.iter_mut().find(|c| c.issue == issue) {
+            kept.triage = CheckTriage::Ran;
+        }
         // A record saved finished needs the cap kept, as `triage_stepped` does
         // for the steps that finish later.
         if step == TriageStep::Done

@@ -117,9 +117,10 @@ pub struct FakeForge {
     bot_reviewed: Arc<Mutex<Option<Timestamp>>>,
     bot_review_reads: Arc<AtomicUsize>,
     viewer_down: Arc<Mutex<Option<ForgeError>>>,
-    // Every call made, and the board's reads among them
+    // Every call made, and the board's reads and open-issue listings among them
     asked: Arc<AtomicUsize>,
     board_reads: Arc<AtomicUsize>,
+    issue_listings: Arc<AtomicUsize>,
     // The reads of pull requests: the listing, one's view, and one's review
     pull_request_reads: Arc<reads::PullRequestReads>,
     // The heads whose held CI runs kelpie approved
@@ -219,6 +220,7 @@ impl FakeForge {
             viewer_down: Arc::default(),
             asked: Arc::default(),
             board_reads: Arc::default(),
+            issue_listings: Arc::default(),
             pull_request_reads: Arc::default(),
             approvals: Arc::default(),
             down: Arc::default(),

@@ -401,6 +401,7 @@ fn a_body_rewritten_by_the_deadline_is_read_and_not_ended_as_silence() {
         2,
         "the rewritten body is triaged"
     );
+    // The rewrite still fails the issue check, which the last comment says.
     assert_eq!(
         moves(&rig),
         [
@@ -409,6 +410,7 @@ fn a_body_rewritten_by_the_deadline_is_read_and_not_ended_as_silence() {
             "label bug",
             "label P2",
             "label needs-triage",
+            "comment",
         ]
     );
     assert_eq!(record(&rig, &runner)["step"], "done");

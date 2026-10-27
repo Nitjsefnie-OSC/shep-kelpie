@@ -39,6 +39,8 @@ pub enum CheckTriage {
     None,
     /// It failed, and the triager has not run on it since
     Owed,
+    /// It failed on an edit made after its triage ended, and is owed a new pass
+    Edited,
     /// The triager ran on it, and its rewrite is checked once its pass ends
     Ran,
 }

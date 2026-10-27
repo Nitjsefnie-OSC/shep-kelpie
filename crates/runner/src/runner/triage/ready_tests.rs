@@ -669,6 +669,8 @@ fn an_issue_triaged_again_and_now_sure_loses_the_needs_triage_of_the_first_pass(
         [(30, "needs-triage".to_owned())],
         "`needs-triage` came off before `ready-for-agent` went on"
     );
+    // The first pass's end is checked again before the second pass, and the
+    // check still refuses it, which one comment says.
     assert_eq!(
         moves(&rig),
         [
@@ -677,9 +679,17 @@ fn an_issue_triaged_again_and_now_sure_loses_the_needs_triage_of_the_first_pass(
             "label P2",
             "label needs-triage",
             "comment",
+            "comment",
             "label bug",
             "label ready-for-agent",
         ]
+    );
+    assert!(
+        rig.github.comments()[1]
+            .1
+            .contains("the issue check still refuses it"),
+        "{:?}",
+        rig.github.comments()
     );
     assert_eq!(triage(&rig, &runner)["issues"][0]["step"], "ready");
 }

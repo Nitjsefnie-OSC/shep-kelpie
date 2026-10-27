@@ -21,7 +21,7 @@ use crate::state::{StateError, TriageStep};
 
 /// Made on a repo that lacks it before the first issue kelpie is sure of is
 /// made ready
-const READY_LABEL: NewLabel<'static> = NewLabel {
+pub(super) const READY_LABEL: NewLabel<'static> = NewLabel {
     name: READY,
     color: "0e8a16",
     description: "Kelpie researched this issue and is sure of it; its board may take it",

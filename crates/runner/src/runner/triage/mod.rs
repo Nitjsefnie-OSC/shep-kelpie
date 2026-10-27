@@ -17,7 +17,7 @@ use serde::Serialize;
 use super::Runner;
 use super::report::Begin;
 use super::review::calls::build_call;
-use crate::board::TRIAGE;
+use crate::board::{READY, TRIAGE};
 use crate::ports::{
     AgentCall, AuthorAssociation, ForgeError, OpenIssue, Role, ThreadComment, Timestamp, Tools,
 };
@@ -31,6 +31,7 @@ use ask::Purpose;
 
 pub(super) mod addressed;
 pub(super) mod ask;
+mod checks;
 pub(super) mod comment;
 mod facts;
 pub(super) mod hand;
@@ -634,15 +635,23 @@ impl Runner {
     }
 }
 
-// Whether `issue` is untouched, opened after `since`, and by `only` when one is named.
-// `needs-triage` is a queue state, not a decision: whether kelpie triaged an issue is
-// its record, so a hand-added one does not keep it out. Past `pruned_through` the
-// record may be gone, and kelpie's own `needs-triage` is then all that says so.
-fn untouched(issue: &OpenIssue, since: Timestamp, pruned_through: u64, only: Option<&str>) -> bool {
+// Whether `issue` is untouched, `owed` the triager for a failed check, opened after
+// `since`, and by `only` when one is named. `needs-triage`, and a `ready-for-agent`
+// the check refused, are no decision: whether kelpie triaged an issue is its record,
+// and past `pruned_through`, where that may be gone, kelpie's own `needs-triage`.
+fn untouched(
+    issue: &OpenIssue,
+    since: Timestamp,
+    pruned_through: u64,
+    only: Option<&str>,
+    owed: bool,
+) -> bool {
     let decided = (issue.labels.iter()).any(|l| {
-        TRIAGE_LABELS.contains(&l.as_str()) && (l != TRIAGE || issue.number <= pruned_through)
+        TRIAGE_LABELS.contains(&l.as_str())
+            && (l != TRIAGE || issue.number <= pruned_through)
+            && l != READY
     });
-    !decided
+    owed && !decided
         && !issue.author_is_bot
         && issue.created > since
         && only.is_none_or(|login| issue.author.eq_ignore_ascii_case(login))
@@ -667,6 +676,8 @@ mod addressed_tests;
 mod answers_tests;
 #[cfg(test)]
 mod ask_tests;
+#[cfg(test)]
+mod check_tests;
 #[cfg(test)]
 mod hand_tests;
 #[cfg(test)]

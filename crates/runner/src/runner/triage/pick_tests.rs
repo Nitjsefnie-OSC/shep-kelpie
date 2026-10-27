@@ -92,8 +92,9 @@ fn an_issue_opened_before_pick_was_turned_on_is_not_listed() {
     assert_eq!(due(&rig, &runner), [31]);
 }
 
+// A `ready-for-agent` the issue check refuses is listed, as no decision.
 #[test]
-fn an_issue_with_any_triage_label_is_not_listed() {
+fn an_issue_with_any_triage_label_but_a_refused_ready_for_agent_is_not_listed() {
     let (rig, runner) = triaging("all");
     for (number, label) in [
         (31, "needs-info"),
@@ -111,7 +112,7 @@ fn an_issue_with_any_triage_label_is_not_listed() {
 
     assert_eq!(step(&runner).unwrap(), None);
 
-    assert_eq!(due(&rig, &runner), [35]);
+    assert_eq!(due(&rig, &runner), [32, 35]);
 }
 
 #[test]

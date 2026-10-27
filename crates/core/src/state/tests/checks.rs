@@ -32,7 +32,10 @@ fn a_version_88_file_loads_with_no_checks_and_keeps_those_it_gains() {
     let text = fs::read_to_string(dir.path().join(STATE_FILE)).unwrap();
     let saved: serde_json::Value = serde_json::from_str(&text).unwrap();
     assert_eq!(saved["version"], VERSION);
-    assert_eq!(saved["checks"][0], serde_json::json!({ "issue": 4, "key": 17 }));
+    assert_eq!(
+        saved["checks"][0],
+        serde_json::json!({ "issue": 4, "key": 17 })
+    );
     assert_eq!(saved["checks"][1]["triage"], "ran");
     assert_eq!(store.load().unwrap().unwrap().checks, loaded.checks);
 }

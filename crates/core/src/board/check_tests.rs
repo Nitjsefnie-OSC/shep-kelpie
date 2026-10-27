@@ -380,19 +380,36 @@ fn the_key_changes_with_what_the_check_reads_and_nothing_else() {
     let read = labels(&["kind:feat", "priority: P4"]);
     let base = key("A thing is true", BODY, &read);
     assert_eq!(
-        key("A thing is true", BODY, &labels(&["Priority: P4", "kind:feat"])),
+        key(
+            "A thing is true",
+            BODY,
+            &labels(&["Priority: P4", "kind:feat"])
+        ),
         base,
         "label order and case are not an edit"
     );
-    let unread = labels(&["kind:feat", "priority: P4", "needs-triage", "in-progress", "bug"]);
+    let unread = labels(&[
+        "kind:feat",
+        "priority: P4",
+        "needs-triage",
+        "in-progress",
+        "bug",
+    ]);
     assert_eq!(key("A thing is true", BODY, &unread), base);
     assert_ne!(key("A thing is false", BODY, &read), base);
     assert_ne!(key("A thing is true", "Touches:", &read), base);
     assert_ne!(
-        key("A thing is true", BODY, &labels(&["kind:feat", "priority: P2"])),
+        key(
+            "A thing is true",
+            BODY,
+            &labels(&["kind:feat", "priority: P2"])
+        ),
         base
     );
-    assert_ne!(key("A thing is true", BODY, &labels(&["priority: P4"])), base);
+    assert_ne!(
+        key("A thing is true", BODY, &labels(&["priority: P4"])),
+        base
+    );
 }
 
 #[test]
