@@ -1,4 +1,4 @@
-//! A file saved while the issue writer raised `unlabelled` rulings
+//! A file holding pending `unlabelled` rulings
 
 use super::*;
 use crate::state::VERSION;

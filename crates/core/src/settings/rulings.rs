@@ -47,7 +47,7 @@ struct Written {
     pm_alone: Option<Vec<RulingName>>,
 }
 
-/// The kind `unlabelled`, which went with the issue writer, which raised it
+/// The kind `unlabelled`, which the loader refuses by name and migrate deletes
 const UNLABELLED: &str = "unlabelled";
 
 impl TryFrom<Written> for Rulings {
@@ -72,7 +72,7 @@ impl TryFrom<Written> for Rulings {
     }
 }
 
-// The map's kinds, each read by `RulingName::named`, so a gone kind is refused saying why.
+// The map's kinds, each read by `RulingName::named`, which refuses `unlabelled` by name.
 fn named_map<'de, D: Deserializer<'de>>(
     deserializer: D,
 ) -> Result<Option<BTreeMap<RulingName, bool>>, D::Error> {
@@ -229,8 +229,8 @@ impl RulingName {
         }
     }
 
-    /// The kind `name` spells, or why it names none: `unlabelled` went with
-    /// the issue writer
+    /// The kind `name` spells, or why it names none. `unlabelled` is refused,
+    /// naming `settings migrate`.
     ///
     /// # Errors
     ///
@@ -242,10 +242,10 @@ impl RulingName {
                  it is gone: delete it, or run `shep kelpie settings migrate`, which does"
             ));
         }
-        let names = Self::ALL.map(Self::as_str);
         (Self::ALL.into_iter())
             .find(|kind| kind.as_str() == name)
             .ok_or_else(|| {
+                let names = Self::ALL.map(Self::as_str);
                 format!(
                     "unknown variant `{name}`, expected one of `{}`",
                     names.join("`, `")

@@ -3,8 +3,8 @@
 //! A baseline once carried its `harness`, `model`, `effort` and `second_look`,
 //! so a stub with only `extends: kelpie:<name>` inherited them. The baselines
 //! now bind nothing, and [`migrate`] writes into each such stub the binding it
-//! used to inherit, so it loads as it did. A stub of a baseline whose role is
-//! gone, with the ruling panel or the issue writer, is deleted instead.
+//! used to inherit, so it loads as it did. A stub of a baseline whose role
+//! the loader refuses is deleted instead.
 
 use std::fmt;
 use std::fs;

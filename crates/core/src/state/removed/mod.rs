@@ -89,8 +89,7 @@ pub(super) fn removed_ruling(value: &Value) -> Option<(u64, String)> {
     })
 }
 
-/// Withdraws each pending `unlabelled` ruling, which the issue writer raised
-/// on an issue no work item holds, and the place read to in its thread
+/// Withdraws each pending `unlabelled` ruling and the place read to in its thread
 ///
 /// Its issue goes back to the board, which opens it on the first implementer listed.
 pub(super) fn withdraw_unlabelled(value: &mut Value) {

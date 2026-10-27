@@ -48,7 +48,7 @@ struct Written {
     role: String,
 }
 
-/// The roles an agent file may no longer name, each with what it went with
+/// The roles an agent file may not name, each with the reason its refusal gives
 const GONE: [(&str, &str); 3] = [
     ("advisor", "went with the ruling panel"),
     ("researcher", "went with the ruling panel"),

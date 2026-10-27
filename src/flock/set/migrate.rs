@@ -18,7 +18,7 @@ use crate::home::{ProjectName, ProjectPaths};
 use crate::settings::{PM_ALONE, PM_DECIDES, RulingName};
 use crate::shepherd::{self, Connection, Socket};
 
-/// The keys of the panel and the issue writer, which no build reads now and the runner refuses
+/// The keys migrate deletes, each of which the loader refuses by name
 const GONE_KEYS: [&str; 6] = [
     "rulings.decide",
     "rulings.full_panel_paths",
@@ -31,13 +31,13 @@ const GONE_KEYS: [&str; 6] = [
 /// The list of roles that may still name a role that is gone
 const ROLES: &str = "repo_setup.roles";
 
-/// The panel's experts and the issue writer, which `repo_setup.roles` no longer takes
+/// The roles migrate deletes from `repo_setup.roles`, which refuses each by name
 const GONE_ROLES: [&str; 3] = ["advisor", "researcher", "issue-writer"];
 
-/// The choice of implementer that went with the issue writer, which deleting the key replaces
+/// The choice of implementer migrate deletes, leaving the key to read `order`
 const WRITER_CHOICE: (&str, &str) = ("agents.implementer_choice", "issue-writer");
 
-/// The kind of ruling that went with the issue writer, which raised it
+/// The kind of ruling migrate deletes from `rulings.pm_decides` and the old list
 const WRITER_KIND: &str = "unlabelled";
 
 /// Runs `shep kelpie settings migrate`, printing a line for each project it changed

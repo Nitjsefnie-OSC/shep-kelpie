@@ -36,7 +36,7 @@ const JSON_VERBS: [&str; 10] = [
     "add", "finish", "status", "gate", "drop", "timings", "tell", "drain", "undrain", "board",
 ];
 
-/// What `issue "<request>"` answers, now that the issue writer is gone
+/// What `issue "<request>"` answers: it names the `issue` skill and `issue check`
 const WRITER_GONE: &str = "`shep kelpie issue \"<request>\"` went with the issue writer: write \
      the issue with kelpie's `issue` skill, which every harness has, and `shep kelpie issue \
      check <ticket>` checks it";
