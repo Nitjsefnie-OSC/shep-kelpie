@@ -665,6 +665,12 @@ impl Runner {
         let mut posts = Vec::new();
         for id in released {
             self.pm.unposted.remove(&id);
+            if self.draining() && self.pm_has_asked(id) {
+                self.notes.push(format!(
+                    "ruling {id} goes to the maintainer without the project manager's answer, \
+                     since the runner drains"
+                ));
+            }
             let Some(number) =
                 (self.state.rulings.iter().find(|r| r.id == id)).map(|ruling| ruling.pull_request)
             else {

@@ -442,6 +442,27 @@ fn a_ruling_whose_work_item_is_dropped_while_held_is_never_posted() {
 }
 
 #[test]
+fn a_ruling_held_through_a_drain_goes_to_the_maintainer_and_says_why() {
+    let (rig, runner) = left_to_pm("pm-drained", Merging::Auto);
+    let hold = wake_held(&rig, &runner);
+
+    rig.ask(&runner, "drain", None);
+    advanced_until(&runner, || asking(&rig).is_some());
+
+    let card = asking(&rig).expect("the ruling is posted for the maintainer");
+    assert!(!card.contains("**Project manager"), "{card}");
+    let notes = runner.lock().unwrap().take_notes().join("\n");
+    assert!(
+        notes.contains(
+            "ruling 71 goes to the maintainer without the project manager's answer, since the \
+             runner drains"
+        ),
+        "{notes}"
+    );
+    hold.release();
+}
+
+#[test]
 fn an_answer_after_the_maintainer_was_alerted_is_dropped_and_the_ruling_still_waits() {
     let (rig, runner) = left_to_pm("pm-late", Merging::Auto);
     let hold = wake_held(&rig, &runner);
