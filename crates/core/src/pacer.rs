@@ -45,7 +45,7 @@ pub struct DayStart {
 }
 
 /// Which limit is holding
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum HoldKind {
     /// Today's allowance is spent: nothing new is dispatched
@@ -57,7 +57,7 @@ pub enum HoldKind {
 }
 
 /// Why kelpie is holding, and until when
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Hold {
     /// Which limit
     pub kind: HoldKind,
@@ -69,7 +69,7 @@ pub struct Hold {
 
 /// What usage was when the pacer last read it, and what it makes of it
 // wire format: changing this is a breaking change to the pacer's status
-#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Reading {
     /// When it was read
     pub at: Timestamp,

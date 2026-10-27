@@ -12,10 +12,12 @@ use super::lock_hold::Held;
 use super::pace::PacerStatus;
 use super::posted::{Body, Posted, Queued};
 use super::timings;
-use super::{Action, Answer, RuleError, Runner};
+use super::{RuleError, Runner};
 use crate::board::Skip;
 use crate::ports::PaddockHolder;
 use crate::ports::{SessionId, Timestamp};
+use crate::reply::Reply;
+use crate::request::{Request, RuleAction, RuleAnswer};
 use crate::review_bot::Bot;
 use crate::settings::{AgentName, Merging, PerItemUsd};
 use crate::skills::{RepoPlugin, StepSkill};
@@ -24,6 +26,9 @@ use crate::ticket::TicketId;
 use crate::work_item::{
     Attached, BotSkipped, Phase, QwenTally, Spend, Split, TestCheck, Turn, WorkItem,
 };
+
+// The builder from the runner's borrowed status types to the protocol's owned ones
+mod wire;
 
 /// The triggers a runner answers
 pub const ACTIONS: [&str; 19] = [
@@ -339,30 +344,6 @@ pub struct BudgetStatus {
     pub cap_usd: f64,
 }
 
-/// A trigger, read
-enum Request {
-    Status,
-    Add(TicketId),
-    Rework(u64),
-    Adopt(u64),
-    Rule(TicketId, Answer),
-    Gate(Option<TicketId>),
-    Drop(Option<TicketId>),
-    Timings(usize),
-    Attach(TicketId, u32, Option<u32>),
-    Detach(TicketId, u32),
-    Tell(String),
-    PmAttach(u32, Option<u32>),
-    PmDetach(u32),
-    Drain { at_tool: bool },
-    Undrain { keep: bool },
-    Finish,
-    Start,
-    Pausing,
-    Board(Option<(TicketId, u64)>),
-    Triage(u64),
-}
-
 /// Answers one trigger with a JSON body: the status, or `{"error": ...}`
 ///
 /// Blank params count as none. `rule` takes `<id> yes`, `<id> no <note>`,
@@ -377,79 +358,93 @@ pub fn answer(
     action: &str,
     params: Option<&str>,
 ) -> String {
-    let error = |message: String| serde_json::json!({ "error": message }).to_string();
     let request = match read(action, params.map(str::trim).filter(|p| !p.is_empty())) {
         Ok(request) => request,
-        Err(e) => return error(e),
+        Err(e) => return body(&Reply::Refused(e)),
     };
     let held = try_lock(runner);
     if held.is_none()
         && let Some(reply) = from_posted(posted, &request)
     {
-        return reply;
+        return body(&reply);
     }
     // Memory changes only after a save succeeds, so a panicked holder
     // cannot have left the runner half changed.
     let mut runner = held.unwrap_or_else(|| lock(runner));
-    let totals_of = match &request {
+    body(&handle(&mut runner, posted, &request))
+}
+
+/// The body a reply answers with
+fn body(reply: &Reply) -> String {
+    serde_json::to_string(reply).expect("the answer serializes to JSON")
+}
+
+/// Answers `request` of `runner`, whose lock the caller holds
+///
+/// `shep trigger` gets this through [`answer`]; the runner's own socket gets it
+/// directly, so both paths answer the same way.
+pub(super) fn handle(runner: &mut Runner, posted: &Posted, request: &Request) -> Reply {
+    let totals_of = match request {
         Request::Timings(last) => Some(*last),
         _ => None,
     };
-    let deferred = defer(&mut runner, posted, &request);
-    let queued = queued_verb(&request)
+    let deferred = defer(runner, posted, request);
+    let queued = queued_verb(request)
         .filter(|_| !deferred)
         .map(|verb| verb.to_string());
     let changed = match request {
         _ if deferred => Ok(()),
         Request::Attach(ticket, pid, session) => {
-            return match runner.attach(ticket, pid, session) {
+            return match runner.attach(*ticket, *pid, *session) {
                 Ok(attaching) => {
                     runner.post();
-                    serde_json::to_string(&attaching).expect("it serializes to JSON")
+                    Reply::Attaching(attaching.into())
                 }
-                Err(e) => error(e.to_string()),
+                Err(e) => Reply::Refused(e.to_string()),
             };
         }
-        Request::Detach(ticket, pid) => runner.detach(ticket, pid).map_err(|e| e.to_string()),
+        Request::Detach(ticket, pid) => runner.detach(*ticket, *pid).map_err(|e| e.to_string()),
         Request::PmAttach(pid, session) => {
-            return match runner.attach_pm(pid, session) {
+            return match runner.attach_pm(*pid, *session) {
                 Ok(attaching) => {
                     runner.post();
-                    serde_json::to_string(&attaching).expect("it serializes to JSON")
+                    Reply::PmAttaching(attaching.into())
                 }
-                Err(e) => error(e.to_string()),
+                Err(e) => Reply::Refused(e.to_string()),
             };
         }
-        Request::PmDetach(pid) => runner.detach_pm(pid).map_err(|e| e.to_string()),
+        Request::PmDetach(pid) => runner.detach_pm(*pid).map_err(|e| e.to_string()),
         Request::Board(moving) => {
             if let Some((issue, position)) = moving
-                && let Err(e) = runner.move_on_board(issue, position)
+                && let Err(e) = runner.move_on_board(*issue, *position)
             {
-                return error(e.to_string());
+                return Reply::Refused(e.to_string());
             }
             runner.post();
-            return serde_json::to_string(&runner.board()).expect("the list serializes to JSON");
+            return Reply::Board(runner.board().into());
         }
-        Request::Tell(note) => runner.tell(&note).map_err(|e| e.to_string()),
+        Request::Tell(note) => runner.tell(note).map_err(|e| e.to_string()),
         Request::Status | Request::Timings(_) => Ok(()),
         Request::Drain { at_tool } => {
-            runner.drain(at_tool);
+            runner.drain(*at_tool);
             Ok(())
         }
         Request::Undrain { keep } => {
-            runner.undrain(keep);
+            runner.undrain(*keep);
             Ok(())
         }
         Request::Finish => runner.begin_finishing().map_err(|e| e.to_string()),
         Request::Start => runner.cancel_finishing().map_err(|e| e.to_string()),
         Request::Pausing => runner.pausing().map_err(|e| e.to_string()),
-        Request::Add(ticket) => runner.add(ticket).map(drop).map_err(|e| e.to_string()),
-        Request::Rework(number) => runner.rework(number).map(drop).map_err(|e| e.to_string()),
-        Request::Adopt(number) => runner.adopt(number).map_err(|e| e.to_string()),
-        Request::Rule(id, answer) => runner.rule(id, answer).map_err(|e| e.to_string()),
-        Request::Gate(ticket) => runner.gate(ticket).map_err(|e| e.to_string()),
-        Request::Drop(ticket) => runner.drop_work_item(ticket).map_err(|e| e.to_string()),
-        Request::Triage(issue) => runner.triage_ask(issue),
+        Request::Add(ticket) => runner.add(*ticket).map(drop).map_err(|e| e.to_string()),
+        Request::Rework(number) => runner.rework(*number).map(drop).map_err(|e| e.to_string()),
+        Request::Adopt(number) => runner.adopt(*number).map_err(|e| e.to_string()),
+        Request::Rule(id, answer) => runner
+            .rule(*id, answer.clone().into())
+            .map_err(|e| e.to_string()),
+        Request::Gate(ticket) => runner.gate(*ticket).map_err(|e| e.to_string()),
+        Request::Drop(ticket) => runner.drop_work_item(*ticket).map_err(|e| e.to_string()),
+        Request::Triage(issue) => runner.triage_ask(*issue),
     };
     // A refusal the queue left stands until the verb goes through, however it did.
     if let (Ok(()), Some(key)) = (&changed, &queued) {
@@ -458,13 +453,9 @@ pub fn answer(
     // What a trigger asks while a pass holds the lock reads this copy.
     runner.post();
     match (changed, totals_of) {
-        (Ok(()), Some(last)) => {
-            serde_json::to_string(&runner.totals(last)).expect("totals serialize to JSON")
-        }
-        (Ok(()), None) => {
-            serde_json::to_string(&runner.status()).expect("status serializes to JSON")
-        }
-        (Err(e), _) => error(e),
+        (Ok(()), Some(last)) => Reply::Timings(runner.totals(last).into()),
+        (Ok(()), None) => Reply::Status(Box::new((&runner.status()).into())),
+        (Err(e), _) => Reply::Refused(e),
     }
 }
 
@@ -482,7 +473,7 @@ pub fn wakes(action: &str) -> bool {
 // pass holds. Only the triggers that ask have a posted answer: `status`,
 // `timings` and the `board` listing. A `drain` or `undrain` answered that way
 // sets its flag here and leaves the rest for the pass at its next lock.
-fn from_posted(posted: &Posted, request: &Request) -> Option<String> {
+fn from_posted(posted: &Posted, request: &Request) -> Option<Reply> {
     if let Some(verb) = queued_verb(request) {
         let body = posted.body()?;
         // A ruling the posted status does not list is refused here, since the
@@ -490,36 +481,40 @@ fn from_posted(posted: &Posted, request: &Request) -> Option<String> {
         if let Request::Rule(id, _) = request
             && !ruling_waits(&body.status, *id)
         {
-            let refused = RuleError::NoSuchRuling(*id).to_string();
-            return Some(serde_json::json!({ "error": refused }).to_string());
+            return Some(Reply::Refused(RuleError::NoSuchRuling(*id).to_string()));
         }
+        // The answer is read back before the verb is queued, so a post this
+        // crate cannot read leaves the verb for the pass, which applies it once.
+        let answer = status_of(posted, &body)?;
         if !posted.ask_queued(verb) {
             return None;
         }
-        return status_of(posted, body);
+        Some(answer)
+    } else if let Request::Timings(last) = request {
+        let body = posted.body()?;
+        let totals = timings::totals_of(&body.project, &body.history, *last);
+        Some(Reply::Timings(totals.into()))
+    } else if matches!(request, Request::Board(None)) {
+        let body = posted.body()?;
+        serde_json::from_value(body.board).ok().map(Reply::Board)
+    } else {
+        let asked = match request {
+            Request::Status => true,
+            Request::Drain { at_tool } => {
+                posted.ask_drain(*at_tool);
+                true
+            }
+            Request::Undrain { keep } => {
+                posted.ask_undrain(*keep);
+                true
+            }
+            _ => false,
+        };
+        if !asked {
+            return None;
+        }
+        status_of(posted, &posted.body()?)
     }
-    let asked = match request {
-        Request::Timings(last) => {
-            let body = posted.body()?;
-            let totals = timings::totals_of(&body.project, &body.history, *last);
-            return Some(serde_json::to_string(&totals).expect("totals serialize to JSON"));
-        }
-        Request::Board(None) => return Some(posted.body()?.board.to_string()),
-        Request::Status => true,
-        Request::Drain { at_tool } => {
-            posted.ask_drain(*at_tool);
-            true
-        }
-        Request::Undrain { keep } => {
-            posted.ask_undrain(*keep);
-            true
-        }
-        _ => false,
-    };
-    if !asked {
-        return None;
-    }
-    status_of(posted, posted.body()?)
 }
 
 // Whether `request` is left for the end of the job that is changing the worktree it would
@@ -549,7 +544,7 @@ fn queued_verb(request: &Request) -> Option<Queued> {
         Request::Rework(number) => Queued::Rework(*number),
         Request::Adopt(number) => Queued::Adopt(*number),
         Request::Triage(issue) => Queued::Triage(*issue),
-        Request::Rule(id, answer) => Queued::Rule(*id, answer.clone()),
+        Request::Rule(id, answer) => Queued::Rule(*id, answer.clone().into()),
         _ => return None,
     })
 }
@@ -562,16 +557,20 @@ fn ruling_waits(status: &serde_json::Value, id: TicketId) -> bool {
 }
 
 // The posted status as a reply, with `draining` as the flag stands now.
-fn status_of(posted: &Posted, body: Body) -> Option<String> {
-    let Body {
-        mut status, drain, ..
-    } = body;
+//
+// The post is read back as the protocol's owned status. A post the protocol
+// cannot read is no answer, so the trigger waits for the lock and asks the runner.
+fn status_of(posted: &Posted, body: &Body) -> Option<Reply> {
+    let Body { status, drain, .. } = body;
+    let mut status = status.clone();
     if posted.draining() {
-        status["draining"] = drain;
+        status["draining"] = drain.clone();
     } else {
         (status.as_object_mut()?).remove("draining");
     }
-    Some(status.to_string())
+    serde_json::from_value(status)
+        .ok()
+        .map(|status| Reply::Status(Box::new(status)))
 }
 
 fn read(action: &str, params: Option<&str>) -> Result<Request, String> {
@@ -674,18 +673,30 @@ fn read(action: &str, params: Option<&str>) -> Result<Request, String> {
 
 /// `rule`'s params read: `<id> yes`, `<id> no <note>`, `<id> rework <note>`
 /// or `<id> answer <text>`
-pub(super) fn read_rule(params: &str) -> Option<(TicketId, Answer)> {
+pub(super) fn read_rule(params: &str) -> Option<(TicketId, RuleAnswer)> {
     let (id, rest) = params.split_once(char::is_whitespace)?;
     let id = ruling_id(id)?;
     let rest = rest.trim_start();
     let answer = match rest.split_once(char::is_whitespace) {
-        None if rest == "yes" => Answer::Yes,
-        None if rest == "rerun" => Answer::Do(Action::Rerun),
-        None if rest == "restore" => Answer::Do(Action::Restore),
-        Some(("yes", head)) if is_head(head.trim()) => Answer::Trust(head.trim().to_owned()),
-        Some(("no", note)) if !note.trim().is_empty() => Answer::No(note.trim().to_owned()),
-        Some(("rework", note)) if !note.trim().is_empty() => Answer::Rework(note.trim().to_owned()),
-        Some(("answer", text)) if !text.trim().is_empty() => Answer::Text(text.trim().to_owned()),
+        None if rest == "yes" => RuleAnswer::Yes,
+        None if rest == "rerun" => RuleAnswer::Do {
+            action: RuleAction::Rerun,
+        },
+        None if rest == "restore" => RuleAnswer::Do {
+            action: RuleAction::Restore,
+        },
+        Some(("yes", head)) if is_head(head.trim()) => RuleAnswer::Trust {
+            head: head.trim().to_owned(),
+        },
+        Some(("no", note)) if !note.trim().is_empty() => RuleAnswer::No {
+            note: note.trim().to_owned(),
+        },
+        Some(("rework", note)) if !note.trim().is_empty() => RuleAnswer::Rework {
+            note: note.trim().to_owned(),
+        },
+        Some(("answer", text)) if !text.trim().is_empty() => RuleAnswer::Text {
+            text: text.trim().to_owned(),
+        },
         _ => return None,
     };
     Some((id, answer))

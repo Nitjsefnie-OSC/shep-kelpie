@@ -7,13 +7,14 @@ use serde_json::{Value, json};
 use super::*;
 use crate::ports::{Checks, Cost, Timestamp, Usage};
 use crate::runner::posted::Queued;
-use crate::runner::{StepReport, step};
+use crate::runner::{Answer, StepReport, step};
 use crate::skills::Step;
 use crate::state::{Finished, ProjectState, StateStore};
 use crate::test::{Rig, Scripted, ticket};
 use crate::work_item::{Seconds, TimingPhase};
 
 mod board;
+mod fixtures;
 mod ticket;
 
 // A running project with issue 7 in flight
@@ -113,6 +114,33 @@ fn a_new_project_has_nothing_in_flight() {
 }
 
 #[test]
+fn status_json_is_unchanged() {
+    let (_rig, runner, head) = Rig::parked_set("koji", fixtures::rich);
+    let runner = Arc::new(runner);
+    let postings = runner.lock().unwrap().postings();
+    // The fixture was recorded after a `drain` and a `finish`, so the status
+    // carries the drain's calls and the run that is finishing
+    answer(&runner, &postings, "drain", None);
+    answer(&runner, &postings, "finish", None);
+
+    let locked = fixtures::asked(&runner, &postings, "status", &head);
+    assert_eq!(
+        locked,
+        fixtures::status(),
+        "the status read with the runner's lock"
+    );
+
+    // `asked_during_a_pass` holds the lock itself, as a pass does
+    let mut during = asked_during_a_pass(&runner, "status", None);
+    fixtures::settled(&mut during, &head);
+    assert_eq!(
+        during,
+        fixtures::status(),
+        "the status read from the posted copy while a pass holds the lock"
+    );
+}
+
+#[test]
 fn every_registered_action_is_answered_and_no_other() {
     let rig = Rig::new("koji");
     let runner = rig.open().unwrap();
@@ -168,6 +196,231 @@ fn every_registered_action_is_answered_and_no_other() {
         rig.ask(&runner, "merge", None),
         json!({ "error": "unknown action `merge`" })
     );
+}
+
+#[test]
+fn timings_board_attach_and_refusal_json_are_unchanged() {
+    // `timings`, over the three work items the fixture's history lists
+    let rig = Rig::new("koji");
+    fixtures::seed(&rig, 3);
+    let runner = rig.open().unwrap();
+    assert_eq!(rig.ask(&runner, "timings", None), fixtures::timings());
+
+    // `board`, with two ready issues an open one blocks
+    let rig = Rig::new("koji");
+    fixtures::ready(&rig);
+    let runner = rig.open().unwrap();
+    step(&runner).unwrap();
+    assert_eq!(rig.ask(&runner, "board", None), fixtures::board());
+
+    // `attach` and `pm attach`, from the answer the runner builds for them: a
+    // live `attach` asks `ps`, which a worker's sandbox cannot run
+    let attaching = fixtures::attaching();
+    assert_eq!(
+        serde_json::to_value(&attaching).unwrap(),
+        fixtures::attach()
+    );
+    assert_eq!(
+        serde_json::to_value(Reply::Attaching(attaching.clone().into())).unwrap(),
+        fixtures::attach(),
+        "the protocol's answer serializes as the runner's"
+    );
+    let pm = fixtures::pm_attaching();
+    assert_eq!(serde_json::to_value(&pm).unwrap(), fixtures::pm_attach());
+    assert_eq!(
+        serde_json::to_value(Reply::PmAttaching(pm.clone().into())).unwrap(),
+        fixtures::pm_attach(),
+        "the protocol's answer serializes as the runner's"
+    );
+
+    // A refusal, which is the one answer every trigger can give
+    let (rig, runner, _) = Rig::with_pull_request("rotom");
+    assert_eq!(rig.ask(&runner, "gate", None), fixtures::refusal());
+}
+
+#[test]
+fn every_action_reads_as_its_typed_request() {
+    let asked: [(&str, Option<&str>, Request); 35] = [
+        ("status", None, Request::Status),
+        ("add", Some("7"), Request::Add(ticket(7))),
+        ("rework", Some("71"), Request::Rework(71)),
+        ("adopt", Some("72"), Request::Adopt(72)),
+        (
+            "rule",
+            Some("71 yes"),
+            Request::Rule(ticket(71), RuleAnswer::Yes),
+        ),
+        (
+            "rule",
+            Some("71 no not yet"),
+            Request::Rule(
+                ticket(71),
+                RuleAnswer::No {
+                    note: "not yet".to_owned(),
+                },
+            ),
+        ),
+        (
+            "rule",
+            Some("71 rework split the parser"),
+            Request::Rule(
+                ticket(71),
+                RuleAnswer::Rework {
+                    note: "split the parser".to_owned(),
+                },
+            ),
+        ),
+        (
+            "rule",
+            Some("71 answer the third one"),
+            Request::Rule(
+                ticket(71),
+                RuleAnswer::Text {
+                    text: "the third one".to_owned(),
+                },
+            ),
+        ),
+        (
+            "rule",
+            Some("71 yes 6b0606e"),
+            Request::Rule(
+                ticket(71),
+                RuleAnswer::Trust {
+                    head: "6b0606e".to_owned(),
+                },
+            ),
+        ),
+        (
+            "rule",
+            Some("71 rerun"),
+            Request::Rule(
+                ticket(71),
+                RuleAnswer::Do {
+                    action: RuleAction::Rerun,
+                },
+            ),
+        ),
+        (
+            "rule",
+            Some("71 restore"),
+            Request::Rule(
+                ticket(71),
+                RuleAnswer::Do {
+                    action: RuleAction::Restore,
+                },
+            ),
+        ),
+        ("gate", None, Request::Gate(None)),
+        ("gate", Some("7"), Request::Gate(Some(ticket(7)))),
+        ("drop", None, Request::Drop(None)),
+        ("drop", Some("7"), Request::Drop(Some(ticket(7)))),
+        ("timings", None, Request::Timings(TIMINGS_DEFAULT)),
+        ("timings", Some("3"), Request::Timings(3)),
+        (
+            "attach",
+            Some("7 401"),
+            Request::Attach(ticket(7), 401, None),
+        ),
+        (
+            "attach",
+            Some("7 401 402"),
+            Request::Attach(ticket(7), 401, Some(402)),
+        ),
+        ("detach", Some("7 401"), Request::Detach(ticket(7), 401)),
+        ("tell", Some("hold #4"), Request::Tell("hold #4".to_owned())),
+        ("pm", Some("attach 401"), Request::PmAttach(401, None)),
+        (
+            "pm",
+            Some("attach 401 402"),
+            Request::PmAttach(401, Some(402)),
+        ),
+        ("pm", Some("detach 401"), Request::PmDetach(401)),
+        ("drain", None, Request::Drain { at_tool: false }),
+        ("drain", Some("pause"), Request::Drain { at_tool: true }),
+        ("undrain", None, Request::Undrain { keep: false }),
+        ("undrain", Some("keep"), Request::Undrain { keep: true }),
+        ("finish", None, Request::Finish),
+        ("start", None, Request::Start),
+        ("pausing", None, Request::Pausing),
+        ("board", None, Request::Board(None)),
+        (
+            "board",
+            Some("move 282 2"),
+            Request::Board(Some((ticket(282), 2))),
+        ),
+        (
+            "board",
+            Some("top 282"),
+            Request::Board(Some((ticket(282), 1))),
+        ),
+        ("triage", Some("9"), Request::Triage(9)),
+    ];
+    let named: Vec<&str> = asked
+        .iter()
+        .map(|(_, _, request)| request.action())
+        .collect();
+    for action in ACTIONS {
+        assert!(named.contains(&action), "{action} reads as nothing");
+    }
+    for (action, params, want) in asked {
+        assert_eq!(read(action, params), Ok(want), "{action} {params:?}");
+    }
+
+    let refused: [(&str, Option<&str>, &str); 18] = [
+        ("merge", None, "unknown action `merge`"),
+        ("add", None, "`add` takes a ticket id"),
+        ("add", Some("#7"), "\"#7\" is not a ticket id"),
+        ("rework", None, "`rework` takes a pull request number"),
+        ("rework", Some("x"), "\"x\" is not a pull request number"),
+        ("adopt", None, "`adopt` takes a pull request number"),
+        ("triage", None, "`triage` takes an issue number"),
+        ("gate", Some("#7"), "\"#7\" is not a ticket id"),
+        ("drop", Some("0"), "\"0\" is not a ticket id"),
+        (
+            "rule",
+            None,
+            "`rule` takes `<id> yes`, `<id> no <note>`, `<id> rework <note>` or `<id> answer <text>`",
+        ),
+        (
+            "rule",
+            Some("71 maybe"),
+            "`rule` takes `<id> yes`, `<id> no <note>`, `<id> rework <note>` or `<id> answer <text>`, not \"71 maybe\"",
+        ),
+        (
+            "timings",
+            Some("zero"),
+            "`timings` takes a count of finished work items, not \"zero\"",
+        ),
+        (
+            "attach",
+            Some("7"),
+            "`attach` takes a ticket id and the attaching process's pid, and `attach` the pid of the session it started, not \"7\"",
+        ),
+        (
+            "detach",
+            None,
+            "`detach` takes a ticket id and the attaching process's pid, and `attach` the pid of the session it started",
+        ),
+        ("tell", None, "`tell` takes a note for the project manager"),
+        (
+            "undrain",
+            Some("now"),
+            "`undrain` takes `keep` or nothing, not \"now\"",
+        ),
+        ("drain", Some("now"), "`drain` takes no params"),
+        (
+            "board",
+            Some("move 282 x"),
+            "`board` takes `move <issue> <position>` or `top <issue>`, or nothing to list, not \"move 282 x\"",
+        ),
+    ];
+    for (action, params, why) in refused {
+        assert_eq!(
+            read(action, params),
+            Err(why.to_owned()),
+            "{action} {params:?}"
+        );
+    }
 }
 
 #[test]

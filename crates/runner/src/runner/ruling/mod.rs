@@ -17,6 +17,7 @@ use super::thread_replies::Settler;
 use super::{Names, Runner};
 use crate::board::HUMAN;
 use crate::ports::Timestamp;
+use crate::request::{RuleAction, RuleAnswer};
 use crate::settings::Merging;
 use crate::state::{Fix, Held, ProjectState, Resume, Ruling, RulingKind, StateError, Stuck};
 use crate::ticket::TicketId;
@@ -84,6 +85,52 @@ pub enum Action {
     /// Restore the uncommitted change to an agent file in the worktree, for a
     /// failed turn
     Restore,
+}
+
+impl From<RuleAction> for Action {
+    fn from(action: RuleAction) -> Self {
+        match action {
+            RuleAction::Rerun => Self::Rerun,
+            RuleAction::Restore => Self::Restore,
+        }
+    }
+}
+
+impl From<Action> for RuleAction {
+    fn from(action: Action) -> Self {
+        match action {
+            Action::Rerun => Self::Rerun,
+            Action::Restore => Self::Restore,
+        }
+    }
+}
+
+impl From<RuleAnswer> for Answer {
+    fn from(answer: RuleAnswer) -> Self {
+        match answer {
+            RuleAnswer::Yes => Self::Yes,
+            RuleAnswer::No { note } => Self::No(note),
+            RuleAnswer::Rework { note } => Self::Rework(note),
+            RuleAnswer::Text { text } => Self::Text(text),
+            RuleAnswer::Trust { head } => Self::Trust(head),
+            RuleAnswer::Do { action } => Self::Do(action.into()),
+        }
+    }
+}
+
+impl From<Answer> for RuleAnswer {
+    fn from(answer: Answer) -> Self {
+        match answer {
+            Answer::Yes => Self::Yes,
+            Answer::No(note) => Self::No { note },
+            Answer::Rework(note) => Self::Rework { note },
+            Answer::Text(text) => Self::Text { text },
+            Answer::Trust(head) => Self::Trust { head },
+            Answer::Do(action) => Self::Do {
+                action: action.into(),
+            },
+        }
+    }
 }
 
 /// Why an answer was refused

@@ -1,0 +1,16 @@
+{
+  "attach": "ready",
+  "command": {
+    "args": [
+      "--settings",
+      "/home/me/koji/.kelpie/pm/settings.json",
+      "--resume",
+      "11111111-2222-4333-8444-555555555555"
+    ],
+    "cwd": "/home/me/koji/.kelpie/pm",
+    "env": {},
+    "program": "claude"
+  },
+  "folder": "/home/me/koji/.kelpie/pm",
+  "session": "11111111-2222-4333-8444-555555555555"
+}

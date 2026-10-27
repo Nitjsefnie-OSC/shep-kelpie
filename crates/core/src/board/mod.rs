@@ -12,7 +12,7 @@
 use std::collections::BTreeMap;
 use std::fmt;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::ports::{Forge, ForgeError, NewLabel, Timestamp};
 use crate::settings::{AgentName, Dependencies, ForgeSlug};
@@ -129,7 +129,7 @@ pub struct Blocker {
 }
 
 /// Why the board passed over a ready issue
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "reason", rename_all = "kebab-case")]
 pub enum Skip {
     /// An open pull request closes it
@@ -173,7 +173,7 @@ pub enum Skip {
         /// Its open blockers, lowest first
         by: Vec<TicketId>,
         /// Blockers the forge did not list, each taken as open
-        #[serde(skip_serializing_if = "is_zero")]
+        #[serde(default, skip_serializing_if = "is_zero")]
         unlisted: u64,
     },
     /// Its `agent:` label names no implementer kelpie has an agent file for
@@ -216,7 +216,7 @@ pub enum Skip {
         /// The ticket
         issue: TicketId,
         /// The parked work item whose branch's files are not known yet
-        #[serde(skip_serializing_if = "Option::is_none")]
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         unknown: Option<TicketId>,
     },
     /// It has no `agent:` label, and waits for the issue writer to pick
@@ -225,7 +225,7 @@ pub enum Skip {
         /// The ticket
         issue: TicketId,
         /// The ruling it waits on, since the issue writer could not pick
-        #[serde(skip_serializing_if = "Option::is_none")]
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         ruling: Option<TicketId>,
     },
     /// The pacer holds every new work item, this pick among them
@@ -555,7 +555,7 @@ pub fn old_worker_label(labels: &[String]) -> Option<&str> {
 }
 
 /// Why an `agent:` label cannot be used
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum LabelError {
     /// The issue has more than one `agent:` label

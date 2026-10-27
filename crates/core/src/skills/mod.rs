@@ -15,7 +15,7 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::settings::{SettingsError, SkillChoice, SkillName, StepSkills};
 
@@ -49,7 +49,7 @@ pub(crate) fn is_kelpies_own(name: &str) -> bool {
 }
 
 /// A step kelpie drives an agent through
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Step {
     /// Triaging an issue
@@ -123,7 +123,7 @@ impl fmt::Display for Step {
 }
 
 /// One step's skill, as `status` shows it
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StepSkill {
     /// The step
     pub step: Step,

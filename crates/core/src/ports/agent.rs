@@ -667,7 +667,7 @@ pub fn written_at(path: &std::path::Path) -> CallActivity {
 
 /// What a call waits for before its model can answer
 // wire format: changing this is a breaking change to `status`
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Wait {
     /// A lease on its model, from a gateway

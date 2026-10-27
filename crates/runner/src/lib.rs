@@ -1,8 +1,9 @@
 //! The project runner: [`runner`], and the rig its tests and the verbs' tests use
 //!
-//! Uses only `shep-kelpie-core` and the leaf crates, so it reaches the real world
-//! through core's port traits and names no adapter. The rig, behind `test-support`,
-//! is the one place that does, for the real `GpuCurl`, `LocalReviewer` and `AppVoice`.
+//! Uses `shep-kelpie-core`, the leaf crates and `shep-kelpie-protocol`, so it
+//! reaches the real world through core's port traits and names no adapter. The
+//! rig, behind `test-support`, is the one place that does, for the real
+//! `GpuCurl`, `LocalReviewer` and `AppVoice`.
 
 #![forbid(unsafe_code)]
 #![doc(test(attr(deny(warnings))))]
@@ -21,6 +22,9 @@ use shep_kelpie_core::{
 use shep_kelpie_core::confine;
 #[cfg(any(test, feature = "test-support"))]
 use shep_kelpie_core::{coderabbit, codex, cubic, owner_only};
+
+// The wire types the runner answers with, each module kept under its own name
+use shep_kelpie_protocol::{reply, request, status};
 
 // The leaf crates, each module kept under the name it had here
 use shep_kelpie_facts::{mcp_use, request_use, tool_error};

@@ -667,7 +667,7 @@ pub struct NewLabel<'a> {
 
 /// How much of one usage window the account has spent
 // wire format: changing this is a breaking change to the pacer's status
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Window {
     /// Whole percent of the window used
     pub used_pct: u32,

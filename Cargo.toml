@@ -12,6 +12,7 @@ default-members = [
     "crates/owner_only",
     "crates/panel",
     "crates/process",
+    "crates/protocol",
     "crates/runner",
     "crates/test_support",
     "crates/tree",
@@ -46,6 +47,7 @@ shep-kelpie-facts = { path = "crates/facts" }
 shep-kelpie-owner-only = { path = "crates/owner_only" }
 shep-kelpie-panel = { path = "crates/panel" }
 shep-kelpie-process = { path = "crates/process" }
+shep-kelpie-protocol = { path = "crates/protocol" }
 shep-kelpie-runner = { path = "crates/runner" }
 shep-kelpie-test-support = { path = "crates/test_support" }
 shep-kelpie-tree = { path = "crates/tree" }

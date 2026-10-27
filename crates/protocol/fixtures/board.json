@@ -1,0 +1,21 @@
+{
+  "board": [
+    {
+      "blocked": true,
+      "held": false,
+      "issue": "282",
+      "position": 1,
+      "priority": null,
+      "title": "Title of #282"
+    },
+    {
+      "blocked": true,
+      "held": false,
+      "issue": "284",
+      "position": 2,
+      "priority": null,
+      "title": "Title of #284"
+    }
+  ],
+  "project": "koji"
+}

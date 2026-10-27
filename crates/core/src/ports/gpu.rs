@@ -2,30 +2,30 @@
 
 use std::fmt;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::settings::EndpointUrl;
 
 /// One GPU's reading. A figure the page does not carry is left out.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Gpu {
     /// The GPU's `uuid` label, when the page names one
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
     /// How busy it is, in percent
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub utilization_percent: Option<f64>,
     /// Memory in use, in bytes
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub memory_used_bytes: Option<u64>,
     /// Memory it has, in bytes
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub memory_total_bytes: Option<u64>,
     /// What it draws, in watts
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub power_watts: Option<f64>,
     /// Its core temperature, in degrees Celsius
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub temperature_celsius: Option<f64>,
 }
 

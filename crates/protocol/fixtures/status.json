@@ -1,0 +1,289 @@
+{
+  "active_items": 1,
+  "adopted": [],
+  "board": "<tempdir>",
+  "board_poll_secs": 60,
+  "build": "<build>",
+  "commit": "<commit>",
+  "disk_free_bytes": 500000000000,
+  "draining": {
+    "calls": [],
+    "ceiling": 3600
+  },
+  "history": [
+    {
+      "at": 1789999101,
+      "issue": "101",
+      "merged": true,
+      "pull_request": 161,
+      "seconds": {
+        "ci": 0,
+        "merge": 0,
+        "other": 0,
+        "review": 0,
+        "ruling": 0,
+        "worker": 0
+      },
+      "title": "Issue 101",
+      "wall": 600
+    },
+    {
+      "at": 1789999102,
+      "issue": "102",
+      "merged": true,
+      "pull_request": 162,
+      "seconds": {
+        "ci": 0,
+        "merge": 0,
+        "other": 0,
+        "review": 0,
+        "ruling": 0,
+        "worker": 0
+      },
+      "title": "Issue 102",
+      "wall": 600
+    },
+    {
+      "at": 1789999103,
+      "issue": "103",
+      "merged": true,
+      "pull_request": 163,
+      "seconds": {
+        "ci": 0,
+        "merge": 0,
+        "other": 0,
+        "review": 0,
+        "ruling": 0,
+        "worker": 0
+      },
+      "title": "Issue 103",
+      "wall": 600
+    }
+  ],
+  "leases": [],
+  "merging": "ask",
+  "order": [],
+  "pacer": {
+    "claude": {
+      "holding": null,
+      "reading": null
+    },
+    "enabled": true
+  },
+  "parked": [
+    "7"
+  ],
+  "pending_rulings": 2,
+  "pm": {
+    "agent": "pm",
+    "answering": false,
+    "attached": false,
+    "folder": "<tempdir>",
+    "session": null
+  },
+  "project": "koji",
+  "pull_request_template": "none",
+  "red_workflows": [
+    {
+      "doing": "kelpie reran its failed jobs and waits for the result",
+      "first_run": 91,
+      "head": "head91",
+      "red_for": 10920,
+      "run": 91,
+      "since": 1789989200,
+      "url": "https://github.com/shep-pm/shep/actions/runs/91",
+      "workflow": "test"
+    }
+  ],
+  "rulings": [
+    {
+      "alerted": false,
+      "effects": [
+        "Merges it into main and closes #7: Title of #7. CI passed. 2 review rounds read it.",
+        "Sends the worker back for a fix that goes to CI and back to you, with no new review round.",
+        "Sends the worker back for a change the whole review reads again."
+      ],
+      "id": "71",
+      "issue": "7",
+      "kind": {
+        "head": "<head>",
+        "kind": "merge"
+      },
+      "pull_request": 71,
+      "question": "Merge pull request #71 at <head> into main? `shep kelpie rule 71 yes` merges it, `shep kelpie rule 71 no <note>` sends the worker your note for a fix that goes to CI and back to you, and `shep kelpie rule 71 rework <note>` sends it your note for a change the whole review reads again.",
+      "raised": 1790000120
+    }
+  ],
+  "run": "finishing",
+  "skills": [
+    {
+      "fallback": null,
+      "skill": null,
+      "step": "triage"
+    },
+    {
+      "fallback": null,
+      "skill": null,
+      "step": "spec"
+    },
+    {
+      "fallback": null,
+      "skill": "/mattpocock:implement",
+      "step": "implement"
+    },
+    {
+      "fallback": null,
+      "skill": "/mattpocock:tdd",
+      "step": "tests"
+    },
+    {
+      "fallback": null,
+      "skill": "/mattpocock:diagnosing-bugs",
+      "step": "ci_fix"
+    },
+    {
+      "fallback": null,
+      "skill": "/mattpocock:pr",
+      "step": "pr"
+    },
+    {
+      "fallback": null,
+      "skill": null,
+      "step": "reset"
+    },
+    {
+      "fallback": null,
+      "skill": null,
+      "step": "retro"
+    }
+  ],
+  "skipped": [],
+  "waiting_for_slot": [],
+  "work_item": {
+    "adopted": false,
+    "agent": "sonnet-high",
+    "branch": "kelpie/7",
+    "budget": {
+      "cap_usd": 10.0,
+      "spent_usd": 0.0
+    },
+    "by_role": {
+      "reviewer": {
+        "calls": 1,
+        "cost_usd": 0.0,
+        "tokens": {
+          "cache_read": 0,
+          "cache_write": 0,
+          "input": 0,
+          "output": 0
+        }
+      },
+      "worker": {
+        "calls": 1,
+        "cost_usd": 0.0,
+        "tokens": {
+          "cache_read": 0,
+          "cache_write": 0,
+          "input": 0,
+          "output": 0
+        }
+      }
+    },
+    "calls": 2,
+    "cost_usd": 0.0,
+    "issue": "7",
+    "phase": {
+      "id": "71",
+      "state": "ruling"
+    },
+    "pull_request": 71,
+    "qwen": {
+      "rounds": 1,
+      "seconds": 0
+    },
+    "session": "<session>",
+    "timings": {
+      "phase": "ruling",
+      "seconds": {
+        "ci": 120,
+        "merge": 0,
+        "other": 0,
+        "review": 0,
+        "ruling": 0,
+        "worker": 0
+      },
+      "wall": 120
+    },
+    "title": "Title of #7",
+    "turn": {
+      "at": 1790000000,
+      "state": "ended"
+    },
+    "worktree": "<tempdir>"
+  },
+  "work_items": [
+    {
+      "adopted": false,
+      "agent": "sonnet-high",
+      "branch": "kelpie/7",
+      "budget": {
+        "cap_usd": 10.0,
+        "spent_usd": 0.0
+      },
+      "by_role": {
+        "reviewer": {
+          "calls": 1,
+          "cost_usd": 0.0,
+          "tokens": {
+            "cache_read": 0,
+            "cache_write": 0,
+            "input": 0,
+            "output": 0
+          }
+        },
+        "worker": {
+          "calls": 1,
+          "cost_usd": 0.0,
+          "tokens": {
+            "cache_read": 0,
+            "cache_write": 0,
+            "input": 0,
+            "output": 0
+          }
+        }
+      },
+      "calls": 2,
+      "cost_usd": 0.0,
+      "issue": "7",
+      "phase": {
+        "id": "71",
+        "state": "ruling"
+      },
+      "pull_request": 71,
+      "qwen": {
+        "rounds": 1,
+        "seconds": 0
+      },
+      "session": "<session>",
+      "timings": {
+        "phase": "ruling",
+        "seconds": {
+          "ci": 120,
+          "merge": 0,
+          "other": 0,
+          "review": 0,
+          "ruling": 0,
+          "worker": 0
+        },
+        "wall": 120
+      },
+      "title": "Title of #7",
+      "turn": {
+        "at": 1790000000,
+        "state": "ended"
+      },
+      "worktree": "<tempdir>"
+    }
+  ],
+  "working": []
+}
