@@ -16,6 +16,7 @@ use super::comment::NEEDS_TRIAGE;
 use super::ready::READY_LABEL;
 use crate::board::{READY, ReadyIssue, Skip, TRIAGE, check};
 use crate::ports::OpenIssue;
+use crate::settings::TriagePick;
 use crate::state::{CheckTriage, IssueCheck, TriageStep};
 
 // What a check asks of the forge, once its result is new
@@ -175,6 +176,7 @@ impl Runner {
         let wanted: &[(&str, bool)] = match issue.author.eq_ignore_ascii_case(&maintainer) {
             true => &[(READY, true), (TRIAGE, false)],
             false if carries(&issue.labels, READY) => &[],
+            false if self.settings.triage.pick == TriagePick::Off => &[],
             false => &[(TRIAGE, true)],
         };
         for &(label, on) in wanted {

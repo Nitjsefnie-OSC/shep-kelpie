@@ -103,6 +103,10 @@ fn another_persons_issue_that_passes_waits_at_needs_triage_with_no_triage_call()
         "it waits for the maintainer to label it ready"
     );
     assert_eq!(rig.github.comments(), []);
+
+    let (rig, runner) = checking("pick = \"off\"", "newcomer", PASSING, &PASSING_LABELS);
+    assert_eq!(step(&runner).unwrap(), None);
+    assert_eq!(moves(&rig), Vec::<String>::new(), "no queue while triage is off");
 }
 
 // A rewrite still short of the format: it names its files and no more
