@@ -3,8 +3,9 @@
 //! Each call runs inside kelpie's sandbox in a goose root of its own, so the
 //! maintainer's goose setup never loads. A worker gets `developer`, and every
 //! tool call goes through the `PreToolUse` plugin ([`hooks`]); a fenced
-//! reviewer, advisor and retro get its read-only guard, reading through a `shell`. A call loads MCP
-//! servers as flags of a new session ([`mcp`]) and its plugins' skills ([`skills`]).
+//! reviewer and retro get its read-only guard, reading through a `shell`. A call
+//! loads MCP servers as flags of a new session ([`mcp`]) and its plugins' skills
+//! ([`skills`]).
 //! goose dials a forwarder outside the sandbox, which passes on only the chat
 //! completions call. A gateway model gets its key and holds its lease per call.
 
@@ -354,7 +355,6 @@ fn server(call: &AgentCall) -> Result<&ModelServer, AgentError> {
 // parity: harness.issue-writer, harness.pm
 fn refuse_unsupported(call: &AgentCall) -> Result<(), AgentError> {
     let refused = match (call.role, call.tools) {
-        (Role::Researcher, _) => None,
         // The representative reads and runs nothing: with no fence, goose offers it no tool.
         (Role::Representative, Tools::Answer) => None,
         // ADR 0006: a harness that cannot fence cannot be a worker.
@@ -363,19 +363,17 @@ fn refuse_unsupported(call: &AgentCall) -> Result<(), AgentError> {
              guard is written from the fence"
                 .to_owned(),
         ),
-        // A retro, a reviewer, a triager and an advisor with no fence have no shell and read what
-        // kelpie wrote them, as a researcher does.
+        // A retro, a reviewer and a triager with no fence have no shell and read what
+        // kelpie wrote them.
         (Role::Worker, Tools::Work | Tools::Retro)
-        | (Role::Reviewer | Role::Triager, Tools::Review)
-        | (Role::Advisor, Tools::Advise) => None,
-        (
-            Role::Worker | Role::Reviewer | Role::Advisor | Role::Representative | Role::Triager,
-            tools,
-        ) => Some(format!(
-            "goose cannot run {:?} tools for {}",
-            tools,
-            call.role.as_str()
-        )),
+        | (Role::Reviewer | Role::Triager, Tools::Review) => None,
+        (Role::Worker | Role::Reviewer | Role::Representative | Role::Triager, tools) => {
+            Some(format!(
+                "goose cannot run {:?} tools for {}",
+                tools,
+                call.role.as_str()
+            ))
+        }
         (Role::IssueWriter | Role::Pm, _) => Some(format!(
             "goose cannot run the {}: it runs on Claude Code alone",
             call.role.as_str()
@@ -419,28 +417,24 @@ fn system_text(call: &AgentCall) -> Result<Option<String>, AgentError> {
 
 // Whether `call` is a worker's with its tools and a fence, which goose runs
 // behind the fence's hook plugin. A worker with no fence is refused by
-// `prepare`, and a command built for one anyway is a researcher's, which has
-// no tool.
+// `prepare`.
 fn works(call: &AgentCall) -> bool {
     call.role == Role::Worker && call.tools == Tools::Work && call.reach.fence.is_some()
 }
 
-// Whether `call` reads the repo through the read-only shell: a reviewer, an
-// advisor or a retro with a fence to hold it. One with no fence is offered no
-// tool. The researcher is never one, whatever tools it is paired with.
+// Whether `call` reads the repo through the read-only shell: a reviewer or a
+// retro with a fence to hold it. One with no fence is offered no tool.
 fn reads(call: &AgentCall) -> bool {
     call.reach.fence.is_some()
         && matches!(
             (call.role, call.tools),
-            (Role::Worker, Tools::Retro)
-                | (Role::Reviewer | Role::Triager, Tools::Review)
-                | (Role::Advisor, Tools::Advise)
+            (Role::Worker, Tools::Retro) | (Role::Reviewer | Role::Triager, Tools::Review)
         )
 }
 
 // What the call's hook lets it do. A reviewer whose fence has a folder to write was
-// asked for tests, and writes that folder alone. A retro's and an advisor's fence
-// can write too, which their hook must not use.
+// asked for tests, and writes that folder alone. A retro's fence can write too,
+// which its hook must not use.
 fn judging<'a>(call: &AgentCall, fence: &'a crate::ports::Fence) -> hooks::Judging<'a> {
     match (reads(call), call.tools, fence.write.first()) {
         (false, _, _) => hooks::Judging::Work,
@@ -469,7 +463,7 @@ fn offers_developer(call: &AgentCall) -> bool {
 }
 
 // `prompt` for a reviewer, with what its shell is for. Its prompt sends it to
-// Read, Glob and Grep, which goose lacks. An advisor's and a retro's name none.
+// Read, Glob and Grep, which goose lacks. A retro's names none.
 fn told(call: &AgentCall, prompt: String) -> String {
     if call.tools != Tools::Review || !reads(call) {
         return prompt;
@@ -539,7 +533,7 @@ fn env_args(
 
 // The prompt is one `--text=` argument, so one starting with `-` is not a flag.
 // A worker gets the `developer` builtin on a resumed call too, since goose
-// de-duplicates a builtin. A reviewer, advisor or retro gets it on a new
+// de-duplicates a builtin. A reviewer or retro gets it on a new
 // session ([`offers_developer`]), and only a new session gets its servers.
 fn argv(call: &AgentCall) -> Result<Vec<OsString>, AgentError> {
     if let Some(compact) = compact::argv(call) {
@@ -576,9 +570,9 @@ fn argv(call: &AgentCall) -> Result<Vec<OsString>, AgentError> {
 /// which the adapter adds.
 fn fenced(call: &AgentCall, files: &Files, program: &Path, unfenced: &[String]) -> Policy {
     let mut policy = call_policy(call, unfenced);
-    // A retro and an advisor run under a fence that can write, which their
-    // read-only shell must not use: the hook is the first layer, this the second.
-    if matches!(call.tools, Tools::Retro | Tools::Advise) {
+    // A retro runs under a fence that can write, which its read-only shell
+    // must not use: the hook is the first layer, this the second.
+    if call.tools == Tools::Retro {
         policy.write.clear();
     }
     policy.no_keychain = call.reach.block_keychain;

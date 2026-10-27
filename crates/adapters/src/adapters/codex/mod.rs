@@ -614,8 +614,8 @@ fn overrides(
 /// Whether the call is a worker's, whose shell opens a step's `SKILL.md`
 ///
 /// Codex gets a call's skill links from this alone, so `agent_tools`, which
-/// Claude Code reads, does not change them. A reviewer's, advisor's and
-/// retro's shell only reads (`reading`).
+/// Claude Code reads, does not change them. A reviewer's and retro's shell
+/// only reads (`reading`).
 fn has_shell(call: &AgentCall) -> bool {
     call.tools == Tools::Work
 }
@@ -654,7 +654,7 @@ fn prompt(call: &AgentCall) -> Result<String, AgentError> {
 /// The `PreToolUse` hooks that run kelpie's checks, as Codex's config takes them
 ///
 /// `apply_patch` is how Codex writes files, and `Bash` is every command. A
-/// reviewer's, advisor's and retro's commands go to the read-only guard.
+/// reviewer's and retro's commands go to the read-only guard.
 fn hooks(fence: &Fence, tools: Tools) -> toml::Value {
     let guard = &fence.guard;
     let quoted = |p: &Path| shell_quote(&p.to_string_lossy());

@@ -106,8 +106,8 @@ fn a_worker_call_gets_a_plugin_with_one_catch_all_pre_tool_use_hook_that_blocks_
 
     // A call that is not a worker's gets no plugin.
     let other = World::new();
-    let research = other.call(URL, Role::Researcher, Session::New(id(FRESH_ID)));
-    stand_in(&other, FRESH).prepare(&research).unwrap();
+    let reviewer = other.call(URL, Role::Reviewer, Session::New(id(FRESH_ID)));
+    stand_in(&other, FRESH).prepare(&reviewer).unwrap();
     assert!(!plugin(&other).exists());
 }
 
@@ -207,12 +207,12 @@ fn a_worker_is_offered_developer_and_nothing_else_in_auto_mode() {
         "{vars:?}"
     );
 
-    // A researcher is offered no tool and loads no repo file.
-    let research = w.call(URL, Role::Researcher, Session::New(id(OTHER_ID)));
-    let vars = env_vars(&research);
+    // A reviewer with no fence is offered no tool and loads no repo file.
+    let unfenced = w.call(URL, Role::Reviewer, Session::New(id(OTHER_ID)));
+    let vars = env_vars(&unfenced);
     assert!(vars.contains(&"GOOSE_MODE=chat".to_owned()), "{vars:?}");
     assert!(!vars.iter().any(|v| v.starts_with("CONTEXT_FILE_NAMES=")));
-    assert!(only_skills(&research));
+    assert!(only_skills(&unfenced));
 }
 
 #[test]
@@ -318,7 +318,7 @@ fn a_plugin_besides_the_fence_in_the_roots_folder_refuses_the_call_and_the_fence
 }
 
 #[test]
-fn a_worker_with_no_fence_is_refused_and_a_command_built_for_one_is_a_researchers() {
+fn a_worker_with_no_fence_is_refused_and_a_command_built_for_one_has_no_tool() {
     let w = World::new();
     let goose = stand_in(&w, FRESH);
 
@@ -328,7 +328,7 @@ fn a_worker_with_no_fence_is_refused_and_a_command_built_for_one_is_a_researcher
     let why = refused(goose.prepare(&unfenced));
     assert!(why.contains("outside the kelpie fence"), "{why}");
     assert!(!w.path("settings.goose").exists(), "nothing was made");
-    // And a command built for one anyway is a researcher's: no tool, no auto mode.
+    // And a command built for one anyway has no tool and no auto mode.
     assert!(only_skills(&unfenced));
     let vars = env_vars(&unfenced);
     assert!(vars.contains(&"GOOSE_MODE=chat".to_owned()), "{vars:?}");

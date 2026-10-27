@@ -16,7 +16,7 @@ const BANNER: &str = "\n    __( O)>  ● new session · openai qwen3.8:27b\n   \
 const MESSAGE: &str = r#"{"type":"message","message":{"role":"assistant","created":1791931400,"content":[{"type":"text","text":"ok"}]}}"#;
 
 fn call(world: &World) -> AgentCall {
-    world.call(URL, Role::Researcher, Session::New(id(FRESH_ID)))
+    world.call(URL, Role::Reviewer, Session::New(id(FRESH_ID)))
 }
 
 fn goose() -> GooseCli {

@@ -177,8 +177,6 @@ fn name(role: Role) -> &'static str {
         Role::Reviewer => "reviewer",
         Role::IssueWriter => "issue writer",
         Role::Pm => "project manager",
-        Role::Advisor => "advisor",
-        Role::Researcher => "researcher",
         Role::Representative => "representative",
         Role::Triager => "triager",
     }

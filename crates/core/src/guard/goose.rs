@@ -5,7 +5,7 @@
 //! `Bash` would, a `write` or `edit` to `kelpie confine`, and a tree is the
 //! `ls` of its folder. An MCP server's tool passes; any other tool is refused.
 //!
-//! A reviewer, advisor or retro has [`judge_goose_reading`], read-only; one
+//! A reviewer or retro has [`judge_goose_reading`], read-only; one
 //! asked for tests has [`judge_goose_writing`], whose `write` is held to its
 //! tests folder.
 
@@ -191,7 +191,7 @@ fn of_server(tool: &str, key: &str) -> bool {
 
 /// Judges goose's `PreToolUse` payload in `input` for a call that writes no file
 ///
-/// A reviewer, an advisor or a retro makes such a call. A `shell` command goes
+/// A reviewer or a retro makes such a call. A `shell` command goes
 /// to [`judge_reading`] as Claude Code's `Bash` would, and the project's
 /// `command` hooks judge it. A `tree` is the `ls` of its folder. Every other
 /// tool is refused, `write` and `edit` included, as is a payload this cannot

@@ -91,9 +91,9 @@ struct OnClaude {
     effort: Effort,
 }
 
-// The advisor's, the researcher's, the representative's and the triager's keys: a session on
-// any harness. None takes `tools`: each is held to its reads by the kind of
-// call kelpie makes.
+// The representative's and the triager's keys: a session on any harness.
+// Neither takes `tools`: each is held to its reads by the kind of call kelpie
+// makes.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Expert {

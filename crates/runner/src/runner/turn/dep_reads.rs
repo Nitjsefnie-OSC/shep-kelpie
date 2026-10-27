@@ -17,9 +17,8 @@ use crate::runner::Runner;
 
 impl Runner {
     // Every call that reads code reads the installed sources and docs of its
-    // dependencies and toolchains. Two read none: an answer reads only what
-    // kelpie put in its prompt, and its harness gives it no read tool; a
-    // researcher reads its own folder and the web, and no file of the flock.
+    // dependencies and toolchains. An answer reads none: it reads only what
+    // kelpie put in its prompt, and its harness gives it no read tool.
     pub(super) fn with_dep_sources(&self, call: &mut AgentCall) {
         if reads_no_file(call) {
             return;
@@ -94,5 +93,5 @@ impl Runner {
 
 // A call that reads no file of the flock reads none of these either
 fn reads_no_file(call: &AgentCall) -> bool {
-    matches!(call.tools, Tools::Answer | Tools::Research)
+    call.tools == Tools::Answer
 }

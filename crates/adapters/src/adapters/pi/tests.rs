@@ -401,8 +401,6 @@ fn every_kind_of_call_that_loads_a_plugins_skills_keeps_read_and_trusts_no_proje
         Tools::Issues,
         Tools::Pm,
         Tools::Retro,
-        Tools::Advise,
-        Tools::Research,
     ];
     for tools in kinds {
         for reads in [false, true] {

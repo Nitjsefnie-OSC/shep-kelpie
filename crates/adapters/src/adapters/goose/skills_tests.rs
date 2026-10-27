@@ -286,14 +286,8 @@ fn a_step_prompt_runs_as_goose_s_slash_command_with_the_rest_after_it() {
         text_of(&call),
         "/do-implement Implement issue #7\nIt says \"quoted\"."
     );
-    // goose resolves the command from the folder, so every call has it, a researcher included.
-    for tools in [
-        Tools::Work,
-        Tools::Review,
-        Tools::Advise,
-        Tools::Retro,
-        Tools::Research,
-    ] {
+    // goose resolves the command from the folder, so every call has it, one with no tool included.
+    for tools in [Tools::Work, Tools::Review, Tools::Retro, Tools::Answer] {
         let call = AgentCall {
             tools,
             ..call.clone()
@@ -321,8 +315,11 @@ fn a_step_prompt_runs_as_goose_s_slash_command_with_the_rest_after_it() {
 fn a_step_skill_with_a_placeholder_is_sent_as_its_text_to_a_call_with_no_tool_to_load_it() {
     let w = World::new();
     let text = "---\nname: implement\ndescription: Does it.\n---\nDo this: $ARGUMENTS\n";
-    let mut call = with_plugins(&w, vec![implement(&w, text)]);
-    call.tools = Tools::Research;
+    let mut call = AgentCall {
+        tools: Tools::Answer,
+        role: Role::Representative,
+        ..with_plugins(&w, vec![implement(&w, text)])
+    };
     call.prompt = "/mattpocock:implement Fix it, it's \"broken".into();
 
     assert_eq!(
@@ -338,6 +335,7 @@ fn a_step_skill_with_a_placeholder_is_sent_as_its_text_to_a_call_with_no_tool_to
         "Compare old one to new\" one, not $. Cost $ 5.\n\nARGUMENTS: 'old one' \"new\\\" one\""
     );
     // A call with a shell loads the skill itself and keeps the prompt as written.
+    call.role = Role::Worker;
     call.tools = Tools::Work;
     assert_eq!(text_of(&call), call.prompt);
 }
@@ -418,7 +416,7 @@ fn judged(judge: Judging, tool: &str) -> Verdict {
 fn every_kind_of_call_loads_the_skills_extension_and_the_hook_lets_load_skill_through_and_nothing_else_it_refused()
  {
     let w = World::new();
-    let research = w.call(URL, Role::Researcher, Session::New(id(OTHER_ID)));
+    let unfenced = w.call(URL, Role::Reviewer, Session::New(id(OTHER_ID)));
     let fenced = |role, tools| AgentCall {
         role,
         tools,
@@ -431,8 +429,7 @@ fn every_kind_of_call_loads_the_skills_extension_and_the_hook_lets_load_skill_th
     let calls = [
         ("Work", fenced(Role::Worker, Tools::Work)),
         ("Review", reviewer),
-        ("Advise", fenced(Role::Advisor, Tools::Advise)),
-        ("Research", research),
+        ("Unfenced", unfenced),
         ("Retro", resumed),
     ];
     for (kind, call) in &calls {
@@ -518,8 +515,8 @@ fn the_sandbox_reads_every_plugin_folder_and_none_of_the_maintainers_skill_folde
         );
     }
     // A call with no fence is held to them too.
-    let research = w.call(URL, Role::Researcher, Session::New(id(OTHER_ID)));
-    let policy = policy_of(&w, &research);
+    let unfenced = w.call(URL, Role::Reviewer, Session::New(id(OTHER_ID)));
+    let policy = policy_of(&w, &unfenced);
     assert!(policy.no_read.contains(&"~/.claude/skills/**".to_owned()));
     assert!(policy.no_write.contains(&skills));
 }
@@ -624,8 +621,8 @@ fn a_resumed_call_that_runs_in_chat_gets_a_placeholder_skill_as_text_whatever_th
     let w = World::new();
     let text = "---\nname: implement\n---\nDo this: $ARGUMENTS\n";
     let mut call = AgentCall {
-        tools: Tools::Research,
-        role: Role::Researcher,
+        tools: Tools::Answer,
+        role: Role::Representative,
         ..with_plugins(&w, vec![implement(&w, text)])
     };
     call.session = Session::Resume(id(FRESH_ID));

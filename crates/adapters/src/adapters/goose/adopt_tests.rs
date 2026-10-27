@@ -58,7 +58,7 @@ fn carried_while_running(
 fn a_call_that_is_not_a_workers_refuses_naming_why() {
     let w = World::new();
     let goose = waiting_goose(&w, Gateways::default());
-    let call = w.call(URL, Role::Researcher, Session::New(id(FRESH_ID)));
+    let call = w.call(URL, Role::Reviewer, Session::New(id(FRESH_ID)));
     assert_eq!(
         goose.adoption(&call).unwrap_err().to_string(),
         "only a worker's call is carried"

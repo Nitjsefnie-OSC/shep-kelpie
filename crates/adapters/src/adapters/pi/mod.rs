@@ -119,9 +119,7 @@ fn tool_names(tools: Tools, reads: bool, writes: bool) -> Option<&'static str> {
         Tools::Work => Some("read,bash,edit,write,grep,find,ls"),
         Tools::Review if writes => Some("read,grep,find,ls,write"),
         // The issue writer runs on Claude Code alone, whose hook is its guard.
-        Tools::Review | Tools::Issues | Tools::Retro | Tools::Advise | Tools::Research => {
-            Some("read,grep,find,ls")
-        }
+        Tools::Review | Tools::Issues | Tools::Retro => Some("read,grep,find,ls"),
         // The project manager runs on Claude Code alone, so pi only ever reads for it.
         Tools::Answer | Tools::Pm if reads => Some("read"),
         Tools::Answer | Tools::Pm => None,
@@ -546,7 +544,7 @@ fn fenced(call: &AgentCall, files: &Files, program: &Path, unfenced: &[String]) 
     // the files kelpie opens for them.
     let outputs = CallFiles::of(call);
     // A fence denies the home folder whole, so pi's own files are named beside
-    // what the call is granted: its home, its extensions, its scratch, and the
+    // what the call is granted: its home, its scratch, and the
     // program it runs, wherever that sits.
     policy.read.extend(
         [

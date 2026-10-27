@@ -81,14 +81,14 @@ pub(super) fn only_skills(call: &AgentCall) -> bool {
     flags == 1 && argv.windows(2).any(|a| a == ["--with-builtin", "skills"])
 }
 
-fn researcher(world: &World, session: Session) -> AgentCall {
-    world.call(URL, Role::Researcher, session)
+fn reviewer(world: &World, session: Session) -> AgentCall {
+    world.call(URL, Role::Reviewer, session)
 }
 
 #[test]
-fn a_new_researcher_call_names_its_session_and_loads_no_extension_but_skills() {
+fn a_new_reviewer_call_with_no_fence_names_its_session_and_loads_no_extension_but_skills() {
     let w = World::new();
-    let mut call = researcher(&w, Session::New(id(FRESH_ID)));
+    let mut call = reviewer(&w, Session::New(id(FRESH_ID)));
     call.prompt = "--help me, the model needs it".into();
     assert_eq!(
         strings(&call),
@@ -116,12 +116,8 @@ fn a_new_researcher_call_names_its_session_and_loads_no_extension_but_skills() {
 #[test]
 fn a_resumed_call_resumes_by_name_and_gets_its_instructions_again() {
     let w = World::new();
-    std::fs::write(
-        w.path("instructions.md"),
-        "You are a researcher.\nBe brief.",
-    )
-    .unwrap();
-    let mut call = researcher(&w, Session::Resume(id(FRESH_ID)));
+    std::fs::write(w.path("instructions.md"), "You are a reviewer.\nBe brief.").unwrap();
+    let mut call = reviewer(&w, Session::Resume(id(FRESH_ID)));
     call.instructions = Some(w.path("instructions.md"));
     call.prompt = "and now?".into();
     assert_eq!(
@@ -134,7 +130,7 @@ fn a_resumed_call_resumes_by_name_and_gets_its_instructions_again() {
             "--text=and now?",
             "--with-builtin",
             "skills",
-            "--system=You are a researcher.\nBe brief.",
+            "--system=You are a reviewer.\nBe brief.",
             "--resume",
             "--name",
             FRESH_ID,
@@ -147,7 +143,7 @@ fn a_resumed_call_resumes_by_name_and_gets_its_instructions_again() {
 #[test]
 fn instructions_goose_cannot_be_given_fail_before_the_call() {
     let w = World::new();
-    let mut call = researcher(&w, Session::New(id(FRESH_ID)));
+    let mut call = reviewer(&w, Session::New(id(FRESH_ID)));
     call.instructions = Some(w.path("missing.md"));
     let err = stand_in(&w, FRESH).prepare(&call).unwrap_err();
     assert!(
@@ -161,7 +157,7 @@ fn the_call_s_environment_relocates_goose_and_closes_every_door() {
     let w = World::new();
     let goose = GooseCli::on(&Base::default())
         .with_gateways(gateways("http://192.0.2.9:11434", GatewayKind::Openai));
-    let call = on_gateway(&w, Role::Researcher);
+    let call = on_gateway(&w, Role::Reviewer);
     goose.prepare(&call).unwrap();
     let upstream = goose.upstream(server(&call).unwrap()).unwrap();
     let files = Files::of(&call.settings);
@@ -209,7 +205,7 @@ fn the_call_s_environment_relocates_goose_and_closes_every_door() {
 #[test]
 fn the_sandbox_lets_goose_write_only_its_data_state_and_scratch_and_reach_only_the_forwarder() {
     let w = World::new();
-    let call = researcher(&w, Session::New(id(FRESH_ID)));
+    let call = reviewer(&w, Session::New(id(FRESH_ID)));
     let files = Files::of(&call.settings);
     let socket = w.path("forwarder.sock");
     let upstream = GooseCli::on(&Base::default())
@@ -289,7 +285,7 @@ fn the_sandbox_lets_goose_write_only_its_data_state_and_scratch_and_reach_only_t
 #[test]
 fn goose_reads_no_harnesss_login_its_own_included() {
     let w = World::new();
-    let call = researcher(&w, Session::New(id(FRESH_ID)));
+    let call = reviewer(&w, Session::New(id(FRESH_ID)));
     let upstream = GooseCli::on(&Base::default())
         .upstream(server(&call).unwrap())
         .unwrap();
@@ -330,7 +326,7 @@ fn an_issue_writer_and_a_pm_never_run_on_goose() {
     }
     assert!(!w.path("settings.goose").exists(), "nothing was made");
     goose
-        .prepare(&researcher(&w, Session::New(id(FRESH_ID))))
+        .prepare(&reviewer(&w, Session::New(id(FRESH_ID))))
         .unwrap();
 }
 
@@ -338,7 +334,8 @@ fn an_issue_writer_and_a_pm_never_run_on_goose() {
 fn what_goose_cannot_give_a_fenced_call_fails_before_the_call() {
     let w = World::new();
     let mut call = w.fenced(URL, Path::new("/k/kelpie"), Session::New(id(OTHER_ID)));
-    call.role = Role::Researcher;
+    call.role = Role::Reviewer;
+    call.tools = Tools::Review;
     let fence = call.reach.fence.as_mut().unwrap();
     fence.hooks = vec![GuardHook {
         event: HookEvent::PreToolUse,
@@ -357,7 +354,8 @@ fn a_fence_adds_variables_but_replaces_none_of_the_calls() {
     let w = World::new();
     let goose = GooseCli::on(&Base::default())
         .with_gateways(gateways("http://192.0.2.9:11434", GatewayKind::Openai));
-    let mut call = on_gateway(&w, Role::Researcher);
+    let mut call = on_gateway(&w, Role::Representative);
+    call.tools = Tools::Answer;
     let mut fence = w
         .fenced(URL, Path::new("/k/kelpie"), Session::New(id(OTHER_ID)))
         .reach
@@ -399,7 +397,7 @@ fn a_fence_adds_variables_but_replaces_none_of_the_calls() {
 fn a_call_in_a_folder_with_project_plugins_or_goose_settings_is_refused_naming_it() {
     let w = World::new();
     let goose = stand_in(&w, FRESH);
-    let call = researcher(&w, Session::New(id(FRESH_ID)));
+    let call = reviewer(&w, Session::New(id(FRESH_ID)));
     goose.prepare(&call).unwrap();
     for folder in [".agents/plugins", ".config/goose"] {
         let path = w.path("wt").join(folder);
@@ -419,7 +417,7 @@ fn a_resume_with_no_session_is_no_session_and_takes_no_lease() {
     let server = StandInEndpoint::start([]).like_paddock(KEY, &[]);
     let w = World::new();
     let goose = goose_on(&w, &server, FRESH, 0);
-    let mut call = on_gateway(&w, Role::Researcher);
+    let mut call = on_gateway(&w, Role::Reviewer);
     call.session = Session::Resume(id(FRESH_ID));
     goose.prepare(&call).unwrap();
     let err = goose.run(&call, &Ending::default()).unwrap_err();
@@ -432,14 +430,14 @@ fn a_resume_with_no_session_is_no_session_and_takes_no_lease() {
 #[test]
 fn a_session_goose_has_lost_is_no_session_when_goose_says_so() {
     let w = World::new();
-    let first = researcher(&w, Session::New(id(FRESH_ID)));
+    let first = reviewer(&w, Session::New(id(FRESH_ID)));
     let goose = stand_in(&w, FRESH);
     goose.prepare(&first).unwrap();
     goose.run(&first, &Ending::default()).unwrap();
 
     let said = format!("Error: No session found with name '{FRESH_ID}'\n");
     let lost = goose_with(&w, script(&w, "", &said, 1));
-    let call = researcher(&w, Session::Resume(id(FRESH_ID)));
+    let call = reviewer(&w, Session::Resume(id(FRESH_ID)));
     let err = lost.run(&call, &Ending::default()).unwrap_err();
     assert_eq!(err, AgentError::NoSession(Harness::Goose, id(FRESH_ID)));
 }
@@ -449,7 +447,7 @@ fn a_model_server_the_forwarder_cannot_dial_fails_before_the_call() {
     let w = World::new();
     let call = w.call(
         "https://192.0.2.9/v1",
-        Role::Researcher,
+        Role::Reviewer,
         Session::New(id(FRESH_ID)),
     );
     let err = stand_in(&w, FRESH).prepare(&call).unwrap_err();
@@ -462,7 +460,7 @@ fn a_model_server_the_forwarder_cannot_dial_fails_before_the_call() {
 #[test]
 fn a_call_that_names_no_model_server_is_refused() {
     let w = World::new();
-    let mut call = researcher(&w, Session::New(id(FRESH_ID)));
+    let mut call = reviewer(&w, Session::New(id(FRESH_ID)));
     call.harness = AgentHarness::ClaudeCode;
     let err = stand_in(&w, FRESH).prepare(&call).unwrap_err();
     assert!(matches!(err, AgentError::Setup(_)), "{err:?}");
@@ -514,12 +512,12 @@ fn a_resumed_turn_reports_only_its_own_tokens() {
 #[test]
 fn a_session_s_totals_are_kept_between_its_calls() {
     let w = World::new();
-    let call = researcher(&w, Session::New(id(FRESH_ID)));
+    let call = reviewer(&w, Session::New(id(FRESH_ID)));
     let first = stand_in(&w, FRESH);
     first.prepare(&call).unwrap();
     first.run(&call, &Ending::default()).unwrap();
 
-    let call = researcher(&w, Session::Resume(id(FRESH_ID)));
+    let call = reviewer(&w, Session::Resume(id(FRESH_ID)));
     let second = stand_in(&w, RESUMED)
         .run(&call, &Ending::default())
         .unwrap();
@@ -555,7 +553,7 @@ fn a_session_s_totals_live_in_a_file_under_the_goose_root() {
 #[test]
 fn a_new_session_counts_from_nothing_even_where_an_earlier_one_left_totals() {
     let w = World::new();
-    let call = researcher(&w, Session::New(id(FRESH_ID)));
+    let call = reviewer(&w, Session::New(id(FRESH_ID)));
     let goose = stand_in(&w, RESUMED);
     goose.prepare(&call).unwrap();
     goose.run(&call, &Ending::default()).unwrap();
@@ -624,13 +622,13 @@ fn output_that_cannot_be_read_is_unreadable_and_an_error_carries_only_its_end() 
 #[test]
 fn an_error_goose_exits_with_is_the_calls_failure_and_the_next_turn_still_counts_right() {
     let w = World::new();
-    let call = researcher(&w, Session::New(id(FRESH_ID)));
+    let call = reviewer(&w, Session::New(id(FRESH_ID)));
     let goose = stand_in(&w, FRESH);
     goose.prepare(&call).unwrap();
     goose.run(&call, &Ending::default()).unwrap();
 
     let error = r#"{"type":"error","error":"400 context length exceeded"}"#;
-    let call = researcher(&w, Session::Resume(id(FRESH_ID)));
+    let call = reviewer(&w, Session::Resume(id(FRESH_ID)));
     let err = goose_with(&w, script(&w, error, "", 1))
         .run(&call, &Ending::default())
         .unwrap_err();
@@ -679,7 +677,7 @@ impl World {
             settings: self.path("settings.json"),
             ..AgentCall::new(
                 role,
-                Tools::Research,
+                Tools::Review,
                 AgentHarness::Goose(server),
                 "qwen3.8:27b",
                 Effort::Low,
@@ -753,7 +751,7 @@ fn record_a_turn_a_resumed_turn_and_an_unreachable_server() {
         std::fs::write(record.join(name), text).unwrap();
     };
 
-    let mut fresh = world.call(&url, Role::Researcher, Session::New(id(FRESH_ID)));
+    let mut fresh = world.call(&url, Role::Reviewer, Session::New(id(FRESH_ID)));
     fresh.prompt = "Reply with the single word ok.".into();
     goose.prepare(&fresh).unwrap();
     let out = run_raw(&goose, &fresh);
@@ -761,7 +759,7 @@ fn record_a_turn_a_resumed_turn_and_an_unreachable_server() {
     let first = output::read(&out, &fresh.session, Spent::default());
     assert!(first.reply.unwrap().text.to_lowercase().contains("ok"));
 
-    let mut again = world.call(&url, Role::Researcher, Session::Resume(id(FRESH_ID)));
+    let mut again = world.call(&url, Role::Reviewer, Session::Resume(id(FRESH_ID)));
     again.prompt = "Which word did you reply with? Answer in one word.".into();
     let out = run_raw(&goose, &again);
     save("goose-run-resumed.jsonl", &out);
@@ -770,7 +768,7 @@ fn record_a_turn_a_resumed_turn_and_an_unreachable_server() {
 
     let mut down = world.call(
         "http://127.0.0.1:9/v1",
-        Role::Researcher,
+        Role::Reviewer,
         Session::New(id(OTHER_ID)),
     );
     down.prompt = "Reply with the single word ok.".into();

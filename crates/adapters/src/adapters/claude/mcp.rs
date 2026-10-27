@@ -95,7 +95,7 @@ mod tests {
         let settings = Path::new("/k/worker/settings.json");
         for (role, tools, strict) in [
             (Role::Worker, Tools::Work, true),
-            (Role::Researcher, Tools::Research, true),
+            (Role::Reviewer, Tools::Review, true),
             (Role::IssueWriter, Tools::Issues, false),
         ] {
             let flags = flags(&call(role, tools, settings, reach()));
