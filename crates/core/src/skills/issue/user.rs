@@ -16,9 +16,14 @@ use super::{SKILL, TEXT};
 /// Each harness's folder in the home folder, which says it is installed, and
 /// the user skills folder it reads
 pub const FOLDERS: [(&str, &str); 4] = [
+    // Claude Code 2.1's skill docs: personal skills are `~/.claude/skills/<name>/SKILL.md`.
     (".claude", ".claude/skills"),
+    // pi 1.1: `getAgentDir()` is `~/.pi/agent` (`dist/config.js`), and
+    // `dist/core/skills.js` loads `<agent dir>/skills` as the user's.
     (".pi", ".pi/agent/skills"),
+    // Codex 0.159's skill installer: `$CODEX_HOME/skills`, `~/.codex/skills` unset.
     (".codex", ".codex/skills"),
+    // goose 1.54: `goose skills list` under a bare home lists `~/.config/goose/skills`.
     (".config/goose", ".config/goose/skills"),
 ];
 
