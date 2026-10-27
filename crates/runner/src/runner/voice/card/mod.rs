@@ -725,7 +725,7 @@ pub(in crate::runner) const SAYS: &str = "PM says:";
 // The project manager's pick and why, where it gave any:
 // `**Project manager: A**. Its why.`
 fn pm_words(ruling: &Ruling, choices: &[Choice]) -> Option<String> {
-    let says = after_last(&ruling.question, SAYS);
+    let says = after_last(&ruling.question, SAYS).map(super::inert);
     let picked = after_last(&ruling.question, RECOMMENDS).and_then(|pick| {
         let plain = |text: &str| text.trim().trim_matches('`').to_lowercase();
         let at = choices.iter().position(|c| plain(&c.name) == plain(pick))?;

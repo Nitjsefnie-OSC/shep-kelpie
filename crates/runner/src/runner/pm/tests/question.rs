@@ -116,7 +116,7 @@ fn a_question_posted_while_draining_is_edited_to_say_the_project_manager_answere
     let [(comment, body)] = rig.github.edits().try_into().unwrap();
     assert_eq!(comment, 100);
     let first = "**Settled.** The project manager answered: Use --dry-run: the issue says it \
-                 matches shep (why: #7 names the flag). Nothing waits on the maintainer.";
+                 matches shep (why: \\#7 names the flag). Nothing waits on the maintainer.";
     assert_eq!(body.lines().next(), Some(first));
     assert!(
         body.contains("### Should it be `--dry-run` or `--check`?"),

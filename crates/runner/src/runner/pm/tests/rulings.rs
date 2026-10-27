@@ -181,6 +181,29 @@ fn the_project_managers_why_cannot_mention_anyone_or_link_on_the_maintainers_car
 }
 
 #[test]
+fn the_worker_gets_the_project_managers_why_as_it_was_written() {
+    let (rig, runner) = left_to_pm("pm-raw-note", Merging::Auto);
+    rig.claude.script_for(
+        Role::Pm,
+        [Scripted::Say(answers_with_a_mention('B', false))],
+    );
+    rig.claude.script([Scripted::Say("done")]);
+
+    settled(&rig, &runner);
+    let deadline = Instant::now() + CALL_PATIENCE;
+    let raw = "ask @someone, see [it](https://evil.example/x) or www.evil.example";
+    let sent = |rig: &Rig| (rig.claude.calls().iter()).any(|c| c.prompt.contains(raw));
+    while !sent(&rig) {
+        assert!(
+            Instant::now() < deadline,
+            "the worker was never sent the why"
+        );
+        step(&runner).unwrap();
+        std::thread::yield_now();
+    }
+}
+
+#[test]
 fn a_wake_that_gives_no_answer_sends_the_ruling_to_the_maintainer_as_it_stands() {
     let (rig, runner) = left_to_pm("pm-none", Merging::Auto);
     rig.claude.script_for(Role::Pm, [Scripted::Say(NOTHING)]);

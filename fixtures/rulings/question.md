@@ -8,7 +8,7 @@ Both appear in the docs.
 | **B** | `--check` | Sends the worker this answer |
 | | Other | Reply with your own answer |
 
-**Project manager: A**. shep uses `--dry-run` everywhere.
+**Project manager: A**. shep uses \`--dry-run\` everywhere.
 
 @octocat
 - Tick one:

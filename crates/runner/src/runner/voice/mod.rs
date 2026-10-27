@@ -440,6 +440,27 @@ pub(super) fn said(kind: &RulingKind) -> String {
     }
 }
 
+/// `text` as plain words in a comment, so it cannot mention, link or format:
+/// markdown's marks are escaped, `://` and `www.` are broken, and an `@` is
+/// followed by a zero-width space
+pub(in crate::runner) fn inert(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for c in text.chars() {
+        match c {
+            '\\' | '`' | '*' | '_' | '[' | ']' | '(' | ')' | '<' | '>' | '#' | '|' | '~' | '&'
+            | '!' => {
+                out.push('\\');
+                out.push(c);
+            }
+            '@' => out.push_str("@\u{200b}"),
+            _ => out.push(c),
+        }
+    }
+    out.replace("://", ":\u{200b}//")
+        .replace("www.", "www\u{200b}.")
+        .replace("WWW.", "WWW\u{200b}.")
+}
+
 mod card;
 mod writer;
 pub(super) use self::writer::Writer;
