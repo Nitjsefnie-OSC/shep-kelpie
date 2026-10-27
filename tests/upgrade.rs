@@ -11,6 +11,7 @@ use std::process::{Output, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use serde_json::{Map, Value};
 use shep_client::shep_core::config::{AppConfig, DogTable};
 use shep_client::shep_core::protocol::request::{
     ActionOutcome, ActionReply, DogSource, ProcessInfo, SheepConfigView,
@@ -18,6 +19,7 @@ use shep_client::shep_core::protocol::request::{
 use shep_client::shep_core::protocol::{Envelope, Request, Response, SelectorSpec};
 use shep_client::shep_core::status::ProcStatus;
 use shep_client::testing::{fake_daemon_answering_with_ack, sample_ack};
+use shep_kelpie::settings::RulingName;
 use shep_kelpie_test_support::write_script;
 use tempfile::TempDir;
 use tokio::process::Command;
@@ -67,14 +69,23 @@ impl Scene {
     // A shepherd running `version`, whose flock is the adopted dog and one
     // runner that runs `koji_runs`.
     async fn shepherd(&self, version: &str, koji_runs: &Path) -> UnboundedReceiver<Envelope> {
+        self.shepherd_holding(version, koji_runs, Map::new()).await
+    }
+
+    // As `shepherd`, with `table` as koji's settings.
+    async fn shepherd_holding(
+        &self,
+        version: &str,
+        koji_runs: &Path,
+        table: Map<String, Value>,
+    ) -> UnboundedReceiver<Envelope> {
         let mut ack = sample_ack();
         ack.daemon_version = version.into();
         let mut dog = AppConfig::minimal("kelpie", &self.installed().display().to_string());
         dog.args = Vec::new();
         let mut koji = AppConfig::minimal("koji", &koji_runs.display().to_string());
         koji.args = vec!["runner".into(), "koji".into()];
-        koji.dogs
-            .insert("kelpie".into(), DogTable::from(serde_json::Map::new()));
+        koji.dogs.insert("kelpie".into(), DogTable::from(table));
         let flock = [dog, koji];
         let says = Arc::clone(&self.koji_says);
         fake_daemon_answering_with_ack(&self.shep_home().join("run/shep.sock"), ack, move |r| {
@@ -160,6 +171,9 @@ fn answer(flock: &[AppConfig], says: &Mutex<Vec<&'static str>>, request: &Reques
                 .iter()
                 .filter_map(|s| Some((s.name.clone(), s.dogs.get(dog)?.clone())))
                 .collect(),
+        },
+        Request::DogConfigResolved { .. } => Response::DogSection {
+            toml: String::new().into(),
         },
         Request::SheepConfig { name } => {
             let sheep = flock.iter().find(|s| &s.name == name).unwrap();
@@ -428,4 +442,44 @@ async fn upgrade_without_a_form_prints_usage_and_exits_2() {
         assert_eq!(output.status.code(), Some(2), "{args:?}");
         assert!(stderr(&output).contains("--rollback"), "{args:?}");
     }
+}
+
+// Every kind the project manager may decide, named at its default.
+fn named_kinds() -> Map<String, Value> {
+    let decides: Map<String, Value> = (RulingName::ALL.into_iter())
+        .filter_map(|kind| Some((kind.as_str().to_owned(), Value::Bool(kind.pm_default()?))))
+        .collect();
+    let rulings = Map::from_iter([("pm_decides".to_owned(), Value::Object(decides))]);
+    Map::from_iter([("rulings".to_owned(), Value::Object(rulings))])
+}
+
+#[tokio::test]
+async fn upgrade_migrate_runs_this_build_s_steps_and_says_each() {
+    let scene = Scene::new();
+    let _seen = (scene.shepherd_holding("0.17.0", &scene.installed(), named_kinds())).await;
+
+    let output = scene.kelpie(&["upgrade", "migrate"]).await;
+
+    assert!(output.status.success(), "{}", stderr(&output));
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "nothing to migrate\nnothing to migrate\n",
+        "the agent files' step, then the settings' step"
+    );
+}
+
+#[tokio::test]
+async fn upgrade_migrate_exits_1_naming_a_project_whose_table_is_refused() {
+    let scene = Scene::new();
+    let _seen = scene.shepherd("0.17.0", &scene.installed()).await;
+
+    let output = scene.kelpie(&["upgrade", "migrate"]).await;
+
+    assert_eq!(output.status.code(), Some(1), "{}", stderr(&output));
+    let said = stderr(&output);
+    assert!(said.contains("project koji: not migrated"), "{said}");
+    assert!(
+        !said.contains("did not answer"),
+        "refused by the check: {said}"
+    );
 }
