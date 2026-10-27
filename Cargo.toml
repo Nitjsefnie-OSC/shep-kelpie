@@ -10,7 +10,6 @@ default-members = [
     "crates/dog",
     "crates/facts",
     "crates/owner_only",
-    "crates/panel",
     "crates/process",
     "crates/protocol",
     "crates/runner",
@@ -45,7 +44,6 @@ shep-kelpie-disk = { path = "crates/disk" }
 shep-kelpie-dog = { path = "crates/dog" }
 shep-kelpie-facts = { path = "crates/facts" }
 shep-kelpie-owner-only = { path = "crates/owner_only" }
-shep-kelpie-panel = { path = "crates/panel" }
 shep-kelpie-process = { path = "crates/process" }
 shep-kelpie-protocol = { path = "crates/protocol" }
 shep-kelpie-runner = { path = "crates/runner" }
@@ -115,7 +113,6 @@ shep-kelpie-core.workspace = true
 shep-kelpie-disk.workspace = true
 shep-kelpie-dog.workspace = true
 shep-kelpie-facts.workspace = true
-shep-kelpie-panel.workspace = true
 shep-kelpie-process.workspace = true
 shep-kelpie-runner.workspace = true
 shep-kelpie-tree.workspace = true
