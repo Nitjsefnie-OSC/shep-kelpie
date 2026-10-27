@@ -150,9 +150,6 @@ implementers = ["sonnet-high"]
 # Absent, the board's rule picks (priority, then age) and a stuck item
 # waits on its ruling, as it does whenever the project manager is down.
 # pm = "pm"
-# The issue writer's agent file, which `shep kelpie issue` runs and which
-# labels an unlabelled issue. `issue-writer` when absent.
-# issue_writer = "issue-writer"
 # The representative's agent file, from a file whose role is `representative`:
 # the voice of every post kelpie makes to a contributor, which words the facts
 # kelpie's code drafted and reads and runs nothing. It runs on any harness.
@@ -461,7 +458,7 @@ compact_window = 200000
 # plugins. `own = false` leaves the repo's own files out and keeps its plugins.
 # A call in a worktree that matches the default branch loads those files from
 # it, and does not get them twice. `roles` lists the calls that get plugins and
-# the repo's own files, from `worker`, `reviewer`, `issue-writer` and `pm`,
+# the repo's own files, from `worker`, `reviewer` and `pm`,
 # all of them when absent. `parts` lists which parts load, from `skills`,
 # `agents`, `commands`, `hooks` and `mcp`, all of them when absent: a hook
 # runs beside kelpie's own and cannot replace them.
@@ -476,7 +473,7 @@ compact_window = 200000
 # [app.dogs.kelpie.repo_setup]
 # plugins = true
 # own = true
-# roles = ["worker", "reviewer", "issue-writer", "pm"]
+# roles = ["worker", "reviewer", "pm"]
 # parts = ["skills", "agents", "commands", "hooks", "mcp"]
 # skip = ["noisy@house"]
 # extra = { "style@lab" = "github:acme/lab#v2" }

@@ -6,8 +6,9 @@
 //! `rulings.full_panel_paths`, `agents.advisor`, `agents.researcher` and
 //! `researcher` table are deleted, and so are `advisor`, `researcher` and
 //! `issue-writer` in `repo_setup.roles`. With the issue writer gone,
-//! `agents.implementer_choice = "issue-writer"` is deleted, leaving `order`,
-//! and so is the `unlabelled` kind from `rulings.pm_decides` and the old list.
+//! `agents.issue_writer` and `agents.implementer_choice = "issue-writer"` are
+//! deleted, leaving `order`, and so is the `unlabelled` kind from
+//! `rulings.pm_decides` and the old list.
 //! Each table is checked as `set` checks it, and one the runner would refuse
 //! is not written.
 
@@ -21,13 +22,14 @@ use crate::home::{ProjectName, ProjectPaths};
 use crate::settings::{PM_ALONE, PM_DECIDES, RulingName};
 use crate::shepherd::{self, Connection, Socket};
 
-/// The panel's keys, which no build reads now and the runner refuses
-const PANEL_KEYS: [&str; 5] = [
+/// The keys of the panel and the issue writer, which no build reads now and the runner refuses
+const GONE_KEYS: [&str; 6] = [
     "rulings.decide",
     "rulings.full_panel_paths",
     "agents.advisor",
     "agents.researcher",
     "researcher",
+    "agents.issue_writer",
 ];
 
 /// The list of roles that may still name a role that is gone
@@ -131,7 +133,7 @@ async fn project(
         .then(|| PM_ALONE.to_owned())
         .into_iter()
         .collect();
-    removed.extend(panel_keys(&mut table).into_iter().map(str::to_owned));
+    removed.extend(gone_keys(&mut table).into_iter().map(str::to_owned));
     removed.extend(gone_roles(&mut table));
     removed.extend(writer_choice(&mut table));
     removed.extend(gone_kinds);
@@ -148,10 +150,10 @@ async fn project(
     Ok(Some(format!("project {name}: {}", said.join("; "))))
 }
 
-// Deletes the panel's keys from `table`, and names each it deleted.
-fn panel_keys(table: &mut Map<String, Value>) -> Vec<&'static str> {
+// Deletes the keys that are gone from `table`, and names each it deleted.
+fn gone_keys(table: &mut Map<String, Value>) -> Vec<&'static str> {
     let mut removed = Vec::new();
-    for setting in PANEL_KEYS {
+    for setting in GONE_KEYS {
         let held = match setting.split_once('.') {
             Some((outer, _)) => table.get_mut(outer).and_then(Value::as_object_mut),
             None => Some(&mut *table),

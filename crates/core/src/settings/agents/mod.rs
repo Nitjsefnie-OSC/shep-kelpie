@@ -281,10 +281,6 @@ pub struct RoleAgentNames {
     /// where it runs on the first implementer listed, which is the default.
     #[serde(default)]
     pub implementer_choice: ImplementerChoice,
-    /// The issue writer's agent file, which `shep kelpie issue` runs and
-    /// which labels an unlabelled issue. `issue-writer` when absent.
-    #[serde(default = "default_issue_writer")]
-    pub issue_writer: AgentName,
     /// Minutes a work item's first turn may wait for its model, with no
     /// output yet, before it moves to the next implementer listed. Off when
     /// absent.
@@ -314,7 +310,6 @@ impl Default for RoleAgentNames {
         Self {
             implementers: default_implementers(),
             implementer_choice: ImplementerChoice::default(),
-            issue_writer: default_issue_writer(),
             fallback_after: None,
             reviewers: None,
             pm: None,
@@ -325,10 +320,6 @@ impl Default for RoleAgentNames {
 
 fn default_implementers() -> Vec<AgentName> {
     vec![AgentName::kelpies(crate::agents::DEFAULT_IMPLEMENTER)]
-}
-
-fn default_issue_writer() -> AgentName {
-    AgentName::kelpies(crate::agents::ISSUE_WRITER)
 }
 
 fn default_representative() -> AgentName {
@@ -386,8 +377,8 @@ pub struct ExpertAgent {
 pub struct RoleAgents {
     /// The project's implementers, in its order, each once
     pub implementers: Vec<Implementer>,
-    /// The implementer listed first, which the issue writer is told is the
-    /// default and an unlabelled issue runs on when only one is listed
+    /// The implementer listed first, which an issue with no `agent:` label
+    /// runs on
     pub default_implementer: Implementer,
     /// The project manager, when the project names one
     pub pm: Option<PmAgent>,
@@ -440,14 +431,6 @@ impl Settings {
                 reason: "lists no implementer: list one, such as `sonnet-high`".into(),
             });
         };
-        let writer = &self.agents.issue_writer;
-        find(
-            agents,
-            writer,
-            "agents.issue_writer",
-            "agents",
-            Role::IssueWriter,
-        )?;
         let pm = match &self.agents.pm {
             Some(name) => {
                 let agent = find(agents, name, "agents.pm", "agents", Role::Pm)?;

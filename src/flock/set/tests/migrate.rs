@@ -248,3 +248,14 @@ async fn the_issue_writers_role_is_deleted_from_repo_setup_and_the_table_loads()
     let roles = &scene.table()["repo_setup"]["roles"];
     assert_eq!(*roles, serde_json::json!(["worker", "pm"]));
 }
+
+#[tokio::test]
+async fn the_issue_writers_agent_key_is_deleted_and_named_and_the_table_loads() {
+    let named = TABLE.replace("[agents]\n", "[agents]\nissue_writer = \"scribe\"\n");
+    let scene = Scene::holding(&named).await;
+
+    let said = scene.migrate().await.unwrap();
+
+    assert!(said[1].contains("removed agents.issue_writer"), "{said:?}");
+    assert!(scene.table()["agents"].get("issue_writer").is_none());
+}

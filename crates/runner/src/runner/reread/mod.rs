@@ -125,8 +125,7 @@ impl Runner {
             open_checks::triage(&settings, self.ports.voice.as_ref(), &self.remote, &book)?;
         }
         let (was, now) = (&self.settings.agents, &settings.agents);
-        let picking =
-            (was.issue_writer != now.issue_writer) || (was.fallback_after != now.fallback_after);
+        let picking = was.fallback_after != now.fallback_after;
         if agents != self.agents || lineup != self.lineup || book != self.book || picking {
             changed.push("agents");
         }
