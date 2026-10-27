@@ -141,7 +141,8 @@ fn a_worker_links_only_the_skills_its_steps_use_and_those_they_call() {
         crate::adapters::skills::skill_dirs(&call),
         [
             w.path("skills/mattpocock/skills"),
-            w.path("skills/kelpie-wording/skills")
+            w.path("skills/kelpie-wording/skills"),
+            w.path("skills/kelpie-issue/skills")
         ]
     );
 
@@ -161,6 +162,10 @@ fn a_worker_links_only_the_skills_its_steps_use_and_those_they_call() {
                 mattpocock.join("diagnosing-bugs")
             ),
             ("implement".to_owned(), mattpocock.join("implement")),
+            (
+                "issue".to_owned(),
+                w.path("skills/kelpie-issue/skills/issue")
+            ),
             ("pr".to_owned(), mattpocock.join("pr")),
             ("tdd".to_owned(), mattpocock.join("tdd")),
             (

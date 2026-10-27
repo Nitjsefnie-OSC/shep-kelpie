@@ -285,7 +285,8 @@ fn a_plugin_the_marketplace_lacks_is_skipped_with_its_reason_and_the_run_goes_on
         worker.plugin_dirs,
         [
             rig.paths().skills.join("mattpocock"),
-            rig.paths().skills.join("kelpie-wording")
+            rig.paths().skills.join("kelpie-wording"),
+            rig.paths().skills.join("kelpie-issue")
         ]
     );
 }
@@ -325,13 +326,14 @@ fn kelpies_own_plugin_names_are_refused() {
             },
         ])
     );
-    // The vendored plugin is the only one the worker gets, and it is kelpie's.
+    // Kelpie's own plugins are the only ones the worker gets.
     let worker = call_of(&rig, Role::Worker);
     assert_eq!(
         worker.plugin_dirs,
         [
             rig.paths().skills.join("mattpocock"),
-            rig.paths().skills.join("kelpie-wording")
+            rig.paths().skills.join("kelpie-wording"),
+            rig.paths().skills.join("kelpie-issue")
         ]
     );
     assert!(!rig.paths().skills.join("repo").join("mattpocock").exists());
