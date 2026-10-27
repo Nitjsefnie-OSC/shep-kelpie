@@ -188,8 +188,9 @@ fn the_project_manager_gets_the_plugin_as_well() {
         .script([Scripted::Say("{\"pick\": 12, \"hold\": []}")]);
     step(&runner).unwrap();
     let plugin = rig.paths().skills.join("repo/style");
+    let issue = rig.paths().skills.join("kelpie-issue");
     let pm = call_of(&rig, Role::Pm);
-    assert_eq!(pm.plugin_dirs, [plugin]);
+    assert_eq!(pm.plugin_dirs, [issue, plugin]);
 }
 
 #[test]
@@ -286,7 +287,8 @@ fn a_plugin_the_marketplace_lacks_is_skipped_with_its_reason_and_the_run_goes_on
         worker.plugin_dirs,
         [
             rig.paths().skills.join("mattpocock"),
-            rig.paths().skills.join("kelpie-wording")
+            rig.paths().skills.join("kelpie-wording"),
+            rig.paths().skills.join("kelpie-issue")
         ]
     );
 }
@@ -326,13 +328,14 @@ fn kelpies_own_plugin_names_are_refused() {
             },
         ])
     );
-    // The vendored plugin is the only one the worker gets, and it is kelpie's.
+    // Kelpie's own plugins are the only ones the worker gets.
     let worker = call_of(&rig, Role::Worker);
     assert_eq!(
         worker.plugin_dirs,
         [
             rig.paths().skills.join("mattpocock"),
-            rig.paths().skills.join("kelpie-wording")
+            rig.paths().skills.join("kelpie-wording"),
+            rig.paths().skills.join("kelpie-issue")
         ]
     );
     assert!(!rig.paths().skills.join("repo").join("mattpocock").exists());

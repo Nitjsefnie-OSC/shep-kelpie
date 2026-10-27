@@ -29,7 +29,12 @@ pub fn required(fix: &str) -> Result<PathBuf, String> {
     from(std::env::var_os("SHEP_HOME"), fix)
 }
 
-fn from(value: Option<OsString>, fix: &str) -> Result<PathBuf, String> {
+/// The shepherd's home, from `value`, as [`required`] reads the variable
+///
+/// # Errors
+///
+/// As [`required`].
+pub fn from(value: Option<OsString>, fix: &str) -> Result<PathBuf, String> {
     let Some(value) = value.filter(|v| !v.is_empty()) else {
         return Err(format!("SHEP_HOME is not set: {fix}"));
     };

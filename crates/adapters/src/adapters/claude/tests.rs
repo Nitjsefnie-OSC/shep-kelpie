@@ -234,6 +234,7 @@ fn a_worker_gets_kelpies_own_plugins_by_folder_as_it_gets_any_other() {
         [
             dir.path().join("skills/mattpocock").to_str().unwrap(),
             dir.path().join("skills/kelpie-wording").to_str().unwrap(),
+            dir.path().join("skills/kelpie-issue").to_str().unwrap(),
         ]
     );
 }

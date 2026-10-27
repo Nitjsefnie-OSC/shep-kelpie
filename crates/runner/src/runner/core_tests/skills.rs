@@ -145,7 +145,8 @@ fn each_step_runs_its_default_skill_from_kelpies_own_copy() {
     );
     assert!(text.contains("Run no /code-review"), "{text}");
     let wording = rig.paths().skills.join("kelpie-wording");
-    assert_eq!(worker.plugin_dirs, [plugin.clone(), wording]);
+    let issue = rig.paths().skills.join("kelpie-issue");
+    assert_eq!(worker.plugin_dirs, [plugin.clone(), wording, issue]);
     // A reviewer's prompt is its agent file's body, which runs no skill.
     let reviewer = call_of(&rig, Role::Reviewer);
     assert!(
@@ -636,7 +637,14 @@ fn a_replaced_pr_skill_keeps_the_wording_skill_and_a_pr_set_to_none_drops_it() {
         choose(rig, "pr = { kind = \"none\" }\n");
     });
     let worker = call_of(&rig, Role::Worker);
-    assert_eq!(worker.plugin_dirs, [rig.paths().skills.join("mattpocock")]);
+    // The issue skill runs in no step, so `pr = none` keeps it.
+    assert_eq!(
+        worker.plugin_dirs,
+        [
+            rig.paths().skills.join("mattpocock"),
+            rig.paths().skills.join("kelpie-issue")
+        ]
+    );
     assert!(!rig.paths().skills.join("kelpie-wording").exists());
     assert_eq!(
         skills_in(&rig.paths().skills.join("mattpocock")),

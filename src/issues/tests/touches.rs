@@ -64,6 +64,24 @@ fn paths_without_backticks_and_a_line_in_bold_or_a_list_are_counted() {
 }
 
 #[test]
+fn the_files_under_a_touches_heading_or_listed_under_the_line_are_counted() {
+    let issue: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../fixtures/gh-issue-view-check-1302.json"
+    ))
+    .unwrap();
+    assert_eq!(crate::issues::touches(issue["body"].as_str().unwrap()), 5);
+    let files: Vec<String> = (1..=14).map(|i| format!("- `src/m{i}.rs`\n")).collect();
+    for lead in ["## Touches\n\n", "Touches:\n"] {
+        let body = format!("{BODY}\n{lead}{}", files.concat());
+        assert_eq!(
+            printed(&body),
+            "#41 Pause a project (agent:sonnet-high, touches 14 files)",
+            "{lead}"
+        );
+    }
+}
+
+#[test]
 fn only_the_touches_line_is_counted() {
     let body = format!("{}\nSee `a.rs`, `b.rs`.\n", touching(3));
     assert_eq!(printed(&body), "#41 Pause a project (agent:sonnet-high)");

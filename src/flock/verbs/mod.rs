@@ -1,6 +1,8 @@
 //! `shep kelpie <verb>`: the command line, read into a trigger for a project
 
-use std::ffi::OsStr;
+mod check;
+
+use std::ffi::{OsStr, OsString};
 use std::io::{BufRead, IsTerminal, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -14,14 +16,14 @@ use crate::agents::{Agents, Writer};
 use crate::home::{ProjectName, ProjectPaths};
 use crate::issues::{self, Mode, Project};
 use crate::local_tickets::{LocalTickets, Routed};
-use crate::settings::source;
+use crate::settings::source::{self, Loaded};
 use crate::shepherd::{self, Connection, Dial, Socket};
 use crate::state::Projects;
 use crate::ticket::TicketId;
 use crate::upgrade::restart::{Interrupt, Patience};
 
 /// The verbs [`main`] runs: every trigger a runner takes, `add`, which also
-/// registers a checkout, `issue`, which runs the issue writer itself, and
+/// registers a checkout, `issue`, which runs the issue writer or the issue check itself, and
 /// `attach` and `pm`, which run a worker's or the project manager's session
 /// here, `usage`, which reads the usage ledger here, `watch`, which
 /// follows the runner's log and the sessions' transcripts here, `ticket`, which
@@ -60,6 +62,11 @@ usage: shep kelpie add [<project>] [--base <branch>]
        shep kelpie issue \"<request>\"     files issues for it, for you to read
        shep kelpie issue --interactive \"<request>\"
                                          plans them with you in claude
+       shep kelpie issue check <ticket>  whether an issue holds every part an
+                                         implementer builds from, each missing one named
+       shep kelpie issue check --draft <file> [--label <label>]...
+                                         the same for an issue not yet filed, its title
+                                         the file's first line, with no shepherd
        shep kelpie attach <ticket>       steers its worker's session here
        shep kelpie tell \"<note>\"         a note for the project manager's next wake
        shep kelpie pm                    steers the project manager's session here
@@ -108,7 +115,15 @@ it against files.";
 
 /// Runs `kelpie <command> <args>` for one of [`VERBS`]
 pub fn main(command: &str, args: &[String]) -> ExitCode {
-    let ran = crate::shep_home::required(crate::shep_home::FLOCK_FIX)
+    main_with(&|name| std::env::var_os(name), command, args)
+}
+
+// `main`, with `env` giving each variable.
+fn main_with(env: &dyn Fn(&str) -> Option<OsString>, command: &str, args: &[String]) -> ExitCode {
+    if let Some(code) = without_shep_home(env, command, args) {
+        return code;
+    }
+    let ran = crate::shep_home::from(env("SHEP_HOME"), crate::shep_home::FLOCK_FIX)
         .and_then(|shep_home| shepherd::block_on(run(&Socket, &shep_home, command, args)));
     match ran {
         Ok(lines) => {
@@ -122,6 +137,16 @@ pub fn main(command: &str, args: &[String]) -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+
+// The exit code of the one verb that runs with no `SHEP_HOME`, the issue
+// check, which a worker's sandbox runs. `None` for every other verb.
+fn without_shep_home(
+    env: &dyn Fn(&str) -> Option<OsString>,
+    command: &str,
+    args: &[String],
+) -> Option<ExitCode> {
+    check::asked(command, args).then(|| ExitCode::from(check::main(env, args)))
 }
 
 async fn run(
@@ -364,6 +389,9 @@ async fn run(
             };
             set::set(&client, &name, place, key, value).await
         }
+        // `main` runs the check itself. This arm, ahead of the request's, keeps
+        // `check` from ever reaching the issue writer as a request to file.
+        ("issue", ["check", ..]) => Err(USAGE.to_owned()),
         ("issue", [_, ..]) => {
             let here = Here {
                 client: &client,
@@ -408,6 +436,15 @@ struct Here<'a> {
     home: &'a Path,
 }
 
+// The project's paths and settings, as its runner would load them.
+async fn load(here: &Here<'_>, name: &ProjectName) -> Result<(ProjectPaths, Loaded), String> {
+    let tables = shepherd::read_tables_with(here.client, name.as_str()).await?;
+    let paths = ProjectPaths::under(here.kelpie_home, here.shep_home, name);
+    let loaded = source::load(&tables, name.as_str(), here.home, &paths.folder)
+        .map_err(|e| e.to_string())?;
+    Ok((paths, loaded))
+}
+
 // `issue [--interactive] <request>`: the issue writer, run here rather than
 // by the runner, since the maintainer waits on it or works in it.
 async fn issue(here: Here<'_>, name: &ProjectName, args: &[&str]) -> Result<Vec<String>, String> {
@@ -419,10 +456,7 @@ async fn issue(here: Here<'_>, name: &ProjectName, args: &[&str]) -> Result<Vec<
     if request.trim().is_empty() || request.starts_with('-') {
         return Err(USAGE.to_owned());
     }
-    let tables = shepherd::read_tables_with(here.client, name.as_str()).await?;
-    let paths = ProjectPaths::under(here.kelpie_home, here.shep_home, name);
-    let loaded = source::load(&tables, name.as_str(), here.home, &paths.folder)
-        .map_err(|e| e.to_string())?;
+    let (paths, loaded) = load(&here, name).await?;
     crate::spawn::hide(loaded.kelpie.gateways().key_vars());
     let agents = Agents::load(&paths.agents).map_err(|e| e.to_string())?;
     let listed = (loaded.settings.role_agents(&agents)).map_err(|e| e.to_string())?;

@@ -168,7 +168,8 @@ mod tests {
             skill_dirs(&call),
             [
                 w.path("skills/mattpocock/skills"),
-                w.path("skills/kelpie-wording/skills")
+                w.path("skills/kelpie-wording/skills"),
+                w.path("skills/kelpie-issue/skills")
             ]
         );
 
@@ -188,6 +189,10 @@ mod tests {
                     mattpocock.join("diagnosing-bugs")
                 ),
                 ("implement".to_owned(), mattpocock.join("implement")),
+                (
+                    "issue".to_owned(),
+                    w.path("skills/kelpie-issue/skills/issue")
+                ),
                 ("pr".to_owned(), mattpocock.join("pr")),
                 ("tdd".to_owned(), mattpocock.join("tdd")),
                 (

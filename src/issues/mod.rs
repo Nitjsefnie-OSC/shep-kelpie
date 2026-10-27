@@ -37,6 +37,7 @@ use crate::ticket::TicketId;
 use crate::usage;
 use crate::worktree;
 
+pub mod check;
 mod docs;
 mod prompt;
 
@@ -432,25 +433,19 @@ fn tail(text: &str) -> String {
     }
 }
 
-/// How many files on an issue's `Touches:` line a piece may reach before the
+/// How many files an issue says it touches a piece may reach before the
 /// issue writer is told to split it: the median file count of the merged work
 /// items of 500 to 700 changed lines, where worker compactions jump 4x
 /// (`docs/facts/ticket-scope.md`)
 pub const TOUCHES_SPLIT: usize = 13;
 
-// The paths on the `Touches:` line of `body`, 0 without one. The line may sit in
-// a list or in bold. Paths are the backticked spans, as the issue writer is
-// told to write them, else the comma-separated entries.
+// The paths `body` says it touches, read as the issue check reads them, 0
+// with none. Paths are the backticked spans, as the issue writer is told to
+// write them, else the comma-separated entries of the `Touches:` line.
 fn touches(body: &str) -> usize {
-    let Some(line) = body.lines().find_map(|l| {
-        let l = l.trim_start_matches(|c: char| c.is_whitespace() || c == '-' || c == '*');
-        l.strip_prefix("Touches:")
-    }) else {
-        return 0;
-    };
-    // Backticks pair up, so every second part between them is inside a pair.
-    match line.split('`').skip(1).step_by(2).count() {
-        0 => (line.split(','))
+    use crate::board::check::{touched, touches_line};
+    match touched(body).map_or(0, |paths| paths.len()) {
+        0 => (touches_line(body).unwrap_or_default().split(','))
             .filter(|e| {
                 !e.trim_matches(|c: char| c.is_whitespace() || c == '*')
                     .is_empty()

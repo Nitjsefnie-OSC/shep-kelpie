@@ -17,7 +17,7 @@ use crate::coderabbit::LABEL;
 use crate::hooks::Role;
 
 /// The conventional commit types a pull request title may start with
-const TYPES: [&str; 11] = [
+pub const TYPES: [&str; 11] = [
     "feat", "fix", "docs", "style", "refactor", "perf", "test", "build", "ci", "chore", "revert",
 ];
 
@@ -311,7 +311,7 @@ fn read(words: &[String], heredocs: &[String], cwd: Option<&Path>, home: &Home) 
         );
     }
     // Not echoed: a title can carry a path too.
-    if group == "pr" && !titles.iter().all(|t| conventional(t)) {
+    if group == "pr" && !titles.iter().all(|t| conventional_type(t).is_some()) {
         out.push(format!(
             "this pull request's title is not a conventional commit. Write it as \
              `type(scope): summary`, the scope optional, with the type one of {}, and \
@@ -342,25 +342,23 @@ fn read(words: &[String], heredocs: &[String], cwd: Option<&Path>, home: &Home) 
     out
 }
 
-/// Whether `title` is a conventional commit subject
-fn conventional(title: &str) -> bool {
-    let Some((head, summary)) = title.split_once(": ") else {
-        return false;
-    };
+/// The type `title` starts with as a conventional commit subject, as `fix`
+/// of `fix(board): a thing`, or none when it is not one
+pub fn conventional_type(title: &str) -> Option<&'static str> {
+    let (head, summary) = title.split_once(": ")?;
     let head = head.strip_suffix('!').unwrap_or(head);
     let kind = match head.split_once('(') {
         Some((kind, scope)) => {
-            let Some(scope) = scope.strip_suffix(')') else {
-                return false;
-            };
+            let scope = scope.strip_suffix(')')?;
             if scope.is_empty() || scope.contains(['(', ')', '\n']) {
-                return false;
+                return None;
             }
             kind
         }
         None => head,
     };
-    TYPES.contains(&kind) && !summary.trim().is_empty()
+    let kind = TYPES.iter().copied().find(|&t| t == kind)?;
+    (!summary.trim().is_empty()).then_some(kind)
 }
 
 #[cfg(test)]

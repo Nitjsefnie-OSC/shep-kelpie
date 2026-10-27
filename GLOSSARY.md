@@ -173,6 +173,16 @@ ready issue with no `agent:` label, and puts that label on the issue itself.
 `agents.issue_writer` names its agent file.
 _Avoid_: planner, planning call
 
+**Issue check**:
+Kelpie's code check that an issue holds every part an implementer builds
+from: a `Touches:` line, what to build, acceptance criteria, harness reach
+when it touches one harness's adapter, blockers when it names any, one
+priority label, and a kind: its `kind:<type>` label, else its title's
+conventional prefix, one of nine conventional types. It reads structure, not quality.
+`shep kelpie issue check <n>` runs it, and the issue skill holds the same
+format for the agent that writes an issue.
+_Avoid_: lint, validation, triage
+
 **Reviewer**:
 An agent in a project's review list, `agents.reviewers`. Each reads the
 pull request once, in the list's order, against the issue's acceptance
