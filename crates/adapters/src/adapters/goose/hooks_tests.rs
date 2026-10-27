@@ -409,3 +409,12 @@ fn a_triagers_review_call_is_set_up_in_an_empty_fence() {
         .unwrap();
     assert!(command.contains("'--read-only'"), "{command}");
 }
+
+#[test]
+fn a_goose_worker_reads_the_script_its_command_hook_runs_and_not_its_siblings() {
+    let w = World::new();
+    let mut call = worker(&w, Session::New(id(FRESH_ID)));
+    let folder = w.path("x");
+    call.reach.fence.as_mut().unwrap().guard.hooks = crate::test::hook_beside_another(&folder);
+    crate::test::assert_reads_the_hook_alone(&policy_of(&w, &call), &folder);
+}

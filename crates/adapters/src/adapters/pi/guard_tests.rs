@@ -439,3 +439,13 @@ fn the_guard_extension_lets_the_turn_go_on_when_it_cannot_leave_its_marker() {
         "the runner could not tell the turn was paused, so it does not end"
     );
 }
+
+#[test]
+fn a_pi_worker_reads_the_script_its_command_hook_runs_and_not_its_siblings() {
+    let w = World::new();
+    let mut call = w.fenced(URL, Path::new("/k/kelpie"), Session::New(id(WORKER_ID)));
+    let folder = w.path("x");
+    call.reach.fence.as_mut().unwrap().guard.hooks = crate::test::hook_beside_another(&folder);
+    let policy = fenced(&call, &Files::of(&call), Path::new("/nowhere/pi"), &[]);
+    crate::test::assert_reads_the_hook_alone(&policy, &folder);
+}

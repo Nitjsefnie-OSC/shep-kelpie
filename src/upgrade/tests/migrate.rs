@@ -1,19 +1,20 @@
-//! The agent-file migration an upgrade runs after the install and before the restarts
+//! The migrations an upgrade runs after the install and before the restarts
 
 use super::*;
 
 const STUB: &str = "---\nextends: kelpie:pm\n---\n";
 const WROTE: &str = "pm.md: wrote claude-code claude-opus-5-5 medium";
 
-// A stand-in build that answers `version --json`, and for `agents migrate`
-// appends the folder it was told to migrate to `log` and prints `reply`.
+// A stand-in build that answers `version --json`, and for `upgrade migrate`
+// appends the homes it was told to `log`, prints `reply`, and exits `exit`.
 fn migrating(kelpie: &str, log: &Path, reply: &str, exit: u8) -> String {
     let json = format!(r#"{{"kelpie":"{kelpie}","shep":"0.17.0","protocol":{PROTOCOL_VERSION}}}"#);
     format!(
         "#!/bin/sh\n\
          case \"$1 $2\" in\n\
          'version --json') echo '{json}' ;;\n\
-         'agents migrate') echo \"$KELPIE_HOME\" >> '{log}'; echo '{reply}'; exit {exit} ;;\n\
+         'upgrade migrate') echo \"$KELPIE_HOME $SHEP_HOME\" >> '{log}'; echo '{reply}'; \
+         echo '{reply}' >&2; exit {exit} ;;\n\
          esac\n",
         log = log.display()
     )
@@ -27,42 +28,105 @@ fn stub_in(rig: &Rig) -> PathBuf {
     stub
 }
 
+const SETTLED: &str = "project koji: wrote rulings.pm_decides.rebase = true";
+
 #[tokio::test]
-async fn an_install_runs_the_installed_build_s_step_before_the_restarts_and_says_its_lines() {
+async fn an_install_says_the_installed_build_s_own_migrations_before_the_restarts() {
     let rig = Rig::new().await;
     let log = rig.builds.join("migrated");
     let new = rig.builds.join("new");
-    write_script(&new, &migrating("0.3.0", &log, WROTE, 0));
+    write_script(&new, &migrating("0.3.0", &log, SETTLED, 0));
 
     let (ran, said) = rig.install(&new).await;
 
     ran.unwrap();
+    let (home, shep_home) = (rig.home.display(), rig.shepherd.home().display());
     assert_eq!(
         std::fs::read_to_string(&log).unwrap(),
-        format!("{}\n", rig.home.display()),
-        "the installed build migrated once, in kelpie's home"
+        format!("{home} {shep_home}\n"),
+        "the installed build migrated once, in these homes"
     );
     let at = |needle: &str| said.iter().position(|l| l.contains(needle));
-    let wrote = at(WROTE).unwrap_or_else(|| panic!("{said:?}"));
-    assert!(at("installed kelpie 0.3.0").unwrap() < wrote, "{said:?}");
-    assert!(wrote < at("restarting onto it").unwrap(), "{said:?}");
+    let settled = at(SETTLED).unwrap_or_else(|| panic!("{said:?}"));
+    assert!(at("installed kelpie 0.3.0").unwrap() < settled, "{said:?}");
+    assert!(settled < at("restarting onto it").unwrap(), "{said:?}");
 }
 
 #[tokio::test]
-async fn a_step_that_fails_is_said_and_the_restarts_go_on() {
+async fn an_install_whose_migration_fails_stops_before_the_restarts() {
     let mut rig = Rig::new().await;
     let log = rig.builds.join("migrated");
     let new = rig.builds.join("new");
-    write_script(&new, &migrating("0.3.0", &log, "", 1));
+    write_script(
+        &new,
+        &migrating("0.3.0", &log, "project koji: not migrated", 1),
+    );
+
+    let (ran, said) = rig.install(&new).await;
+
+    let failed = ran.unwrap_err();
+    assert!(
+        failed.contains("the settings were not migrated"),
+        "{failed}"
+    );
+    assert!(failed.contains("project koji: not migrated"), "{failed}");
+    assert!(failed.contains("shep kelpie settings migrate"), "{failed}");
+    assert!(failed.contains("shep kelpie upgrade --binary"), "{failed}");
+    assert!(
+        said.iter().all(|l| !l.contains("restarting onto it")),
+        "{said:?}"
+    );
+    assert_eq!(rig.restarts(), Vec::<String>::new());
+    assert_eq!(rig.installed_says(), "0.3.0 for shep 0.17.0");
+    assert_eq!(says(&rig.previous()), "0.1.0 for shep 0.17.0");
+}
+
+// A stand-in build that answers `version --json`, and anything else with `stderr` and `exit`.
+fn answering_else(stderr: &str, exit: u8) -> String {
+    let json = format!(r#"{{"kelpie":"0.0.9","shep":"0.17.0","protocol":{PROTOCOL_VERSION}}}"#);
+    format!(
+        "#!/bin/sh\n\
+         case \"$1 $2\" in\n\
+         'version --json') echo '{json}' ;;\n\
+         *) echo '{stderr}' >&2; exit {exit} ;;\n\
+         esac\n"
+    )
+}
+
+#[tokio::test]
+async fn an_install_of_a_build_without_the_step_says_so_and_restarts() {
+    let mut rig = Rig::new().await;
+    let new = rig.builds.join("new");
+    write_script(
+        &new,
+        &answering_else("usage: shep-kelpie upgrade [--now]", 2),
+    );
 
     let (ran, said) = rig.install(&new).await;
 
     ran.unwrap();
-    assert!(
-        said.iter().any(|l| l.contains("were not migrated")),
-        "{said:?}"
-    );
+    assert!(said.iter().any(|l| l.contains("predates")), "{said:?}");
     assert_eq!(rig.restarts(), ["kelpie", "koji"]);
+}
+
+#[tokio::test]
+async fn an_exit_that_is_not_an_old_build_s_usage_stops_before_the_restarts() {
+    for (stderr, exit) in [
+        ("shep-kelpie upgrade migrate: no shepherd", 2),
+        ("usage: shep-kelpie add [<project>]", 2),
+        ("usage: shep-kelpie upgrade [--now]", 1),
+    ] {
+        let mut rig = Rig::new().await;
+        let new = rig.builds.join("new");
+        write_script(&new, &answering_else(stderr, exit));
+
+        let (ran, said) = rig.install(&new).await;
+
+        let failed = ran.unwrap_err();
+        assert!(failed.contains(stderr), "{failed}");
+        assert!(said.iter().all(|l| !l.contains("predates")), "{said:?}");
+        assert_eq!(rig.restarts(), Vec::<String>::new(), "{stderr} {exit}");
+    }
 }
 
 #[tokio::test]
@@ -96,63 +160,6 @@ async fn a_rollback_does_not_migrate() {
     assert!(!log.exists(), "the build put back was not asked to migrate");
     assert_eq!(std::fs::read_to_string(stub).unwrap(), STUB);
     assert!(said.iter().all(|l| l != WROTE), "{said:?}");
-}
-
-const SETTLED: &str = "project koji: wrote rulings.pm_decides.rebase = true";
-
-// A stand-in build that answers `version --json`, appends each migration it is
-// asked for to `log`, and for `settings migrate` prints `reply` and exits `exit`.
-fn settling(log: &Path, reply: &str, exit: u8) -> String {
-    let json = format!(r#"{{"kelpie":"0.3.0","shep":"0.17.0","protocol":{PROTOCOL_VERSION}}}"#);
-    format!(
-        "#!/bin/sh\n\
-         case \"$1 $2\" in\n\
-         'version --json') echo '{json}' ;;\n\
-         'agents migrate') echo \"$1 $2\" >> '{log}'; echo '{WROTE}' ;;\n\
-         'settings migrate') echo \"$1 $2 $SHEP_HOME\" >> '{log}'; echo '{reply}' >&2; \
-         echo '{reply}'; exit {exit} ;;\n\
-         esac\n",
-        log = log.display()
-    )
-}
-
-#[tokio::test]
-async fn an_install_runs_the_installed_build_s_settings_migration_after_the_agents_one() {
-    let rig = Rig::new().await;
-    let log = rig.builds.join("migrated");
-    let new = rig.builds.join("new");
-    write_script(&new, &settling(&log, SETTLED, 0));
-
-    let (ran, said) = rig.install(&new).await;
-
-    ran.unwrap();
-    let shep_home = rig.shepherd.home().display();
-    assert_eq!(
-        std::fs::read_to_string(&log).unwrap(),
-        format!("agents migrate\nsettings migrate {shep_home}\n"),
-    );
-    let at = |needle: &str| said.iter().position(|l| l.contains(needle));
-    let settled = at(SETTLED).unwrap_or_else(|| panic!("{said:?}"));
-    assert!(at(WROTE).unwrap() < settled, "{said:?}");
-    assert!(settled < at("restarting onto it").unwrap(), "{said:?}");
-}
-
-#[tokio::test]
-async fn a_settings_migration_that_fails_is_said_and_the_restarts_go_on() {
-    let mut rig = Rig::new().await;
-    let log = rig.builds.join("migrated");
-    let new = rig.builds.join("new");
-    write_script(&new, &settling(&log, "project koji: not migrated", 1));
-
-    let (ran, said) = rig.install(&new).await;
-
-    ran.unwrap();
-    let failed = (said.iter())
-        .find(|l| l.contains("the settings were not migrated"))
-        .unwrap_or_else(|| panic!("{said:?}"));
-    assert!(failed.contains("project koji: not migrated"), "{failed}");
-    assert!(failed.contains("shep kelpie settings migrate"), "{failed}");
-    assert_eq!(rig.restarts(), ["kelpie", "koji"]);
 }
 
 // Settings for koji that load, on a git checkout under `shepherd`'s scratch home.
@@ -201,17 +208,22 @@ async fn a_bare_upgrade_writes_the_missing_kinds_into_a_table_that_loads() {
 }
 
 #[tokio::test]
-async fn a_bare_upgrade_migrates_the_settings_in_process() {
-    let mut rig = Rig::new().await;
+async fn a_bare_upgrade_whose_settings_are_refused_stops_before_the_restarts() {
+    // A table missing its kinds that does not load, so the check refuses the migrated one.
+    let mut table = Map::new();
+    table.insert("forge".into(), Value::String("shep-pm/koji".into()));
+    let shepherd = FakeShepherd::on(crate::shepherd::SHEP_VERSION);
+    let mut rig = Rig::holding_on(shepherd, false, table).await;
     rig.cargo_installs("0.3.0", "0.17.0");
 
     let (ran, said) = rig.upgrade(Action::Installed).await;
 
-    ran.unwrap();
-    // The rig's table for koji does not load, so this process's own step refuses it.
-    let failed = (said.iter())
-        .find(|l| l.contains("the settings were not migrated"))
-        .unwrap_or_else(|| panic!("{said:?}"));
+    let failed = ran.unwrap_err();
     assert!(failed.contains("project koji: not migrated"), "{failed}");
-    assert_eq!(rig.restarts(), ["kelpie", "koji"]);
+    assert!(failed.contains("shep kelpie settings migrate"), "{failed}");
+    assert!(
+        said.iter().all(|l| !l.contains("restarting onto it")),
+        "{said:?}"
+    );
+    assert_eq!(rig.restarts(), Vec::<String>::new());
 }
