@@ -340,3 +340,23 @@ fn a_file_of_a_role_the_panel_took_that_holds_more_is_left_and_named() {
     assert_eq!(read(&dir, "mine.md"), body);
     assert_eq!(read(&dir, "nightly.md"), keys);
 }
+
+#[test]
+fn a_hand_made_file_of_a_role_the_panel_took_is_left_and_named() {
+    let advisor = "---\nrole: advisor\nharness: claude-code\nmodel: m\neffort: low\n---\nVote.\n";
+    let researcher = "---\nrole: researcher\n---\n";
+    let dir = folder(&[("mine.md", advisor), ("web.md", researcher)]);
+
+    let report = legacy::migrate(dir.path()).unwrap();
+
+    assert_eq!(
+        report.lines(),
+        [
+            "mine.md: left, the `advisor` role went with the ruling panel, so delete the file",
+            "web.md: left, the `researcher` role went with the ruling panel, so delete the file",
+        ]
+    );
+    assert!(report.deleted.is_empty(), "{report:?}");
+    assert_eq!(read(&dir, "mine.md"), advisor);
+    assert_eq!(read(&dir, "web.md"), researcher);
+}

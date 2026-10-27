@@ -56,10 +56,7 @@ pub const TABLE: [Row; 8] = [
     row("triager", "claude-opus-5-5", "medium", false),
 ];
 
-/// The baselines whose role went with the ruling panel
-const GONE: [&str; 2] = ["advisor", "researcher"];
-
-/// The keys a stub of a [`GONE`] baseline may hold and still be deleted
+/// The keys a stub of a baseline whose role kelpie no longer has may hold and still be deleted
 const BINDING: [&str; 4] = ["extends", "harness", "model", "effort"];
 
 /// The binding the baseline `name` shipped with, if kelpie shipped one
@@ -234,8 +231,14 @@ enum Judged {
 // What to do with a file holding `text`.
 fn judge(text: &str) -> Judged {
     let parent = extends::shipped_parent(text);
-    if let Some(gone) = parent.as_deref().filter(|parent| GONE.contains(parent)) {
+    if let Some(gone) = parent
+        .as_deref()
+        .filter(|parent| front::GONE.contains(parent))
+    {
         return gone_role(text, gone);
+    }
+    if let Some(why) = front::gone_role_of(text) {
+        return Judged::Left(why);
     }
     let Some(row) = parent.and_then(|parent| named(&parent)) else {
         return Judged::Leave;
