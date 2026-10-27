@@ -2,12 +2,12 @@
 //!
 //! The representative words the facts, kelpie's code appends [`MARKER`] and
 //! posts the comment as the App, and then puts the labels on. A maintainer's
-//! issue the pass rewrites goes on to the ready path ([`ready`]) where the issue
-//! check passes the rewrite; any other issue ends `needs-triage`. The record in `triage.issues` is saved before each
-//! next write to the forge, so a restart posts nothing twice; a post the forge
-//! took whose record did not save is caught by the marker, which only the App's
-//! own comment counts for. A failed step is logged and tried at the next poll,
-//! and five failures give the issue up until kelpie restarts.
+//! issue whose rewrite the issue check passes takes the ready path ([`ready`]);
+//! any other ends `needs-triage`. The record in `triage.issues` is saved before
+//! each next write to the forge, so a restart posts nothing twice; a post the
+//! forge took whose record did not save is caught by the App's marker. A failed
+//! step is logged and tried at the next poll, and five failures give the issue
+//! up until kelpie restarts.
 
 use super::super::Runner;
 use super::super::contributions::post::forge_is_busy;
