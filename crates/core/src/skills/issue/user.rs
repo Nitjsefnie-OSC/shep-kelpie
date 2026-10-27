@@ -4,7 +4,8 @@
 //! The dog writes the skill to `<kelpie home>/.skills/issue` as it starts, which
 //! an upgrade's restart does, and links it into the user skills folder of each
 //! harness installed in the home folder. An `issue` already there that is not
-//! kelpie's link is left alone and named.
+//! kelpie's link is left alone and named; a link to another kelpie home's copy,
+//! or to nothing, is replaced.
 
 use std::fs;
 use std::io;
@@ -53,10 +54,12 @@ fn write_copy(target: &Path) -> io::Result<()> {
 
 // Makes `link` point at `target`, unless it already does or is someone
 // else's, and says what it did. Nothing to say when it was already kelpie's.
+// A link to another kelpie home's copy, or to nothing, is kelpie's to replace.
 fn linked(link: &Path, target: &Path) -> Option<String> {
     let shown = link.display();
-    match fs::read_link(link) {
+    let replaced = match fs::read_link(link) {
         Ok(to) if to == target => return None,
+        Ok(to) if to.ends_with(Path::new(COPY).join(SKILL)) || !link.exists() => Some(to),
         Ok(to) => {
             return Some(format!(
                 "left {shown} alone: it links to {}, not kelpie's issue skill",
@@ -68,12 +71,17 @@ fn linked(link: &Path, target: &Path) -> Option<String> {
                 "left {shown} alone: it is not kelpie's link to its issue skill"
             ));
         }
-        Err(_) => {}
-    }
-    let made =
-        (link.parent().map_or(Ok(()), fs::create_dir_all)).and_then(|()| symlink(target, link));
+        Err(_) => None,
+    };
+    let unlinked = replaced.as_ref().map_or(Ok(()), |_| unlink(link));
+    let made = (unlinked.and_then(|()| link.parent().map_or(Ok(()), fs::create_dir_all)))
+        .and_then(|()| symlink(target, link));
+    let was = (replaced.as_ref()).map(|to| format!(" in place of its link to {}", to.display()));
     Some(match made {
-        Ok(()) => format!("linked kelpie's issue skill as {shown}"),
+        Ok(()) => format!(
+            "linked kelpie's issue skill as {shown}{}",
+            was.unwrap_or_default()
+        ),
         Err(e) => format!("cannot link kelpie's issue skill as {shown}: {e}"),
     })
 }
@@ -86,6 +94,16 @@ fn symlink(target: &Path, link: &Path) -> io::Result<()> {
 #[cfg(windows)]
 fn symlink(target: &Path, link: &Path) -> io::Result<()> {
     std::os::windows::fs::symlink_dir(target, link)
+}
+
+#[cfg(unix)]
+fn unlink(link: &Path) -> io::Result<()> {
+    fs::remove_file(link)
+}
+
+#[cfg(windows)]
+fn unlink(link: &Path) -> io::Result<()> {
+    fs::remove_dir(link)
 }
 
 /// The folder each link points at, under `kelpie_home`
@@ -126,6 +144,31 @@ mod tests {
         }
         assert_eq!(said.len(), 2, "{said:?}");
         assert_eq!(install(kelpie.path(), home.path()), Vec::<String>::new());
+    }
+
+    #[test]
+    fn a_link_to_another_kelpie_homes_copy_or_to_nothing_is_relinked() {
+        let (home, kelpie) = (home(), tempfile::tempdir().unwrap());
+        let (old, gone) = (tempfile::tempdir().unwrap(), home.path().join("gone"));
+        let old_copy = copy(old.path());
+        fs::create_dir_all(&old_copy).unwrap();
+        let claude = home.path().join(".claude/skills/issue");
+        let codex = home.path().join(".codex/skills/issue");
+        for (link, to) in [(&claude, &old_copy), (&codex, &gone)] {
+            fs::create_dir_all(link.parent().unwrap()).unwrap();
+            symlink(to, link).unwrap();
+        }
+        let said = install(kelpie.path(), home.path());
+        let target = copy(kelpie.path());
+        for (link, to) in [(&claude, &old_copy), (&codex, &gone)] {
+            assert_eq!(fs::read_link(link).unwrap(), target);
+            let line = format!(
+                "linked kelpie's issue skill as {} in place of its link to {}",
+                link.display(),
+                to.display()
+            );
+            assert!(said.contains(&line), "{said:?}");
+        }
     }
 
     #[test]
