@@ -107,7 +107,7 @@ mod tests {
         let said = run(&forge, &repo(), ticket(12));
         let lines = [
             "#12 fails the issue check:",
-            "- no `Touches:` line naming the files it changes",
+            "- no `Touches:` line or `## Touches` section naming the files it changes",
             "- no `## What to build` section, or nothing under it",
             "- no `## Acceptance criteria` section",
             "- no priority label, `priority: P0` to `priority: P4`",

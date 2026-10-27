@@ -38,9 +38,10 @@ pub const HARNESSES: [&str; 4] = ["claude", "pi", "codex", "goose"];
 pub enum Failure {
     /// The title is empty
     NoTitle,
-    /// No line starts `Touches:`
+    /// No line starts `Touches:`, and no heading is `Touches`
     NoTouches,
-    /// The `Touches:` line names no path in backticks
+    /// The `Touches:` line, the list under it or the `Touches` section names
+    /// no path in backticks
     TouchesNoPath,
     /// `Touches:` names this path in one harness's adapter, and no
     /// `Harness reach:` line with text follows
@@ -69,8 +70,11 @@ impl fmt::Display for Failure {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::NoTitle => f.write_str("the title is empty"),
-            Self::NoTouches => write!(f, "no `{TOUCHES}` line naming the files it changes"),
-            Self::TouchesNoPath => write!(f, "the `{TOUCHES}` line names no path in backticks"),
+            Self::NoTouches => write!(
+                f,
+                "no `{TOUCHES}` line or `## Touches` section naming the files it changes"
+            ),
+            Self::TouchesNoPath => write!(f, "`{TOUCHES}` names no path in backticks"),
             Self::NoHarnessReach(path) => write!(
                 f,
                 "`{TOUCHES}` names `{path}`, one harness's adapter, and no `{HARNESS_REACH}` \
@@ -114,10 +118,9 @@ pub fn check(title: &str, body: &str, labels: &[String]) -> Vec<Failure> {
     if title.trim().is_empty() {
         failures.push(Failure::NoTitle);
     }
-    match labelled_line(body, TOUCHES) {
+    match touched(body) {
         None => failures.push(Failure::NoTouches),
-        Some(line) => {
-            let paths = backticked(line);
+        Some(paths) => {
             if paths.is_empty() {
                 failures.push(Failure::TouchesNoPath);
             }
@@ -172,6 +175,31 @@ pub fn check(title: &str, body: &str, labels: &[String]) -> Vec<Failure> {
     failures
 }
 
+// The paths in backticks the issue says it touches: on its `Touches:` line,
+// or the list under that line when it holds no text, or the section under a
+// `Touches` heading. `None` without either.
+fn touched(body: &str) -> Option<Vec<&str>> {
+    let Some((at, text)) = labelled(body, TOUCHES) else {
+        let name = TOUCHES.trim_end_matches(':');
+        return section(body, name).map(|lines| lines.into_iter().flat_map(backticked).collect());
+    };
+    if !bare(text).is_empty() {
+        return Some(backticked(text));
+    }
+    let below = body
+        .lines()
+        .skip(at + 1)
+        .skip_while(|l| l.trim().is_empty());
+    let list = below.take_while(|l| is_list_item(l));
+    Some(list.flat_map(backticked).collect())
+}
+
+// Whether `line` is an item of a `-` or `*` list.
+fn is_list_item(line: &str) -> bool {
+    let line = line.trim_start();
+    line.starts_with("- ") || line.starts_with("* ")
+}
+
 /// What follows `Touches:` on the first line it starts, which may sit in a
 /// list or in bold
 pub fn touches_line(body: &str) -> Option<&str> {
@@ -186,9 +214,15 @@ fn kind_of(label: &str) -> Option<&str> {
 
 // What follows `label` on the first line it starts, past list and bold marks.
 fn labelled_line<'a>(body: &'a str, label: &str) -> Option<&'a str> {
-    body.lines().find_map(|l| {
+    labelled(body, label).map(|(_, text)| text)
+}
+
+// The first line `label` starts, past list and bold marks: its index, and
+// what follows the label.
+fn labelled<'a>(body: &'a str, label: &str) -> Option<(usize, &'a str)> {
+    body.lines().enumerate().find_map(|(at, l)| {
         let l = l.trim_start_matches(|c: char| c.is_whitespace() || c == '-' || c == '*');
-        l.strip_prefix(label)
+        l.strip_prefix(label).map(|text| (at, text))
     })
 }
 

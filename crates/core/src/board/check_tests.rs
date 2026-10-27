@@ -81,6 +81,44 @@ fn a_touches_line_needs_a_path_in_backticks_and_may_sit_in_a_list_or_bold() {
 }
 
 #[test]
+fn an_issue_with_a_touches_heading_passes() {
+    let json = include_str!("../../../../fixtures/gh-issue-view-check-1302.json");
+    assert_eq!(recorded(json), []);
+}
+
+#[test]
+fn touches_may_be_a_heading_or_a_line_with_a_list_under_it() {
+    let rest = BODY.replace("Touches: `src/board.rs`\n", "");
+    for touches in [
+        "## Touches\n\n- `src/board.rs`\n- `src/lib.rs` (new)\n",
+        "### touches\n`src/board.rs`\n",
+        "Touches:\n\n- `src/board.rs`\n- `src/lib.rs`\n",
+        "**Touches:**\n* `src/board.rs`\n",
+    ] {
+        assert_eq!(of(&format!("{touches}{rest}")), [], "{touches}");
+        assert_eq!(of(&format!("{rest}\n{touches}")), [], "{touches}");
+    }
+    for empty in [
+        "## Touches\n\n- the board\n",
+        "Touches:\n\n- the board\n",
+        "Touches:\n",
+    ] {
+        assert_eq!(
+            of(&format!("{empty}{rest}")),
+            [Failure::TouchesNoPath],
+            "{empty}"
+        );
+    }
+    let adapter = "## Touches\n\n- `crates/adapters/src/adapters/pi/skills.rs`\n";
+    assert_eq!(
+        of(&format!("{rest}\n{adapter}")),
+        [Failure::NoHarnessReach(
+            "crates/adapters/src/adapters/pi/skills.rs".to_owned()
+        )]
+    );
+}
+
+#[test]
 fn a_harness_adapter_on_the_touches_line_needs_a_harness_reach_line() {
     for path in [
         "crates/adapters/src/adapters/claude/tests.rs",
