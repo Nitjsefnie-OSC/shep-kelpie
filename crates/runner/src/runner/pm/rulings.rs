@@ -4,9 +4,8 @@
 //! manager. Its comment waits for the answer, at most one wake. An answer
 //! that picks an option is applied at once. It is posted headed "Answered by
 //! the project manager", where a `no <note>` reopens it. An abstention, a
-//! `design` flag or a merge under `ask` goes to the maintainer. So does an
-//! option only the maintainer can carry out. The card shows the project
-//! manager's pick.
+//! `design` flag or a merge under `ask` goes to the maintainer. The card
+//! shows the project manager's pick.
 
 use std::collections::BTreeMap;
 
@@ -15,10 +14,7 @@ use crate::pm_answer::PmAnswer;
 use crate::runner::Runner;
 use crate::runner::ruling;
 use crate::runner::thread_replies::Settler;
-use crate::runner::voice::{
-    RECOMMENDS, SAYS, answer_for, asks_the_maintainer, brief, is_the_maintainers, named,
-    settled_comment,
-};
+use crate::runner::voice::{RECOMMENDS, SAYS, answer_for, brief, named, settled_comment};
 use crate::settings::{Merging, RulingName};
 use crate::state::{Ruling, RulingKind, Stuck};
 use crate::ticket::TicketId;
@@ -142,13 +138,6 @@ impl Runner {
             return Err("a merge under `ask` is the maintainer's".into());
         }
         let picked = named(&ruling.kind, key);
-        // A candidate the maintainer carries out is no answer for the worker.
-        if picked.as_deref().is_some_and(asks_the_maintainer) {
-            return Err("its pick is to ask the maintainer".into());
-        }
-        if picked.as_deref().is_some_and(is_the_maintainers) {
-            return Err("its pick is for the maintainer to carry out".into());
-        }
         let note = format!("Answered by the project manager: {}", answer.why);
         let Some(ruled) = answer_for(&ruling.kind, key, &note) else {
             return Err(format!("option {key} is not one it lists"));
