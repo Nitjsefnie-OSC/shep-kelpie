@@ -458,11 +458,12 @@ fn the_hook_lets_each_loaded_server_s_tools_through_and_nothing_else_it_refused(
 }
 
 #[test]
-fn a_researcher_that_loads_a_server_runs_in_auto_behind_the_hook_and_one_that_loads_none_in_chat() {
+fn a_call_with_no_shell_that_loads_a_server_runs_in_auto_behind_the_hook_and_one_that_loads_none_in_chat()
+ {
     let w = World::new();
     let mut call = worker(&w, Session::New(id(FRESH_ID)), repo(), Some(graph()));
-    call.role = Role::Researcher;
-    call.tools = Tools::Research;
+    call.role = Role::Representative;
+    call.tools = Tools::Answer;
     let vars = |call: &AgentCall| {
         let goose = GooseCli::on(&Base::default());
         let server = server(call).unwrap();
@@ -475,7 +476,7 @@ fn a_researcher_that_loads_a_server_runs_in_auto_behind_the_hook_and_one_that_lo
     };
     assert!(vars(&call).contains(&"GOOSE_MODE=auto".to_owned()));
     let argv = strings(&call);
-    // A researcher is offered no builtin but `skills`, and the servers.
+    // A call with no shell is offered no builtin but `skills`, and the servers.
     assert_eq!(
         argv.iter().filter(|a| *a == "--with-builtin").count(),
         1,
@@ -676,13 +677,13 @@ fn a_resumed_session_s_hook_and_mode_follow_the_set_it_was_created_with() {
             .find(|v| v.starts_with("GOOSE_MODE="))
             .unwrap()
     };
-    let researcher = |session, servers| {
+    let unshelled = |session, servers| {
         let mut call = worker(&w, session, servers, None);
-        call.role = Role::Researcher;
-        call.tools = Tools::Research;
+        call.role = Role::Representative;
+        call.tools = Tools::Answer;
         call
     };
-    let mut first = researcher(Session::New(id(FRESH_ID)), repo());
+    let mut first = unshelled(Session::New(id(FRESH_ID)), repo());
     let created = [
         "codebase-memory-mcp",
         "docs_example_com_mcp",
@@ -695,7 +696,7 @@ fn a_resumed_session_s_hook_and_mode_follow_the_set_it_was_created_with() {
 
     // The repo's set has since changed: the resumed session still holds the first one.
     let changed = json!({ "renamed": { "command": "/k/renamed" } });
-    let mut later = researcher(Session::Resume(id(FRESH_ID)), changed.clone());
+    let mut later = unshelled(Session::Resume(id(FRESH_ID)), changed.clone());
     assert_eq!(
         goose_server_flags(&hook_arguments(&w, &mut later)).0,
         created
@@ -704,7 +705,7 @@ fn a_resumed_session_s_hook_and_mode_follow_the_set_it_was_created_with() {
     assert_eq!(mode(&later), "GOOSE_MODE=auto");
 
     // A set that is empty now does not switch a session that holds servers to chat.
-    let mut emptied = researcher(Session::Resume(id(FRESH_ID)), json!({}));
+    let mut emptied = unshelled(Session::Resume(id(FRESH_ID)), json!({}));
     assert_eq!(
         goose_server_flags(&hook_arguments(&w, &mut emptied)).0,
         created
@@ -716,8 +717,8 @@ fn a_resumed_session_s_hook_and_mode_follow_the_set_it_was_created_with() {
     let w = World::new();
     let held = |session, servers| {
         let mut call = worker(&w, session, servers, None);
-        call.role = Role::Researcher;
-        call.tools = Tools::Research;
+        call.role = Role::Representative;
+        call.tools = Tools::Answer;
         stand_in(&w, FRESH).prepare(&call).unwrap();
         (
             mcp::held(&call, &Files::of(&call.settings)).unwrap(),

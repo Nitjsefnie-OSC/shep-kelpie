@@ -6,16 +6,13 @@ const EXAMPLE: &str = include_str!("../../../../../settings.example.toml");
 
 const WORKER: &str = "allowed_domains = [\"crates.io\", \"index.crates.io\", \"static.crates.io\"]";
 
-// The example with `domains` as `table`'s `allowed_domains`, read the way a runner reads its table.
-fn parse(table: &str, domains: &str) -> Result<Settings, String> {
+// The example with `domains` as the worker's `allowed_domains`, read the way a runner reads its table.
+fn parse(domains: &str) -> Result<Settings, String> {
     assert!(
         EXAMPLE.contains(WORKER),
         "the example's worker domains moved"
     );
-    let text = match table {
-        "worker" => EXAMPLE.replace(WORKER, &format!("allowed_domains = {domains}")),
-        _ => format!("{EXAMPLE}\n[app.dogs.kelpie.researcher]\nallowed_domains = {domains}\n"),
-    };
+    let text = EXAMPLE.replace(WORKER, &format!("allowed_domains = {domains}"));
     Settings::from_table(
         &crate::test::project_table(&text),
         "shep",
@@ -27,68 +24,63 @@ fn parse(table: &str, domains: &str) -> Result<Settings, String> {
 
 #[test]
 fn a_wildcard_in_the_middle_of_a_domain_is_refused_naming_the_entry() {
-    for table in ["worker", "researcher"] {
-        for bad in [
-            "productionresultssa*.blob.core.windows.net",
-            "foo.*.example.com",
-            "*.example.*",
-            "*",
-            "**.example.com",
-        ] {
-            let err = parse(table, &format!("[\"docs.rs\", \"{bad}\"]")).unwrap_err();
-            assert!(
-                err.contains(&format!("`{bad}`")) && err.contains("allowed_domains"),
-                "{table}: {err}"
-            );
-        }
+    for bad in [
+        "productionresultssa*.blob.core.windows.net",
+        "foo.*.example.com",
+        "*.example.*",
+        "*",
+        "**.example.com",
+    ] {
+        let err = parse(&format!("[\"docs.rs\", \"{bad}\"]")).unwrap_err();
+        assert!(
+            err.contains(&format!("`{bad}`")) && err.contains("allowed_domains"),
+            "{err}"
+        );
     }
 }
 
 #[test]
 fn a_leading_wildcard_label_is_accepted() {
-    for table in ["worker", "researcher"] {
-        let s = parse(table, "[\"*.crates.io\", \"docs.rs\"]").unwrap();
-        let set = match table {
-            "worker" => s.worker.allowed_domains,
-            _ => s.researcher.allowed_domains,
-        };
-        let set: Vec<&str> = set.iter().map(|d| d.as_str()).collect();
-        assert_eq!(set, ["*.crates.io", "docs.rs"], "{table}");
-    }
+    let s = parse("[\"*.crates.io\", \"docs.rs\"]").unwrap();
+    let set: Vec<&str> = s
+        .worker
+        .allowed_domains
+        .iter()
+        .map(|d| d.as_str())
+        .collect();
+    assert_eq!(set, ["*.crates.io", "docs.rs"]);
 }
 
 #[test]
 fn an_entry_with_a_scheme_a_path_or_a_bad_port_is_refused_naming_it() {
-    for table in ["worker", "researcher"] {
-        for bad in [
-            "https://crates.io",
-            "crates.io/index",
-            "crates.io:",
-            "crates.io:0",
-            "crates.io:http",
-            "crates.io:80:80",
-            "user@crates.io",
-            "crates .io",
-            ".crates.io",
-            "crates..io",
-            "*.",
-            "crates.io:+80",
-            "[::ffff:192.0.2.9]:+80",
-            "[abc]",
-            "[1:2:3]",
-            "[:::]",
-            "[....]",
-            "[::1]x",
-            "-.io",
-            "_",
-            "-crates.io",
-            "crates-.io",
-            "crates.-io",
-            "crates._",
-        ] {
-            let err = parse(table, &format!("[\"{bad}\"]")).unwrap_err();
-            assert!(err.contains(&format!("`{bad}`")), "{table} {bad}: {err}");
-        }
+    for bad in [
+        "https://crates.io",
+        "crates.io/index",
+        "crates.io:",
+        "crates.io:0",
+        "crates.io:http",
+        "crates.io:80:80",
+        "user@crates.io",
+        "crates .io",
+        ".crates.io",
+        "crates..io",
+        "*.",
+        "crates.io:+80",
+        "[::ffff:192.0.2.9]:+80",
+        "[abc]",
+        "[1:2:3]",
+        "[:::]",
+        "[....]",
+        "[::1]x",
+        "-.io",
+        "_",
+        "-crates.io",
+        "crates-.io",
+        "crates.-io",
+        "crates._",
+    ] {
+        let err = parse(&format!("[\"{bad}\"]")).unwrap_err();
+        assert!(err.contains(&format!("`{bad}`")), "{bad}: {err}");
     }
 }
 
@@ -105,6 +97,6 @@ fn a_host_with_a_port_or_an_address_is_accepted() {
         "my_host.example-site.com",
         "a-b.c1.io.",
     ] {
-        parse("worker", &format!("[\"{ok}\"]")).unwrap_or_else(|e| panic!("{ok}: {e}"));
+        parse(&format!("[\"{ok}\"]")).unwrap_or_else(|e| panic!("{ok}: {e}"));
     }
 }

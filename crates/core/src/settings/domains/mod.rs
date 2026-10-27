@@ -1,4 +1,4 @@
-//! The domains a sandbox may reach, `worker.allowed_domains` and `researcher.allowed_domains`
+//! The domains a sandbox may reach, `worker.allowed_domains`
 
 use std::net::Ipv6Addr;
 

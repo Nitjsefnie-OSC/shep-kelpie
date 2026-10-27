@@ -443,10 +443,10 @@ fn a_representative_named_with_no_file_or_a_file_of_another_role_is_refused_nami
         "{err}"
     );
 
-    let wrong = project("implementers = [\"sonnet-high\"]\nrepresentative = \"advisor\"\n");
+    let wrong = project("implementers = [\"sonnet-high\"]\nrepresentative = \"pm\"\n");
     let err = wrong.representative(&book()).unwrap_err().to_string();
     assert!(
-        err.contains("`agents.representative` names advisor, whose agent file's role is `advisor`"),
+        err.contains("`agents.representative` names pm, whose agent file's role is `pm`"),
         "{err}"
     );
 }

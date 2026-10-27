@@ -802,8 +802,8 @@ impl Runner {
             // `--strict-mcp-config` drops every other. A call that only reads (a retro)
             // is given none that could write.
             if call.harness.loads_mcp() && call.tools != Tools::Retro {
-                // A server the call already names is kelpie's own (a researcher's web), which
-                // a repo server of the same name does not replace. goose lowercases a name into
+                // A server the call already names is not replaced by a repo server of the
+                // same name. goose lowercases a name into
                 // its key, so a name that differs only in case is no other server either.
                 for (name, entry) in self.repo_plugins.mcp_servers() {
                     let held =

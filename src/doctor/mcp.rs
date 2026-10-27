@@ -48,7 +48,7 @@ pub(super) fn hosts(subject: String, settings: &Settings, here: Here<'_>) -> Opt
     Some(Line::unsure(
         subject,
         format!("{lacking}, which worker.allowed_domains lacks"),
-        "add the host to `worker.allowed_domains` (and `researcher.allowed_domains` for the researcher), or the server cannot connect",
+        "add the host to `worker.allowed_domains`, or the server cannot connect",
     ))
 }
 

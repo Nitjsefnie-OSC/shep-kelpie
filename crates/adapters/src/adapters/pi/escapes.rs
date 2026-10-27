@@ -8,7 +8,7 @@ use std::process::{Command, Output};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use super::tests::{URL, WORKER_ID, World, id};
+use super::tests::{WORKER_ID, World, id};
 use super::*;
 use crate::adapters::SandboxRuntime;
 use crate::ports::Role;
@@ -191,39 +191,4 @@ fn pi_answers_through_the_forwarder_with_no_model_host_in_its_sandbox() {
         network["deniedDomains"].to_string().contains("127.0.0.1"),
         "{text}"
     );
-}
-
-// A researcher's fetch is the package dialling the page's host through the
-// sandbox's proxy, which `curl` does the same way, so the proxy's answer is the
-// package's: a listed host is let through, any other is refused by name. Plain
-// `http://` URLs make the proxy answer in its own words, as the tests above do.
-#[test]
-#[ignore = "runs the real sandbox, after `cargo build`"]
-fn a_researchers_fetch_reaches_only_the_hosts_its_policy_lists() {
-    let world = World::new();
-    let mut call = world.fenced(URL, Path::new("/k/kelpie"), Session::New(id(WORKER_ID)));
-    call.role = Role::Researcher;
-    call.tools = Tools::Research;
-    call.reach.extensions = vec![world.path("tools/node_modules/pi-web-access")];
-    call.reach.fence.as_mut().unwrap().hosts = vec!["example.com".to_owned()];
-    let upstream = PiCli::on(&Base::default())
-        .upstream(server(&call).unwrap())
-        .unwrap();
-    let forwarder = Forwarder::open(call.settings.parent().unwrap(), upstream).unwrap();
-    let refused = |url: &str| {
-        let reply = said(&curl(&world, &call, &forwarder, &["--noproxy", "", url]));
-        reply.contains("blocked by network allowlist") && reply.ends_with("[403]")
-    };
-    // The project's host, and the one search host.
-    assert!(!refused("http://example.com/"));
-    assert!(!refused(&format!("http://{}/", web::SEARCH_HOST)));
-    // Any other, a host a fetch could be sent to included.
-    for url in [
-        "http://example.org/",
-        "http://github.com/",
-        "http://r.jina.ai/",
-        "http://localhost/",
-    ] {
-        assert!(refused(url), "{url} was not refused");
-    }
 }

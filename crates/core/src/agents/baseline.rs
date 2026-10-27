@@ -10,8 +10,8 @@
 use std::path::{Path, PathBuf};
 
 use super::{
-    ADVISOR, Agent, DEFAULTS, DEFECT_HUNTER, ISSUE_WRITER, PM, REPRESENTATIVE, RESEARCHER, Role,
-    SECURITY_REVIEWER, TRIAGER, extends, front,
+    Agent, DEFAULTS, DEFECT_HUNTER, ISSUE_WRITER, PM, REPRESENTATIVE, Role, SECURITY_REVIEWER,
+    TRIAGER, extends, front,
 };
 use crate::settings::AgentName;
 
@@ -32,7 +32,7 @@ impl Baseline {
 }
 
 /// Every baseline kelpie ships
-pub const ALL: [Baseline; 10] = [
+pub const ALL: [Baseline; 8] = [
     Baseline {
         name: DEFECT_HUNTER,
         text: include_str!("../../../../agents/defect-hunter.md"),
@@ -56,14 +56,6 @@ pub const ALL: [Baseline; 10] = [
     Baseline {
         name: PM,
         text: include_str!("../../../../agents/pm.md"),
-    },
-    Baseline {
-        name: ADVISOR,
-        text: include_str!("../../../../agents/advisor.md"),
-    },
-    Baseline {
-        name: RESEARCHER,
-        text: include_str!("../../../../agents/researcher.md"),
     },
     Baseline {
         name: REPRESENTATIVE,
@@ -119,6 +111,9 @@ pub(super) fn shipped_text(
         .or_else(|| baselines.iter().find(|b| b.name == shipped).map(|b| b.text))
         .map(extends::ParentText::Default)
         .ok_or_else(|| {
+            if let Some(why) = front::gone(shipped) {
+                return format!("`extends: {extends}`: {why}");
+            }
             let own: Vec<&str> = (DEFAULTS.iter().map(|(name, ..)| *name))
                 .chain(baselines.iter().map(|b| b.name))
                 .collect();

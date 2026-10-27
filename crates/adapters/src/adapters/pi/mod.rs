@@ -49,7 +49,6 @@ mod attach;
 mod compact;
 pub(crate) mod mcp;
 mod shared;
-mod web;
 
 #[cfg(test)]
 mod activity_tests;
@@ -115,17 +114,12 @@ const GUARD: &str = include_str!("guard.ts");
 /// pi's tools for each kind, by its own names
 ///
 /// A reviewer that may write has `write` alone, as Claude's has `Write` alone.
-/// A researcher has the web when `web` says its call loads the package, and
-/// otherwise reads what kelpie wrote it and no more.
-fn tool_names(tools: Tools, reads: bool, writes: bool, web: bool) -> Option<&'static str> {
+fn tool_names(tools: Tools, reads: bool, writes: bool) -> Option<&'static str> {
     match tools {
         Tools::Work => Some("read,bash,edit,write,grep,find,ls"),
         Tools::Review if writes => Some("read,grep,find,ls,write"),
-        Tools::Research if web => Some(web::RESEARCH_TOOLS),
         // The issue writer runs on Claude Code alone, whose hook is its guard.
-        Tools::Review | Tools::Issues | Tools::Retro | Tools::Advise | Tools::Research => {
-            Some("read,grep,find,ls")
-        }
+        Tools::Review | Tools::Issues | Tools::Retro => Some("read,grep,find,ls"),
         // The project manager runs on Claude Code alone, so pi only ever reads for it.
         Tools::Answer | Tools::Pm if reads => Some("read"),
         Tools::Answer | Tools::Pm => None,
@@ -139,12 +133,7 @@ fn tools_of(call: &AgentCall) -> Option<&'static str> {
         .fence
         .as_ref()
         .is_some_and(|f| !f.write.is_empty());
-    tool_names(
-        call.tools,
-        !call.reach.read.is_empty(),
-        writes,
-        web::loaded(call),
-    )
+    tool_names(call.tools, !call.reach.read.is_empty(), writes)
 }
 
 // The servers the call starts: none for a call with no tools, which could not use them.
@@ -234,8 +223,7 @@ impl Cli for Pi {
         }
         if let Some(fence) = &call.reach.fence {
             let guard = files.guard();
-            std::fs::write(&guard, guard_extension(fence, web::loaded(call)))
-                .map_err(|e| setup(&guard, e))?;
+            std::fs::write(&guard, guard_extension(fence)).map_err(|e| setup(&guard, e))?;
         }
         // A compact call of any role loads it, the project manager's included.
         if loads_compact(call) {
@@ -263,7 +251,6 @@ impl Cli for Pi {
                 _ => {}
             },
         }
-        web::write_config(call, &files.home)?;
         mcp::prepare(mcp_config(call), &files)
     }
 
@@ -441,7 +428,6 @@ fn env_args(call: &AgentCall, files: &Files) -> Vec<OsString> {
         // zsh ignores `TMPDIR` for a heredoc and writes under this prefix.
         ("TMPPREFIX".into(), files.scratch.join("zsh").into()),
     ];
-    vars.extend(web::env(call, &files.scratch));
     if let Some(fence) = &call.reach.fence {
         vars.extend(
             fence
@@ -450,11 +436,7 @@ fn env_args(call: &AgentCall, files: &Files) -> Vec<OsString> {
                 .map(|(name, value)| (name.clone(), value.clone().into())),
         );
     }
-    // `env` takes its options before the first NAME=VALUE.
-    let unset = web::unset(call)
-        .into_iter()
-        .flat_map(|name| ["-u".into(), name.into()]);
-    unset.chain(assignments(vars)).collect()
+    assignments(vars).collect()
 }
 
 // pi loads nothing of the maintainer's or the repo's own: no extensions,
@@ -493,9 +475,8 @@ fn skill_prompt(call: &AgentCall) -> (String, Option<PathBuf>) {
     }
 }
 
-/// The guard extension's source for a call fenced by `fence`, which lets the web
-/// package's tools through when the call `web` loads it
-fn guard_extension(fence: &Fence, web: bool) -> String {
+/// The guard extension's source for a call fenced by `fence`
+fn guard_extension(fence: &Fence) -> String {
     let guard = &fence.guard;
     let text = |p: &Path| p.to_string_lossy().into_owned();
     let mut commands = vec![
@@ -538,7 +519,6 @@ fn guard_extension(fence: &Fence, web: bool) -> String {
         "guard": commands,
         "after": after,
         "pause": { "requested": pause.requested_file(), "ended": pause.ended_file() },
-        "web": if web { web::TOOLS.to_vec() } else { Vec::new() },
     });
     GUARD
         .replace("__CHECKS__", &checks.to_string())
@@ -564,7 +544,7 @@ fn fenced(call: &AgentCall, files: &Files, program: &Path, unfenced: &[String]) 
     // the files kelpie opens for them.
     let outputs = CallFiles::of(call);
     // A fence denies the home folder whole, so pi's own files are named beside
-    // what the call is granted: its home, its extensions, its scratch, and the
+    // what the call is granted: its home, its scratch, and the
     // program it runs, wherever that sits.
     policy.read.extend(
         [
@@ -582,7 +562,6 @@ fn fenced(call: &AgentCall, files: &Files, program: &Path, unfenced: &[String]) 
         .chain(call.reach.read.iter().cloned()),
     );
     bind_in_scratch(&mut policy, call, &files.scratch);
-    web::open(call, &mut policy);
     super::mcp::fence_the_graph(&mut policy, call);
     super::mcp::fence_the_browser(&mut policy, call);
     policy

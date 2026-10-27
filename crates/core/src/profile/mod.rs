@@ -379,7 +379,6 @@ impl WorkerProfile<'_> {
             code_graph: None,
             browser: None,
             mcp_servers: BTreeMap::new(),
-            extensions: Vec::new(),
         }
     }
 

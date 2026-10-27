@@ -51,14 +51,6 @@ effort = "medium"
 model = "claude-opus-5-5"
 effort = "medium"
 
-[claude-code.advisor]
-model = "claude-opus-5-5"
-effort = "high"
-
-[claude-code.researcher]
-model = "claude-sonnet-5-5"
-effort = "high"
-
 [claude-code.representative]
 model = "claude-opus-5-5"
 effort = "low"
@@ -76,11 +68,6 @@ effort = "low"
 # model = "qwen3.8:27b"
 # effort = "high"
 # second_look = true
-# context = 65536
-#
-# [pi.advisor]
-# model = "qwen3.8:27b"
-# effort = "high"
 # context = 65536
 
 # A codex row names a model of the ChatGPT plan kelpie's Codex login is on, which

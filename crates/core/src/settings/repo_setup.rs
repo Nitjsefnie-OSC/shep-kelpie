@@ -28,8 +28,8 @@ pub struct RepoSetup {
     /// with no plugin. `false` leaves them out and keeps the plugins.
     #[serde(default = "yes")]
     pub own: bool,
-    /// The calls that get the plugins and the repo's own files: `worker`, `reviewer`, `issue-writer`,
-    /// `pm`, `advisor` and `researcher`. All of them when absent.
+    /// The calls that get the plugins and the repo's own files: `worker`, `reviewer`, `issue-writer`
+    /// and `pm`. All of them when absent.
     #[serde(default = "every_role")]
     pub roles: Vec<CallRole>,
     /// The parts of a plugin, and of the repo's own files, that load: `skills`, `agents`, `commands`,
@@ -143,17 +143,15 @@ impl TryFrom<String> for Part {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, JsonSchema)]
 #[serde(try_from = "String")]
 // schemars describes a `try_from` type by its source, so the bound goes here.
-#[schemars(extend("pattern" = "^(worker|reviewer|issue-writer|pm|advisor|researcher)$"))]
+#[schemars(extend("pattern" = "^(worker|reviewer|issue-writer|pm)$"))]
 pub struct CallRole(#[schemars(with = "String")] Role);
 
 impl CallRole {
-    const ALL: [Self; 6] = [
+    const ALL: [Self; 4] = [
         Self(Role::Worker),
         Self(Role::Reviewer),
         Self(Role::IssueWriter),
         Self(Role::Pm),
-        Self(Role::Advisor),
-        Self(Role::Researcher),
     ];
 }
 
@@ -164,7 +162,10 @@ impl TryFrom<String> for CallRole {
         Self::ALL
             .into_iter()
             .find(|role| role.0.as_str() == value)
-            .ok_or("must be worker, reviewer, issue-writer, pm, advisor or researcher")
+            .ok_or(
+                "must be worker, reviewer, issue-writer or pm: `advisor` and `researcher` \
+                 went with the ruling panel, so delete them",
+            )
     }
 }
 

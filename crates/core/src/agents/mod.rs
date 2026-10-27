@@ -67,12 +67,6 @@ pub const ISSUE_WRITER: &str = "issue-writer";
 /// The project manager kelpie ships, which a project runs with `agents.pm`
 pub const PM: &str = "pm";
 
-/// The advisor kelpie ships, which a project runs with `agents.advisor`
-pub const ADVISOR: &str = "advisor";
-
-/// The researcher kelpie ships, which a project runs with `agents.researcher`
-pub const RESEARCHER: &str = "researcher";
-
 /// The representative kelpie ships, which a project runs with
 /// `agents.representative`
 pub const REPRESENTATIVE: &str = "representative";
@@ -150,12 +144,6 @@ pub enum Role {
     IssueWriter,
     /// It manages the project's board, once a project names it in `agents.pm`
     Pm,
-    /// It votes on each ruling from the codebase, once a project names it
-    /// in `agents.advisor`
-    Advisor,
-    /// It votes on each ruling from everything outside the codebase, once a
-    /// project names it in `agents.researcher`
-    Researcher,
     /// It words the facts kelpie drafted into a post to a contributor, once a
     /// project names it in `agents.representative`
     Representative,
@@ -166,13 +154,11 @@ pub enum Role {
 
 impl Role {
     /// Every role an agent file can name, in the order `agents init` writes them
-    pub const ALL: [Self; 8] = [
+    pub const ALL: [Self; 6] = [
         Self::Implementer,
         Self::Reviewer,
         Self::IssueWriter,
         Self::Pm,
-        Self::Advisor,
-        Self::Researcher,
         Self::Representative,
         Self::Triager,
     ];
@@ -184,8 +170,6 @@ impl Role {
             Self::Reviewer => "reviewer",
             Self::IssueWriter => "issue-writer",
             Self::Pm => "pm",
-            Self::Advisor => "advisor",
-            Self::Researcher => "researcher",
             Self::Representative => "representative",
             Self::Triager => "triager",
         }
@@ -667,7 +651,7 @@ pub fn write_defaults(folder: &Path, home: &Path) -> Result<Vec<&'static str>, A
 ///
 /// Each file leads with a comment saying kelpie writes it, so an edit is
 /// lost, and where to override it instead. A file is replaced by a rename, so
-/// a read never sees half of one.
+/// a read never sees half of one, and one kelpie no longer ships is removed.
 ///
 /// # Errors
 ///
@@ -675,9 +659,10 @@ pub fn write_defaults(folder: &Path, home: &Path) -> Result<Vec<&'static str>, A
 pub fn write_baselines(folder: &Path) -> Result<(), AgentsError> {
     let kept = folder.join(BASELINES);
     fs::create_dir_all(&kept).map_err(|e| failed(&kept, e))?;
-    let shipped = (DEFAULTS.iter().map(|(name, text, _)| (*name, *text)))
-        .chain(baseline::ALL.iter().map(|b| (b.name, b.text)));
-    for (name, text) in shipped {
+    let shipped: Vec<(&str, &str)> = (DEFAULTS.iter().map(|(name, text, _)| (*name, *text)))
+        .chain(baseline::ALL.iter().map(|b| (b.name, b.text)))
+        .collect();
+    for &(name, text) in &shipped {
         let body = text.strip_prefix("---\n").unwrap_or(text);
         let whole = format!(
             "---\n# Kelpie writes this file and replaces it on every upgrade, so an edit here is \
@@ -686,7 +671,7 @@ pub fn write_baselines(folder: &Path) -> Result<(), AgentsError> {
         let file = format!("{name}.md");
         replace(&kept, &file, &whole).map_err(|e| failed(&kept.join(&file), e))?;
     }
-    sweep(&kept);
+    sweep(&kept, &shipped);
     Ok(())
 }
 
@@ -755,8 +740,8 @@ fn writable(_: &Path) -> io::Result<()> {
 }
 
 // Removes the temporary files in `kept` that no live writer can hold, which a
-// crash left behind. Best effort: a refresh does not fail for them.
-fn sweep(kept: &Path) {
+// crash left behind, and the files of agents not `shipped`. Best effort.
+fn sweep(kept: &Path, shipped: &[(&str, &str)]) {
     let Ok(entries) = fs::read_dir(kept) else {
         return;
     };
@@ -768,7 +753,10 @@ fn sweep(kept: &Path) {
             .ok()
             .and_then(|at| at.elapsed().ok())
             .is_some_and(|age| age > STALE);
-        if old && path.extension().is_some_and(|ext| ext == "tmp") {
+        let stem = path.file_stem().and_then(|stem| stem.to_str());
+        let gone = path.extension().is_some_and(|ext| ext == "md")
+            && stem.is_some_and(|stem| shipped.iter().all(|(name, _)| *name != stem));
+        if gone || (old && path.extension().is_some_and(|ext| ext == "tmp")) {
             let _ = writable(&path).and_then(|()| fs::remove_file(&path));
         }
     }

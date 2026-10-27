@@ -185,34 +185,78 @@ fn a_report_totals_the_retros_apart_from_the_builds_and_the_project_managers_wak
     assert!(!none.iter().any(|l| l.starts_with("retro")), "{none:#?}");
 }
 
-// A build with the panel wrote its experts' votes as `vote` calls and marked
-// the project manager's wakes with the votes they cast: the votes pass over,
-// and the wake still counts.
+// A call line of a role this build no longer has, as a build with the panel
+// wrote its experts' votes
+fn retired(at: u64, role: &str, units: u64) -> serde_json::Value {
+    json!({
+        "line": "call", "at": at, "issue": null, "role": role, "kind": "vote",
+        "usage": { "input": units, "cache_write": 0, "cache_read": 0, "output": 0 },
+        "units": units, "cost_usd": 0.5, "seconds": 5, "ended": "answered",
+    })
+}
+
 #[test]
-fn a_ledger_from_a_build_with_the_panel_reads_its_wakes_and_passes_over_its_votes() {
+fn a_call_of_a_retired_role_still_reads_and_an_unknown_kind_of_line_is_passed_over() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join(FILE);
-    let mark = json!({
-        "ruling": "3", "ruling_kind": "merge", "voter": "pm", "panel": "fix", "work": "feat",
+    let wake = json!({
+        "line": "call", "at": 101, "issue": null, "role": "pm", "kind": "wake",
+        "usage": { "input": 10, "cache_write": 0, "cache_read": 0, "output": 0 },
+        "units": 10, "cost_usd": 0.5, "ended": "answered",
     });
-    let line = |role: &str, kind: &str| {
-        json!({
-            "line": "call", "at": 100, "issue": null, "role": role, "kind": kind,
-            "usage": { "input": 10, "cache_write": 0, "cache_read": 0, "output": 0 },
-            "units": 10, "cost_usd": 0.5, "seconds": 5, "ended": "answered",
-            "votes": [mark],
-        })
-    };
-    let text = format!("{}\n{}\n", line("advisor", "vote"), line("pm", "wake"));
+    let future = json!({ "line": "forecast", "at": 102 });
+    let text = format!("{}\n{wake}\n{future}\n", retired(100, "advisor", 10));
     std::fs::write(&path, text).unwrap();
 
     let lines = read(&path).unwrap();
 
-    assert_eq!(lines.len(), 1, "{lines:?}");
-    let Line::Call(call) = &lines[0] else {
-        panic!("{lines:?}")
-    };
-    assert_eq!((call.kind, call.cost_usd), (CallKind::Wake, Some(0.5)));
+    let calls: Vec<(&LedgerRole, &LedgerKind)> = (lines.iter())
+        .filter_map(|line| match line {
+            Line::Call(call) => Some((&call.role, &call.kind)),
+            Line::Finished(_) => None,
+        })
+        .collect();
+    assert_eq!(
+        calls,
+        [
+            (
+                &LedgerRole::Retired("advisor".into()),
+                &LedgerKind::Retired("vote".into())
+            ),
+            (&Role::Pm.into(), &CallKind::Wake.into()),
+        ],
+        "{lines:?}"
+    );
+}
+
+#[test]
+fn a_report_totals_the_retired_roles_calls_by_name_and_counts_them_in_the_load() {
+    let old = |at, role, units| serde_json::from_value::<Line>(retired(at, role, units)).unwrap();
+    let lines = [
+        finished(1, true, 3000, 1000, 3600),
+        call(1000, Some(1), Role::Worker, CallKind::Turn, 4000),
+        old(900, "advisor", 300),
+        old(901, "researcher", 200),
+        old(902, "advisor", 100),
+    ];
+
+    let out = report("koji", &lines, None, &[]);
+
+    assert!(
+        out.contains(
+            &"retired roles: 3 calls, 600 units, $1.50 (advisor 2 calls, researcher 1 call)"
+                .to_owned()
+        ),
+        "{out:#?}"
+    );
+    let loaded = out.iter().find(|l| l.starts_with("loaded: ")).unwrap();
+    assert!(
+        loaded.starts_with("loaded: 4,600 units, $2.00 "),
+        "{loaded}"
+    );
+
+    let none = report("koji", &lines[..2], None, &[]);
+    assert!(!none.iter().any(|l| l.starts_with("retired")), "{none:#?}");
 }
 
 #[test]

@@ -10,7 +10,6 @@ fn url(text: &str) -> EndpointUrl {
 mod axes;
 mod bots;
 mod debug;
-mod experts;
 mod extends;
 mod goose;
 mod init;
@@ -430,6 +429,46 @@ fn baselines_put_back_a_file_that_was_edited_or_removed() {
         }),
         "no half-written file is left beside them"
     );
+}
+
+#[test]
+fn baselines_remove_a_file_kelpie_no_longer_ships() {
+    let dir = tempfile::tempdir().unwrap();
+    let agents = dir.path().join("agents");
+    let kept = agents.join(".defaults");
+    fs::create_dir_all(&kept).unwrap();
+    let stale = kept.join("advisor.md");
+    fs::write(&stale, "---\nrole: advisor\n---\nVote.\n").unwrap();
+    let mut read_only = fs::metadata(&stale).unwrap().permissions();
+    read_only.set_readonly(true);
+    fs::set_permissions(&stale, read_only).unwrap();
+    write_baselines(&agents).unwrap();
+    assert!(!kept.join("advisor.md").exists());
+    assert!(kept.join("pm.md").is_file());
+}
+
+#[test]
+fn a_file_whose_role_went_with_the_panel_is_refused_saying_so() {
+    for role in ["advisor", "researcher"] {
+        let text =
+            format!("---\nrole: {role}\nharness: claude-code\nmodel: m\neffort: low\n---\nVote.\n");
+        let err = refused(&[("mine.md", &text)]);
+        assert!(err.contains(&format!("`{role}`")), "{role}: {err}");
+        assert!(err.contains("went with the ruling panel"), "{role}: {err}");
+    }
+}
+
+#[test]
+fn a_file_extending_a_baseline_whose_role_went_is_refused_with_migrate_s_words() {
+    for role in ["advisor", "researcher"] {
+        let text = format!("---\nextends: kelpie:{role}\nmodel: m\n---\nAlso this.\n");
+        let err = refused(&[("mine.md", &text)]);
+        let why = format!("the `{role}` role went with the ruling panel, so delete the file");
+        assert!(err.contains(&why), "{role}: {err}");
+        assert!(!err.contains("names no shipped agent"), "{role}: {err}");
+        let err = crate::agents::baseline::check("mine", &text).unwrap_err();
+        assert!(err.contains(&why), "{role}: {err}");
+    }
 }
 
 #[test]

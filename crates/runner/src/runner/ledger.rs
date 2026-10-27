@@ -169,8 +169,8 @@ impl Runner {
     pub(super) fn append_call(&mut self, mut line: CallLine, unreported: bool) {
         let item = line.issue.and_then(|ticket| self.state.item(ticket));
         line.pull_request = line.pull_request.or(item.and_then(|i| i.pull_request));
-        let counted =
-            (line.issue.zip(line.session.as_ref())).map(|(ticket, _)| (ticket, line.role));
+        let counted = (line.issue.zip(line.session.as_ref()))
+            .and_then(|(ticket, _)| Some((ticket, line.role.known()?)));
         self.ledger.append(&Line::Call(line));
         if let (true, Some(counted)) = (unreported, counted) {
             self.count_unreported(&[counted]);
@@ -189,12 +189,7 @@ impl Runner {
             let count = match role {
                 Role::Worker => &mut item.counts.worker_unreported,
                 Role::Reviewer => &mut item.counts.reviewer_unreported,
-                Role::IssueWriter
-                | Role::Pm
-                | Role::Advisor
-                | Role::Researcher
-                | Role::Representative
-                | Role::Triager => continue,
+                Role::IssueWriter | Role::Pm | Role::Representative | Role::Triager => continue,
             };
             *count = count.saturating_add(1);
             changed = true;

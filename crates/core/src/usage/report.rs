@@ -1,12 +1,13 @@
 //! What `shep kelpie usage` prints: per merged pull request, its units,
 //! dollars, wall time, rulings and each role's share, with their medians,
 //! the loaded units per merged pull request that a baseline is held
-//! against, then the project manager's and the issue writer's totals
+//! against, then the project manager's and the issue writer's totals, and
+//! those of roles this build no longer has
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::baselines::Baseline;
-use super::{CallKind, CallLine, FinishedLine, Line};
+use super::{CallKind, CallLine, FinishedLine, LedgerRole, Line};
 use crate::ports::{Role, Timestamp};
 use crate::ticket::TicketId;
 
@@ -88,6 +89,7 @@ pub fn report(
     out.extend(retros(&calls));
     out.extend(posts(&calls));
     out.extend(triage(&calls));
+    out.extend(retired(&calls));
     let recorded: BTreeSet<TicketId> = finished.iter().map(|item| item.issue).collect();
     out.extend(unrecorded(&calls, &recorded));
     out
@@ -265,6 +267,32 @@ fn of_kind(name: &str, kind: CallKind, calls: &[&CallLine]) -> Option<String> {
         thousands(units),
         money(dollars),
         unpriced_note(unpriced)
+    ))
+}
+
+// The calls of roles this build no longer has, totalled on one line naming each, if any ran
+fn retired(calls: &[&CallLine]) -> Option<String> {
+    let mut by_role: BTreeMap<&str, usize> = BTreeMap::new();
+    let mine: Vec<&&CallLine> = (calls.iter())
+        .filter(|call| matches!(call.role, LedgerRole::Retired(_)))
+        .inspect(|call| *by_role.entry(call.role.as_str()).or_default() += 1)
+        .collect();
+    if mine.is_empty() {
+        return None;
+    }
+    let units = mine.iter().map(|call| call.units).sum();
+    let dollars = mine.iter().filter_map(|call| call.cost_usd).sum();
+    let unpriced = mine.iter().filter(|call| call.unpriced).count();
+    let named: Vec<String> = (by_role.into_iter())
+        .map(|(role, n)| format!("{role} {}", count(n, "call")))
+        .collect();
+    Some(format!(
+        "retired roles: {}, {} units, {}{} ({})",
+        count(mine.len(), "call"),
+        thousands(units),
+        money(dollars),
+        unpriced_note(unpriced),
+        named.join(", ")
     ))
 }
 

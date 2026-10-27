@@ -6,8 +6,8 @@ use super::Line;
 use crate::agents::Agents;
 use crate::agents::legacy;
 
-/// A line for each file the migration would write, then each other file in `agents` that binds
-/// no harness, model or effort, then one for each file in `folder` the migration would skip
+/// A line for each file the migration would write, each other unbound file in `agents`, then
+/// each file in `folder` the migration would skip, then each it would leave
 ///
 /// A stub the migration would write names it as the fix: it inherited a binding that no
 /// baseline ships now. It is read from `legacy::pending`, which sees the folder when `agents` is
@@ -45,7 +45,18 @@ pub(super) fn checks(agents: &Agents, folder: &Path) -> Vec<Line> {
             ),
         )
     });
-    migratable.chain(unbound).chain(skipped).collect()
+    let left = pending.left.iter().map(|left| {
+        Line::missing(
+            format!("agent {}", left.file.trim_end_matches(".md")),
+            format!("`{}` is left by the migration: {}", left.file, left.why),
+            format!("delete `{}`", left.file),
+        )
+    });
+    migratable
+        .chain(unbound)
+        .chain(skipped)
+        .chain(left)
+        .collect()
 }
 
 fn unbound_line(name: &str, file: &str, fix: &str) -> Line {

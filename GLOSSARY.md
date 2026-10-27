@@ -127,7 +127,7 @@ _Avoid_: roster, pool
 **Harness**:
 What runs an agent's session: Claude Code (`claude-code`), Codex (`codex`),
 pi (`pi`, a model on an OpenAI-compatible server) or goose (`goose`, a model
-on an OpenAI-compatible server, in the researcher role for now). A reviewer may also
+on an OpenAI-compatible server too). A reviewer may also
 run as a `command`, an `endpoint` or a `bot`.
 
 **Gateway**:
@@ -470,20 +470,6 @@ ruling, which reruns the head's failed jobs, and `restore` on a `turn-failed`
 one, which puts an uncommitted agent file back before the turn resumes. The
 option's text says what kelpie will do, and the board's events name the option
 that asked for it.
-
-**Advisor**:
-The panel's expert on the codebase, an agent file whose role is `advisor`.
-It reads the work item's worktree, the checkout, the branch's diff that kelpie
-writes into its folder, and the project's design docs, ADRs, glossary and
-README. It runs no git, `gh` or command, and writes nothing but its vote.
-
-**Researcher**:
-The panel's expert on everything outside the codebase, an agent file whose
-role is `researcher`. It reads what kelpie writes into its folder, which is
-earlier rulings and their answers, the issue and pull request threads, the
-worker's session and the maintainer's own agent sessions
-(`researcher.transcripts`, off until named), and it has the web, read only.
-It runs no git, `gh` or command, and writes nothing but its vote.
 
 **Merge authority**:
 Who merges a green, reviewed pull request, a project's `git.merging`. `ask`

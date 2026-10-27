@@ -481,13 +481,8 @@ fn spends_on(
         .any(|(model, _)| on_it(model));
     reviewers
         || roles.is_some_and(|roles| {
-            let others = [
-                roles.pm.as_ref().map(|a| &a.model),
-                roles.advisor.as_ref().map(|a| &a.model),
-                roles.researcher.as_ref().map(|a| &a.model),
-            ];
             roles.implementers.iter().any(|i| on_it(&i.model))
-                || others.into_iter().flatten().any(on_it)
+                || roles.pm.as_ref().is_some_and(|pm| on_it(&pm.model))
         })
 }
 

@@ -215,7 +215,7 @@ fn list_shows_every_baseline_as_missing_a_file_in_an_empty_folder() {
     let dir = tempfile::tempdir().unwrap();
     let lines = agents(dir.path(), "list").unwrap();
     let missing = lines.iter().filter(|l| l.contains("baseline, no file"));
-    assert_eq!(missing.count(), 10, "{lines:#?}");
+    assert_eq!(missing.count(), 8, "{lines:#?}");
 }
 
 #[test]
@@ -551,8 +551,8 @@ fn init_on(
 }
 
 // A models file with rows for claude-code, pi and codex, in `order`: the
-// implementer, one reviewer baseline, the PM and the advisor on claude-code, the
-// implementer and the reviewer on pi, and the advisor on codex.
+// implementer, one reviewer baseline, the PM and the representative on claude-code,
+// the implementer and the reviewer on pi, and the representative on codex.
 fn lineup(order: &[&str], pi_model: &str) -> String {
     format!(
         "order = {order:?}\n\n\
@@ -560,11 +560,11 @@ fn lineup(order: &[&str], pi_model: &str) -> String {
          [claude-code.reviewer.defect-hunter]\nmodel = \"claude-opus-5-5\"\neffort = \"high\"\n\
          second_look = true\n\n\
          [claude-code.pm]\nmodel = \"claude-opus-5-5\"\neffort = \"medium\"\n\n\
-         [claude-code.advisor]\nmodel = \"claude-opus-5-5\"\neffort = \"high\"\n\n\
+         [claude-code.representative]\nmodel = \"claude-opus-5-5\"\neffort = \"high\"\n\n\
          [pi.implementer]\nmodel = \"{pi_model}\"\neffort = \"high\"\ncontext = 65536\n\n\
          [pi.reviewer.defect-hunter]\nmodel = \"{pi_model}\"\neffort = \"high\"\n\
          second_look = true\ncontext = 65536\n\n\
-         [codex.advisor]\nmodel = \"gpt-6.1-sol\"\neffort = \"medium\"\n"
+         [codex.representative]\nmodel = \"gpt-6.1-sol\"\neffort = \"medium\"\n"
     )
 }
 
@@ -603,13 +603,11 @@ fn init_claude_code_binds_every_role_it_serves_and_the_files_load() {
     assert_eq!(
         files(dir.path()),
         [
-            "advisor.md",
             "defect-hunter.md",
             "implementer.md",
             "issue-writer.md",
             "pm.md",
             "representative.md",
-            "researcher.md",
             "security-reviewer.md",
             "spec.md",
             "standards.md",
@@ -644,8 +642,6 @@ fn init_claude_code_binds_every_role_it_serves_and_the_files_load() {
         ("reviewer", "security-reviewer"),
         ("pm", "pm"),
         ("issue-writer", "issue-writer"),
-        ("advisor", "advisor"),
-        ("researcher", "researcher"),
         ("representative", "representative"),
         ("triager", "triager"),
     ] {
@@ -683,7 +679,7 @@ fn init_keeps_a_file_that_exists_and_names_it() {
     );
     assert_eq!(file(dir.path(), "pm"), before, "never over a file");
     assert!(
-        dir.path().join("advisor.md").is_file(),
+        dir.path().join("spec.md").is_file(),
         "the rest of the lineup is still written"
     );
 }
@@ -909,7 +905,7 @@ fn detect_gives_each_role_the_first_harness_in_order_that_serves_it() {
     };
     bound("implementer", "pi");
     bound("defect-hunter", "pi");
-    bound("advisor", "codex");
+    bound("representative", "codex");
     bound("pm", "claude-code");
     assert!(
         said.iter()
@@ -919,7 +915,7 @@ fn detect_gives_each_role_the_first_harness_in_order_that_serves_it() {
     );
     assert!(
         said.iter()
-            .any(|l| l.starts_with("researcher: none: pi has no row in agents/models.toml")),
+            .any(|l| l.starts_with("triager: none: pi has no row in agents/models.toml")),
         "{said:#?}"
     );
 }

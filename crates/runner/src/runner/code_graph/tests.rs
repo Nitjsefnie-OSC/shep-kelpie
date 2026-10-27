@@ -443,7 +443,7 @@ fn a_goose_worker_and_reviewer_get_the_server_and_an_index() {
     assert!(!super::reads_code(&call(Role::Worker, Tools::Work), false));
     assert!(!super::reads_code(&call(Role::Worker, Tools::Retro), true));
     assert!(!super::reads_code(
-        &call(Role::Researcher, Tools::Research),
+        &call(Role::Representative, Tools::Answer),
         true
     ));
 }
@@ -650,7 +650,7 @@ fn model_server() -> crate::settings::ModelServer {
 
 fn call_on(harness: AgentHarness) -> AgentCall {
     let mut call = AgentCall::new(
-        Role::Researcher,
+        Role::Reviewer,
         Tools::Review,
         harness,
         "qwen3.8:27b",

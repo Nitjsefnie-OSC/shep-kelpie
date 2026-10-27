@@ -216,8 +216,6 @@ mod tests {
             Tools::Issues,
             Tools::Pm,
             Tools::Retro,
-            Tools::Advise,
-            Tools::Research,
         ] {
             let call = AgentCall {
                 tools,

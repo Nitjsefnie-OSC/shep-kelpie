@@ -32,8 +32,6 @@ fn each_role_needs_what_the_design_says() {
         &[Need::Edits, Need::ResumableSession]
     );
     assert_eq!(Role::Reviewer.needs(), &[Need::RepoReads]);
-    assert_eq!(Role::Advisor.needs(), &[Need::RepoReads]);
-    assert_eq!(Role::Researcher.needs(), &[Need::RepoReads]);
     assert_eq!(Role::Triager.needs(), &[Need::RepoReads]);
     assert_eq!(Role::IssueWriter.needs(), &[Need::RoleGuard]);
     assert_eq!(Role::Pm.needs(), &[Need::RoleGuard]);
@@ -162,8 +160,6 @@ fn every_roles_keys_take_needs_and_check_the_harness() {
     for role in [
         "implementer",
         "reviewer",
-        "advisor",
-        "researcher",
         "triager",
         "representative",
         "issue-writer",

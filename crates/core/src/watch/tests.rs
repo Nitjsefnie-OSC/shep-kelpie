@@ -473,13 +473,13 @@ fn a_pi_session_shows_from_its_session_file() {
 // folder is the call's goose root, whose sibling `<stem>.stdout.jsonl` is the
 // stdout file.
 fn goose_started(rig: &Rig) -> (String, PathBuf) {
-    let root = rig.dir.path().join("worker/research-settings.goose");
+    let root = rig.dir.path().join("worker/review-settings.goose");
     let step = format!(
-        r#"{{"step":"session-started","issue":7,"role":"researcher","agent":"qwen","harness":"goose","session":"g7","transcript":{{"folder":{root:?}}}}}"#
+        r#"{{"step":"session-started","issue":7,"role":"reviewer","agent":"qwen","harness":"goose","session":"g7","transcript":{{"folder":{root:?}}}}}"#
     );
     (
         step,
-        rig.dir.path().join("worker/research-settings.stdout.jsonl"),
+        rig.dir.path().join("worker/review-settings.stdout.jsonl"),
     )
 }
 
@@ -506,21 +506,15 @@ fn a_goose_session_shows_from_the_stdout_file_of_its_call() {
     assert_eq!(lines.len(), 6, "{lines:#?}");
     assert_eq!(
         lines[1],
-        "12:00:01 #7 researcher (qwen) thinking Look at the diff"
+        "12:00:01 #7 reviewer (qwen) thinking Look at the diff"
     );
-    assert_eq!(
-        lines[2],
-        "12:00:01 #7 researcher (qwen) tool read src/lib.rs"
-    );
-    assert_eq!(
-        lines[3],
-        "12:00:02 #7 researcher (qwen) result fn main() {}"
-    );
-    assert_eq!(lines[4], "12:00:03 #7 researcher (qwen) said CLEAN");
+    assert_eq!(lines[2], "12:00:01 #7 reviewer (qwen) tool read src/lib.rs");
+    assert_eq!(lines[3], "12:00:02 #7 reviewer (qwen) result fn main() {}");
+    assert_eq!(lines[4], "12:00:03 #7 reviewer (qwen) said CLEAN");
     // goose gives an error no time, so it takes the time of the line before.
     assert_eq!(
         lines[5],
-        "12:00:03 #7 researcher (qwen) result error: model host went away"
+        "12:00:03 #7 reviewer (qwen) result error: model host went away"
     );
 }
 
@@ -533,7 +527,7 @@ fn a_goose_error_with_nothing_before_it_takes_the_time_its_call_started() {
     let (_watch, lines) = Watch::start(rig.folder(), rig.options(Scope::Project, 100));
     assert_eq!(
         shown(&lines)[1],
-        "12:00:00 #7 researcher (qwen) result error: no route to host"
+        "12:00:00 #7 reviewer (qwen) result error: no route to host"
     );
 }
 
@@ -564,7 +558,7 @@ fn two_goose_sessions_at_one_settings_path_show_the_file_once() {
         .into_iter()
         .filter(|line| line.contains(" said "))
         .collect();
-    assert_eq!(said, ["12:05:01 #7 researcher (qwen) said second"]);
+    assert_eq!(said, ["12:05:01 #7 reviewer (qwen) said second"]);
 }
 
 #[test]
@@ -592,9 +586,9 @@ fn a_goose_call_started_while_watching_replaces_the_one_before_it_at_that_path()
     assert_eq!(
         said,
         [
-            "12:05:01 #7 researcher (qwen) said second",
-            "12:05:02 #7 researcher (qwen) said and more",
-            "12:05:03 #7 researcher (qwen) said and more still",
+            "12:05:01 #7 reviewer (qwen) said second",
+            "12:05:02 #7 reviewer (qwen) said and more",
+            "12:05:03 #7 reviewer (qwen) said and more still",
         ]
     );
 }
@@ -622,8 +616,8 @@ fn a_goose_session_resumed_while_watching_reads_its_emptied_file_afresh() {
     assert_eq!(
         said,
         [
-            "12:05:01 #7 researcher (qwen) said second",
-            "12:05:02 #7 researcher (qwen) said and more",
+            "12:05:01 #7 reviewer (qwen) said second",
+            "12:05:02 #7 reviewer (qwen) said and more",
         ]
     );
 }
@@ -647,7 +641,7 @@ fn a_goose_transcript_that_is_not_there_yet_is_waited_for() {
     );
     assert_eq!(
         shown(&watch.poll()),
-        ["12:00:01 #7 researcher (qwen) said CLEAN"]
+        ["12:00:01 #7 reviewer (qwen) said CLEAN"]
     );
 }
 

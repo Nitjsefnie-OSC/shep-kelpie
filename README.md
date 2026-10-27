@@ -54,7 +54,7 @@ You need these on your machine:
 - `curl` and `openssl`, which reach GitHub as kelpie's App and sign its tokens
 - `pi`, `codex` or `goose`, only to run an agent on that harness (see [Agents](docs/guide/agents.md#agents))
   - For pi, `ripgrep` and `fd` on the `PATH` as well: pi's own `grep` and `find` tools run `rg` and `fd`, and neither is in the pi folder kelpie gives each call. `shep kelpie doctor` names a project that lacks them
-  - On Codex and goose, a reviewer, advisor and retro read the repo through a read-only shell (`kelpie guard --read-only`: `cat`, `head`, `tail`, `ls`, `tree`, `grep`, `rg`, `find`, `wc`, `file`, `stat`, `nl`, no git, no redirects). goose's `tree` is allowed, and its `edit` is refused. Its `write` is refused too, unless the reviewer is asked for a failing test (`ci.test_command`), when it writes the reviewer's tests folder and nothing else
+  - On Codex and goose, a reviewer and a retro read the repo through a read-only shell (`kelpie guard --read-only`: `cat`, `head`, `tail`, `ls`, `tree`, `grep`, `rg`, `find`, `wc`, `file`, `stat`, `nl`, no git, no redirects). goose's `tree` is allowed, and its `edit` is refused. Its `write` is refused too, unless the reviewer is asked for a failing test (`ci.test_command`), when it writes the reviewer's tests folder and nothing else
 - a GitHub repo and a checkout of it. Work goes into the repo's default branch, or the branch `add --base <branch>` names
 
 A runner is a sheep, so it gets the `PATH` your shepherd was started with, and it needs `claude`, `node`, `gh` and `git` on it. `shep kelpie doctor` runs in your shell, not the shepherd's, so it can pass while a runner fails to find one. Start the shepherd from a shell where `command -v claude node gh git` finds all four.
@@ -123,7 +123,7 @@ label `ready-for-agent`: already on shep-pm/shep
 label `ready-for-human`: already on shep-pm/shep
 label `in-progress`: already on shep-pm/shep
 label `review please`: already on shep-pm/shep
-agent files: wrote sonnet-high, opus-high, defect-hunter, defect-hunter-lite, iq3-xxs-review, standards, spec, coderabbit, cubic, codex, issue-writer, pm, advisor, researcher in /path/to/.shep/kelpie/agents
+agent files: wrote sonnet-high, opus-high, defect-hunter, defect-hunter-lite, iq3-xxs-review, standards, spec, coderabbit, cubic, codex, issue-writer, pm in /path/to/.shep/kelpie/agents
 runner `scratch`: added with its settings, stopped
 `shep kelpie start scratch` runs it
 ```
@@ -193,7 +193,7 @@ It ends up holding:
 allowed_domains = ["crates.io", "index.crates.io", "static.crates.io"]
 ```
 
-For npm, that is `registry.npmjs.org`. What an entry may be is in [`settings.example.toml`](https://github.com/shep-pm/shep-kelpie/blob/main/settings.example.toml), and `researcher.allowed_domains` takes the same entries. A change reaches a running runner at its next wake.
+For npm, that is `registry.npmjs.org`. What an entry may be is in [`settings.example.toml`](https://github.com/shep-pm/shep-kelpie/blob/main/settings.example.toml). A change reaches a running runner at its next wake.
 
 `-p` takes a glob of project names for `set` and `get`, to change or read a setting in many projects at once. Quote it, or the shell expands `*` against files:
 
