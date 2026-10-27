@@ -184,6 +184,9 @@ fn main() -> ExitCode {
         [command, verb] if command == "settings" && verb == "migrate" => {
             shep_kelpie::flock::settings_migrate()
         }
+        [command, verb] if command == "upgrade" && verb == "migrate" => {
+            shep_kelpie::upgrade::migrate_main()
+        }
         [command, rest @ ..] if command == "upgrade" => shep_kelpie::upgrade::main(rest),
         [command, rest @ ..] if command == "github" => shep_kelpie::github::setup::main(rest),
         [command] if command == "version" => version(false),

@@ -31,3 +31,39 @@ pub(crate) use shep_kelpie_test_support::{
     CALL_PATIENCE, Elsewhere, Fake, cut_from_main, exited, git, linked_worktree, main_commits,
     make_fifo, short_tempdir, waits_for, write_fake, write_script,
 };
+
+// A `command` hook that runs `folder`'s `gate.js` beside its `other.js`: the
+// worker's policy must read the one and not the other, nor the folder.
+#[cfg(test)]
+pub(crate) fn hook_beside_another(folder: &std::path::Path) -> shep_kelpie_core::hooks::Hooks {
+    std::fs::create_dir_all(folder).unwrap();
+    for name in ["gate.js", "other.js"] {
+        std::fs::write(folder.join(name), "process.exit(0)\n").unwrap();
+    }
+    let command = format!("node {}", folder.join("gate.js").display());
+    let hook = shep_kelpie_core::settings::ProjectHook {
+        point: shep_kelpie_core::settings::HookPoint::Command,
+        command: command.try_into().unwrap(),
+    };
+    shep_kelpie_core::hooks::Hooks::new("koji", "acme/koji", folder, &[hook])
+}
+
+// That `policy` reads what `hook_beside_another(folder)` runs, and nothing else there
+#[cfg(test)]
+pub(crate) fn assert_reads_the_hook_alone(
+    policy: &shep_kelpie_core::ports::Policy,
+    folder: &std::path::Path,
+) {
+    assert!(
+        policy.read.contains(&folder.join("gate.js")),
+        "{:?}",
+        policy.read
+    );
+    for denied in [folder.join("other.js"), folder.to_owned()] {
+        assert!(
+            !policy.read.contains(&denied),
+            "{denied:?} in {:?}",
+            policy.read
+        );
+    }
+}
