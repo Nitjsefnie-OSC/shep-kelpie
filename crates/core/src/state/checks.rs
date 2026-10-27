@@ -1,0 +1,51 @@
+//! What the issue check last said of each open issue, kept per issue and edit
+//!
+//! The board checks an issue when it is new to it or its key changed, so an
+//! unchanged issue is neither checked nor triaged twice. A result also holds
+//! where the triager stands on that edit.
+
+use serde::{Deserialize, Serialize};
+
+/// What the issue check said of one open issue, at one edit
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct IssueCheck {
+    /// The issue's number
+    pub issue: u64,
+    /// `board::check::key` of the title, body and labels it checked
+    pub key: u64,
+    /// Each part the issue lacked or held malformed, in the check's words,
+    /// empty when it passed
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub failures: Vec<String>,
+    /// Where the triager stands on this edit
+    #[serde(default, skip_serializing_if = "CheckTriage::is_none")]
+    pub triage: CheckTriage,
+}
+
+impl IssueCheck {
+    /// Whether the issue passed
+    pub fn passed(&self) -> bool {
+        self.failures.is_empty()
+    }
+}
+
+/// Where the triager stands on an issue's edit
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CheckTriage {
+    /// Nothing is owed: it passed, or its rewrite was checked again
+    #[default]
+    None,
+    /// It failed, and the triager has not run on it since
+    Owed,
+    /// The triager ran on it, and its rewrite is checked once its pass ends
+    Ran,
+}
+
+impl CheckTriage {
+    /// Whether nothing is owed
+    pub fn is_none(&self) -> bool {
+        *self == Self::None
+    }
+}

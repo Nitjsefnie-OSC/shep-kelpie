@@ -182,6 +182,34 @@ pub fn check(title: &str, body: &str, labels: &[String]) -> Vec<Failure> {
     failures
 }
 
+/// A digest of what [`check`] reads of an issue, which an edit changes
+///
+/// Its title, its body, and its priority and kind labels in any order. A label
+/// the check does not read, such as a triage label, changes nothing.
+pub fn key(title: &str, body: &str, labels: &[String]) -> u64 {
+    let mut read: Vec<String> = (labels.iter())
+        .filter(|l| is_priority_label(l) || kind_of(l).is_some())
+        .map(|l| l.trim().to_ascii_lowercase())
+        .collect();
+    read.sort();
+    read.dedup();
+    let text = format!("{}\0{}\0{}", title.trim(), body.trim(), read.join("\0"));
+    fnv1a(text.as_bytes())
+}
+
+/// FNV-1a over `bytes`
+///
+/// A saved digest is read again after a restart and on another machine, so
+/// it is a fixed function and not the standard library's, which may change.
+pub fn fnv1a(bytes: &[u8]) -> u64 {
+    let mut hash = 0xcbf2_9ce4_8422_2325_u64;
+    for byte in bytes {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    hash
+}
+
 /// The paths in backticks the issue says it touches: on its `Touches:` line,
 /// or the list under that line when it holds no text, or the section under a
 /// `Touches` heading. `None` without either.

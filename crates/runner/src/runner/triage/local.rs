@@ -293,14 +293,7 @@ fn one_line(text: &str) -> String {
         .join(" ")
 }
 
-// FNV-1a over the body's bytes, trimmed. A saved hash is read again after a
-// restart and on another machine, so it is a fixed function and not the
-// standard library's, which is free to change between releases.
+// FNV-1a over the body's bytes, trimmed
 pub(super) fn body_hash(body: &str) -> u64 {
-    let mut hash = 0xcbf2_9ce4_8422_2325_u64;
-    for byte in body.trim().as_bytes() {
-        hash ^= u64::from(*byte);
-        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
-    }
-    hash
+    crate::board::check::fnv1a(body.trim().as_bytes())
 }
