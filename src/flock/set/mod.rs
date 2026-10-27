@@ -22,6 +22,8 @@ use crate::runner::check_gateway_shapes;
 use crate::settings::{Settings, SettingsError, source};
 use crate::shepherd::{self, Connection, DOG, Tables};
 
+pub mod migrate;
+
 /// What `set` reads a project's settings against, as its runner does
 #[derive(Debug, Clone, Copy)]
 pub struct Place<'a> {
@@ -106,7 +108,7 @@ pub async fn set(
     value: &str,
 ) -> Result<Vec<String>, String> {
     let change = prepare(client, name, place, key, value).await?;
-    write(client, &change).await?;
+    write(client, &change.request).await?;
     Ok(vec![change.line])
 }
 
@@ -159,7 +161,7 @@ pub async fn set_all(
         ));
     }
     for (done, change) in changes.iter().enumerate() {
-        if let Err(failed) = write(client, change).await {
+        if let Err(failed) = write(client, &change.request).await {
             let (written, left) = changes.split_at(done);
             return Err(format!(
                 "{failed}\nwritten: {}\nnot written: {}",
@@ -189,11 +191,33 @@ async fn prepare(
     value: &str,
 ) -> Result<Change, String> {
     let read = shepherd::read_tables_with(client, name.as_str()).await?;
-    let before = read.project.clone().ok_or_else(|| no_table(name))?;
-    let mut table = before.clone();
+    let mut table = read.project.clone().ok_or_else(|| no_table(name))?;
     let value = read_value(value);
     let shown = render_value(&value)?;
     insert(&mut table, key, value)?;
+    let (request, git_moved) = checked(client, name, place, read, table).await?;
+    let reaches = match waits_for_start(key) {
+        true => "a running runner takes it when it next starts",
+        false => "a running runner takes it at its next wake",
+    };
+    Ok(Change {
+        name: name.clone(),
+        request,
+        line: format!("project {name}: {key} = {shown}; {reaches}"),
+        git_moved,
+    })
+}
+
+// Checks `table`, the project's table as `read` held it once edited, as the runner
+// will read it, and makes the request that writes it, saying whether git moved.
+async fn checked(
+    client: &dyn Connection,
+    name: &ProjectName,
+    place: Place<'_>,
+    read: Tables,
+    table: Map<String, Value>,
+) -> Result<(Request, bool), String> {
+    let before = read.project.unwrap_or_default();
     let git_moved = ["git.checkout", "git.remote"]
         .iter()
         .any(|moved| lookup(&before, moved) != lookup(&table, moved));
@@ -221,20 +245,11 @@ async fn prepare(
         dog: DOG.to_owned(),
         table: changed.project.map(DogTable::from),
     };
-    let reaches = match waits_for_start(key) {
-        true => "a running runner takes it when it next starts",
-        false => "a running runner takes it at its next wake",
-    };
-    Ok(Change {
-        name: name.clone(),
-        request,
-        line: format!("project {name}: {key} = {shown}; {reaches}"),
-        git_moved,
-    })
+    Ok((request, git_moved))
 }
 
-async fn write(client: &dyn Connection, change: &Change) -> Result<(), String> {
-    send(client, change.request.clone(), |r| {
+async fn write(client: &dyn Connection, request: &Request) -> Result<(), String> {
+    send(client, request.clone(), |r| {
         matches!(r, Response::SheepDogSettingsSet { .. })
     })
     .await

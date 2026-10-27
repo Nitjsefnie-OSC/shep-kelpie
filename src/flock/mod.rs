@@ -21,6 +21,7 @@ mod usage;
 mod verbs;
 mod watch;
 
+pub use set::migrate::main as settings_migrate;
 pub use verbs::{USAGE, VERBS, main, split_project, verb_first};
 
 use std::collections::BTreeMap;
