@@ -37,6 +37,7 @@ struct Written {
     /// is the maintainer's. `merge`, `security`, `contribution-merge` and
     /// `local-model-spilled` are refused as `true`.
     #[serde(default)]
+    #[schemars(with = "BTreeMap<RulingName, bool>")]
     pm_decides: Option<BTreeMap<RulingName, bool>>,
     /// Kinds the project manager decides alone, each read as `true` in
     /// `pm_decides`. Refused beside `pm_decides`.

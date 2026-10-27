@@ -76,9 +76,6 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(1800);
 pub(super) const CONNECT_TIMEOUT: &str = "10";
 pub(super) const CHECK_TIMEOUT: &str = "15";
 
-/// The seconds a gateway may hold a request for its turn: the request's own timeout
-const MAX_WAIT: &str = "1800";
-
 /// How much of a reply an error quotes
 const QUOTE: usize = 300;
 
@@ -269,7 +266,10 @@ impl LocalReviewer {
                 if let Some(lease) = lease {
                     command.args(["-H", &format!("X-Paddock-Lease: {lease}")]);
                 }
-                command.args(["-H", &format!("X-Paddock-Max-Wait: {MAX_WAIT}")]);
+                // The turn may take the request's own timeout. The unit is written out,
+                // since paddock reads a bare number as milliseconds.
+                let wait = REQUEST_TIMEOUT.as_secs();
+                command.args(["-H", &format!("X-Paddock-Max-Wait: {wait}s")]);
                 command.args(["--config", "-"]);
                 let header = format!("Authorization: Bearer {}", key.expose());
                 crate::adapters::curl::render(&[("header", header)])
