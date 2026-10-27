@@ -48,22 +48,24 @@ pub(crate) fn hook_beside_another(folder: &std::path::Path) -> shep_kelpie_core:
     shep_kelpie_core::hooks::Hooks::new("koji", "acme/koji", folder, &[hook])
 }
 
-// That `policy` reads what `hook_beside_another(folder)` runs, and nothing else there
+// That `policy` reads what `hook_beside_another(folder)` runs and the folder it
+// loads its neighbours from, and nothing above that folder
 #[cfg(test)]
-pub(crate) fn assert_reads_the_hook_alone(
+pub(crate) fn assert_reads_the_hook_and_its_folder(
     policy: &shep_kelpie_core::ports::Policy,
     folder: &std::path::Path,
 ) {
-    assert!(
-        policy.read.contains(&folder.join("gate.js")),
-        "{:?}",
-        policy.read
-    );
-    for denied in [folder.join("other.js"), folder.to_owned()] {
+    for read in [folder.join("gate.js"), folder.to_owned()] {
         assert!(
-            !policy.read.contains(&denied),
-            "{denied:?} in {:?}",
+            policy.read.contains(&read),
+            "{read:?} not in {:?}",
             policy.read
         );
     }
+    let above = folder.parent().unwrap().to_owned();
+    assert!(
+        !policy.read.contains(&above),
+        "{above:?} in {:?}",
+        policy.read
+    );
 }
