@@ -26,7 +26,7 @@ impl Role {
     pub fn needs(self) -> &'static [Need] {
         match self {
             Self::Implementer => &[Need::Edits, Need::ResumableSession],
-            Self::Reviewer | Self::Advisor | Self::Researcher | Self::Triager => &[Need::RepoReads],
+            Self::Reviewer | Self::Triager => &[Need::RepoReads],
             Self::IssueWriter | Self::Pm => &[Need::RoleGuard],
             Self::Representative => &[],
         }

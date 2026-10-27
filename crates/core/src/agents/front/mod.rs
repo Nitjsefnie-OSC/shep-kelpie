@@ -33,8 +33,6 @@ enum Front {
     Reviewer(Reviewer),
     IssueWriter(OnClaude),
     Pm(OnClaude),
-    Advisor(Expert),
-    Researcher(Expert),
     Representative(Expert),
     Triager(Expert),
 }
@@ -44,6 +42,15 @@ enum Front {
 struct Tag {
     role: Role,
 }
+
+// The role as written, to name one that went with the panel
+#[derive(Debug, Deserialize)]
+struct Written {
+    role: String,
+}
+
+/// The roles that went with the ruling panel
+const PANEL_ROLES: [&str; 2] = ["advisor", "researcher"];
 
 // An implementer's keys: a session on a harness
 #[derive(Debug, Deserialize)]
@@ -215,13 +222,13 @@ pub(super) fn parse(text: &str) -> Result<Agent, String> {
     // A blank first line stands for the opening `---`, so a message's line is the file's.
     let yaml = format!("\n{front}");
     let refused = |e: serde_saphyr::Error| yaml_error(&yaml, &e);
-    let front = match serde_saphyr::from_str::<Tag>(&yaml).map_err(refused)?.role {
+    let tag = serde_saphyr::from_str::<Tag>(&yaml)
+        .map_err(|e| panel_role(&yaml).unwrap_or_else(|| refused(e)))?;
+    let front = match tag.role {
         Role::Implementer => Front::Implementer(serde_saphyr::from_str(&yaml).map_err(refused)?),
         Role::Reviewer => Front::Reviewer(serde_saphyr::from_str(&yaml).map_err(refused)?),
         Role::IssueWriter => Front::IssueWriter(serde_saphyr::from_str(&yaml).map_err(refused)?),
         Role::Pm => Front::Pm(serde_saphyr::from_str(&yaml).map_err(refused)?),
-        Role::Advisor => Front::Advisor(serde_saphyr::from_str(&yaml).map_err(refused)?),
-        Role::Researcher => Front::Researcher(serde_saphyr::from_str(&yaml).map_err(refused)?),
         Role::Representative => {
             Front::Representative(serde_saphyr::from_str(&yaml).map_err(refused)?)
         }
@@ -230,10 +237,7 @@ pub(super) fn parse(text: &str) -> Result<Agent, String> {
     let leased = match &front {
         Front::Implementer(keys) => keys.lease.is_some(),
         Front::Reviewer(keys) => keys.lease.is_some(),
-        Front::Advisor(keys)
-        | Front::Researcher(keys)
-        | Front::Representative(keys)
-        | Front::Triager(keys) => keys.lease.is_some(),
+        Front::Representative(keys) | Front::Triager(keys) => keys.lease.is_some(),
         Front::IssueWriter(_) | Front::Pm(_) => false,
     };
     if leased {
@@ -279,14 +283,23 @@ pub(super) fn parse(text: &str) -> Result<Agent, String> {
             keys.agent(Role::IssueWriter, prompt, &yaml, "the issue writer")
         }
         Front::Pm(keys) => keys.agent(Role::Pm, prompt, &yaml, "the project manager"),
-        Front::Advisor(keys) => keys.agent(Role::Advisor, prompt, &yaml, "the advisor"),
-        Front::Researcher(keys) => keys.agent(Role::Researcher, prompt, &yaml, "the researcher"),
         Front::Representative(keys) => {
             keys.agent(Role::Representative, prompt, &yaml, "the representative")
         }
         Front::Triager(keys) => keys.agent(Role::Triager, prompt, &yaml, "the triager"),
     }?;
     Ok(agent)
+}
+
+// The refusal of a `role` that went with the panel, if `yaml` names one.
+fn panel_role(yaml: &str) -> Option<String> {
+    let written = serde_saphyr::from_str::<Written>(yaml).ok()?.role;
+    PANEL_ROLES.contains(&written.as_str()).then(|| {
+        let why = format!(
+            "`{written}` is no role now: it went with the ruling panel, so delete the file"
+        );
+        at_key(yaml, "role", &why)
+    })
 }
 
 impl Expert {

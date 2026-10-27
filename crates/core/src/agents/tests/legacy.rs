@@ -6,7 +6,7 @@ use crate::agents::{Agents, baseline};
 
 // Each baseline's binding as `git show a22137eb:agents/<name>.md` has it, before the
 // baselines dropped their models: (name, harness, model, effort, second_look).
-const SHIPPED: [(&str, &str, &str, &str, bool); 10] = [
+const SHIPPED: [(&str, &str, &str, &str, bool); 8] = [
     (
         "defect-hunter",
         "claude-code",
@@ -31,14 +31,6 @@ const SHIPPED: [(&str, &str, &str, &str, bool); 10] = [
         false,
     ),
     ("pm", "claude-code", "claude-opus-5-5", "medium", false),
-    ("advisor", "claude-code", "claude-opus-5-5", "high", false),
-    (
-        "researcher",
-        "claude-code",
-        "claude-sonnet-5-5",
-        "high",
-        false,
-    ),
     (
         "representative",
         "claude-code",
@@ -73,7 +65,7 @@ fn wrote(report: &Report) -> Vec<&str> {
 }
 
 #[test]
-fn the_table_matches_the_ten_files_as_they_shipped() {
+fn the_table_matches_the_files_as_they_shipped() {
     assert_eq!(legacy::TABLE.len(), SHIPPED.len());
     for (name, harness, model, effort, second_look) in SHIPPED {
         let row = legacy::named(name).unwrap_or_else(|| panic!("{name} has no row"));
@@ -118,7 +110,7 @@ fn a_bare_stub_gets_the_binding_and_then_loads_as_it_did_before() {
 
 #[test]
 fn a_stub_keeps_its_comments_other_keys_and_body() {
-    let text = "---\n# mine, for the nightly run\nextends: kelpie:researcher\n\
+    let text = "---\n# mine, for the nightly run\nextends: kelpie:spec\n\
                 usage: none # no meter\n\n# last\n---\nAlso read the changelog.\n";
     let dir = folder(&[("nightly.md", text)]);
 
@@ -126,8 +118,8 @@ fn a_stub_keeps_its_comments_other_keys_and_body() {
 
     assert_eq!(
         read(&dir, "nightly.md"),
-        "---\n# mine, for the nightly run\nextends: kelpie:researcher\n\
-         harness: claude-code\nmodel: claude-sonnet-5-5\neffort: high\n\
+        "---\n# mine, for the nightly run\nextends: kelpie:spec\n\
+         harness: claude-code\nmodel: claude-opus-5-5\neffort: high\n\
          usage: none # no meter\n\n# last\n---\nAlso read the changelog.\n"
     );
 }
@@ -248,7 +240,7 @@ fn a_second_run_writes_nothing() {
 #[test]
 fn a_file_extending_a_stub_loads_bound() {
     let dir = folder(&[
-        ("base.md", &stub("advisor")),
+        ("base.md", &stub("spec")),
         ("child.md", "---\nextends: base\neffort: low\n---\nShort.\n"),
     ]);
     assert!(
@@ -300,4 +292,51 @@ fn a_report_lists_what_it_would_write_without_writing_it() {
     let report = legacy::pending(dir.path()).unwrap();
     assert_eq!(wrote(&report), ["a.md"]);
     assert_eq!(read(&dir, "a.md"), stub("pm"));
+}
+
+#[test]
+fn a_bare_stub_of_a_role_the_panel_took_is_deleted_and_named() {
+    let bound = "---\nextends: kelpie:advisor\nharness: claude-code\nmodel: claude-opus-5-5\n\
+                 effort: high\n---\n";
+    let dir = folder(&[
+        ("advisor.md", bound),
+        ("researcher.md", &stub("researcher")),
+    ]);
+
+    let report = legacy::migrate(dir.path()).unwrap();
+
+    assert_eq!(
+        report.lines(),
+        [
+            "advisor.md: deleted, its role went with the ruling panel",
+            "researcher.md: deleted, its role went with the ruling panel",
+        ]
+    );
+    assert!(!dir.path().join("advisor.md").exists());
+    assert!(!dir.path().join("researcher.md").exists());
+    assert!(legacy::migrate(dir.path()).unwrap().lines().is_empty());
+}
+
+#[test]
+fn a_file_of_a_role_the_panel_took_that_holds_more_is_left_and_named() {
+    let body = "---\nextends: kelpie:advisor\nmodel: m\n---\nAlso read the changelog.\n";
+    let keys = "---\nextends: kelpie:researcher\nusage: none\n---\n";
+    let dir = folder(&[("mine.md", body), ("nightly.md", keys)]);
+
+    let report = legacy::migrate(dir.path()).unwrap();
+
+    let left: Vec<&str> = report.left.iter().map(|l| l.file.as_str()).collect();
+    assert_eq!(left, ["mine.md", "nightly.md"]);
+    assert!(
+        report.lines()[0].starts_with("mine.md: left, "),
+        "{:?}",
+        report.lines()
+    );
+    assert!(
+        report.left[0].why.contains("kelpie:advisor"),
+        "{:?}",
+        report.left
+    );
+    assert_eq!(read(&dir, "mine.md"), body);
+    assert_eq!(read(&dir, "nightly.md"), keys);
 }
