@@ -210,6 +210,9 @@ const BOARD_HEADING: &str = "## The board, as it stood when kelpie woke you\n\n"
 /// What a wake says when the board it carries is the one in its folder
 const BOARD_BELOW: &str = "The board is below, and `board.md` holds the same text.";
 
+/// How the next wake's line begins when kelpie did not save a `standing`
+pub(super) const STANDING_REFUSED: &str = "kelpie did not save your `standing`:";
+
 /// What kelpie says of the project manager's three notes files
 #[derive(Debug, Clone, Default)]
 pub(super) struct Notes {
@@ -302,7 +305,8 @@ pub(super) fn wake(
                  it.\n"
             );
             // A session from before the key was added has not seen it.
-            if notes.mine || notes.condense {
+            let refused = lost.iter().any(|l| l.starts_with(STANDING_REFUSED));
+            if notes.mine || notes.condense || refused {
                 let _ = write!(
                     out,
                     "\nThe object takes this key as well:\n\n```\n{}\n```\n\n{}\n",

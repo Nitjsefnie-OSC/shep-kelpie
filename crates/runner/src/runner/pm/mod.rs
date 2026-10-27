@@ -830,14 +830,20 @@ impl Runner {
             Wake::Pick(_, free) => Some((*free).max(1)),
             _ => None,
         });
-        // Each tell this wake carried goes into the standing notes before the
-        // answer acts, so an action that cannot be saved cannot lose a rule the
-        // maintainer gave. An answer that gave the whole file was told to carry
-        // its own tells, so they are not added a second time.
-        if answer.standing.is_none() {
+        // The standing notes and each tell this wake carried are written before
+        // the answer acts, so an action that cannot be saved cannot lose a rule
+        // the maintainer gave. A saved `standing` was told to carry its own
+        // tells, and one kelpie did not save carried them nowhere.
+        let stood = answer.standing.as_deref().map(|text| self.pm_stand(text));
+        if !matches!(stood, Some(Ok(_))) {
             self.pm_stand_tells(&flying.told);
         }
-        let (mut acted, dropped) = self.act(&mut answer, picking)?;
+        let (mut acted, mut dropped) = self.act(&mut answer, picking)?;
+        match stood {
+            Some(Ok(done)) => acted.push(done),
+            Some(Err(why)) => dropped.push(why),
+            None => {}
+        }
         // Its votes on the rulings it was asked about; one it gave none on
         // abstains. They are part of what kelpie did, so they are recorded
         // before the note below names the wake's actions.

@@ -212,7 +212,7 @@ fn a_standing_answer_over_4_kib_is_dropped_and_named() {
     let (_, acted, dropped) = answered(step(&runner).unwrap());
     assert_eq!(
         dropped,
-        ["`standing`: over its 4 KiB limit, so pm-standing.md stays as it is"]
+        ["`standing`: 4098 bytes, over its 4 KiB limit, so pm-standing.md stays as it is"]
     );
     assert!(!acted.iter().any(|a| a.contains("standing")), "{acted:?}");
     assert_eq!(
@@ -220,6 +220,37 @@ fn a_standing_answer_over_4_kib_is_dropped_and_named() {
         "Hold #12 until the release.\n",
         "the file stays as it was"
     );
+}
+
+#[test]
+fn a_dropped_standing_keeps_its_tells_and_the_next_wake_asks_again() {
+    let (rig, runner) = with_pm("koji");
+    rig.ask(&runner, "tell", Some("Hold #12 until the release"));
+    let long = "x".repeat(STANDING_MAX + 1);
+    let said = format!("{{\"pick\": null, \"standing\": \"{long}\"}}");
+    let said: &'static str = Box::leak(said.into_boxed_str());
+    rig.claude
+        .script([Scripted::Say(said), Scripted::Say("{\"pick\": null}")]);
+    answered(step(&runner).unwrap());
+    assert_eq!(
+        read(&rig, PM_STANDING),
+        "## 2026-09-21 14:13\nHold #12 until the release\n",
+        "the tell is kept though its `standing` was not"
+    );
+
+    rig.ask(&runner, "tell", Some("Release is out"));
+    answered(step(&runner).unwrap());
+    let [_, next] = pm_seen(&rig).try_into().unwrap();
+    let prompt = &next.call.prompt;
+    assert!(
+        prompt.contains(
+            "kelpie did not save your `standing`: it was 4098 bytes, over its 4 KiB limit, \
+             so pm-standing.md stays as it was. Condense it, and give the whole shorter file \
+             in `standing`."
+        ),
+        "{prompt}"
+    );
+    assert!(prompt.contains("\"standing\": null or"), "{prompt}");
 }
 
 #[test]
