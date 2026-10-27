@@ -108,8 +108,7 @@ impl Runner {
         }
     }
 
-    // Whether a triage pass on `issue` is under way: its call, a comment not yet
-    // posted, or a record short of its end
+    // Whether a triage pass on `issue` is under way. A pass given up on is not.
     pub(super) fn triage_busy(&self, issue: u64) -> bool {
         let unfinished = self.triage_record(issue).is_some_and(|t| {
             !matches!(
@@ -119,7 +118,8 @@ impl Runner {
         });
         let unposted = (self.triage_tries.get(&issue))
             .is_some_and(|t| t.waiting.is_some() || t.body.is_some());
-        unfinished || unposted || self.flights.triaging() == Some(issue)
+        let given_up = self.triage_given_up(issue);
+        ((unfinished || unposted) && !given_up) || self.flights.triaging() == Some(issue)
     }
 
     // Whether `issue` failed its last check and the triager has not run on it since
