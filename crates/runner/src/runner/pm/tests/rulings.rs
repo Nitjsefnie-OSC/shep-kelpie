@@ -139,6 +139,46 @@ fn a_design_flag_goes_to_the_maintainer_with_the_project_managers_pick() {
     );
 }
 
+/// The project manager's reply answering ruling 71 with `choice`, giving a
+/// why that mentions someone and links away
+fn answers_with_a_mention(choice: char, design: bool) -> &'static str {
+    let text = format!(
+        "{{\"pick\": null, \"votes\": [{{\"ruling\": 71, \"choice\": \"{choice}\", \
+         \"why\": \"ask @someone, see [it](https://evil.example/x) or www.evil.example\", \
+         \"design\": {design}}}]}}"
+    );
+    Box::leak(text.into_boxed_str())
+}
+
+/// The why [`answers_with_a_mention`] gives, as a comment shows it
+const INERT_WHY: &str = "ask @\u{200b}someone, see \\[it\\]\\(https:\u{200b}//evil.example/x\\) or www\u{200b}.evil.example";
+
+#[test]
+fn the_project_managers_why_cannot_mention_anyone_or_link_in_its_answer() {
+    let (rig, runner) = left_to_pm("pm-inert", Merging::Auto);
+    rig.claude.script_for(
+        Role::Pm,
+        [Scripted::Say(answers_with_a_mention('A', false))],
+    );
+
+    settled(&rig, &runner);
+
+    let said = answered(&rig).expect("the answer is posted");
+    assert!(said.contains(INERT_WHY), "{said}");
+}
+
+#[test]
+fn the_project_managers_why_cannot_mention_anyone_or_link_on_the_maintainers_card() {
+    let (rig, runner) = left_to_pm("pm-inert-card", Merging::Auto);
+    rig.claude
+        .script_for(Role::Pm, [Scripted::Say(answers_with_a_mention('B', true))]);
+
+    settled(&rig, &runner);
+
+    let card = asking(&rig).expect("the ruling is posted for the maintainer");
+    assert!(card.contains(INERT_WHY), "{card}");
+}
+
 #[test]
 fn a_wake_that_gives_no_answer_sends_the_ruling_to_the_maintainer_as_it_stands() {
     let (rig, runner) = left_to_pm("pm-none", Merging::Auto);
