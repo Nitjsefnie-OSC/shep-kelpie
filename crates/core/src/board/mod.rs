@@ -19,6 +19,7 @@ use crate::settings::{AgentName, Dependencies, ForgeSlug};
 use crate::ticket::TicketId;
 
 pub mod briefing;
+pub mod check;
 mod open;
 
 pub use open::{OpenPullRequest, ReviewMarks};
@@ -655,5 +656,7 @@ pub fn has_criteria(body: &str) -> bool {
     heading && lines.any(|line| line.starts_with("- ") || line.starts_with("* "))
 }
 
+#[cfg(test)]
+mod check_tests;
 #[cfg(test)]
 mod tests;

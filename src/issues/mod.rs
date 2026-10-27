@@ -443,10 +443,7 @@ pub const TOUCHES_SPLIT: usize = 13;
 // a list or in bold. Paths are the backticked spans, as the issue writer is
 // told to write them, else the comma-separated entries.
 fn touches(body: &str) -> usize {
-    let Some(line) = body.lines().find_map(|l| {
-        let l = l.trim_start_matches(|c: char| c.is_whitespace() || c == '-' || c == '*');
-        l.strip_prefix("Touches:")
-    }) else {
+    let Some(line) = crate::board::check::touches_line(body) else {
         return 0;
     };
     // Backticks pair up, so every second part between them is inside a pair.
