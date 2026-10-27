@@ -246,11 +246,12 @@ fn incoming(folder: &Path, host: &str, carry: Carry) {
     });
     write(folder, "go", "");
     eventually("the turn's end", || turn_of_7(&rig, &runner) == "ended");
+    // What the wait saw, as the worker may move #7 on before a second read
+    write(folder, "turn", "ended");
 
     let lines = crate::usage::read(&rig.paths().folder.join(crate::usage::FILE)).unwrap();
     let turn = lines.first().expect("a usage line for the turn");
     write(folder, "ledger", &serde_json::to_string(turn).unwrap());
-    write(folder, "turn", &turn_of_7(&rig, &runner));
     assert!(worker.stop(JOIN_BOUND, || {}));
 }
 
