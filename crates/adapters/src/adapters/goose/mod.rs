@@ -352,7 +352,7 @@ fn server(call: &AgentCall) -> Result<&ModelServer, AgentError> {
 
 // What goose cannot give a call. The agent files already refuse a role goose
 // does not take, so this is the second line.
-// parity: harness.issue-writer, harness.pm
+// parity: harness.pm
 fn refuse_unsupported(call: &AgentCall) -> Result<(), AgentError> {
     let refused = match (call.role, call.tools) {
         // The representative reads and runs nothing: with no fence, goose offers it no tool.
@@ -374,7 +374,7 @@ fn refuse_unsupported(call: &AgentCall) -> Result<(), AgentError> {
                 call.role.as_str()
             ))
         }
-        (Role::IssueWriter | Role::Pm, _) => Some(format!(
+        (Role::Pm, _) => Some(format!(
             "goose cannot run the {}: it runs on Claude Code alone",
             call.role.as_str()
         )),

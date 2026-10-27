@@ -68,7 +68,6 @@ pub(in crate::runner) fn stuck_comment(reason: &Stuck) -> String {
         Stuck::TurnTimeout { .. } => {
             "The work on this pull request ran too long and was stopped.".to_owned()
         }
-        Stuck::Unlabelled { .. } => "No implementer was picked for this issue.".to_owned(),
         Stuck::AdoptFailed { .. } => "This pull request could not be adopted.".to_owned(),
         Stuck::TurnFailed { setup: true, .. } => {
             "Kelpie could not set up the work on this pull request on its own machine, so it \

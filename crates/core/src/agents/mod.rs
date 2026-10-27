@@ -61,9 +61,6 @@ pub const QWEN: &str = "qwen";
 /// with `contributions.security_reviewer`
 pub const SECURITY_REVIEWER: &str = "security-reviewer";
 
-/// The agent `shep kelpie issue` runs
-pub const ISSUE_WRITER: &str = "issue-writer";
-
 /// The project manager kelpie ships, which a project runs with `agents.pm`
 pub const PM: &str = "pm";
 
@@ -140,8 +137,6 @@ pub enum Role {
     /// It reads a pull request once a pass, once a project lists it in
     /// `agents.reviewers`
     Reviewer,
-    /// It turns a request into issues, as `shep kelpie issue` runs it
-    IssueWriter,
     /// It manages the project's board, once a project names it in `agents.pm`
     Pm,
     /// It words the facts kelpie drafted into a post to a contributor, once a
@@ -154,10 +149,9 @@ pub enum Role {
 
 impl Role {
     /// Every role an agent file can name, in the order `agents init` writes them
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 5] = [
         Self::Implementer,
         Self::Reviewer,
-        Self::IssueWriter,
         Self::Pm,
         Self::Representative,
         Self::Triager,
@@ -168,7 +162,6 @@ impl Role {
         match self {
             Self::Implementer => "implementer",
             Self::Reviewer => "reviewer",
-            Self::IssueWriter => "issue-writer",
             Self::Pm => "pm",
             Self::Representative => "representative",
             Self::Triager => "triager",
@@ -253,8 +246,7 @@ pub struct Agent {
     /// What runs its calls
     pub runs: Runs,
     /// Its file's body: an implementer's addition to kelpie's own
-    /// instructions, or a reviewer's or the issue writer's prompt. None
-    /// when blank.
+    /// instructions, or another role's prompt. None when blank.
     pub prompt: Option<String>,
     /// Globs of the files a pull request must change for this reviewer to
     /// run. Every pull request when empty, and always empty for another role.
@@ -874,49 +866,6 @@ impl fmt::Display for AgentsError {
 }
 
 impl core::error::Error for AgentsError {}
-
-/// What the issue writer runs on, from its agent file
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Writer {
-    /// Its agent file's name, `agents.issue_writer`
-    pub name: AgentName,
-    /// Its model and effort, on Claude Code
-    pub model: RoleModel,
-    /// Its file's body: its prompt
-    pub prompt: String,
-}
-
-impl Writer {
-    /// The agent `name` in `agents`, as `agents.issue_writer` names it
-    ///
-    /// # Errors
-    ///
-    /// A message when `agents` has no `name`, or its file is another role's.
-    pub fn of(agents: &Agents, name: &AgentName) -> Result<Self, String> {
-        let agent = agents.get(name).ok_or_else(|| {
-            match (agents.broken(name), agents.unbound_command(name)) {
-                (Some(error), _) => error.to_string(),
-                (None, Some(command)) => format!("`{name}` is unbound: run `{command}`"),
-                (None, None) => {
-                    format!("there is no `{name}` agent: write `agents/{name}.md` in kelpie's home")
-                }
-            }
-        })?;
-        let (Role::IssueWriter, Runs::Session { model, .. }, Some(prompt)) =
-            (agent.role, &agent.runs, &agent.prompt)
-        else {
-            return Err(format!(
-                "agent file `{name}.md` is a {}'s: its role must be `issue-writer`",
-                agent.role.as_str()
-            ));
-        };
-        Ok(Self {
-            name: name.clone(),
-            model: model.clone(),
-            prompt: prompt.clone(),
-        })
-    }
-}
 
 /// The listed implementers, the default first, as an `agent:` label names them
 pub fn implementers(agents: &RoleAgents) -> String {

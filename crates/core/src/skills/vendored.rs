@@ -91,16 +91,6 @@ pub(super) const CALLS: [(&str, &[&str]); 5] = [
     ("retro", &["writing-for-agents"]),
 ];
 
-/// Which of the vendored skills a plugin folder is written with
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) enum Which {
-    /// Every vendored skill, for a session the maintainer runs, which can
-    /// call any of them
-    All,
-    /// Only these, which the caller closed over [`CALLS`] already
-    Only(BTreeSet<&'static str>),
-}
-
 /// `names`, and every skill they call, transitively, by [`CALLS`]
 pub(super) fn with_their_calls(
     names: impl IntoIterator<Item = &'static str>,
@@ -121,21 +111,19 @@ pub(super) fn with_their_calls(
 ///
 /// A skill lands at `skills/<name>/`, dropping upstream's grouping folder,
 /// where Claude Code looks for a plugin's skills. A skill's folder is written
-/// whole, with every file the vendored copy has in it. The licence and the
-/// manifest are written for `Which::Only` too, and the plugin keeps its name.
+/// whole, with every file the vendored copy has in it. Only the skills in
+/// `names` are written, which the caller closed over [`CALLS`] already, and
+/// the licence and the manifest always are.
 ///
 /// # Errors
 ///
 /// The first file or folder that could not be removed or written.
-pub(super) fn write(dir: &Path, which: Which) -> io::Result<()> {
+pub(super) fn write(dir: &Path, names: &BTreeSet<&'static str>) -> io::Result<()> {
     match fs::remove_dir_all(dir) {
         Err(e) if e.kind() != io::ErrorKind::NotFound => return Err(e),
         _ => {}
     }
-    let wanted = |path: &str| match &which {
-        Which::All => true,
-        Which::Only(names) => skill_of(path).is_none_or(|skill| names.contains(skill)),
-    };
+    let wanted = |path: &str| skill_of(path).is_none_or(|skill| names.contains(skill));
     for (path, bytes) in FILES {
         if !wanted(path) {
             continue;
@@ -407,7 +395,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let plugin = dir.path().join("plugin");
         fs::create_dir_all(plugin.join("stale")).unwrap();
-        write(&plugin, Which::All).unwrap();
+        write(&plugin, &vendored_names()).unwrap();
         assert!(!plugin.join("stale").exists());
         let tests = fs::read(plugin.join("skills/tdd/tests.md")).unwrap();
         assert_eq!(

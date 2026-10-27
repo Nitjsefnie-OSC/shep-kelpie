@@ -17,7 +17,6 @@ pub mod sheep;
 pub mod upgrade;
 
 // The modules of `shep-kelpie-core`, each kept under the name it had here
-use shep_kelpie_core::dep_sources;
 pub use shep_kelpie_core::{
     agents, board, bridge, browse, coderabbit, codex, confine, cubic, fence, forge_ledger,
     forwarder, guard, home, hooks, ipc, lease, local_paths, local_tickets, metrics, pacer,

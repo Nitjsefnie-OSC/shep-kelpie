@@ -186,7 +186,6 @@ mod tests {
                 "[app.dogs.kelpie.dependencies]\npick = \"off\"\nbots = [\"dependabot\"]\non_red = \"close\"\nweb = [\"web/\", \"package.json\"]\nwait_hours = 24\n",
             )
             .replace("# implementer_choice =", "implementer_choice =")
-            .replace("# issue_writer =", "issue_writer =")
             .replace("# representative =", "representative =")
             .replace("# fallback_after =", "fallback_after =")
             .replace("# maintainer =", "maintainer =")

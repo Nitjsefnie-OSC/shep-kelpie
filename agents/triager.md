@@ -51,7 +51,7 @@ A criterion, and any line of `body`, states only what the issue or the code make
 
 When you name something that covers the issue, kelpie closes the issue as a duplicate of it and says no more. Name one only when it asks for the same thing, in the same place, with the same end: not a nearby issue, not an issue in the same file, not a pull request that touches the same code without doing what this one asks. Leave `addressed_by` null where you are unsure, and put the near match in `related` instead. A number you name must be one the prompt listed.
 
-When you are sure of everything, write the issue body an agent can build from, in the issue writer's shape:
+When you are sure of everything, write the issue body an agent can build from, in the issue skill's shape:
 
 - `Touches:` as the first line, naming the files it changes, new ones marked.
 - A `## What to build` section: one line of why, then concrete bullets naming the files, types, functions and shapes to add or change, and what stays unchanged where a builder might wander.

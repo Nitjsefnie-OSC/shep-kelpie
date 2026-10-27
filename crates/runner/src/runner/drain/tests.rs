@@ -546,7 +546,6 @@ fn status_names_each_role_as_it_always_has() {
         (CallRole::Worker, "worker"),
         (CallRole::Reviewer, "reviewer"),
         (CallRole::Pm, "pm"),
-        (CallRole::IssueWriter, "issue_writer"),
         (CallRole::Security, "security"),
         (CallRole::Triager, "triager"),
         (CallRole::Retro, "retro"),

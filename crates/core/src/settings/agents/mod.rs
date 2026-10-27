@@ -235,12 +235,12 @@ impl Default for Limit {
 
 /// How an issue with no `agent:` label gets its implementer
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, JsonSchema)]
-#[serde(rename_all = "kebab-case")]
+#[serde(try_from = "String")]
+// schemars describes a `try_from` type by its source, so the bound goes here.
+#[schemars(extend("enum" = ["order"]))]
 pub enum ImplementerChoice {
-    /// The issue writer reads the issue and labels it first
-    #[default]
-    IssueWriter,
     /// The first implementer listed, with no call
+    #[default]
     Order,
 }
 
@@ -248,8 +248,22 @@ impl ImplementerChoice {
     /// The word the setting holds
     pub fn as_str(self) -> &'static str {
         match self {
-            Self::IssueWriter => "issue-writer",
             Self::Order => "order",
+        }
+    }
+}
+
+impl TryFrom<String> for ImplementerChoice {
+    type Error = String;
+
+    fn try_from(value: String) -> Result<Self, String> {
+        match value.as_str() {
+            "order" => Ok(Self::Order),
+            "issue-writer" => Err("`issue-writer` is gone with the issue writer, so an issue \
+                 with no `agent:` label runs on the first implementer listed: delete the key, \
+                 or run `shep kelpie settings migrate`, which does"
+                .to_owned()),
+            other => Err(format!("unknown variant `{other}`, expected `order`")),
         }
     }
 }
@@ -259,21 +273,14 @@ impl ImplementerChoice {
 #[serde(deny_unknown_fields)]
 pub struct RoleAgentNames {
     /// The agents that build its work items, from kelpie's agent files. An
-    /// issue labelled `agent:<name>` runs on that one. With several listed,
-    /// the issue writer labels any other first; with one, it runs on that.
-    /// `["sonnet-high"]` when absent.
+    /// issue labelled `agent:<name>` runs on that one, and any other on the
+    /// first listed. `["sonnet-high"]` when absent.
     #[serde(default = "default_implementers")]
     pub implementers: Vec<AgentName>,
-    /// How an issue with no `agent:` label gets its implementer:
-    /// `issue-writer`, where the issue writer labels it first, or `order`,
-    /// where it runs on the first implementer listed. `issue-writer` when
-    /// absent.
+    /// How an issue with no `agent:` label gets its implementer: `order`,
+    /// where it runs on the first implementer listed, which is the default.
     #[serde(default)]
     pub implementer_choice: ImplementerChoice,
-    /// The issue writer's agent file, which `shep kelpie issue` runs and
-    /// which labels an unlabelled issue. `issue-writer` when absent.
-    #[serde(default = "default_issue_writer")]
-    pub issue_writer: AgentName,
     /// Minutes a work item's first turn may wait for its model, with no
     /// output yet, before it moves to the next implementer listed. Off when
     /// absent.
@@ -303,7 +310,6 @@ impl Default for RoleAgentNames {
         Self {
             implementers: default_implementers(),
             implementer_choice: ImplementerChoice::default(),
-            issue_writer: default_issue_writer(),
             fallback_after: None,
             reviewers: None,
             pm: None,
@@ -314,10 +320,6 @@ impl Default for RoleAgentNames {
 
 fn default_implementers() -> Vec<AgentName> {
     vec![AgentName::kelpies(crate::agents::DEFAULT_IMPLEMENTER)]
-}
-
-fn default_issue_writer() -> AgentName {
-    AgentName::kelpies(crate::agents::ISSUE_WRITER)
 }
 
 fn default_representative() -> AgentName {
@@ -375,8 +377,8 @@ pub struct ExpertAgent {
 pub struct RoleAgents {
     /// The project's implementers, in its order, each once
     pub implementers: Vec<Implementer>,
-    /// The implementer listed first, which the issue writer is told is the
-    /// default and an unlabelled issue runs on when only one is listed
+    /// The implementer listed first, which an issue with no `agent:` label
+    /// runs on
     pub default_implementer: Implementer,
     /// The project manager, when the project names one
     pub pm: Option<PmAgent>,
@@ -429,14 +431,6 @@ impl Settings {
                 reason: "lists no implementer: list one, such as `sonnet-high`".into(),
             });
         };
-        let writer = &self.agents.issue_writer;
-        find(
-            agents,
-            writer,
-            "agents.issue_writer",
-            "agents",
-            Role::IssueWriter,
-        )?;
         let pm = match &self.agents.pm {
             Some(name) => {
                 let agent = find(agents, name, "agents.pm", "agents", Role::Pm)?;

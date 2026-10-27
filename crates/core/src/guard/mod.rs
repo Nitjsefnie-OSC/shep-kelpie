@@ -13,7 +13,6 @@ mod after;
 mod gh;
 mod git;
 mod goose;
-mod issues;
 mod judging;
 mod pause;
 mod reading;
@@ -26,10 +25,6 @@ pub use gh::{TYPES as CONVENTIONAL_TYPES, conventional_type};
 pub use goose::{
     GOOSE_FLAG, GOOSE_SERVER_FLAG, GOOSE_WRITE_FLAG, goose_flag, goose_server_flags,
     goose_write_flag, judge_goose, judge_goose_reading, judge_goose_writing,
-};
-pub use issues::{
-    AGENT_FLAG, ISSUES_FLAG, IssueRules, LEDGER_FLAG, RECORD_FLAG, filed_in, issue_rules,
-    judge_issues, judge_issues_with, record_issues,
 };
 pub use pause::{PAUSE_FLAG, Pause, judge_pause, pause_flag};
 pub use reading::{READ_ONLY_COMMANDS, READ_ONLY_FLAG, judge_reading, reading_flag};
@@ -121,11 +116,6 @@ pub fn kelpie_pushes_flag(args: &[String]) -> (bool, Vec<String>) {
 /// Whether `args` asks for [`PIN_FLAG`], and the rest of them
 pub fn pin_flag(args: &[String]) -> (bool, Vec<String>) {
     take_flag(args, PIN_FLAG)
-}
-
-/// Whether `args` asks for [`RECORD_FLAG`], and the rest of them
-pub fn record_flag(args: &[String]) -> (bool, Vec<String>) {
-    take_flag(args, RECORD_FLAG)
 }
 
 /// Whether `args` asks for [`HERE_FLAG`], and the rest of them

@@ -5,7 +5,7 @@ use std::sync::Mutex;
 
 use serde_json::{Value, json};
 
-use super::{PICK_12, answered, name_pm, pm_on, pm_seen, step_until, with_pm};
+use super::{PICK_12, answered, pm_on, pm_seen, step_until, with_pm};
 use crate::runner::{Runner, StepReport, step};
 use crate::test::{Rig, Scripted, ticket};
 
@@ -169,27 +169,4 @@ fn a_list_longer_than_the_free_slots_drops_the_rest() {
 
     assert_eq!(acted, ["picked #14, #12, #9"]);
     assert_eq!(dropped, ["pick #15: only 3 can start from this wake"]);
-}
-
-#[test]
-fn a_pick_waiting_for_the_issue_writer_keeps_its_place_ahead_of_the_next() {
-    let rig = Rig::new("koji");
-    rig.edit_settings(|s| s.replace("active_items = 1", "active_items = 2"));
-    name_pm(&rig);
-    rig.implementers(&["sonnet-high", "opus-high"]);
-    let runner = rig.open().unwrap();
-    rig.forge.list_ready(12, false);
-    rig.forge.label(12, "agent:sonnet-high");
-    rig.forge.list_ready(14, false);
-    rig.claude.script([
-        Scripted::Say(PICKS_14_AND_12),
-        Scripted::Say("{\"agent\": \"sonnet-high\"}"),
-    ]);
-    answered(step(&runner).unwrap());
-
-    // #14 has no `agent:` label, so the issue writer labels it before it opens.
-    step_until(&runner, |r| matches!(r, StepReport::Labelled { .. }));
-
-    dispatched_in_order(&runner, [14, 12]);
-    assert_eq!(pick_dropped_steps(&runner), Vec::<Value>::new());
 }

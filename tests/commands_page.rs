@@ -420,7 +420,12 @@ fn the_usage_text_lists_every_verb_the_flock_runs() {
     let cli = Cli::read(&usage());
     let missing: Vec<&str> = shep_kelpie::flock::VERBS
         .into_iter()
-        .filter(|verb| !cli.verbs.contains_key(*verb))
+        // A verb with only subcommands, like `issue check`, heads its paths
+        .filter(|verb| {
+            !cli.verbs
+                .keys()
+                .any(|path| path.split(' ').next() == Some(*verb))
+        })
         .collect();
     assert!(missing.is_empty(), "usage lacks {missing:?}");
 }

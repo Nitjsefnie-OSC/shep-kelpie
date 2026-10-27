@@ -6,7 +6,7 @@ use crate::agents::{Agents, baseline};
 
 // Each baseline's binding as `git show a22137eb:agents/<name>.md` has it, before the
 // baselines dropped their models: (name, harness, model, effort, second_look).
-const SHIPPED: [(&str, &str, &str, &str, bool); 8] = [
+const SHIPPED: [(&str, &str, &str, &str, bool); 7] = [
     (
         "defect-hunter",
         "claude-code",
@@ -23,13 +23,6 @@ const SHIPPED: [(&str, &str, &str, &str, bool); 8] = [
     ),
     ("spec", "claude-code", "claude-opus-5-5", "high", false),
     ("standards", "claude-code", "claude-opus-5-5", "high", false),
-    (
-        "issue-writer",
-        "claude-code",
-        "claude-opus-5-5",
-        "medium",
-        false,
-    ),
     ("pm", "claude-code", "claude-opus-5-5", "medium", false),
     (
         "representative",
@@ -361,4 +354,38 @@ fn a_hand_made_file_of_a_role_the_panel_took_is_left_and_named() {
     assert!(report.deleted.is_empty(), "{report:?}");
     assert_eq!(read(&dir, "mine.md"), advisor);
     assert_eq!(read(&dir, "web.md"), researcher);
+}
+
+#[test]
+fn a_bare_stub_of_the_issue_writer_is_deleted_and_any_other_file_of_it_left_and_named() {
+    let bound = "---\nextends: kelpie:issue-writer\nharness: claude-code\n\
+                 model: claude-opus-5-5\neffort: medium\n---\n";
+    let more = "---\nextends: kelpie:issue-writer\nmodel: m\n---\nFile it small.\n";
+    let own = "---\nrole: issue-writer\nharness: claude-code\nmodel: m\neffort: low\n---\nWrite.\n";
+    let dir = folder(&[
+        ("issue-writer.md", bound),
+        ("mine.md", more),
+        ("scribe.md", own),
+    ]);
+
+    let report = legacy::migrate(dir.path()).unwrap();
+
+    let went = "went with the issue writer, and an issue is written with kelpie's `issue` skill";
+    let lines = report.lines();
+    assert_eq!(
+        lines[0],
+        format!("issue-writer.md: deleted, its role {went}")
+    );
+    assert!(
+        lines[1].starts_with("mine.md: left, the `issue-writer` role "),
+        "{lines:?}"
+    );
+    assert!(lines[1].contains("holds more than a binding"), "{lines:?}");
+    assert_eq!(
+        lines[2],
+        format!("scribe.md: left, the `issue-writer` role {went}, so delete the file")
+    );
+    assert!(!dir.path().join("issue-writer.md").exists());
+    assert_eq!(read(&dir, "mine.md"), more);
+    assert_eq!(read(&dir, "scribe.md"), own);
 }

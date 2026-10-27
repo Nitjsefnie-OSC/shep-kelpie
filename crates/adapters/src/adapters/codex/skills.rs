@@ -213,7 +213,6 @@ mod tests {
             Tools::Work,
             Tools::Review,
             Tools::Answer,
-            Tools::Issues,
             Tools::Pm,
             Tools::Retro,
         ] {

@@ -20,7 +20,7 @@ fn the_shipped_triager_is_an_expert_file_whose_role_is_triager() {
 }
 
 #[test]
-fn the_shipped_triager_names_the_issue_writers_sections() {
+fn the_shipped_triager_names_the_issue_skills_sections() {
     let agents = Agents::embedded().bind("triager", OPUS_HIGH);
     let prompt = agents
         .get(&name("triager"))

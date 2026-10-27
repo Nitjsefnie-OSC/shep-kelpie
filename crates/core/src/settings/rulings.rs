@@ -3,7 +3,8 @@
 use std::collections::BTreeMap;
 
 use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
+use serde::de::Error as _;
+use serde::{Deserialize, Deserializer, Serialize};
 
 use super::SettingsError;
 use crate::state::{Held, RulingKind, Stuck};
@@ -36,15 +37,18 @@ struct Written {
     /// `false`. A kind it does not name
     /// is the maintainer's. `merge`, `security`, `contribution-merge` and
     /// `local-model-spilled` are refused as `true`.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "named_map")]
     #[schemars(with = "BTreeMap<RulingName, bool>")]
     pm_decides: Option<BTreeMap<RulingName, bool>>,
     /// Kinds the project manager decides alone, each read as `true` in
     /// `pm_decides`. Refused beside `pm_decides`.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "named_list")]
     #[schemars(skip)]
     pm_alone: Option<Vec<RulingName>>,
 }
+
+/// The kind `unlabelled`, which the loader refuses by name and migrate deletes
+const UNLABELLED: &str = "unlabelled";
 
 impl TryFrom<Written> for Rulings {
     type Error = String;
@@ -66,6 +70,32 @@ impl TryFrom<Written> for Rulings {
             from_list,
         })
     }
+}
+
+// The map's kinds, each read by `RulingName::named`, which refuses `unlabelled` by name.
+fn named_map<'de, D: Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<BTreeMap<RulingName, bool>>, D::Error> {
+    let written = BTreeMap::<String, bool>::deserialize(deserializer)?;
+    let named = written
+        .into_iter()
+        .map(|(kind, decides)| RulingName::named(&kind).map(|kind| (kind, decides)));
+    named
+        .collect::<Result<_, _>>()
+        .map(Some)
+        .map_err(D::Error::custom)
+}
+
+// The list's kinds, read as the map's are.
+fn named_list<'de, D: Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<Vec<RulingName>>, D::Error> {
+    let written = Vec::<String>::deserialize(deserializer)?;
+    let named = written.iter().map(|kind| RulingName::named(kind));
+    named
+        .collect::<Result<_, _>>()
+        .map(Some)
+        .map_err(D::Error::custom)
 }
 
 /// A kind of ruling, as `rulings.pm_decides` and the usage ledger name it
@@ -109,8 +139,6 @@ pub enum RulingName {
     TurnTimeout,
     /// A turn failed
     TurnFailed,
-    /// No implementer was picked
-    Unlabelled,
     /// An adopted pull request could not start
     AdoptFailed,
     /// A work item or a contribution is over its budget
@@ -130,7 +158,7 @@ pub enum RulingName {
 
 impl RulingName {
     /// Every kind, in the order the enum lists them
-    pub const ALL: [Self; 23] = [
+    pub const ALL: [Self; 22] = [
         Self::Merge,
         Self::Question,
         Self::AgentFiles,
@@ -148,7 +176,6 @@ impl RulingName {
         Self::PushRefused,
         Self::TurnTimeout,
         Self::TurnFailed,
-        Self::Unlabelled,
         Self::AdoptFailed,
         Self::OverBudget,
         Self::Security,
@@ -177,7 +204,6 @@ impl RulingName {
             | Self::PushRefused
             | Self::TurnTimeout
             | Self::TurnFailed
-            | Self::Unlabelled
             | Self::AdoptFailed
             | Self::OverBudget => Some(true),
         }
@@ -201,6 +227,30 @@ impl RulingName {
             ),
             _ => None,
         }
+    }
+
+    /// The kind `name` spells, or why it names none. `unlabelled` is refused,
+    /// naming `settings migrate`.
+    ///
+    /// # Errors
+    ///
+    /// A message naming `name` when no kind has it.
+    pub fn named(name: &str) -> Result<Self, String> {
+        if name == UNLABELLED {
+            return Err(format!(
+                "`{UNLABELLED}` is no longer a kind of ruling, since the issue writer that raised \
+                 it is gone: delete it, or run `shep kelpie settings migrate`, which does"
+            ));
+        }
+        (Self::ALL.into_iter())
+            .find(|kind| kind.as_str() == name)
+            .ok_or_else(|| {
+                let names = Self::ALL.map(Self::as_str);
+                format!(
+                    "unknown variant `{name}`, expected one of `{}`",
+                    names.join("`, `")
+                )
+            })
     }
 
     /// The kind of `kind`
@@ -233,7 +283,6 @@ impl RulingName {
                 Stuck::PushRefused { .. } => Self::PushRefused,
                 Stuck::TurnTimeout { .. } => Self::TurnTimeout,
                 Stuck::TurnFailed { .. } => Self::TurnFailed,
-                Stuck::Unlabelled { .. } => Self::Unlabelled,
                 Stuck::AdoptFailed { .. } => Self::AdoptFailed,
                 Stuck::OverBudget { .. } => Self::OverBudget,
             },
@@ -260,7 +309,6 @@ impl RulingName {
             Self::PushRefused => "push-refused",
             Self::TurnTimeout => "turn-timeout",
             Self::TurnFailed => "turn-failed",
-            Self::Unlabelled => "unlabelled",
             Self::AdoptFailed => "adopt-failed",
             Self::OverBudget => "over-budget",
             Self::Security => "security",

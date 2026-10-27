@@ -14,7 +14,6 @@ use std::sync::{Arc, Mutex, PoisonError};
 use serde::{Deserialize, Serialize};
 
 use super::Timestamp;
-use crate::guard::IssueRules;
 use crate::hooks::Hooks;
 use crate::settings::{AgentHarness, Effort, GuardHook, Harness};
 use crate::ticket::TicketId;
@@ -28,9 +27,6 @@ pub enum Role {
     Worker,
     /// A reviewer's session, always a fresh one
     Reviewer,
-    /// The issue writer's one-shot session, which no work item records
-    #[serde(rename = "issue-writer")]
-    IssueWriter,
     /// The project manager's session, resumed across its wakes
     Pm,
     /// The representative's one-shot session, which words a post to a
@@ -52,8 +48,6 @@ mod role_tests {
         let name = |role| serde_json::to_value(role).unwrap();
         assert_eq!(name(Role::Reviewer), "reviewer");
         assert_eq!(Role::Reviewer.as_str(), "reviewer");
-        assert_eq!(name(Role::IssueWriter), "issue-writer");
-        assert_eq!(Role::IssueWriter.as_str(), "issue-writer");
         assert_eq!(name(Role::Representative), "representative");
         assert_eq!(Role::Representative.as_str(), "representative");
         assert_eq!(name(Role::Triager), "triager");
@@ -67,7 +61,6 @@ impl Role {
         match self {
             Self::Worker => "worker",
             Self::Reviewer => "reviewer",
-            Self::IssueWriter => "issue-writer",
             Self::Pm => "pm",
             Self::Representative => "representative",
             Self::Triager => "triager",
@@ -108,9 +101,6 @@ pub enum Tools {
     Review,
     /// None, beyond reading the folders its sandbox lists
     Answer,
-    /// Reading and searching files, and the commands the issue writer's
-    /// guard allows, with no crew and no file written
-    Issues,
     /// The project manager's: reading its working folder, and adding to
     /// the end of [`PM_NOTES`] there, which a hook holds it to
     Pm,
@@ -226,9 +216,6 @@ pub struct Guard {
     /// Folders besides the home folder whose paths stay off the forge: kelpie's
     /// home and the project's checkout
     pub folders: Vec<PathBuf>,
-    /// For the issue writer, what it may file. The guard then runs only the
-    /// commands that file, label and link issues, and git's read-only ones.
-    pub issues: Option<IssueRules>,
     /// The project's own hooks, which the guard runs on a commit, a push and
     /// the text of a `gh` command, whatever the harness
     pub hooks: Hooks,
@@ -287,7 +274,7 @@ pub struct AgentCall {
     pub tools: Tools,
     /// The tools its agent file names, as `claude --tools` takes them, in
     /// place of what a worker's or a reviewer's own kind starts with. A
-    /// retro, the project manager and the issue writer keep their own.
+    /// retro and the project manager keep their own.
     pub agent_tools: Option<String>,
     /// What it may reach
     pub reach: Reach,

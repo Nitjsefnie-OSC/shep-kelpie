@@ -7,7 +7,7 @@ This is early. It changes without notice, and there is no release yet.
 ## How it works
 
 ```
- request ──> issue writer ──> issue: acceptance criteria, agent:<name>, ready-for-agent
+ issue skill ──> issue: acceptance criteria, agent:<name>, ready-for-agent
                                  │
                                  v
  pick:   the project manager, or the board's rule (priority, then age)
@@ -26,7 +26,7 @@ This is early. It changes without notice, and there is no release yet.
  merge:  a ruling under `ask`, kelpie's code under `auto`, as a merge commit
 ```
 
-1. **Issue.** You and the issue writer turn a request into an issue with acceptance criteria, one pull request's worth, labelled with the agent that should build it (see [Writing issues](docs/guide/issues.md#writing-issues)).
+1. **Issue.** You, or any agent session, write an issue with kelpie's `issue` skill: acceptance criteria, one pull request's worth, labelled with the agent that should build it where one is wanted, and checked by `shep kelpie issue check` (see [Writing issues](docs/guide/issues.md#writing-issues)).
 2. **Pick.** A `ready-for-agent` issue joins the board. The project manager's agent picks the next one, or, without one, the board takes the first in its order, which starts as priority, then age, and opens a work item for it (see [The board](docs/guide/board.md#the-board)).
 3. **Build.** A worker, one of the project's implementers, builds it inline, opens a draft pull request and ends its turn (see [Building](docs/guide/building.md#building)).
 4. **Review.** Each reviewer in the project's list reads the pull request once, in order. One that finds anything, nits included, sends the worker all its findings for one fix turn, and the next reviewer reads the fix. No loop, no judge (see [The review](docs/guide/review.md#the-review)).
@@ -123,7 +123,7 @@ label `ready-for-agent`: already on shep-pm/shep
 label `ready-for-human`: already on shep-pm/shep
 label `in-progress`: already on shep-pm/shep
 label `review please`: already on shep-pm/shep
-agent files: wrote sonnet-high, opus-high, defect-hunter, defect-hunter-lite, iq3-xxs-review, standards, spec, coderabbit, cubic, codex, issue-writer, pm in /path/to/.shep/kelpie/agents
+agent files: wrote sonnet-high, opus-high, defect-hunter, defect-hunter-lite, iq3-xxs-review, standards, spec, coderabbit, cubic, codex, pm in /path/to/.shep/kelpie/agents
 runner `scratch`: added with its settings, stopped
 `shep kelpie start scratch` runs it
 ```
@@ -212,7 +212,7 @@ shep kelpie start
 
 It starts the project's runner, and the project runs while it does: `shep start scratch` and lookout's start do the same, and `shep ls` shows it `online`. The runner reads the board from its first pass.
 
-Put `ready-for-agent` on an issue that says what done looks like, with acceptance criteria, or have the issue writer write it (see [Writing issues](docs/guide/issues.md#writing-issues)). The runner gives it to a worker, which opens a draft pull request. Then the review runs, each listed reviewer once, and each reads a head only after CI has passed on it. CI runs again on the last fix. Last, you get a ruling before the merge. `shep kelpie status` shows every project. [The board](docs/guide/board.md#the-board) says what decides whether, and when, an issue starts.
+Put `ready-for-agent` on an issue that says what done looks like, with acceptance criteria, or have an agent write it with kelpie's `issue` skill (see [Writing issues](docs/guide/issues.md#writing-issues)). The runner gives it to a worker, which opens a draft pull request. Then the review runs, each listed reviewer once, and each reads a head only after CI has passed on it. CI runs again on the last fix. Last, you get a ruling before the merge. `shep kelpie status` shows every project. [The board](docs/guide/board.md#the-board) says what decides whether, and when, an issue starts.
 
 ### 9. Answer a ruling
 
@@ -245,7 +245,7 @@ shep kelpie finish
 
 One page for each topic, indexed in [docs/guide/README.md](docs/guide/README.md):
 
-- [Writing issues](docs/guide/issues.md): the issue writer, `shep kelpie issue` and the `agent:` label
+- [Writing issues](docs/guide/issues.md): the `issue` skill, `shep kelpie issue check` and the `agent:` label
 - [The board and the project manager](docs/guide/board.md): what decides whether and when an issue starts, the briefing and the project manager
 - [Contributions](docs/guide/contributions.md): pull requests from other people, their security review and the answers to what they ask
 - [Building](docs/guide/building.md): the worker, skills, repo plugins, `repo_setup`, the repo's own files, MCP servers, the code graph and retros

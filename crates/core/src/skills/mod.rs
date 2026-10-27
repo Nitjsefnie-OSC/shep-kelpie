@@ -27,22 +27,6 @@ mod wording;
 pub use repo::{MARKETPLACES, RepoPlugin, RepoPlugins, Servers, default_head, host_of, inspect};
 pub use vendored::{PIN, PLUGIN, UPSTREAM};
 
-/// The skill `shep kelpie issue --interactive` starts with: it runs
-/// `grilling` with `domain-modeling`
-pub const GRILL_WITH_DOCS: &str = "grill-with-docs";
-
-/// Writes kelpie's copy of mattpocock/skills into `dir` as a plugin, for a
-/// session the maintainer runs rather than a runner, and returns `skill`'s
-/// slash command in it
-///
-/// # Errors
-///
-/// The first file or folder that could not be removed or written.
-pub fn write_vendored(dir: &Path, skill: &str) -> io::Result<String> {
-    vendored::write(dir, vendored::Which::All)?;
-    Ok(format!("/{PLUGIN}:{skill}"))
-}
-
 /// Whether a plugin of this name would collide with the plugins kelpie
 /// writes itself: the vendored one and each step's own
 pub(crate) fn is_kelpies_own(name: &str) -> bool {
@@ -177,7 +161,7 @@ impl Skills {
         // set has it, so `status` never names a skill the folder lacks.
         let seeds: BTreeSet<&'static str> = vendored_skills(chosen).collect();
         let needed = vendored::with_their_calls(seeds.iter().copied());
-        let written = vendored::write(&vendored, vendored::Which::Only(needed)).map_err(|e| {
+        let written = vendored::write(&vendored, &needed).map_err(|e| {
             format!(
                 "cannot write kelpie's copy of mattpocock/skills to {}: {e}",
                 vendored.display()

@@ -1,11 +1,11 @@
 //! `shep kelpie settings migrate`: writes the keys each project's table is missing
 //!
 //! A project's old `rulings.pm_alone` list becomes `rulings.pm_decides`, and
-//! each kind of ruling the map lacks is written at its default. A key already
-//! there is never changed. The panel's `rulings.decide`,
-//! `rulings.full_panel_paths`, `agents.advisor`, `agents.researcher` and
-//! `researcher` table are deleted, and so are `advisor` and `researcher` in
-//! `repo_setup.roles`. Each table is checked as `set` checks it, and one the
+//! each kind of ruling the map lacks is written at its default; a key there is
+//! never changed. The keys of the panel and the issue writer ([`GONE_KEYS`])
+//! are deleted, with their roles in `repo_setup.roles` ([`GONE_ROLES`]),
+//! `agents.implementer_choice = "issue-writer"`, leaving `order`, and the
+//! `unlabelled` kind. Each table is checked as `set` checks it, and one the
 //! runner would refuse is not written.
 
 use std::path::PathBuf;
@@ -18,20 +18,27 @@ use crate::home::{ProjectName, ProjectPaths};
 use crate::settings::{PM_ALONE, PM_DECIDES, RulingName};
 use crate::shepherd::{self, Connection, Socket};
 
-/// The panel's keys, which no build reads now and the runner refuses
-const PANEL_KEYS: [&str; 5] = [
+/// The keys migrate deletes, each of which the loader refuses by name
+const GONE_KEYS: [&str; 6] = [
     "rulings.decide",
     "rulings.full_panel_paths",
     "agents.advisor",
     "agents.researcher",
     "researcher",
+    "agents.issue_writer",
 ];
 
-/// The list of roles that may still name the panel's experts
+/// The list of roles that may still name a role that is gone
 const ROLES: &str = "repo_setup.roles";
 
-/// The panel's experts, which `repo_setup.roles` no longer takes
-const PANEL_ROLES: [&str; 2] = ["advisor", "researcher"];
+/// The roles migrate deletes from `repo_setup.roles`, which refuses each by name
+const GONE_ROLES: [&str; 3] = ["advisor", "researcher", "issue-writer"];
+
+/// The choice of implementer migrate deletes, leaving the key to read `order`
+const WRITER_CHOICE: (&str, &str) = ("agents.implementer_choice", "issue-writer");
+
+/// The kind of ruling migrate deletes from `rulings.pm_decides` and the old list
+const WRITER_KIND: &str = "unlabelled";
 
 /// Runs `shep kelpie settings migrate`, printing a line for each project it changed
 pub fn main() -> ExitCode {
@@ -116,13 +123,16 @@ async fn project(
         return Ok(None);
     };
     let listed = lookup(&table, PM_ALONE).is_some();
+    let gone_kinds = writer_kind(&mut table);
     let wrote = pm_decides(&mut table);
     let mut removed: Vec<String> = (listed && lookup(&table, PM_ALONE).is_none())
         .then(|| PM_ALONE.to_owned())
         .into_iter()
         .collect();
-    removed.extend(panel_keys(&mut table).into_iter().map(str::to_owned));
-    removed.extend(panel_roles(&mut table));
+    removed.extend(gone_keys(&mut table).into_iter().map(str::to_owned));
+    removed.extend(gone_roles(&mut table));
+    removed.extend(writer_choice(&mut table));
+    removed.extend(gone_kinds);
     let said: Vec<String> = [("wrote", wrote.join(", ")), ("removed", removed.join(", "))]
         .into_iter()
         .filter(|(_, keys)| !keys.is_empty())
@@ -136,10 +146,10 @@ async fn project(
     Ok(Some(format!("project {name}: {}", said.join("; "))))
 }
 
-// Deletes the panel's keys from `table`, and names each it deleted.
-fn panel_keys(table: &mut Map<String, Value>) -> Vec<&'static str> {
+// Deletes the keys that are gone from `table`, and names each it deleted.
+fn gone_keys(table: &mut Map<String, Value>) -> Vec<&'static str> {
     let mut removed = Vec::new();
-    for setting in PANEL_KEYS {
+    for setting in GONE_KEYS {
         let held = match setting.split_once('.') {
             Some((outer, _)) => table.get_mut(outer).and_then(Value::as_object_mut),
             None => Some(&mut *table),
@@ -152,22 +162,51 @@ fn panel_keys(table: &mut Map<String, Value>) -> Vec<&'static str> {
     removed
 }
 
-// Deletes the panel's experts from `repo_setup.roles`, and names each it deleted.
-fn panel_roles(table: &mut Map<String, Value>) -> Vec<String> {
+// Deletes the roles that are gone from `repo_setup.roles`, and names each it deleted.
+fn gone_roles(table: &mut Map<String, Value>) -> Vec<String> {
     let (outer, key) = leaves(ROLES);
     let roles = table.get_mut(outer).and_then(|setup| setup.get_mut(key));
     let Some(Value::Array(roles)) = roles else {
         return Vec::new();
     };
-    let gone = |role: &Value| {
-        role.as_str()
-            .is_some_and(|role| PANEL_ROLES.contains(&role))
-    };
+    let gone = |role: &Value| role.as_str().is_some_and(|role| GONE_ROLES.contains(&role));
     let removed = (roles.iter().filter_map(Value::as_str))
-        .filter(|role| PANEL_ROLES.contains(role))
+        .filter(|role| GONE_ROLES.contains(role))
         .map(|role| format!("{role} from {ROLES}"))
         .collect();
     roles.retain(|role| !gone(role));
+    removed
+}
+
+// Deletes `agents.implementer_choice` when it holds `issue-writer`, and names it.
+fn writer_choice(table: &mut Map<String, Value>) -> Option<String> {
+    let ((outer, key), value) = (leaves(WRITER_CHOICE.0), WRITER_CHOICE.1);
+    let agents = table.get_mut(outer).and_then(Value::as_object_mut)?;
+    agents
+        .get(key)
+        .filter(|held| held.as_str() == Some(value))?;
+    agents.remove(key);
+    Some(format!("{} = {value:?}", WRITER_CHOICE.0))
+}
+
+// Deletes `unlabelled` from `rulings.pm_decides` and the old list, and names each it deleted.
+fn writer_kind(table: &mut Map<String, Value>) -> Vec<String> {
+    let ((outer, map_key), (_, list_key)) = (leaves(PM_DECIDES), leaves(PM_ALONE));
+    let Some(rulings) = table.get_mut(outer).and_then(Value::as_object_mut) else {
+        return Vec::new();
+    };
+    let mut removed = Vec::new();
+    let map = rulings.get_mut(map_key).and_then(Value::as_object_mut);
+    if map.and_then(|map| map.remove(WRITER_KIND)).is_some() {
+        removed.push(format!("{PM_DECIDES}.{WRITER_KIND}"));
+    }
+    if let Some(Value::Array(list)) = rulings.get_mut(list_key) {
+        let before = list.len();
+        list.retain(|kind| kind.as_str() != Some(WRITER_KIND));
+        if list.len() < before {
+            removed.push(format!("{WRITER_KIND} from {PM_ALONE}"));
+        }
+    }
     removed
 }
 

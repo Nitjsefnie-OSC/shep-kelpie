@@ -270,11 +270,8 @@ impl Card {
                 Self {
                     problem: None,
                     title: title.to_owned(),
-                    facts: (!matches!(
-                        reason,
-                        Stuck::Unlabelled { .. } | Stuck::AdoptFailed { .. }
-                    ))
-                    .then(|| stuck_comment(reason)),
+                    facts: (!matches!(reason, Stuck::AdoptFailed { .. }))
+                        .then(|| stuck_comment(reason)),
                     choices,
                     board: None,
                 }
@@ -575,11 +572,6 @@ fn stuck(reason: &Stuck) -> (&'static str, &'static str, Option<&'static str>) {
         Stuck::AdoptFailed { .. } => (
             "The adopted pull request cannot start",
             "Kelpie tries again, as it does every poll",
-            None,
-        ),
-        Stuck::Unlabelled { .. } => (
-            "No implementer was picked",
-            "The board takes the issue once it is labelled `agent:<name>`",
             None,
         ),
     }

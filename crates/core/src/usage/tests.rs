@@ -83,6 +83,8 @@ fn call(at: u64, issue: Option<u64>, role: Role, kind: CallKind, units: u64) -> 
 
 #[test]
 fn a_report_gives_each_merged_pull_request_its_medians_and_the_other_roles() {
+    let mut writer = retired(902, "issue-writer", 200);
+    writer["kind"] = "issues".into();
     let mut lines = [
         finished(1, true, 3000, 1000, 3600),
         finished(2, true, 1000, 1000, 600),
@@ -95,11 +97,11 @@ fn a_report_gives_each_merged_pull_request_its_medians_and_the_other_roles() {
         call(1003, Some(4), Role::Worker, CallKind::Turn, 500),
         call(900, None, Role::Pm, CallKind::Wake, 400),
         call(901, None, Role::Pm, CallKind::Compact, 300),
-        call(902, None, Role::IssueWriter, CallKind::Issues, 200),
+        serde_json::from_value(writer).unwrap(),
         call(903, Some(9), Role::Worker, CallKind::Turn, 70),
     ];
     // Two of #3's worker calls, one of the dropped item's reviewer calls and
-    // the issue writer's run reported no cost.
+    // a retired issue writer's run reported no cost.
     if let Line::Finished(item) = &mut lines[2] {
         item.worker.unpriced_calls = 2;
     }
@@ -136,7 +138,7 @@ fn a_report_gives_each_merged_pull_request_its_medians_and_the_other_roles() {
             "dollars count priced calls only: 2 calls of 1 merged item report no cost, the \
              median's dollars included",
             "loaded: 5,823 units, $1.17 + 1 unpriced call per merged pull request, counting \
-             every call: the project manager's, the issue writer's, and those of work items \
+             every call: the project manager's, the retired roles', and those of work items \
              dropped or closed with no change too",
             "baseline control room (a week): 8,000 units per merged pull request; kelpie / \
              baseline, below 1 is cheaper: 0.73 loaded, 0.50 median",
@@ -144,7 +146,7 @@ fn a_report_gives_each_merged_pull_request_its_medians_and_the_other_roles() {
             "dropped: 1 work item, 500 units, $0.50 + 1 unpriced call",
             "",
             "project manager: 2 calls (1 compaction), 700 units, $1.00",
-            "issue writer: 1 call, 200 units, $0.00 + 1 unpriced call",
+            "retired roles: 1 call, 200 units, $0.00 + 1 unpriced call (issue-writer 1 call)",
             "no finished record, open or from before the ledger:",
             "  #9 (#109): 1 call, 70 units, $0.50",
         ]
