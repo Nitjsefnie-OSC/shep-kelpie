@@ -1,16 +1,12 @@
 //! `shep kelpie settings migrate`: writes the keys each project's table is missing
 //!
 //! A project's old `rulings.pm_alone` list becomes `rulings.pm_decides`, and
-//! each kind of ruling the map lacks is written at its default. A key already
-//! there is never changed. The panel's `rulings.decide`,
-//! `rulings.full_panel_paths`, `agents.advisor`, `agents.researcher` and
-//! `researcher` table are deleted, and so are `advisor`, `researcher` and
-//! `issue-writer` in `repo_setup.roles`. With the issue writer gone,
-//! `agents.issue_writer` and `agents.implementer_choice = "issue-writer"` are
-//! deleted, leaving `order`, and so is the `unlabelled` kind from
-//! `rulings.pm_decides` and the old list.
-//! Each table is checked as `set` checks it, and one the runner would refuse
-//! is not written.
+//! each kind of ruling the map lacks is written at its default; a key there is
+//! never changed. The keys of the panel and the issue writer ([`GONE_KEYS`])
+//! are deleted, with their roles in `repo_setup.roles` ([`GONE_ROLES`]),
+//! `agents.implementer_choice = "issue-writer"`, leaving `order`, and the
+//! `unlabelled` kind. Each table is checked as `set` checks it, and one the
+//! runner would refuse is not written.
 
 use std::path::PathBuf;
 use std::process::ExitCode;

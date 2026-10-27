@@ -2,13 +2,12 @@
 //!
 //! Such a file still loads. The run state goes, so a paused project runs once
 //! its runner starts. The fields of the relay, planning call, whole-issue check,
-//! review loop, deep round's later steps and shots, a work item's `retro`
-//! mark, and a ruling's panel, are dropped. Their calls and time fold into a
-//! reviewer's session and review's or other's time. A review saved mid-loop resumes after the last
-//! reviewer it recorded. `deep` and `claude` are `defect-hunter`, and a review
-//! bot round is a pass of the listed bots. A pending ruling of a folded kind is
-//! a `stuck` one; of a removed kind, the file is refused (`local-model-spilled`).
-//! A pending `unlabelled` one, the issue writer's, is withdrawn.
+//! review loop, deep round's later steps and shots, a work item's `retro` mark
+//! and a ruling's panel are dropped, their calls and time folded into a
+//! reviewer's session and review's or other's time. A review saved mid-loop
+//! resumes after its last reviewer. `deep` and `claude` are `defect-hunter`, a
+//! bot round a pass of the listed bots. A pending ruling of a folded kind is
+//! `stuck`, of a removed kind refused, and of `unlabelled` withdrawn.
 
 use serde_json::{Map, Value, json};
 

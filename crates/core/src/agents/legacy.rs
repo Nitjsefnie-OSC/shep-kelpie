@@ -153,10 +153,9 @@ pub fn pending(folder: &Path) -> Result<Report, AgentsError> {
 ///
 /// A file whose own text has `extends: kelpie:<baseline>` gets each of `harness`, `model`,
 /// `effort` and (for `defect-hunter`) `second_look` it does not set, after its `extends` line.
-/// One on another session `harness` lacking `model` or `effort` is skipped, and one on
-/// `command`, `endpoint` or `bot` left alone. A stub of the gone `advisor`, `researcher` or
-/// `issue-writer` holding only its binding is deleted, any other left. A second run writes
-/// nothing.
+/// One on another session `harness` lacking `model` or `effort` is skipped, one on `command`,
+/// `endpoint` or `bot` left alone. A bare stub of a gone role (`advisor`, `researcher`,
+/// `issue-writer`) is deleted, any other left. A second run writes nothing.
 ///
 /// # Errors
 ///
