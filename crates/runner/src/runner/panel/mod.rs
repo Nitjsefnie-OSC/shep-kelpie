@@ -19,7 +19,7 @@ use crate::panel::{
 };
 use crate::ports::{AgentError, AgentReply, Timestamp};
 use crate::settings::{Decide, Merging, RulingName};
-use crate::state::{Ruling, RulingKind};
+use crate::state::{Ruling, RulingKind, Stuck};
 use crate::ticket::TicketId;
 use crate::usage::VoteMark;
 
@@ -242,13 +242,22 @@ impl Runner {
             && !self.panel.open.contains_key(&ruling.id)
             && !self.pm_has_asked(ruling.id)
             && super::voice::brief(ruling).1 >= 2
-            && !self.panel_decided_before(ruling)
+            && self.panel_passes_over(ruling).is_none()
     }
 
-    // Whether the panel already decided a question like `ruling`'s.
-    fn panel_decided_before(&self, ruling: &Ruling) -> bool {
-        matches!(ruling.kind, RulingKind::Question { .. })
-            && (history::records(&self.paths.rulings).iter()).any(|r| r.decided_by_panel(ruling))
+    // Why the panel never votes on `ruling`: a setup failure is the
+    // maintainer's alone, and a question or failure it already decided on
+    // the same work item is not put to it again.
+    fn panel_passes_over(&self, ruling: &Ruling) -> Option<Skip> {
+        if matches!(
+            ruling.kind,
+            RulingKind::Stuck(Stuck::TurnFailed { setup: true, .. })
+        ) {
+            return Some(Skip::Setup);
+        }
+        let decided =
+            (history::records(&self.paths.rulings).iter()).any(|r| r.decided_by_panel(ruling));
+        decided.then_some(Skip::Repeated)
     }
 
     // Drops what the panel keeps of a ruling that is answered or gone.
@@ -383,11 +392,9 @@ impl Runner {
         let voted = ruling.panel.is_some() || ruling.skipped.is_some();
         let posted = ruling.alerted || self.state.heard.contains_key(&id);
         if self.panel_enabled() && !voted && super::voice::brief(ruling).1 >= 2 {
-            let skip = match self.panel_decided_before(ruling) {
-                true => Skip::Repeated,
-                false => Skip::Posted,
-            };
-            if posted || skip == Skip::Repeated {
+            let skip = self.panel_passes_over(ruling);
+            if posted || skip.is_some() {
+                let skip = skip.unwrap_or(Skip::Posted);
                 self.panel_skipped(id, skip);
             }
         }

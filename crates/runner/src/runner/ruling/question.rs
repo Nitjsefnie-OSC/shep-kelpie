@@ -191,7 +191,12 @@ pub(in crate::runner) fn question(
                      and {no} stops the work item{kept}."
                 );
             }
-            Stuck::TurnFailed { why, restore, .. } => {
+            Stuck::TurnFailed {
+                why,
+                restore,
+                setup,
+                ..
+            } => {
                 let restores = match restore.is_empty() {
                     true => String::new(),
                     false => format!(
@@ -201,9 +206,18 @@ pub(in crate::runner) fn question(
                         restore.join(", ")
                     ),
                 };
+                let opening = match setup {
+                    true => format!("Kelpie could not set up the worker's turn on {about}"),
+                    false => format!("The worker's turn on {about} failed"),
+                };
+                let fix = if *setup {
+                    "Fix it on this machine, then "
+                } else {
+                    ""
+                };
                 return format!(
-                    "The worker's turn on {about} failed: {}. {yes} tries that step again\
-                     {restores}, and {no} stops the work item{kept}.",
+                    "{opening}: {}. {fix}{yes} tries that step again{restores}, and {no} stops \
+                     the work item{kept}.",
                     why.trim()
                 );
             }

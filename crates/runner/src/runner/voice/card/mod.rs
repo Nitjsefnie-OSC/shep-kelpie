@@ -553,6 +553,11 @@ fn stuck(reason: &Stuck) -> (&'static str, &'static str, Option<&'static str>) {
             "Resumes the worker's session for another turn",
             Some(STOPS),
         ),
+        Stuck::TurnFailed { setup: true, .. } => (
+            "Kelpie could not set up the worker's turn. Try again once it is fixed?",
+            "Tries that step again",
+            Some(STOPS),
+        ),
         Stuck::TurnFailed { .. } => (
             "The worker's turn failed. Try again?",
             "Tries that step again",

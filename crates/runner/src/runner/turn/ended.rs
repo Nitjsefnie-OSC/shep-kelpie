@@ -236,7 +236,7 @@ impl Runner {
                     // it was spent, so the work item parks, and a yes sends it back.
                     None if hook_parks.is_some() => {
                         let why = hook_parks.map(|refused| refused.parked).unwrap_or_default();
-                        failed(self.names(), &mut next, issue, now, why, Vec::new())
+                        failed(self.names(), &mut next, issue, now, why, Vec::new(), false)
                     }
                     None => StepReport::Ended {
                         issue,
@@ -290,7 +290,16 @@ impl Runner {
             }
             Err(e) => {
                 let restore = self.restorable(issue);
-                failed(self.names(), &mut next, issue, now, e.to_string(), restore)
+                let setup = matches!(e, AgentError::Setup(_));
+                failed(
+                    self.names(),
+                    &mut next,
+                    issue,
+                    now,
+                    e.to_string(),
+                    restore,
+                    setup,
+                )
             }
         };
         self.save(next)?;

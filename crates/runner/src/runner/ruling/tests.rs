@@ -55,6 +55,7 @@ fn a_ruling_on_the_pull_request_names_no_command_and_a_merge_says_nothing() {
             phase: Phase::Implement,
             retry: Turn::Next { prompt: "x".into() },
             restore: Vec::new(),
+            setup: false,
         }),
         RulingKind::ForeignChange {
             description: "the `bug` label was added".into(),

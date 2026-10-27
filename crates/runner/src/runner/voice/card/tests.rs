@@ -237,6 +237,7 @@ fn a_failed_turn_offers_a_restore_naming_the_files_it_puts_back() {
         phase: Phase::Implement,
         retry: crate::work_item::Turn::Due,
         restore: vec![".claude/settings.json".into()],
+        setup: false,
     });
 
     let card = rendered(&ruling(ticket(1), kind));

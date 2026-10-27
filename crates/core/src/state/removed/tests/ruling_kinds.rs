@@ -137,6 +137,7 @@ fn a_turn_failed_ruling_is_stuck_on_the_failure() {
             phase: Phase::Implement,
             retry: Turn::Due,
             restore: Vec::new(),
+            setup: false,
         },
     );
 }

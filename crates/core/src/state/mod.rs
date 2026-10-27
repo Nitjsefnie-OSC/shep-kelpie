@@ -53,7 +53,7 @@ use crate::work_item::{Attached, Known, Phase, Priced, Review, Seconds, Tally, T
 pub const STATE_FILE: &str = "state.json";
 
 /// The state file's format version, bumped when the file gains a field or value an older kelpie refuses
-pub const VERSION: u32 = 85;
+pub const VERSION: u32 = 86;
 
 /// The format before a project could have more than one work item open,
 /// which this kelpie still reads
@@ -684,6 +684,10 @@ pub enum Stuck {
         /// before the turn resumes
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         restore: Vec<String>,
+        /// Kelpie could not set up the call, which a retry does not fix, so
+        /// the ruling goes to the maintainer with no panel
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        setup: bool,
     },
     /// A work item's priced calls cost more than its cap, so its worker's
     /// next turn did not start. A yes doubles the cap, again while it is
