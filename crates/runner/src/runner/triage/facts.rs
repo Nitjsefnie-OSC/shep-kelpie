@@ -23,7 +23,7 @@ pub(super) enum Reader {
 /// What the comment is for
 #[derive(Debug, Clone, Copy)]
 pub(super) struct Wording {
-    /// The pass is sure and makes the issue ready for the board
+    /// The check passes the rewrite, which makes the issue ready for the board
     pub(super) ready: bool,
     /// The comment asks its author the open questions
     pub(super) ask: bool,
@@ -33,6 +33,8 @@ pub(super) struct Wording {
     pub(super) local: bool,
     /// The pass writes the settled answers under the author's text
     pub(super) settled: bool,
+    /// The pass rewrites the maintainer's issue, which the check still refuses
+    pub(super) rewrite: bool,
     /// A triage label put on by hand stands, so kelpie labels nothing
     pub(super) stood: bool,
 }
@@ -117,8 +119,8 @@ pub(super) fn facts(found: &Found, labels: &[String], wording: Wording, reader: 
     match ready {
         true => {
             facts.push_str(
-                "\nKelpie is sure of this issue: it rewrites the issue body from this report and \
-                 labels it `ready-for-agent` for its board.",
+                "\nThe issue as kelpie rewrites it passes its issue check: it rewrites the issue \
+                 body from this report and labels it `ready-for-agent` for its board.",
             );
             if let Some(priority) = found.priority {
                 facts.push_str(&format!(
@@ -146,6 +148,7 @@ fn closing(found: &Found, wording: Wording, reader: Reader) -> String {
         ask,
         answers,
         local,
+        rewrite,
         stood,
         ..
     } = wording;
@@ -164,7 +167,7 @@ fn closing(found: &Found, wording: Wording, reader: Reader) -> String {
         (false, false) => "\nThe maintainer triages it next.\n",
     };
     match reader {
-        Reader::Maintainer => maintainers(found, ask, stood),
+        Reader::Maintainer => maintainers(found, ask, stood, rewrite),
         Reader::Mentioned => format!(
             "{next}Kelpie adds a line under your words that mentions the maintainer, so they are \
              notified. Promise nothing else of them.\n"
@@ -173,21 +176,21 @@ fn closing(found: &Found, wording: Wording, reader: Reader) -> String {
     }
 }
 
-// What the representative is told of a pass that is not sure, on the
-// maintainer's own issue: it speaks to them, says what is theirs to settle,
-// and recommends a priority
-fn maintainers(found: &Found, ask: bool, stood: bool) -> String {
+// What the representative is told of a pass that does not make the
+// maintainer's own issue ready: it speaks to them, says what is theirs to
+// settle, and recommends a priority
+fn maintainers(found: &Found, ask: bool, stood: bool, rewrite: bool) -> String {
     let mut theirs = Vec::new();
     if !found.open.is_empty() {
         theirs.push("the questions above");
     }
-    if found.kind.is_none() {
+    if found.kind.is_none() && found.work.is_none() {
         theirs.push("the type");
     }
     if found.priority.is_none() {
         theirs.push("the priority");
     }
-    if !found.body.as_deref().is_some_and(is_issue_body) {
+    if !rewrite && !found.body.as_deref().is_some_and(is_issue_body) {
         theirs.push("an agent-ready body that names `Touches:` and has acceptance criteria");
     }
     let ending = match (ask, stood) {
@@ -199,6 +202,11 @@ fn maintainers(found: &Found, ask: bool, stood: bool) -> String {
         }
         (false, true) => {
             "A triage label they put on by hand stands, so kelpie labels it no further."
+        }
+        (false, false) if rewrite => {
+            "Kelpie rewrites the issue body from this report, in the issue format, but its \
+             issue check still refuses the issue, so it ends at `needs-triage`, waiting on \
+             them, and kelpie says what the check refused."
         }
         (false, false) => "It ends at `needs-triage`, waiting on them.",
     };

@@ -239,8 +239,9 @@ pub fn touches_line(body: &str) -> Option<&str> {
     labelled_line(body, TOUCHES)
 }
 
-// The type a `kind:` label names, in any case and with any spaces.
-fn kind_of(label: &str) -> Option<&str> {
+/// The type a `kind:` label names, in any case and with any spaces, or `None`
+/// for a label that is no kind label
+pub fn kind_of(label: &str) -> Option<&str> {
     let (head, kind) = label.split_at_checked(KIND.len())?;
     head.eq_ignore_ascii_case(KIND).then(|| kind.trim())
 }

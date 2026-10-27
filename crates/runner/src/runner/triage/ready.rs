@@ -1,13 +1,12 @@
-//! The maintainer's own issue the pass is sure of becomes agent-ready
+//! The maintainer's own issue the pass rewrites, made agent-ready when the
+//! issue check passes it
 //!
-//! Only the maintainer makes an outside issue ready, so the ready path runs for
-//! an issue whose author is [`Runner::maintainer`], ignoring case. Sure means a
-//! type and a priority, no open question, and a `body` that names `Touches:`
-//! ([`crate::board::has_criteria`]). The comment says the issue is ready, the
-//! body goes over the issue's, then the labels, `ready-for-agent` last. The
+//! The rewrite runs for an issue whose author is [`Runner::maintainer`],
+//! ignoring case, with no open question and a `body`. Where the check passes the
+//! issue as the pass leaves it, the body goes over the issue's, then the labels,
+//! `ready-for-agent` last; where it does not, the issue ends `needs-triage`. The
 //! comment is worded first, so it promises nothing for a body the local guard
-//! would refuse or while a hand-put triage label stands
-//! ([`Runner::triage_labelled_by_hand`], [`Runner::triage_seen`]).
+//! would refuse or while a hand-put triage label stands.
 
 use super::super::Runner;
 use super::super::contributions::post::{forge_is_busy, refused_text};
@@ -19,12 +18,12 @@ use crate::local_paths::{Leak, Surface};
 use crate::ports::{ForgeError, NewLabel};
 use crate::state::{StateError, TriageStep};
 
-/// Made on a repo that lacks it before the first issue kelpie is sure of is
-/// made ready
+/// Made on a repo that lacks it before the first issue that passes the issue
+/// check is made ready
 pub(super) const READY_LABEL: NewLabel<'static> = NewLabel {
     name: READY,
     color: "0e8a16",
-    description: "Kelpie researched this issue and is sure of it; its board may take it",
+    description: "The issue passes kelpie's issue check; its board may take it",
 };
 
 // Whether `body` is an agent-ready issue body: it names `Touches:` and has
@@ -37,39 +36,37 @@ pub(super) fn is_issue_body(body: &str) -> bool {
             .any(|line| line.starts_with("Touches:"))
 }
 
-// Whether the pass is sure of everything: a type, a priority, no open
-// question, and an agent-ready body
-fn sure(found: &Found) -> bool {
-    found.kind.is_some()
-        && found.priority.is_some()
-        && found.open.is_empty()
-        && found.body.as_deref().is_some_and(is_issue_body)
-}
-
-/// The agent-ready body kelpie writes over `issue`'s, or why it will not
-/// write one
+/// The body kelpie writes over `issue`'s, or why it will not write one
 pub(in crate::runner) enum Ready {
-    /// The body to write over the issue's
+    /// The body to write over the issue's, which the check passes
     Body(String),
-    /// Not this issue: an outside author, a reply that is not sure of
-    /// everything, or no maintainer to ask for
+    /// The body to write over the issue's, which the check still refuses
+    Rewrite(String),
+    /// Not this issue: an outside author, a reply with an open question or no
+    /// body, or no maintainer to ask for
     Not,
-    /// Sure, and the maintainer's own issue, but the body names something of
-    /// this machine, so kelpie will not write it
+    /// The maintainer's own issue, but the body names something of this
+    /// machine, so kelpie will not write it
     Local(Leak),
 }
 
-/// Whether kelpie is going to make `issue` ready, and with what body. Only an
-/// issue whose author is `Runner::maintainer()`, ignoring case, is ever made
-/// ready, since only the maintainer may make one. The body is read against
-/// the same local guard every App post goes through: the comment is worded
-/// before the body is written, so text the guard would refuse is dropped here
-/// rather than promised there.
-pub(in crate::runner) fn readiness(runner: &Runner, author: &str, found: &Found) -> Ready {
+/// Whether kelpie is going to rewrite `issue`, with `labels` the pass puts on,
+/// and whether that makes it ready. Only an issue whose author is
+/// `Runner::maintainer()`, ignoring case, is ever rewritten in place or made
+/// ready. The body is read against the same local guard every App post goes
+/// through: the comment is worded before the body is written, so text the
+/// guard would refuse is dropped here rather than promised there.
+pub(in crate::runner) fn readiness(
+    runner: &Runner,
+    issue: u64,
+    author: &str,
+    found: &Found,
+    labels: &[String],
+) -> Ready {
     let Some(body) = found.body.clone() else {
         return Ready::Not;
     };
-    if !sure(found) {
+    if !found.open.is_empty() {
         return Ready::Not;
     }
     let Ok(maintainer) = runner.maintainer() else {
@@ -80,7 +77,8 @@ pub(in crate::runner) fn readiness(runner: &Runner, author: &str, found: &Found)
     }
     match runner.local.find(&body, Surface::Prose) {
         Some(leak) => Ready::Local(leak),
-        None => Ready::Body(body),
+        None if runner.passes_with(issue, &body, labels) => Ready::Body(body),
+        None => Ready::Rewrite(body),
     }
 }
 

@@ -194,6 +194,7 @@ fn an_edited_body_is_triaged_again_and_a_sure_maintainer_issue_becomes_ready_for
             "comment",
             "label bug",
             "label P2",
+            "label kind:fix",
             "label ready-for-agent",
         ]
     );
@@ -604,8 +605,8 @@ fn a_body_rewritten_again_under_the_local_read_call_is_not_answered_by_it() {
     );
     assert_eq!(
         rig.github.issue_edits(),
-        [],
-        "no body written from the older read"
+        [(30, "## Settled\n\n- Linux, on start.".to_owned())],
+        "only the newer read's body is written"
     );
     assert_eq!(
         moves(&rig),

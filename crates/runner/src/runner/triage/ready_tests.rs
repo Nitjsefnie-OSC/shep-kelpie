@@ -1,5 +1,5 @@
-//! The maintainer's own issue the pass is sure of, made agent-ready through
-//! the runner's stand-ins
+//! The maintainer's own issue the pass rewrites, made agent-ready where the
+//! issue check passes the rewrite, through the runner's stand-ins
 
 use std::sync::Mutex;
 
@@ -15,13 +15,13 @@ use crate::ports::Role;
 use crate::runner::{Pass, Runner, advance, step};
 use crate::test::{CALL_PATIENCE, Hold, Rig, Scripted};
 
-// What the triager is sure of: a type, a priority, no open question, and an
-// agent-ready body
+// A reply the check passes: a type, a kind, a priority, no open question, and
+// an agent-ready body
 const BODY: &str = "Touches:\n- `src/start.rs` (new)\n\n## What to build\n\n- Fix the \
     crash on start.\n\n## Acceptance criteria\n\n- [ ] `runner::start::it_starts`\n";
 
 fn sure() -> Value {
-    json!({ "type": "bug", "priority": "P2", "body": BODY })
+    json!({ "type": "bug", "kind": "fix", "priority": "P2", "body": BODY })
 }
 
 // The same reply as leaked text, for a scripted call held open
@@ -65,8 +65,9 @@ fn filed_at(
 }
 
 // The labels a repo may hold for the pass, named bare
-const REPO_LABELS: [&str; 7] = [
+const REPO_LABELS: [&str; 8] = [
     "bug",
+    "kind:fix",
     "enhancement",
     "P1",
     "P2",
@@ -76,8 +77,9 @@ const REPO_LABELS: [&str; 7] = [
 ];
 
 // The same, named the way the board reads a priority: `priority: P2`
-const BOARD_LABELS: [&str; 8] = [
+const BOARD_LABELS: [&str; 9] = [
     "bug",
+    "kind:fix",
     "enhancement",
     "priority: P1",
     "priority: P2",
@@ -103,7 +105,13 @@ fn a_maintainer_issue_it_is_sure_of_gets_the_new_body_its_labels_and_ready_for_a
     assert_eq!(rig.github.issue_edits(), [(30, BODY.trim_end().to_owned())]);
     assert_eq!(
         moves(&rig),
-        ["comment", "label bug", "label P2", "label ready-for-agent"]
+        [
+            "comment",
+            "label bug",
+            "label P2",
+            "label kind:fix",
+            "label ready-for-agent"
+        ]
     );
     let said = facts(&rig);
     assert!(said.contains("ready-for-agent"), "{said}");
@@ -139,7 +147,13 @@ fn a_needs_triage_put_on_by_hand_comes_off_when_the_issue_is_made_ready() {
     );
     assert_eq!(
         moves(&rig),
-        ["comment", "label bug", "label P2", "label ready-for-agent"]
+        [
+            "comment",
+            "label bug",
+            "label P2",
+            "label kind:fix",
+            "label ready-for-agent"
+        ]
     );
     assert_eq!(triage(&rig, &runner)["issues"][0]["step"], "ready");
 }
@@ -158,13 +172,19 @@ fn an_outside_issue_it_is_sure_of_still_ends_needs_triage() {
     );
     assert_eq!(
         moves(&rig),
-        ["comment", "label bug", "label P2", "label needs-triage"]
+        [
+            "comment",
+            "label bug",
+            "label P2",
+            "label kind:fix",
+            "label needs-triage"
+        ]
     );
     assert_eq!(triage(&rig, &runner)["issues"][0]["step"], "done");
 }
 
 #[test]
-fn a_body_with_no_criteria_or_no_touches_line_is_not_sure_and_ends_needs_triage() {
+fn a_rewrite_the_check_refuses_is_written_over_the_body_and_ends_needs_triage() {
     let bodies = [
         // No acceptance criteria section.
         "Touches:\n- `src/start.rs`\n\n## What to build\n\n- Fix the crash.\n",
@@ -174,15 +194,25 @@ fn a_body_with_no_criteria_or_no_touches_line_is_not_sure_and_ends_needs_triage(
     ];
     for body in bodies {
         let (rig, runner) = filed("maintainer", MAINTAINER);
-        let found = json!({ "type": "bug", "priority": "P2", "body": body });
+        let found = json!({ "type": "bug", "kind": "fix", "priority": "P2", "body": body });
         rig.claude.script_for(Role::Triager, [reply(found)]);
 
         assert_eq!(step(&runner).unwrap(), None, "{body}");
 
-        assert_eq!(rig.github.issue_edits(), [], "{body}");
+        assert_eq!(
+            rig.github.issue_edits(),
+            [(30, body.trim_end().to_owned())],
+            "the maintainer's issue is rewritten in place: {body}"
+        );
         assert_eq!(
             moves(&rig),
-            ["comment", "label bug", "label P2", "label needs-triage"],
+            [
+                "comment",
+                "label bug",
+                "label P2",
+                "label kind:fix",
+                "label needs-triage"
+            ],
             "{body}"
         );
         assert_eq!(triage(&rig, &runner)["issues"][0]["step"], "done", "{body}");
@@ -190,12 +220,11 @@ fn a_body_with_no_criteria_or_no_touches_line_is_not_sure_and_ends_needs_triage(
 }
 
 #[test]
-fn a_reply_with_an_open_question_or_no_priority_is_not_sure() {
-    // An open question on the maintainer's own issue goes to its author first:
-    // the pass is not sure, and no label goes on while it waits. The round
-    // itself is `ask_tests`.
+fn a_reply_with_an_open_question_or_no_priority_is_not_made_ready() {
+    // An open question on the maintainer's own issue goes to its author first,
+    // and no label goes on while it waits. The round itself is `ask_tests`.
     let open = json!({
-        "type": "bug", "priority": "P2", "body": BODY,
+        "type": "bug", "kind": "fix", "priority": "P2", "body": BODY,
         "open": [{ "question": "Which platform?", "recommended": "Linux" }],
     });
     let (rig, runner) = filed("maintainer", MAINTAINER);
@@ -211,15 +240,15 @@ fn a_reply_with_an_open_question_or_no_priority_is_not_sure() {
         "{open}"
     );
 
-    // Nothing to ask about is triaged as any other issue: it ends
-    // `needs-triage`.
-    let found = json!({ "type": "bug", "body": BODY });
+    // With no priority the check refuses the rewrite: it goes over the body,
+    // and the issue ends `needs-triage`.
+    let found = json!({ "type": "bug", "kind": "fix", "body": BODY });
     let (rig, runner) = filed("maintainer", MAINTAINER);
     rig.claude.script_for(Role::Triager, [reply(found.clone())]);
 
     assert_eq!(step(&runner).unwrap(), None, "{found}");
 
-    assert_eq!(rig.github.issue_edits(), [], "{found}");
+    assert_eq!(rig.github.issue_edits(), [(30, BODY.trim_end().to_owned())]);
     assert_eq!(
         moves(&rig).last().map(String::as_str),
         Some("label needs-triage"),
@@ -240,7 +269,7 @@ fn a_body_naming_a_local_path_is_refused_and_the_issue_ends_needs_triage() {
     rig.claude.script_for(
         Role::Triager,
         [reply(
-            json!({ "type": "bug", "priority": "P2", "body": body }),
+            json!({ "type": "bug", "kind": "fix", "priority": "P2", "body": body }),
         )],
     );
 
@@ -263,7 +292,13 @@ fn a_body_naming_a_local_path_is_refused_and_the_issue_ends_needs_triage() {
     );
     assert_eq!(
         moves(&rig),
-        ["comment", "label bug", "label P2", "label needs-triage"]
+        [
+            "comment",
+            "label bug",
+            "label P2",
+            "label kind:fix",
+            "label needs-triage"
+        ]
     );
     assert_eq!(triage(&rig, &runner)["issues"][0]["step"], "done");
     let told: Vec<String> = runner.lock().unwrap().take_notes();
@@ -286,7 +321,7 @@ fn a_body_a_hook_refused_is_said_on_the_issue_and_the_issue_ends_needs_triage() 
     rig.claude.script_for(
         Role::Triager,
         [reply(
-            json!({ "type": "bug", "priority": "P2", "body": body }),
+            json!({ "type": "bug", "kind": "fix", "priority": "P2", "body": body }),
         )],
     );
 
@@ -308,6 +343,7 @@ fn a_body_a_hook_refused_is_said_on_the_issue_and_the_issue_ends_needs_triage() 
             "comment",
             "label bug",
             "label P2",
+            "label kind:fix",
             "label needs-triage"
         ],
         "the triage comment, the notice that the rewrite was refused, then the labels"
@@ -574,6 +610,7 @@ fn a_board_named_priority_label_is_the_one_that_goes_on_a_readied_issue() {
             "comment",
             "label bug",
             "label priority: P2",
+            "label kind:fix",
             "label ready-for-agent"
         ],
         "the triager's `P2` goes on under the name the board ranks by"
@@ -598,6 +635,7 @@ fn a_priority_the_repo_has_no_label_for_is_made_under_the_board_s_name() {
             "comment",
             "label bug",
             "label priority: P4",
+            "label kind:fix",
             "label ready-for-agent"
         ]
     );
@@ -618,6 +656,7 @@ fn a_board_named_priority_label_is_the_one_that_goes_on_an_issue_that_ends_needs
             "comment",
             "label bug",
             "label priority: P2",
+            "label kind:fix",
             "label needs-triage"
         ]
     );
@@ -681,6 +720,7 @@ fn an_issue_triaged_again_and_now_sure_loses_the_needs_triage_of_the_first_pass(
             "comment",
             "comment",
             "label bug",
+            "label kind:fix",
             "label ready-for-agent",
         ]
     );

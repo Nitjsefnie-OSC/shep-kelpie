@@ -45,6 +45,7 @@ fn answers_settling_everything_on_a_maintainer_issue_make_it_ready_for_agent() {
             "comment",
             "label bug",
             "label P2",
+            "label kind:fix",
             "label ready-for-agent"
         ]
     );
@@ -186,10 +187,8 @@ fn a_restart_while_waiting_on_the_answers_keeps_the_questions_and_their_clock() 
     assert_eq!(calls(&rig, Role::Triager).len(), 2);
     assert_eq!(
         rig.github.issue_edits(),
-        [(
-            30,
-            "It crashes when I run it.\n\n## Settled\n\n- Linux, on start.".to_owned()
-        )]
+        [(30, "## Settled\n\n- Linux, on start.".to_owned())],
+        "the maintainer's own issue is rewritten in place"
     );
     assert_eq!(
         moves(&rig),

@@ -2,8 +2,8 @@
 //!
 //! The representative words the facts, kelpie's code appends [`MARKER`] and
 //! posts the comment as the App, and then puts the labels on. A maintainer's
-//! issue the pass is sure of goes on to the ready path ([`ready`]); any other
-//! issue ends `needs-triage`. The record in `triage.issues` is saved before each
+//! issue the pass rewrites goes on to the ready path ([`ready`]) where the issue
+//! check passes the rewrite; any other issue ends `needs-triage`. The record in `triage.issues` is saved before each
 //! next write to the forge, so a restart posts nothing twice; a post the forge
 //! took whose record did not save is caught by the marker, which only the App's
 //! own comment counts for. A failed step is logged and tried at the next poll,
@@ -116,7 +116,7 @@ pub(in crate::runner) struct Tries {
     // comment; the record keeps them from there
     labels: Vec<String>,
     // The agent-ready body the reply gave for a maintainer's issue the pass
-    // is sure of, kept until the record carries it
+    // rewrites into one the check passes, kept until the record carries it
     ready_body: Option<String>,
     // The labels the issue carried when its pass began, so a triage label it
     // carries later came by hand and stands; kept once, whatever retry runs
@@ -403,6 +403,7 @@ impl Runner {
             let named = board::repo_priority(&have, priority).map(str::to_owned);
             labels.extend(named.or_else(|| self.made_priority(issue, priority)));
         }
+        labels.extend(self.kind_label(issue, found.work, &have));
         // A triage label the maintainer put on while the call ran stands, and
         // it is read for before the comment is worded: the comment never
         // promises a rewrite or a `ready-for-agent` that kelpie will not do.
@@ -425,30 +426,37 @@ impl Runner {
             && stood.is_none()
             && !found.open.is_empty()
             && self.askable(author);
-        let ready = ready::readiness(self, author, found);
-        let ready_body = match (stood.as_ref(), ready) {
+        let ready = ready::readiness(self, issue, author, found, &labels);
+        // A rewrite the check still refuses goes over the body as settled answers
+        // do, and the issue ends `needs-triage`.
+        let (ready_body, rewrite) = match (stood.as_ref(), ready) {
             (Some(label), _) => {
                 self.notes.push(format!(
                     "triage #{issue}: `{label}` went on while the triager ran, so that stands: \
                      kelpie labels it no further and writes no new body"
                 ));
-                None
+                (None, None)
             }
-            (None, ready::Ready::Body(body)) => Some(body),
+            (None, ready::Ready::Body(body)) => (Some(body), None),
+            (None, ready::Ready::Rewrite(body)) => (None, Some(body)),
             (None, ready::Ready::Local(leak)) => {
                 self.notes.push(format!(
-                    "triage #{issue}: its agent-ready body names {leak}, so it is not written \
+                    "triage #{issue}: its rewritten body names {leak}, so it is not written \
                      and the issue ends `{TRIAGE}"
                 ));
-                None
+                (None, None)
             }
-            (None, ready::Ready::Not) => None,
+            (None, ready::Ready::Not) => (None, None),
         };
         // An outside issue the answers pass has settled keeps its author's text:
         // what is settled goes under it, never in place of it. A body kelpie
         // could not read is not stood for by a comment without it: the pass is
         // tried again at the next poll with its round still open.
-        let answers_body = match (ready_body.as_ref(), answers, stood.as_ref()) {
+        let answers_body = match (
+            ready_body.as_ref().or(rewrite.as_ref()),
+            answers,
+            stood.as_ref(),
+        ) {
             (None, true, None) if found.open.is_empty() => match found
                 .body
                 .as_deref()
@@ -460,6 +468,8 @@ impl Runner {
             },
             _ => None,
         };
+        let rewritten = rewrite.is_some();
+        let answers_body = answers_body.or(rewrite);
         let kind = match (answers, local, ask) {
             (true, _, _) => ANSWERS_KIND,
             (false, true, _) => super::local::LOCAL_READ_KIND,
@@ -501,7 +511,8 @@ impl Runner {
             ask,
             answers,
             local,
-            settled: answers_body.is_some(),
+            settled: answers_body.is_some() && !rewritten,
+            rewrite: rewritten,
             stood: stood.is_some(),
         };
         let mut facts = facts(found, &labels, wording, reader);

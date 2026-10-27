@@ -20,8 +20,9 @@ pub(super) const ASK_WORDS: &str =
 pub(super) const A_WORDS: &str = "That settles most of it.";
 
 // The labels a repo may hold for the pass, named bare
-const REPO_LABELS: [&str; 7] = [
+const REPO_LABELS: [&str; 8] = [
     "bug",
+    "kind:fix",
     "enhancement",
     "P1",
     "P2",
@@ -112,6 +113,7 @@ pub(super) fn settled() -> Value {
 pub(super) fn settled_ready() -> Value {
     json!({
         "type": "bug",
+        "kind": "fix",
         "priority": "P2",
         "body": "Touches:\n- `src/start.rs`\n\n## What to build\n\n- Fix the crash on start, \
             on Linux.\n\n## Acceptance criteria\n\n- [ ] `runner::start::it_starts`\n",

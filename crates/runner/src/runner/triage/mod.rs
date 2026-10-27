@@ -1,13 +1,13 @@
 //! Which issues other people opened are due for triage
 //!
-//! While `triage.pick` is not `off`, the runner lists the open issues once a board
-//! poll ([`poll_read`]), and `status` shows the untouched ones under `triage.due`,
-//! oldest first. An issue is untouched when it carries none of [`TRIAGE_LABELS`]
-//! but a `needs-triage` above `pruned_through`, no bot opened it, it was opened
-//! after `triage.since`, and, under `maintainer`, the maintainer opened it.
+//! The runner lists the open issues once a board poll ([`poll_read`]) and checks
+//! them ([`checks`]). While `triage.pick` is not `off`, `status` lists as due,
+//! oldest first, each the check refused that carries no [`TRIAGE_LABELS`] but
+//! `ready-for-agent` or a `needs-triage` above `pruned_through`, opened after
+//! `triage.since` by no bot, and under `maintainer` by the maintainer.
 //! [`Runner::triage_due`] starts one research call at a time ([`flight::triage`]),
 //! on the oldest or the issue `shep kelpie triage` queued; [`research`] reads its
-//! reply, [`comment`] posts it, and [`ready`] rewrites a maintainer's sure issue.
+//! reply, [`comment`] posts it, and [`ready`] rewrites a maintainer's issue.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -43,6 +43,7 @@ pub(super) mod marker;
 pub(super) mod poll_read;
 pub(super) mod ready;
 pub(super) mod research;
+mod rewrite;
 mod scrub;
 pub(super) mod spam;
 
@@ -562,6 +563,10 @@ impl Runner {
         call.settings = folder.join(format!("triage-settings-{issue}.json"));
         call.instructions = Some(instructions);
         call.tools = Tools::Review;
+        // The issue skill is the format the triager writes a body in.
+        call.plugin_dirs = (self.skills.issue_plugin().into_iter())
+            .map(std::path::Path::to_owned)
+            .collect();
         // It reads the repo, so it reads the installed sources of its
         // dependencies and toolchains, as every other call that reads code does.
         self.with_machine_sources(&mut call);

@@ -105,24 +105,37 @@ fn another_persons_issue_that_passes_waits_at_needs_triage_with_no_triage_call()
     assert_eq!(rig.github.comments(), []);
 }
 
+// A rewrite still short of the format: it names its files and no more
+const STILL: &str = "Touches: `src/start.rs`\n\nIt crashes when I run it.";
+
 #[test]
 fn a_failing_issue_is_triaged_and_a_rewrite_that_still_fails_gets_one_comment() {
     let (rig, runner) = checking("pick = \"maintainer\"", MAINTAINER, FAILING, &[]);
-    rig.claude.script_for(
-        Role::Triager,
-        [reply(json!({ "type": "bug", "priority": "P2" }))],
-    );
+    let found = json!({ "type": "bug", "kind": "fix", "priority": "P2", "body": STILL });
+    rig.claude.script_for(Role::Triager, [reply(found)]);
 
     assert_eq!(step(&runner).unwrap(), None);
     assert_eq!(calls(&rig, Role::Triager).len(), 1);
     assert_eq!(rig.github.comments().len(), 1, "the triage comment");
-
-    // The forge as the pass left it: labelled, and still short of the format
-    let still = "Touches: `src/start.rs`\n\nIt crashes when I run it.";
-    list(
-        &rig,
-        filed(&rig, MAINTAINER, still, &["bug", "P2", "needs-triage"]),
+    assert_eq!(
+        rig.github.issue_edits(),
+        [(30, STILL.to_owned())],
+        "the maintainer's issue is rewritten in place"
     );
+    assert_eq!(
+        moves(&rig),
+        [
+            "comment",
+            "label bug",
+            "label P2",
+            "label kind:fix",
+            "label needs-triage"
+        ]
+    );
+
+    // The forge as the pass left it: rewritten, labelled, and still short of the format
+    let labels = ["bug", "P2", "kind:fix", "needs-triage"];
+    list(&rig, filed(&rig, MAINTAINER, STILL, &labels));
     rig.next_look();
     assert_eq!(step(&runner).unwrap(), None);
 
@@ -148,12 +161,63 @@ fn told() -> (Rig, Mutex<Runner>) {
     let (rig, runner) = checking("pick = \"maintainer\"", MAINTAINER, FAILING, &[]);
     rig.claude.script_for(Role::Triager, [reply(json!({}))]);
     assert_eq!(step(&runner).unwrap(), None);
-    let still = "Touches: `src/start.rs`\n\nIt crashes when I run it.";
-    list(&rig, filed(&rig, MAINTAINER, still, &["needs-triage"]));
+    list(&rig, filed(&rig, MAINTAINER, STILL, &["needs-triage"]));
     rig.next_look();
     assert_eq!(step(&runner).unwrap(), None);
     assert_eq!(rig.github.comments().len(), 2);
     (rig, runner)
+}
+
+// A body that passes, with what the triager had a good answer for stated in it
+const ASSUMED: &str = "Touches: `src/start.rs`\n\n## What to build\n\n- Fix the crash on \
+    start.\n- Assumed: it crashes on Linux only. Say otherwise.\n\n## Acceptance criteria\n\n\
+    - [ ] `runner::start::it_starts`\n";
+
+#[test]
+fn a_rewrite_that_passes_states_its_assumptions_and_goes_ready_with_its_kind_made() {
+    let (rig, runner) = checking("pick = \"maintainer\"", MAINTAINER, FAILING, &[]);
+    let found = json!({ "type": "bug", "kind": "feat", "priority": "P2", "body": ASSUMED });
+    rig.claude.script_for(Role::Triager, [reply(found)]);
+
+    assert_eq!(step(&runner).unwrap(), None);
+
+    let asked = &calls(&rig, Role::Triager)[0].call;
+    assert!(
+        asked
+            .prompt
+            .contains("`Assumed: <the answer>. Say otherwise.`"),
+        "{}",
+        asked.prompt
+    );
+    assert!(
+        (asked.plugin_dirs.iter()).any(|d| d.ends_with(crate::skills::issue::PLUGIN)),
+        "the issue skill is the format: {:?}",
+        asked.plugin_dirs
+    );
+    assert_eq!(
+        rig.github.issue_edits(),
+        [(30, ASSUMED.trim_end().to_owned())]
+    );
+    assert_eq!(
+        moves(&rig),
+        [
+            "make kind:feat",
+            "comment",
+            "label bug",
+            "label P2",
+            "label kind:feat",
+            "label ready-for-agent"
+        ],
+        "no question is asked, and the kind the repo lacked is made"
+    );
+
+    // The pass's end, checked again, passes: nothing more is written.
+    let labels = ["bug", "P2", "kind:feat", "ready-for-agent"];
+    list(&rig, filed(&rig, MAINTAINER, ASSUMED, &labels));
+    rig.next_look();
+    assert_eq!(step(&runner).unwrap(), None);
+    assert_eq!(rig.github.comments().len(), 1);
+    assert_eq!(moves(&rig).len(), 6);
 }
 
 #[test]

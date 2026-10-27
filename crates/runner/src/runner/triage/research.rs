@@ -14,6 +14,7 @@ use serde::Deserialize;
 
 use super::super::untrusted::fenced;
 use super::limits;
+use crate::board::check;
 use crate::ports::AuthorAssociation;
 use crate::runner::claim::Notes;
 use crate::settings::AuthorRole;
@@ -33,6 +34,9 @@ pub(in crate::runner) struct ListedPull {
 pub(in crate::runner) struct Found {
     /// The label name for the issue's type
     pub(in crate::runner) kind: Option<&'static str>,
+    /// The issue's kind, one of the issue check's nine types, which goes on as
+    /// `kind:<type>`
+    pub(in crate::runner) work: Option<&'static str>,
     /// The label name for its priority, never `P0`
     pub(in crate::runner) priority: Option<&'static str>,
     /// The open issues it relates to
@@ -95,6 +99,8 @@ pub(in crate::runner) struct Question {
 struct Reply {
     #[serde(default, rename = "type")]
     kind: Option<String>,
+    #[serde(default, rename = "kind")]
+    work: Option<String>,
     #[serde(default)]
     priority: Option<String>,
     #[serde(default)]
@@ -267,7 +273,7 @@ pub(super) fn prompt(
              answers settle everything, answer `body` with what is settled: kelpie writes it \
              under the author's own text in the issue, and never in place of it, unless the \
              maintainer opened the issue, when it writes it over the issue and labels the issue \
-             `ready-for-agent`.",
+             `ready-for-agent` once it passes the issue check.",
             fenced("The questions kelpie asked its author", questions),
             fenced("The author's answers", answers),
         ),
@@ -291,15 +297,19 @@ pub(super) fn prompt(
          closes, are listed above so you can tell one that already covers this issue; you \
          cannot list them yourself. {author} Ask at most {questions} in `open`. Kelpie \
          never sets `P0`: answer it if you think the issue is one, and the author is asked \
-         how urgent it is. When you are sure of everything, answer `body` with the whole \
-         agent-ready issue body: kelpie writes it over the issue and labels the issue \
-         `ready-for-agent` when the maintainer opened it.\n\n\
+         how urgent it is. A question you have a good answer for is no question: write it \
+         into `body` as `Assumed: <the answer>. Say otherwise.` and leave it out of `open`. \
+         When `open` is empty, answer `body` with the whole issue body in the format of \
+         kelpie's issue skill, and `kind` with its one type: when the maintainer opened the \
+         issue, kelpie writes the body over it, and labels it `ready-for-agent` once it \
+         passes the issue check.\n\n\
          Reply with exactly one JSON object and nothing else: {{\"type\": \"bug\" | \
-         \"enhancement\" | null, \"priority\": \"P0\" | \"P1\" | \"P2\" | \"P3\" | \"P4\" | null, \
+         \"enhancement\" | null, \"kind\": \"feat\" | \"fix\" | \"docs\" | \"refactor\" | \
+         \"perf\" | \"test\" | \"ci\" | \"chore\" | \"style\" | null, \"priority\":\"P0\" | \"P1\" | \"P2\" | \"P3\" | \"P4\" | null, \
          \"related\": [issue numbers], \"addressed_by\": null | {{\"number\": n, \"kind\": \
          \"issue\" | \"pull_request\", \"why\": \"one sentence\"}}, \"files\": [repo paths], \
          \"tests\": [test names], \"criteria\": [strings], \"open\": [{{\"question\": \"...\", \
-         \"recommended\": \"...\"}}], \"body\": null | \"the whole agent-ready issue body\"}}",
+         \"recommended\": \"...\"}}], \"body\": null | \"the whole issue body, in the issue skill's format\"}}",
         fenced("The issue", &issue),
         fenced("The open issues' numbers and titles", &listing),
         fenced(
@@ -408,6 +418,8 @@ pub(in crate::runner) fn read_reply(
             Some(k) if k.eq_ignore_ascii_case("enhancement") => Some("enhancement"),
             _ => None,
         },
+        work: (reply.work.as_deref().map(str::trim))
+            .and_then(|w| check::kinds().find(|k| k.eq_ignore_ascii_case(w))),
         priority,
         related,
         addressed_by: addressed,
