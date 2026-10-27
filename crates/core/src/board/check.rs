@@ -1,11 +1,11 @@
 //! The issue check: whether an issue holds every part an implementer builds from
 //!
 //! It reads structure, not quality: each part is there and well formed. The
-//! parts are what the issue writer and the triager write, the blockers and
-//! harness reach `CLAUDE.md` asks for, and the labels the board and the
-//! triager set. The issue skill, `skills/kelpie/issue/SKILL.md`, gives the
-//! same format to the agent that writes an issue, and a test holds the two
-//! together.
+//! parts are what an issue body holds, as the triager writes one, the
+//! blockers and harness reach `CLAUDE.md` asks for, and the labels the board
+//! and the triager set. The issue skill, `skills/kelpie/issue/SKILL.md`, gives
+//! the same format to the agent that writes an issue, and a test holds the
+//! two together.
 
 use std::fmt;
 

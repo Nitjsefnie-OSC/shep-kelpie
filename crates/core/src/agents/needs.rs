@@ -15,19 +15,19 @@ pub enum Need {
     ResumableSession,
     /// Read access to the repository
     RepoReads,
-    /// Kelpie's PM and issue-writer guards wired by the adapter
+    /// Kelpie's PM guard wired by the adapter
     RoleGuard,
 }
 
 impl Role {
     /// The role's default capabilities, which its file may override
     ///
-    /// The PM and issue writer always require `RoleGuard`, even with an override.
+    /// The PM always requires `RoleGuard`, even with an override.
     pub fn needs(self) -> &'static [Need] {
         match self {
             Self::Implementer => &[Need::Edits, Need::ResumableSession],
             Self::Reviewer | Self::Triager => &[Need::RepoReads],
-            Self::IssueWriter | Self::Pm => &[Need::RoleGuard],
+            Self::Pm => &[Need::RoleGuard],
             Self::Representative => &[],
         }
     }
@@ -39,7 +39,7 @@ impl Need {
             Self::Edits => "fenced edits",
             Self::ResumableSession => "a resumable session",
             Self::RepoReads => "repository reads",
-            Self::RoleGuard => "kelpie's PM and issue-writer guards",
+            Self::RoleGuard => "kelpie's PM guard",
         }
     }
 

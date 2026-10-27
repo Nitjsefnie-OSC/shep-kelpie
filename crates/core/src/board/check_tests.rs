@@ -30,7 +30,7 @@ fn of(body: &str) -> Vec<Failure> {
 }
 
 #[test]
-fn an_issue_in_the_issue_writers_shape_passes() {
+fn an_issue_in_the_issue_skills_shape_passes() {
     let json = include_str!("../../../../fixtures/gh-issue-view-check-1377.json");
     assert_eq!(recorded(json), []);
 }
@@ -50,7 +50,7 @@ fn an_issue_written_as_prose_fails_on_every_part_it_lacks() {
 }
 
 #[test]
-fn an_issue_writer_slice_with_no_kind_fails_on_that_alone() {
+fn a_sliced_issue_with_no_kind_fails_on_that_alone() {
     let json = include_str!("../../../../fixtures/gh-issue-view-check-908.json");
     assert_eq!(recorded(json), [Failure::NoKind]);
 }

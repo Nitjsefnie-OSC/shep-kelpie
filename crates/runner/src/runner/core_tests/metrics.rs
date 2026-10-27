@@ -378,7 +378,6 @@ fn a_runner_with_every_role_and_harness_in_use_stays_under_the_cap() {
         ("pm", "pi", &["wake", "compact", "retro"][..]),
         ("reviewer", "claude-code", &["review"][..]),
         ("reviewer", "local", &["local-round"][..]),
-        ("issue-writer", "pi", &["issues"][..]),
         ("pm", "claude-code", &["wake", "compact", "retro"][..]),
         ("representative", "pi", &["post"][..]),
         ("triager", "claude-code", &["triage"][..]),

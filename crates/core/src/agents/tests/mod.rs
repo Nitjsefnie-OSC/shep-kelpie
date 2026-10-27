@@ -13,7 +13,6 @@ mod debug;
 mod extends;
 mod goose;
 mod init;
-mod issue_writer;
 mod legacy;
 mod needs;
 mod pm;
@@ -448,22 +447,34 @@ fn baselines_remove_a_file_kelpie_no_longer_ships() {
 }
 
 #[test]
-fn a_file_whose_role_went_with_the_panel_is_refused_saying_so() {
-    for role in ["advisor", "researcher"] {
+fn a_file_whose_role_is_gone_is_refused_saying_what_it_went_with() {
+    let roles = [
+        ("advisor", "went with the ruling panel"),
+        ("researcher", "went with the ruling panel"),
+        (
+            "issue-writer",
+            "went with the issue writer, and an issue is written with kelpie's `issue` skill",
+        ),
+    ];
+    for (role, went) in roles {
         let text =
             format!("---\nrole: {role}\nharness: claude-code\nmodel: m\neffort: low\n---\nVote.\n");
         let err = refused(&[("mine.md", &text)]);
         assert!(err.contains(&format!("`{role}`")), "{role}: {err}");
-        assert!(err.contains("went with the ruling panel"), "{role}: {err}");
+        assert!(err.contains(went), "{role}: {err}");
     }
 }
 
 #[test]
 fn a_file_extending_a_baseline_whose_role_went_is_refused_with_migrate_s_words() {
-    for role in ["advisor", "researcher"] {
+    for (role, went) in [
+        ("advisor", "the ruling panel"),
+        ("researcher", "the ruling panel"),
+        ("issue-writer", "the issue writer"),
+    ] {
         let text = format!("---\nextends: kelpie:{role}\nmodel: m\n---\nAlso this.\n");
         let err = refused(&[("mine.md", &text)]);
-        let why = format!("the `{role}` role went with the ruling panel, so delete the file");
+        let why = format!("the `{role}` role went with {went}");
         assert!(err.contains(&why), "{role}: {err}");
         assert!(!err.contains("names no shipped agent"), "{role}: {err}");
         let err = crate::agents::baseline::check("mine", &text).unwrap_err();

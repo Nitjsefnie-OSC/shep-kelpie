@@ -28,8 +28,8 @@ pub struct RepoSetup {
     /// with no plugin. `false` leaves them out and keeps the plugins.
     #[serde(default = "yes")]
     pub own: bool,
-    /// The calls that get the plugins and the repo's own files: `worker`, `reviewer`, `issue-writer`
-    /// and `pm`. All of them when absent.
+    /// The calls that get the plugins and the repo's own files: `worker`, `reviewer` and `pm`.
+    /// All of them when absent.
     #[serde(default = "every_role")]
     pub roles: Vec<CallRole>,
     /// The parts of a plugin, and of the repo's own files, that load: `skills`, `agents`, `commands`,

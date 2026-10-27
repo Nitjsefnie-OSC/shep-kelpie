@@ -10,8 +10,8 @@
 use std::path::{Path, PathBuf};
 
 use super::{
-    Agent, DEFAULTS, DEFECT_HUNTER, ISSUE_WRITER, PM, REPRESENTATIVE, Role, SECURITY_REVIEWER,
-    TRIAGER, extends, front,
+    Agent, DEFAULTS, DEFECT_HUNTER, PM, REPRESENTATIVE, Role, SECURITY_REVIEWER, TRIAGER, extends,
+    front,
 };
 use crate::settings::AgentName;
 
@@ -32,7 +32,7 @@ impl Baseline {
 }
 
 /// Every baseline kelpie ships
-pub const ALL: [Baseline; 8] = [
+pub const ALL: [Baseline; 7] = [
     Baseline {
         name: DEFECT_HUNTER,
         text: include_str!("../../../../agents/defect-hunter.md"),
@@ -48,10 +48,6 @@ pub const ALL: [Baseline; 8] = [
     Baseline {
         name: SECURITY_REVIEWER,
         text: include_str!("../../../../agents/security-reviewer.md"),
-    },
-    Baseline {
-        name: ISSUE_WRITER,
-        text: include_str!("../../../../agents/issue-writer.md"),
     },
     Baseline {
         name: PM,
