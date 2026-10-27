@@ -7,7 +7,10 @@ use std::sync::Mutex;
 use serde_json::{Value, json};
 
 use super::pick_tests::{MAINTAINER, issue, list, rig_with};
-use super::research_tests::{WORDS, calls, moves, reply};
+use super::checks::CHECK_TRIES;
+use super::research_tests::{APP, WORDS, calls, moves, reply};
+use crate::github::ApiError;
+use crate::ports::Timestamp;
 use crate::ports::{OpenIssue, Role};
 use crate::runner::slots_tests::dispatched;
 use crate::runner::{Runner, step};
@@ -210,6 +213,43 @@ fn told() -> (Rig, Mutex<Runner>) {
     assert_eq!(step(&runner).unwrap(), None);
     assert_eq!(rig.github.comments().len(), 2);
     (rig, runner)
+}
+
+#[test]
+fn a_retry_after_a_lost_reply_posts_the_still_failing_comment_once() {
+    let (rig, runner) = checking("pick = \"maintainer\"", MAINTAINER, FAILING, &[]);
+    rig.claude.script_for(Role::Triager, [reply(json!({}))]);
+    assert_eq!(step(&runner).unwrap(), None);
+    list(&rig, filed(&rig, MAINTAINER, STILL, &["needs-triage"]));
+    rig.github.refuse_comments(ApiError::Refused(422));
+    rig.next_look();
+    assert_eq!(step(&runner).unwrap(), None);
+    let tried = rig.github.comments();
+    assert_eq!(tried.len(), 2);
+
+    // The forge took the post whose answer was lost.
+    rig.forge.threads.write(30, APP, &tried[1].1, Timestamp(1));
+    rig.github.accept_comments();
+    for _ in 0..2 {
+        rig.next_look();
+        assert_eq!(step(&runner).unwrap(), None);
+    }
+    assert_eq!(rig.github.comments().len(), 2, "it is not posted again");
+}
+
+#[test]
+fn a_still_failing_comment_the_forge_keeps_refusing_is_given_up() {
+    let (rig, runner) = checking("pick = \"maintainer\"", MAINTAINER, FAILING, &[]);
+    rig.claude.script_for(Role::Triager, [reply(json!({}))]);
+    assert_eq!(step(&runner).unwrap(), None);
+    list(&rig, filed(&rig, MAINTAINER, STILL, &["needs-triage"]));
+    rig.github.refuse_comments(ApiError::Refused(422));
+    for _ in 0..CHECK_TRIES + 2 {
+        rig.next_look();
+        assert_eq!(step(&runner).unwrap(), None);
+    }
+    let tries = usize::try_from(CHECK_TRIES).unwrap();
+    assert_eq!(rig.github.comments().len(), 1 + tries);
 }
 
 // A body that passes, with what the triager had a good answer for stated in it

@@ -47,6 +47,14 @@ struct Poll<'a> {
     pulls: Option<&'a Result<Vec<OpenPull>, ForgeError>>,
 }
 
+/// How many times the check tries a comment before it gives the comment up
+pub(super) const CHECK_TRIES: u32 = 3;
+
+// The marker that ends the check's comment on the edit `key`
+fn check_marker(key: u64) -> String {
+    format!("<!-- kelpie:check {key:x} -->")
+}
+
 fn carries(labels: &[String], label: &str) -> bool {
     labels.iter().any(|l| l == label)
 }
@@ -111,7 +119,7 @@ impl Runner {
             };
             let done = match act {
                 Act::Passed => self.check_passed(issue, &mut poll),
-                Act::Refused => self.check_refused(issue, &failures, &mut poll),
+                Act::Refused => self.check_refused(issue, key, &failures, &mut poll),
                 Act::Kept => true,
             };
             if !done {
@@ -257,15 +265,35 @@ impl Runner {
     }
 
     // Says on the maintainer's `issue` once what the check still refuses after
-    // its triage. Anyone else's is told in plain words, which the check's are
-    // not, and its triage comment already handed it to the maintainer.
-    fn check_refused(&mut self, issue: &OpenIssue, failures: &[String], poll: &mut Poll) -> bool {
+    // its triage. Anyone else's is not told: the check's words are not plain,
+    // and its triage comment already handed it to the maintainer. The comment
+    // ends in a marker for `key`, so a post whose answer was lost is found and
+    // not made again.
+    fn check_refused(
+        &mut self,
+        issue: &OpenIssue,
+        key: u64,
+        failures: &[String],
+        poll: &mut Poll,
+    ) -> bool {
         let number = issue.number;
         let Some(maintainer) = poll.maintainer.as_deref() else {
             return false;
         };
         if !issue.author.eq_ignore_ascii_case(maintainer) {
             return true;
+        }
+        let marker = check_marker(key);
+        match self.check_told(number, &marker) {
+            Ok(true) => {
+                self.triage_run.check_fails.remove(&number);
+                return true;
+            }
+            Ok(false) => {}
+            Err(e) => {
+                let why = format!("cannot read its comments: {e}");
+                return self.check_tell_failed(number, &why, forge_is_busy(&e), poll);
+            }
         }
         if poll.writes == 0 {
             return false;
@@ -275,11 +303,12 @@ impl Runner {
         let text = format!(
             "Kelpie checked this issue again after its triage, and the issue check still \
              refuses it:\n\n{}\n\nIt waits at `{TRIAGE}`. Kelpie checks it again, and triages \
-             it again if it still fails, once it is edited.",
+             it again if it still fails, once it is edited.\n\n{marker}",
             listed.join("\n")
         );
         match self.comment_on_issue(number, &text) {
             Ok(()) => {
+                self.triage_run.check_fails.remove(&number);
                 self.notes.push(format!(
                     "check #{number}: its triage's rewrite still fails the issue check, said on \
                      the issue"
@@ -287,12 +316,36 @@ impl Runner {
                 true
             }
             Err(e) => {
-                self.notes.push(format!(
-                    "check #{number}: cannot say what the check refused: {e}"
-                ));
-                poll.busy = forge_is_busy(&e);
-                false
+                let why = format!("cannot say what the check refused: {e}");
+                self.check_tell_failed(number, &why, forge_is_busy(&e), poll)
             }
         }
+    }
+
+    // Whether a comment on `issue` ends in `marker`
+    fn check_told(&self, issue: u64, marker: &str) -> Result<bool, ForgeError> {
+        let comments = (self.ports.tickets).issue_comments(&self.remote, super::ticket(issue)?)?;
+        Ok((comments.iter()).any(|c| c.body.trim_end().lines().last() == Some(marker)))
+    }
+
+    // Logs why telling `issue` failed. A busy forge stops the poll's check and
+    // counts for nothing. Past [`CHECK_TRIES`] other failures the check gives up
+    // the comment. Whether the result is kept.
+    fn check_tell_failed(&mut self, issue: u64, why: &str, busy: bool, poll: &mut Poll) -> bool {
+        self.notes.push(format!("check #{issue}: {why}"));
+        if busy {
+            poll.busy = true;
+            return false;
+        }
+        let fails = self.triage_run.check_fails.entry(issue).or_default();
+        *fails += 1;
+        if *fails < CHECK_TRIES {
+            return false;
+        }
+        self.triage_run.check_fails.remove(&issue);
+        self.notes.push(format!(
+            "check #{issue}: gives up saying what the check refused after {CHECK_TRIES} tries"
+        ));
+        true
     }
 }

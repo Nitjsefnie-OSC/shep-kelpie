@@ -89,6 +89,9 @@ pub(super) struct Run {
     /// What the last poll read, which the triager's call is made from. None until a
     /// poll has read the listing, and again after one that could not.
     pub(super) listing: Option<poll_read::Listing>,
+    /// How many times the check's comment on each issue failed, short of
+    /// `checks::CHECK_TRIES`
+    pub(super) check_fails: BTreeMap<u64, u32>,
 }
 
 /// An untouched issue, as `status` lists it
