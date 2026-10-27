@@ -328,12 +328,17 @@ compact_window = 200000
 # `fix`, `refactor`, `perf`, `test`, `ci`, `chore` and `style` the project
 # manager and the advisor; `feat`, a breaking `!` or no type all four). A
 # question, a `design` flag and a diff that touches a `full_panel_paths` glob
-# ask all four whatever the type, and whatever `pm_alone` lists. A split and a
-# merge under `git.merging = "ask"` come to you with every vote. `pm_alone` lists kinds of
-# ruling the project manager decides with its own vote on any type of work
-# (`question`, `still-red`, `turn-timeout`, `turn-failed` ...); an abstention
-# calls the type's panel, a `design` flag all four, and `merge` is refused.
-# Empty when absent. `full_panel_paths` lists globs (`*` stays in a folder,
+# ask all four whatever the type, and whatever `pm_decides` says. A split and a
+# merge under `git.merging = "ask"` come to you with every vote. `pm_decides`
+# maps each kind of ruling to `true`, which the project manager decides with
+# its own vote on any type of work, or `false`, which you decide; an abstention
+# calls the type's panel and a `design` flag all four. A kind it leaves out is
+# yours. `merge`, `security`, `contribution-merge` and `local-model-spilled`
+# are refused as `true`, and are never written. `shep kelpie add`, `upgrade`
+# and `shep kelpie settings migrate` write each other kind it is missing, at
+# the value below, and never change one it has. The old `pm_alone` list still
+# loads, as `true` for each kind it names, and the migration turns it into the
+# map. `full_panel_paths` lists globs (`*` stays in a folder,
 # `**` spans folders) of paths too risky for a smaller panel: a work item whose
 # diff from its merge base touches one gets all four. Empty when absent.
 # `always` is off unless set. It has the panel decide every ruling it votes on,
@@ -341,12 +346,31 @@ compact_window = 200000
 # type, the option with the most votes wins, and a `design` flag is recorded but
 # does not send it to you. A tie goes to the project manager's choice when it is
 # one of the tied, else to the tied option listed first; a tie never merges. A
-# merge under `git.merging = "ask"` still comes to you. `pm_alone` and
+# merge under `git.merging = "ask"` still comes to you. `pm_decides` and
 # `full_panel_paths` have no effect under `always`.
 # [app.dogs.kelpie.rulings]
 # decide = "panel"
-# pm_alone = ["turn-timeout", "still-red"]
 # full_panel_paths = ["src/guard/**", ".github/workflows/**"]
+# [app.dogs.kelpie.rulings.pm_decides]
+# question = false
+# agent-files = false
+# foreign-change = false
+# follow-up = true
+# rebase = true
+# still-red = true
+# check-queued = true
+# no-checks = true
+# merge-refused = true
+# closed = true
+# fix-not-pushed = true
+# test-still-fails = true
+# unpushed = true
+# push-refused = true
+# turn-timeout = true
+# turn-failed = true
+# unlabelled = true
+# adopt-failed = true
+# over-budget = true
 
 # Whether kelpie picks up other people's pull requests. `pick` is `off` (its
 # own pull requests only), `label` (those the maintainer labels for it) or

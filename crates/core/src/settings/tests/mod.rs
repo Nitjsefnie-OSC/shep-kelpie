@@ -850,7 +850,7 @@ fn a_forge_slug_s_name_is_the_repo_without_its_owner() {
 fn rulings_default_to_a_shadow_panel_with_no_kind_for_the_project_manager_alone() {
     let rulings = parse(EXAMPLE).unwrap().rulings;
     assert_eq!(rulings.decide, Decide::Shadow);
-    assert!(rulings.pm_alone.is_empty());
+    assert!(rulings.pm_decides.is_empty());
 }
 
 #[test]
@@ -859,10 +859,7 @@ fn rulings_take_a_deciding_panel_and_the_kinds_the_project_manager_decides_alone
               pm_alone = [\"turn-timeout\", \"still-red\"]\n";
     let rulings = parse(&format!("{EXAMPLE}{on}")).unwrap().rulings;
     assert_eq!(rulings.decide, Decide::Panel);
-    assert_eq!(
-        rulings.pm_alone,
-        [RulingName::TurnTimeout, RulingName::StillRed]
-    );
+    assert!(rulings.pm_decides(RulingName::TurnTimeout));
     assert!(rulings.pm_decides(RulingName::StillRed));
     assert!(!rulings.pm_decides(RulingName::Question));
 }

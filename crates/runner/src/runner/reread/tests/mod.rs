@@ -162,7 +162,7 @@ fn a_merge_kind_added_to_pm_alone_is_refused_and_the_settings_kept() {
     let mut runner = runner.lock().unwrap();
     let err = runner.reread(next, rig.kelpie_settings()).unwrap_err();
     assert!(err.to_string().contains("rulings.pm_alone"), "{err}");
-    assert!(runner.settings().rulings.pm_alone.is_empty());
+    assert!(runner.settings().rulings.pm_decides.is_empty());
 }
 
 #[test]

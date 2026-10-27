@@ -336,7 +336,7 @@ fn alone(project: &str, title: &str) -> (Rig, Mutex<Runner>) {
     {
         let mut runner = runner.lock().unwrap();
         runner.settings.rulings.decide = Decide::Panel;
-        runner.settings.rulings.pm_alone = vec![RulingName::Merge];
+        runner.settings.rulings.pm_decides = [(RulingName::Merge, true)].into();
     }
     rig.forge.set_checks(&head, Checks::Passed);
     assert!(matches!(

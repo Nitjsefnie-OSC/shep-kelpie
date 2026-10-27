@@ -58,7 +58,7 @@ pub(in crate::runner) struct Record {
     // Whether the panel decided it
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub(super) by_panel: bool,
-    // The kind of ruling, as `rulings.pm_alone` names it
+    // The kind of ruling, as `rulings.pm_decides` names it
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(in crate::runner) kind: Option<RulingName>,
     // The option the answer is, when it is one of the ruling's

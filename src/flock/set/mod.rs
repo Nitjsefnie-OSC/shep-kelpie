@@ -284,9 +284,8 @@ fn runnable(tables: &Tables, name: &ProjectName, place: Place<'_>) -> Result<Set
     let lineup = settings
         .lineup(&book, &gateways, place.home)
         .map_err(invalid)?;
-    if let Some(reason) = settings.rulings.refusal() {
-        let setting = "rulings.pm_alone";
-        return Err(invalid(SettingsError::Invalid { setting, reason }));
+    if let Some(refused) = settings.rulings.refusal() {
+        return Err(invalid(refused));
     }
     check_gateway_shapes(&gateways, &book, &agents, &lineup).map_err(invalid)?;
     gateways
