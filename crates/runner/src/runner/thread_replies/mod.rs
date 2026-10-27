@@ -14,6 +14,7 @@ use std::sync::{Arc, Mutex};
 
 use self::settled::Ended;
 pub(super) use self::settled::{Outcome, Settler};
+use super::pm::{PmReply, pm_reply};
 use super::trigger::lock;
 use super::words::{Wants, read_answer};
 use super::{Answer, RuleError, Runner, voice};
@@ -582,9 +583,18 @@ impl Runner {
                 "the ruling changed since that comment was written, and it asks now: {asks}"
             ))
         } else if naming != Naming::Not || wants == Wants::Answer {
-            read_answer(wants, words).and_then(|answer| {
-                (self.rule_by(id, answer, Settler::Thread)).map_err(|e| e.to_string())
-            })
+            // A question's answer may open with the word `pm`.
+            let pm = pm_reply(words, ruling.number());
+            match pm.filter(|pm| pm.is_ok() || wants != Wants::Answer) {
+                Some(Ok(PmReply::Ask(asked))) => return self.pm_asked_by(comment, id, asked),
+                Some(Ok(PmReply::Take(n))) => self.approach(id, n).and_then(|answer| {
+                    (self.rule_by(id, answer, Settler::Thread)).map_err(|e| e.to_string())
+                }),
+                Some(Err(why)) => Err(why),
+                None => read_answer(wants, words).and_then(|answer| {
+                    (self.rule_by(id, answer, Settler::Thread)).map_err(|e| e.to_string())
+                }),
+            }
         } else {
             Err(format!(
                 "start your reply with its number, as {}",
@@ -717,7 +727,7 @@ impl Runner {
     }
 
     // Posts `text` on `thread` as the App, and notes why it could not.
-    fn say(&mut self, thread: u64, text: &str) {
+    pub(super) fn say(&mut self, thread: u64, text: &str) {
         if let Err(e) = self.ports.voice.comment(&self.remote, thread, text) {
             self.notes.push(format!("cannot reply on #{thread}: {e}"));
         }

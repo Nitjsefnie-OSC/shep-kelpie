@@ -52,7 +52,7 @@ impl Runner {
 
     // Whether the project manager already answered the failed turn `ruling`
     // is, on the same work item. That answer did not settle it.
-    fn pm_answered_before(&self, ruling: &Ruling) -> bool {
+    pub(super) fn pm_answered_before(&self, ruling: &Ruling) -> bool {
         let records = ruling::records(&self.paths.rulings);
         records.iter().any(|r| r.decided_by_pm(ruling))
     }
@@ -126,7 +126,7 @@ impl Runner {
     // Applies option `answer.choice` to `ruling`, and posts what was decided,
     // or says why the maintainer decides instead. A ruling whose answer
     // cannot be applied stays pending, for the maintainer.
-    fn pm_decides(&mut self, ruling: &Ruling, answer: &PmAnswer) -> Result<(), String> {
+    pub(super) fn pm_decides(&mut self, ruling: &Ruling, answer: &PmAnswer) -> Result<(), String> {
         let (id, key) = (ruling.id, answer.choice);
         if answer.design {
             return Err("it flagged design".into());
@@ -160,7 +160,7 @@ impl Runner {
 
     // Adds the project manager's pick and why to ruling `id`, for the card
     // the maintainer is asked with.
-    fn pm_recommends(&mut self, id: TicketId, answer: &PmAnswer) {
+    pub(super) fn pm_recommends(&mut self, id: TicketId, answer: &PmAnswer) {
         let mut next = self.state.clone();
         let Some(ruling) = next.rulings.iter_mut().find(|r| r.id == id) else {
             return;
@@ -220,8 +220,10 @@ fn with_words(ruling: &Ruling, answer: &PmAnswer) -> Ruling {
     if !answer.why.is_empty() {
         words.push_str(&format!("\n{SAYS} {}", answer.why));
     }
+    // A later recommendation replaces an earlier one.
+    let question = ruling.question.split(&format!("\n\n{RECOMMENDS}")).next();
     Ruling {
-        question: format!("{}\n\n{words}", ruling.question),
+        question: format!("{}\n\n{words}", question.unwrap_or_default()),
         ..ruling.clone()
     }
 }

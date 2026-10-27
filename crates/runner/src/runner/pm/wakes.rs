@@ -297,6 +297,7 @@ impl Runner {
                 (_, _, _, true) if self.pm_answers_ruling(ruling) => Wake::Answer {
                     id,
                     asked: brief(ruling).0,
+                    request: None,
                 },
                 _ => continue,
             };

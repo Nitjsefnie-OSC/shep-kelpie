@@ -42,6 +42,27 @@ pub struct Ruling {
     /// by number is never refused as stale.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub raised: Option<Timestamp>,
+    /// Other approaches the project manager gave when the maintainer asked
+    /// for options, first first, which `<id> pm <n>` takes
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub approaches: Vec<String>,
+    /// What the maintainer asked the project manager about it, while the
+    /// answer is owed, so a runner that restarts asks again
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub asked: Option<PmAsked>,
+}
+
+/// What the maintainer asks the project manager about a ruling
+// wire format: changing this is a breaking change to the state file
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum PmAsked {
+    /// Its pick and why, posted in the thread, the ruling still theirs
+    Recommend,
+    /// Other approaches, for when none of its options is right
+    Options,
+    /// Its answer, as if `rulings.pm_decides` left the ruling to it
+    Decide,
 }
 
 impl Ruling {
@@ -58,6 +79,8 @@ impl Ruling {
             unposted: false,
             effects: Vec::new(),
             raised: None,
+            approaches: Vec::new(),
+            asked: None,
         }
     }
 

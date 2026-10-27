@@ -17,6 +17,7 @@ use crate::ticket::TicketId;
 
 use super::HOLD_FOR;
 
+mod asked;
 mod attach;
 mod code;
 mod conflicts;
@@ -30,6 +31,7 @@ mod pick;
 mod question;
 mod quiet;
 mod red;
+mod requests;
 mod rulings;
 mod until;
 mod wake_prompt;
