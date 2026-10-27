@@ -37,7 +37,7 @@ fn pm_alone_naming_security_is_refused_at_load() {
 }
 
 #[test]
-fn pm_alone_naming_contribution_merge_is_refused_and_the_panel_does_not_vote() {
+fn pm_alone_naming_contribution_merge_is_refused() {
     let merge = rulings("pm_alone = [\"contribution-merge\"]");
     let reason = merge.refusal().expect("contribution-merge is refused");
     assert!(

@@ -2,7 +2,8 @@
 //!
 //! A project's old `rulings.pm_alone` list becomes `rulings.pm_decides`, and
 //! each kind of ruling the map lacks is written at its default. A key already
-//! there is never changed. Each table is checked as `set` checks it, and one
+//! there is never changed. The panel's `rulings.decide` and
+//! `rulings.full_panel_paths` are deleted. Each table is checked as `set` checks it, and one
 //! the runner would refuse is not written.
 
 use std::path::PathBuf;
@@ -14,6 +15,9 @@ use super::{Homes, Place, checked, lookup, write};
 use crate::home::{ProjectName, ProjectPaths};
 use crate::settings::{PM_ALONE, PM_DECIDES, RulingName};
 use crate::shepherd::{self, Connection, Socket};
+
+/// The panel's keys, which no build reads now and the runner refuses
+const PANEL_KEYS: [&str; 2] = ["rulings.decide", "rulings.full_panel_paths"];
 
 /// Runs `shep kelpie settings migrate`, printing a line for each project it changed
 pub fn main() -> ExitCode {
@@ -99,19 +103,35 @@ async fn project(
     };
     let listed = lookup(&table, PM_ALONE).is_some();
     let wrote = pm_decides(&mut table);
-    if wrote.is_empty() {
+    let mut removed: Vec<&str> = (listed && lookup(&table, PM_ALONE).is_none())
+        .then_some(PM_ALONE)
+        .into_iter()
+        .collect();
+    removed.extend(panel_keys(&mut table));
+    let said: Vec<String> = [("wrote", wrote.join(", ")), ("removed", removed.join(", "))]
+        .into_iter()
+        .filter(|(_, keys)| !keys.is_empty())
+        .map(|(did, keys)| format!("{did} {keys}"))
+        .collect();
+    if said.is_empty() {
         return Ok(None);
     }
-    let removed = match listed && lookup(&table, PM_ALONE).is_none() {
-        true => format!("; removed {PM_ALONE}"),
-        false => String::new(),
-    };
     let (request, _) = checked(client, name, place, read, table).await?;
     write(client, &request).await?;
-    Ok(Some(format!(
-        "project {name}: wrote {}{removed}",
-        wrote.join(", ")
-    )))
+    Ok(Some(format!("project {name}: {}", said.join("; "))))
+}
+
+// Deletes the panel's keys from `table`, and names each it deleted.
+fn panel_keys(table: &mut Map<String, Value>) -> Vec<&'static str> {
+    let mut removed = Vec::new();
+    for setting in PANEL_KEYS {
+        let (outer, key) = leaves(setting);
+        let rulings = table.get_mut(outer).and_then(Value::as_object_mut);
+        if rulings.and_then(|rulings| rulings.remove(key)).is_some() {
+            removed.push(setting);
+        }
+    }
+    removed
 }
 
 /// Writes into `table` the kinds `rulings.pm_decides` is missing, at their

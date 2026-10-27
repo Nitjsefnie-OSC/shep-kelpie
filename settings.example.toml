@@ -320,37 +320,20 @@ compact_window = 200000
 # command = "scripts/e2e-remote.sh"
 # results = "test-results"
 
-# Whether the panel decides a ruling. `shadow` (when absent) has it vote and
-# post on every ruling while you still answer, and `status` counts the run of
-# rulings where its recommendation matched your answer. `panel` has it decide:
-# three experts on one option, with none flagging `design`, or a smaller panel
-# all agreeing, as the work item's type sets (`docs` asks the project manager;
-# `fix`, `refactor`, `perf`, `test`, `ci`, `chore` and `style` the project
-# manager and the advisor; `feat`, a breaking `!` or no type all four). A
-# question, a `design` flag and a diff that touches a `full_panel_paths` glob
-# ask all four whatever the type, and whatever `pm_decides` says. A split and a
-# merge under `git.merging = "ask"` come to you with every vote. `pm_decides`
-# maps each kind of ruling to `true`, which the project manager decides with
-# its own vote on any type of work, or `false`, which you decide; an abstention
-# calls the type's panel and a `design` flag all four. A kind it leaves out is
-# yours. `merge`, `security`, `contribution-merge` and `local-model-spilled`
-# are refused as `true`, and are never written. `shep kelpie add`, `upgrade`
-# and `shep kelpie settings migrate` write each other kind it is missing, at
-# the value below, and never change one it has. The old `pm_alone` list still
-# loads, as `true` for each kind it names, and the migration turns it into the
-# map. `full_panel_paths` lists globs (`*` stays in a folder,
-# `**` spans folders) of paths too risky for a smaller panel: a work item whose
-# diff from its merge base touches one gets all four. Empty when absent.
-# `always` is off unless set. It has the panel decide every ruling it votes on,
-# and asks you only when no expert voted: all four are asked at once whatever the
-# type, the option with the most votes wins, and a `design` flag is recorded but
-# does not send it to you. A tie goes to the project manager's choice when it is
-# one of the tied, else to the tied option listed first; a tie never merges. A
-# merge under `git.merging = "ask"` still comes to you. `pm_decides` and
-# `full_panel_paths` have no effect under `always`.
-# [app.dogs.kelpie.rulings]
-# decide = "panel"
-# full_panel_paths = ["src/guard/**", ".github/workflows/**"]
+# Which kinds of ruling the project manager answers for you, once `pm` names
+# it. `pm_decides` maps each kind to `true`, which it answers, or `false`,
+# which you answer; a kind it leaves out is yours. A ruling left to it waits up
+# to one wake for its answer. An option it picks is applied and posted on the
+# ruling's thread, where `<id> no <note>` reopens it; an abstention, a `design`
+# flag, a merge under `git.merging = "ask"` or an option only you can carry
+# out comes to you with its pick. A question and a follow-up have wakes of
+# their own, whatever their value. `merge`, `security`, `contribution-merge`
+# and `local-model-spilled` are refused as `true`, and are never written.
+# `shep kelpie add`, `upgrade` and `shep kelpie settings migrate` write each
+# other kind it is missing, at the value below, and never change one it has.
+# The old `pm_alone` list still loads, as `true` for each kind it names, and
+# the migration turns it into the map. It also deletes the panel's `decide`
+# and `full_panel_paths`, which the runner refuses.
 # [app.dogs.kelpie.rulings.pm_decides]
 # question = false
 # agent-files = false
