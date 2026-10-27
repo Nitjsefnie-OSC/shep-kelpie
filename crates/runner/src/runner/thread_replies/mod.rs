@@ -583,7 +583,9 @@ impl Runner {
                 "the ruling changed since that comment was written, and it asks now: {asks}"
             ))
         } else if naming != Naming::Not || wants == Wants::Answer {
-            match pm_reply(words, ruling.number()) {
+            // A question's answer may open with the word `pm`.
+            let pm = pm_reply(words, ruling.number());
+            match pm.filter(|pm| pm.is_ok() || wants != Wants::Answer) {
                 Some(Ok(PmReply::Ask(asked))) => return self.pm_asked_by(comment, id, asked),
                 Some(Ok(PmReply::Take(n))) => self.approach(id, n).and_then(|answer| {
                     (self.rule_by(id, answer, Settler::Thread)).map_err(|e| e.to_string())
