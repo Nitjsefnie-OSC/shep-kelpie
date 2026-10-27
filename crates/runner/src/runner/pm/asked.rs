@@ -4,8 +4,9 @@
 //! A reply in its thread asks: `<id> pm recommend` for its pick, posted
 //! there while the ruling stays the maintainer's, and `<id> pm options` for
 //! other approaches, kept on the ruling. `<id> pm <n>` takes approach n, as
-//! a `no <note>` or a question's answer. A wake that fails or gives no
-//! answer says so in the thread.
+//! a `no <note>` or a question's answer. `<id> pm decide` hands the ruling
+//! over as if `rulings.pm_decides` left it to the project manager. A wake
+//! that fails or gives no answer says so in the thread.
 
 use serde_json::{Map, Value};
 
@@ -16,11 +17,12 @@ use crate::ports::ThreadComment;
 use crate::runner::voice::{answer_for, brief, inert, named};
 use crate::runner::words::Wants;
 use crate::runner::{Answer, Runner};
-use crate::state::Ruling;
+use crate::settings::RulingName;
+use crate::state::{Ruling, RulingKind, Stuck};
 use crate::ticket::TicketId;
 
 /// What a `pm` reply takes after `pm`
-const TAKES: &str = "`pm` takes `recommend`, `options` or an approach's number";
+const TAKES: &str = "`pm` takes `recommend`, `options`, `decide` or an approach's number";
 
 /// The most approaches a ruling keeps
 const APPROACHES: usize = 5;
@@ -32,6 +34,8 @@ pub(in crate::runner) enum Asked {
     Recommend,
     /// Other approaches, for when none of its options is right
     Options,
+    /// Its answer, as if `rulings.pm_decides` left the ruling to it
+    Decide,
 }
 
 /// A reply to a ruling that starts with `pm`
@@ -66,6 +70,7 @@ pub(in crate::runner) fn pm_reply(
     Some(match (word.as_deref(), parts.next()) {
         (Some("recommend"), None) => Ok(PmReply::Ask(Asked::Recommend)),
         (Some("options"), None) => Ok(PmReply::Ask(Asked::Options)),
+        (Some("decide"), None) => Ok(PmReply::Ask(Asked::Decide)),
         (Some(n), None) => match n.parse::<usize>() {
             Ok(n) if n > 0 => Ok(PmReply::Take(n)),
             _ => Err(TAKES.to_owned()),
@@ -90,6 +95,10 @@ pub(super) fn lead(asked: Asked, id: TicketId) -> String {
              characters>\"]}}`, at most {APPROACHES}: kelpie posts them in the ruling's thread, \
              and the one the maintainer takes goes to the worker as their note, or as their \
              answer to a question:\n"
+        ),
+        Asked::Decide => format!(
+            "the maintainer hands ruling {id} to you to decide, as if the project left it to \
+             you. Give your answer as your vote on it in `votes`:\n"
         ),
     }
 }
@@ -130,6 +139,9 @@ impl Runner {
         if self.pm_has_asked(id) {
             return Err("the project manager is already on it, and answers in this thread".into());
         }
+        if asked == Asked::Decide {
+            self.pm_may_decide(ruling)?;
+        }
         let text = brief(ruling).0;
         self.pm.asking.insert(id, self.ports.clock.now());
         self.pm_due(Wake::Answer {
@@ -158,6 +170,7 @@ impl Runner {
             let acted = match (fields, asked) {
                 (Some((_, fields)), Asked::Recommend) => self.pm_recommend(&ruling, fields),
                 (Some((_, fields)), Asked::Options) => self.pm_options(&ruling, fields),
+                (Some((_, fields)), Asked::Decide) => self.pm_decide(&ruling, fields),
                 (None, _) => Err("its reply held no answer to it".to_owned()),
             };
             match acted {
@@ -169,6 +182,56 @@ impl Runner {
             }
         }
         done
+    }
+
+    // Why the project manager may not decide `ruling`, where it may not: the
+    // kinds the settings refuse it, and those `pm_answers_ruling` never gives it.
+    pub(super) fn pm_may_decide(&self, ruling: &Ruling) -> Result<(), String> {
+        let name = RulingName::of(&ruling.kind);
+        if name.pm_default().is_none() {
+            let name = name.as_str();
+            return Err(format!(
+                "the project manager never decides a `{name}` ruling"
+            ));
+        }
+        if ruling.kind.is_contribution() {
+            return Err("a contribution's ruling is never the project manager's".into());
+        }
+        if matches!(
+            ruling.kind,
+            RulingKind::Stuck(Stuck::TurnFailed { setup: true, .. })
+        ) {
+            return Err("kelpie could not set up the worker's turn, which only you can fix".into());
+        }
+        if self.draining() {
+            return Err("the runner drains".into());
+        }
+        if brief(ruling).1 < 2 {
+            return Err("it lists fewer than two options to pick from".into());
+        }
+        Ok(())
+    }
+
+    // Applies the project manager's answer to `ruling` as one the project
+    // left to it would be, or posts its pick where the ruling stays the maintainer's.
+    fn pm_decide(
+        &mut self,
+        ruling: &Ruling,
+        fields: &Map<String, Value>,
+    ) -> Result<String, String> {
+        let answer = self.pm_vote(ruling, fields)?;
+        let (id, choice) = (ruling.id, answer.choice);
+        match self.pm_decides(ruling, &answer) {
+            Ok(()) => Ok(format!("answered ruling {id} with option {choice}")),
+            Err(why) => {
+                self.pm_recommends(id, &answer);
+                self.post_recommended(ruling, &answer, Some(&why));
+                Ok(format!(
+                    "put ruling {id} back to the maintainer, recommending option {choice}, \
+                     since {why}"
+                ))
+            }
+        }
     }
 
     // Posts the project manager's pick for `ruling` in its thread.
@@ -330,6 +393,7 @@ mod tests {
             Some(Ok(PmReply::Ask(Asked::Recommend)))
         );
         assert_eq!(read("pm options"), Some(Ok(PmReply::Ask(Asked::Options))));
+        assert_eq!(read("pm decide"), Some(Ok(PmReply::Ask(Asked::Decide))));
         assert_eq!(read("71 pm 2"), Some(Ok(PmReply::Take(2))));
         assert_eq!(read("pm 0"), Some(Err(TAKES.to_owned())));
         assert_eq!(read("pm"), Some(Err(TAKES.to_owned())));

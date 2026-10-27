@@ -126,7 +126,7 @@ impl Runner {
     // Applies option `answer.choice` to `ruling`, and posts what was decided,
     // or says why the maintainer decides instead. A ruling whose answer
     // cannot be applied stays pending, for the maintainer.
-    fn pm_decides(&mut self, ruling: &Ruling, answer: &PmAnswer) -> Result<(), String> {
+    pub(super) fn pm_decides(&mut self, ruling: &Ruling, answer: &PmAnswer) -> Result<(), String> {
         let (id, key) = (ruling.id, answer.choice);
         if answer.design {
             return Err("it flagged design".into());
