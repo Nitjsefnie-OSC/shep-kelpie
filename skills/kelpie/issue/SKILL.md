@@ -15,7 +15,8 @@ An issue meant for kelpie is written the same way wherever it comes from. One is
 - **`## Acceptance criteria`**: `- [ ]` items the pull request is checked against. Named tests by their full module path, each pinning one behaviour and its failure cases, then the repo's own check commands in its documented shape. Say which tests only CI can run, and require nothing the builder cannot get, such as a live model or a CI result.
 - **`Harness reach:`**: when `Touches:` names one harness's adapter (a `claude`, `pi`, `codex` or `goose` file or folder under `adapters/`), a line saying which harnesses the change reaches. A change to one adapter reaches pi in the same issue, or names the open pi issue that does. Codex may follow in its own issue.
 - **`Blocked by:`**: when another issue must merge first, or edits the same function, a line naming it as `#<n>`, with why in the body. Link it as a blocker on the tracker too. Add none without a real dependency or collision.
-- **Labels**: one priority label, `priority: P0` to `priority: P4`, by the repo's `docs/agents/triage-labels.md` where it has one, and one kind label, `bug` or `enhancement`.
+- **Labels**: one priority label, `priority: P0` to `priority: P4`, by the repo's `docs/agents/triage-labels.md` where it has one.
+- **Kind**: one `kind:<type>` label, `<type>` a conventional commit type such as `feat`, `fix`, `docs` or `refactor`, unless the title starts with one, as `fix(board): ...`. Never two `kind:` labels. `bug` and `enhancement` are not kinds.
 
 A piece of a split starts with `Slice <n> of #<parent>.`. A decision the docs leave open goes in the body as a stated assumption, "Assumed: X. Say otherwise.", never as a silent guess.
 
@@ -40,7 +41,7 @@ A repo plugin's skills load on pi as they do on Claude Code, so a worker on eith
 - [ ] `cargo fmt --all --check` and `cargo clippy --all-targets --locked -- -D warnings` pass
 ```
 
-It is filed with the labels `enhancement` and `priority: P4`.
+It is filed with the labels `kind:feat` and `priority: P4`.
 
 ## Check it
 

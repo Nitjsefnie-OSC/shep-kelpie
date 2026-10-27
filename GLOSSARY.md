@@ -176,8 +176,9 @@ _Avoid_: planner, planning call
 **Issue check**:
 Kelpie's code check that an issue holds every part an implementer builds
 from: a `Touches:` line, what to build, acceptance criteria, harness reach
-when it touches one harness's adapter, blockers when it names any, and one
-priority and one kind label. It reads structure, not quality.
+when it touches one harness's adapter, blockers when it names any, one
+priority label, and a kind: its `kind:<type>` label, else its title's
+conventional prefix. It reads structure, not quality.
 `shep kelpie issue check <n>` runs it, and the issue skill holds the same
 format for the agent that writes an issue.
 _Avoid_: lint, validation, triage

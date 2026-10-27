@@ -45,7 +45,7 @@ pub(super) fn write(dir: &Path) -> io::Result<()> {
 mod tests {
     use super::*;
     use crate::board::check::{
-        BLOCKED_BY, CRITERIA, HARNESS_REACH, HARNESSES, KINDS, TOUCHES, WHAT_TO_BUILD, check,
+        BLOCKED_BY, CRITERIA, HARNESS_REACH, HARNESSES, KIND, TOUCHES, WHAT_TO_BUILD, check,
     };
 
     // The skill's example issue, and the labels it says the example is filed with
@@ -80,7 +80,8 @@ mod tests {
         for heading in [WHAT_TO_BUILD, CRITERIA] {
             assert!(format.contains(&format!("**`## {heading}`**")), "{heading}");
         }
-        for label in KINDS.iter().chain(&["priority: P0", "priority: P4"]) {
+        let kind = format!("{KIND}<type>");
+        for label in [kind.as_str(), "priority: P0", "priority: P4"] {
             assert!(format.contains(&format!("`{label}`")), "{label}");
         }
         for harness in HARNESSES {

@@ -25,7 +25,7 @@ fn of(body: &str) -> Vec<Failure> {
     check(
         "A thing is true",
         body,
-        &labels(&["enhancement", "priority: P4"]),
+        &labels(&["kind:feat", "priority: P4"]),
     )
 }
 
@@ -50,7 +50,7 @@ fn an_issue_written_as_prose_fails_on_every_part_it_lacks() {
 }
 
 #[test]
-fn an_issue_writer_slice_with_no_kind_label_fails_on_that_alone() {
+fn an_issue_writer_slice_with_no_kind_fails_on_that_alone() {
     let json = include_str!("../../../../fixtures/gh-issue-view-check-908.json");
     assert_eq!(recorded(json), [Failure::NoKind]);
 }
@@ -62,7 +62,7 @@ fn a_whole_issue_passes() {
 
 #[test]
 fn an_empty_title_fails() {
-    let failures = check(" ", BODY, &labels(&["bug", "priority: P3"]));
+    let failures = check(" ", BODY, &labels(&["kind:fix", "priority: P3"]));
     assert_eq!(failures, [Failure::NoTitle]);
 }
 
@@ -165,22 +165,43 @@ fn a_blocked_by_line_names_an_issue_or_a_local_ticket() {
 }
 
 #[test]
-fn an_issue_carries_one_priority_label_and_one_kind_label() {
-    let check = |names: &[&str]| check("A thing", BODY, &labels(names));
-    assert_eq!(check(&["bug", "P2"]), []);
-    assert_eq!(check(&["Enhancement", "priority: P0"]), []);
+fn an_issue_carries_one_priority_label() {
+    let check = |names: &[&str]| check("fix: a thing", BODY, &labels(names));
+    assert_eq!(check(&["P2"]), []);
+    assert_eq!(check(&["priority: P0"]), []);
     assert_eq!(check(&["bug"]), [Failure::NoPriority]);
     assert_eq!(
-        check(&["bug", "priority: P1", "priority: P3"]),
+        check(&["priority: P1", "priority: P3"]),
         [Failure::Priorities(labels(&[
             "priority: P1",
             "priority: P3"
         ]))]
     );
-    assert_eq!(check(&["priority: P4"]), [Failure::NoKind]);
+}
+
+#[test]
+fn an_issues_kind_is_its_kind_label_else_its_titles_conventional_prefix() {
+    let check = |title: &str, names: &[&str]| check(title, BODY, &labels(names));
+    let p4 = "priority: P4";
+    assert_eq!(check("A thing is true", &["kind:feat", p4]), []);
+    assert_eq!(check("A thing is true", &["kind: chore", p4]), []);
+    for title in ["feat: a thing", "fix(board): a thing", "refactor!: a thing"] {
+        assert_eq!(check(title, &[p4]), [], "{title}");
+    }
+    for title in ["A thing is true", "feature: a thing", "fix(): a thing"] {
+        assert_eq!(check(title, &[p4]), [Failure::NoKind], "{title}");
+    }
     assert_eq!(
-        check(&["bug", "enhancement", "priority: P4"]),
-        [Failure::Kinds(labels(&["bug", "enhancement"]))]
+        check("A thing", &["bug", "enhancement", p4]),
+        [Failure::NoKind]
+    );
+    assert_eq!(
+        check("fix: a thing", &["kind:bug", p4]),
+        [Failure::UnknownKind("kind:bug".to_owned())]
+    );
+    assert_eq!(
+        check("fix: a thing", &["kind:fix", "kind:docs", p4]),
+        [Failure::Kinds(labels(&["kind:fix", "kind:docs"]))]
     );
 }
 
@@ -195,7 +216,8 @@ fn each_failure_names_the_part_it_is_about() {
             "`Harness reach:`",
         ),
         (Failure::BlockedByNoIssue, "`Blocked by:`"),
-        (Failure::NoKind, "`bug` or `enhancement`"),
+        (Failure::NoKind, "`kind:<type>`"),
+        (Failure::UnknownKind("kind:bug".into()), "`kind:bug`"),
         (Failure::Priorities(labels(&["P1", "P2"])), "`P1` and `P2`"),
     ];
     for (failure, part) in said {

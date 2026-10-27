@@ -174,7 +174,7 @@ mod tests {
         let file = dir.path().join("issue.md");
         std::fs::write(&file, BODY).unwrap();
         let file = file.display().to_string();
-        let mut args = words(&format!("check --draft {file} --label enhancement --label"));
+        let mut args = words(&format!("check --draft {file} --label kind:feat --label"));
         args.push("priority: P4".to_owned());
         assert_eq!(main(&lookup, &args), 0);
         let unlabelled = words(&format!("check --draft {file}"));

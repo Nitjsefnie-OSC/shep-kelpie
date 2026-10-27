@@ -90,7 +90,7 @@ mod tests {
     fn an_issue_in_the_format_passes() {
         let forge = FakeForge::new(PathBuf::from("/nowhere"));
         forge.open_issue(12, "A thing is true", BODY);
-        forge.label(12, "enhancement");
+        forge.label(12, "kind:feat");
         forge.label(12, "priority: P4");
         let said = run(&forge, &repo(), ticket(12));
         assert_eq!(
@@ -111,6 +111,8 @@ mod tests {
             "- no `## What to build` section, or nothing under it",
             "- no `## Acceptance criteria` section",
             "- no priority label, `priority: P0` to `priority: P4`",
+            "- no kind: no `kind:<type>` label, and the title does not start with a \
+             conventional type such as `feat:` or `fix(board):`",
         ];
         assert_eq!(said, Ok(Checked::Fails(labels(&lines))));
     }
@@ -128,7 +130,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("issue.md");
         std::fs::write(&file, format!("A thing is true\n{BODY}")).unwrap();
-        let said = draft(&file, &labels(&["enhancement", "priority: P4"]));
+        let said = draft(&file, &labels(&["kind:feat", "priority: P4"]));
         let shown = format!("the draft {} passes the issue check", file.display());
         assert_eq!(said, Ok(Checked::Passes(shown)));
         std::fs::write(&file, format!("\n{BODY}")).unwrap();

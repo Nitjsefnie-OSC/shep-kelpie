@@ -10,6 +10,7 @@
 use std::fmt;
 
 use super::is_priority_label;
+use crate::guard::{CONVENTIONAL_TYPES, conventional_type};
 
 /// The line naming the files an issue changes, each path in backticks
 pub const TOUCHES: &str = "Touches:";
@@ -26,8 +27,8 @@ pub const HARNESS_REACH: &str = "Harness reach:";
 /// The line naming the issues that must merge first
 pub const BLOCKED_BY: &str = "Blocked by:";
 
-/// The kind labels, one of which every issue carries
-pub const KINDS: [&str; 2] = ["bug", "enhancement"];
+/// What a kind label starts with, as `kind:feat`
+pub const KIND: &str = "kind:";
 
 /// The harnesses whose adapters are named for them, as in `adapters/pi/`
 pub const HARNESSES: [&str; 4] = ["claude", "pi", "codex", "goose"];
@@ -56,9 +57,11 @@ pub enum Failure {
     NoPriority,
     /// More than one priority label, these
     Priorities(Vec<String>),
-    /// No kind label
+    /// No `kind:` label, and no conventional type starting the title
     NoKind,
-    /// More than one kind label, these
+    /// This `kind:` label names no conventional type
+    UnknownKind(String),
+    /// More than one `kind:` label, these
     Kinds(Vec<String>),
 }
 
@@ -83,7 +86,17 @@ impl fmt::Display for Failure {
             Self::Priorities(labels) => {
                 write!(f, "priority labels {}: keep one", ticked(labels, " and "))
             }
-            Self::NoKind => write!(f, "no kind label, {}", ticked(&KINDS, " or ")),
+            Self::NoKind => write!(
+                f,
+                "no kind: no `{KIND}<type>` label, and the title does not start with a \
+                 conventional type such as `feat:` or `fix(board):`"
+            ),
+            Self::UnknownKind(label) => {
+                write!(
+                    f,
+                    "`{label}` names no conventional type, as `{KIND}feat` does"
+                )
+            }
             Self::Kinds(labels) => write!(f, "kind labels {}: keep one", ticked(labels, " and ")),
         }
     }
@@ -139,12 +152,21 @@ pub fn check(title: &str, body: &str, labels: &[String]) -> Vec<Failure> {
         _ => failures.push(Failure::Priorities(priorities)),
     }
     let kinds: Vec<String> = (labels.iter())
-        .filter(|l| KINDS.iter().any(|k| l.eq_ignore_ascii_case(k)))
+        .filter(|l| kind_of(l).is_some())
         .cloned()
         .collect();
-    match kinds.len() {
-        0 => failures.push(Failure::NoKind),
-        1 => {}
+    match kinds.as_slice() {
+        [] if conventional_type(title).is_none() => failures.push(Failure::NoKind),
+        [] => {}
+        [label] => {
+            let kind = kind_of(label).unwrap_or_default();
+            if !CONVENTIONAL_TYPES
+                .iter()
+                .any(|t| t.eq_ignore_ascii_case(kind))
+            {
+                failures.push(Failure::UnknownKind(label.clone()));
+            }
+        }
         _ => failures.push(Failure::Kinds(kinds)),
     }
     failures
@@ -154,6 +176,12 @@ pub fn check(title: &str, body: &str, labels: &[String]) -> Vec<Failure> {
 /// list or in bold
 pub fn touches_line(body: &str) -> Option<&str> {
     labelled_line(body, TOUCHES)
+}
+
+// The type a `kind:` label names, in any case and with any spaces.
+fn kind_of(label: &str) -> Option<&str> {
+    let (head, kind) = label.split_at_checked(KIND.len())?;
+    head.eq_ignore_ascii_case(KIND).then(|| kind.trim())
 }
 
 // What follows `label` on the first line it starts, past list and bold marks.

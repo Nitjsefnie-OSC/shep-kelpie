@@ -22,6 +22,7 @@ mod shell;
 mod wrap;
 
 pub use after::{AFTER_FLAG, after_flag, judge_after};
+pub use gh::{TYPES as CONVENTIONAL_TYPES, conventional_type};
 pub use goose::{
     GOOSE_FLAG, GOOSE_SERVER_FLAG, GOOSE_WRITE_FLAG, goose_flag, goose_server_flags,
     goose_write_flag, judge_goose, judge_goose_reading, judge_goose_writing,
