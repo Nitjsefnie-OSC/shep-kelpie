@@ -65,7 +65,7 @@ pub use local::{ContextSize, Endpoint, EndpointUrl, LocalCommand, LocalRound};
 pub use local_rounds::{KeepDays, LocalRounds, RoundsFolder};
 pub use repo_setup::{CallRole, MarketplaceSource, Part, PluginId, RepoSetup};
 pub use reviewers::{ListedReviewer, default_reviewers};
-pub use rulings::{Decide, RulingName, Rulings};
+pub use rulings::{Decide, PM_ALONE, PM_DECIDES, RulingName, Rulings};
 pub use skills::{SkillChoice, SkillName, StepSkills};
 pub use tickets::{TicketSource, Tickets};
 pub use triage::{AuthorRole, ClassifierPath, Triage, TriagePick, TriageSpam};

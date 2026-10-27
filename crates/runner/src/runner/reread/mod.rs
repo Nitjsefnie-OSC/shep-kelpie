@@ -60,12 +60,8 @@ impl Runner {
         if !kelpie.gateways().iter().eq(self.gateways.iter()) {
             waiting.push("gateways");
         }
-        if let Some(reason) = settings.rulings.refusal() {
-            return Err(SettingsError::Invalid {
-                setting: "rulings.pm_alone",
-                reason,
-            }
-            .into());
+        if let Some(refused) = settings.rulings.refusal() {
+            return Err(refused.into());
         }
         // The start refuses a browser this machine cannot give, so a reread does too.
         settings

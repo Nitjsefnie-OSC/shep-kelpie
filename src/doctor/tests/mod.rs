@@ -148,7 +148,8 @@ impl Scene {
         scene
     }
 
-    /// Puts a runner named `name` in the flock, with the default table as `edit` changes it
+    /// Puts a runner named `name` in the flock, with the default table, its
+    /// `rulings.pm_decides` written in full, as `edit` changes it
     fn runs(&self, name: &str, edit: impl FnOnce(&mut Map<String, Value>)) {
         let mut table = project_table(EXAMPLE);
         let repo = self.home.join(name);
@@ -161,6 +162,7 @@ impl Scene {
         table["git"]["checkout"] = json!(repo);
         table["git"]["remote"] = json!(format!("shep-pm/{name}"));
         table["agents"]["reviewers"] = json!(["defect-hunter"]);
+        crate::flock::set::migrate::pm_decides(&mut table);
         edit(&mut table);
         let launch = Launch {
             kelpie: "/opt/kelpie".into(),
@@ -917,6 +919,7 @@ mod e2e;
 mod github;
 mod harnesses;
 mod plugins;
+mod pm_decides;
 mod registries;
 mod reviewers;
 mod sandbox;

@@ -483,12 +483,8 @@ impl Runner {
         }
         let totp = replies::authenticator(webhook.as_ref(), &paths.totp)?;
         let remote = check_checkout(&settings)?;
-        if let Some(reason) = settings.rulings.refusal() {
-            return Err(SettingsError::Invalid {
-                setting: "rulings.pm_alone",
-                reason,
-            }
-            .into());
+        if let Some(refused) = settings.rulings.refusal() {
+            return Err(refused.into());
         }
         let contribution_lineup = open_checks::contributions(
             &settings,

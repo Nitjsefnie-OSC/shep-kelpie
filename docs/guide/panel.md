@@ -85,15 +85,24 @@ full_panel_paths = ["crates/core/src/guard/**", "crates/adapters/src/github/**",
 
 The list above is a starting point for this repo: the guard, the forge calls, the workflows, the settings and the state file.
 
-`rulings.pm_alone` lists kinds of ruling the project manager decides with its own vote on any type of work, for the kinds whose answer turns on facts it reads from the board. It is empty when absent:
+`rulings.pm_decides` maps each kind of ruling to who decides it: `true` for the project manager, with its own vote on any type of work, or `false` for you. Operational kinds, whose answer turns on facts it reads from the board, start `true`; `question`, `agent-files` and `foreign-change` start `false`. A kind the map leaves out is yours:
 
 ```toml
 [app.dogs.kelpie.rulings]
 decide = "panel"
-pm_alone = ["turn-timeout", "still-red"]
+
+[app.dogs.kelpie.rulings.pm_decides]
+question = false
+agent-files = false
+foreign-change = false
+still-red = true
+turn-timeout = true
+# ... and every other kind, `true`
 ```
 
-The kinds are `question`, `agent-files`, `foreign-change`, `follow-up`, `rebase`, `still-red`, `merge-refused`, `closed`, `fix-not-pushed`, `test-still-fails`, `unpushed`, `push-refused`, `turn-timeout`, `turn-failed`, `unlabelled`, `adopt-failed` and `over-budget`. `merge`, `contribution-merge` and `security` are refused: the runner does not start, naming `rulings.pm_alone`, and a change that adds it while the runner runs is refused too, keeping the settings it has. A question, and a ruling on a risky path, are all four's even when their kind is listed, so `question` under `pm_alone` only fills its `pm_alone` run in `status`. A `design` flag from the project manager calls the full panel, and an abstention the panel the item's type sets, or all four for a question or a risky path. Under `shadow` every expert still votes, and `status` reports, for each kind of ruling, the run of rulings where the project manager's vote was your answer (`pm_alone`), the way to see which kinds to list. A vote that flagged `design` or abstained leaves a kind's run as it is.
+`shep kelpie add` writes every kind into a new project's map, and `shep kelpie upgrade` runs `shep kelpie settings migrate`, which writes each kind a project's map is missing at its default and never changes one it has. That is every kind, not only those a list named: the operational kinds go in `true`, so the project manager decides them unless you set them `false`. A kind you delete from the map is written again at its default on the next run; set it `false` instead. `doctor` names a project whose map is missing kinds. The old `rulings.pm_alone` list still loads for one release, as `true` for each kind it names, and the migration turns it into the map. Setting both is refused.
+
+The kinds are `question`, `agent-files`, `foreign-change`, `follow-up`, `rebase`, `still-red`, `check-queued`, `no-checks`, `merge-refused`, `closed`, `fix-not-pushed`, `test-still-fails`, `unpushed`, `push-refused`, `turn-timeout`, `turn-failed`, `unlabelled`, `adopt-failed` and `over-budget`. `merge`, `contribution-merge`, `security` and `local-model-spilled` set `true` are refused: the runner does not start, naming `rulings.pm_decides` (or `rulings.pm_alone` for the old list), and a change that sets one while the runner runs is refused too, keeping the settings it has. A question, and a ruling on a risky path, are all four's even when their kind is `true`, so `question = true` only fills its `pm_alone` run in `status`. A `design` flag from the project manager calls the full panel, and an abstention the panel the item's type sets, or all four for a question or a risky path. Under `shadow` every expert still votes, and `status` reports, for each kind of ruling, the run of rulings where the project manager's vote was your answer (`pm_alone`), the way to see which kinds to list. A vote that flagged `design` or abstained leaves a kind's run as it is.
 
 An expert's agent can be off the panel: an advisor or researcher the project does not name is never asked, and counts as an abstention, so a project without a researcher decides a `feat` on three of three.
 
@@ -113,4 +122,4 @@ The panel costs up to four agent calls on every ruling, one of them Opus at high
   - `all`: all four on every ruling
 
   For each: `decided` (rulings it would have decided without you), `matched` (of those, the ones it decided as you answered), `maintainer` (rulings it would have sent to you) and `cost`, per ruling, summed from the ledger lines of the votes it would have asked, an escalation's included. A call with no reported cost adds nothing, and `cost` is `null` when the usage ledger cannot be read. Only rulings answered under a build with `whatif` count, since an older line does not say whether it was a shadow run or a risky path.
-- After a project's first 30 panel rulings (`facts_due` in `status`) `docs/facts/the-panel.md` gets an entry: cost per ruling and per expert, each expert's agreement and lone-correct count, abstentions, what each smaller panel would have decided against your answers, and the `whatif` table. Use it to keep, drop or downgrade an expert, move a type to a smaller or larger panel, pick the policy `panel` should use, or list more kinds under `rulings.pm_alone`.
+- After a project's first 30 panel rulings (`facts_due` in `status`) `docs/facts/the-panel.md` gets an entry: cost per ruling and per expert, each expert's agreement and lone-correct count, abstentions, what each smaller panel would have decided against your answers, and the `whatif` table. Use it to keep, drop or downgrade an expert, move a type to a smaller or larger panel, pick the policy `panel` should use, or set more kinds `true` in `rulings.pm_decides`.

@@ -175,8 +175,12 @@ mod tests {
                 "allowed_domains = [\"docs.rs\"]",
             )
             .replace(
-                "# [app.dogs.kelpie.rulings]\n# decide = \"panel\"\n# pm_alone =",
-                "[app.dogs.kelpie.rulings]\ndecide = \"panel\"\npm_alone =",
+                "# [app.dogs.kelpie.rulings]\n# decide = \"panel\"\n",
+                "[app.dogs.kelpie.rulings]\ndecide = \"panel\"\n",
+            )
+            .replace(
+                "# [app.dogs.kelpie.rulings.pm_decides]\n# question =",
+                "[app.dogs.kelpie.rulings.pm_decides]\nquestion =",
             )
             .replace(
                 "# [app.dogs.kelpie.contributions]\n# pick = \"off\"\n# reviewers = [\"defect-hunter-lite\"]\n# security_reviewer = \"security-reviewer\"\n# quiet_days = 7\n# nudge_days = 3\n",

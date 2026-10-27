@@ -420,7 +420,7 @@ impl Runner {
         let shadow = self.settings.rulings.decide == Decide::Shadow;
         // A kind the project manager decides alone starts with it alone, if it is
         // there, unless the ruling is raised to the full panel: a question or a
-        // risky path is never one voice's, whatever `pm_alone` lists.
+        // risky path is never one voice's, whatever `pm_decides` says.
         let raised = kind == RulingName::Question || risky;
         let alone = self.settings.rulings.pm_decides(kind) && self.agents.pm.is_some() && !raised;
         let alone = alone && !always;
