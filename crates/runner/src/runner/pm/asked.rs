@@ -2,28 +2,36 @@
 //!
 //! A ruling that waits on the maintainer wakes no project manager of itself.
 //! A reply in its thread asks: `<id> pm recommend` for its pick, posted
-//! there while the ruling stays the maintainer's. A wake that fails or
-//! gives no answer says so in the thread.
+//! there while the ruling stays the maintainer's, and `<id> pm options` for
+//! other approaches, kept on the ruling. `<id> pm <n>` takes approach n, as
+//! a `no <note>` or a question's answer. A wake that fails or gives no
+//! answer says so in the thread.
 
 use serde_json::{Map, Value};
 
 use super::Wake;
 use super::act::{WORDS, plain};
-use crate::pm_answer::{PmAnswer, from_fields};
+use crate::pm_answer::{PmAnswer, WHY_LONGEST, from_fields};
 use crate::ports::ThreadComment;
 use crate::runner::voice::{answer_for, brief, inert, named};
+use crate::runner::words::Wants;
 use crate::runner::{Answer, Runner};
 use crate::state::Ruling;
 use crate::ticket::TicketId;
 
 /// What a `pm` reply takes after `pm`
-const TAKES: &str = "`pm` takes `recommend`";
+const TAKES: &str = "`pm` takes `recommend`, `options` or an approach's number";
+
+/// The most approaches a ruling keeps
+const APPROACHES: usize = 5;
 
 /// What the maintainer asks of the project manager about a ruling
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(in crate::runner) enum Asked {
     /// Its pick and why, posted in the thread, the ruling still theirs
     Recommend,
+    /// Other approaches, for when none of its options is right
+    Options,
 }
 
 /// A reply to a ruling that starts with `pm`
@@ -31,6 +39,8 @@ pub(in crate::runner) enum Asked {
 pub(in crate::runner) enum PmReply {
     /// Asks the project manager
     Ask(Asked),
+    /// Takes the approach of this number, 1 for the first
+    Take(usize),
 }
 
 /// The `pm` reply `words` are to the ruling read by `number`, if they
@@ -55,6 +65,11 @@ pub(in crate::runner) fn pm_reply(
     let word = parts.next().map(str::to_ascii_lowercase);
     Some(match (word.as_deref(), parts.next()) {
         (Some("recommend"), None) => Ok(PmReply::Ask(Asked::Recommend)),
+        (Some("options"), None) => Ok(PmReply::Ask(Asked::Options)),
+        (Some(n), None) => match n.parse::<usize>() {
+            Ok(n) if n > 0 => Ok(PmReply::Take(n)),
+            _ => Err(TAKES.to_owned()),
+        },
         _ => Err(TAKES.to_owned()),
     })
 }
@@ -67,6 +82,14 @@ pub(super) fn lead(asked: Asked, id: TicketId) -> String {
             "the maintainer asks which option you recommend for ruling {id}. Give it as your \
              vote on it in `votes`: kelpie posts it in the ruling's thread, and the maintainer \
              still answers the ruling:\n"
+        ),
+        Asked::Options => format!(
+            "the maintainer finds none of ruling {id}'s options right and asks you for other \
+             approaches. Give them as your vote on it in `votes`, `{{\"ruling\": {id}, \
+             \"approaches\": [\"<what the worker should do instead, one line of at most 350 \
+             characters>\"]}}`, at most {APPROACHES}: kelpie posts them in the ruling's thread, \
+             and the one the maintainer takes goes to the worker as their note, or as their \
+             answer to a question:\n"
         ),
     }
 }
@@ -134,6 +157,7 @@ impl Runner {
             let fields = (votes.iter().rev()).find(|(vote, _)| *vote == id);
             let acted = match (fields, asked) {
                 (Some((_, fields)), Asked::Recommend) => self.pm_recommend(&ruling, fields),
+                (Some((_, fields)), Asked::Options) => self.pm_options(&ruling, fields),
                 (None, _) => Err("its reply held no answer to it".to_owned()),
             };
             match acted {
@@ -158,6 +182,75 @@ impl Runner {
         self.post_recommended(ruling, &answer, None);
         let (choice, id) = (answer.choice, ruling.id);
         Ok(format!("recommended option {choice} on ruling {id}"))
+    }
+
+    // Keeps the approaches the project manager gave for `ruling` on it, and
+    // posts them in its thread, inert, with how to take one.
+    fn pm_options(
+        &mut self,
+        ruling: &Ruling,
+        fields: &Map<String, Value>,
+    ) -> Result<String, String> {
+        let Some(Value::Array(items)) = fields.get("approaches") else {
+            return Err("`approaches` is not a list".into());
+        };
+        let approaches: Vec<String> = (items.iter())
+            .filter_map(Value::as_str)
+            .map(|text| plain(&self.shown(text.to_owned()), WHY_LONGEST))
+            .filter(|text| !text.is_empty())
+            .take(APPROACHES)
+            .collect();
+        if approaches.is_empty() {
+            return Err("it gave no approaches".into());
+        }
+        let id = ruling.id;
+        let mut next = self.state.clone();
+        if let Some(kept) = next.rulings.iter_mut().find(|r| r.id == id) {
+            kept.approaches.clone_from(&approaches);
+        }
+        self.save(next)
+            .map_err(|e| format!("cannot save its approaches: {e}"))?;
+        let number = ruling.number();
+        let listed: Vec<String> = (approaches.iter().zip(1..))
+            .map(|(text, n)| format!("{n}. {}", inert(text)))
+            .collect();
+        let taken = match Wants::of(&ruling.kind) {
+            Wants::Answer => "as your answer".to_owned(),
+            Wants::Merge | Wants::YesOrNo => format!("as your `{number} no <note>`"),
+        };
+        let said = format!(
+            "**Project manager: other approaches to ruling #{number}**\n\n{}\n\nReply \
+             `{number} pm <n>` to take one {taken}.",
+            listed.join("\n")
+        );
+        self.pm_says(ruling, &said);
+        let count = approaches.len();
+        Ok(format!("gave ruling {id} {count} other approaches"))
+    }
+
+    /// The answer approach `n` of ruling `id` gives: the maintainer's note,
+    /// or a question's answer
+    ///
+    /// # Errors
+    ///
+    /// Why approach `n` is none, for the reply.
+    pub(in crate::runner) fn approach(&self, id: TicketId, n: usize) -> Result<Answer, String> {
+        let ruling = (self.state.rulings.iter().find(|r| r.id == id))
+            .ok_or_else(|| "it no longer waits".to_owned())?;
+        let number = ruling.number();
+        let Some(text) = n.checked_sub(1).and_then(|at| ruling.approaches.get(at)) else {
+            return Err(match ruling.approaches.len() {
+                0 => format!(
+                    "the project manager gave it no approaches: reply `{number} pm options` for \
+                     some"
+                ),
+                count => format!("it has {count} approaches, so `pm {n}` names none"),
+            });
+        };
+        Ok(match Wants::of(&ruling.kind) {
+            Wants::Answer => Answer::Text(text.clone()),
+            Wants::Merge | Wants::YesOrNo => Answer::No(text.clone()),
+        })
     }
 
     // The project manager's answer to `ruling` in `fields`, its why cut to
@@ -236,6 +329,9 @@ mod tests {
             read("71 PM Recommend"),
             Some(Ok(PmReply::Ask(Asked::Recommend)))
         );
+        assert_eq!(read("pm options"), Some(Ok(PmReply::Ask(Asked::Options))));
+        assert_eq!(read("71 pm 2"), Some(Ok(PmReply::Take(2))));
+        assert_eq!(read("pm 0"), Some(Err(TAKES.to_owned())));
         assert_eq!(read("pm"), Some(Err(TAKES.to_owned())));
         assert_eq!(read("pm recommend now"), Some(Err(TAKES.to_owned())));
         assert_eq!(read("yes"), None);

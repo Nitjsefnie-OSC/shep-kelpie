@@ -281,6 +281,37 @@ fn a_ruling_saved_without_raised_loads_and_a_raised_time_is_kept() {
     assert_eq!(store.load().unwrap(), Some(loaded));
 }
 
+// A version 87 ruling has no `approaches`, so it loads with none, and the
+// approaches a ruling gains save and load back.
+#[test]
+fn a_version_87_ruling_loads_with_no_approaches_and_keeps_those_it_gains() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = store_in(dir.path());
+    let mut state = ProjectState::new();
+    state.rulings.push(Ruling {
+        issue: Some(ticket(7)),
+        pull_request: Some(71),
+        ..Ruling::new(ticket(1), "q", RulingKind::Stuck(Stuck::Closed))
+    });
+    let mut old = serde_json::to_value(&state).unwrap();
+    old["version"] = 87.into();
+    assert!(old["rulings"][0].get("approaches").is_none());
+    fs::write(dir.path().join(STATE_FILE), old.to_string()).unwrap();
+
+    let mut loaded = store.load().unwrap().expect("a saved state");
+    assert!(loaded.rulings[0].approaches.is_empty());
+    loaded.rulings[0].approaches = vec!["Split the parser out first".into()];
+    store.save(&loaded).unwrap();
+    let text = fs::read_to_string(dir.path().join(STATE_FILE)).unwrap();
+    let saved: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(saved["version"], VERSION);
+    assert_eq!(
+        saved["rulings"][0]["approaches"],
+        serde_json::json!(["Split the parser out first"])
+    );
+    assert_eq!(store.load().unwrap(), Some(loaded));
+}
+
 // A version 30 file has no `order`, so it loads with the board following its
 // rule, and an order a later read keeps saves and loads back.
 #[test]
@@ -809,6 +840,7 @@ fn an_older_state_file_loads_and_a_contribution_ruling_survives_a_save_and_a_loa
         unposted: false,
         effects: Vec::new(),
         raised: Some(Timestamp(1)),
+        approaches: Vec::new(),
     });
     store.save(&state).unwrap();
     let text = fs::read_to_string(dir.path().join(STATE_FILE)).unwrap();

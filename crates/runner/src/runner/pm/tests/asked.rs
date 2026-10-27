@@ -240,3 +240,114 @@ fn a_second_request_while_its_wake_runs_is_answered_once_and_not_queued() {
         .count();
     assert_eq!(already, 1);
 }
+
+// Other approaches, asked for with `pm options` and taken with `pm <n>`
+
+/// The project manager's two approaches to ruling 71, the second as `second`
+fn approaches(second: &str) -> &'static str {
+    let text = format!(
+        "{{\"pick\": null, \"votes\": [{{\"ruling\": 71, \"approaches\": [\"Split the parser \
+         out first\", \"{second}\"]}}]}}"
+    );
+    Box::leak(text.into_boxed_str())
+}
+
+/// [`merge_put`], with the project manager's approaches posted
+fn with_approaches(project: &str, second: &str) -> (Rig, Mutex<Runner>, String) {
+    let (rig, runner) = merge_put(project, true);
+    rig.claude
+        .script_for(Role::Pm, [Scripted::Say(approaches(second))]);
+    let said = replied(&rig, &runner, "71 pm options", |c| {
+        c.contains("other approaches to ruling #71")
+    });
+    rig.clock.advance(5);
+    (rig, runner, said)
+}
+
+/// Steps until the worker is sent a prompt holding `text`
+fn worker_sent(rig: &Rig, runner: &Mutex<Runner>, text: &str) {
+    let deadline = Instant::now() + CALL_PATIENCE;
+    while !rig.claude.calls().iter().any(|c| c.prompt.contains(text)) {
+        assert!(
+            Instant::now() < deadline,
+            "the worker was never sent {text:?}"
+        );
+        step(runner).unwrap();
+        std::thread::yield_now();
+    }
+}
+
+#[test]
+fn pm_options_posts_numbered_approaches_and_pm_n_sends_the_worker_one_as_a_no_note() {
+    let (rig, runner, said) = with_approaches("asked-options", "Keep the old flag one release");
+
+    assert!(
+        said.contains("1. Split the parser out first\n2. Keep the old flag one release"),
+        "{said}"
+    );
+    assert!(
+        said.contains("Reply `71 pm <n>` to take one as your `71 no <note>`."),
+        "{said}"
+    );
+    assert!(pending(&rig), "the maintainer still picks");
+
+    rig.claude.script([Scripted::Push("flag.txt", "flag\n")]);
+    rig.writes_on(71, "octocat", "71 pm 2");
+    rig.next_look();
+    worker_sent(
+        &rig,
+        &runner,
+        "with this note:\n\nKeep the old flag one release",
+    );
+
+    assert!(!pending(&rig), "the no answered the ruling");
+}
+
+#[test]
+fn the_approaches_are_posted_inert_and_reach_the_worker_as_written() {
+    let raw = "Ask @mallory to read https://evil.example/x";
+    let (rig, runner, said) = with_approaches("asked-options-inert", raw);
+
+    assert!(!said.contains("@mallory"), "{said}");
+    assert!(!said.contains("https://"), "{said}");
+    assert!(said.contains("@\u{200b}mallory"), "{said}");
+
+    rig.claude.script([Scripted::Push("flag.txt", "flag\n")]);
+    rig.writes_on(71, "octocat", "71 pm 2");
+    rig.next_look();
+    worker_sent(&rig, &runner, raw);
+}
+
+#[test]
+fn the_approaches_outlive_a_restart() {
+    let (rig, runner, _) = with_approaches("asked-options-restart", "Keep the old flag");
+    drop(runner);
+    let runner = rig.open().unwrap();
+
+    rig.claude.script([Scripted::Push("flag.txt", "flag\n")]);
+    rig.writes_on(71, "octocat", "71 pm 1");
+    rig.next_look();
+    worker_sent(
+        &rig,
+        &runner,
+        "with this note:\n\nSplit the parser out first",
+    );
+}
+
+#[test]
+fn pm_n_with_no_approaches_or_past_the_last_is_refused_and_says_why() {
+    let (rig, runner) = merge_put("asked-take-none", true);
+    let said = replied(&rig, &runner, "71 pm 1", |c| c.contains("was not answered"));
+    assert!(
+        said.contains("the project manager gave it no approaches: reply `71 pm options` for some"),
+        "{said}"
+    );
+
+    let (rig, runner, _) = with_approaches("asked-take-past", "Keep the old flag");
+    let said = replied(&rig, &runner, "71 pm 3", |c| c.contains("was not answered"));
+    assert!(
+        said.contains("it has 2 approaches, so `pm 3` names none"),
+        "{said}"
+    );
+    assert!(pending(&rig));
+}

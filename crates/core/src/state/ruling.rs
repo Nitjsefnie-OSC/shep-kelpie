@@ -42,6 +42,10 @@ pub struct Ruling {
     /// by number is never refused as stale.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub raised: Option<Timestamp>,
+    /// Other approaches the project manager gave when the maintainer asked
+    /// for options, first first, which `<id> pm <n>` takes
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub approaches: Vec<String>,
 }
 
 impl Ruling {
@@ -58,6 +62,7 @@ impl Ruling {
             unposted: false,
             effects: Vec::new(),
             raised: None,
+            approaches: Vec::new(),
         }
     }
 

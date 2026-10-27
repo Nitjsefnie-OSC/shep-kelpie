@@ -585,6 +585,9 @@ impl Runner {
         } else if naming != Naming::Not || wants == Wants::Answer {
             match pm_reply(words, ruling.number()) {
                 Some(Ok(PmReply::Ask(asked))) => return self.pm_asked_by(comment, id, asked),
+                Some(Ok(PmReply::Take(n))) => self.approach(id, n).and_then(|answer| {
+                    (self.rule_by(id, answer, Settler::Thread)).map_err(|e| e.to_string())
+                }),
                 Some(Err(why)) => Err(why),
                 None => read_answer(wants, words).and_then(|answer| {
                     (self.rule_by(id, answer, Settler::Thread)).map_err(|e| e.to_string())

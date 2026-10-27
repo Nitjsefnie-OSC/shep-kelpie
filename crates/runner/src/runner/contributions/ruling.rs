@@ -154,15 +154,9 @@ fn raise_with(next: &mut ProjectState, pull_request: u64, held: Held, facts: &st
         question.push_str(facts);
     }
     next.rulings.push(Ruling {
-        id,
-        issue: None,
-        question,
         pull_request: Some(pull_request),
-        kind,
-        alerted: false,
-        unposted: false,
-        effects: Vec::new(),
         raised: Some(now),
+        ..Ruling::new(id, question, kind)
     });
 }
 
