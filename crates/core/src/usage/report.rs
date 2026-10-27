@@ -1,8 +1,8 @@
 //! What `shep kelpie usage` prints: per merged pull request, its units,
 //! dollars, wall time, rulings and each role's share, with their medians,
 //! the loaded units per merged pull request that a baseline is held
-//! against, then the project manager's and the issue writer's totals, and
-//! those of roles this build no longer has
+//! against, then the project manager's totals, and those of roles this
+//! build no longer has
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -67,7 +67,7 @@ pub fn report(
         let unpriced = calls.iter().filter(|call| call.unpriced).count();
         out.push(format!(
             "loaded: {} units, {}{} per merged pull request, counting every call: the \
-             project manager's, the issue writer's, and those of work items dropped or \
+             project manager's, the retired roles', and those of work items dropped or \
              closed with no change too",
             thousands(loaded.round() as u64),
             money(dollars),
@@ -85,7 +85,6 @@ pub fn report(
     out.extend(not_merged("dropped", &ended(false)));
     out.push(String::new());
     out.push(totals("project manager", &calls, Role::Pm));
-    out.push(totals("issue writer", &calls, Role::IssueWriter));
     out.extend(retros(&calls));
     out.extend(posts(&calls));
     out.extend(triage(&calls));

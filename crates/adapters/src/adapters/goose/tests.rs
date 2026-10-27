@@ -313,17 +313,15 @@ fn goose_reads_no_harnesss_login_its_own_included() {
 }
 
 #[test]
-fn an_issue_writer_and_a_pm_never_run_on_goose() {
+fn a_pm_never_runs_on_goose() {
     let w = World::new();
     let goose = stand_in(&w, FRESH);
-    for role in [Role::IssueWriter, Role::Pm] {
-        let call = w.call(URL, role, Session::New(id(FRESH_ID)));
-        let err = goose.prepare(&call).unwrap_err();
-        assert!(
-            matches!(&err, AgentError::Setup(why) if why.contains("Claude Code alone")),
-            "{role:?}: {err:?}"
-        );
-    }
+    let call = w.call(URL, Role::Pm, Session::New(id(FRESH_ID)));
+    let err = goose.prepare(&call).unwrap_err();
+    assert!(
+        matches!(&err, AgentError::Setup(why) if why.contains("Claude Code alone")),
+        "{err:?}"
+    );
     assert!(!w.path("settings.goose").exists(), "nothing was made");
     goose
         .prepare(&reviewer(&w, Session::New(id(FRESH_ID))))

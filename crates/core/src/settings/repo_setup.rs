@@ -143,27 +143,28 @@ impl TryFrom<String> for Part {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, JsonSchema)]
 #[serde(try_from = "String")]
 // schemars describes a `try_from` type by its source, so the bound goes here.
-#[schemars(extend("pattern" = "^(worker|reviewer|issue-writer|pm)$"))]
+#[schemars(extend("pattern" = "^(worker|reviewer|pm)$"))]
 pub struct CallRole(#[schemars(with = "String")] Role);
 
 impl CallRole {
-    const ALL: [Self; 4] = [
-        Self(Role::Worker),
-        Self(Role::Reviewer),
-        Self(Role::IssueWriter),
-        Self(Role::Pm),
-    ];
+    const ALL: [Self; 3] = [Self(Role::Worker), Self(Role::Reviewer), Self(Role::Pm)];
 }
 
 impl TryFrom<String> for CallRole {
     type Error = &'static str;
 
     fn try_from(value: String) -> Result<Self, Self::Error> {
+        if value == "issue-writer" {
+            return Err(
+                "`issue-writer` went with the issue writer: delete it, or run \
+                        `shep kelpie settings migrate`, which does",
+            );
+        }
         Self::ALL
             .into_iter()
             .find(|role| role.0.as_str() == value)
             .ok_or(
-                "must be worker, reviewer, issue-writer or pm: `advisor` and `researcher` \
+                "must be worker, reviewer or pm: `advisor` and `researcher` \
                  went with the ruling panel, so delete them",
             )
     }

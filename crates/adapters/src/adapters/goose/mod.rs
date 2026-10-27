@@ -374,7 +374,7 @@ fn refuse_unsupported(call: &AgentCall) -> Result<(), AgentError> {
                 call.role.as_str()
             ))
         }
-        (Role::IssueWriter | Role::Pm, _) => Some(format!(
+        (Role::Pm, _) => Some(format!(
             "goose cannot run the {}: it runs on Claude Code alone",
             call.role.as_str()
         )),

@@ -4,7 +4,7 @@
 //! `<kelpie home>/<project>/usage.jsonl` holds one JSON object per line,
 //! appended and never rewritten: a `call` line as each call ends, the
 //! worker's turns, every reviewer's sessions and local rounds, the project
-//! manager's wakes and compactions and the issue writer's runs, and a
+//! manager's wakes and compactions, and a
 //! `finished` line as a work item finishes. A call's line keeps its four
 //! token counts beside its units, so another weighting can be applied
 //! later. `shep kelpie usage` reads it, and nothing else does.
@@ -88,8 +88,6 @@ pub enum CallKind {
     /// `/compact` on the project manager's session, or on a worker's before
     /// a turn
     Compact,
-    /// The issue writer's run
-    Issues,
     /// The project manager's batch retro, over the work items finished since
     /// the last one
     Retro,
@@ -405,8 +403,8 @@ impl Ledger {
 /// Appends `line` to the ledger at `path`, making its folder if need be
 ///
 /// The line goes in one write to a file opened for appending, so a runner
-/// and an issue writer adding at once never interleave within a line. A
-/// line a crash left torn is ended first, so it costs only itself.
+/// and an import from its steps file adding at once never interleave within
+/// a line. A line a crash left torn is ended first, so it costs only itself.
 ///
 /// # Errors
 ///

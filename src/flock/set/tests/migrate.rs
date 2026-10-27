@@ -233,3 +233,18 @@ async fn the_issue_writers_unlabelled_kind_is_deleted_from_the_map_and_the_list(
         assert_eq!(map.len(), RulingName::ALL.len() - 4, "{map:?}");
     }
 }
+
+#[tokio::test]
+async fn the_issue_writers_role_is_deleted_from_repo_setup_and_the_table_loads() {
+    let lines = "[repo_setup]\nroles = [\"worker\", \"issue-writer\", \"pm\"]\n";
+    let scene = Scene::holding(&format!("{TABLE}\n{lines}")).await;
+
+    let said = scene.migrate().await.unwrap();
+
+    assert!(
+        said[1].contains("removed issue-writer from repo_setup.roles"),
+        "{said:?}"
+    );
+    let roles = &scene.table()["repo_setup"]["roles"];
+    assert_eq!(*roles, serde_json::json!(["worker", "pm"]));
+}

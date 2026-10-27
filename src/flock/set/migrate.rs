@@ -4,11 +4,12 @@
 //! each kind of ruling the map lacks is written at its default. A key already
 //! there is never changed. The panel's `rulings.decide`,
 //! `rulings.full_panel_paths`, `agents.advisor`, `agents.researcher` and
-//! `researcher` table are deleted, and so are `advisor` and `researcher` in
-//! `repo_setup.roles`. `agents.implementer_choice = "issue-writer"` is deleted,
-//! since the issue writer is gone and `order` is the default, and so is its
-//! `unlabelled` kind from `rulings.pm_decides` and the old list. Each table is
-//! checked as `set` checks it, and one the runner would refuse is not written.
+//! `researcher` table are deleted, and so are `advisor`, `researcher` and
+//! `issue-writer` in `repo_setup.roles`. With the issue writer gone,
+//! `agents.implementer_choice = "issue-writer"` is deleted, leaving `order`,
+//! and so is the `unlabelled` kind from `rulings.pm_decides` and the old list.
+//! Each table is checked as `set` checks it, and one the runner would refuse
+//! is not written.
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -29,11 +30,11 @@ const PANEL_KEYS: [&str; 5] = [
     "researcher",
 ];
 
-/// The list of roles that may still name the panel's experts
+/// The list of roles that may still name a role that is gone
 const ROLES: &str = "repo_setup.roles";
 
-/// The panel's experts, which `repo_setup.roles` no longer takes
-const PANEL_ROLES: [&str; 2] = ["advisor", "researcher"];
+/// The panel's experts and the issue writer, which `repo_setup.roles` no longer takes
+const GONE_ROLES: [&str; 3] = ["advisor", "researcher", "issue-writer"];
 
 /// The choice of implementer that went with the issue writer, which deleting the key replaces
 const WRITER_CHOICE: (&str, &str) = ("agents.implementer_choice", "issue-writer");
@@ -131,7 +132,7 @@ async fn project(
         .into_iter()
         .collect();
     removed.extend(panel_keys(&mut table).into_iter().map(str::to_owned));
-    removed.extend(panel_roles(&mut table));
+    removed.extend(gone_roles(&mut table));
     removed.extend(writer_choice(&mut table));
     removed.extend(gone_kinds);
     let said: Vec<String> = [("wrote", wrote.join(", ")), ("removed", removed.join(", "))]
@@ -163,19 +164,16 @@ fn panel_keys(table: &mut Map<String, Value>) -> Vec<&'static str> {
     removed
 }
 
-// Deletes the panel's experts from `repo_setup.roles`, and names each it deleted.
-fn panel_roles(table: &mut Map<String, Value>) -> Vec<String> {
+// Deletes the roles that are gone from `repo_setup.roles`, and names each it deleted.
+fn gone_roles(table: &mut Map<String, Value>) -> Vec<String> {
     let (outer, key) = leaves(ROLES);
     let roles = table.get_mut(outer).and_then(|setup| setup.get_mut(key));
     let Some(Value::Array(roles)) = roles else {
         return Vec::new();
     };
-    let gone = |role: &Value| {
-        role.as_str()
-            .is_some_and(|role| PANEL_ROLES.contains(&role))
-    };
+    let gone = |role: &Value| role.as_str().is_some_and(|role| GONE_ROLES.contains(&role));
     let removed = (roles.iter().filter_map(Value::as_str))
-        .filter(|role| PANEL_ROLES.contains(role))
+        .filter(|role| GONE_ROLES.contains(role))
         .map(|role| format!("{role} from {ROLES}"))
         .collect();
     roles.retain(|role| !gone(role));

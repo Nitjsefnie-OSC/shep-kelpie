@@ -35,33 +35,15 @@ const WORK_DENY: [&str; 5] = [
 /// The tools a review round never uses: sub-agents, under either name, and commands
 const REVIEW_DENY: [&str; 3] = ["Agent", "Task", "Bash"];
 
-/// What the issue writer's file tools never read, named outright: gh's
+/// What the project manager's file tools never read, named outright: gh's
 /// token, Claude Code's own files and the shell's history
-const ISSUES_NO_READ: [&str; 6] = [
+const SECRETS_NO_READ: [&str; 6] = [
     "~/.config/gh/**",
     "~/.claude.json",
     "~/.claude/**",
     "~/.zsh_history",
     "~/.bash_history",
     "~/.zsh_sessions/**",
-];
-
-/// The tools the issue writer never uses: sub-agents, the file writers, the
-/// web, and the rest a worker is denied. Its commands are its guard's.
-const ISSUES_DENY: [&str; 13] = [
-    "Agent",
-    "Task",
-    "Edit",
-    "Write",
-    "MultiEdit",
-    "NotebookEdit",
-    "WebFetch",
-    "WebSearch",
-    "Monitor",
-    "RemoteTrigger",
-    "Workflow",
-    "EnterWorktree",
-    "ExitWorktree",
 ];
 
 /// The tools a batch retro never uses: commands, sub-agents, every file
@@ -90,15 +72,6 @@ const RETRO_DENY: [&str; 14] = [
 /// `codebase-design`). With the five `disable*` settings, a trivial call's
 /// context is 8,265 tokens, from 18,385.
 pub(crate) const WORK_TOOLS: &str = "Bash,Read,Edit,Write,Glob,Grep,Skill";
-
-/// The only tools an issue writer's session starts with, as `--tools` takes them
-///
-/// `Bash` is there for its guard's commands (`gh issue` reads, creates and
-/// label and link edits). `Read`, `Glob` and `Grep` research the repo, and
-/// `Skill` carries the repo's plugins. It writes no file and fetches nothing.
-/// [`ISSUES_DENY`] is the second fence, as [`PM_DENY`] is for the project
-/// manager.
-pub(crate) const ISSUES_TOOLS: &str = "Bash,Read,Glob,Grep,Skill";
 
 /// The only tools the project manager's session has, as `--tools` takes them
 pub(crate) const PM_TOOLS: &str = "Read,Glob,Grep,Edit,Write";
@@ -179,7 +152,7 @@ pub fn settings(tools: Tools, reach: &Reach) -> Value {
         deny.extend(fence.no_commands.iter().map(|c| format!("Bash({c})")));
     }
     deny.extend(tool_denies(tools, reach).map(str::to_owned));
-    if let (Tools::Issues | Tools::Pm, Some(fence)) = (tools, &reach.fence) {
+    if let (Tools::Pm, Some(fence)) = (tools, &reach.fence) {
         deny.extend(reads_only(&fence.guard.worktree, &reach.read));
     }
     // Headless, a tool nothing allows is refused, and the retro skill calls another.
@@ -203,11 +176,6 @@ pub fn settings(tools: Tools, reach: &Reach) -> Value {
         permissions["additionalDirectories"] = json!(reach.read);
     }
     let mut hooks = match tools {
-        // Its session asks no one, so a command its guard allows must not wait on a prompt.
-        Tools::Issues => {
-            permissions["allow"] = json!(["Bash"]);
-            hooks(fence)
-        }
         // Headless, an edit nothing allows is refused, so these are its only writes.
         Tools::Pm => {
             let notes = fence.guard.worktree.join(PM_NOTES).display().to_string();
@@ -274,35 +242,9 @@ pub(crate) fn compacting(
     *start = entries.into();
 }
 
-/// Lets the file tools in an issue writer's `settings` write `paths` and
-/// everything under them, and nothing else
-///
-/// [`settings`] denies the issue writer the file writers outright. Their
-/// deny rules go here, and the `confine` hook that holds them is replaced by
-/// one that names `paths` alone, so a write anywhere else, the worktree
-/// included, is refused before it lands.
-pub fn write_only(settings: &mut Value, kelpie: &Path, paths: &[PathBuf]) {
-    const WRITERS: [&str; 3] = ["Edit", "Write", "MultiEdit"];
-    if let Some(deny) = settings["permissions"]["deny"].as_array_mut() {
-        deny.retain(|tool| !tool.as_str().is_some_and(|t| WRITERS.contains(&t)));
-    }
-    let confine = [kelpie, Path::new("confine")]
-        .into_iter()
-        .chain(paths.iter().map(PathBuf::as_path))
-        .map(|p| shell_quote(&p.to_string_lossy()))
-        .collect::<Vec<_>>()
-        .join(" ");
-    let pre = &mut settings["hooks"]["PreToolUse"];
-    let mut entries = pre.as_array().cloned().unwrap_or_default();
-    entries.retain(|e| e["matcher"] != FILE_TOOLS);
-    entries.push(entry(Some(FILE_TOOLS), &confine));
-    *pre = entries.into();
-}
-
-// The issue writer's file tools read its checkout, and `also`, and nothing
-// else: every other entry from `/` down is denied, and the secrets named
-// outright, whichever folder its checkout is in. Its commands read no file.
-// The project manager's read its own folder, the worktrees and the checkout the same way.
+// The project manager's file tools read its own folder and `also`, the
+// worktrees and the checkout, and nothing else: every other entry from `/`
+// down is denied, and the secrets named outright, wherever its folder is.
 fn reads_only(checkout: &Path, also: &[PathBuf]) -> Vec<String> {
     // Each as given and with its links resolved, since `around` walks a link
     // such as macOS's `/var` as a folder of its own.
@@ -312,7 +254,7 @@ fn reads_only(checkout: &Path, also: &[PathBuf]) -> Vec<String> {
         allowed.extend(path.canonicalize().ok().filter(|c| c != path));
     }
     let outside = around(Path::new("/"), &allowed);
-    (ISSUES_NO_READ.iter().map(|p| (*p).to_owned()))
+    (SECRETS_NO_READ.iter().map(|p| (*p).to_owned()))
         .chain(outside)
         .map(|p| read_rule(&p))
         .collect()
@@ -323,7 +265,6 @@ fn tool_denies(tools: Tools, reach: &Reach) -> impl Iterator<Item = &'static str
         Tools::Work => &WORK_DENY,
         Tools::Review => &REVIEW_DENY,
         Tools::Answer => &NO_TOOLS,
-        Tools::Issues => &ISSUES_DENY,
         Tools::Pm => &PM_DENY,
         Tools::Retro => &RETRO_DENY,
     };
@@ -790,7 +731,7 @@ mod tests {
             // file denies `NotebookEdit` through `trimmed`, so that one is asserted. Kelpie's
             // sandbox holds the writes of the other three, so no deny is asserted for them yet.
             Tools::Review => &["Edit", "Write", "MultiEdit"],
-            Tools::Answer | Tools::Issues | Tools::Retro => &[],
+            Tools::Answer | Tools::Retro => &[],
         }
     }
 
@@ -800,8 +741,7 @@ mod tests {
         match tools {
             Tools::Work => Some(Tools::Review),
             Tools::Review => Some(Tools::Answer),
-            Tools::Answer => Some(Tools::Issues),
-            Tools::Issues => Some(Tools::Pm),
+            Tools::Answer => Some(Tools::Pm),
             Tools::Pm => Some(Tools::Retro),
             Tools::Retro => None,
         }
@@ -837,7 +777,6 @@ mod tests {
             Tools::Work,
             Tools::Review,
             Tools::Answer,
-            Tools::Issues,
             Tools::Pm,
             Tools::Retro,
         ] {
@@ -856,7 +795,6 @@ mod tests {
                 Tools::Work => &WORK_DENY,
                 Tools::Review => &REVIEW_DENY,
                 Tools::Answer => &NO_TOOLS,
-                Tools::Issues => &ISSUES_DENY,
                 Tools::Pm => &PM_DENY,
                 Tools::Retro => &RETRO_DENY,
             };

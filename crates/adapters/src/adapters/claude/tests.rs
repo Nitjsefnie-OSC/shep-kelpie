@@ -324,18 +324,6 @@ fn the_project_manager_runs_on_an_allow_list_of_tools_and_no_mcp_server() {
 }
 
 #[test]
-fn the_issue_writer_runs_on_an_allow_list_of_the_tools_it_uses_and_no_strict_mcp() {
-    let mut issues = call(Role::IssueWriter, fresh());
-    issues.tools = Tools::Issues;
-    for flags in [argv(&issues), terminal_argv(&issues)] {
-        let at = flags.iter().position(|a| a == "--tools").unwrap();
-        assert_eq!(flags[at + 1], "Bash,Read,Glob,Grep,Skill");
-        assert!(!flags.contains(&"--strict-mcp-config".into()), "{flags:?}");
-        assert!(!flags.contains(&"bypassPermissions".into()), "{flags:?}");
-    }
-}
-
-#[test]
 fn the_representative_starts_with_no_tool_allow_list_as_it_did() {
     let mut answer = call(Role::Representative, fresh());
     answer.tools = Tools::Answer;
