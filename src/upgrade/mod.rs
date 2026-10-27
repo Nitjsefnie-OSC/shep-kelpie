@@ -30,6 +30,8 @@ use crate::home::Build;
 use crate::shep_home;
 use crate::shepherd::{self, Dial};
 
+pub use migrate::main as migrate_main;
+
 /// What the maintainer asked `upgrade` to do
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Action {
@@ -277,7 +279,12 @@ pub async fn run(
             say(format!("{build} is installed already"));
         }
     }
-    migrate::run(scene, action, layout.installed(), &*client, say).await;
+    if let Err(why) = migrate::run(scene, action, layout.installed(), &*client, say).await {
+        say(format!(
+            "the settings were not migrated: {why}. `shep kelpie settings migrate` migrates \
+             them once that is put right"
+        ));
+    }
     say(format!(
         "restarting onto it: if this stops before it finishes, {finish} finishes the restarts"
     ));
