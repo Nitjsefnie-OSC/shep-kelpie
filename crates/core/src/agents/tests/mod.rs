@@ -437,7 +437,11 @@ fn baselines_remove_a_file_kelpie_no_longer_ships() {
     let agents = dir.path().join("agents");
     let kept = agents.join(".defaults");
     fs::create_dir_all(&kept).unwrap();
-    fs::write(kept.join("advisor.md"), "---\nrole: advisor\n---\nVote.\n").unwrap();
+    let stale = kept.join("advisor.md");
+    fs::write(&stale, "---\nrole: advisor\n---\nVote.\n").unwrap();
+    let mut read_only = fs::metadata(&stale).unwrap().permissions();
+    read_only.set_readonly(true);
+    fs::set_permissions(&stale, read_only).unwrap();
     write_baselines(&agents).unwrap();
     assert!(!kept.join("advisor.md").exists());
     assert!(kept.join("pm.md").is_file());

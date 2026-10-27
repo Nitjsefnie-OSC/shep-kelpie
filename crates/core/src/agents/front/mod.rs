@@ -43,13 +43,13 @@ struct Tag {
     role: Role,
 }
 
-// The role as written, which may be one kelpie no longer has
+// The `role` key as plain text, so a role no longer in [`Role`] can be named
 #[derive(Debug, Deserialize)]
 struct Written {
     role: String,
 }
 
-/// The roles kelpie no longer has
+/// The roles an agent file may no longer name
 const GONE: [&str; 2] = ["advisor", "researcher"];
 
 // An implementer's keys: a session on a harness
@@ -291,19 +291,19 @@ pub(super) fn parse(text: &str) -> Result<Agent, String> {
     Ok(agent)
 }
 
-/// What a file of `role` is told, if kelpie no longer has that role
+/// The refusal of a file whose role is `role`, if that is one of [`GONE`]
 pub(super) fn gone(role: &str) -> Option<String> {
     GONE.contains(&role)
         .then(|| format!("the `{role}` role went with the ruling panel, so delete the file"))
 }
 
-/// What the agent file `text` is told, if its own `role` is one kelpie no longer has
+/// The refusal of the agent file `text`, if its own `role` is one of [`GONE`]
 pub(super) fn gone_role_of(text: &str) -> Option<String> {
     let (front, _) = split(text)?;
     gone(&serde_saphyr::from_str::<Written>(front).ok()?.role)
 }
 
-// The refusal at the `role` key, if `yaml` names a role kelpie no longer has.
+// The refusal at the `role` key, if `yaml` names one of `GONE`.
 fn gone_at_role(yaml: &str) -> Option<String> {
     let role = serde_saphyr::from_str::<Written>(yaml).ok()?.role;
     gone(&role).map(|why| at_key(yaml, "role", &why))

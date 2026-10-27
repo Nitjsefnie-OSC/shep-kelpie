@@ -357,7 +357,7 @@ pub struct PmAgent {
     pub prompt: Option<String>,
 }
 
-/// The agent a project names in `agents.representative`
+/// The agent a project names in `agents.representative` or `triage.agent`
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExpertAgent {
     /// Its name

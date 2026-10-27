@@ -163,7 +163,8 @@ fn panel_roles(table: &mut Map<String, Value>) -> Vec<String> {
         role.as_str()
             .is_some_and(|role| PANEL_ROLES.contains(&role))
     };
-    let removed = (roles.iter().filter(|role| gone(role)))
+    let removed = (roles.iter().filter_map(Value::as_str))
+        .filter(|role| PANEL_ROLES.contains(role))
         .map(|role| format!("{role} from {ROLES}"))
         .collect();
     roles.retain(|role| !gone(role));

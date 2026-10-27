@@ -177,7 +177,7 @@ async fn the_panels_expert_keys_and_roles_are_deleted_and_named_and_the_table_lo
     assert!(
         said[1].contains(
             "removed agents.advisor, agents.researcher, researcher, \
-             \"advisor\" from repo_setup.roles, \"researcher\" from repo_setup.roles"
+             advisor from repo_setup.roles, researcher from repo_setup.roles"
         ),
         "{said:?}"
     );

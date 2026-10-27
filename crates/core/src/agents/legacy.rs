@@ -56,7 +56,7 @@ pub const TABLE: [Row; 8] = [
     row("triager", "claude-opus-5-5", "medium", false),
 ];
 
-/// The keys a stub of a baseline whose role kelpie no longer has may hold and still be deleted
+/// The only keys a stub of a gone baseline holds, for [`migrate`] to delete it
 const BINDING: [&str; 4] = ["extends", "harness", "model", "effort"];
 
 /// The binding the baseline `name` shipped with, if kelpie shipped one
@@ -112,9 +112,9 @@ pub struct Report {
     pub wrote: Vec<Wrote>,
     /// The files it left alone, which set another session `harness` without a `model` or `effort`
     pub skipped: Vec<Skipped>,
-    /// The stubs of a baseline whose role went with the panel, which it deletes
+    /// The stubs of a gone baseline, which it deletes
     pub deleted: Vec<String>,
-    /// The files of such a baseline it left alone, which hold more than a binding
+    /// The files of a gone role or baseline it left alone, which are not such stubs
     pub left: Vec<Skipped>,
 }
 
@@ -295,7 +295,7 @@ fn judge(text: &str) -> Judged {
     }
 }
 
-// What to do with a file extending `parent`, a baseline whose role went with the panel.
+// What to do with a file extending `parent`, a gone baseline, refused with `why`.
 fn gone_role(text: &str, parent: &str, why: &str) -> Judged {
     let binding = extends::own(text)
         .is_some_and(|own| own.keys.iter().all(|key| BINDING.contains(&key.as_str())));
@@ -303,8 +303,8 @@ fn gone_role(text: &str, parent: &str, why: &str) -> Judged {
     match binding && body.trim().is_empty() {
         true => Judged::Delete,
         false => Judged::Left(format!(
-            "it extends `kelpie:{parent}` and holds more than a binding: {why}, once you have \
-             moved what you need from it to another agent"
+            "{why}. It extends `kelpie:{parent}` and holds more than a binding, so move what you \
+             need from it to another agent first"
         )),
     }
 }
