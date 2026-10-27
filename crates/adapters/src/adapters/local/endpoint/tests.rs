@@ -699,7 +699,7 @@ fn a_round_behind_a_gateway_asks_for_batch_its_lease_and_its_wait_on_its_chat_ca
     let on_chat = vec![
         ("x-paddock-priority".to_owned(), "batch".to_owned()),
         ("x-paddock-lease".to_owned(), "L1".to_owned()),
-        ("x-paddock-max-wait".to_owned(), "1800".to_owned()),
+        ("x-paddock-max-wait".to_owned(), "1800s".to_owned()),
     ];
     for (at, headers) in server.paddock_headers().into_iter().enumerate() {
         let expected = if at == chat {
