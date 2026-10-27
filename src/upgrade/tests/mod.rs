@@ -215,9 +215,11 @@ fn says(path: &Path) -> String {
     format!("{} for shep {}", build.kelpie, build.shep)
 }
 
+// Every kind named already, so a bare upgrade's settings step has nothing to write.
 fn table() -> Map<String, Value> {
     let mut table = Map::new();
     table.insert("forge".into(), Value::String("shep-pm/koji".into()));
+    crate::flock::set::migrate::pm_decides(&mut table);
     table
 }
 

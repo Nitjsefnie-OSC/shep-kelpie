@@ -43,7 +43,8 @@ pub fn main() -> ExitCode {
 ///
 /// # Errors
 ///
-/// Why the settings were not migrated.
+/// Why the settings were not migrated, so the runners are not restarted onto
+/// a build that may refuse them.
 pub(super) async fn run(
     scene: &Scene<'_>,
     action: &Action,

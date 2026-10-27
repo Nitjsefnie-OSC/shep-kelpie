@@ -53,7 +53,7 @@ async fn an_install_says_the_installed_build_s_own_migrations_before_the_restart
 }
 
 #[tokio::test]
-async fn an_install_whose_migration_fails_is_said_and_the_restarts_go_on() {
+async fn an_install_whose_migration_fails_stops_before_the_restarts() {
     let mut rig = Rig::new().await;
     let log = rig.builds.join("migrated");
     let new = rig.builds.join("new");
@@ -64,13 +64,19 @@ async fn an_install_whose_migration_fails_is_said_and_the_restarts_go_on() {
 
     let (ran, said) = rig.install(&new).await;
 
-    ran.unwrap();
-    let failed = (said.iter())
-        .find(|l| l.contains("the settings were not migrated"))
-        .unwrap_or_else(|| panic!("{said:?}"));
+    let failed = ran.unwrap_err();
+    assert!(
+        failed.contains("the settings were not migrated"),
+        "{failed}"
+    );
     assert!(failed.contains("project koji: not migrated"), "{failed}");
     assert!(failed.contains("shep kelpie settings migrate"), "{failed}");
-    assert_eq!(rig.restarts(), ["kelpie", "koji"]);
+    assert!(failed.contains("shep kelpie upgrade --binary"), "{failed}");
+    assert!(
+        said.iter().all(|l| !l.contains("restarting onto it")),
+        "{said:?}"
+    );
+    assert_eq!(rig.restarts(), Vec::<String>::new());
 }
 
 #[tokio::test]
@@ -175,17 +181,22 @@ async fn a_bare_upgrade_writes_the_missing_kinds_into_a_table_that_loads() {
 }
 
 #[tokio::test]
-async fn a_bare_upgrade_migrates_the_settings_in_process() {
-    let mut rig = Rig::new().await;
+async fn a_bare_upgrade_whose_settings_are_refused_stops_before_the_restarts() {
+    // A table missing its kinds that does not load, so the check refuses the migrated one.
+    let mut table = Map::new();
+    table.insert("forge".into(), Value::String("shep-pm/koji".into()));
+    let shepherd = FakeShepherd::on(crate::shepherd::SHEP_VERSION);
+    let mut rig = Rig::holding_on(shepherd, false, table).await;
     rig.cargo_installs("0.3.0", "0.17.0");
 
     let (ran, said) = rig.upgrade(Action::Installed).await;
 
-    ran.unwrap();
-    // The rig's table for koji does not load, so this process's own step refuses it.
-    let failed = (said.iter())
-        .find(|l| l.contains("the settings were not migrated"))
-        .unwrap_or_else(|| panic!("{said:?}"));
+    let failed = ran.unwrap_err();
     assert!(failed.contains("project koji: not migrated"), "{failed}");
-    assert_eq!(rig.restarts(), ["kelpie", "koji"]);
+    assert!(failed.contains("shep kelpie settings migrate"), "{failed}");
+    assert!(
+        said.iter().all(|l| !l.contains("restarting onto it")),
+        "{said:?}"
+    );
+    assert_eq!(rig.restarts(), Vec::<String>::new());
 }
