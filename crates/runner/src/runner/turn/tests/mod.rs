@@ -476,7 +476,19 @@ fn a_retry_whose_session_never_began_starts_it_over_from_the_issue() {
     ));
     let [original, _, again] = rig.claude.calls().try_into().unwrap();
     assert_eq!(again.session, Session::New(first));
-    assert_eq!(again.prompt, original.prompt);
+    assert!(
+        again.prompt.starts_with(&original.prompt),
+        "{}",
+        again.prompt
+    );
+    assert!(
+        again.prompt.ends_with(
+            "\n\nYour last turn failed before it finished. \
+             Carry on with the work item from where you left off."
+        ),
+        "{}",
+        again.prompt
+    );
 }
 
 #[test]

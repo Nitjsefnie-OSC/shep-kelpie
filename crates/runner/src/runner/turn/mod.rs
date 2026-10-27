@@ -386,6 +386,12 @@ impl Runner {
             }
             Turn::Ended { .. } | Turn::Failed { .. } => return Ok(Begin::Idle),
         };
+        // A session started over begins from its brief, then gets what the lost one was sent.
+        let lost = match &item.turn {
+            Turn::Next { prompt } if start_over => Some(prompt.clone()),
+            Turn::Running { prompt, .. } if start_over => prompt.clone(),
+            _ => None,
+        };
         // A turn the runner sends into a session grown past the mark is
         // sent behind a `/compact`, which leaves the turn due as it was.
         let compacting = matches!(item.turn, Turn::Next { .. })
@@ -442,7 +448,7 @@ impl Runner {
             return Ok(reads);
         }
         self.token_wait.begins();
-        let prepared = self.prepare(item, session, prompt);
+        let prepared = self.prepare(item, session, prompt, lost.as_deref());
         let mut next = self.state.clone();
         let mut resumed = false;
         let mut begin = match prepared {
@@ -513,18 +519,19 @@ impl Runner {
     // Everything the worker needs on disk before it starts: its worktree, its
     // build folder, its settings file and kelpie's instructions. A turn with
     // no prompt of its own is the first, and takes the issue, the review or
-    // what it adopted.
+    // what it adopted, followed by `lost`, what a session it starts over lost.
     pub(super) fn prepare(
         &self,
         item: &WorkItem,
         session: Session,
         prompt: Option<String>,
+        lost: Option<&str>,
     ) -> Result<AgentCall, String> {
         // A session with no prompt (attach) or only a compaction runs no browser.
         let browses = prompt
             .as_deref()
             .is_none_or(|p| !p.is_empty() && p != COMPACT);
-        let call = self.worker_call(item, session, prompt, browses)?;
+        let call = self.worker_call(item, session, prompt, lost, browses)?;
         self.prepared(call)
     }
 
@@ -537,6 +544,7 @@ impl Runner {
         item: &WorkItem,
         session: Session,
         prompt: Option<String>,
+        lost: Option<&str>,
         browses: bool,
     ) -> Result<AgentCall, String> {
         let start = start_of(item);
@@ -606,6 +614,7 @@ impl Runner {
         write(folder, &instructions, &text)?;
         // A pause set for an earlier call, or one that ended it, is not this call's.
         Pause::in_build(&item.build).clear();
+        let briefed = prompt.is_none();
         let prompt = match prompt {
             Some(prompt) => prompt,
             None if item.rework => rework::first_prompt(item),
@@ -623,6 +632,10 @@ impl Runner {
                 self.skills
                     .invoke(Step::Implement, &format!("{first}{moved}"))
             }
+        };
+        let prompt = match lost.filter(|_| briefed) {
+            Some(lost) => started_over(&prompt, lost),
+            None => prompt,
         };
         let prompt = match self.reads.git.installed().and_then(|i| i.failed.as_deref()) {
             Some(why) if prompt != COMPACT => format!("{prompt}\n\n{}", install_failed(why)),
@@ -835,6 +848,17 @@ impl Runner {
         let open = self.ports.forge.open_pull_requests(&self.remote).ok()?;
         end_reads::from_branch(Some(&open), branch)
     }
+}
+
+// A started-over session's brief, then what the session its harness lost was sent, past any
+// command, since the brief leads with its own
+fn started_over(brief: &str, lost: &str) -> String {
+    let (_, lost) = split_command(lost);
+    format!(
+        "{brief}\n\nKelpie could not resume your earlier session on this work item, so this one \
+         starts from the brief above. Your worktree is as that session left it. This is what \
+         kelpie was sending it:\n\n{lost}"
+    )
 }
 
 // What the worker is told when kelpie's install of its worktree's packages failed
