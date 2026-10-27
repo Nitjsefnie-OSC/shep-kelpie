@@ -471,18 +471,6 @@ one, which puts an uncommitted agent file back before the turn resumes. The
 option's text says what kelpie will do, and the board's events name the option
 that asked for it.
 
-**Panel**:
-The four experts who vote on a ruling, each blind to the others: the work
-item's own **worker**, resumed once with the ruling (it abstains when the
-item has no worker turn), the **project manager**, the **advisor** and the
-**researcher**. A project has one once it names an advisor or a researcher
-(`agents.advisor`, `agents.researcher`). A **vote** is one JSON object, a
-`choice` that is an option's key, a `why` of at most 350 characters and a
-`design` flag; one kelpie cannot read is an abstention, logged. A ruling's
-comment lists the votes under **Panel** and waits for them, 20 minutes at
-most. Nothing decides by them yet.
-_Avoid_: jury, council, quorum
-
 **Advisor**:
 The panel's expert on the codebase, an agent file whose role is `advisor`.
 It reads the work item's worktree, the checkout, the branch's diff that kelpie

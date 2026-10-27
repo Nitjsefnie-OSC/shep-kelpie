@@ -549,7 +549,6 @@ fn status_names_each_role_as_it_always_has() {
         (CallRole::IssueWriter, "issue_writer"),
         (CallRole::Security, "security"),
         (CallRole::Triager, "triager"),
-        (CallRole::Panel, "panel"),
         (CallRole::Retro, "retro"),
         (CallRole::E2e, "e2e"),
         (CallRole::Attached("pi_session"), "pi_session"),

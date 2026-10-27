@@ -135,7 +135,6 @@ impl Draft {
             gpu_seconds: None,
             pacer,
             imported: false,
-            votes: Vec::new(),
         }
     }
 }

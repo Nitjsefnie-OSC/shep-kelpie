@@ -127,3 +127,37 @@ async fn a_list_with_an_entry_that_is_no_kind_s_name_is_refused_by_name_and_kept
     assert_eq!(scene.table(), before);
     assert_eq!(scene.shepherd.writes().len(), 1);
 }
+
+#[tokio::test]
+async fn the_panels_keys_are_deleted_and_named_and_the_table_loads() {
+    let panel = "decide = \"panel\"\nfull_panel_paths = [\"src/**\"]";
+    let scene = Scene::holding(&with_rulings(panel)).await;
+
+    let said = scene.migrate().await.unwrap();
+
+    assert!(
+        said[1].contains("removed rulings.decide, rulings.full_panel_paths"),
+        "{said:?}"
+    );
+    let table = scene.table();
+    for key in ["decide", "full_panel_paths"] {
+        assert!(table["rulings"].get(key).is_none(), "{table:?}");
+    }
+}
+
+#[tokio::test]
+async fn a_table_whose_map_is_whole_has_the_panels_key_deleted_alone() {
+    let whole: Vec<String> = (RulingName::ALL.into_iter())
+        .filter_map(|kind| Some(format!("\"{}\" = {}", kind.as_str(), kind.pm_default()?)))
+        .collect();
+    let lines = format!(
+        "decide = \"shadow\"\npm_decides = {{ {} }}",
+        whole.join(", ")
+    );
+    let scene = Scene::holding(&with_rulings(&lines)).await;
+
+    let said = scene.migrate().await.unwrap();
+
+    assert_eq!(said[1], "project koji: removed rulings.decide", "{said:?}");
+    assert!(scene.table()["rulings"].get("decide").is_none());
+}

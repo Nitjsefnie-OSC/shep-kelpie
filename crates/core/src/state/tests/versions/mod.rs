@@ -254,52 +254,6 @@ fn a_version_20_file_loads_with_no_thread_answers_and_saves_them_pinned() {
     assert_eq!(store.load().unwrap(), Some(loaded));
 }
 
-// A version 29 file has no `verdict`: its rulings were voted on with nothing
-// concluded, and a verdict saved since is kept as the panel left it.
-#[test]
-fn a_version_29_file_loads_with_no_verdicts_and_a_verdict_is_kept() {
-    use crate::panel::{Advice, Tier, Verdict};
-
-    let dir = tempfile::tempdir().unwrap();
-    let store = store_in(dir.path());
-    let mut state = ProjectState::new();
-    state.rulings.push(Ruling {
-        issue: Some(ticket(7)),
-        pull_request: Some(71),
-        alerted: true,
-        ..Ruling::new(ticket(1), "q", RulingKind::Stuck(Stuck::Closed))
-    });
-    let mut old = serde_json::to_value(&state).unwrap();
-    old["version"] = 29.into();
-    fs::write(dir.path().join(STATE_FILE), old.to_string()).unwrap();
-
-    let mut loaded = store.load().unwrap().expect("a saved state");
-    assert_eq!(loaded.rulings[0].verdict, None);
-    loaded.rulings[0].verdict = Some(Verdict {
-        work: "fix".into(),
-        tier: Tier::Fix,
-        advice: Some(Advice {
-            choice: 'A',
-            agree: 2,
-            of: 2,
-        }),
-        risky: false,
-        shadow: false,
-    });
-    store.save(&loaded).unwrap();
-    let text = fs::read_to_string(dir.path().join(STATE_FILE)).unwrap();
-    let saved: serde_json::Value = serde_json::from_str(&text).unwrap();
-    assert_eq!(saved["version"], VERSION);
-    assert_eq!(
-        saved["rulings"][0]["verdict"],
-        serde_json::json!({
-            "work": "fix", "tier": "fix",
-            "advice": { "choice": "A", "agree": 2, "of": 2 },
-        })
-    );
-    assert_eq!(store.load().unwrap(), Some(loaded));
-}
-
 // A ruling saved before `raised` loads with no time, and one raised since
 // keeps its time through a save and a load.
 #[test]
@@ -748,35 +702,6 @@ fn a_contributions_security_review_survives_a_save_and_a_load_and_is_left_out_un
     assert_eq!(store.load().unwrap(), Some(state));
 }
 
-// A version 41 file has no `skipped`: its rulings loaded as any panel may
-// still vote on them, and a skip saved since is kept as the runner left it.
-#[test]
-fn a_version_41_file_loads_with_no_skips_and_a_skip_is_kept() {
-    use crate::panel::Skip;
-
-    let dir = tempfile::tempdir().unwrap();
-    let store = store_in(dir.path());
-    let mut state = ProjectState::new();
-    state.rulings.push(Ruling {
-        issue: Some(ticket(7)),
-        pull_request: Some(71),
-        unposted: true,
-        ..Ruling::new(ticket(71), "q", RulingKind::Stuck(Stuck::Closed))
-    });
-    let mut old = serde_json::to_value(&state).unwrap();
-    old["version"] = 41.into();
-    fs::write(dir.path().join(STATE_FILE), old.to_string()).unwrap();
-
-    let mut loaded = store.load().unwrap().expect("a saved state");
-    assert_eq!(loaded.rulings[0].skipped, None);
-    loaded.rulings[0].skipped = Some(Skip::Draining);
-    store.save(&loaded).unwrap();
-    let text = fs::read_to_string(dir.path().join(STATE_FILE)).unwrap();
-    let saved: serde_json::Value = serde_json::from_str(&text).unwrap();
-    assert_eq!(saved["version"], VERSION);
-    assert_eq!(saved["rulings"][0]["skipped"], "draining");
-}
-
 // A version 42 file has no `red`, so no workflow is red on `main` until the
 // runner reads it. A red workflow survives a save and a load.
 #[test]
@@ -881,10 +806,7 @@ fn an_older_state_file_loads_and_a_contribution_ruling_survives_a_save_and_a_loa
             }],
         }),
         alerted: false,
-        panel: None,
-        verdict: None,
         unposted: false,
-        skipped: None,
         effects: Vec::new(),
         raised: Some(Timestamp(1)),
     });
@@ -948,4 +870,42 @@ fn a_state_file_from_before_disputed_and_deferred_loads_with_none() {
     assert_eq!(saved["work_items"][0]["counts"]["disputed"], 1);
     assert_eq!(saved["work_items"][0]["counts"]["deferred"], 2);
     assert_eq!(store.load().unwrap(), Some(loaded));
+}
+
+// A version 86 file's ruling may hold the panel's ballots, its verdict and
+// why it was skipped. The panel is gone, so the ruling loads without them and
+// waits on the maintainer as it stands.
+#[test]
+fn a_version_86_file_with_a_panel_ruling_loads_without_the_panels_fields() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = store_in(dir.path());
+    let mut state = ProjectState::new();
+    state.rulings.push(Ruling {
+        issue: Some(ticket(7)),
+        pull_request: Some(71),
+        unposted: true,
+        ..Ruling::new(ticket(71), "q", RulingKind::Stuck(Stuck::Closed))
+    });
+    let mut old = serde_json::to_value(&state).unwrap();
+    old["version"] = 86.into();
+    old["rulings"][0]["panel"] = serde_json::json!([
+        { "voter": "advisor", "vote": { "choice": "A", "why": "w", "design": false } },
+        { "voter": "worker", "vote": null },
+    ]);
+    old["rulings"][0]["verdict"] = serde_json::json!({
+        "work": "fix", "tier": "fix", "advice": { "choice": "A", "agree": 1, "of": 2 },
+    });
+    old["rulings"][0]["skipped"] = "draining".into();
+    fs::write(dir.path().join(STATE_FILE), old.to_string()).unwrap();
+
+    let loaded = store.load().unwrap().expect("a saved state");
+
+    assert_eq!(loaded.rulings, state.rulings);
+    store.save(&loaded).unwrap();
+    let text = fs::read_to_string(dir.path().join(STATE_FILE)).unwrap();
+    let saved: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(saved["version"], VERSION);
+    for field in ["panel", "verdict", "skipped"] {
+        assert_eq!(saved["rulings"][0].get(field), None, "{saved}");
+    }
 }

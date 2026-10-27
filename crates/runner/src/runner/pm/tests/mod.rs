@@ -22,6 +22,7 @@ mod code;
 mod conflicts;
 mod follow_up;
 mod hold;
+mod inert;
 mod lease;
 mod main_red;
 mod notes;
@@ -29,6 +30,7 @@ mod pick;
 mod question;
 mod quiet;
 mod red;
+mod rulings;
 mod until;
 mod wake_prompt;
 

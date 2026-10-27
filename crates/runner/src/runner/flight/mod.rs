@@ -67,8 +67,6 @@ pub(super) struct Flights {
     security_tried: Vec<u64>,
     // The issues triage looked at since the last poll
     triage_tried: Vec<u64>,
-    // The experts of one ruling, voting
-    panel: Option<panel::Panelling>,
     // The project manager's batch retro
     retro: Option<retro::Retrospecting>,
     // Every call's line in the usage ledger, as it started
@@ -93,7 +91,6 @@ impl Default for Flights {
             proving: proving::Proving::default(),
             security_tried: Vec::new(),
             triage_tried: Vec::new(),
-            panel: None,
             retro: None,
             ledger: InFlight::default(),
             send,
@@ -111,14 +108,8 @@ impl Flights {
     }
 
     /// Whether `ticket`'s work item has a call in flight
-    /// A worker's vote on a ruling counts, since it runs in the work item's session
     pub(super) fn flying(&self, ticket: TicketId) -> bool {
-        self.flying.contains_key(&ticket) || self.panel.iter().any(|p| p.votes_as(ticket))
-    }
-
-    /// The ruling whose panel's experts are in flight, while they are
-    pub(super) fn panel_ruling(&self) -> Option<TicketId> {
-        self.panel.as_ref().map(panel::Panelling::ruling)
+        self.flying.contains_key(&ticket)
     }
 
     /// Whether `ticket`'s work item has a worker's turn in flight
@@ -153,11 +144,6 @@ impl Flights {
     /// Whether `ticket`'s call in flight is a `/compact` of its worker's session
     pub(super) fn runs_compact(&self, ticket: TicketId) -> bool {
         self.flying.get(&ticket).is_some_and(|f| f.compact)
-    }
-
-    /// Whether the panel's experts are in flight
-    pub(super) fn panel_running(&self) -> bool {
-        self.panel.is_some()
     }
 
     /// Whether the batch retro is in flight
@@ -262,14 +248,12 @@ impl Runner {
         let labelling = (self.flights.labelling.iter()).filter_map(label::Labelling::ceiling);
         let securing = (self.flights.securing.iter()).filter_map(security::Securing::ceiling);
         let triaging = (self.flights.triaging.iter()).filter_map(triage::Triaging::ceiling);
-        let panel = (self.flights.panel.iter()).filter_map(panel::Panelling::ceiling);
         let retro = (self.flights.retro.iter()).filter_map(retro::Retrospecting::ceiling);
         turns
             .chain(pm)
             .chain(labelling)
             .chain(securing)
             .chain(triaging)
-            .chain(panel)
             .chain(retro)
             .map(|deadline| Duration::from_secs(deadline.0.saturating_sub(now.0)))
             .min()
@@ -297,9 +281,6 @@ impl Runner {
         }
         if let Some(triaging) = &self.flights.triaging {
             triaging.end_overdue(now);
-        }
-        if let Some(panel) = &self.flights.panel {
-            panel.end_overdue(now);
         }
         if let Some(retro) = &self.flights.retro {
             retro.end_overdue(now);
@@ -695,13 +676,12 @@ pub fn advance(runner: &Mutex<Runner>) -> Result<Pass, StateError> {
     // The project manager wakes only on a pass that started nothing else,
     // once the board it reads is written.
     let pass = match pass {
-        // Experts that just started, or a wake, are calls in flight: the loop goes on.
+        // A wake, a retro or a proof that just started is a call in flight: the loop goes on.
         Ok(Pass::Idle) => {
             let woke = wake_off_lock(runner);
-            let asked = lock(runner).panel_launched();
             let looked = !woke && lock(runner).retro_launched();
             let proved = lock(runner).proofs_launched();
-            Ok(if woke || asked || looked || proved {
+            Ok(if woke || looked || proved {
                 Pass::Started
             } else {
                 Pass::Idle
@@ -741,8 +721,6 @@ fn one_pass(runner: &Mutex<Runner>) -> Result<Pass, StateError> {
     }
     lock(runner).end_overdue();
     super::builds::watch(runner);
-    // Before any turn is chosen, so none resumes a session a vote still counts in.
-    lock(runner).panel_settle_worker();
     lock(runner).fall_back();
     let alerts = Arc::clone(&lock(runner).ports.alerts);
     if let Some(posted) = post_due(runner, alerts.as_ref()) {
@@ -825,7 +803,6 @@ fn hear_news(shared: &Mutex<Runner>, news: News) -> Result<Option<StepReport>, S
             runner.proof_heard(proof)?;
             return Ok(None);
         }
-        News::Paneled { id, ends } => return runner.panel_ended(id, ends),
         News::Retro(end) => {
             runner.retro_heard(end);
             return Ok(None);
@@ -916,7 +893,6 @@ mod calls;
 mod carry;
 pub(super) mod label;
 mod news;
-pub(super) mod panel;
 mod proving;
 mod rotation;
 

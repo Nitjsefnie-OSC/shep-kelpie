@@ -18,9 +18,7 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 
 use crate::metrics::Recorder;
-use crate::panel::{Tier, Voter};
 use crate::ports::{Cost, Role, SessionId, Timestamp, Usage};
-use crate::settings::RulingName;
 use crate::ticket::TicketId;
 use crate::work_item::RoleTally;
 
@@ -31,7 +29,6 @@ mod finished;
 mod import;
 mod item;
 mod openmetrics;
-mod panel;
 mod reads;
 mod report;
 mod requests;
@@ -43,7 +40,6 @@ pub use finished::{FinishedLine, HeldFindings};
 pub use import::{Imported, import};
 pub use item::item;
 pub use openmetrics::openmetrics;
-pub use panel::vote_costs;
 pub use reads::reads;
 pub use report::report;
 
@@ -97,9 +93,6 @@ pub enum CallKind {
     /// The project manager's batch retro, over the work items finished since
     /// the last one
     Retro,
-    /// An expert's vote on a ruling: the worker's resumed session, the
-    /// advisor's or the researcher's
-    Vote,
     /// The representative's wording of a post to a contributor
     Post,
     /// The triager's research of an issue
@@ -145,27 +138,6 @@ pub struct PacerLine {
     /// fell between them
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub week_resets_at: Option<Timestamp>,
-}
-
-/// A vote on a ruling that a call cast, or, for the project manager's wake,
-/// one of the votes it cast
-// wire format: changing this is a breaking change to the usage ledger
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct VoteMark {
-    /// The ruling's id
-    pub ruling: TicketId,
-    /// The kind of ruling it is
-    pub ruling_kind: RulingName,
-    /// The expert who voted
-    pub voter: Voter,
-    /// The panel the work item's type set
-    pub panel: Tier,
-    /// The work item's type, from its pull request's title: `fix`, `feat`,
-    /// `breaking` or `untyped`
-    pub work: String,
-    /// The option it chose, or none when it abstained
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub choice: Option<char>,
 }
 
 /// A model call, as it ended
@@ -228,10 +200,6 @@ pub struct CallLine {
     /// Whether it was read from a runner's log, not written as it ended
     #[serde(default, skip_serializing_if = "is_false")]
     pub imported: bool,
-    /// The votes on rulings it cast: one for an expert's call, and one for
-    /// each ruling a project manager's wake voted on
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub votes: Vec<VoteMark>,
 }
 
 fn is_false(b: &bool) -> bool {

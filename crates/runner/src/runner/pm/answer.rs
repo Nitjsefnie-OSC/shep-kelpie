@@ -50,7 +50,9 @@ pub(super) struct Answer {
     pub(super) follow_up: Option<Decide>,
     /// What to do about each workflow still red on `main` after its rerun
     pub(super) red: Vec<RedCall>,
-    /// Its votes on rulings before the panel: each ruling, and the object it voted with
+    /// Its answers to the rulings left to it: each ruling, and the object it
+    /// answered with. The key keeps its old name for the project manager's
+    /// session.
     pub(super) votes: Vec<(TicketId, Map<String, Value>)>,
     /// The whole of its standing notes, which replaces the file kelpie holds.
     /// None leaves the file as it is, and empty text clears it.
@@ -724,7 +726,7 @@ mod tests {
         let rulings: Vec<TicketId> = answer.votes.iter().map(|(id, _)| *id).collect();
         assert_eq!(rulings, [ticket(4), ticket(5)]);
         assert_eq!(
-            crate::panel::from_fields(&answer.votes[0].1, 2).map(|v| v.choice),
+            crate::pm_answer::from_fields(&answer.votes[0].1, 2).map(|v| v.choice),
             Ok('A')
         );
         assert_eq!(answer.unread.len(), 2, "{:?}", answer.unread);

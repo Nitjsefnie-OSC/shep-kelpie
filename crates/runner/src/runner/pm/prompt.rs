@@ -32,14 +32,13 @@ macro_rules! questions {
          who has not followed the item can act on, and `board` with what the board \
          shows of picking an option: the items held behind this one, and whether a slot \
          is freed or kept. Both are optional, and each goes on one line.\n\n\
-         Where the project has a panel, it votes on a question's options, and a \
-         question that lists fewer than two has none to vote on. Unless you answer \
-         it with `text`, give `candidates` beside `escalate` (or alone): two or three short answers the worker could \
-         act on as they stand, one line each, the likeliest first. Where the \
-         question is a product call, make one of them `Ask the maintainer`. Kelpie \
-         lists them under the question as its options, and the experts vote on them \
-         and you vote on them, in a wake of its own. A question that already lists \
-         two options or more keeps them, and `candidates` is dropped.\n\n\
+         Unless you answer a question with `text`, give `candidates` beside \
+         `escalate` (or alone): two or three short answers the worker could act on as \
+         they stand, one line each, the likeliest first. Where the question is a \
+         product call, make one of them `Ask the maintainer`. Kelpie lists them under \
+         the question as its options, for the maintainer to pick from. A question \
+         that already lists two options or more keeps them, and `candidates` is \
+         dropped.\n\n\
          An answer goes back to the worker as its next turn, so a `candidates` entry \
          or an `escalate` choice that only the maintainer can carry out (run a \
          command, change a setting, grant a permission) starts with `You`, names \
@@ -114,22 +113,25 @@ macro_rules! reds {
 }
 
 /// The `votes` key as the answer shows it, which a wake with a ruling to
-/// vote on shows again to a session that has seen the answer without it
+/// answer shows again to a session that has seen the answer without it
 macro_rules! votes_key {
     () => {
         "\"votes\": [] or [{\"ruling\": <the ruling's number>, \"choice\": \"<the option's key, such as A>\", \"why\": \"<at most 350 characters, one line>\", \"design\": true|false}]"
     };
 }
 
-/// How a ruling before the panel is voted on, shown with the `votes` key
-macro_rules! voting {
+/// How a ruling left to the project manager is answered, shown with the
+/// `votes` key
+macro_rules! answering {
     () => {
-        "A ruling before the panel waits on your vote, with the worker, an advisor \
-         and a researcher. You vote alone: you are not shown theirs, and they are not \
-         shown yours. Vote for the option you would answer with, and read the board, \
-         the diffs and the CI logs for it as you would for any decision. `design` is \
-         true when the question changes an ADR, the glossary, a public interface or the \
-         project's direction. A ruling you give no vote on counts as an abstention."
+        "A ruling the project leaves to you waits on your answer before it goes to \
+         the maintainer. Give the option you would answer with, and read the board, \
+         the diffs and the CI logs for it as you would for any decision: kelpie \
+         applies it and says so on the ruling's thread, where the maintainer can \
+         reopen it. `design` is true when the question changes an ADR, the glossary, \
+         a public interface or the project's direction, and sends the ruling to the \
+         maintainer with your option as the one you recommend. A ruling you give no \
+         answer on goes to the maintainer as it stands."
     };
 }
 
@@ -196,7 +198,7 @@ that is not stuck.
     "\n\n",
     reds!(),
     "\n\n",
-    voting!()
+    answering!()
 );
 
 /// A board this long, in bytes, goes in the prompt. A longer one stays in
@@ -339,12 +341,12 @@ pub(super) fn wake(
                     reds!()
                 );
             }
-            if wakes.iter().any(|w| matches!(w, Wake::Vote { .. })) {
+            if wakes.iter().any(|w| matches!(w, Wake::Answer { .. })) {
                 let _ = write!(
                     out,
                     "\nThe object takes this key as well:\n\n```\n{}\n```\n\n{}\n",
                     votes_key!(),
-                    voting!()
+                    answering!()
                 );
             }
         }
@@ -471,8 +473,8 @@ pub(super) fn reason(wake: &Wake) -> String {
              its log, then fix it or ask the maintainer with the `red` key",
             short(head)
         ),
-        Wake::Vote { id, asked } => {
-            let mut out = format!("ruling {id} is before the panel, and your vote is due:\n");
+        Wake::Answer { id, asked } => {
+            let mut out = format!("ruling {id} waits on your answer:\n");
             for line in asked.lines() {
                 match line.is_empty() {
                     true => out.push_str("\n>"),
@@ -749,8 +751,8 @@ mod tests {
     }
 
     #[test]
-    fn a_wake_for_a_ruling_before_the_panel_shows_it_and_asks_for_a_vote_alone() {
-        let vote = Wake::Vote {
+    fn a_wake_for_a_ruling_left_to_the_project_manager_shows_it_and_asks_for_its_answer() {
+        let vote = Wake::Answer {
             id: ticket(4),
             asked: "### Merge #455 into main?\n\n| | Option | If you pick it |".into(),
         };
@@ -765,7 +767,7 @@ mod tests {
         );
         assert!(
             fresh.contains(
-                "- ruling 4 is before the panel, and your vote is due:\n  \n  > ### Merge #455 \
+                "- ruling 4 waits on your answer:\n  \n  > ### Merge #455 \
                  into main?\n  >\n  > | | Option | If you pick it |"
             ),
             "{fresh}"
@@ -776,7 +778,10 @@ mod tests {
             resumed.contains("\"votes\": [] or [{\"ruling\""),
             "{resumed}"
         );
-        assert!(resumed.contains("You vote alone"), "{resumed}");
+        assert!(
+            resumed.contains("A ruling the project leaves to you"),
+            "{resumed}"
+        );
         let other = wake(
             "koji",
             &[Wake::Pick(2, 1)],

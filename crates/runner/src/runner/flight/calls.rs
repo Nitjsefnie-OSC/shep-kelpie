@@ -13,7 +13,6 @@ impl super::Flights {
             && self.securing.is_none()
             && self.triaging.is_none()
             && !self.proof_running()
-            && self.panel.is_none()
             && self.retro.is_none()
     }
 
@@ -43,10 +42,6 @@ impl super::Flights {
             issue: TicketId::from_issue(issue),
             role: CallRole::Triager,
         });
-        let panel = self.panel.iter().map(|_| CallRunning {
-            issue: None,
-            role: CallRole::Panel,
-        });
         let retro = self.retro.iter().map(|_| CallRunning {
             issue: None,
             role: CallRole::Retro,
@@ -57,7 +52,6 @@ impl super::Flights {
         });
         (items.chain(pm).chain(labelling).chain(securing))
             .chain(triaging)
-            .chain(panel)
             .chain(retro)
             .chain(proof)
             .collect()

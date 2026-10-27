@@ -43,11 +43,6 @@ pub(super) enum News {
         end: End,
         found: Option<Box<Result<crate::runner::triage::research::Found, String>>>,
     },
-    // The experts of a ruling ended, each as its own call did
-    Paneled {
-        id: TicketId,
-        ends: Vec<(crate::panel::Voter, Result<AgentReply, AgentError>)>,
-    },
     // A local round queued for the GPU or began to run. The call waits until
     // `_seen` drops, once the stage is saved, so its time is charged right.
     Stage {

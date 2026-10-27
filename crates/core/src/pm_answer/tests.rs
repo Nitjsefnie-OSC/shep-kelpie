@@ -1,7 +1,7 @@
 use super::*;
 
-fn vote(choice: char, why: &str, design: bool) -> Vote {
-    Vote {
+fn answer(choice: char, why: &str, design: bool) -> PmAnswer {
+    PmAnswer {
         choice,
         why: why.into(),
         design,
@@ -9,10 +9,10 @@ fn vote(choice: char, why: &str, design: bool) -> Vote {
 }
 
 #[test]
-fn a_reply_ending_in_the_object_is_the_vote() {
+fn a_reply_ending_in_the_object_is_the_answer() {
     let text = "I read the diff.\n\n```json\n{\"choice\": \"B\", \"why\": \"CI is red.\", \
                 \"design\": false}\n```";
-    assert_eq!(read(text, 2), Ok(vote('B', "CI is red.", false)));
+    assert_eq!(read(text, 2), Ok(answer('B', "CI is red.", false)));
 }
 
 #[test]
@@ -23,12 +23,12 @@ fn the_last_object_with_a_choice_counts_and_braces_in_a_string_do_not() {
                 \"design\": true}";
     assert_eq!(
         read(text, 3),
-        Ok(vote('B', "use {\"choice\": \"A\"} never", true))
+        Ok(answer('B', "use {\"choice\": \"A\"} never", true))
     );
 }
 
 #[test]
-fn a_choice_outside_the_options_is_no_vote() {
+fn a_choice_outside_the_options_is_no_answer() {
     let text = "{\"choice\": \"C\", \"why\": \"x\", \"design\": false}";
     let err = read(text, 2).unwrap_err();
     assert!(err.contains("there are 2 options"), "{err}");
@@ -37,7 +37,7 @@ fn a_choice_outside_the_options_is_no_vote() {
 }
 
 #[test]
-fn a_reply_missing_a_field_or_with_none_is_no_vote() {
+fn a_reply_missing_a_field_or_with_none_is_no_answer() {
     assert!(
         read("A, I think.", 2)
             .unwrap_err()

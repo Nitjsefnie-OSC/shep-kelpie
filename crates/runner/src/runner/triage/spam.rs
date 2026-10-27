@@ -206,7 +206,6 @@ impl Runner {
             gpu_seconds: None,
             pacer: Default::default(),
             imported: false,
-            votes: Vec::new(),
         }
     }
 }

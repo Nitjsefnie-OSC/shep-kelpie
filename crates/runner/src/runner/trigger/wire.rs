@@ -29,7 +29,7 @@ impl From<&Status<'_>> for wire::Status {
             standing: status.standing.clone(),
             red_workflows: status.red_workflows.iter().map(Into::into).collect(),
             rulings: status.rulings.iter().map(Into::into).collect(),
-            panel: status.panel.as_ref().map(Into::into),
+            pm_answers: status.pm_answers.clone(),
             leases: status.leases.to_vec(),
             history: status.history.to_vec(),
             pacer: (&status.pacer).into(),
@@ -262,7 +262,6 @@ impl From<&r::CallRole> for wire::CallRole {
             r::CallRole::IssueWriter => Self::IssueWriter,
             r::CallRole::Security => Self::Security,
             r::CallRole::Triager => Self::Triager,
-            r::CallRole::Panel => Self::Panel,
             r::CallRole::Retro => Self::Retro,
             r::CallRole::E2e => Self::E2e,
             r::CallRole::Attached(name) => Self::Attached((*name).to_owned()),
@@ -344,82 +343,6 @@ impl From<&r::TemplateSource> for wire::TemplateSource {
             r::TemplateSource::Repo => Self::Repo,
             r::TemplateSource::Owner(repo) => Self::Owner(repo.clone()),
             r::TemplateSource::None => Self::None,
-        }
-    }
-}
-
-impl From<&r::panel::Standing> for wire::Standing {
-    fn from(standing: &r::panel::Standing) -> Self {
-        Self {
-            decide: standing.decide,
-            voted: standing.voted,
-            decided: standing.decided,
-            answered: standing.answered,
-            streak: standing.streak,
-            pm_alone: standing.pm_alone.clone(),
-            experts: standing
-                .experts
-                .iter()
-                .map(|(name, e)| (name.clone(), e.into()))
-                .collect(),
-            panels: standing
-                .panels
-                .iter()
-                .map(|(name, p)| (name.clone(), p.into()))
-                .collect(),
-            whatif: standing
-                .whatif
-                .iter()
-                .map(|(name, s)| (name.clone(), s.into()))
-                .collect(),
-            facts_due: standing.facts_due,
-            skipped: standing.skipped.clone(),
-        }
-    }
-}
-
-impl From<&r::panel::measure::Expert> for wire::Expert {
-    fn from(expert: &r::panel::measure::Expert) -> Self {
-        Self {
-            votes: expert.votes,
-            abstained: expert.abstained,
-            overtaken: expert.overtaken,
-            agreed: expert.agreed,
-            lone: expert.lone,
-            by_kind: expert
-                .by_kind
-                .iter()
-                .map(|(kind, a)| (kind.clone(), a.into()))
-                .collect(),
-        }
-    }
-}
-
-impl From<&r::panel::measure::Agreement> for wire::Agreement {
-    fn from(agreement: &r::panel::measure::Agreement) -> Self {
-        Self {
-            agreed: agreement.agreed,
-            lone: agreement.lone,
-        }
-    }
-}
-
-impl From<&r::panel::measure::Panel> for wire::Panel {
-    fn from(panel: &r::panel::measure::Panel) -> Self {
-        Self {
-            decided: panel.decided,
-            matched: panel.matched,
-        }
-    }
-}
-
-impl From<&r::panel::measure::Score> for wire::Score {
-    fn from(score: &r::panel::measure::Score) -> Self {
-        Self {
-            decided: score.decided,
-            matched: score.matched,
-            maintainer: score.maintainer,
-            cost: score.cost,
         }
     }
 }

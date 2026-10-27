@@ -7,7 +7,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use shep_kelpie_core::pacer::{Hold, Reading};
 use shep_kelpie_core::ports::{Gpu, Timestamp};
-use shep_kelpie_core::settings::{Account, Decide};
+use shep_kelpie_core::settings::Account;
 use shep_kelpie_core::ticket::TicketId;
 
 /// What `status` shows of the pacer
@@ -81,8 +81,6 @@ pub enum CallRole {
     Security,
     /// The triager, researching an untouched issue
     Triager,
-    /// The panel's experts, voting on a ruling
-    Panel,
     /// The project manager's agent, running a batch retro
     Retro,
     /// The e2e run of a dependency bump's head
@@ -101,7 +99,6 @@ impl CallRole {
             Self::IssueWriter => "issue_writer".to_owned(),
             Self::Security => "security".to_owned(),
             Self::Triager => "triager".to_owned(),
-            Self::Panel => "panel".to_owned(),
             Self::Retro => "retro".to_owned(),
             Self::E2e => "e2e".to_owned(),
             Self::Attached(name) => name.clone(),
@@ -124,7 +121,6 @@ impl<'de> Deserialize<'de> for CallRole {
             "issue_writer" => Self::IssueWriter,
             "security" => Self::Security,
             "triager" => Self::Triager,
-            "panel" => Self::Panel,
             "retro" => Self::Retro,
             "e2e" => Self::E2e,
             other => Self::Attached(other.to_owned()),
@@ -161,84 +157,6 @@ pub struct RedStatus {
     pub url: String,
     /// What is being done about the latest red head
     pub doing: String,
-}
-
-/// How the panel stands, as `status` reports it
-#[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
-pub struct Standing {
-    /// Whether the panel decides or only votes
-    pub decide: Decide,
-    /// Rulings the panel has voted on, whoever answered them
-    pub voted: usize,
-    /// Rulings the panel decided
-    pub decided: usize,
-    /// Rulings the panel voted on that the maintainer answered
-    pub answered: usize,
-    /// The run of those, latest last, where the panel's recommendation was the
-    /// maintainer's answer
-    pub streak: u32,
-    /// For each kind of ruling, the run where the project manager's own vote
-    /// was the maintainer's answer
-    pub pm_alone: BTreeMap<String, u32>,
-    /// Each expert's votes against the maintainer's answers
-    pub experts: BTreeMap<String, Expert>,
-    /// What each panel, asked alone, would have decided against the answers
-    pub panels: BTreeMap<String, Panel>,
-    /// What each candidate policy for who votes would have done, by its name
-    pub whatif: BTreeMap<String, Score>,
-    /// Whether the panel's facts entry is due
-    pub facts_due: bool,
-    /// Rulings answered that the panel cast no vote on, by the reason
-    pub skipped: BTreeMap<String, usize>,
-}
-
-/// One expert's votes against the maintainer's answers
-#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Expert {
-    /// Votes it gave on rulings the maintainer answered
-    pub votes: u32,
-    /// Times it abstained
-    pub abstained: u32,
-    /// Times it was ended because the maintainer answered before its vote
-    pub overtaken: u32,
-    /// Votes that were the maintainer's answer
-    pub agreed: u32,
-    /// Times it was the only one whose vote was the maintainer's answer
-    pub lone: u32,
-    /// `agreed` and `lone` by kind of ruling
-    pub by_kind: BTreeMap<String, Agreement>,
-}
-
-/// How often an expert agreed with the maintainer on one kind of ruling
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Agreement {
-    /// Votes that were the maintainer's answer
-    pub agreed: u32,
-    /// Times it was the only one whose vote was the maintainer's answer
-    pub lone: u32,
-}
-
-/// What a panel would have decided, asked alone, against the answers
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Panel {
-    /// Rulings it would have decided
-    pub decided: u32,
-    /// Of those, the ones it decided as the maintainer answered
-    pub matched: u32,
-}
-
-/// What a policy for who votes would have done over the rulings answered
-#[derive(Debug, Default, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub struct Score {
-    /// Rulings it would have decided without the maintainer
-    pub decided: u32,
-    /// Of those, the ones it decided as the maintainer answered
-    pub matched: u32,
-    /// Rulings it would have sent to the maintainer
-    pub maintainer: u32,
-    /// What it would have cost a ruling, in US dollars, or none where the
-    /// ledger could not be read
-    pub cost: Option<f64>,
 }
 
 /// Where a repo's pull request template comes from
