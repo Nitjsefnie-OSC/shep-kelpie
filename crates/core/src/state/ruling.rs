@@ -3,7 +3,6 @@
 use serde::{Deserialize, Serialize};
 
 use super::RulingKind;
-use crate::panel::{Ballot, Skip, Verdict};
 use crate::ports::Timestamp;
 use crate::ticket::TicketId;
 
@@ -29,23 +28,11 @@ pub struct Ruling {
     /// webhooks existed is posted once.
     #[serde(default)]
     pub alerted: bool,
-    /// What each expert on the panel did, once the panel has voted. None
-    /// while it has not, and in a file from before.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub panel: Option<Vec<Ballot>>,
-    /// What the panel concluded: the work item's type, the panel it set and
-    /// the option the panel stood behind. None until the panel has voted.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub verdict: Option<Verdict>,
-    /// Whether its comment on its thread is held back, for the panel's votes
-    /// or the project manager's answer, and so is still to be posted. Kept so
-    /// a runner that restarts posts it once the hold ends.
+    /// Whether its comment on its thread is held back, for the project
+    /// manager's answer, and so is still to be posted. Kept so a runner that
+    /// restarts posts it once the hold ends.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub unposted: bool,
-    /// Why the panel cast no vote on it though it lists two options or more,
-    /// once that is known. None while it may still vote, and when it did.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub skipped: Option<Skip>,
     /// What each option leads to, in the order the card lists them, as kelpie
     /// worded it from what it knew when it raised the ruling. An option with
     /// none, or a ruling with none, shows the phrase its kind always had.
@@ -58,8 +45,8 @@ pub struct Ruling {
 }
 
 impl Ruling {
-    /// A ruling about no work item or pull request yet, not yet alerted,
-    /// posted or voted on
+    /// A ruling about no work item or pull request yet, not yet alerted or
+    /// posted
     pub fn new(id: TicketId, question: impl Into<String>, kind: RulingKind) -> Self {
         Self {
             id,
@@ -68,10 +55,7 @@ impl Ruling {
             pull_request: None,
             kind,
             alerted: false,
-            panel: None,
-            verdict: None,
             unposted: false,
-            skipped: None,
             effects: Vec::new(),
             raised: None,
         }

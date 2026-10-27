@@ -160,10 +160,7 @@ fn raise_with(next: &mut ProjectState, pull_request: u64, held: Held, facts: &st
         pull_request: Some(pull_request),
         kind,
         alerted: false,
-        panel: None,
-        verdict: None,
         unposted: false,
-        skipped: None,
         effects: Vec::new(),
         raised: Some(now),
     });

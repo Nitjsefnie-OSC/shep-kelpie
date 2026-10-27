@@ -2,9 +2,9 @@
 //!
 //! Such a file still loads. The run state goes, so a paused project runs once
 //! its runner starts. The fields of the relay, planning call, whole-issue check,
-//! review loop, deep round's later steps and shots, and a work item's `retro`
-//! mark, are dropped. Their calls and time fold into a reviewer's session and
-//! review's or other's time. A review saved mid-loop resumes after the last
+//! review loop, deep round's later steps and shots, a work item's `retro`
+//! mark, and a ruling's panel, are dropped. Their calls and time fold into a
+//! reviewer's session and review's or other's time. A review saved mid-loop resumes after the last
 //! reviewer it recorded. `deep` and `claude` are `defect-hunter`, and a review
 //! bot round is a pass of the listed bots. A pending ruling of a folded kind is
 //! a `stuck` one; of a removed kind, the file is refused (`local-model-spilled`).
@@ -110,6 +110,10 @@ pub(super) fn drop_removed_fields(value: &mut Value) {
     for ruling in objects(state.get_mut("rulings")) {
         ruling.remove("relayed");
         ruling.remove("resend");
+        // The panel's ballots, verdict and reason it cast none.
+        ruling.remove("panel");
+        ruling.remove("verdict");
+        ruling.remove("skipped");
         if let Some(kind) = ruling.get_mut("kind") {
             drop_loop(kind);
             if let Some(kind) = kind.as_object_mut() {

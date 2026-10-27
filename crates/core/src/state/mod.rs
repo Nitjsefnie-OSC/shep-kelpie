@@ -53,7 +53,7 @@ use crate::work_item::{Attached, Known, Phase, Priced, Review, Seconds, Tally, T
 pub const STATE_FILE: &str = "state.json";
 
 /// The state file's format version, bumped when the file gains a field or value an older kelpie refuses
-pub const VERSION: u32 = 86;
+pub const VERSION: u32 = 87;
 
 /// The format before a project could have more than one work item open,
 /// which this kelpie still reads
@@ -520,7 +520,7 @@ pub enum RulingKind {
     },
     /// A contribution waits on the maintainer before anything of it runs. It
     /// parks no work item, and it is never posted on the contributor's pull
-    /// request nor put to the panel.
+    /// request nor put to the project manager.
     Contribution(Held),
 }
 
@@ -685,7 +685,7 @@ pub enum Stuck {
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         restore: Vec<String>,
         /// Kelpie could not set up the call, which a retry does not fix, so
-        /// the ruling goes to the maintainer with no panel
+        /// the ruling goes to the maintainer, never the project manager
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         setup: bool,
     },
