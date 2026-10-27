@@ -45,7 +45,8 @@ pub(super) fn write(dir: &Path) -> io::Result<()> {
 mod tests {
     use super::*;
     use crate::board::check::{
-        BLOCKED_BY, CRITERIA, HARNESS_REACH, HARNESSES, KIND, TOUCHES, WHAT_TO_BUILD, check,
+        BLOCKED_BY, CRITERIA, Failure, HARNESS_REACH, HARNESSES, KIND, TOUCHES, WHAT_TO_BUILD,
+        check,
     };
 
     // The skill's example issue, and the labels it says the example is filed with
@@ -68,6 +69,46 @@ mod tests {
         }
         for heading in [WHAT_TO_BUILD, CRITERIA] {
             assert!(body.contains(&format!("\n## {heading}\n")), "{heading}");
+        }
+    }
+
+    #[test]
+    fn the_skills_example_fails_the_check_without_any_one_of_its_parts() {
+        let (body, labels) = example();
+        let without = |part: &str| {
+            let kept = body.lines().filter(|l| !l.starts_with(part));
+            kept.collect::<Vec<_>>().join("\n")
+        };
+        let renamed = |heading: &str| body.replace(&format!("## {heading}"), "## Notes");
+        let adapter = "crates/adapters/src/adapters/pi/skills.rs".to_owned();
+        let cut = [
+            (without(TOUCHES), Failure::NoTouches),
+            (without(HARNESS_REACH), Failure::NoHarnessReach(adapter)),
+            (renamed(WHAT_TO_BUILD), Failure::NoWhatToBuild),
+            (renamed(CRITERIA), Failure::NoCriteria),
+            (
+                body.replace("#41", "the other one"),
+                Failure::BlockedByNoIssue,
+            ),
+        ];
+        for (body, failure) in cut {
+            assert_eq!(
+                check("A thing is true", &body, &labels),
+                std::slice::from_ref(&failure),
+                "{failure}"
+            );
+        }
+        for (dropped, failure) in [(KIND, Failure::NoKind), ("priority:", Failure::NoPriority)] {
+            let kept: Vec<String> = labels
+                .iter()
+                .filter(|l| !l.starts_with(dropped))
+                .cloned()
+                .collect();
+            assert_eq!(
+                check("A thing is true", &body, &kept),
+                [failure],
+                "{dropped}"
+            );
         }
     }
 

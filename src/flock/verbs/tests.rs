@@ -158,6 +158,13 @@ async fn verb_line_on(
 }
 
 #[tokio::test]
+async fn issue_check_never_reaches_the_issue_writer_as_a_request() {
+    // Without the arm, this would start the issue writer, a real agent.
+    let said = verb_line("issue", "-p koji check 7", None).await;
+    assert_eq!(said, Err(USAGE.to_owned()));
+}
+
+#[tokio::test]
 async fn help_prints_the_usage_and_registers_nothing() {
     let shepherd = koji_shepherd(None);
     let usage: Vec<String> = USAGE.lines().map(str::to_owned).collect();

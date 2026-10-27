@@ -215,12 +215,15 @@ fn labelled_line<'a>(body: &'a str, label: &str) -> Option<&'a str> {
     labelled(body, label).map(|(_, text)| text)
 }
 
-// The first line `label` starts, past list and bold marks: its index, and
-// what follows the label.
+// The first line `label` starts, in any case and past list and bold marks,
+// its colon inside the bold or after it: its index, and what follows the label.
 fn labelled<'a>(body: &'a str, label: &str) -> Option<(usize, &'a str)> {
+    let name = label.trim_end_matches(':');
     outside_fences(body).find_map(|(at, l)| {
         let l = l.trim_start_matches(|c: char| c.is_whitespace() || c == '-' || c == '*');
-        l.strip_prefix(label).map(|text| (at, text))
+        let (head, rest) = l.split_at_checked(name.len())?;
+        let rest = rest.strip_prefix("**").unwrap_or(rest).strip_prefix(':')?;
+        head.eq_ignore_ascii_case(name).then_some((at, rest))
     })
 }
 
@@ -245,14 +248,14 @@ fn is_adapter(path: &str) -> bool {
     })
 }
 
-// Whether `line` names an issue: `#` then a digit, or a local ticket's `k12`.
+// Whether `line` names an issue: `#` then a digit, or a local ticket's `k12`,
+// `k` then digits alone.
 fn names_an_issue(line: &str) -> bool {
     let number = |s: &str| s.starts_with(|c: char| c.is_ascii_digit());
+    let digits = |s: &str| !s.is_empty() && s.chars().all(|c| c.is_ascii_digit());
     line.split('#').skip(1).any(number)
-        || (line.split(|c: char| !c.is_alphanumeric())).any(|w| {
-            w.strip_prefix('k')
-                .is_some_and(|n| !n.is_empty() && number(n))
-        })
+        || (line.split(|c: char| !c.is_alphanumeric()))
+            .any(|w| w.strip_prefix('k').is_some_and(digits))
 }
 
 // Whether `line` is a checklist item, `- [ ]` or `- [x]`.
@@ -264,12 +267,21 @@ fn is_item(line: &str) -> bool {
     ["[ ]", "[x]", "[X]"].iter().any(|b| rest.starts_with(b))
 }
 
-// The heading a line is, as its level and text.
+// The heading a line is, as its level and text, without closing `#`s or the
+// bold around it.
 fn heading(line: &str) -> Option<(usize, &str)> {
     let line = line.trim();
     let level = line.chars().take_while(|&c| c == '#').count();
-    let text = line[level..].strip_prefix(' ')?;
-    (1..=6).contains(&level).then(|| (level, text.trim()))
+    let text = line[level..].strip_prefix(' ')?.trim();
+    let open = text.trim_end_matches('#');
+    let closed = open.is_empty() || open.ends_with(' ');
+    let text = if closed { open.trim() } else { text };
+    let bold = ["**", "__"]
+        .iter()
+        .find_map(|m| text.strip_prefix(m)?.strip_suffix(m));
+    (1..=6)
+        .contains(&level)
+        .then(|| (level, bold.unwrap_or(text).trim()))
 }
 
 // The lines under the heading `name`, at any level and in any case, up to the

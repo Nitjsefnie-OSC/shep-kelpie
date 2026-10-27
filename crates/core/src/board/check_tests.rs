@@ -119,6 +119,51 @@ fn touches_may_be_a_heading_or_a_line_with_a_list_under_it() {
 }
 
 #[test]
+fn a_labelled_line_is_read_in_any_case_and_with_its_label_in_bold() {
+    for form in [
+        "touches: `src/board.rs`",
+        "TOUCHES: `src/board.rs`",
+        "**Touches**: `src/board.rs`",
+        "- **touches**: `src/board.rs`",
+    ] {
+        assert_eq!(
+            of(&BODY.replace("Touches: `src/board.rs`", form)),
+            [],
+            "{form}"
+        );
+    }
+    let adapter = BODY.replace("src/board.rs", "crates/adapters/src/adapters/pi/x.rs");
+    assert_eq!(of(&format!("{adapter}\nharness reach: pi\n")), []);
+    let blocked = format!("BLOCKED BY: the workspace\n\n{BODY}");
+    assert_eq!(of(&blocked), [Failure::BlockedByNoIssue]);
+}
+
+#[test]
+fn an_issue_written_with_crlf_line_ends_reads_as_with_lf() {
+    assert_eq!(of(&BODY.replace('\n', "\r\n")), []);
+    let heading =
+        BODY.replace("Touches: `src/board.rs`\n", "") + "\n## Touches\n\n- `src/board.rs`\n";
+    assert_eq!(of(&heading.replace('\n', "\r\n")), []);
+    let fenced = BODY.replace("- [ ] `board", "~~~\n- [ ] x\n~~~\n- `board");
+    assert_eq!(
+        of(&fenced.replace('\n', "\r\n")),
+        [Failure::NoCriteriaItems]
+    );
+}
+
+#[test]
+fn a_heading_may_close_with_hashes_or_sit_in_bold() {
+    for (from, to) in [
+        ("## What to build", "## What to build ##"),
+        ("## What to build", "## **What to build**"),
+        ("## Acceptance criteria", "### Acceptance criteria ###"),
+        ("## Acceptance criteria", "## __Acceptance criteria__"),
+    ] {
+        assert_eq!(of(&BODY.replace(from, to)), [], "{to}");
+    }
+}
+
+#[test]
 fn a_harness_adapter_on_the_touches_line_needs_a_harness_reach_line() {
     for path in [
         "crates/adapters/src/adapters/claude/tests.rs",
@@ -235,7 +280,11 @@ fn a_blocked_by_line_names_an_issue_or_a_local_ticket() {
     ] {
         assert_eq!(of(&format!("{line}\n\n{BODY}")), [], "{line}");
     }
-    for line in ["Blocked by: the workspace", "Blocked by: #"] {
+    for line in [
+        "Blocked by: the workspace",
+        "Blocked by: #",
+        "Blocked by: k8s",
+    ] {
         assert_eq!(
             of(&format!("{line}\n\n{BODY}")),
             [Failure::BlockedByNoIssue],
