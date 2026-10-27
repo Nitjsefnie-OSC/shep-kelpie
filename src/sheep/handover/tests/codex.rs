@@ -155,11 +155,12 @@ fn incoming(folder: &Path, carry: Carry) {
     let worker = Worker::spawn(Arc::clone(&runner), hooks, wake, woken, died);
     write(folder, "go", "");
     eventually("the turn's end", || turn_of_7(&rig, &runner) == "ended");
+    // What the wait saw, as the worker may move #7 on before a second read
+    write(folder, "turn", "ended");
 
     let lines = crate::usage::read(&rig.paths().folder.join(crate::usage::FILE)).unwrap();
     let turn = lines.first().expect("a usage line for the turn");
     write(folder, "ledger", &serde_json::to_string(turn).unwrap());
-    write(folder, "turn", &turn_of_7(&rig, &runner));
     let record = read(folder, "record");
     let threads = Path::new(record.trim())
         .with_extension("")

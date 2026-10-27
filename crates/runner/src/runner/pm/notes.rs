@@ -213,9 +213,15 @@ impl Runner {
             false => format!("{}\n", text.trim_end()),
         };
         if body.len() > STANDING_MAX {
+            let (size, max) = (body.len(), STANDING_MAX / 1024);
+            self.pm.lost.push(format!(
+                "{} it was {size} bytes, over its {max} KiB limit, so {PM_STANDING} stays \
+                 as it was. Condense it, and give the whole shorter file in `standing`.",
+                prompt::STANDING_REFUSED
+            ));
             return Err(format!(
-                "`standing`: over its {} KiB limit, so {PM_STANDING} stays as it is",
-                STANDING_MAX / 1024
+                "`standing`: {size} bytes, over its {max} KiB limit, so {PM_STANDING} stays \
+                 as it is"
             ));
         }
         replace(&self.paths.pm.join(PM_STANDING), &body)

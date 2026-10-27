@@ -67,6 +67,30 @@ pub struct HeldCall {
     _release: Sender<()>,
 }
 
+impl Gate {
+    /// A gate for `at`, and the call it holds until the test drops it
+    pub(crate) fn open(at: At) -> (Self, HeldCall) {
+        let (entered, heard) = mpsc::channel();
+        let (release, waited) = mpsc::channel();
+        let gate = Self {
+            entered,
+            release: waited,
+            at,
+        };
+        let held = HeldCall {
+            entered: heard,
+            _release: release,
+        };
+        (gate, held)
+    }
+
+    /// Says the call reached the gate, and waits there until the test lets it go
+    pub(crate) fn pass(self) {
+        let _ = self.entered.send(());
+        let _ = self.release.recv();
+    }
+}
+
 impl HeldCall {
     /// Whether a call reached the forge and waits here, within `within`
     pub fn waiting(&self, within: Duration) -> bool {
@@ -170,17 +194,9 @@ impl FakeForge {
     }
 
     fn hold_open(&self, at: At) -> HeldCall {
-        let (entered, heard) = mpsc::channel();
-        let (release, waited) = mpsc::channel();
-        *self.hold.lock().unwrap_or_else(PoisonError::into_inner) = Some(Gate {
-            entered,
-            release: waited,
-            at,
-        });
-        HeldCall {
-            entered: heard,
-            _release: release,
-        }
+        let (gate, held) = Gate::open(at);
+        *self.hold.lock().unwrap_or_else(PoisonError::into_inner) = Some(gate);
+        held
     }
 
     /// Holds one call here until the test drops the [`HeldCall`] it took.
@@ -194,7 +210,6 @@ impl FakeForge {
                 _ => return,
             }
         };
-        let _ = gate.entered.send(());
-        let _ = gate.release.recv();
+        gate.pass();
     }
 }

@@ -19,6 +19,7 @@ mod folders;
 mod mcp;
 mod own;
 mod plugins;
+mod setup;
 
 const WORKER: &str = "Both threads were fixed in the last push, with tests. \
     {\"choice\": \"A\", \"why\": \"WORKER-MARK fixed with tests\", \"design\": false}";

@@ -567,3 +567,45 @@ fn the_issue_writer_waits_on_claudes_window_when_no_listed_role_spends_claude() 
         Some(StepReport::Labelled { issue, .. }) if issue == ticket(7)
     ));
 }
+
+// `/usage` takes seconds, so a step reads it with the runner's lock let go: a trigger sent
+// meanwhile is answered.
+#[test]
+fn a_trigger_is_answered_while_a_new_work_items_usage_is_read() {
+    let (rig, runner) = named("shep", "");
+    rig.forge.list_ready(7, false);
+    let read = rig.meter.hold_next_read();
+
+    let (reply, pass) = rig.asked_while_held(&runner, read, "status", None);
+
+    assert!(reply.is_some(), "the trigger waited for the usage read");
+    pass.unwrap();
+    let status = rig.ask(&runner, "status", None);
+    assert_eq!(status["work_item"]["issue"], "7", "{status}");
+    assert_eq!(rig.meter.reads(), 1);
+}
+
+#[test]
+fn a_trigger_is_answered_while_a_turns_usage_is_read() {
+    let (rig, runner) = named("shep", "");
+    rig.forge.list_ready(7, false);
+    assert!(dispatched(&step(&runner).unwrap()));
+    let read = rig.meter.hold_next_read();
+
+    let (reply, pass) = rig.asked_while_held(&runner, read, "status", None);
+
+    assert!(reply.is_some(), "the trigger waited for the usage read");
+    pass.unwrap();
+    let status = rig.ask(&runner, "status", None);
+    assert_eq!(status["working"], json!(["7"]), "{status}");
+    assert_eq!(rig.meter.reads(), 2);
+}
+
+#[test]
+fn a_board_with_nothing_ready_reads_no_usage() {
+    let (rig, runner) = named("shep", "");
+
+    step(&runner).unwrap();
+
+    assert_eq!(rig.meter.reads(), 0);
+}

@@ -15,7 +15,7 @@ use crate::panel::{Ballot, Skip, Verdict, Voter};
 use crate::ports::Timestamp;
 use crate::runner::Answer;
 use crate::settings::RulingName;
-use crate::state::Ruling;
+use crate::state::{Ruling, RulingKind, Stuck};
 use crate::ticket::TicketId;
 
 /// How many of the latest answered rulings the researcher is shown
@@ -49,7 +49,7 @@ pub(in crate::runner) struct Record {
     asked: String,
     pub(in crate::runner) answer: String,
     // What a worker's question says as it asked it, which the project manager's
-    // rewording of the card leaves as it is
+    // rewording of the card leaves as it is, or why a turn failed
     #[serde(default, skip_serializing_if = "Option::is_none")]
     stem: Option<String>,
     // Whether the project manager answered for the maintainer
@@ -157,8 +157,18 @@ impl Record {
 }
 
 // What a worker asked in `ruling`, as `rulings.jsonl` keeps it.
+// A failed turn's stem is why it failed, so the same failure again on the
+// same work item is one the panel already decided.
 fn stem_of(ruling: &Ruling) -> Option<String> {
-    let stem = crate::runner::voice::question_stem(&ruling.kind)?;
+    let stem = match &ruling.kind {
+        RulingKind::Stuck(Stuck::TurnFailed { why, .. }) => {
+            format!(
+                "turn-failed: {}",
+                why.split_whitespace().collect::<Vec<_>>().join(" ")
+            )
+        }
+        kind => crate::runner::voice::question_stem(kind)?,
+    };
     Some(crate::runner::panel::folders::clip(&stem, QUESTION))
 }
 
@@ -325,5 +335,30 @@ mod tests {
 
         assert!(before.decided_by_panel(&asking(71, Some(71), "Which flag?\n- `--a`\n- `--b`")));
         assert!(!before.decided_by_panel(&asking(71, Some(71), "Which command?")));
+    }
+
+    fn failing(id: u64, why: &str) -> Ruling {
+        let kind = RulingKind::from(Stuck::TurnFailed {
+            why: why.into(),
+            phase: crate::work_item::Phase::Implement,
+            retry: crate::work_item::Turn::Due,
+            restore: Vec::new(),
+            setup: false,
+        });
+        Ruling {
+            issue: Some(ticket(7)),
+            pull_request: Some(71),
+            ..Ruling::new(ticket(id), why, kind)
+        }
+    }
+
+    // The same failure on the same work item, whitespace aside, is the one the
+    // panel decided, and another failure is not.
+    #[test]
+    fn a_turn_that_fails_again_the_same_way_is_the_failure_the_panel_decided() {
+        let before = decided(&failing(71, "harness  exited\nwith 1"));
+
+        assert!(before.decided_by_panel(&failing(72, "harness exited with 1")));
+        assert!(!before.decided_by_panel(&failing(72, "harness exited with 2")));
     }
 }

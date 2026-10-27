@@ -65,6 +65,8 @@ pub enum Skip {
     Posted,
     /// The panel already decided this question, and the worker asked it again
     Repeated,
+    /// The turn failed setting up kelpie's own files, which a retry does not fix
+    Setup,
 }
 
 impl Skip {
@@ -74,6 +76,7 @@ impl Skip {
             Self::Draining => "draining",
             Self::Posted => "posted",
             Self::Repeated => "repeated",
+            Self::Setup => "setup",
         }
     }
 
@@ -83,6 +86,9 @@ impl Skip {
             Self::Draining => "the runner drained and no expert could be asked",
             Self::Posted => "its comment had gone out before the panel took it up",
             Self::Repeated => "the panel already decided this question, and it was asked again",
+            Self::Setup => {
+                "the turn failed setting up kelpie's own files, which a retry does not fix"
+            }
         }
     }
 }
