@@ -455,6 +455,19 @@ fn a_file_whose_role_went_with_the_panel_is_refused_saying_so() {
 }
 
 #[test]
+fn a_file_extending_a_baseline_whose_role_went_is_refused_with_migrate_s_words() {
+    for role in ["advisor", "researcher"] {
+        let text = format!("---\nextends: kelpie:{role}\nmodel: m\n---\nAlso this.\n");
+        let err = refused(&[("mine.md", &text)]);
+        let why = format!("the `{role}` role went with the ruling panel, so delete the file");
+        assert!(err.contains(&why), "{role}: {err}");
+        assert!(!err.contains("names no shipped agent"), "{role}: {err}");
+        let err = crate::agents::baseline::check("mine", &text).unwrap_err();
+        assert!(err.contains(&why), "{role}: {err}");
+    }
+}
+
+#[test]
 fn a_read_only_temp_file_left_by_a_crash_does_not_stop_a_refresh() {
     let dir = tempfile::tempdir().unwrap();
     let agents = dir.path().join("agents");

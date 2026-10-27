@@ -50,7 +50,7 @@ struct Written {
 }
 
 /// The roles kelpie no longer has
-pub(super) const GONE: [&str; 2] = ["advisor", "researcher"];
+const GONE: [&str; 2] = ["advisor", "researcher"];
 
 // An implementer's keys: a session on a harness
 #[derive(Debug, Deserialize)]

@@ -111,6 +111,9 @@ pub(super) fn shipped_text(
         .or_else(|| baselines.iter().find(|b| b.name == shipped).map(|b| b.text))
         .map(extends::ParentText::Default)
         .ok_or_else(|| {
+            if let Some(why) = front::gone(shipped) {
+                return format!("`extends: {extends}`: {why}");
+            }
             let own: Vec<&str> = (DEFAULTS.iter().map(|(name, ..)| *name))
                 .chain(baselines.iter().map(|b| b.name))
                 .collect();

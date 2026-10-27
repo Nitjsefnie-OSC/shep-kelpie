@@ -231,11 +231,10 @@ enum Judged {
 // What to do with a file holding `text`.
 fn judge(text: &str) -> Judged {
     let parent = extends::shipped_parent(text);
-    if let Some(gone) = parent
-        .as_deref()
-        .filter(|parent| front::GONE.contains(parent))
+    if let Some(gone) = parent.as_deref()
+        && let Some(why) = front::gone(gone)
     {
-        return gone_role(text, gone);
+        return gone_role(text, gone, &why);
     }
     if let Some(why) = front::gone_role_of(text) {
         return Judged::Left(why);
@@ -297,15 +296,15 @@ fn judge(text: &str) -> Judged {
 }
 
 // What to do with a file extending `parent`, a baseline whose role went with the panel.
-fn gone_role(text: &str, parent: &str) -> Judged {
+fn gone_role(text: &str, parent: &str, why: &str) -> Judged {
     let binding = extends::own(text)
         .is_some_and(|own| own.keys.iter().all(|key| BINDING.contains(&key.as_str())));
     let body = front::split(text).map_or("", |(_, body)| body);
     match binding && body.trim().is_empty() {
         true => Judged::Delete,
         false => Judged::Left(format!(
-            "it extends `kelpie:{parent}`, whose role went with the ruling panel, and holds more \
-             than a binding: delete it, or move what you need from it to another agent"
+            "it extends `kelpie:{parent}` and holds more than a binding: {why}, once you have \
+             moved what you need from it to another agent"
         )),
     }
 }

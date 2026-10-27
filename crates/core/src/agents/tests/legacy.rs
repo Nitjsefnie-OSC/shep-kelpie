@@ -333,7 +333,9 @@ fn a_file_of_a_role_the_panel_took_that_holds_more_is_left_and_named() {
         report.lines()
     );
     assert!(
-        report.left[0].why.contains("kelpie:advisor"),
+        report.left[0]
+            .why
+            .contains("the `advisor` role went with the ruling panel, so delete the file"),
         "{:?}",
         report.left
     );
