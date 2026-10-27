@@ -133,16 +133,18 @@ fn toolchains(rustup: &Path) -> Vec<PathBuf> {
 fn tool_homes(env: &dyn Env, name: &str, home: &Path, default: &str) -> Vec<PathBuf> {
     let default = normalize(&home.join(default));
     let mut homes = Vec::new();
-    let named = env
-        .get(name)
+    homes.extend(named(env, name).filter(|named| *named != default));
+    homes.push(default);
+    homes
+}
+
+// The absolute folder the variable `name` names, normalized, or `None`
+fn named(env: &dyn Env, name: &str) -> Option<PathBuf> {
+    env.get(name)
         .filter(|value| !value.is_empty())
         .map(PathBuf::from)
         .filter(|named| named.is_absolute())
         .map(|named| normalize(&named))
-        .filter(|named| *named != default);
-    homes.extend(named);
-    homes.push(default);
-    homes
 }
 
 // `path` with its `.` and `..` resolved and its trailing separator gone, by
@@ -176,20 +178,26 @@ fn normalize(path: &Path) -> PathBuf {
     out
 }
 
-/// The tool homes themselves, whole, where they are on this machine: what each
-/// tool reads to run at all, its binaries, its config and its cache, beside the
-/// sources it reads.
+/// The tool homes themselves, where they are on this machine: what each tool
+/// reads to run at all, its binaries, its config and its cache
 ///
-/// A call whose fence denies its home whole reads these back, or its own cargo
-/// cannot start. They are no wider than the homes the tools name for themselves,
-/// and a credential inside one stays denied by name, in [`cargo_credentials`].
+/// Cargo's, rustup's and bun's homes are read whole, and Go's `GOPATH` gives its
+/// `bin` and module cache. None that holds `home` is read back, or it would undo
+/// the home's deny. A credential inside one stays denied by name, in
+/// [`cargo_credentials`]; Go's and bun's homes hold none of their own.
 pub fn toolchain_homes(home: &Path, env: &dyn Env) -> Vec<PathBuf> {
+    let gopaths = tool_homes(env, "GOPATH", home, "go");
+    let found = [("CARGO_HOME", ".cargo"), ("RUSTUP_HOME", ".rustup")]
+        .into_iter()
+        .flat_map(|(name, default)| tool_homes(env, name, home, default))
+        .chain(gopaths.iter().map(|gopath| gopath.join("bin")))
+        .chain(named(env, "GOMODCACHE"))
+        .chain(gopaths.iter().map(|gopath| gopath.join("pkg/mod")))
+        .chain(tool_homes(env, "BUN_INSTALL", home, ".bun"));
     let mut homes: Vec<PathBuf> = Vec::new();
-    for (name, default) in [("CARGO_HOME", ".cargo"), ("RUSTUP_HOME", ".rustup")] {
-        for dir in tool_homes(env, name, home, default) {
-            if dir.is_dir() && !homes.iter().any(|held| held == &dir) {
-                homes.push(dir);
-            }
+    for dir in found {
+        if dir.is_dir() && !home.starts_with(&dir) && !homes.contains(&dir) {
+            homes.push(dir);
         }
     }
     homes
@@ -373,6 +381,88 @@ mod tests {
             let own = moved.join(name).to_string_lossy().into_owned();
             assert!(named.contains(&own), "{own}: {named:?}");
         }
+    }
+
+    #[test]
+    fn go_s_bin_and_module_cache_and_bun_s_home_are_read_back_and_no_other_folder() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path();
+        for rel in [
+            "go/bin/golangci-lint",
+            "go/pkg/mod/x/go.mod",
+            "go/pkg/sumdb/sum.golang.org/latest",
+            "go/src/other/main.go",
+            ".bun/bin/bun",
+            "other-repo/.env",
+        ] {
+            file_at(home, rel);
+        }
+
+        let homes = toolchain_homes(home, &Fixed::default());
+
+        assert_eq!(
+            homes,
+            [
+                home.join("go/bin"),
+                home.join("go/pkg/mod"),
+                home.join(".bun")
+            ]
+        );
+    }
+
+    #[test]
+    fn a_gopath_and_a_module_cache_set_elsewhere_are_the_ones_read_back() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path();
+        let (gopath, modcache) = (home.join("work/gopath"), home.join("caches/gomod"));
+        file_at(&gopath, "bin/golangci-lint");
+        file_at(&gopath, "pkg/mod/y/go.mod");
+        file_at(&modcache, "z/go.mod");
+        let env = Fixed(BTreeMap::from([
+            ("GOPATH", gopath.to_string_lossy().into_owned()),
+            ("GOMODCACHE", modcache.to_string_lossy().into_owned()),
+        ]));
+
+        let homes = toolchain_homes(home, &env);
+
+        assert_eq!(
+            homes,
+            [gopath.join("bin"), modcache, gopath.join("pkg/mod")]
+        );
+    }
+
+    #[test]
+    fn a_toolchain_not_on_the_machine_adds_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        file_at(dir.path(), "other-repo/src/main.go");
+        let env = Fixed(BTreeMap::from([
+            (
+                "GOPATH",
+                dir.path().join("nowhere").to_string_lossy().into_owned(),
+            ),
+            (
+                "BUN_INSTALL",
+                dir.path().join("none").to_string_lossy().into_owned(),
+            ),
+        ]));
+
+        assert!(toolchain_homes(dir.path(), &env).is_empty());
+    }
+
+    // A tool home read back whole that holds the home would undo its deny.
+    #[test]
+    fn a_tool_variable_naming_the_home_or_above_it_reads_none_of_it_back() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().join("me");
+        file_at(&home, "bin/tool");
+        file_at(&home, "other-repo/.env");
+        let env = Fixed(BTreeMap::from([
+            ("BUN_INSTALL", home.to_string_lossy().into_owned()),
+            ("CARGO_HOME", dir.path().to_string_lossy().into_owned()),
+            ("GOPATH", home.to_string_lossy().into_owned()),
+        ]));
+
+        assert_eq!(toolchain_homes(&home, &env), [home.join("bin")]);
     }
 
     #[test]
