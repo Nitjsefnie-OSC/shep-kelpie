@@ -15,6 +15,9 @@ use crate::flock::set::Homes;
 use crate::home::KELPIE_VAR;
 use crate::shepherd::{self, Connection, Socket};
 
+// How a build's `upgrade` usage begins, which one older than `upgrade migrate` prints for it.
+const OLD_USAGE: &str = "usage: shep-kelpie upgrade";
+
 /// Runs `shep-kelpie upgrade migrate`: this build's migrations, a line for each
 pub fn main() -> ExitCode {
     let ran = crate::shep_home::required(crate::shep_home::FLOCK_FIX).and_then(|shep_home| {
@@ -104,20 +107,20 @@ fn by_build(
     said.lines().map(str::to_owned).for_each(&mut *say);
     let err = String::from_utf8_lossy(&output.stderr);
     // A build older than the verb answers it with its usage, having changed nothing.
-    if output.status.code() == Some(2) && err.starts_with("usage:") {
+    if output.status.code() == Some(2) && err.starts_with(OLD_USAGE) {
         say(format!(
             "{} predates `upgrade migrate`, so it migrated nothing",
             installed.display()
         ));
         return Ok(());
     }
-    match output.status.success() {
-        true => Ok(()),
-        false => Err(format!(
-            "{} upgrade migrate exited {}: {}",
-            installed.display(),
-            output.status,
-            err.trim()
-        )),
+    if output.status.success() {
+        return Ok(());
     }
+    Err(format!(
+        "{} upgrade migrate exited {}: {}",
+        installed.display(),
+        output.status,
+        err.trim()
+    ))
 }

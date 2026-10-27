@@ -77,22 +77,29 @@ async fn an_install_whose_migration_fails_stops_before_the_restarts() {
         "{said:?}"
     );
     assert_eq!(rig.restarts(), Vec::<String>::new());
+    assert_eq!(rig.installed_says(), "0.3.0 for shep 0.17.0");
+    assert_eq!(says(&rig.previous()), "0.1.0 for shep 0.17.0");
+}
+
+// A stand-in build that answers `version --json`, and anything else with `stderr` and `exit`.
+fn answering_else(stderr: &str, exit: u8) -> String {
+    let json = format!(r#"{{"kelpie":"0.0.9","shep":"0.17.0","protocol":{PROTOCOL_VERSION}}}"#);
+    format!(
+        "#!/bin/sh\n\
+         case \"$1 $2\" in\n\
+         'version --json') echo '{json}' ;;\n\
+         *) echo '{stderr}' >&2; exit {exit} ;;\n\
+         esac\n"
+    )
 }
 
 #[tokio::test]
 async fn an_install_of_a_build_without_the_step_says_so_and_restarts() {
     let mut rig = Rig::new().await;
-    let json = format!(r#"{{"kelpie":"0.0.9","shep":"0.17.0","protocol":{PROTOCOL_VERSION}}}"#);
     let new = rig.builds.join("new");
     write_script(
         &new,
-        &format!(
-            "#!/bin/sh\n\
-             case \"$1 $2\" in\n\
-             'version --json') echo '{json}' ;;\n\
-             *) echo 'usage: shep-kelpie upgrade' >&2; exit 2 ;;\n\
-             esac\n"
-        ),
+        &answering_else("usage: shep-kelpie upgrade [--now]", 2),
     );
 
     let (ran, said) = rig.install(&new).await;
@@ -100,6 +107,26 @@ async fn an_install_of_a_build_without_the_step_says_so_and_restarts() {
     ran.unwrap();
     assert!(said.iter().any(|l| l.contains("predates")), "{said:?}");
     assert_eq!(rig.restarts(), ["kelpie", "koji"]);
+}
+
+#[tokio::test]
+async fn an_exit_that_is_not_an_old_build_s_usage_stops_before_the_restarts() {
+    for (stderr, exit) in [
+        ("shep-kelpie upgrade migrate: no shepherd", 2),
+        ("usage: shep-kelpie add [<project>]", 2),
+        ("usage: shep-kelpie upgrade [--now]", 1),
+    ] {
+        let mut rig = Rig::new().await;
+        let new = rig.builds.join("new");
+        write_script(&new, &answering_else(stderr, exit));
+
+        let (ran, said) = rig.install(&new).await;
+
+        let failed = ran.unwrap_err();
+        assert!(failed.contains(stderr), "{failed}");
+        assert!(said.iter().all(|l| !l.contains("predates")), "{said:?}");
+        assert_eq!(rig.restarts(), Vec::<String>::new(), "{stderr} {exit}");
+    }
 }
 
 #[tokio::test]
