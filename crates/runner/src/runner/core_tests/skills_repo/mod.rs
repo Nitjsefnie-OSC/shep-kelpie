@@ -187,8 +187,9 @@ fn the_project_manager_gets_the_plugin_as_well() {
         .script([Scripted::Say("{\"pick\": 12, \"hold\": []}")]);
     step(&runner).unwrap();
     let plugin = rig.paths().skills.join("repo/style");
+    let issue = rig.paths().skills.join("kelpie-issue");
     let pm = call_of(&rig, Role::Pm);
-    assert_eq!(pm.plugin_dirs, [plugin]);
+    assert_eq!(pm.plugin_dirs, [issue, plugin]);
 }
 
 #[test]

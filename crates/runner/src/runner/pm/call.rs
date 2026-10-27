@@ -97,6 +97,9 @@ impl Runner {
             settings: self.paths.worker.join("pm-settings.json"),
             instructions: Some(instructions),
             reach: self.pm_reach(),
+            plugin_dirs: (self.skills.issue_plugin().into_iter())
+                .map(Path::to_owned)
+                .collect(),
             ..AgentCall::new(
                 Role::Pm,
                 Tools::Pm,

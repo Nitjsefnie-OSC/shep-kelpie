@@ -3,7 +3,10 @@
 //! `skills/kelpie/issue/SKILL.md` holds the format `board::check` checks, and
 //! tells the agent to run `shep kelpie issue check <n>` once it files one. It
 //! is written out as a plugin of its own beside the wording skill, and reaches
-//! every harness as any other plugin does.
+//! every harness as any other plugin does, and is linked into each harness's
+//! own skills folder for the sessions kelpie does not start.
+
+pub mod user;
 
 use std::fs;
 use std::io;
@@ -15,7 +18,7 @@ pub const PLUGIN: &str = "kelpie-issue";
 /// The skill's name
 pub const SKILL: &str = "issue";
 
-const TEXT: &str = include_str!("../../../../skills/kelpie/issue/SKILL.md");
+const TEXT: &str = include_str!("../../../../../skills/kelpie/issue/SKILL.md");
 
 /// Writes the plugin into `dir`, replacing whatever was there
 ///
@@ -84,7 +87,10 @@ mod tests {
             assert!(format.contains(&format!("`{harness}`")), "{harness}");
         }
         assert!(TEXT.contains("`shep kelpie issue check <n>`"), "{TEXT}");
-        assert!(TEXT.contains("shep kelpie issue check --draft <file>"), "{TEXT}");
+        assert!(
+            TEXT.contains("shep kelpie issue check --draft <file>"),
+            "{TEXT}"
+        );
     }
 
     #[test]

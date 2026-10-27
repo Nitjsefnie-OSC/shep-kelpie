@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::settings::{SettingsError, SkillChoice, SkillName, StepSkills};
 
-mod issue;
+pub mod issue;
 mod repo;
 pub mod vendored;
 mod wording;
@@ -330,6 +330,12 @@ impl Skills {
     /// Every plugin folder a step's skill is in, for `claude --plugin-dir`
     pub fn plugin_dirs(&self) -> &[PathBuf] {
         &self.plugins
+    }
+
+    /// The folder of kelpie's issue plugin, where it could be written
+    pub fn issue_plugin(&self) -> Option<&Path> {
+        let issue = self.plugins.iter().find(|p| p.ends_with(issue::PLUGIN));
+        issue.map(PathBuf::as_path)
     }
 
     /// Each step's skill, in [`Step::ALL`]'s order

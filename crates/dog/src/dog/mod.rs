@@ -41,6 +41,7 @@ use crate::ports::{Clock, LocalPace, SystemClock};
 use crate::review_bot::{Bot, Reviewers};
 use crate::settings::AgentName;
 use crate::shep_home;
+use crate::skills;
 use crate::webhook::KelpieSettings;
 use bus::{Bus, Sent};
 use desk::{Delivery, Desk};
@@ -210,6 +211,22 @@ fn migrate_agents_in(folder: &std::path::Path) -> Vec<String> {
     }
 }
 
+// The issue skill in each installed harness's own skills folder, written again
+// as each start does so an upgrade's restart brings the new one.
+fn link_issue_skill() {
+    let Some(user_home) = std::env::var_os("HOME").map(PathBuf::from) else {
+        return println!("HOME is not set: not linking kelpie's issue skill");
+    };
+    match home::kelpie_home() {
+        Ok(home) => {
+            for line in skills::issue::user::install(&home, &user_home) {
+                println!("{line}");
+            }
+        }
+        Err(e) => println!("{e}: not linking kelpie's issue skill"),
+    }
+}
+
 fn windows_in(folder: &std::path::Path) -> Reviewers {
     let agents = Agents::load(folder).unwrap_or_else(|e| {
         println!("{e}: booking each review bot's window as kelpie's own file has it");
@@ -318,6 +335,7 @@ async fn serve() -> Result<(), String> {
     let metrics = Arc::new(Recorder::new(Arc::new(ShepherdSink::new(shepherd.clone()))));
     refresh_baselines();
     migrate_agents();
+    link_issue_skill();
     let mut kept = open(file, Box::new(SystemClock), windows(), metrics);
     let capacity = settings.leases.cargo_test_capacity();
     kept.desk.set_test_capacity(capacity);
