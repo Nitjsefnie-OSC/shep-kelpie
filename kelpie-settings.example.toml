@@ -99,8 +99,8 @@ url = "https://ntfy.sh/your-private-topic"
 # project lists the ones that build its work items in `agents.implementers`
 # and the ones that review its pull requests in `agents.reviewers`. An
 # issue's `agent:<name>` label runs it on any file below whose role is
-# `implementer`, listed or not, and `agents.implementer_choice` says who
-# picks for an issue with no label. The
+# `implementer`, listed or not, and an issue with no label runs on the
+# first implementer listed. The
 # agents guide describes every key:
 # https://github.com/shep-pm/shep-kelpie/blob/main/docs/guide/agents.md
 # An implementer's body is added to kelpie's own instructions; a pi
