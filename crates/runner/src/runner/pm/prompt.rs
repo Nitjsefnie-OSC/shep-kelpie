@@ -473,8 +473,11 @@ pub(super) fn reason(wake: &Wake) -> String {
              its log, then fix it or ask the maintainer with the `red` key",
             short(head)
         ),
-        Wake::Answer { id, asked } => {
-            let mut out = format!("ruling {id} waits on your answer:\n");
+        Wake::Answer { id, asked, request } => {
+            let mut out = match request {
+                None => format!("ruling {id} waits on your answer:\n"),
+                Some(request) => super::asked::lead(*request, *id),
+            };
             for line in asked.lines() {
                 match line.is_empty() {
                     true => out.push_str("\n>"),
@@ -755,6 +758,7 @@ mod tests {
         let vote = Wake::Answer {
             id: ticket(4),
             asked: "### Merge #455 into main?\n\n| | Option | If you pick it |".into(),
+            request: None,
         };
         let fresh = wake(
             "koji",

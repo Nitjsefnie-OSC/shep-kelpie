@@ -30,6 +30,7 @@ use crate::work_item::new_session_id;
 
 mod act;
 mod answer;
+mod asked;
 mod call;
 mod ci_logs;
 mod diffs;
@@ -43,6 +44,7 @@ mod rulings;
 mod tests;
 mod wakes;
 
+pub(super) use asked::{PmReply, pm_reply};
 pub(super) use ci_logs::wake_off_lock;
 pub use maintainer::{Held, PmAttaching, PmError, PmStatus, Settled};
 
@@ -169,6 +171,9 @@ pub(super) enum Wake {
         id: TicketId,
         /// What it asks and the options
         asked: String,
+        /// What the maintainer asked of it, or none where the project
+        /// leaves the ruling to it
+        request: Option<asked::Asked>,
     },
 }
 
@@ -599,8 +604,15 @@ impl Runner {
                 Wake::Conflict(..) | Wake::Stuck { .. } => self.pm.lapsed = true,
                 Wake::LeaseWait { .. } | Wake::Red { .. } => self.pm.lapsed = true,
                 // The ruling goes to the maintainer, who need not wait on it again.
-                Wake::Question { id, .. } | Wake::FollowUp { id, .. } | Wake::Answer { id, .. } => {
+                Wake::Question { id, .. } | Wake::FollowUp { id, .. } => {
                     self.pm.asking.remove(&id);
+                }
+                Wake::Answer { id, request, .. } => {
+                    self.pm.asking.remove(&id);
+                    let ruling = self.state.rulings.iter().find(|r| r.id == id).cloned();
+                    if let (Some(ruling), Some(_)) = (ruling, request) {
+                        self.pm_did_not_answer(&ruling);
+                    }
                 }
             }
         }
@@ -845,12 +857,21 @@ impl Runner {
         // Its answers to the rulings it was asked about; one it gave none on
         // goes to the maintainer. They are part of what kelpie did, so they
         // are applied before the note below names the wake's actions.
-        let asked: Vec<TicketId> = (flying.wakes.iter())
-            .filter_map(|w| match w {
-                Wake::Answer { id, .. } => Some(*id),
-                _ => None,
-            })
-            .collect();
+        let mut asked: Vec<TicketId> = Vec::new();
+        let mut requested = Vec::new();
+        for wake in &flying.wakes {
+            match wake {
+                Wake::Answer {
+                    id, request: None, ..
+                } => asked.push(*id),
+                Wake::Answer {
+                    id,
+                    request: Some(request),
+                    ..
+                } => requested.push((*id, *request)),
+                _ => {}
+            }
+        }
         if !asked.is_empty() {
             let answers = answer
                 .votes
@@ -861,6 +882,9 @@ impl Runner {
                 })
                 .collect();
             acted.extend(self.pm_answered(&asked, answers));
+        }
+        if !requested.is_empty() {
+            acted.extend(self.pm_requested(&requested, &answer.votes));
         }
         // One line of what the wake was for, what kelpie did with it, and the
         // answer's own `why`, so a wake that wrote nothing of its own left its

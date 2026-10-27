@@ -160,7 +160,7 @@ impl Runner {
 
     // Adds the project manager's pick and why to ruling `id`, for the card
     // the maintainer is asked with.
-    fn pm_recommends(&mut self, id: TicketId, answer: &PmAnswer) {
+    pub(super) fn pm_recommends(&mut self, id: TicketId, answer: &PmAnswer) {
         let mut next = self.state.clone();
         let Some(ruling) = next.rulings.iter_mut().find(|r| r.id == id) else {
             return;
