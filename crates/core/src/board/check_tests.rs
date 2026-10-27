@@ -324,10 +324,22 @@ fn an_issues_kind_is_its_kind_label_else_its_titles_conventional_prefix() {
         check("A thing", &["bug", "enhancement", p4]),
         [Failure::NoKind]
     );
-    assert_eq!(
-        check("fix: a thing", &["kind:bug", p4]),
-        [Failure::UnknownKind("kind:bug".to_owned())]
-    );
+    for label in ["kind:bug", "kind:build", "kind:revert"] {
+        assert_eq!(
+            check("fix: a thing", &[label, p4]),
+            [Failure::UnknownKind(label.to_owned())]
+        );
+    }
+    for title in ["build: a thing", "revert: a thing"] {
+        assert_eq!(check(title, &[p4]), [Failure::NoKind], "{title}");
+    }
+    for kind in kinds() {
+        assert_eq!(
+            check("A thing", &[&format!("kind:{kind}"), p4]),
+            [],
+            "{kind}"
+        );
+    }
     assert_eq!(
         check("fix: a thing", &["kind:fix", "kind:docs", p4]),
         [Failure::Kinds(labels(&["kind:fix", "kind:docs"]))]

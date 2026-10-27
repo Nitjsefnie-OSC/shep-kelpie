@@ -16,7 +16,7 @@ An issue meant for kelpie is written the same way wherever it comes from. One is
 - **`Harness reach:`**: when `Touches:` names one harness's adapter (a `claude`, `pi`, `codex` or `goose` file or folder under `adapters/`), a line saying which harnesses the change reaches. A change to one adapter reaches pi in the same issue, or names the open pi issue that does. Codex may follow in its own issue.
 - **`Blocked by:`**: when another issue must merge first, or edits the same function, a line naming it as `#<n>`, with why in the body. Link it as a blocker on the tracker too. Add none without a real dependency or collision.
 - **Labels**: one priority label, `priority: P0` to `priority: P4`, by the repo's `docs/agents/triage-labels.md` where it has one.
-- **Kind**: one `kind:<type>` label, `<type>` a conventional commit type such as `feat`, `fix`, `docs` or `refactor`, unless the title starts with one, as `fix(board): ...`. Never two `kind:` labels. `bug` and `enhancement` are not kinds.
+- **Kind**: one `kind:<type>` label, `<type>` one of `feat`, `fix`, `docs`, `refactor`, `perf`, `test`, `ci`, `chore` or `style`, unless the title starts with one, as `fix(board): ...`. Never two `kind:` labels. `bug` and `enhancement` are not kinds.
 
 A piece of a split starts with `Slice <n> of #<parent>.`. A decision the docs leave open goes in the body as a stated assumption, "Assumed: X. Say otherwise.", never as a silent guess.
 

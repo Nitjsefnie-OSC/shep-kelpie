@@ -30,6 +30,17 @@ pub const BLOCKED_BY: &str = "Blocked by:";
 /// What a kind label starts with, as `kind:feat`
 pub const KIND: &str = "kind:";
 
+/// The conventional types no issue's kind is: #1379 keeps nine of the gh
+/// guard's eleven
+const NOT_KINDS: [&str; 2] = ["build", "revert"];
+
+/// The kinds an issue may have, #1379's nine conventional types
+pub fn kinds() -> impl Iterator<Item = &'static str> {
+    CONVENTIONAL_TYPES
+        .into_iter()
+        .filter(|t| !NOT_KINDS.contains(t))
+}
+
 /// The harnesses whose adapters are named for them, as in `adapters/pi/`
 pub const HARNESSES: [&str; 4] = ["claude", "pi", "codex", "goose"];
 
@@ -58,9 +69,9 @@ pub enum Failure {
     NoPriority,
     /// More than one priority label, these
     Priorities(Vec<String>),
-    /// No `kind:` label, and no conventional type starting the title
+    /// No `kind:` label, and no kind starting the title
     NoKind,
-    /// This `kind:` label names no conventional type
+    /// This `kind:` label names no kind
     UnknownKind(String),
     /// More than one `kind:` label, these
     Kinds(Vec<String>),
@@ -93,13 +104,10 @@ impl fmt::Display for Failure {
             Self::NoKind => write!(
                 f,
                 "no kind: no `{KIND}<type>` label, and the title does not start with a \
-                 conventional type such as `feat:` or `fix(board):`"
+                 kind such as `feat:` or `fix(board):`"
             ),
             Self::UnknownKind(label) => {
-                write!(
-                    f,
-                    "`{label}` names no conventional type, as `{KIND}feat` does"
-                )
+                write!(f, "`{label}` names no kind, as `{KIND}feat` does")
             }
             Self::Kinds(labels) => write!(f, "kind labels {}: keep one", ticked(labels, " and ")),
         }
@@ -154,23 +162,22 @@ pub fn check(title: &str, body: &str, labels: &[String]) -> Vec<Failure> {
         1 => {}
         _ => failures.push(Failure::Priorities(priorities)),
     }
-    let kinds: Vec<String> = (labels.iter())
+    let kind_labels: Vec<String> = (labels.iter())
         .filter(|l| kind_of(l).is_some())
         .cloned()
         .collect();
-    match kinds.as_slice() {
-        [] if conventional_type(title).is_none() => failures.push(Failure::NoKind),
+    match kind_labels.as_slice() {
+        [] if !conventional_type(title).is_some_and(|t| kinds().any(|k| k == t)) => {
+            failures.push(Failure::NoKind);
+        }
         [] => {}
         [label] => {
             let kind = kind_of(label).unwrap_or_default();
-            if !CONVENTIONAL_TYPES
-                .iter()
-                .any(|t| t.eq_ignore_ascii_case(kind))
-            {
+            if !kinds().any(|k| k.eq_ignore_ascii_case(kind)) {
                 failures.push(Failure::UnknownKind(label.clone()));
             }
         }
-        _ => failures.push(Failure::Kinds(kinds)),
+        _ => failures.push(Failure::Kinds(kind_labels)),
     }
     failures
 }

@@ -46,7 +46,7 @@ mod tests {
     use super::*;
     use crate::board::check::{
         BLOCKED_BY, CRITERIA, Failure, HARNESS_REACH, HARNESSES, KIND, TOUCHES, WHAT_TO_BUILD,
-        check,
+        check, kinds,
     };
 
     // The skill's example issue, and the labels it says the example is filed with
@@ -124,6 +124,9 @@ mod tests {
         let kind = format!("{KIND}<type>");
         for label in [kind.as_str(), "priority: P0", "priority: P4"] {
             assert!(format.contains(&format!("`{label}`")), "{label}");
+        }
+        for kind in kinds() {
+            assert!(format.contains(&format!("`{kind}`")), "{kind}");
         }
         for harness in HARNESSES {
             assert!(format.contains(&format!("`{harness}`")), "{harness}");

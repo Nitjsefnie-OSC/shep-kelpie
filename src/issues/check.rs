@@ -112,7 +112,7 @@ mod tests {
             "- no `## Acceptance criteria` section",
             "- no priority label, `priority: P0` to `priority: P4`",
             "- no kind: no `kind:<type>` label, and the title does not start with a \
-             conventional type such as `feat:` or `fix(board):`",
+             kind such as `feat:` or `fix(board):`",
         ];
         assert_eq!(said, Ok(Checked::Fails(labels(&lines))));
     }
