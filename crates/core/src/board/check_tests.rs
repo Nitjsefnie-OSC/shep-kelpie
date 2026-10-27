@@ -365,12 +365,3 @@ fn each_failure_names_the_part_it_is_about() {
         assert!(failure.to_string().contains(part), "{failure}");
     }
 }
-
-#[test]
-fn the_touches_line_is_what_follows_its_label() {
-    assert_eq!(
-        touches_line("x\n**Touches:** `a`, `b`\n"),
-        Some("** `a`, `b`")
-    );
-    assert_eq!(touches_line("no line"), None);
-}

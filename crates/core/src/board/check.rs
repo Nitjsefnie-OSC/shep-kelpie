@@ -205,12 +205,6 @@ fn is_list_item(line: &str) -> bool {
     line.starts_with("- ") || line.starts_with("* ")
 }
 
-/// What follows `Touches:` on the first line it starts, which may sit in a
-/// list or in bold
-pub fn touches_line(body: &str) -> Option<&str> {
-    labelled_line(body, TOUCHES)
-}
-
 // The type a `kind:` label names, in any case and with any spaces.
 fn kind_of(label: &str) -> Option<&str> {
     let (head, kind) = label.split_at_checked(KIND.len())?;
