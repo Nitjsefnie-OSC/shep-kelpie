@@ -22,6 +22,7 @@ mod code;
 mod conflicts;
 mod follow_up;
 mod hold;
+mod inert;
 mod lease;
 mod main_red;
 mod notes;
