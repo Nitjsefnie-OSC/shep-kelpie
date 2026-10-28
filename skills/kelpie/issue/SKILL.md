@@ -9,14 +9,14 @@ An issue meant for kelpie is written the same way wherever it comes from. One is
 
 ## The format
 
-- **Title**: a plain sentence saying what will be true, in the repo's words.
+- **Title**: what will be true, in the repo's words, after its kind as a conventional type, as `fix(board): a held issue says why`.
 - **`Touches:`**: a line naming the files the change edits, each path in backticks, new ones marked `(new)`. List every file a changed type, field or signature forces an edit in, found by searching for it. A piece whose `Touches:` passes 13 files is split.
 - **`## What to build`**: one line of why, then bullets naming the files, types, functions and shapes to add or change, and what stays unchanged where a builder might wander.
 - **`## Acceptance criteria`**: `- [ ]` items the pull request is checked against. Named tests by their full module path, each pinning one behaviour and its failure cases, then the repo's own check commands in its documented shape. Say which tests only CI can run, and require nothing the builder cannot get, such as a live model or a CI result.
 - **`Harness reach:`**: when `Touches:` names one harness's adapter (a `claude`, `pi`, `codex` or `goose` file or folder under `adapters/`), a line saying which harnesses the change reaches. A change to one adapter reaches pi in the same issue, or names the open pi issue that does. Codex may follow in its own issue.
 - **`Blocked by:`**: when another issue must merge first, or edits the same function, a line naming it as `#<n>`, with why in the body. Link it as a blocker on the tracker too. Add none without a real dependency or collision.
 - **Labels**: one priority label, `priority: P0` to `priority: P4`, by the repo's `docs/agents/triage-labels.md` where it has one.
-- **Kind**: one `kind:<type>` label, `<type>` one of `feat`, `fix`, `docs`, `refactor`, `perf`, `test`, `ci`, `chore` or `style`, unless the title starts with one, as `fix(board): ...`. Never two `kind:` labels. `bug` and `enhancement` are not kinds.
+- **Kind**: the title's type, one of `feat`, `fix`, `docs`, `refactor`, `perf`, `test`, `ci`, `chore` or `style`. A repo whose issue titles carry no type keeps the title a plain sentence and puts the kind in one `kind:<type>` label instead. Follow what the repo's own issues do, and never add two `kind:` labels. `bug` and `enhancement` are not kinds.
 
 A piece of a split starts with `Slice <n> of #<parent>.`. A decision the docs leave open goes in the body as a stated assumption, "Assumed: X. Say otherwise.", never as a silent guess.
 
@@ -41,7 +41,9 @@ A repo plugin's skills load on pi as they do on Claude Code, so a worker on eith
 - [ ] `cargo fmt --all --check` and `cargo clippy --all-targets --locked -- -D warnings` pass
 ```
 
-It is filed with the labels `kind:feat` and `priority: P4`.
+It is titled `feat(pi): a repo plugin's skills load on pi as they do on Claude Code` and filed with the label `priority: P4`.
+
+In a repo whose titles carry no type, it is titled `A repo plugin's skills load on pi as they do on Claude Code` and filed with the labels `kind:feat` and `priority: P4`.
 
 ## Check it
 
