@@ -94,6 +94,12 @@ pub const HARNESSES: [OwnFiles; 4] = [
 /// pi, as the fence names it
 pub const PI: &str = "pi";
 
+/// Every harness's credentials, Claude Code's included, which a call on a harness
+/// that keeps its login elsewhere may not read
+pub fn credentials() -> Vec<String> {
+    others_credentials("")
+}
+
 /// Every other harness's credentials, which a call on `harness` may not read
 pub fn others_credentials(harness: &str) -> Vec<String> {
     HARNESSES

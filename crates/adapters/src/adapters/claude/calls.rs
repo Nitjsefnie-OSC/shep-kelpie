@@ -7,7 +7,7 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use crate::adapters::{Base, ClaudeCli};
+use crate::adapters::{Base, ClaudeCli, LoginToken};
 use crate::ports::{
     AgentCall, AgentError, AgentReply, Agents, Ending, Flying, Role, Session, SessionId, Timestamp,
     Tools,
@@ -44,7 +44,7 @@ impl World {
             "#!/bin/sh\n{body}\ncat {}\n",
             self.path("result.json").display()
         );
-        crate::test::write_script(&self.path("claude"), &script);
+        crate::test::write_script(&self.path("claude-program"), &script);
         self
     }
 
@@ -54,7 +54,9 @@ impl World {
 
     fn cli(&self) -> ClaudeCli {
         let base = Base::default().sandboxed(Arc::new(OpenSandbox::default()), self.path("home"));
-        ClaudeCli::on(&base).with_program(self.path("claude"))
+        ClaudeCli::on(&base)
+            .with_program(self.path("claude-program"))
+            .with_login(LoginToken::new("sk-ant-oat01-for-the-test".to_owned()))
     }
 
     fn call(&self) -> AgentCall {
