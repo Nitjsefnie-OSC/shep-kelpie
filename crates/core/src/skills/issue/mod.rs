@@ -49,21 +49,29 @@ mod tests {
         check, kinds,
     };
 
-    // The skill's example issue, and the labels it says the example is filed with
-    fn example() -> (String, Vec<String>) {
+    // The skill's example issue, and the title and labels its line starting
+    // `opening` says it is filed with
+    fn example(opening: &str) -> (String, String, Vec<String>) {
         let (_, body) = TEXT.split_once("```markdown\n").expect("the example opens");
         let (body, rest) = body.split_once("\n```").expect("the example closes");
         let line = (rest.lines())
-            .find(|l| l.starts_with("It is filed with the labels"))
-            .expect("the example's labels");
-        let labels = line.split('`').skip(1).step_by(2).map(str::to_owned);
-        (body.to_owned(), labels.collect())
+            .find(|l| l.starts_with(opening))
+            .expect("the example's title and labels");
+        let mut ticked = line.split('`').skip(1).step_by(2).map(str::to_owned);
+        let title = ticked.next().expect("the example's title");
+        (title, body.to_owned(), ticked.collect())
     }
+
+    const TYPED: &str = "It is titled";
+    const PLAIN: &str = "In a repo whose titles carry no type";
 
     #[test]
     fn the_skills_example_passes_the_check_and_holds_every_part_it_checks() {
-        let (body, labels) = example();
-        assert_eq!(check("A thing is true", &body, &labels), []);
+        for opening in [TYPED, PLAIN] {
+            let (title, body, labels) = example(opening);
+            assert_eq!(check(&title, &body, &labels), [], "{opening}");
+        }
+        let (_, body, _) = example(TYPED);
         for part in [TOUCHES, HARNESS_REACH, BLOCKED_BY] {
             assert!(body.lines().any(|l| l.starts_with(part)), "{part}");
         }
@@ -74,7 +82,7 @@ mod tests {
 
     #[test]
     fn the_skills_example_fails_the_check_without_any_one_of_its_parts() {
-        let (body, labels) = example();
+        let (title, body, labels) = example(TYPED);
         let without = |part: &str| {
             let kept = body.lines().filter(|l| !l.starts_with(part));
             kept.collect::<Vec<_>>().join("\n")
@@ -93,23 +101,17 @@ mod tests {
         ];
         for (body, failure) in cut {
             assert_eq!(
-                check("A thing is true", &body, &labels),
+                check(&title, &body, &labels),
                 std::slice::from_ref(&failure),
                 "{failure}"
             );
         }
-        for (dropped, failure) in [(KIND, Failure::NoKind), ("priority:", Failure::NoPriority)] {
-            let kept: Vec<String> = labels
-                .iter()
-                .filter(|l| !l.starts_with(dropped))
-                .cloned()
-                .collect();
-            assert_eq!(
-                check("A thing is true", &body, &kept),
-                [failure],
-                "{dropped}"
-            );
-        }
+        assert_eq!(check(&title, &body, &[]), [Failure::NoPriority]);
+        let (plain, _, plain_labels) = example(PLAIN);
+        let kept: Vec<String> = (plain_labels.into_iter())
+            .filter(|l| !l.starts_with(KIND))
+            .collect();
+        assert_eq!(check(&plain, &body, &kept), [Failure::NoKind]);
     }
 
     #[test]
