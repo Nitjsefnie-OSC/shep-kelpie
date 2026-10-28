@@ -12,7 +12,7 @@ use crate::ports::{AgentError, Cost, PullRequestState, Role, Usage};
 use crate::runner::{BOARD_POLL, Pass, StepReport, advance, step};
 use crate::settings::{AgentName, Effort};
 use crate::state::{ProjectState, StateStore};
-use crate::test::{CALL_PATIENCE, Hold, Rig, Scripted, ticket};
+use crate::test::{CALL_PATIENCE, FakeForge, Hold, Rig, Scripted, ticket};
 
 mod choice;
 
@@ -146,8 +146,10 @@ fn an_item_stopped_by_a_no_stays_skipped_as_dropped_until_its_issue_is_edited() 
         json!([{ "reason": "dropped", "issue": "7" }])
     );
 
-    rig.forge
-        .set_ready_body(7, "Body of #7, narrowed to one file.\n");
+    rig.forge.set_ready_body(
+        7,
+        &format!("{}\nNarrowed to one file.\n", FakeForge::passing_body(7)),
+    );
     rig.next_look();
     assert!(matches!(
        step(&runner).unwrap(),
@@ -183,8 +185,10 @@ fn an_edit_after_a_restart_still_picks_a_stopped_item_again() {
 
     let runner = rig.open().unwrap();
     assert_eq!(step(&runner).unwrap(), None);
-    rig.forge
-        .set_ready_body(7, "Body of #7, narrowed to one file.\n");
+    rig.forge.set_ready_body(
+        7,
+        &format!("{}\nNarrowed to one file.\n", FakeForge::passing_body(7)),
+    );
     rig.next_look();
     assert!(matches!(
        step(&runner).unwrap(),

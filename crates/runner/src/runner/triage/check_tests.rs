@@ -455,7 +455,7 @@ fn a_ready_issue_the_check_refuses_is_held_off_the_board_until_an_edit_passes() 
     assert!(
         failures
             .iter()
-            .any(|f| f.as_str().unwrap().contains("priority")),
+            .any(|f| f.as_str().unwrap().contains("Acceptance criteria")),
         "{skipped}"
     );
 
@@ -464,4 +464,18 @@ fn a_ready_issue_the_check_refuses_is_held_off_the_board_until_an_edit_passes() 
     rig.next_look();
     let (started, _) = dispatched(step(&runner).unwrap());
     assert_eq!(started.github(), Some(30));
+}
+
+#[test]
+fn a_ready_issue_the_check_has_not_read_is_checked_where_the_board_picks() {
+    let rig = rig_with("pick = \"off\"");
+    rig.forge.list_ready(30, false);
+    rig.forge.set_ready_body(30, FAILING);
+    let runner = rig.open().unwrap();
+
+    assert_eq!(step(&runner).unwrap(), None, "nothing starts");
+
+    let skipped = rig.ask(&runner, "status", None)["skipped"].clone();
+    assert_eq!(skipped[0]["reason"], "check", "{skipped}");
+    assert_eq!(checks(&rig), Value::Null, "no result was kept for it");
 }

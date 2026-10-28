@@ -175,9 +175,9 @@ impl Runner {
         (self.state.checks.iter()).any(|c| c.issue == issue && c.triage == CheckTriage::Edited)
     }
 
-    // The ready issues the check refused, as the board's skips. A result counts
-    // for the text the issue holds now. It also counts while its triage waits
-    // to be checked.
+    // The ready issues the check refuses, as the board's skips. A result kept
+    // for the text an issue holds now is read, and so is one whose triage waits
+    // to be checked. Any other issue is checked here.
     pub(in crate::runner) fn check_holds(&self, ready: &[ReadyIssue]) -> Vec<Skip> {
         (ready.iter())
             .filter_map(|issue| {
@@ -188,12 +188,19 @@ impl Runner {
                 if ended {
                     return None;
                 }
-                let kept = self.state.checks.iter().find(|c| c.issue == number)?;
                 let key = check::key(&issue.title, &issue.body, &issue.labels);
-                let current = kept.key == key || kept.triage == CheckTriage::Ran;
-                (!kept.passed() && current).then(|| Skip::Check {
+                let kept = (self.state.checks.iter()).find(|c| c.issue == number);
+                let failures = match kept {
+                    Some(kept) if kept.key == key || kept.triage == CheckTriage::Ran => {
+                        kept.failures.clone()
+                    }
+                    _ => (check::check(&issue.title, &issue.body, &issue.labels).iter())
+                        .map(ToString::to_string)
+                        .collect(),
+                };
+                (!failures.is_empty()).then_some(Skip::Check {
                     issue: issue.ticket,
-                    failures: kept.failures.clone(),
+                    failures,
                 })
             })
             .collect()
