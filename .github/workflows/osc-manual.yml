@@ -3,12 +3,13 @@
 # Jobs kept (verbatim, except the two sanctioned adaptations:
 # checkout pinned to ${{ inputs.target_ref }}, and the inserted
 # Provenance step):
-#   - lint
-#   - docs
-#   - test
-#   - real-shepherd
-#   - sandbox
-#   - msrv
+#   - changes
+#   - lint [keeps its own if: (${{ !cancelled() && needs.changes.outputs.rust != 'false' }}) - evaluated as written on workflow_dispatch too]
+#   - docs [keeps its own if: (${{ !cancelled() }}) - evaluated as written on workflow_dispatch too]
+#   - test [keeps its own if: (${{ !cancelled() && needs.changes.outputs.rust != 'false' }}) - evaluated as written on workflow_dispatch too]
+#   - real-shepherd [keeps its own if: (${{ !cancelled() && needs.changes.outputs.rust != 'false' }}) - evaluated as written on workflow_dispatch too]
+#   - sandbox [keeps its own if: (${{ !cancelled() && needs.changes.outputs.rust != 'false' }}) - evaluated as written on workflow_dispatch too]
+#   - msrv [keeps its own if: (${{ !cancelled() && needs.changes.outputs.rust != 'false' }}) - evaluated as written on workflow_dispatch too]
 #   - conventional
 #   - doc-length
 # DELIBERATELY EXCLUDED (loud):
@@ -34,11 +35,41 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      rust: ${{ steps.rust.outputs.rust }}
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      with:
+        ref: ${{ inputs.target_ref }}
+        fetch-depth: 2
+    - name: Provenance
+      shell: bash
+      run: |
+        set -euo pipefail
+        echo "tested_target_ref=${{ inputs.target_ref }}"
+        checked_out_sha="$(git rev-parse HEAD)"
+        if [[ ! "$checked_out_sha" =~ ^[0-9a-f]{40}$ ]]; then
+          echo "::error::git rev-parse HEAD did not produce a 40-character commit SHA: $checked_out_sha"
+          exit 1
+        fi
+        printf 'checked-out SHA: %s\n' "$checked_out_sha"
+    - id: rust
+      run: |
+        if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+          git diff --name-only HEAD^1 HEAD | scripts/ci-changes.sh >> "$GITHUB_OUTPUT"
+        else
+          echo rust=true >> "$GITHUB_OUTPUT"
+        fi
   lint:
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.rust != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-    - uses: actions/checkout@v7
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       with:
         ref: ${{ inputs.target_ref }}
     - name: Provenance
@@ -53,11 +84,16 @@ jobs:
         fi
         printf 'checked-out SHA: %s\n' "$checked_out_sha"
     - run: rustup toolchain install stable --profile minimal --component clippy,rustfmt
+    - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
+      with:
+        save-if: ${{ github.ref == 'refs/heads/main' }}
     - run: cargo fmt --all --check
     - run: cargo clippy --all-targets --locked -- -D warnings
     - run: scripts/no-tmp-tempdir.sh
     - run: scripts/ticket-port.sh
   docs:
+    needs: changes
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -65,7 +101,7 @@ jobs:
       issues: read
       pull-requests: read
     steps:
-    - uses: actions/checkout@v7
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       with:
         ref: ${{ inputs.target_ref }}
     - name: Provenance
@@ -79,7 +115,6 @@ jobs:
           exit 1
         fi
         printf 'checked-out SHA: %s\n' "$checked_out_sha"
-    - run: rustup toolchain install stable --profile minimal
     - run: scripts/design-size.sh
     - run: scripts/readme-size.sh
     - run: scripts/docs-links.py
@@ -87,14 +122,30 @@ jobs:
       env:
         GH_TOKEN: ${{ github.token }}
         PR: ${{ github.event.pull_request.number }}
-    - run: cargo doc --no-deps --locked
+    - if: needs.changes.outputs.rust != 'false'
+      run: rustup toolchain install stable --profile minimal
+    - if: needs.changes.outputs.rust != 'false'
+      uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
+      with:
+        save-if: ${{ github.ref == 'refs/heads/main' }}
+    - if: needs.changes.outputs.rust != 'false'
+      run: cargo doc --no-deps --locked
     env:
       RUSTDOCFLAGS: -D warnings
   test:
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.rust != 'false' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        part:
+        - 1
+        - 2
+        - 3
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-    - uses: actions/checkout@v7
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       with:
         ref: ${{ inputs.target_ref }}
     - name: Provenance
@@ -109,15 +160,21 @@ jobs:
         fi
         printf 'checked-out SHA: %s\n' "$checked_out_sha"
     - run: rustup toolchain install stable --profile minimal
-    - run: cargo test --locked
+    - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
+      with:
+        key: part-${{ matrix.part }}
+        save-if: ${{ github.ref == 'refs/heads/main' }}
+    - run: scripts/test-part.sh ${{ matrix.part }}
   real-shepherd:
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.rust != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
       SHEP_VERSION: 0.16.1
       KELPIE_TEST_SHEP: ${{ github.workspace }}/.shep/shep
     steps:
-    - uses: actions/checkout@v7
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       with:
         ref: ${{ inputs.target_ref }}
     - name: Provenance
@@ -132,6 +189,9 @@ jobs:
         fi
         printf 'checked-out SHA: %s\n' "$checked_out_sha"
     - run: rustup toolchain install stable --profile minimal
+    - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
+      with:
+        save-if: ${{ github.ref == 'refs/heads/main' }}
     - name: Install the pinned shep
       run: |
         asset=shep-x86_64-unknown-linux-gnu
@@ -147,10 +207,12 @@ jobs:
         cargo test --locked -p shep-kelpie --test dog_smoke -- --ignored | tee dog_smoke.log
         grep -Eq 'test result: ok\. [1-9][0-9]* passed' dog_smoke.log
   sandbox:
-    runs-on: ubuntu-latest
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.rust != 'false' }}
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
-    - uses: actions/checkout@v7
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       with:
         ref: ${{ inputs.target_ref }}
     - name: Provenance
@@ -165,6 +227,9 @@ jobs:
         fi
         printf 'checked-out SHA: %s\n' "$checked_out_sha"
     - run: rustup toolchain install stable --profile minimal
+    - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
+      with:
+        save-if: ${{ github.ref == 'refs/heads/main' }}
     - name: Install what the sandbox needs on Linux
       run: sudo apt-get update && sudo apt-get install -y bubblewrap ripgrep
     - name: Allow unprivileged user namespaces
@@ -181,6 +246,7 @@ jobs:
           | tee sandbox.log
         for name in \
           the_worktree_the_build_folder_and_the_transcripts_are_written_and_nothing_outside \
+          a_worker_reads_its_own_folders_and_no_other_repo_of_the_home \
           claude_codes_own_files_are_refused_in_any_case_and_spelling \
           a_nested_claude_folder_that_existed_at_call_start_is_refused \
           codexs_own_files_are_refused_in_any_case \
@@ -191,10 +257,12 @@ jobs:
             || { echo "::error::$name did not run and pass"; exit 1; }
         done
   msrv:
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.rust != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-    - uses: actions/checkout@v7
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       with:
         ref: ${{ inputs.target_ref }}
     - name: Provenance
@@ -209,13 +277,16 @@ jobs:
         fi
         printf 'checked-out SHA: %s\n' "$checked_out_sha"
     - run: rustup toolchain install 1.88 --profile minimal
+    - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
+      with:
+        save-if: ${{ github.ref == 'refs/heads/main' }}
     - run: cargo +1.88 check --all-targets --locked
   conventional:
     name: conventional subjects
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-    - uses: actions/checkout@v7
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       with:
         ref: ${{ inputs.target_ref }}
         fetch-depth: 0
@@ -262,7 +333,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-    - uses: actions/checkout@v7
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       with:
         ref: ${{ inputs.target_ref }}
     - name: Provenance
