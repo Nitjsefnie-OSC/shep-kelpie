@@ -735,7 +735,11 @@ fn yaml_error(yaml: &str, error: &serde_saphyr::Error) -> String {
             let line = lines.get(at)?;
             let line = if line.trim_start().starts_with("- ") {
                 let own = indent(line);
-                lines[..at].iter().rev().find(|l| indent(l) < own)?
+                let key = |l: &&&str| {
+                    let t = l.trim_start();
+                    !t.is_empty() && !t.starts_with(['#', '-']) && indent(l) <= own
+                };
+                lines[..at].iter().rev().find(key)?
             } else {
                 line
             };

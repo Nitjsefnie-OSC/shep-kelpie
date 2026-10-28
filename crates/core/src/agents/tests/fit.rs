@@ -95,6 +95,8 @@ fn bad_kinds_are_refused_naming_the_key() {
         "[]",
         "[Docs]",
         "\n  - Docs",
+        "\n- Docs",
+        "\n# the kinds\n- Docs",
         "[docs, docs]",
         "[\"two words\"]",
         "[\"\"]",
