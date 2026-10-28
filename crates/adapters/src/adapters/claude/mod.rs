@@ -33,18 +33,18 @@ pub(crate) mod settings;
 /// What `claude -p --resume` prints when the session has no transcript
 const NO_SESSION: &str = "No conversation found with session ID";
 
-/// How to give `claude` the login it needs where the keychain is blocked, as doctor and a refused call say it
+/// How to give `claude` the login every call needs, as doctor and a refused call say it
 pub const LOGIN_FIX: &str = "run `claude setup-token`, then `shep secret set CLAUDE_CODE_OAUTH_TOKEN` and set \
      `CLAUDE_CODE_OAUTH_TOKEN = \"{{secret:CLAUDE_CODE_OAUTH_TOKEN}}\"` in the runner's `env`";
 
-/// The variable Claude Code reads a login from, in place of the keychain's
+/// The variable Claude Code reads a login from, in place of the one it keeps per config folder
 pub const LOGIN_VAR: &str = "CLAUDE_CODE_OAUTH_TOKEN";
 
 /// The login `claude setup-token` makes: one token, not the keychain's full login
 ///
-/// Where a call's sandbox blocks the keychain, `claude` cannot read its own
-/// login there. The maintainer keeps this one with `shep secret`, and a runner
-/// hands it to `claude` alone.
+/// Each call keeps its own config folder, which holds no login, and a blocked
+/// keychain would hide the maintainer's. The maintainer keeps this one with
+/// `shep secret`, and a runner hands it to `claude` alone.
 #[derive(Clone, PartialEq, Eq)]
 pub struct LoginToken(String);
 
@@ -79,8 +79,6 @@ pub struct Claude {
     program: OsString,
     // The login `claude` runs with, in place of the maintainer's in the keychain
     login: Option<LoginToken>,
-    // Whether this is macOS, where a blocked keychain takes `claude`'s own login with it
-    macos: bool,
     // Where Claude Code keeps its folders
     home: std::path::PathBuf,
     // What a call with no fence may not read, besides its own folder
@@ -104,7 +102,6 @@ impl ClaudeCli {
         let claude = Claude {
             program: "claude".into(),
             login: None,
-            macos: cfg!(target_os = "macos"),
             home: base.home.clone(),
             unfenced_no_read: base.unfenced_no_read.clone(),
         };
@@ -124,13 +121,6 @@ impl ClaudeCli {
     #[must_use]
     pub fn with_login(mut self, login: Option<LoginToken>) -> Self {
         self.cli.login = login;
-        self
-    }
-
-    /// The same, as on macOS or not, which a test runs on either
-    #[cfg(test)]
-    pub(crate) fn on_macos(mut self, macos: bool) -> Self {
-        self.cli.macos = macos;
         self
     }
 
@@ -164,13 +154,38 @@ impl Cli for Claude {
         .map(drop)
     }
 
-    // `claude` would start and fail with its own "not logged in", which a ruling
+    // A session from before the config folder moved is resumed from a copy of its
+    // transcript, which the maintainer's `~/.claude` keeps as it was.
+    fn begin(&self, call: &AgentCall, _: Turn) -> Result<(), AgentError> {
+        let Session::Resume(id) = &call.session else {
+            return Ok(());
+        };
+        let new = sandbox::transcripts(&sandbox::config_folder(call), &call.cwd)?;
+        let old = sandbox::transcripts(&self.home.join(".claude"), &call.cwd)?;
+        let file = format!("{}.jsonl", id.0);
+        if new.join(&file).exists() || !old.join(&file).is_file() {
+            return Ok(());
+        }
+        let copied = std::fs::create_dir_all(&new)
+            .and_then(|()| std::fs::copy(old.join(&file), new.join(&file)).map(drop));
+        copied.map_err(|e| {
+            AgentError::Setup(format!(
+                "cannot copy {} to {}: {}",
+                old.join(&file).display(),
+                new.display(),
+                e.kind()
+            ))
+        })
+    }
+
+    // `claude` keeps its login per config folder, so none a call could use is there
+    // and it would start and fail with its own "not logged in", which a ruling
     // would carry, in place of the fix.
-    fn ready(&self, call: &AgentCall) -> Result<(), AgentError> {
-        if call.reach.block_keychain && self.macos && self.login.is_none() {
+    fn ready(&self, _: &AgentCall) -> Result<(), AgentError> {
+        if self.login.is_none() {
             return Err(AgentError::Setup(format!(
-                "the keychain is blocked in this repo's calls and {LOGIN_VAR} is not set in the \
-                 runner's environment, so claude has no login: {LOGIN_FIX}"
+                "{LOGIN_VAR} is not set in the runner's environment, so claude has no login: \
+                 each call keeps its own config folder, where the keychain's is not: {LOGIN_FIX}"
             )));
         }
         Ok(())
@@ -185,7 +200,10 @@ impl Cli for Claude {
     }
 
     fn folders(&self, call: &AgentCall) -> Result<Vec<std::path::PathBuf>, AgentError> {
-        Ok(vec![sandbox::transcripts(&self.home, &call.cwd)?])
+        Ok(vec![sandbox::transcripts(
+            &sandbox::config_folder(call),
+            &call.cwd,
+        )?])
     }
 
     fn command(
@@ -235,7 +253,7 @@ impl Cli for Claude {
     }
 
     fn transcript(&self, call: &AgentCall) -> Option<Transcript> {
-        let folder = sandbox::transcripts(&self.home, &call.cwd).ok()?;
+        let folder = sandbox::transcripts(&sandbox::config_folder(call), &call.cwd).ok()?;
         Some(Transcript {
             folder,
             threads: None,
@@ -245,7 +263,7 @@ impl Cli for Claude {
     // Claude Code appends to the session's transcript at each message and
     // tool call, so a write is the session doing something.
     fn last_active(&self, call: &AgentCall) -> CallActivity {
-        let Ok(folder) = sandbox::transcripts(&self.home, &call.cwd) else {
+        let Ok(folder) = sandbox::transcripts(&sandbox::config_folder(call), &call.cwd) else {
             return CallActivity::Untracked;
         };
         written_at(&folder.join(format!("{}.jsonl", call.session.id().0)))

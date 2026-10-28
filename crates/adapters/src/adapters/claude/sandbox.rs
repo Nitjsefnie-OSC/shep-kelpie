@@ -13,7 +13,7 @@ use super::{Claude, LOGIN_VAR};
 use crate::adapters::harness::{bind_in_scratch, call_policy, program_folder, prompt_file};
 use crate::dep_sources::ProcessEnv;
 use crate::fence;
-use crate::ports::{AgentCall, AgentError, Policy};
+use crate::ports::{AgentCall, AgentError, Policy, Role};
 
 impl Claude {
     // `claude` with `argv`, in the call's folder and with its own temporary files.
@@ -35,6 +35,7 @@ impl Claude {
             .args(argv)
             .current_dir(&call.cwd)
             .env("CLAUDE_CODE_TMPDIR", &scratch)
+            .env("CLAUDE_CONFIG_DIR", config_folder(call))
             .env("CLAUDE_CODE_DISABLE_AUTO_MEMORY", "1");
         if let Some(login) = &self.login {
             command.env(LOGIN_VAR, login.expose());
@@ -42,9 +43,6 @@ impl Claude {
         command
     }
 }
-
-/// This harness, as the fence names it
-const HARNESS: &str = "Claude Code";
 
 /// The model's endpoint, the one host every call reaches
 ///
@@ -72,25 +70,21 @@ pub(crate) fn policy(
     unfenced: &[String],
 ) -> Result<Policy, AgentError> {
     let mut policy = call_policy(call, unfenced);
-    policy.no_read.extend(fence::others_credentials(HARNESS));
+    policy.no_read.extend(fence::credentials());
     policy.no_keychain = call.reach.block_keychain;
-    let transcripts = transcripts(home, &call.cwd)?;
+    let config = config_folder(call);
+    let transcripts = transcripts(&config, &call.cwd)?;
     // Auto memory there loads into every session in the folder, a review's too.
     policy.no_write.push(transcripts.join("memory"));
-    policy.write.extend([transcripts.clone(), scratch(call)]);
+    policy.write.extend([config.clone(), scratch(call)]);
     // A fence denies the home folder whole, so what Claude Code reads to run is
-    // named beside the call's own files: its login and state, the settings,
-    // skills and shell snapshots under its home, and the program it is. Other
-    // projects' transcripts stay denied: they hold what those sessions read.
-    let own = [
-        transcripts.clone(),
-        home.join(".claude.json"),
-        home.join(".claude"),
-    ]
-    .into_iter()
-    .chain(program_folder(program, &ProcessEnv, home))
-    .chain([call.settings.clone(), scratch(call)]);
-    policy.no_read.push("~/.claude/projects/**".to_owned());
+    // named beside the call's own files: its config folder, with its login state,
+    // transcripts and shell snapshots, the settings and skills it is given, and the
+    // program it is. The maintainer's `~/.claude` is none of them.
+    let own = [config]
+        .into_iter()
+        .chain(program_folder(program, &ProcessEnv, home))
+        .chain([call.settings.clone(), scratch(call)]);
     policy.read.extend(
         own.chain(
             call.instructions
@@ -120,7 +114,7 @@ pub(crate) fn policy(
 /// # Errors
 ///
 /// [`AgentError::Setup`] when the working folder's name is past Claude Code's limit.
-pub(crate) fn transcripts(home: &Path, cwd: &Path) -> Result<PathBuf, AgentError> {
+pub(crate) fn transcripts(config: &Path, cwd: &Path) -> Result<PathBuf, AgentError> {
     let cwd = cwd.canonicalize().unwrap_or_else(|_| cwd.to_owned());
     // One `-` per UTF-16 unit, as Claude Code's JavaScript replaces them.
     let name: String = cwd
@@ -137,7 +131,24 @@ pub(crate) fn transcripts(home: &Path, cwd: &Path) -> Result<PathBuf, AgentError
             cwd.display()
         )));
     }
-    Ok(home.join(".claude").join("projects").join(name))
+    Ok(config.join("projects").join(name))
+}
+
+/// Claude Code's config folder for the call, which holds its state and its transcripts
+///
+/// Under the project's kelpie home, beside the folder of the call's settings: one
+/// for each work item and role, so two calls running at once never write one
+/// `.claude.json`, and one for each role of a call that is no work item's. It
+/// outlives the work item's build folder, which the transcripts must.
+pub(crate) fn config_folder(call: &AgentCall) -> PathBuf {
+    let Some(project) = call.settings.parent().and_then(Path::parent) else {
+        return call.settings.with_extension("claude");
+    };
+    let folder = project.join("claude");
+    match call.issue.filter(|_| call.role != Role::Pm) {
+        Some(ticket) => folder.join(ticket.to_string()).join(call.role.as_str()),
+        None => folder.join(call.role.as_str()),
+    }
 }
 
 /// The call's scratch folder, beside its settings file, for Claude Code's temporary files
@@ -184,7 +195,7 @@ mod tests {
                 w.path("ran").display(),
                 w.path("result.json").display()
             );
-            crate::test::write_script(&w.path("claude"), &script);
+            crate::test::write_script(&w.path("claude-program"), &script);
             w
         }
 
@@ -250,7 +261,10 @@ mod tests {
             let base = Base::default()
                 .unfenced_unread(&self.path("home"), &self.path("shep"))
                 .sandboxed(sandbox, self.path("home"));
-            ClaudeCli::on(&base).with_program(self.path("claude"))
+            let token = LoginToken::new("sk-ant-oat01-for-the-test".to_owned());
+            ClaudeCli::on(&base)
+                .with_program(self.path("claude-program"))
+                .with_login(token)
         }
     }
 
@@ -341,14 +355,16 @@ mod tests {
     #[test]
     fn a_worker_writes_its_fence_its_transcripts_and_its_scratch_and_reaches_the_model() {
         let w = World::new();
-        let policy = policy(&w.worker(), &w.path("home"), &w.path("claude"), &[]).unwrap();
-        let transcripts = transcripts(&w.path("home"), &w.path("wt")).unwrap();
+        let policy = policy(&w.worker(), &w.path("home"), &w.path("claude-program"), &[]).unwrap();
+        let config = config_folder(&w.worker());
+        let transcripts = transcripts(&config, &w.path("wt")).unwrap();
         let scratch = w.path("worker/settings.tmp");
         assert_eq!(policy.write[..2], [w.path("wt"), w.path("build")]);
         assert_eq!(
             policy.write[policy.write.len() - 2..],
-            [transcripts.clone(), scratch.clone()]
+            [config.clone(), scratch.clone()]
         );
+        assert!(transcripts.starts_with(&config));
         assert!(policy.no_write.contains(&transcripts.join("memory")));
         assert!(policy.no_write.contains(&w.path("wt/.claude")));
         assert!(policy.no_write.contains(&w.path("wt/**/.codex")));
@@ -356,24 +372,39 @@ mod tests {
         assert_eq!(policy.hosts.last().unwrap(), MODEL_HOST);
         assert!(policy.read.contains(&w.path("worker/settings.json")));
         assert!(policy.no_read.iter().any(|p| p == "~/.ssh/**"));
-        // Another harness's login, and none of Claude Code's own but the
-        // transcripts of the other projects it shares the folder with.
         assert!(policy.no_read.iter().any(|p| p == "~/.codex/**"));
-        assert!(
-            !policy
-                .no_read
-                .iter()
-                .any(|p| { p.starts_with("~/.claude") && *p != "~/.claude/projects/**" })
-        );
-        assert!(policy.no_read.iter().any(|p| p == "~/.claude/projects/**"));
         assert!(policy.verify_tls);
+    }
+
+    // Claude Code keeps its state in the call's own config folder, and the login comes
+    // in its token, so nothing of the maintainer's `~/.claude` is read, or written.
+    #[test]
+    fn the_fence_reads_nothing_of_the_homes_claude_folder() {
+        let w = World::new();
+        let home = w.path("home");
+        let claude = [home.join(".claude"), home.join(".claude.json")];
+        for call in [w.worker(), w.call(Role::Reviewer)] {
+            let policy = policy(&call, &home, &w.path("claude-program"), &[]).unwrap();
+            let all = policy.read.iter().chain(&policy.write);
+            for path in all {
+                assert!(!claude.iter().any(|own| path.starts_with(own)), "{path:?}");
+            }
+            let no_read = &policy.no_read;
+            assert!(no_read.iter().all(|p| p != "~/.claude/projects/**"));
+            for login in ["~/.claude/.credentials.json", "~/.claude.json"] {
+                assert!(no_read.iter().any(|p| p == login), "{login}: {no_read:?}");
+            }
+            let config = config_folder(&call);
+            assert!(policy.read.contains(&config) && policy.write.contains(&config));
+        }
     }
 
     #[test]
     fn a_workers_scratch_folder_is_where_it_may_bind_sockets_and_a_reviewers_is_not() {
         let w = World::new();
-        let policy =
-            |call: &AgentCall| policy(call, &w.path("home"), &w.path("claude"), &[]).unwrap();
+        let policy = |call: &AgentCall| {
+            policy(call, &w.path("home"), &w.path("claude-program"), &[]).unwrap()
+        };
         assert_eq!(
             policy(&w.worker()).socket_folders,
             [w.path("worker/settings.tmp")]
@@ -392,7 +423,7 @@ mod tests {
         let mut call = w.worker();
         let folder = w.path("home/x");
         call.reach.fence.as_mut().unwrap().guard.hooks = crate::test::hook_beside_another(&folder);
-        let policy = policy(&call, &w.path("home"), &w.path("claude"), &[]).unwrap();
+        let policy = policy(&call, &w.path("home"), &w.path("claude-program"), &[]).unwrap();
         crate::test::assert_reads_the_hook_and_its_folder(&policy, &folder);
     }
 
@@ -405,7 +436,7 @@ mod tests {
             plugin_dirs: vec![w.path("skills/mattpocock")],
             ..w.worker()
         };
-        let policy = policy(&call, &w.path("home"), &w.path("claude"), &[]).unwrap();
+        let policy = policy(&call, &w.path("home"), &w.path("claude-program"), &[]).unwrap();
         assert!(policy.read.contains(&w.path("skills/mattpocock")));
     }
 
@@ -416,10 +447,10 @@ mod tests {
     fn a_worker_with_a_compact_window_reads_back_the_prompt_its_hook_prints() {
         let w = World::new();
         let mut call = w.worker();
-        let without = policy(&call, &w.path("home"), &w.path("claude"), &[]).unwrap();
+        let without = policy(&call, &w.path("home"), &w.path("claude-program"), &[]).unwrap();
         assert!(!without.read.contains(&w.path("worker/settings.prompt.md")));
         call.compact_window = std::num::NonZeroU32::new(200_000);
-        let with = policy(&call, &w.path("home"), &w.path("claude"), &[]).unwrap();
+        let with = policy(&call, &w.path("home"), &w.path("claude-program"), &[]).unwrap();
         assert!(with.read.contains(&w.path("worker/settings.prompt.md")));
     }
 
@@ -429,13 +460,13 @@ mod tests {
         for mut call in [w.worker(), w.call(Role::Reviewer)] {
             let home = w.path("home");
             assert!(
-                !policy(&call, &home, &w.path("claude"), &[])
+                !policy(&call, &home, &w.path("claude-program"), &[])
                     .unwrap()
                     .no_keychain
             );
             call.reach.block_keychain = true;
             assert!(
-                policy(&call, &home, &w.path("claude"), &[])
+                policy(&call, &home, &w.path("claude-program"), &[])
                     .unwrap()
                     .no_keychain
             );
@@ -448,24 +479,22 @@ mod tests {
         let mut review = w.call(Role::Reviewer);
         review.settings = w.path("worker/review-settings.json");
         review.reach.read = vec![w.path("extra")];
-        let policy = policy(&review, &w.path("home"), &w.path("claude"), &[]).unwrap();
+        let policy = policy(&review, &w.path("home"), &w.path("claude-program"), &[]).unwrap();
         assert_eq!(
             policy.write,
-            [
-                transcripts(&w.path("home"), &w.path("wt")).unwrap(),
-                w.path("worker/review-settings.tmp"),
-            ]
+            [config_folder(&review), w.path("worker/review-settings.tmp"),]
         );
         assert_eq!(policy.hosts, [MODEL_HOST]);
         let mut denied: Vec<String> = CREDENTIALS.map(str::to_owned).into();
         denied.extend([
+            "~/.claude/.credentials.json".into(),
+            "~/.claude.json".into(),
             "~/.codex/**".into(),
             "~/.pi/**".into(),
             "~/.config/goose/**".into(),
             "~/.local/share/goose/**".into(),
             "~/.local/state/goose/**".into(),
             "~/Library/Application Support/Block/goose/**".into(),
-            "~/.claude/projects/**".into(),
         ]);
         assert_eq!(policy.no_read, denied);
         assert!(policy.read.contains(&w.path("extra")));
@@ -480,7 +509,7 @@ mod tests {
         let mut review = w.call(Role::Reviewer);
         review.plugin_dirs = vec![w.path("skills/mattpocock")];
         let shep = vec![format!("{}/**", w.path("").display())];
-        let policy = policy(&review, &w.path("home"), &w.path("claude"), &shep).unwrap();
+        let policy = policy(&review, &w.path("home"), &w.path("claude-program"), &shep).unwrap();
         assert!(policy.no_read.contains(&shep[0]), "{:?}", policy.no_read);
         assert!(policy.read.contains(&w.path("wt")));
         assert!(policy.read.contains(&w.path("skills/mattpocock")));
@@ -494,7 +523,8 @@ mod tests {
                 "{own} is denied: {deny}"
             );
         }
-        let without = super::policy(&review, &w.path("home"), &w.path("claude"), &[]).unwrap();
+        let without =
+            super::policy(&review, &w.path("home"), &w.path("claude-program"), &[]).unwrap();
         assert!(
             !without.read.contains(&w.path("wt")),
             "nothing to read around"
@@ -530,7 +560,7 @@ mod tests {
         let triager = w.call(Role::Triager);
         for call in [w.worker(), w.call(Role::Reviewer), triager] {
             let command = cli.sandboxed_command(&call).unwrap();
-            let policy = policy(&call, &w.path("home"), &w.path("claude"), &[]).unwrap();
+            let policy = policy(&call, &w.path("home"), &w.path("claude-program"), &[]).unwrap();
             let role = call.role;
             let env = |name: &str| command.get_envs().find(|(n, _)| *n == name);
             assert!(env("TMPDIR").is_none(), "{role:?}: srt would see TMPDIR");
@@ -553,23 +583,22 @@ mod tests {
             let prefix = words.next().unwrap().to_str().unwrap();
             let prefix = PathBuf::from(prefix.strip_prefix("TMPPREFIX=").expect(prefix));
             assert_eq!(prefix, folder.join("zsh"), "{role:?}");
-            assert_eq!(words.next().unwrap(), w.path("claude").as_os_str());
+            assert_eq!(words.next().unwrap(), w.path("claude-program").as_os_str());
         }
     }
 
     type Cmd = fn(&ClaudeCli, &AgentCall) -> Result<Command, AgentError>;
 
-    // With the keychain blocked, a call's login is the token the maintainer
-    // made with `claude setup-token`. It is a variable of the command inside
-    // the sandbox and never an argument, which `ps` shows.
+    // A call's login is the token the maintainer made with `claude setup-token`.
+    // It is a variable of the command inside the sandbox and never an argument,
+    // which `ps` shows.
     #[test]
-    fn every_role_s_claude_gets_the_login_token_and_none_without_one() {
+    fn every_role_s_claude_gets_the_login_token() {
         let w = World::new();
         let token = "sk-ant-oat01-for-the-test";
         let with = w
             .cli(Arc::new(OpenSandbox::default()))
             .with_login(LoginToken::new(token.to_owned()));
-        let without = w.cli(Arc::new(OpenSandbox::default()));
         assert!(
             !format!("{with:?}").contains(token),
             "Debug shows the token"
@@ -590,7 +619,6 @@ mod tests {
                 Some(Some(token.to_owned())),
                 "{role:?}"
             );
-            assert_eq!(login(&without, session), None, "{role:?}");
             let terminal = ClaudeCli::terminal_command;
             assert_eq!(
                 login(&with, terminal),
@@ -600,26 +628,22 @@ mod tests {
         }
     }
 
-    // With the keychain blocked and no token, `claude` would start and fail
-    // with its own "not logged in", which a ruling would carry. The call says
-    // what doctor says instead, and runs nothing.
+    // `claude` keeps its login per config folder, and each call has one of its own,
+    // so with no token it would start and fail with its own "not logged in", which a
+    // ruling would carry. The call says what doctor says instead, and runs nothing.
     #[test]
-    fn a_blocked_keychain_and_no_login_token_refuses_the_call_with_the_fix() {
+    fn a_call_with_no_login_token_refuses_with_the_fix_whatever_the_keychain() {
         let w = World::new();
         let token = LoginToken::new("sk-ant-oat01-for-the-test".to_owned());
-        let cli = |login: Option<LoginToken>, macos: bool| {
-            w.cli(Arc::new(OpenSandbox::default()))
-                .with_login(login)
-                .on_macos(macos)
-        };
+        let cli =
+            |login: Option<LoginToken>| w.cli(Arc::new(OpenSandbox::default())).with_login(login);
         let blocked = |mut call: AgentCall| {
             call.reach.block_keychain = true;
             call
         };
-        for call in [w.worker(), w.call(Role::Reviewer)] {
-            let call = blocked(call);
+        for call in [w.worker(), w.call(Role::Reviewer), blocked(w.worker())] {
             for run in [ClaudeCli::sandboxed_command, ClaudeCli::terminal_command] {
-                let err = run(&cli(None, true), &call).unwrap_err();
+                let err = run(&cli(None), &call).unwrap_err();
                 let AgentError::Setup(why) = &err else {
                     panic!("{err:?}")
                 };
@@ -628,12 +652,9 @@ mod tests {
                     why.contains("`shep secret set CLAUDE_CODE_OAUTH_TOKEN`"),
                     "{why}"
                 );
-                run(&cli(token.clone(), true), &call).unwrap();
-                // No keychain off macOS, and a call that keeps it logs in there.
-                run(&cli(None, false), &call).unwrap();
-                run(&cli(None, true), &w.worker()).unwrap();
+                run(&cli(token.clone()), &call).unwrap();
             }
-            let err = cli(None, true).run(&call, &Ending::default()).unwrap_err();
+            let err = cli(None).run(&call, &Ending::default()).unwrap_err();
             assert!(matches!(err, AgentError::Setup(_)), "{err:?}");
         }
         assert!(!w.path("ran").exists(), "claude ran with no login");
@@ -651,11 +672,8 @@ mod tests {
         cli.run(&call, &Ending::default()).unwrap();
         assert!(w.path("elsewhere/keep").exists());
         assert!(scratch(&call).is_dir() && !scratch(&call).is_symlink());
-        assert!(
-            transcripts(&w.path("home"), &w.path("wt"))
-                .unwrap()
-                .is_dir()
-        );
+        let config = config_folder(&call);
+        assert!(transcripts(&config, &w.path("wt")).unwrap().is_dir());
     }
 
     // Go writes its module cache, and a test can leave a temp folder, with
@@ -702,7 +720,7 @@ mod tests {
         let settings = w.path("worker/settings.json");
         let temp = format!("TMPDIR={}", w.path("worker/settings.tmp").display());
         let prefix = format!("TMPPREFIX={}", w.path("worker/settings.tmp/zsh").display());
-        let claude = w.path("claude");
+        let claude = w.path("claude-program");
         assert_eq!(command.get_program(), crate::spawn::env().as_os_str());
         assert_eq!(
             args,
@@ -731,7 +749,12 @@ mod tests {
         let env: Vec<_> = set.map(|(name, _)| name).collect();
         assert_eq!(
             env,
-            ["CLAUDE_CODE_DISABLE_AUTO_MEMORY", "CLAUDE_CODE_TMPDIR"]
+            [
+                "CLAUDE_CODE_DISABLE_AUTO_MEMORY",
+                "CLAUDE_CODE_OAUTH_TOKEN",
+                "CLAUDE_CODE_TMPDIR",
+                "CLAUDE_CONFIG_DIR",
+            ]
         );
         let wrapped = sandbox.wrapped();
         let [(policy_used, file)] = wrapped.as_slice() else {
@@ -739,7 +762,7 @@ mod tests {
         };
         assert_eq!(
             policy_used,
-            &policy(&call, &w.path("home"), &w.path("claude"), &[]).unwrap()
+            &policy(&call, &w.path("home"), &w.path("claude-program"), &[]).unwrap()
         );
         assert_eq!(file, &w.path("worker/settings.sandbox.json"));
         assert!(
@@ -750,19 +773,19 @@ mod tests {
 
     #[test]
     fn the_transcript_folder_is_named_as_claude_code_names_it() {
-        let home = Path::new("/Users/me");
+        let config = Path::new("/k/claude/37/worker");
         assert_eq!(
-            transcripts(home, Path::new("/Users/me/.kelpie/wt/koji/37")).unwrap(),
-            Path::new("/Users/me/.claude/projects/-Users-me--kelpie-wt-koji-37")
+            transcripts(config, Path::new("/Users/me/.kelpie/wt/koji/37")).unwrap(),
+            Path::new("/k/claude/37/worker/projects/-Users-me--kelpie-wt-koji-37")
         );
         // An emoji is two UTF-16 units, so two dashes.
         assert_eq!(
-            transcripts(home, Path::new("/x/é🐑")).unwrap(),
-            Path::new("/Users/me/.claude/projects/-x----")
+            transcripts(config, Path::new("/x/é🐑")).unwrap(),
+            Path::new("/k/claude/37/worker/projects/-x----")
         );
         let long = format!("/{}", "a".repeat(200));
         assert!(matches!(
-            transcripts(home, Path::new(&long)),
+            transcripts(config, Path::new(&long)),
             Err(AgentError::Setup(_))
         ));
     }

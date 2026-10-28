@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
-use super::sandbox::{policy, transcripts};
+use super::sandbox::{config_folder, policy, transcripts};
 use crate::adapters::{Base, SandboxRuntime};
 use crate::ports::{AgentCall, Ending, Policy, Role, Sandbox, Session, SessionId, Tools};
 use crate::profile::WorkerProfile;
@@ -111,7 +111,7 @@ impl World {
 #[ignore = "runs the real sandbox, after `cargo build`"]
 fn the_worktree_the_build_folder_and_the_transcripts_are_written_and_nothing_outside() {
     let w = World::new();
-    let transcripts = transcripts(&w.path("home"), &w.path("wt")).unwrap();
+    let transcripts = transcripts(&config_folder(&w.call()), &w.path("wt")).unwrap();
     std::fs::create_dir_all(&transcripts).unwrap();
     let out = w.try_to(&format!(
         "echo ok > src/lib.rs && echo ok > {build}/ok && echo ok > {t}/s.jsonl",
@@ -375,9 +375,11 @@ fn a_live_worker_turn_runs_inside_the_sandbox_and_resumes() {
         token: None,
     };
     let home = std::env::var_os("HOME").map(PathBuf::from).unwrap();
+    let login = crate::adapters::LoginToken::take().expect("set CLAUDE_CODE_OAUTH_TOKEN");
     let cli = ClaudeCli::on(
         &Base::default().sandboxed(Arc::new(SandboxRuntime::under_test()), home.clone()),
-    );
+    )
+    .with_login(Some(login));
     let id = crate::work_item::new_session_id().unwrap();
     let mut call = AgentCall {
         issue: crate::ticket::TicketId::from_issue(7),

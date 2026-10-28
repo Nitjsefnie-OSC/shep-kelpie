@@ -43,6 +43,7 @@ fn a_calls_activity_is_when_its_session_transcript_was_last_written() {
     let claude =
         ClaudeCli::on(&Base::default().sandboxed(Arc::new(OpenSandbox::default()), home.clone()));
     let mut call = call(Role::Worker, fresh());
+    call.settings = dir.path().join("koji/worker/settings.json");
     call.cwd = dir.path().join("wt");
     std::fs::create_dir_all(&call.cwd).unwrap();
     assert_eq!(
@@ -51,7 +52,7 @@ fn a_calls_activity_is_when_its_session_transcript_was_last_written() {
         "no transcript yet"
     );
 
-    let folder = sandbox::transcripts(&home, &call.cwd).unwrap();
+    let folder = sandbox::transcripts(&sandbox::config_folder(&call), &call.cwd).unwrap();
     std::fs::create_dir_all(&folder).unwrap();
     let transcript = folder.join(format!("{}.jsonl", call.session.id().0));
     std::fs::write(&transcript, "{\"type\":\"assistant\"}\n").unwrap();
@@ -69,12 +70,13 @@ fn a_calls_transcript_is_in_the_folder_claude_code_names_for_its_working_folder(
     let claude =
         ClaudeCli::on(&Base::default().sandboxed(Arc::new(OpenSandbox::default()), home.clone()));
     let mut call = call(Role::Worker, fresh());
+    call.settings = dir.path().join("koji/worker/settings.json");
     call.cwd = dir.path().join("wt");
     std::fs::create_dir_all(&call.cwd).unwrap();
     assert_eq!(
         claude.transcript(&call),
         Some(crate::ports::Transcript {
-            folder: sandbox::transcripts(&home, &call.cwd).unwrap(),
+            folder: sandbox::transcripts(&sandbox::config_folder(&call), &call.cwd).unwrap(),
             threads: None,
         })
     );
@@ -490,7 +492,7 @@ impl LambLabels for Recorded {
 #[test]
 fn a_call_s_lamb_carries_its_issue_and_role() {
     let dir = tempfile::tempdir().unwrap();
-    let (claude, pid_file) = (dir.path().join("claude"), dir.path().join("pid"));
+    let (claude, pid_file) = (dir.path().join("claude-program"), dir.path().join("pid"));
     std::fs::write(dir.path().join("result.json"), RESULT).unwrap();
     let script = format!(
         "#!/bin/sh\necho $$ > {}\ncat {}/result.json\n",
@@ -501,11 +503,12 @@ fn a_call_s_lamb_carries_its_issue_and_role() {
     let lambs = Arc::new(Recorded::default());
     let base = Base::labelling(Arc::clone(&lambs) as Arc<dyn LambLabels>)
         .sandboxed(Arc::new(OpenSandbox::default()), dir.path().join("home"));
-    let cli = ClaudeCli::on(&base).with_program(claude);
+    let token = LoginToken::new("sk-ant-oat01-for-the-test".to_owned());
+    let cli = ClaudeCli::on(&base).with_program(claude).with_login(token);
     for role in [Role::Worker, Role::Reviewer] {
         let mut call = call(role, fresh());
         call.cwd = dir.path().to_owned();
-        call.settings = dir.path().join("settings.json");
+        call.settings = dir.path().join("worker/settings.json");
         cli.prepare(&call).unwrap();
         cli.run(&call, &Ending::default()).unwrap();
     }
@@ -518,4 +521,117 @@ fn a_call_s_lamb_carries_its_issue_and_role() {
         .parse()
         .unwrap();
     assert_eq!(labels[1].0, pid, "the label is not on the process that ran");
+}
+
+fn logged_in(home: PathBuf) -> ClaudeCli {
+    let base = Base::default().sandboxed(Arc::new(OpenSandbox::default()), home);
+    ClaudeCli::on(&base).with_login(LoginToken::new("sk-ant-oat01-for-the-test".to_owned()))
+}
+
+// The project's folder holds its `worker` folder, where every call's settings go.
+fn in_project(project: &std::path::Path, role: Role, tools: Tools, issue: u64) -> AgentCall {
+    AgentCall {
+        issue: crate::ticket::TicketId::from_issue(issue),
+        settings: project.join("worker/settings.json"),
+        tools,
+        cwd: project.join("worktrees/6"),
+        ..call(role, fresh())
+    }
+}
+
+fn config_dir(command: &Command) -> Option<PathBuf> {
+    let set = command.get_envs().find(|(n, _)| *n == "CLAUDE_CONFIG_DIR");
+    set.and_then(|(_, value)| value).map(PathBuf::from)
+}
+
+// Moved out of the home, the config folder is the call's own: its transcripts
+// outlive the work item's build folder, and a resume finds them where the last turn wrote.
+#[test]
+fn a_call_keeps_its_config_folder_under_the_projects_kelpie_home() {
+    let dir = tempfile::tempdir().unwrap();
+    let project = dir.path().join("koji");
+    std::fs::create_dir_all(project.join("worktrees/6")).unwrap();
+    let cli = logged_in(dir.path().join("home"));
+    let calls = [
+        (
+            in_project(&project, Role::Worker, Tools::Work, 6),
+            "claude/6/worker",
+        ),
+        (
+            in_project(&project, Role::Reviewer, Tools::Review, 6),
+            "claude/6/reviewer",
+        ),
+        (in_project(&project, Role::Pm, Tools::Pm, 0), "claude/pm"),
+        (in_project(&project, Role::Pm, Tools::Retro, 0), "claude/pm"),
+    ];
+    for (call, folder) in calls {
+        let folder = project.join(folder);
+        for run in [ClaudeCli::sandboxed_command, ClaudeCli::terminal_command] {
+            let command = run(&cli, &call).unwrap();
+            assert_eq!(
+                config_dir(&command),
+                Some(folder.clone()),
+                "{:?}",
+                call.role
+            );
+        }
+        let transcript = cli.transcript(&call).unwrap();
+        assert!(
+            transcript.folder.starts_with(folder.join("projects")),
+            "{transcript:?}"
+        );
+    }
+}
+
+// A work item open across the upgrade has its transcript where Claude Code kept it
+// before, and the config folder it now resumes in has none.
+#[test]
+fn a_session_from_before_the_move_resumes_from_its_copied_transcript() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("home");
+    let project = dir.path().join("koji");
+    let cli = logged_in(home.clone());
+    let mut call = in_project(&project, Role::Worker, Tools::Work, 6);
+    call.session = resume("0e2c0f3a-52a9-4a14-8d0b-1c1d9a7f3a11");
+    std::fs::create_dir_all(&call.cwd).unwrap();
+    let file = format!("{}.jsonl", call.session.id().0);
+    let old = sandbox::transcripts(&home.join(".claude"), &call.cwd).unwrap();
+    std::fs::create_dir_all(&old).unwrap();
+    std::fs::write(old.join(&file), "{\"before\":true}\n").unwrap();
+    std::fs::write(old.join("other.jsonl"), "{}\n").unwrap();
+    let moved = cli.transcript(&call).unwrap().folder;
+
+    cli.prepare(&call).unwrap();
+    cli.foreground(&call).unwrap();
+
+    assert_eq!(
+        std::fs::read_to_string(moved.join(&file)).unwrap(),
+        "{\"before\":true}\n"
+    );
+    assert!(
+        !moved.join("other.jsonl").exists(),
+        "another session's file came too"
+    );
+    assert!(
+        old.join(&file).exists(),
+        "the old file is the maintainer's to keep"
+    );
+
+    // The session goes on in the new folder, and a later call leaves what it wrote.
+    std::fs::write(moved.join(&file), "{\"before\":true}\n{\"after\":true}\n").unwrap();
+    cli.foreground(&call).unwrap();
+    let kept = std::fs::read_to_string(moved.join(&file)).unwrap();
+    assert!(kept.contains("after"), "{kept}");
+
+    // A session that starts new has nothing to copy.
+    let fresh = AgentCall {
+        session: fresh(),
+        ..call
+    };
+    cli.foreground(&fresh).unwrap();
+    assert!(
+        !moved
+            .join(format!("{}.jsonl", fresh.session.id().0))
+            .exists()
+    );
 }

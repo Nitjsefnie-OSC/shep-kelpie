@@ -6,13 +6,14 @@
 //! can attribute a session by its id as it happens.
 
 use super::{Runner, StepReport};
-use crate::ports::{AgentCall, Role};
+use crate::ports::{AgentCall, Role, Timestamp};
+use crate::transcripts;
 
 impl Runner {
     /// The steps of what happened in the middle of a pass since the last call,
-    /// oldest first: the `session-started` of each call started, and a
-    /// `pull-request-not-opened` of a turn's end, and the `pick-dropped` of a
-    /// project manager's pick that dispatch could not take
+    /// oldest first: the `session-started` of each call started, a
+    /// `pull-request-not-opened` of a turn's end, a `resume-lost` of a session
+    /// not found, and the `pick-dropped` of a pick that dispatch could not take
     ///
     /// They are not a pass's result, since a call starts in the middle of one,
     /// so the runner logs them as they come.
@@ -29,6 +30,31 @@ impl Runner {
             harness: call.harness.harness().as_str(),
             session: call.session.id().clone(),
             transcript: self.ports.agents.transcript(call),
+        });
+    }
+
+    /// Records that the harness found no session for `call`'s resume, begun
+    /// at `began`, and whether the session's transcript file was there
+    pub(super) fn resume_lost(&mut self, call: &AgentCall, began: Timestamp) {
+        let Some(issue) = call.issue else { return };
+        let there = (|| {
+            let format = call.harness.harness().facts().transcript?;
+            let transcript = self.ports.agents.transcript(call)?;
+            let at = jiff::Timestamp::from_second(i64::try_from(began.0).ok()?).ok()?;
+            transcripts::find(
+                format,
+                &call.session.id().0,
+                &transcript.folder,
+                transcript.threads.as_deref(),
+                at,
+            )
+        })()
+        .is_some();
+        self.started.push(StepReport::ResumeLost {
+            issue,
+            harness: call.harness.harness().as_str(),
+            session: call.session.id().clone(),
+            transcript: there,
         });
     }
 }

@@ -14,12 +14,11 @@ async fn an_installed_app_that_mints_a_token_is_ok() {
     );
 }
 
-// With the keychain blocked in the project's calls, `claude` has no login but
-// the one the maintainer made with `claude setup-token`.
+// Each call keeps a config folder of its own, which holds no login, so
+// `claude` has no login but the one the maintainer made with `claude setup-token`.
 #[tokio::test]
-async fn a_covered_project_on_a_keychain_needs_the_login_token_and_names_the_two_commands() {
+async fn a_project_on_claude_code_needs_the_login_token_and_names_the_two_commands() {
     let mut scene = Scene::new().await;
-    scene.host.keychain = true;
 
     scene.host.token = false;
     let report = scene.report().await;
@@ -43,7 +42,6 @@ async fn a_covered_project_on_a_keychain_needs_the_login_token_and_names_the_two
 #[tokio::test]
 async fn a_runner_whose_env_sets_the_login_token_has_a_login_without_it_in_the_shell() {
     let mut scene = Scene::new().await;
-    scene.host.keychain = true;
     scene.host.token = false;
     let secret = "{{secret:CLAUDE_CODE_OAUTH_TOKEN}}";
     scene
@@ -61,7 +59,6 @@ async fn a_runner_whose_env_sets_the_login_token_has_a_login_without_it_in_the_s
 #[tokio::test]
 async fn a_runner_whose_env_sets_the_login_token_to_nothing_has_no_login() {
     let mut scene = Scene::new().await;
-    scene.host.keychain = true;
     scene.host.token = false;
     scene
         .shepherd
@@ -73,29 +70,20 @@ async fn a_runner_whose_env_sets_the_login_token_to_nothing_has_no_login() {
     assert!(what.contains("CLAUDE_CODE_OAUTH_TOKEN"), "{what}");
 }
 
-// A repo the App does not cover pushes with the keychain's login, so its
-// calls keep the keychain and `claude` keeps the login it has there.
+// The login does not depend on the App or the keychain: a call's config
+// folder is its own whatever repo it works on.
 #[tokio::test]
-async fn a_project_the_app_does_not_cover_needs_no_login_token() {
+async fn a_project_the_app_does_not_cover_needs_the_login_token_too() {
     let mut scene = Scene::new().await;
-    scene.host.keychain = true;
+    scene.host.token = false;
     scene.runs("golbat", |t| {
         t["git"]["remote"] = json!("someone-else/golbat");
     });
 
     let report = scene.report().await;
 
-    assert!(!subjects(&report).contains(&"golbat: claude login"));
+    assert!(subjects(&report).contains(&"golbat: claude login"));
     assert!(subjects(&report).contains(&"koji: claude login"));
-}
-
-#[tokio::test]
-async fn a_machine_without_a_keychain_needs_no_login_token() {
-    let scene = Scene::new().await;
-
-    let report = scene.report().await;
-
-    assert!(!subjects(&report).contains(&"koji: claude login"));
 }
 
 // No App is unsure: kelpie falls back to the user's own `gh` login, so it does not fail the run.

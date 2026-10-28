@@ -590,6 +590,11 @@ impl Runner {
         }
         let again = self.flights.flying.get(&ticket).is_some_and(|f| f.again);
         if !again && matches!(result, Err(AgentError::NoSession(..))) {
+            if let Some((call, began)) =
+                (self.flights.watched(ticket)).and_then(|w| Some((w.call.clone()?, w.started)))
+            {
+                self.resume_lost(&call, began);
+            }
             // The dead call's time is the worker's, so it is saved while its
             // flight still counts it, before a drain can outrun the new turn.
             let saved = self.save_time();

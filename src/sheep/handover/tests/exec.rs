@@ -10,7 +10,7 @@ use std::process::Command;
 
 use super::super::super::{Hooks, JOIN_BOUND, Worker};
 use super::*;
-use crate::adapters::{Base, ClaudeCli};
+use crate::adapters::{Base, ClaudeCli, LoginToken};
 use crate::test::{CALL_PATIENCE, OpenSandbox, waits_for, write_script};
 
 const IMAGE: &str = "sheep::handover::tests::exec::an_image_of_the_runner";
@@ -79,7 +79,8 @@ pub(super) fn write(folder: &Path, name: &str, text: &str) {
 fn agents(rig: &Rig, folder: &Path) -> (Base, ClaudeCli) {
     let base =
         Base::default().sandboxed(Arc::new(OpenSandbox::default()), rig.home.path().to_owned());
-    let claude = ClaudeCli::on(&base).with_program(folder.join("claude"));
+    let login = LoginToken::new("token".to_owned());
+    let claude = (ClaudeCli::on(&base).with_program(folder.join("claude"))).with_login(login);
     (base, claude)
 }
 
