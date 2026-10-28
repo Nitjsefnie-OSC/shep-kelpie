@@ -337,22 +337,17 @@ fn profile(call: &AgentCall) -> Vec<OsString> {
         "--settings".into(),
         call.settings.clone().into(),
     ];
-    // Every kind of call but an answer's runs on an allow-list. Every one but
-    // the issue writer's loads no MCP server but those kelpie names, so what
-    // a project's settings allow adds nothing. An agent file's own list
-    // replaces a worker's and a reviewer's, and no other's.
+    // Every kind of call but an answer's runs on an allow-list, and loads no
+    // MCP server but those kelpie names, so what a project's settings allow
+    // adds nothing. An agent file's own list replaces a worker's and a
+    // reviewer's, and no other's.
     use crate::ports::Tools as Kind;
     let own = call.agent_tools.as_deref();
     let tools = match (call.role, call.tools) {
         (_, Kind::Retro) => Some(settings::RETRO_TOOLS),
         (Role::Pm, _) => Some(settings::PM_TOOLS),
-        (_, Kind::Advise) => Some(settings::ADVISE_TOOLS),
-        (_, Kind::Research) => Some(settings::RESEARCH_TOOLS),
         (_, Kind::Work) => Some(own.unwrap_or(settings::WORK_TOOLS)),
         (_, Kind::Review) => Some(own.unwrap_or(crate::settings::CLAUDE_REVIEW_TOOLS)),
-        // Its call loads the repo's plugins and their servers on purpose, so
-        // it is allow-listed without `--strict-mcp-config`.
-        (_, Kind::Issues) => Some(settings::ISSUES_TOOLS),
         (_, Kind::Answer | Kind::Pm) => None,
     };
     if crate::ports::mcp::loads(call) {
@@ -361,10 +356,8 @@ fn profile(call: &AgentCall) -> Vec<OsString> {
     if let Some(tools) = tools {
         argv.extend(["--tools".into(), tools.into()]);
         // Only the config named above is loaded, so its servers are the call's MCP
-        // servers. The issue writer is the one call that keeps the other sources.
-        if call.tools != Kind::Issues {
-            argv.push("--strict-mcp-config".into());
-        }
+        // servers.
+        argv.push("--strict-mcp-config".into());
     }
     argv
 }

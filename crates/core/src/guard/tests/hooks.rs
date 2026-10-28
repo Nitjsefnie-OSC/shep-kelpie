@@ -307,41 +307,11 @@ impl WorkerTree {
         call.as_object_mut()
             .unwrap()
             .extend(result.as_object().unwrap().clone());
-        self.after_as(crate::hooks::Role::Worker, hooks, call)
-    }
-
-    fn after_as(
-        &self,
-        role: crate::hooks::Role,
-        hooks: &Hooks,
-        call: serde_json::Value,
-    ) -> Verdict {
-        judge_after(call.to_string().as_bytes(), hooks, role, &self.path())
+        judge_after(call.to_string().as_bytes(), hooks, &self.path())
     }
 }
 
 const NO_FAILED_BUILD: &str = "grep -q '\"exit\":[1-9]' && { echo 'the build failed: read its output before going on' >&2; exit 2; }; exit 0";
-
-#[test]
-fn the_issue_writer_s_finished_command_is_judged_by_the_after_command_hooks_as_its_role() {
-    let tree = WorkerTree::new();
-    let hooks = hooks(&[(
-        HookPoint::AfterCommand,
-        "grep -q '\"role\":\"issue-writer\"' && { echo 'the writer ran it' >&2; exit 2; }; exit 0",
-    )]);
-    let call = json!({
-        "tool_name": "Bash",
-        "cwd": tree.path(),
-        "tool_input": { "command": "gh issue list" },
-        "tool_response": { "stdout": "", "stderr": "" },
-    });
-
-    let as_writer = tree.after_as(crate::hooks::Role::IssueWriter, &hooks, call.clone());
-    let as_worker = tree.after_as(crate::hooks::Role::Worker, &hooks, call);
-
-    assert!(refusal(as_writer).contains("the writer ran it"));
-    assert_eq!(as_worker, Verdict::Allow);
-}
 
 #[test]
 fn an_after_command_hook_gives_its_reason_back_as_feedback_on_the_result() {

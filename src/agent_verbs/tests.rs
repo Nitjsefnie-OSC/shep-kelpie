@@ -215,7 +215,7 @@ fn list_shows_every_baseline_as_missing_a_file_in_an_empty_folder() {
     let dir = tempfile::tempdir().unwrap();
     let lines = agents(dir.path(), "list").unwrap();
     let missing = lines.iter().filter(|l| l.contains("baseline, no file"));
-    assert_eq!(missing.count(), 10, "{lines:#?}");
+    assert_eq!(missing.count(), 7, "{lines:#?}");
 }
 
 #[test]
@@ -404,7 +404,7 @@ fn new_checks_the_needs_kept_in_an_unbound_file_before_writing() {
 
     let err = agents(dir.path(), codex).unwrap_err();
 
-    assert!(err.contains("PM and issue-writer guards"), "{err}");
+    assert!(err.contains("kelpie's PM guard"), "{err}");
     assert!(err.contains("claude-code"), "{err}");
     assert_eq!(file(dir.path(), "mine"), stub);
     agents(dir.path(), &codex.replace("codex", "claude-code")).unwrap();
@@ -435,29 +435,28 @@ fn new_honors_fewer_needs_when_binding_an_unbound_file() {
 }
 
 #[test]
-fn new_refuses_to_bind_pm_and_issue_writer_without_role_guards_even_with_fewer_needs() {
-    for role in ["pm", "issue-writer"] {
-        for needs in ["[]", "[repo-reads]"] {
-            let dir = tempfile::tempdir().unwrap();
-            let stub = format!("---\nrole: {role}\nneeds: {needs}\n---\nMy instructions.\n");
-            std::fs::write(dir.path().join(format!("{role}.md")), &stub).unwrap();
-            for harness in ["codex", "pi", "goose"] {
-                let err = agents(
-                    dir.path(),
-                    &format!("new {role} --harness {harness} --model m --effort high"),
-                )
-                .unwrap_err();
-                assert!(err.contains("runs on claude-code"), "{err}");
-                assert!(err.contains(&format!("not {harness}")), "{err}");
-                assert_eq!(file(dir.path(), role), stub);
-            }
-            agents(
+fn new_refuses_to_bind_pm_without_its_role_guard_even_with_fewer_needs() {
+    let role = "pm";
+    for needs in ["[]", "[repo-reads]"] {
+        let dir = tempfile::tempdir().unwrap();
+        let stub = format!("---\nrole: {role}\nneeds: {needs}\n---\nMy instructions.\n");
+        std::fs::write(dir.path().join(format!("{role}.md")), &stub).unwrap();
+        for harness in ["codex", "pi", "goose"] {
+            let err = agents(
                 dir.path(),
-                &format!("new {role} --harness claude-code --model m --effort high"),
+                &format!("new {role} --harness {harness} --model m --effort high"),
             )
-            .unwrap();
-            assert!(Agents::load(dir.path()).unwrap().get(&name(role)).is_some());
+            .unwrap_err();
+            assert!(err.contains("runs on claude-code"), "{err}");
+            assert!(err.contains(&format!("not {harness}")), "{err}");
+            assert_eq!(file(dir.path(), role), stub);
         }
+        agents(
+            dir.path(),
+            &format!("new {role} --harness claude-code --model m --effort high"),
+        )
+        .unwrap();
+        assert!(Agents::load(dir.path()).unwrap().get(&name(role)).is_some());
     }
 }
 
@@ -551,8 +550,8 @@ fn init_on(
 }
 
 // A models file with rows for claude-code, pi and codex, in `order`: the
-// implementer, one reviewer baseline, the PM and the advisor on claude-code, the
-// implementer and the reviewer on pi, and the advisor on codex.
+// implementer, one reviewer baseline, the PM and the representative on claude-code,
+// the implementer and the reviewer on pi, and the representative on codex.
 fn lineup(order: &[&str], pi_model: &str) -> String {
     format!(
         "order = {order:?}\n\n\
@@ -560,11 +559,11 @@ fn lineup(order: &[&str], pi_model: &str) -> String {
          [claude-code.reviewer.defect-hunter]\nmodel = \"claude-opus-5-5\"\neffort = \"high\"\n\
          second_look = true\n\n\
          [claude-code.pm]\nmodel = \"claude-opus-5-5\"\neffort = \"medium\"\n\n\
-         [claude-code.advisor]\nmodel = \"claude-opus-5-5\"\neffort = \"high\"\n\n\
+         [claude-code.representative]\nmodel = \"claude-opus-5-5\"\neffort = \"high\"\n\n\
          [pi.implementer]\nmodel = \"{pi_model}\"\neffort = \"high\"\ncontext = 65536\n\n\
          [pi.reviewer.defect-hunter]\nmodel = \"{pi_model}\"\neffort = \"high\"\n\
          second_look = true\ncontext = 65536\n\n\
-         [codex.advisor]\nmodel = \"gpt-6.1-sol\"\neffort = \"medium\"\n"
+         [codex.representative]\nmodel = \"gpt-6.1-sol\"\neffort = \"medium\"\n"
     )
 }
 
@@ -603,13 +602,10 @@ fn init_claude_code_binds_every_role_it_serves_and_the_files_load() {
     assert_eq!(
         files(dir.path()),
         [
-            "advisor.md",
             "defect-hunter.md",
             "implementer.md",
-            "issue-writer.md",
             "pm.md",
             "representative.md",
-            "researcher.md",
             "security-reviewer.md",
             "spec.md",
             "standards.md",
@@ -643,9 +639,6 @@ fn init_claude_code_binds_every_role_it_serves_and_the_files_load() {
         ("reviewer", "spec"),
         ("reviewer", "security-reviewer"),
         ("pm", "pm"),
-        ("issue-writer", "issue-writer"),
-        ("advisor", "advisor"),
-        ("researcher", "researcher"),
         ("representative", "representative"),
         ("triager", "triager"),
     ] {
@@ -683,7 +676,7 @@ fn init_keeps_a_file_that_exists_and_names_it() {
     );
     assert_eq!(file(dir.path(), "pm"), before, "never over a file");
     assert!(
-        dir.path().join("advisor.md").is_file(),
+        dir.path().join("spec.md").is_file(),
         "the rest of the lineup is still written"
     );
 }
@@ -909,17 +902,11 @@ fn detect_gives_each_role_the_first_harness_in_order_that_serves_it() {
     };
     bound("implementer", "pi");
     bound("defect-hunter", "pi");
-    bound("advisor", "codex");
+    bound("representative", "codex");
     bound("pm", "claude-code");
     assert!(
         said.iter()
-            .any(|l| l
-                .starts_with("issue-writer: none: pi lacks kelpie's PM and issue-writer guards")),
-        "{said:#?}"
-    );
-    assert!(
-        said.iter()
-            .any(|l| l.starts_with("researcher: none: pi has no row in agents/models.toml")),
+            .any(|l| l.starts_with("triager: none: pi has no row in agents/models.toml")),
         "{said:#?}"
     );
 }

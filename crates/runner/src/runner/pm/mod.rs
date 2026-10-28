@@ -30,6 +30,7 @@ use crate::work_item::new_session_id;
 
 mod act;
 mod answer;
+mod asked;
 mod call;
 mod ci_logs;
 mod diffs;
@@ -38,12 +39,13 @@ mod notes;
 mod prompt;
 mod question;
 mod red;
+mod requests;
+mod rulings;
 #[cfg(test)]
 mod tests;
 mod wakes;
 
-#[cfg(test)]
-pub(super) use call::SECRET_SHAPED;
+pub(super) use asked::{PmReply, pm_reply};
 pub(super) use ci_logs::wake_off_lock;
 pub use maintainer::{Held, PmAttaching, PmError, PmStatus, Settled};
 
@@ -164,12 +166,15 @@ pub(super) enum Wake {
         /// The head that stayed red
         head: String,
     },
-    /// A ruling is before the panel, and the project manager votes on it
-    Vote {
+    /// A ruling waits on the project manager's answer
+    Answer {
         /// The ruling
         id: TicketId,
-        /// What it asks and the options, as the experts are shown it
+        /// What it asks and the options
         asked: String,
+        /// What the maintainer asked of it, or none where the project
+        /// leaves the ruling to it
+        request: Option<requests::Request>,
     },
 }
 
@@ -183,7 +188,7 @@ impl Wake {
             (Self::LeaseWait { ticket: a, .. }, Self::LeaseWait { ticket: b, .. }) => a == b,
             (Self::Question { id: a, .. }, Self::Question { id: b, .. }) => a == b,
             (Self::FollowUp { id: a, .. }, Self::FollowUp { id: b, .. }) => a == b,
-            (Self::Vote { id: a, .. }, Self::Vote { id: b, .. }) => a == b,
+            (Self::Answer { id: a, .. }, Self::Answer { id: b, .. }) => a == b,
             (Self::Red { workflow: a, .. }, Self::Red { workflow: b, .. }) => a == b,
             _ => false,
         }
@@ -223,7 +228,7 @@ enum Kind {
 /// Whether nobody waits on `wake`, so it can wait [`HOLD_FOR`] for the rest
 ///
 /// A free slot, a `tell`, a worker's question, a follow-up ruling, a ruling to
-/// vote on and a pick are each waited on: the board holds a slot, a ruling is
+/// answer and a pick are each waited on: the board holds a slot, a ruling is
 /// held back from the maintainer, or the maintainer is asking. A stuck item, a
 /// conflict and a lease wait are each reasons the runner itself noticed, and no
 /// one is waiting on them.
@@ -397,28 +402,19 @@ impl Runner {
     /// What dispatch starts out of `takeable`, the ready issues the board
     /// could take now: the project manager's pick, or nothing while it said
     /// so, or it is asked where two or more could start; else the board rule's.
-    /// `waiting` are those out of `takeable` only for now, as the issue writer
-    /// labels them, which a list of picks keeps its place for.
-    pub(super) fn pm_pick(&mut self, takeable: &[TicketId], waiting: &[TicketId]) -> Choice {
+    pub(super) fn pm_pick(&mut self, takeable: &[TicketId]) -> Choice {
         if self.agents.pm.is_none() {
             return Choice::Rule;
         }
         match self.pm.pick.take() {
             Some(Pick::Issues(mut named)) => {
-                // The head stays until its work item opens (`pm_started`), so
-                // the issue writer labelling it first does not lose its place.
-                // One it cannot start falls to the next it named, and when
-                // none is left, to the board rule.
+                // The head stays until its work item opens (`pm_started`). One
+                // it cannot start falls to the next it named, and when none is
+                // left, to the board rule.
                 while let Some(&n) = named.first() {
                     if takeable.contains(&n) {
                         self.pm.pick = Some(Pick::Issues(named));
                         return Choice::Take(n);
-                    }
-                    if waiting.contains(&n) {
-                        // The issue writer has it: the next it named can start.
-                        let rest = named.iter().copied().find(|t| takeable.contains(t));
-                        self.pm.pick = Some(Pick::Issues(named));
-                        return rest.map_or(Choice::Wait, Choice::Take);
                     }
                     named.remove(0);
                     self.pick_dropped(n, "it is not an issue the board can take now".to_owned());
@@ -485,7 +481,10 @@ impl Runner {
         if self.pm.down_until.is_some_and(|until| now < until) {
             return false;
         }
-        matches!(self.pace(Scope::Turn, &limit), Ok(super::pace::Pace::Clear))
+        matches!(
+            self.pace_now(Scope::Turn, &limit),
+            Ok(super::pace::Pace::Clear)
+        )
     }
 
     /// Starts the project manager's call if one is due and it can run,
@@ -508,6 +507,7 @@ impl Runner {
     // Everything before the launch is checked again by the try that follows a read, and drops
     // or defers the same, so a try that hands back reads has changed nothing the next does not.
     fn wake(&mut self, reads: bool) -> Woke {
+        self.pm_requests_kept();
         let Some(agent) = self.agents.pm.clone() else {
             return Woke::Did(false);
         };
@@ -600,27 +600,25 @@ impl Runner {
                 Wake::Question { id, .. } | Wake::FollowUp { id, .. } => {
                     self.pm.asking.remove(&id);
                 }
-                // The panel votes without it.
-                Wake::Vote { id, .. } => self.panel_pm_gone(id),
+                Wake::Answer { id, request, .. } => {
+                    self.pm.asking.remove(&id);
+                    if let Some(request) = request {
+                        self.pm_request_lost(id, request);
+                    }
+                }
             }
         }
     }
 
-    /// Whether ruling `id`'s comment waits on the project manager's answer or
-    /// on the panel's votes, and so is not posted yet
+    /// Whether ruling `id` waits on the project manager's answer, at most
+    /// one wake, and so is not posted to the maintainer yet
     pub(super) fn ruling_held(&self, id: TicketId) -> bool {
-        self.pm_holds_ruling(id) || self.panel_holds_ruling(id)
-    }
-
-    /// Whether question ruling `id` waits on the project manager's answer,
-    /// at most one wake, and so is not posted to the maintainer yet
-    pub(super) fn pm_holds_ruling(&self, id: TicketId) -> bool {
         !self.draining() && self.pm_has_asked(id)
     }
 
-    /// Whether question ruling `id` was put to the project manager, at most
-    /// one wake ago, a drain or not: the panel leaves it to the project manager
-    pub(super) fn pm_has_asked(&self, id: TicketId) -> bool {
+    // Whether ruling `id` was put to the project manager, at most one wake
+    // ago, a drain or not.
+    fn pm_has_asked(&self, id: TicketId) -> bool {
         let now = self.ports.clock.now();
         let by = |since: &Timestamp| now.0 < since.0.saturating_add(CEILING);
         self.agents.pm.is_some() && self.pm.asking.get(&id).is_some_and(by)
@@ -659,8 +657,6 @@ impl Runner {
     /// Settles the comment of each held ruling whose hold has ended and which still waits on the
     /// maintainer, as the project manager left it, and returns the posts to make
     pub(super) fn release_posts(&mut self) -> Vec<PostJob> {
-        // A ruling the project manager's hold has let go of may be the panel's now.
-        self.panel_pass();
         // A ruling held when the runner last stopped is still to be posted.
         let kept: Vec<TicketId> = (self.state.rulings.iter())
             .filter(|r| r.unposted)
@@ -673,6 +669,12 @@ impl Runner {
         let mut posts = Vec::new();
         for id in released {
             self.pm.unposted.remove(&id);
+            if self.draining() && self.pm_has_asked(id) {
+                self.notes.push(format!(
+                    "ruling {id} goes to the maintainer without the project manager's answer, \
+                     since the runner drains"
+                ));
+            }
             let Some(number) =
                 (self.state.rulings.iter().find(|r| r.id == id)).map(|ruling| ruling.pull_request)
             else {
@@ -830,35 +832,37 @@ impl Runner {
             Wake::Pick(_, free) => Some((*free).max(1)),
             _ => None,
         });
-        // Each tell this wake carried goes into the standing notes before the
-        // answer acts, so an action that cannot be saved cannot lose a rule the
-        // maintainer gave. An answer that gave the whole file was told to carry
-        // its own tells, so they are not added a second time.
-        if answer.standing.is_none() {
+        // The standing notes and each tell this wake carried are written before
+        // the answer acts, so an action that cannot be saved cannot lose a rule
+        // the maintainer gave. A saved `standing` was told to carry its own
+        // tells, and one kelpie did not save carried them nowhere.
+        let stood = answer.standing.as_deref().map(|text| self.pm_stand(text));
+        if !matches!(stood, Some(Ok(_))) {
             self.pm_stand_tells(&flying.told);
         }
-        let (mut acted, dropped) = self.act(&mut answer, picking)?;
-        // Its votes on the rulings it was asked about; one it gave none on
-        // abstains. They are part of what kelpie did, so they are recorded
-        // before the note below names the wake's actions.
-        let asked: Vec<TicketId> = (flying.wakes.iter())
-            .filter_map(|w| match w {
-                Wake::Vote { id, .. } => Some(*id),
-                _ => None,
-            })
-            .collect();
+        let (mut acted, mut dropped) = self.act(&mut answer, picking)?;
+        match stood {
+            Some(Ok(done)) => acted.push(done),
+            Some(Err(why)) => dropped.push(why),
+            None => {}
+        }
+        // Its answers to the rulings it was asked about; one it gave none on
+        // goes to the maintainer. They are part of what kelpie did, so they
+        // are applied before the note below names the wake's actions.
+        let (asked, requested) = requests::split(&flying.wakes);
         if !asked.is_empty() {
-            let votes = answer
+            let answers = answer
                 .votes
                 .iter()
                 .map(|(id, fields)| {
-                    (
-                        *id,
-                        crate::panel::from_fields(fields, self.panel_options(*id)),
-                    )
+                    let options = self.ruling_options(*id);
+                    (*id, crate::pm_answer::from_fields(fields, options))
                 })
                 .collect();
-            acted.extend(self.panel_pm_answered(&asked, votes));
+            acted.extend(self.pm_answered(&asked, answers));
+        }
+        if !requested.is_empty() {
+            acted.extend(self.pm_requested(&requested, &answer.votes));
         }
         // One line of what the wake was for, what kelpie did with it, and the
         // answer's own `why`, so a wake that wrote nothing of its own left its

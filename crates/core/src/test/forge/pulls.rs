@@ -21,13 +21,14 @@ impl FakeForge {
         self.coderabbit.put_label(number, label, false);
     }
 
-    /// Lists issue `number` as ready, with whether anyone is assigned
+    /// Lists issue `number` as ready, with whether anyone is assigned. Its
+    /// body and the labels the board reads pass the issue check.
     pub fn list_ready(&self, number: u64, assigned: bool) {
         self.label(number, READY);
         self.ready.lock().unwrap().push(ReadyIssue {
             ticket: ticket(number),
             title: format!("Title of #{number}"),
-            body: format!("Body of #{number}.\n"),
+            body: Self::passing_body(number),
             assigned,
             labels: Vec::new(),
             blocked_by: Vec::new(),
@@ -35,6 +36,22 @@ impl FakeForge {
             parent: None,
             sub_issues: SubIssues::default(),
         });
+    }
+
+    /// Lists issue `number` as ready as [`Self::list_ready`] does, read with
+    /// only the labels it carries: with none, it shows no priority
+    pub fn list_ready_unchecked(&self, number: u64, assigned: bool) {
+        self.list_ready(number, assigned);
+        self.unchecked.lock().unwrap().insert(number);
+    }
+
+    /// A ready issue body the issue check passes, which [`Self::list_ready`]
+    /// gives issue `number`. Each names its own file, so no two overlap.
+    pub fn passing_body(number: u64) -> String {
+        format!(
+            "Body of #{number}.\n\nTouches: `src/issue_{number}.rs`\n\n## What to build\n\n- \
+             Title of #{number}.\n\n## Acceptance criteria\n\n- [ ] it is done\n"
+        )
     }
 
     /// Takes `ready-for-agent` off issue `number`, so the board no longer lists it

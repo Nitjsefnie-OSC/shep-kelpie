@@ -17,6 +17,7 @@ use super::thread_replies::Settler;
 use super::{Names, Runner};
 use crate::board::HUMAN;
 use crate::ports::Timestamp;
+use crate::request::{RuleAction, RuleAnswer};
 use crate::settings::Merging;
 use crate::state::{Fix, Held, ProjectState, Resume, Ruling, RulingKind, StateError, Stuck};
 use crate::ticket::TicketId;
@@ -24,6 +25,8 @@ use crate::work_item::{Known, Phase, Review, ReviewStage, Turn, WorkItem, foreig
 use crate::worktree::{self};
 
 mod act;
+mod history;
+pub(super) use history::{Answerer, Record, pm_answers, records};
 mod post;
 pub(super) use post::PostJob;
 mod prompts;
@@ -86,6 +89,52 @@ pub enum Action {
     Restore,
 }
 
+impl From<RuleAction> for Action {
+    fn from(action: RuleAction) -> Self {
+        match action {
+            RuleAction::Rerun => Self::Rerun,
+            RuleAction::Restore => Self::Restore,
+        }
+    }
+}
+
+impl From<Action> for RuleAction {
+    fn from(action: Action) -> Self {
+        match action {
+            Action::Rerun => Self::Rerun,
+            Action::Restore => Self::Restore,
+        }
+    }
+}
+
+impl From<RuleAnswer> for Answer {
+    fn from(answer: RuleAnswer) -> Self {
+        match answer {
+            RuleAnswer::Yes => Self::Yes,
+            RuleAnswer::No { note } => Self::No(note),
+            RuleAnswer::Rework { note } => Self::Rework(note),
+            RuleAnswer::Text { text } => Self::Text(text),
+            RuleAnswer::Trust { head } => Self::Trust(head),
+            RuleAnswer::Do { action } => Self::Do(action.into()),
+        }
+    }
+}
+
+impl From<Answer> for RuleAnswer {
+    fn from(answer: Answer) -> Self {
+        match answer {
+            Answer::Yes => Self::Yes,
+            Answer::No(note) => Self::No { note },
+            Answer::Rework(note) => Self::Rework { note },
+            Answer::Text(text) => Self::Text { text },
+            Answer::Trust(head) => Self::Trust { head },
+            Answer::Do(action) => Self::Do {
+                action: action.into(),
+            },
+        }
+    }
+}
+
 /// Why an answer was refused
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RuleError {
@@ -106,7 +155,7 @@ pub enum RuleError {
     Threads(u64, String),
     /// The worktree could not be brought to the head a yes accepted
     Adopt(String, String),
-    /// A ruling the panel decided could not be reopened
+    /// A ruling the project manager answered could not be reopened
     Reopen(TicketId, String),
     /// The ruling lists no option for this action
     NotOffered(TicketId, Action),
@@ -210,13 +259,12 @@ impl Runner {
     }
 
     // Applies an answer, and says whether it was taken, not after the branch moved.
-    // `by` says who gave it, which the record of it says: the researcher reads
-    // it, and the panel's measurements count only the maintainer's.
+    // `by` says who gave it, which the record of it says.
     pub(super) fn apply(
         &mut self,
         id: TicketId,
         answer: Answer,
-        by: super::panel::Answerer,
+        by: Answerer,
         unread: bool,
     ) -> Result<bool, RuleError> {
         let at = self.state.rulings.iter().position(|r| r.id == id);
@@ -226,9 +274,8 @@ impl Runner {
         let ruling = next.rulings.remove(at);
         let act = act::plan(id, &answer, &ruling.kind)?;
         let asked = act::asked(&ruling, &answer, by);
-        // Kept for the researcher once the answer is saved.
-        let record = super::panel::Record::of(&ruling, &answer, now, by);
-        let outlived = ruling.clone();
+        // Kept in the rulings history once the answer is saved.
+        let record = Record::of(&ruling, &answer, now, by);
         // Whether the findings a merged pull request left are filed or dropped.
         let follow_up = match (&answer, &ruling.kind) {
             (Answer::Yes, RulingKind::FollowUp { .. }) => Some(true),
@@ -507,11 +554,10 @@ impl Runner {
             }
         }
         self.save(next).map_err(RuleError::State)?;
-        match record.append(&self.paths.rulings) {
-            Ok(()) => self.panel_outlives(outlived),
-            Err(why) => self
-                .notes
-                .push(format!("ruling {id} is not kept for the researcher: {why}")),
+        if let Err(why) = record.append(&self.paths.rulings) {
+            self.notes.push(format!(
+                "ruling {id} is not kept in the rulings history: {why}"
+            ));
         }
         Ok(true)
     }
@@ -753,10 +799,7 @@ fn decide(
             head: None,
             since: now,
         },
-        (
-            Answer::No(_),
-            RulingKind::Stuck(Stuck::Unlabelled { .. } | Stuck::AdoptFailed { .. }),
-        ) => {
+        (Answer::No(_), RulingKind::Stuck(Stuck::AdoptFailed { .. })) => {
             return Err(RuleError::YesOnly(id));
         }
         // A fix turn resumes in its round, which checks it pushed.
@@ -879,9 +922,7 @@ fn decide(
             closed: false,
         },
         // No work item is parked on it, so an answer only clears it.
-        (Answer::Yes, RulingKind::Stuck(Stuck::Unlabelled { .. } | Stuck::AdoptFailed { .. })) => {
-            Phase::Implement
-        }
+        (Answer::Yes, RulingKind::Stuck(Stuck::AdoptFailed { .. })) => Phase::Implement,
         // The turn ends under the same round, which checks the worktree again.
         (
             Answer::Yes,

@@ -16,7 +16,7 @@ fn store_in(dir: &Path) -> StateStore {
 // deliberate edit here and shows in review. Every other test reads `VERSION`.
 #[test]
 fn the_state_file_version_is_pinned() {
-    assert_eq!(VERSION, 85);
+    assert_eq!(VERSION, 89);
 }
 
 // Large, so a kill is likely to land inside a write, and uniform, so a
@@ -256,12 +256,6 @@ fn the_file_format_is_pinned() {
         }),
     ));
     state.rulings.push(ruling(
-        10,
-        RulingKind::from(Stuck::Unlabelled {
-            why: "its call failed".into(),
-        }),
-    ));
-    state.rulings.push(ruling(
         11,
         RulingKind::from(Stuck::CheckQueued {
             head: "c0ffee".into(),
@@ -371,11 +365,6 @@ fn the_file_format_is_pinned() {
                     "head": "a1",
                     "pushed": "b2",
                     "review": { "round": 1, "stage": { "stage": "round" }, "unread": true },
-                })),
-                pinned(10, serde_json::json!({
-                    "kind": "stuck",
-                    "reason": "unlabelled",
-                    "why": "its call failed",
                 })),
                 pinned(11, serde_json::json!({
                     "kind": "stuck",
@@ -695,6 +684,7 @@ fn a_failed_turn_keeps_its_phase_and_the_turn_to_retry() {
         phase: Phase::Implement,
         retry: Turn::Due,
         restore: Vec::new(),
+        setup: false,
     });
     let saved = serde_json::to_value(&kind).unwrap();
     assert_eq!(
@@ -717,6 +707,7 @@ fn a_failed_turn_keeps_the_agent_files_it_offers_to_restore() {
         phase: Phase::Implement,
         retry: Turn::Due,
         restore: vec![".claude/settings.json".into()],
+        setup: false,
     });
     let saved = serde_json::to_value(&kind).unwrap();
     assert_eq!(
@@ -966,6 +957,7 @@ mod answer;
 mod base;
 mod budget;
 mod ceiling;
+mod checks;
 mod clock;
 mod heard;
 mod merge;

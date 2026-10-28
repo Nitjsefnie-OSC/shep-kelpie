@@ -14,6 +14,7 @@ use std::sync::{Arc, Mutex};
 
 use self::settled::Ended;
 pub(super) use self::settled::{Outcome, Settler};
+use super::pm::{PmReply, pm_reply};
 use super::trigger::lock;
 use super::words::{Wants, read_answer};
 use super::{Answer, RuleError, Runner, voice};
@@ -27,7 +28,7 @@ use crate::work_item::Phase;
 /// came before the answer is told it is settled
 const LATE: u64 = 60 * 60;
 
-/// Seconds a ruling the panel decided is watched for a `no <note>`
+/// Seconds a ruling the project manager answered is watched for a `no <note>`
 const DECIDED: u64 = 24 * 60 * 60;
 
 /// How far behind a read the next one reaches, in seconds, for a comment the
@@ -78,8 +79,8 @@ pub(super) struct Reading {
     /// The rulings whose comment is being posted, each with the first line of
     /// the edit it is owed when it was settled meanwhile
     posting: BTreeMap<TicketId, Option<String>>,
-    /// The rulings the panel decided while they are watched, as they stood
-    /// when they were decided, so a `no <note>` can reopen one
+    /// The rulings the project manager answered while they are watched, as
+    /// they stood when they were answered, so a `no <note>` can reopen one
     decided: BTreeMap<TicketId, Ruling>,
 }
 
@@ -102,7 +103,7 @@ enum Aimed {
     Elsewhere(TicketId, u64),
     /// Several rulings wait on the thread and the reply names none
     Unnamed(Vec<TicketId>),
-    /// A `no` that names no ruling, on the comment of one the panel decided
+    /// A `no` that names no ruling, on the comment of one the project manager answered
     Undecided(TicketId),
     /// Nothing to answer
     Nothing,
@@ -549,14 +550,14 @@ impl Runner {
     }
 
     // The number ruling `id` is read by, or `id` once it has left the state
-    // and the panel's decided rulings
+    // and the rulings the project manager answered
     pub(super) fn ruling_number(&self, id: TicketId) -> TicketId {
         let pending = self.state.rulings.iter().find(|r| r.id == id);
         let ended = self.threads.ended.get(&id).map(|e| &e.ruling);
         (pending.or(self.threads.decided.get(&id)).or(ended)).map_or(id, Ruling::number)
     }
 
-    // The ruling the panel decided that `words`, a `no` naming none, reply to.
+    // The ruling the project manager answered that `words`, a `no` naming none, reply to.
     fn undecided(&self, aimed: &[TicketId], words: &str) -> Option<TicketId> {
         let first = words.split_whitespace().next()?;
         if !first.eq_ignore_ascii_case("no") {
@@ -582,9 +583,18 @@ impl Runner {
                 "the ruling changed since that comment was written, and it asks now: {asks}"
             ))
         } else if naming != Naming::Not || wants == Wants::Answer {
-            read_answer(wants, words).and_then(|answer| {
-                (self.rule_by(id, answer, Settler::Thread)).map_err(|e| e.to_string())
-            })
+            // A question's answer may open with the word `pm`.
+            let pm = pm_reply(words, ruling.number());
+            match pm.filter(|pm| pm.is_ok() || wants != Wants::Answer) {
+                Some(Ok(PmReply::Ask(asked))) => return self.pm_asked_by(comment, id, asked),
+                Some(Ok(PmReply::Take(n))) => self.approach(id, n).and_then(|answer| {
+                    (self.rule_by(id, answer, Settler::Thread)).map_err(|e| e.to_string())
+                }),
+                Some(Err(why)) => Err(why),
+                None => read_answer(wants, words).and_then(|answer| {
+                    (self.rule_by(id, answer, Settler::Thread)).map_err(|e| e.to_string())
+                }),
+            }
         } else {
             Err(format!(
                 "start your reply with its number, as {}",
@@ -615,7 +625,7 @@ impl Runner {
         self.threads.told.get(&id).map(|(_, told)| told)
     }
 
-    /// Watches the comment that posted the panel's decision on ruling
+    /// Watches the comment that posted the project manager's answer to ruling
     /// `decided`, so `login`'s `no <note>` in `thread` reopens it
     pub(super) fn watch_decided(
         &mut self,
@@ -642,10 +652,10 @@ impl Runner {
         self.threads.decided.insert(id, decided);
     }
 
-    // Reopens a ruling the panel decided when `words`, a reply to it, are a
+    // Reopens a ruling the project manager answered when `words`, a reply to it, are a
     // `no <note>`: it is raised again as it stood, its work item is parked on
     // it again, and the note answers it. Says why when it cannot, and
-    // returns whether the ruling was one the panel decided.
+    // returns whether the ruling was one the project manager answered.
     fn reopens(&mut self, comment: &ThreadComment, id: TicketId, words: &str) -> bool {
         let Some(ruling) = self.threads.decided.get(&id).cloned() else {
             return false;
@@ -717,7 +727,7 @@ impl Runner {
     }
 
     // Posts `text` on `thread` as the App, and notes why it could not.
-    fn say(&mut self, thread: u64, text: &str) {
+    pub(super) fn say(&mut self, thread: u64, text: &str) {
         if let Err(e) = self.ports.voice.comment(&self.remote, thread, text) {
             self.notes.push(format!("cannot reply on #{thread}: {e}"));
         }

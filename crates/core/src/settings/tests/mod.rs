@@ -847,56 +847,38 @@ fn a_forge_slug_s_name_is_the_repo_without_its_owner() {
 }
 
 #[test]
-fn rulings_default_to_a_shadow_panel_with_no_kind_for_the_project_manager_alone() {
+fn rulings_default_to_no_kind_for_the_project_manager() {
     let rulings = parse(EXAMPLE).unwrap().rulings;
-    assert_eq!(rulings.decide, Decide::Shadow);
-    assert!(rulings.pm_alone.is_empty());
+    assert!(rulings.pm_decides.is_empty());
 }
 
 #[test]
-fn rulings_take_a_deciding_panel_and_the_kinds_the_project_manager_decides_alone() {
-    let on = "\n[app.dogs.kelpie.rulings]\ndecide = \"panel\"\n\
-              pm_alone = [\"turn-timeout\", \"still-red\"]\n";
+fn rulings_take_the_kinds_the_project_manager_decides() {
+    let on = "\n[app.dogs.kelpie.rulings]\npm_alone = [\"turn-timeout\", \"still-red\"]\n";
     let rulings = parse(&format!("{EXAMPLE}{on}")).unwrap().rulings;
-    assert_eq!(rulings.decide, Decide::Panel);
-    assert_eq!(
-        rulings.pm_alone,
-        [RulingName::TurnTimeout, RulingName::StillRed]
-    );
+    assert!(rulings.pm_decides(RulingName::TurnTimeout));
     assert!(rulings.pm_decides(RulingName::StillRed));
     assert!(!rulings.pm_decides(RulingName::Question));
 }
 
 #[test]
-fn rulings_take_the_always_deciding_mode() {
-    let on = "\n[app.dogs.kelpie.rulings]\ndecide = \"always\"\n";
-    let rulings = parse(&format!("{EXAMPLE}{on}")).unwrap().rulings;
-    assert_eq!(rulings.decide, Decide::Always);
+fn the_panels_keys_are_refused_by_name_with_the_migration_that_deletes_them() {
+    for key in ["decide = \"panel\"", "full_panel_paths = [\"src/**\"]"] {
+        let err = parse_err(&format!("{EXAMPLE}\n[app.dogs.kelpie.rulings]\n{key}\n"));
+        let name = key.split(' ').next().unwrap();
+        assert!(err.contains(&format!("rulings.{name}")), "{err}");
+        assert!(err.contains("the ruling panel is gone"), "{err}");
+        assert!(err.contains("shep kelpie settings migrate"), "{err}");
+    }
 }
 
 #[test]
-fn full_panel_paths_default_to_none_and_take_globs() {
-    assert!(parse(EXAMPLE).unwrap().rulings.full_panel_paths.is_empty());
-    let on = "\n[app.dogs.kelpie.rulings]\n\
-              full_panel_paths = [\"src/guard/**\", \".github/workflows/**\"]\n";
-    let rulings = parse(&format!("{EXAMPLE}{on}")).unwrap().rulings;
-    assert_eq!(
-        rulings.full_panel_paths,
-        ["src/guard/**", ".github/workflows/**"]
-    );
-}
-
-#[test]
-fn a_ruling_kind_or_a_mode_that_does_not_exist_is_refused_by_name() {
+fn a_ruling_kind_that_does_not_exist_is_refused_by_name() {
     let kind = parse_err(&format!(
         "{EXAMPLE}\n[app.dogs.kelpie.rulings]\npm_alone = [\"coffee\"]\n"
     ));
     assert!(kind.contains("rulings.pm_alone"), "{kind}");
     assert!(kind.contains("coffee"), "{kind}");
-    let mode = parse_err(&format!(
-        "{EXAMPLE}\n[app.dogs.kelpie.rulings]\ndecide = \"sometimes\"\n"
-    ));
-    assert!(mode.contains("rulings.decide"), "{mode}");
 }
 
 // The example settings, with its budget table taken out and `table` put in its place

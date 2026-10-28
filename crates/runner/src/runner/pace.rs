@@ -4,20 +4,23 @@
 //! the worker's account, a review round on its reviewer's. Each open item's
 //! own agent is included, listed or not. Each account keeps its own day and
 //! its own holds. An agent limited by a lease is never paced. A reading that
-//! finds a hold is trusted for [`RECHECK_SECS`] or until the hold ends. A
-//! reading that finds no hold is never reused. With `pacing.enabled` off the
-//! reading still runs for `status`, and neither limit holds anything.
+//! finds a hold is trusted for [`RECHECK_SECS`] or until the hold ends. One
+//! that finds no hold is never reused past its step, which reads it with the
+//! lock let go. With `pacing.enabled` off the reading still runs for `status`,
+//! and neither limit holds anything.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 
 use serde::Serialize;
 
 use super::Runner;
 use super::report::{Begin, StepReport};
+use super::turn::reads::Job;
 use crate::agents::Runs;
 use crate::board::Skip;
 use crate::pacer::{Assessment, Hold, RECHECK_SECS, Reading, Scope, assess, named};
-use crate::ports::{PaddockHolder, Timestamp};
+use crate::ports::{Meter, PaddockHolder, Timestamp};
 use crate::settings::{Account, AgentHarness, AgentName, GatewayName, Limit, ModelHost};
 use crate::state::StateError;
 
@@ -46,6 +49,8 @@ pub(super) enum Pace {
     Held(Hold),
     /// A hold from an earlier reading still stands
     StillHeld(Hold),
+    /// The step reads the account's usage with the lock let go, and is made again
+    Reads(Box<Job>),
 }
 
 /// How a start the pacer may hold back ended
@@ -63,7 +68,7 @@ impl Pace {
     /// The pacer's reading of the hold, or `None` when nothing holds
     pub(super) fn reason(&self) -> Option<&str> {
         match self {
-            Self::Clear => None,
+            Self::Clear | Self::Reads(_) => None,
             Self::Held(hold) | Self::StillHeld(hold) => Some(&hold.reason),
         }
     }
@@ -73,6 +78,7 @@ impl Pace {
         match self {
             Self::Clear => None,
             Self::StillHeld(_) => Some(Begin::Idle),
+            Self::Reads(job) => Some(Begin::Reads(job)),
             Self::Held(Hold {
                 kind,
                 reason,
@@ -102,18 +108,32 @@ impl Runner {
 
     /// Paces `scope` on `limit`: an account's windows, or nothing for a lease
     pub(super) fn pace(&mut self, scope: Scope, limit: &Limit) -> Result<Pace, StateError> {
+        self.pace_on(scope, limit, true)
+    }
+
+    /// [`Runner::pace`] for a caller that cannot be made again, which reads under the lock
+    /// whatever its step has not read
+    pub(super) fn pace_now(&mut self, scope: Scope, limit: &Limit) -> Result<Pace, StateError> {
+        self.pace_on(scope, limit, true)
+    }
+
+    fn pace_on(&mut self, scope: Scope, limit: &Limit, off_lock: bool) -> Result<Pace, StateError> {
         let Limit::Account(account) = *limit else {
             return Ok(Pace::Clear);
         };
         let now = self.ports.clock.now();
-        if let Some((read_at, last)) = self.pacing.get(&account) {
-            let trusted = now.0 < read_at.0 + RECHECK_SECS;
-            if let Some(hold) = last.hold(scope).filter(|hold| trusted && now < hold.until) {
-                return Ok(Pace::StillHeld(hold.clone()));
-            }
+        if let Some(hold) = self.still_held(account, scope, now) {
+            return Ok(Pace::StillHeld(hold.clone()));
         }
+        let read = match self.reads.usage(account) {
+            Some(read) => read,
+            None => match self.usage_job(account, now).filter(|_| off_lock) {
+                Some(job) => return Ok(Pace::Reads(job)),
+                None => self.ports.meter_of(account).read(now),
+            },
+        };
         let prior = self.state.day_start(account);
-        let mut assessment = match self.ports.meter_of(account).read(now) {
+        let mut assessment = match read {
             Ok(usage) => assess(
                 account,
                 now,
@@ -143,6 +163,21 @@ impl Runner {
         Ok(hold.map_or(Pace::Clear, Pace::Held))
     }
 
+    // The hold an earlier reading of `account` found on `scope`, while it is trusted
+    fn still_held(&self, account: Account, scope: Scope, now: Timestamp) -> Option<&Hold> {
+        let (read_at, last) = self.pacing.get(&account)?;
+        let trusted = now.0 < read_at.0 + RECHECK_SECS;
+        last.hold(scope).filter(|hold| trusted && now < hold.until)
+    }
+
+    /// The meters a new work item is paced on, less those a trusted hold answers for
+    pub(super) fn dispatch_meters(&self, now: Timestamp) -> Vec<(Account, Arc<dyn Meter>)> {
+        (self.spent_accounts().into_iter())
+            .filter(|&account| self.still_held(account, Scope::Dispatch, now).is_none())
+            .map(|account| (account, Arc::clone(self.ports.meter_of(account))))
+            .collect()
+    }
+
     /// Paces a new work item on every account the project's calls spend
     ///
     /// A work item spends each role's account, so any one over its allowance
@@ -155,17 +190,6 @@ impl Runner {
             }
         }
         Ok(Pace::Clear)
-    }
-
-    /// Paces the issue writer's call on its account, Claude's since it runs
-    /// on Claude Code alone, when no listed role spends that account and so
-    /// [`Runner::pace_dispatch`] has not read it
-    pub(super) fn pace_writer(&mut self) -> Result<Pace, StateError> {
-        let claude = Limit::Account(Account::Claude);
-        if self.spent_accounts().contains(&Account::Claude) {
-            return Ok(Pace::Clear);
-        }
-        self.pace(Scope::Dispatch, &claude)
     }
 
     /// Paces a new work item on `agent`'s own account, one the project may not

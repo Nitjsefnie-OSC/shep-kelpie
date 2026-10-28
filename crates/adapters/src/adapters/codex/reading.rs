@@ -1,6 +1,6 @@
-//! A Codex reviewer, advisor and retro: a shell that reads the repo
+//! A Codex reviewer and retro: a shell that reads the repo
 //!
-//! Codex has no read tool, only a shell, so a reviewer, advisor or retro in a
+//! Codex has no read tool, only a shell, so a reviewer or retro in a
 //! fence keeps `shell_tool` and runs `kelpie guard --read-only` on each
 //! command: the short list of commands that read, and no redirect. A reviewer
 //! with a write folder still patches that folder alone. A call with no fence
@@ -9,25 +9,24 @@
 use super::*;
 use crate::guard::{READ_ONLY_COMMANDS, READ_ONLY_FLAG};
 
-/// Whether the call reads through the read-only shell: a reviewer, advisor or
-/// retro with a fence to hold it
+/// Whether the call reads through the read-only shell: a reviewer or retro
+/// with a fence to hold it
 pub(super) fn has_shell(call: &AgentCall) -> bool {
     call.reach.fence.is_some() && judges_reads(call.tools)
 }
 
 /// Whether the shell of a call that runs `tools` is the read-only guard's
 pub(super) fn judges_reads(tools: Tools) -> bool {
-    matches!(tools, Tools::Review | Tools::Advise | Tools::Retro)
+    matches!(tools, Tools::Review | Tools::Retro)
 }
 
 /// Whether a call that runs `tools` in `fence` patches no file
 ///
 /// A reviewer asked for tests patches the one folder its fence writes. A
-/// retro and an advisor run under a fence that can write, which a patch must
-/// not use.
+/// retro runs under a fence that can write, which a patch must not use.
 pub(super) fn patches_nothing(tools: Tools, fence: &Fence) -> bool {
     match tools {
-        Tools::Retro | Tools::Advise => true,
+        Tools::Retro => true,
         Tools::Review => fence.write.is_empty(),
         _ => false,
     }
@@ -36,7 +35,7 @@ pub(super) fn patches_nothing(tools: Tools, fence: &Fence) -> bool {
 /// Whether the OS sandbox lets the call write nothing but Codex's own home
 /// and scratch, whatever its fence writes
 pub(super) fn writes_nothing(tools: Tools) -> bool {
-    matches!(tools, Tools::Retro | Tools::Advise)
+    tools == Tools::Retro
 }
 
 /// The `Bash` hook's command: `kelpie guard` in its read-only mode, and the

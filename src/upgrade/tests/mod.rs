@@ -59,7 +59,11 @@ impl Rig {
 
     // `linked`: the installed path is a symlink to the file that holds the build.
     async fn on(shepherd_version: &str, linked: bool) -> Self {
-        let shepherd = FakeShepherd::on(shepherd_version);
+        Self::holding_on(FakeShepherd::on(shepherd_version), linked, table()).await
+    }
+
+    // As `on`, through `shepherd`, with `table` as koji's settings.
+    async fn holding_on(shepherd: FakeShepherd, linked: bool, table: Map<String, Value>) -> Self {
         let home = shepherd.scratch("kelpie");
         let bin = shepherd.scratch("bin");
         let builds = shepherd.scratch("builds");
@@ -79,18 +83,23 @@ impl Rig {
             builds,
             installed,
         };
-        rig.runs("koji", &rig.installed, true);
+        rig.runs_with("koji", &rig.installed, true, table);
         rig
     }
 
     // A runner for `name` that runs `program`.
     fn runs(&self, name: &str, program: &Path, online: bool) {
+        self.runs_with(name, program, online, table());
+    }
+
+    // A runner for `name` that runs `program`, with `table` as its settings.
+    fn runs_with(&self, name: &str, program: &Path, online: bool, table: Map<String, Value>) {
         let launch = Launch {
             kelpie: program.to_owned(),
             shep_home: self.shepherd.home().to_owned(),
             kelpie_home: Some(self.home.clone()),
         };
-        let runner = launch.runner(&ProjectName::try_from(name).unwrap(), table());
+        let runner = launch.runner(&ProjectName::try_from(name).unwrap(), table);
         self.shepherd.holds(runner, online);
     }
 
@@ -206,9 +215,11 @@ fn says(path: &Path) -> String {
     format!("{} for shep {}", build.kelpie, build.shep)
 }
 
+// Every kind named already, so a bare upgrade's settings step has nothing to write.
 fn table() -> Map<String, Value> {
     let mut table = Map::new();
     table.insert("forge".into(), Value::String("shep-pm/koji".into()));
+    crate::flock::set::migrate::pm_decides(&mut table);
     table
 }
 

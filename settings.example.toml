@@ -109,20 +109,16 @@ per_item_usd = 10
 # agent files, `$SHEP_HOME/kelpie/agents/<name>.md`, which `shep kelpie add`
 # writes out, a local model (`usage: none`) as well as any. An issue
 # labelled `agent:<name>` runs on that one, listed here or not, as long as
-# its file says `role: implementer`. With one listed, any other runs
-# on it; with more, the issue writer reads the issue and labels it first,
-# unless `implementer_choice` below says otherwise.
+# its file says `role: implementer`. Any other runs on the first listed.
 # A work item keeps the agent it opened on, unless its first turn falls
 # back (below). `sonnet-high` alone when absent.
 [app.dogs.kelpie.agents]
 implementers = ["sonnet-high"]
-# How an issue with no `agent:` label gets its implementer: `issue-writer`,
-# where the issue writer reads the issue and labels it first, or `order`,
-# where it runs on the first implementer listed and no call runs. An issue's
-# own `agent:` label wins either way, and `fallback_after` below still moves
-# a first turn that waited past it, for an issue opened on the first listed
-# included. `issue-writer` when absent.
-# implementer_choice = "issue-writer"
+# How an issue with no `agent:` label gets its implementer: `order`, where
+# it runs on the first implementer listed and no call runs, the only choice
+# and the default. `fallback_after` below still moves a first turn that
+# waited past it.
+# implementer_choice = "order"
 # The agents that review each pull request, from the same files, whose
 # role is `reviewer`: each reads it once, in this order. After each one that
 # finds anything above a nit, the worker gets one turn to fix all of that
@@ -154,22 +150,6 @@ implementers = ["sonnet-high"]
 # Absent, the board's rule picks (priority, then age) and a stuck item
 # waits on its ruling, as it does whenever the project manager is down.
 # pm = "pm"
-# The panel that votes on each ruling before you are asked (the worker and the
-# project manager are the other two): an advisor, from a file whose role is
-# `advisor`, which reads the codebase, and a researcher, from a file whose role
-# is `researcher`, which reads everything outside it: earlier rulings and
-# their answers, the issue and pull request threads, the worker's session,
-# your own agent sessions (`[researcher]` below) and the web. Kelpie's own are
-# Opus 5.5 at high and Sonnet 5.5 at high. Neither runs git, gh or a
-# command, or writes anything but its vote. A ruling that lists two options or
-# more waits up to 20 minutes for the votes, then lists them as the panel.
-# Absent, no panel votes.
-# advisor = "advisor"
-# The researcher's agent file, named as the advisor's is.
-# researcher = "researcher"
-# The issue writer's agent file, which `shep kelpie issue` runs and which
-# labels an unlabelled issue. `issue-writer` when absent.
-# issue_writer = "issue-writer"
 # The representative's agent file, from a file whose role is `representative`:
 # the voice of every post kelpie makes to a contributor, which words the facts
 # kelpie's code drafted and reads and runs nothing. It runs on any harness.
@@ -294,18 +274,6 @@ compact_window = 200000
 # point = "command"
 # command = "~/bin/git-gate"
 
-# What the researcher may read beyond what kelpie writes into its folder.
-# `transcripts` names folders of your own agent sessions (Claude Code's
-# `~/.claude/projects`, Codex's `~/.codex/sessions`, pi's
-# `~/.pi/agent/sessions`), read only and off while empty; only a session that
-# ran in this project's checkout is read, the latest dozen, and only what was
-# asked and said. `allowed_domains` are the hosts its web fetch may reach, such
-# as a library's docs; its web search needs none. An entry is written as
-# `worker.allowed_domains` is, a host with an optional leading `*.`.
-# [app.dogs.kelpie.researcher]
-# transcripts = ["~/.claude/projects"]
-# allowed_domains = ["docs.rs"]
-
 # The host that runs the project's end-to-end tests, which a worker cannot run
 # in its sandbox. A worker asks for a run with `kelpie lease e2e`: the dog
 # copies the worktree to `host`, runs `command` there and copies `results`
@@ -320,33 +288,41 @@ compact_window = 200000
 # command = "scripts/e2e-remote.sh"
 # results = "test-results"
 
-# Whether the panel decides a ruling. `shadow` (when absent) has it vote and
-# post on every ruling while you still answer, and `status` counts the run of
-# rulings where its recommendation matched your answer. `panel` has it decide:
-# three experts on one option, with none flagging `design`, or a smaller panel
-# all agreeing, as the work item's type sets (`docs` asks the project manager;
-# `fix`, `refactor`, `perf`, `test`, `ci`, `chore` and `style` the project
-# manager and the advisor; `feat`, a breaking `!` or no type all four). A
-# question, a `design` flag and a diff that touches a `full_panel_paths` glob
-# ask all four whatever the type, and whatever `pm_alone` lists. A split and a
-# merge under `git.merging = "ask"` come to you with every vote. `pm_alone` lists kinds of
-# ruling the project manager decides with its own vote on any type of work
-# (`question`, `still-red`, `turn-timeout`, `turn-failed` ...); an abstention
-# calls the type's panel, a `design` flag all four, and `merge` is refused.
-# Empty when absent. `full_panel_paths` lists globs (`*` stays in a folder,
-# `**` spans folders) of paths too risky for a smaller panel: a work item whose
-# diff from its merge base touches one gets all four. Empty when absent.
-# `always` is off unless set. It has the panel decide every ruling it votes on,
-# and asks you only when no expert voted: all four are asked at once whatever the
-# type, the option with the most votes wins, and a `design` flag is recorded but
-# does not send it to you. A tie goes to the project manager's choice when it is
-# one of the tied, else to the tied option listed first; a tie never merges. A
-# merge under `git.merging = "ask"` still comes to you. `pm_alone` and
-# `full_panel_paths` have no effect under `always`.
-# [app.dogs.kelpie.rulings]
-# decide = "panel"
-# pm_alone = ["turn-timeout", "still-red"]
-# full_panel_paths = ["src/guard/**", ".github/workflows/**"]
+# Which kinds of ruling the project manager answers for you, once `pm` names
+# it. `pm_decides` maps each kind to `true`, which it answers, or `false`,
+# which you answer; a kind it leaves out is yours. A ruling left to it waits up
+# to one wake for its answer. An option it picks is applied and posted on the
+# ruling's thread, where `<id> no <note>` reopens it; an abstention, a `design`
+# flag, a merge under `git.merging = "ask"` or an option only you can carry
+# out comes to you with its pick. A question and a follow-up have wakes of
+# their own, whatever their value. `merge`, `security`, `contribution-merge`
+# and `local-model-spilled` are refused as `true`, and are never written.
+# `shep kelpie add`, `upgrade` and `shep kelpie settings migrate` write each
+# other kind it is missing, at the value below, and never change one it has.
+# The old `pm_alone` list still loads, as `true` for each kind it names, and
+# the migration turns it into the map. It also deletes the panel's `decide`,
+# `full_panel_paths`, `agents.advisor`, `agents.researcher` and `[researcher]`
+# table, and `advisor` and `researcher` from `repo_setup.roles`, which the
+# runner refuses.
+# [app.dogs.kelpie.rulings.pm_decides]
+# question = false
+# agent-files = false
+# foreign-change = false
+# follow-up = true
+# rebase = true
+# still-red = true
+# check-queued = true
+# no-checks = true
+# merge-refused = true
+# closed = true
+# fix-not-pushed = true
+# test-still-fails = true
+# unpushed = true
+# push-refused = true
+# turn-timeout = true
+# turn-failed = true
+# adopt-failed = true
+# over-budget = true
 
 # Whether kelpie picks up other people's pull requests. `pick` is `off` (its
 # own pull requests only), `label` (those the maintainer labels for it) or
@@ -380,8 +356,12 @@ compact_window = 200000
 # `ready-for-agent` by hand, when it has no triage record, no work item and no
 # open pull request: kelpie saves a record, then swaps the label for
 # `needs-triage`, before the board's pick, and the pass asks its questions and
-# puts `ready-for-agent` back once it is sure. It needs `pick` to be
-# `maintainer` or `all`, and any worker gets the issue after.
+# puts `ready-for-agent` back once the issue check passes its rewrite. It needs
+# `pick` to be `maintainer` or `all`, and any worker gets the issue after.
+#
+# Whatever `pick` says, kelpie runs the issue check on each new or edited open
+# issue. The maintainer's issue that passes is labelled `ready-for-agent`, and
+# anyone else's waits at `needs-triage`. Only an issue that fails is triaged.
 #
 # Four limits are checked before any issue's research call, so a burst of issues
 # or one noisy author cannot spend the triager's budget. Each is 0 for off, and
@@ -481,10 +461,10 @@ compact_window = 200000
 # plugins. `own = false` leaves the repo's own files out and keeps its plugins.
 # A call in a worktree that matches the default branch loads those files from
 # it, and does not get them twice. `roles` lists the calls that get plugins and
-# the repo's own files, from `worker`, `reviewer`, `issue-writer`, `pm`,
-# `advisor` and `researcher`, all of them when absent. `parts` lists which
-# parts load, from `skills`, `agents`, `commands`, `hooks` and `mcp`, all of
-# them when absent: a hook runs beside kelpie's own and cannot replace them.
+# the repo's own files, from `worker`, `reviewer` and `pm`,
+# all of them when absent. `parts` lists which parts load, from `skills`,
+# `agents`, `commands`, `hooks` and `mcp`, all of them when absent: a hook
+# runs beside kelpie's own and cannot replace them.
 # `mcp` adds the MCP servers of a plugin and of the repo's `.mcp.json` on its
 # default branch to those calls; the hosts they reach need `allowed_domains`.
 # `skip` lists plugins, as `name@marketplace`, left out though the repo turns
@@ -496,7 +476,7 @@ compact_window = 200000
 # [app.dogs.kelpie.repo_setup]
 # plugins = true
 # own = true
-# roles = ["worker", "reviewer", "issue-writer", "pm", "advisor", "researcher"]
+# roles = ["worker", "reviewer", "pm"]
 # parts = ["skills", "agents", "commands", "hooks", "mcp"]
 # skip = ["noisy@house"]
 # extra = { "style@lab" = "github:acme/lab#v2" }

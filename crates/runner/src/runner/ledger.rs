@@ -140,8 +140,8 @@ impl Runner {
         Some(line)
     }
 
-    /// Writes the line for a call no work item records, the project
-    /// manager's or the issue writer's, that came back as `result`
+    /// Writes the line for a call no work item records, such as the project
+    /// manager's, that came back as `result`
     pub(super) fn plain_line(&mut self, open: &Open, result: &Result<AgentReply, AgentError>) {
         let Some(ended) = ended(result) else {
             return;
@@ -151,12 +151,9 @@ impl Runner {
             .and_then(|session| self.ledger.session_cost(session))
             .unwrap_or(Cost(0));
         let now = self.ports.clock.now();
-        let mut line = open
+        let line = open
             .draft
             .line(now, ended, spent, before, self.pacer_lines());
-        if open.draft.role() == Role::Pm {
-            line.votes = self.pm_vote_marks(result);
-        }
         self.ledger.append(&Line::Call(line));
     }
 
@@ -172,8 +169,8 @@ impl Runner {
     pub(super) fn append_call(&mut self, mut line: CallLine, unreported: bool) {
         let item = line.issue.and_then(|ticket| self.state.item(ticket));
         line.pull_request = line.pull_request.or(item.and_then(|i| i.pull_request));
-        let counted =
-            (line.issue.zip(line.session.as_ref())).map(|(ticket, _)| (ticket, line.role));
+        let counted = (line.issue.zip(line.session.as_ref()))
+            .and_then(|(ticket, _)| Some((ticket, line.role.known()?)));
         self.ledger.append(&Line::Call(line));
         if let (true, Some(counted)) = (unreported, counted) {
             self.count_unreported(&[counted]);
@@ -192,12 +189,7 @@ impl Runner {
             let count = match role {
                 Role::Worker => &mut item.counts.worker_unreported,
                 Role::Reviewer => &mut item.counts.reviewer_unreported,
-                Role::IssueWriter
-                | Role::Pm
-                | Role::Advisor
-                | Role::Researcher
-                | Role::Representative
-                | Role::Triager => continue,
+                Role::Pm | Role::Representative | Role::Triager => continue,
             };
             *count = count.saturating_add(1);
             changed = true;

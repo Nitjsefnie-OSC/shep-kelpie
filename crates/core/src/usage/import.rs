@@ -79,8 +79,8 @@ fn call_of(line: &str) -> Option<CallLine> {
         at: Timestamp(u64::try_from(at.as_second()).ok()?),
         issue: step.issue,
         pull_request: step.pull_request,
-        role: Role::Worker,
-        kind: CallKind::Turn,
+        role: Role::Worker.into(),
+        kind: CallKind::Turn.into(),
         agent: None,
         harness: None,
         model: None,
@@ -97,7 +97,6 @@ fn call_of(line: &str) -> Option<CallLine> {
         gpu_seconds: None,
         pacer: Default::default(),
         imported: true,
-        votes: Vec::new(),
     })
 }
 

@@ -61,17 +61,8 @@ pub const QWEN: &str = "qwen";
 /// with `contributions.security_reviewer`
 pub const SECURITY_REVIEWER: &str = "security-reviewer";
 
-/// The agent `shep kelpie issue` runs
-pub const ISSUE_WRITER: &str = "issue-writer";
-
 /// The project manager kelpie ships, which a project runs with `agents.pm`
 pub const PM: &str = "pm";
-
-/// The advisor kelpie ships, which a project runs with `agents.advisor`
-pub const ADVISOR: &str = "advisor";
-
-/// The researcher kelpie ships, which a project runs with `agents.researcher`
-pub const RESEARCHER: &str = "researcher";
 
 /// The representative kelpie ships, which a project runs with
 /// `agents.representative`
@@ -146,16 +137,8 @@ pub enum Role {
     /// It reads a pull request once a pass, once a project lists it in
     /// `agents.reviewers`
     Reviewer,
-    /// It turns a request into issues, as `shep kelpie issue` runs it
-    IssueWriter,
     /// It manages the project's board, once a project names it in `agents.pm`
     Pm,
-    /// It votes on each ruling from the codebase, once a project names it
-    /// in `agents.advisor`
-    Advisor,
-    /// It votes on each ruling from everything outside the codebase, once a
-    /// project names it in `agents.researcher`
-    Researcher,
     /// It words the facts kelpie drafted into a post to a contributor, once a
     /// project names it in `agents.representative`
     Representative,
@@ -166,13 +149,10 @@ pub enum Role {
 
 impl Role {
     /// Every role an agent file can name, in the order `agents init` writes them
-    pub const ALL: [Self; 8] = [
+    pub const ALL: [Self; 5] = [
         Self::Implementer,
         Self::Reviewer,
-        Self::IssueWriter,
         Self::Pm,
-        Self::Advisor,
-        Self::Researcher,
         Self::Representative,
         Self::Triager,
     ];
@@ -182,10 +162,7 @@ impl Role {
         match self {
             Self::Implementer => "implementer",
             Self::Reviewer => "reviewer",
-            Self::IssueWriter => "issue-writer",
             Self::Pm => "pm",
-            Self::Advisor => "advisor",
-            Self::Researcher => "researcher",
             Self::Representative => "representative",
             Self::Triager => "triager",
         }
@@ -269,8 +246,7 @@ pub struct Agent {
     /// What runs its calls
     pub runs: Runs,
     /// Its file's body: an implementer's addition to kelpie's own
-    /// instructions, or a reviewer's or the issue writer's prompt. None
-    /// when blank.
+    /// instructions, or another role's prompt. None when blank.
     pub prompt: Option<String>,
     /// Globs of the files a pull request must change for this reviewer to
     /// run. Every pull request when empty, and always empty for another role.
@@ -667,7 +643,7 @@ pub fn write_defaults(folder: &Path, home: &Path) -> Result<Vec<&'static str>, A
 ///
 /// Each file leads with a comment saying kelpie writes it, so an edit is
 /// lost, and where to override it instead. A file is replaced by a rename, so
-/// a read never sees half of one.
+/// a read never sees half of one, and one kelpie no longer ships is removed.
 ///
 /// # Errors
 ///
@@ -675,9 +651,10 @@ pub fn write_defaults(folder: &Path, home: &Path) -> Result<Vec<&'static str>, A
 pub fn write_baselines(folder: &Path) -> Result<(), AgentsError> {
     let kept = folder.join(BASELINES);
     fs::create_dir_all(&kept).map_err(|e| failed(&kept, e))?;
-    let shipped = (DEFAULTS.iter().map(|(name, text, _)| (*name, *text)))
-        .chain(baseline::ALL.iter().map(|b| (b.name, b.text)));
-    for (name, text) in shipped {
+    let shipped: Vec<(&str, &str)> = (DEFAULTS.iter().map(|(name, text, _)| (*name, *text)))
+        .chain(baseline::ALL.iter().map(|b| (b.name, b.text)))
+        .collect();
+    for &(name, text) in &shipped {
         let body = text.strip_prefix("---\n").unwrap_or(text);
         let whole = format!(
             "---\n# Kelpie writes this file and replaces it on every upgrade, so an edit here is \
@@ -686,7 +663,7 @@ pub fn write_baselines(folder: &Path) -> Result<(), AgentsError> {
         let file = format!("{name}.md");
         replace(&kept, &file, &whole).map_err(|e| failed(&kept.join(&file), e))?;
     }
-    sweep(&kept);
+    sweep(&kept, &shipped);
     Ok(())
 }
 
@@ -755,8 +732,8 @@ fn writable(_: &Path) -> io::Result<()> {
 }
 
 // Removes the temporary files in `kept` that no live writer can hold, which a
-// crash left behind. Best effort: a refresh does not fail for them.
-fn sweep(kept: &Path) {
+// crash left behind, and the files of agents not `shipped`. Best effort.
+fn sweep(kept: &Path, shipped: &[(&str, &str)]) {
     let Ok(entries) = fs::read_dir(kept) else {
         return;
     };
@@ -768,7 +745,10 @@ fn sweep(kept: &Path) {
             .ok()
             .and_then(|at| at.elapsed().ok())
             .is_some_and(|age| age > STALE);
-        if old && path.extension().is_some_and(|ext| ext == "tmp") {
+        let stem = path.file_stem().and_then(|stem| stem.to_str());
+        let gone = path.extension().is_some_and(|ext| ext == "md")
+            && stem.is_some_and(|stem| shipped.iter().all(|(name, _)| *name != stem));
+        if gone || (old && path.extension().is_some_and(|ext| ext == "tmp")) {
             let _ = writable(&path).and_then(|()| fs::remove_file(&path));
         }
     }
@@ -886,49 +866,6 @@ impl fmt::Display for AgentsError {
 }
 
 impl core::error::Error for AgentsError {}
-
-/// What the issue writer runs on, from its agent file
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Writer {
-    /// Its agent file's name, `agents.issue_writer`
-    pub name: AgentName,
-    /// Its model and effort, on Claude Code
-    pub model: RoleModel,
-    /// Its file's body: its prompt
-    pub prompt: String,
-}
-
-impl Writer {
-    /// The agent `name` in `agents`, as `agents.issue_writer` names it
-    ///
-    /// # Errors
-    ///
-    /// A message when `agents` has no `name`, or its file is another role's.
-    pub fn of(agents: &Agents, name: &AgentName) -> Result<Self, String> {
-        let agent = agents.get(name).ok_or_else(|| {
-            match (agents.broken(name), agents.unbound_command(name)) {
-                (Some(error), _) => error.to_string(),
-                (None, Some(command)) => format!("`{name}` is unbound: run `{command}`"),
-                (None, None) => {
-                    format!("there is no `{name}` agent: write `agents/{name}.md` in kelpie's home")
-                }
-            }
-        })?;
-        let (Role::IssueWriter, Runs::Session { model, .. }, Some(prompt)) =
-            (agent.role, &agent.runs, &agent.prompt)
-        else {
-            return Err(format!(
-                "agent file `{name}.md` is a {}'s: its role must be `issue-writer`",
-                agent.role.as_str()
-            ));
-        };
-        Ok(Self {
-            name: name.clone(),
-            model: model.clone(),
-            prompt: prompt.clone(),
-        })
-    }
-}
 
 /// The listed implementers, the default first, as an `agent:` label names them
 pub fn implementers(agents: &RoleAgents) -> String {

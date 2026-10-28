@@ -59,12 +59,9 @@ fn a_blank_tools_list_is_refused() {
 }
 
 #[test]
-fn the_issue_writer_and_the_project_manager_take_no_tools() {
-    for role in ["issue-writer", "pm"] {
-        let text = format!(
-            "---\nrole: {role}\nharness: claude-code\nmodel: m\neffort: low\ntools: Bash\n---\n\nPrompt.\n"
-        );
-        let err = refused(&[("kept.md", &text)]);
-        assert!(err.contains("tools"), "{role}: {err}");
-    }
+fn the_project_manager_takes_no_tools() {
+    let text =
+        "---\nrole: pm\nharness: claude-code\nmodel: m\neffort: low\ntools: Bash\n---\n\nPrompt.\n";
+    let err = refused(&[("kept.md", text)]);
+    assert!(err.contains("tools"), "{err}");
 }

@@ -144,20 +144,17 @@ fn a_goose_reviewer_with_no_tests_folder_stays_read_only() {
 }
 
 #[test]
-fn a_retro_and_an_advisor_with_a_write_folder_get_no_write() {
-    for (role, tools) in [(Role::Worker, Tools::Retro), (Role::Advisor, Tools::Advise)] {
-        let w = World::new();
-        let mut call = AgentCall {
-            role,
-            tools,
-            ..worker(&w, Session::New(id(FRESH_ID)))
-        };
-        assert!(!call.reach.fence.as_ref().unwrap().write.is_empty());
+fn a_retro_with_a_write_folder_gets_no_write() {
+    let w = World::new();
+    let mut call = AgentCall {
+        tools: Tools::Retro,
+        ..worker(&w, Session::New(id(FRESH_ID)))
+    };
+    assert!(!call.reach.fence.as_ref().unwrap().write.is_empty());
 
-        let args = hook_args(&w, &mut call);
+    let args = hook_args(&w, &mut call);
 
-        assert_eq!(goose_write_flag(&args).0, None, "{tools:?}: {args:?}");
-    }
+    assert_eq!(goose_write_flag(&args).0, None, "{args:?}");
 }
 
 #[test]

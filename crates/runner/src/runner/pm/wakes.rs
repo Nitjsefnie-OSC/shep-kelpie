@@ -11,14 +11,12 @@ use std::collections::BTreeMap;
 
 use crate::board::briefing::{age, elapsed, ticket_ref};
 
-use super::{Pick, StuckState, Wake, answer};
-use crate::panel::{Tier, Voter};
-use crate::ports::{AgentError, AgentReply, Timestamp};
+use super::{Pick, StuckState, Wake};
+use crate::ports::Timestamp;
 use crate::runner::Runner;
-use crate::settings::RulingName;
+use crate::runner::voice::brief;
 use crate::state::{ProjectState, Ruling, RulingKind, Stuck};
 use crate::ticket::TicketId;
-use crate::usage::VoteMark;
 use crate::work_item::Phase;
 
 /// How long an idle call left alone is dropped for after its first `none`, in
@@ -224,48 +222,6 @@ impl Runner {
         }
     }
 
-    /// The votes the wake in flight casts, for its line in the usage ledger:
-    /// one for each ruling it was asked to vote on, with its choice where
-    /// `result` holds one and none where the project manager abstained. A
-    /// wake that failed, or whose reply is unread, casts none: it is asked
-    /// again, and its retry writes them.
-    pub(in crate::runner) fn pm_vote_marks(
-        &self,
-        result: &Result<AgentReply, AgentError>,
-    ) -> Vec<VoteMark> {
-        let Some(flying) = &self.pm.flying else {
-            return Vec::new();
-        };
-        let asked = flying.wakes.iter().filter_map(|w| match w {
-            Wake::Vote { id, .. } => Some(*id),
-            _ => None,
-        });
-        let Some(answer) = result.as_ref().ok().and_then(|r| answer::read(&r.text)) else {
-            return Vec::new();
-        };
-        asked
-            .map(|id| {
-                let fields = answer.votes.iter().find(|(ruling, _)| *ruling == id);
-                let choice = fields
-                    .and_then(|(_, f)| crate::panel::from_fields(f, self.panel_options(id)).ok())
-                    .map(|vote| vote.choice);
-                match self.panel.plan(id) {
-                    Some(plan) => plan.mark(id, Voter::Pm, choice),
-                    // Its ruling is settled or gone, so only what it was is known.
-                    None => VoteMark {
-                        ruling: id,
-                        ruling_kind: (self.state.rulings.iter().find(|r| r.id == id))
-                            .map_or(RulingName::Question, |r| RulingName::of(&r.kind)),
-                        voter: Voter::Pm,
-                        panel: Tier::Full,
-                        work: "untyped".to_owned(),
-                        choice,
-                    },
-                }
-            })
-            .collect()
-    }
-
     /// Notes what saving `now` changes that wakes the project manager: a
     /// work item parked on a stuck ruling, or one closing, which lets its
     /// holds go. A pick of an issue stands whatever opens or closes, since
@@ -304,10 +260,10 @@ impl Runner {
         }
     }
 
-    // Wakes the project manager for each question ruling `now` raises, and
-    // each follow-up ruling asking whether to file findings. The ruling is
-    // held back from the maintainer for its answer, unless the manager is
-    // down or the ruling is held by the maintainer's terminal.
+    // Wakes the project manager for each question, follow-up and ruling it
+    // answers for the maintainer that `now` raises. The ruling is held back
+    // from the maintainer for its answer, unless the manager is down or the
+    // ruling is held by the maintainer's terminal.
     fn pm_asked(&mut self, now: &ProjectState) {
         let at = self.ports.clock.now();
         let passed = (self.pm.down_until).is_some_and(|until| at < until);
@@ -337,6 +293,11 @@ impl Runner {
                     id,
                     pull_request,
                     findings: findings.clone(),
+                },
+                (_, _, _, true) if self.pm_answers_ruling(ruling) => Wake::Answer {
+                    id,
+                    asked: brief(ruling).0,
+                    request: None,
                 },
                 _ => continue,
             };

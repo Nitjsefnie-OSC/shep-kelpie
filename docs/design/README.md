@@ -13,7 +13,7 @@ Kelpie: the maintainer's dog; one runner per project builds ready issues. Mainta
 - The shepherd is reached through the `Dial` port (`core/shepherd/connection.rs`): `Socket` is the real one; tests dial `FakeShepherd`. #587
 - Socket path over 103 bytes: runner won't start. #1147
 - Home never moved from `~/.kelpie`: won't start, naming each old file, exit 78 (`stop_exit_codes`). #311, #345
-- State file version 85 (`VERSION` in `core/state/mod.rs`); each change one way: rollback = finish or drop open items. `core/state/removed/mod.rs`
+- State file version 89 (`VERSION` in `core/state/mod.rs`); each change one way: rollback = finish or drop open items. `core/state/removed/mod.rs`
 - Business code is Rust; Tauri GUI after MVP. #5
 - Crates under `crates/` use nothing above them; the root holds the binary, verbs (`src/{flock,upgrade,sheep,doctor,issues}/`, `src/schema.rs`). ADR 0015
 - No budget numbers in agent prompts; no worker merges/posts as the maintainer (fence.md, github-app.md).
@@ -22,7 +22,7 @@ Kelpie: the maintainer's dog; one runner per project builds ready issues. Mainta
 
 | file | covers | touch (`core/` is `crates/core/src/`, `dog/` is `crates/dog/src/dog/`, `adapters/` is `crates/adapters/src/`, `runner/` is `crates/runner/src/runner/`) |
 |---|---|---|
-| work.md | projects, slots, issues | `src/issues/mod.rs`, `runner/slots.rs`, `src/flock/verbs.rs`, `core/guard/issues/` |
+| work.md | projects, slots, issues | `src/issues/check.rs`, `runner/slots.rs`, `src/flock/verbs.rs`, `core/board/check.rs` |
 | board.md | board, items, adoption | `core/board/`, `runner/{dispatch,adopt}/` |
 | pm.md | the project manager, its board | `runner/{pm,briefing}/` |
 | workers.md | runner loop, turns | `runner/{turn,flight}/` |
@@ -51,7 +51,7 @@ Kelpie: the maintainer's dog; one runner per project builds ready issues. Mainta
 | stuck-checks.md | checks stuck on a finished run | `runner/gate/queued/` |
 | local-tickets.md | the local ticket store, `ticket` verbs, closing on merge | `core/local_tickets/`, `src/flock/ticket.rs`, `runner/close_merged.rs` |
 | github-app.md | App tokens, posting, answers | `runner/voice/`, `core/guard/gh.rs`, `worker_folder/` |
-| ruling-panel.md | panel | `runner/panel/`, `crates/panel/` |
+| who-answers.md | who answers | `runner/pm/rulings.rs` |
 | contributions.md | others' pull requests: settings, detection | `core/settings/{contributions.rs,reviewers/}`, `runner/contributions/`, `core/state/contributions.rs` |
 | contribution-security.md | a contribution's security review | `runner/contributions/`, `runner/flight/security.rs`, `process/worktree/` |
 | contribution-pass.md | reviewers' pass over a green head | `runner/contributions/pass.rs`, `process/worktree/` |
@@ -63,13 +63,14 @@ Kelpie: the maintainer's dog; one runner per project builds ready issues. Mainta
 | dependencies.md | bot bumps: rebase, proof, merge, red | `core/settings/dependencies.rs`, `runner/{dependencies,dev_server/bump}/`, `runner/flight/proving.rs`, `core/state/bumps.rs`, `adapters/{e2e_runner,pages}.rs`, `adapters/bridge/client/` |
 | triage.md | settings, triager, pick rule, `since`, the verb, `status` | `core/settings/triage.rs`, `runner/triage/`, `runner/open_checks.rs`, `core/ports/issue.rs` |
 | triage-limits.md | the limits | `runner/triage/limits.rs` |
-| triage-pass.md | one issue's pass: post, labels, duplicate close, agent-ready | `runner/{triage,flight}/`, `core/ports/voice.rs` |
+| triage-pass.md | a pass: post, labels, duplicate, agent-ready | `runner/{triage,flight}/`, `core/ports/voice.rs` |
 | triage-images.md | an issue's images | `runner/triage/images.rs`, `adapters/gh/attachment.rs` |
-| triage-author.md | author's round: ask, answers, confirming, silence | `runner/triage/{ask,heard}.rs` |
-| triage-local.md | local session: prompt, body hash | `runner/triage/local.rs` |
-| triage-spam.md | the spam check: `triage.spam`, `possible-spam` | `runner/triage/spam.rs` |
+| triage-author.md | author's round: ask, answers, silence | `runner/triage/{ask,heard}.rs` |
+| triage-local.md | local session | `runner/triage/local.rs` |
+| triage-spam.md | the spam check | `runner/triage/spam.rs` |
 | triage-reader.md | who a comment is for | `runner/triage/facts.rs` |
 | triage-hand.md | `hand_ready` take-back | `runner/triage/hand.rs` |
+| triage-check.md | the check on every issue | `runner/triage/checks.rs` |
 | log-lines.md | runner and dog log lines | `runner/drain/`, `runner/{skip_log,claim}.rs`, `runner/review_bot/lease_wait.rs`, `dog/desk.rs`, `dog/door/` |
 | metrics.md | kelpie's series, alerts, dashboard | `core/metrics/`, `core/ports/metrics.rs`, `assets/{prometheus,grafana}/` |
 | metrics-work-items.md | work-item series, `finished` line | `core/usage/finished.rs`, `runner/ci_failure.rs` |

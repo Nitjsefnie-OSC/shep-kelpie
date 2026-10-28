@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 
 mod facts;
 
-pub use facts::{DoctorProbe, HarnessFacts, ResearcherWeb, SessionIds};
+pub use facts::{DoctorProbe, HarnessFacts, SessionIds};
 
 use super::gateway::ModelHost;
 use super::local::ContextSize;
@@ -195,7 +195,7 @@ impl UsageReader {
 
 /// The account whose usage windows an agent spends
 // wire format: changing this is a breaking change to the pacer's status
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Account {
     /// The account `claude` is logged in to
@@ -235,12 +235,12 @@ impl Default for Limit {
 
 /// How an issue with no `agent:` label gets its implementer
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, JsonSchema)]
-#[serde(rename_all = "kebab-case")]
+#[serde(try_from = "String")]
+// schemars describes a `try_from` type by its source, so the bound goes here.
+#[schemars(extend("enum" = ["order"]))]
 pub enum ImplementerChoice {
-    /// The issue writer reads the issue and labels it first
-    #[default]
-    IssueWriter,
     /// The first implementer listed, with no call
+    #[default]
     Order,
 }
 
@@ -248,8 +248,22 @@ impl ImplementerChoice {
     /// The word the setting holds
     pub fn as_str(self) -> &'static str {
         match self {
-            Self::IssueWriter => "issue-writer",
             Self::Order => "order",
+        }
+    }
+}
+
+impl TryFrom<String> for ImplementerChoice {
+    type Error = String;
+
+    fn try_from(value: String) -> Result<Self, String> {
+        match value.as_str() {
+            "order" => Ok(Self::Order),
+            "issue-writer" => Err("`issue-writer` is gone with the issue writer, so an issue \
+                 with no `agent:` label runs on the first implementer listed: delete the key, \
+                 or run `shep kelpie settings migrate`, which does"
+                .to_owned()),
+            other => Err(format!("unknown variant `{other}`, expected `order`")),
         }
     }
 }
@@ -259,21 +273,14 @@ impl ImplementerChoice {
 #[serde(deny_unknown_fields)]
 pub struct RoleAgentNames {
     /// The agents that build its work items, from kelpie's agent files. An
-    /// issue labelled `agent:<name>` runs on that one. With several listed,
-    /// the issue writer labels any other first; with one, it runs on that.
-    /// `["sonnet-high"]` when absent.
+    /// issue labelled `agent:<name>` runs on that one, and any other on the
+    /// first listed. `["sonnet-high"]` when absent.
     #[serde(default = "default_implementers")]
     pub implementers: Vec<AgentName>,
-    /// How an issue with no `agent:` label gets its implementer:
-    /// `issue-writer`, where the issue writer labels it first, or `order`,
-    /// where it runs on the first implementer listed. `issue-writer` when
-    /// absent.
+    /// How an issue with no `agent:` label gets its implementer: `order`,
+    /// where it runs on the first implementer listed, which is the default.
     #[serde(default)]
     pub implementer_choice: ImplementerChoice,
-    /// The issue writer's agent file, which `shep kelpie issue` runs and
-    /// which labels an unlabelled issue. `issue-writer` when absent.
-    #[serde(default = "default_issue_writer")]
-    pub issue_writer: AgentName,
     /// Minutes a work item's first turn may wait for its model, with no
     /// output yet, before it moves to the next implementer listed. Off when
     /// absent.
@@ -290,19 +297,9 @@ pub struct RoleAgentNames {
     /// on rulings alone.
     #[serde(default)]
     pub pm: Option<AgentName>,
-    /// The advisor, from kelpie's agent files, such as `advisor`: one of
-    /// the four experts who vote on each ruling, reading the codebase. When
-    /// absent, no advisor votes.
-    #[serde(default)]
-    pub advisor: Option<AgentName>,
-    /// The researcher, from kelpie's agent files, such as `researcher`: one
-    /// of the four experts who vote on each ruling, reading what is outside
-    /// the codebase. When absent, no researcher votes.
-    #[serde(default)]
-    pub researcher: Option<AgentName>,
     /// The representative, from kelpie's agent files: the one voice that
     /// words every post to a contributor. A project that picks contributions
-    /// needs it, so unlike the advisor it has a default. `representative`
+    /// needs it, so unlike the project manager it has a default. `representative`
     /// when absent.
     #[serde(default = "default_representative")]
     pub representative: AgentName,
@@ -313,12 +310,9 @@ impl Default for RoleAgentNames {
         Self {
             implementers: default_implementers(),
             implementer_choice: ImplementerChoice::default(),
-            issue_writer: default_issue_writer(),
             fallback_after: None,
             reviewers: None,
             pm: None,
-            advisor: None,
-            researcher: None,
             representative: default_representative(),
         }
     }
@@ -326,10 +320,6 @@ impl Default for RoleAgentNames {
 
 fn default_implementers() -> Vec<AgentName> {
     vec![AgentName::kelpies(crate::agents::DEFAULT_IMPLEMENTER)]
-}
-
-fn default_issue_writer() -> AgentName {
-    AgentName::kelpies(crate::agents::ISSUE_WRITER)
 }
 
 fn default_representative() -> AgentName {
@@ -369,8 +359,7 @@ pub struct PmAgent {
     pub prompt: Option<String>,
 }
 
-/// The agent a project names in `agents.advisor`, `agents.researcher` or
-/// `agents.representative`
+/// The agent a project names in `agents.representative` or `triage.agent`
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExpertAgent {
     /// Its name
@@ -383,21 +372,16 @@ pub struct ExpertAgent {
     pub prompt: Option<String>,
 }
 
-/// The project's implementers, project manager, advisor and researcher, from
-/// the agents it names
+/// The project's implementers and project manager, from the agents it names
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RoleAgents {
     /// The project's implementers, in its order, each once
     pub implementers: Vec<Implementer>,
-    /// The implementer listed first, which the issue writer is told is the
-    /// default and an unlabelled issue runs on when only one is listed
+    /// The implementer listed first, which an issue with no `agent:` label
+    /// runs on
     pub default_implementer: Implementer,
     /// The project manager, when the project names one
     pub pm: Option<PmAgent>,
-    /// The advisor, when the project names one
-    pub advisor: Option<ExpertAgent>,
-    /// The researcher, when the project names one
-    pub researcher: Option<ExpertAgent>,
 }
 
 impl RoleAgents {
@@ -447,14 +431,6 @@ impl Settings {
                 reason: "lists no implementer: list one, such as `sonnet-high`".into(),
             });
         };
-        let writer = &self.agents.issue_writer;
-        find(
-            agents,
-            writer,
-            "agents.issue_writer",
-            "agents",
-            Role::IssueWriter,
-        )?;
         let pm = match &self.agents.pm {
             Some(name) => {
                 let agent = find(agents, name, "agents.pm", "agents", Role::Pm)?;
@@ -470,48 +446,11 @@ impl Settings {
             }
             None => None,
         };
-        let advisor = self.expert(
-            agents,
-            &self.agents.advisor,
-            "agents.advisor",
-            Role::Advisor,
-        )?;
-        let researcher = self.expert(
-            agents,
-            &self.agents.researcher,
-            "agents.researcher",
-            Role::Researcher,
-        )?;
         Ok(RoleAgents {
             implementers,
             default_implementer,
             pm,
-            advisor,
-            researcher,
         })
-    }
-
-    // The advisor or researcher `named` at `at`, if the project names one
-    fn expert(
-        &self,
-        agents: &Agents,
-        named: &Option<AgentName>,
-        at: &'static str,
-        role: Role,
-    ) -> Result<Option<ExpertAgent>, SettingsError> {
-        let Some(name) = named else {
-            return Ok(None);
-        };
-        let agent = find(agents, name, at, "agents", role)?;
-        let Runs::Session { model, limit } = &agent.runs else {
-            unreachable!("an expert's file only parses to a session")
-        };
-        Ok(Some(ExpertAgent {
-            name: name.clone(),
-            model: model.clone(),
-            limit: limit.clone(),
-            prompt: agent.prompt.clone(),
-        }))
     }
 
     /// The representative the project names in `agents.representative`

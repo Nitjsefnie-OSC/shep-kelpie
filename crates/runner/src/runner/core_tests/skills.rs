@@ -109,18 +109,6 @@ fn vendored_files(skill: &str) -> Vec<String> {
     found
 }
 
-// Every vendored skill's name, sorted
-fn every_vendored_skill() -> Vec<&'static str> {
-    let mut names: Vec<&'static str> = vendored::FILES
-        .iter()
-        .filter_map(|(path, _)| path.strip_prefix("skills/")?.split_once('/'))
-        .map(|(_group, rest)| rest.split('/').next().unwrap())
-        .collect();
-    names.sort_unstable();
-    names.dedup();
-    names
-}
-
 fn call_of(rig: &Rig, role: Role) -> AgentCall {
     rig.claude
         .all_calls()
@@ -145,7 +133,8 @@ fn each_step_runs_its_default_skill_from_kelpies_own_copy() {
     );
     assert!(text.contains("Run no /code-review"), "{text}");
     let wording = rig.paths().skills.join("kelpie-wording");
-    assert_eq!(worker.plugin_dirs, [plugin.clone(), wording]);
+    let issue = rig.paths().skills.join("kelpie-issue");
+    assert_eq!(worker.plugin_dirs, [plugin.clone(), wording, issue]);
     // A reviewer's prompt is its agent file's body, which runs no skill.
     let reviewer = call_of(&rig, Role::Reviewer);
     assert!(
@@ -496,15 +485,6 @@ fn a_step_outside_the_workers_four_names_no_skill_until_the_project_names_one() 
 }
 
 #[test]
-fn the_issue_writers_copy_still_holds_every_vendored_skill() {
-    let dir = tempfile::tempdir().unwrap();
-    let plugin = dir.path().join("plugin");
-    let command = write_vendored(&plugin, GRILL_WITH_DOCS).unwrap();
-    assert_eq!(command, "/mattpocock:grill-with-docs");
-    assert_eq!(skills_in(&plugin), every_vendored_skill());
-}
-
-#[test]
 fn a_misspelt_step_or_skill_name_stops_the_runner() {
     let rig = Rig::new("shep");
     choose(&rig, "reveiw = { kind = \"none\" }\n");
@@ -636,7 +616,14 @@ fn a_replaced_pr_skill_keeps_the_wording_skill_and_a_pr_set_to_none_drops_it() {
         choose(rig, "pr = { kind = \"none\" }\n");
     });
     let worker = call_of(&rig, Role::Worker);
-    assert_eq!(worker.plugin_dirs, [rig.paths().skills.join("mattpocock")]);
+    // The issue skill runs in no step, so `pr = none` keeps it.
+    assert_eq!(
+        worker.plugin_dirs,
+        [
+            rig.paths().skills.join("mattpocock"),
+            rig.paths().skills.join("kelpie-issue")
+        ]
+    );
     assert!(!rig.paths().skills.join("kelpie-wording").exists());
     assert_eq!(
         skills_in(&rig.paths().skills.join("mattpocock")),

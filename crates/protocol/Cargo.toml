@@ -1,0 +1,17 @@
+[package]
+name = "shep-kelpie-protocol"
+description = "The runner's wire types: the typed request each action reads as, the answer it replies with, and the status both carry. Uses only core, serde and serde_json"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+shep-kelpie-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true

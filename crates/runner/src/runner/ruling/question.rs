@@ -191,7 +191,12 @@ pub(in crate::runner) fn question(
                      and {no} stops the work item{kept}."
                 );
             }
-            Stuck::TurnFailed { why, restore, .. } => {
+            Stuck::TurnFailed {
+                why,
+                restore,
+                setup,
+                ..
+            } => {
                 let restores = match restore.is_empty() {
                     true => String::new(),
                     false => format!(
@@ -201,9 +206,18 @@ pub(in crate::runner) fn question(
                         restore.join(", ")
                     ),
                 };
+                let opening = match setup {
+                    true => format!("Kelpie could not set up the worker's turn on {about}"),
+                    false => format!("The worker's turn on {about} failed"),
+                };
+                let fix = if *setup {
+                    "Fix it on this machine, then "
+                } else {
+                    ""
+                };
                 return format!(
-                    "The worker's turn on {about} failed: {}. {yes} tries that step again\
-                     {restores}, and {no} stops the work item{kept}.",
+                    "{opening}: {}. {fix}{yes} tries that step again{restores}, and {no} stops \
+                     the work item{kept}.",
                     why.trim()
                 );
             }
@@ -249,15 +263,6 @@ pub(in crate::runner) fn question(
                      for a branch held by a worktree of yours remove that worktree or switch \
                      it off the branch, then answer {yes}. Kelpie tries again every poll \
                      and clears this once it starts.",
-                    why.trim()
-                );
-            }
-            Stuck::Unlabelled { why } => {
-                return format!(
-                    "The issue writer could not pick an implementer for {about}: {}. Label \
-                     it `agent:<name>` for one `agents.implementers` lists, then answer {yes}: \
-                     the board takes it once this is answered, and an issue still unlabelled \
-                     goes to the issue writer again.",
                     why.trim()
                 );
             }

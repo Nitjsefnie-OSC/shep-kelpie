@@ -77,14 +77,10 @@ pub enum CallRole {
     Reviewer,
     /// The project manager's wake
     Pm,
-    /// The issue writer, labelling an issue
-    IssueWriter,
     /// The security review, reading a contribution's head
     Security,
     /// The triager, researching an untouched issue
     Triager,
-    /// The panel's experts, voting on a ruling
-    Panel,
     /// The project manager's agent, running a batch retro
     Retro,
     /// The e2e run of a dependency bump's head, on the project's e2e host
@@ -103,10 +99,8 @@ impl CallRole {
             Self::Worker => "worker",
             Self::Reviewer => "reviewer",
             Self::Pm => "pm",
-            Self::IssueWriter => "issue_writer",
             Self::Security => "security",
             Self::Triager => "triager",
-            Self::Panel => "panel",
             Self::Retro => "retro",
             Self::E2e => "e2e",
             Self::Attached(name) => name,
@@ -285,21 +279,17 @@ impl Runner {
     /// holds the runner's lock can answer what is running.
     pub(super) fn drain_state(&self) -> Draining {
         let pm = self.agents.pm.is_some().then_some(super::pm::CEILING);
-        let labelling = (self.flights.labelling()).map(|_| super::flight::label::CEILING);
         let securing = (self.flights.securing()).then_some(super::flight::security::CEILING);
         let triaging = (self.flights.triaging()).map(|_| super::flight::triage::CEILING);
         let retro = self
             .flights
             .retro_running()
             .then_some(super::retro::CEILING);
-        let panel = (self.flights.panel_running()).then_some(super::panel::CEILING);
         let ceiling = (self.turn_ceiling().as_secs())
             .max(pm.unwrap_or(0))
-            .max(labelling.unwrap_or(0))
             .max(securing.unwrap_or(0))
             .max(triaging.unwrap_or(0))
-            .max(retro.unwrap_or(0))
-            .max(panel.unwrap_or(0));
+            .max(retro.unwrap_or(0));
         let attached = Harness::ALL.into_iter().flat_map(|harness| {
             let role = harness.facts().attached_role.map(CallRole::Attached);
             (role.into_iter()).flat_map(move |role| {

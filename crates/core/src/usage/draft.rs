@@ -117,8 +117,8 @@ impl Draft {
             at,
             issue: self.issue,
             pull_request: self.pull_request,
-            role: self.role,
-            kind: self.kind,
+            role: self.role.into(),
+            kind: self.kind.into(),
             agent: Some(self.agent.clone()),
             harness: Some(self.harness.clone()),
             model: self.model.clone(),
@@ -135,7 +135,6 @@ impl Draft {
             gpu_seconds: None,
             pacer,
             imported: false,
-            votes: Vec::new(),
         }
     }
 }

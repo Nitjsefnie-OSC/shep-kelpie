@@ -31,20 +31,7 @@ use line::{Event, Kind};
 use log::Started;
 use tail::Tail;
 
-pub(crate) use line::{Event as Said, Kind as SaidKind};
 pub use log::Format;
-
-/// What one line of a `format` transcript records, in the words the stream
-/// shows it
-pub(crate) fn said_in(format: Format, line: &str) -> Vec<Said> {
-    match format {
-        Format::Claude => claude::events(line),
-        Format::Codex => codex::events(line),
-        Format::Pi => pi::events(line),
-        // goose's stdout file holds no whole session, so this is never read.
-        Format::Goose => goose::events(line, Timestamp::UNIX_EPOCH),
-    }
-}
 
 // The file the session `started` names wrote its transcript in, once it has
 fn find(started: &Started) -> Option<PathBuf> {

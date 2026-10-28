@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
 
-use crate::guard::{AFTER_FLAG, FOLDER_FLAG, PAUSE_FLAG, RECORD_FLAG};
+use crate::guard::{AFTER_FLAG, FOLDER_FLAG, PAUSE_FLAG};
 use crate::hooks::GUARD_BUDGET;
 use crate::ports::{AgentCall, Fence, Guard, PM_NOTES, Reach, Tools};
 use crate::settings::{HookEvent, HookPoint};
@@ -35,33 +35,15 @@ const WORK_DENY: [&str; 5] = [
 /// The tools a review round never uses: sub-agents, under either name, and commands
 const REVIEW_DENY: [&str; 3] = ["Agent", "Task", "Bash"];
 
-/// What the issue writer's file tools never read, named outright: gh's
+/// What the project manager's file tools never read, named outright: gh's
 /// token, Claude Code's own files and the shell's history
-const ISSUES_NO_READ: [&str; 6] = [
+const SECRETS_NO_READ: [&str; 6] = [
     "~/.config/gh/**",
     "~/.claude.json",
     "~/.claude/**",
     "~/.zsh_history",
     "~/.bash_history",
     "~/.zsh_sessions/**",
-];
-
-/// The tools the issue writer never uses: sub-agents, the file writers, the
-/// web, and the rest a worker is denied. Its commands are its guard's.
-const ISSUES_DENY: [&str; 13] = [
-    "Agent",
-    "Task",
-    "Edit",
-    "Write",
-    "MultiEdit",
-    "NotebookEdit",
-    "WebFetch",
-    "WebSearch",
-    "Monitor",
-    "RemoteTrigger",
-    "Workflow",
-    "EnterWorktree",
-    "ExitWorktree",
 ];
 
 /// The tools a batch retro never uses: commands, sub-agents, every file
@@ -91,15 +73,6 @@ const RETRO_DENY: [&str; 14] = [
 /// context is 8,265 tokens, from 18,385.
 pub(crate) const WORK_TOOLS: &str = "Bash,Read,Edit,Write,Glob,Grep,Skill";
 
-/// The only tools an issue writer's session starts with, as `--tools` takes them
-///
-/// `Bash` is there for its guard's commands (`gh issue` reads, creates and
-/// label and link edits). `Read`, `Glob` and `Grep` research the repo, and
-/// `Skill` carries the repo's plugins. It writes no file and fetches nothing.
-/// [`ISSUES_DENY`] is the second fence, as [`PM_DENY`] is for the project
-/// manager.
-pub(crate) const ISSUES_TOOLS: &str = "Bash,Read,Glob,Grep,Skill";
-
 /// The only tools the project manager's session has, as `--tools` takes them
 pub(crate) const PM_TOOLS: &str = "Read,Glob,Grep,Edit,Write";
 
@@ -121,57 +94,6 @@ const PM_DENY: [&str; 10] = [
     "WebFetch",
     "WebSearch",
     "NotebookEdit",
-];
-
-/// The only tools the advisor's session has, as `--tools` takes them: it
-/// reads and searches files, and writes nothing, since its reply is its vote
-pub(crate) const ADVISE_TOOLS: &str = "Read,Glob,Grep";
-
-/// The only tools the researcher's session has, as `--tools` takes them: it
-/// reads and searches files, and fetches and searches the web, read only
-pub(crate) const RESEARCH_TOOLS: &str = "Read,Glob,Grep,WebFetch,WebSearch";
-
-/// What the advisor and the researcher never use, denied as well in case
-/// `--tools` lets one through: commands, sub-agents, skills, messages, every
-/// file writer and the rest a worker is denied. The researcher's web tools
-/// are the one difference, so they are not here.
-const EXPERT_DENY: [&str; 15] = [
-    "Agent",
-    "Task",
-    "Bash",
-    "BashOutput",
-    "KillShell",
-    "Skill",
-    "SendMessage",
-    "Edit",
-    "Write",
-    "MultiEdit",
-    "NotebookEdit",
-    "Monitor",
-    "RemoteTrigger",
-    "Workflow",
-    "EnterWorktree",
-];
-
-/// [`EXPERT_DENY`] and the web, which the advisor is not let
-const ADVISE_DENY: [&str; 17] = [
-    "Agent",
-    "Task",
-    "Bash",
-    "BashOutput",
-    "KillShell",
-    "Skill",
-    "SendMessage",
-    "Edit",
-    "Write",
-    "MultiEdit",
-    "NotebookEdit",
-    "Monitor",
-    "RemoteTrigger",
-    "Workflow",
-    "EnterWorktree",
-    "WebFetch",
-    "WebSearch",
 ];
 
 /// Every tool name a Claude Code call can reach, denied outright to an answer
@@ -230,9 +152,7 @@ pub fn settings(tools: Tools, reach: &Reach) -> Value {
         deny.extend(fence.no_commands.iter().map(|c| format!("Bash({c})")));
     }
     deny.extend(tool_denies(tools, reach).map(str::to_owned));
-    if let (Tools::Issues | Tools::Pm | Tools::Advise | Tools::Research, Some(fence)) =
-        (tools, &reach.fence)
-    {
+    if let (Tools::Pm, Some(fence)) = (tools, &reach.fence) {
         deny.extend(reads_only(&fence.guard.worktree, &reach.read));
     }
     // Headless, a tool nothing allows is refused, and the retro skill calls another.
@@ -256,11 +176,6 @@ pub fn settings(tools: Tools, reach: &Reach) -> Value {
         permissions["additionalDirectories"] = json!(reach.read);
     }
     let mut hooks = match tools {
-        // Its session asks no one, so a command its guard allows must not wait on a prompt.
-        Tools::Issues => {
-            permissions["allow"] = json!(["Bash"]);
-            hooks(fence)
-        }
         // Headless, an edit nothing allows is refused, so these are its only writes.
         Tools::Pm => {
             let notes = fence.guard.worktree.join(PM_NOTES).display().to_string();
@@ -269,8 +184,6 @@ pub fn settings(tools: Tools, reach: &Reach) -> Value {
             permissions["allow"] = json!([rule("Edit", &notes)]);
             pm_hooks(fence)
         }
-        // Their reply is the vote, so a file tool that got past the allow-list is refused.
-        Tools::Advise | Tools::Research => refusing_hooks(),
         // Its session asks no one, so a write nothing allows is refused. Only a reviewer
         // given a folder to write has one, and `confine` holds its tools to that folder.
         Tools::Review if !fence.write.is_empty() => {
@@ -329,35 +242,9 @@ pub(crate) fn compacting(
     *start = entries.into();
 }
 
-/// Lets the file tools in an issue writer's `settings` write `paths` and
-/// everything under them, and nothing else
-///
-/// [`settings`] denies the issue writer the file writers outright. Their
-/// deny rules go here, and the `confine` hook that holds them is replaced by
-/// one that names `paths` alone, so a write anywhere else, the worktree
-/// included, is refused before it lands.
-pub fn write_only(settings: &mut Value, kelpie: &Path, paths: &[PathBuf]) {
-    const WRITERS: [&str; 3] = ["Edit", "Write", "MultiEdit"];
-    if let Some(deny) = settings["permissions"]["deny"].as_array_mut() {
-        deny.retain(|tool| !tool.as_str().is_some_and(|t| WRITERS.contains(&t)));
-    }
-    let confine = [kelpie, Path::new("confine")]
-        .into_iter()
-        .chain(paths.iter().map(PathBuf::as_path))
-        .map(|p| shell_quote(&p.to_string_lossy()))
-        .collect::<Vec<_>>()
-        .join(" ");
-    let pre = &mut settings["hooks"]["PreToolUse"];
-    let mut entries = pre.as_array().cloned().unwrap_or_default();
-    entries.retain(|e| e["matcher"] != FILE_TOOLS);
-    entries.push(entry(Some(FILE_TOOLS), &confine));
-    *pre = entries.into();
-}
-
-// The issue writer's file tools read its checkout, and `also`, and nothing
-// else: every other entry from `/` down is denied, and the secrets named
-// outright, whichever folder its checkout is in. Its commands read no file.
-// The project manager's read its own folder, the worktrees and the checkout the same way.
+// The project manager's file tools read its own folder and `also`, the
+// worktrees and the checkout, and nothing else: every other entry from `/`
+// down is denied, and the secrets named outright, wherever its folder is.
 fn reads_only(checkout: &Path, also: &[PathBuf]) -> Vec<String> {
     // Each as given and with its links resolved, since `around` walks a link
     // such as macOS's `/var` as a folder of its own.
@@ -367,7 +254,7 @@ fn reads_only(checkout: &Path, also: &[PathBuf]) -> Vec<String> {
         allowed.extend(path.canonicalize().ok().filter(|c| c != path));
     }
     let outside = around(Path::new("/"), &allowed);
-    (ISSUES_NO_READ.iter().map(|p| (*p).to_owned()))
+    (SECRETS_NO_READ.iter().map(|p| (*p).to_owned()))
         .chain(outside)
         .map(|p| read_rule(&p))
         .collect()
@@ -378,12 +265,8 @@ fn tool_denies(tools: Tools, reach: &Reach) -> impl Iterator<Item = &'static str
         Tools::Work => &WORK_DENY,
         Tools::Review => &REVIEW_DENY,
         Tools::Answer => &NO_TOOLS,
-        Tools::Issues => &ISSUES_DENY,
         Tools::Pm => &PM_DENY,
         Tools::Retro => &RETRO_DENY,
-        // The advisor's web is denied; the researcher's is the one thing it is let.
-        Tools::Advise => &ADVISE_DENY,
-        Tools::Research => &EXPERT_DENY,
     };
     // An answer that may read a folder keeps Read and nothing else.
     let reads = tools == Tools::Answer && !reach.read.is_empty();
@@ -481,16 +364,12 @@ fn hooks(fence: &Fence) -> Value {
         .folders
         .iter()
         .map(|p| shell_quote(&format!("{FOLDER_FLAG}{}", p.display())));
-    let issues = (guard.issues.iter())
-        .flat_map(|rules| rules.flags())
-        .map(|flag| shell_quote(&flag));
     // The project's own hooks, which the guard runs on a commit, a push and a post.
     let hooks = guard.hooks.flag().map(|flag| shell_quote(&flag));
     let base = guard.base_flag().map(|flag| shell_quote(&flag));
     let pushes = guard.kelpie_pushes_flag().map(shell_quote);
     let commands: Vec<String> = (commands.into_iter())
         .chain(folders)
-        .chain(issues)
         .chain(hooks)
         .chain(base)
         .chain(pushes)
@@ -504,11 +383,6 @@ fn hooks(fence: &Fence) -> Value {
     }
     pre.push(guarded);
     let mut post = Vec::new();
-    // The issue writer's ledger of what it filed and read, kept after each command.
-    if guard.issues.is_some() {
-        let record = format!("{} {RECORD_FLAG}", commands.join(" "));
-        post.push(entry(Some("Bash"), &record));
-    }
     // The project's `after_command` hooks, run on a command's result. Claude Code
     // fires one event for a command that succeeded and another for one that failed.
     let mut failed = Vec::new();
@@ -570,12 +444,6 @@ fn pm_hooks(fence: &Fence) -> Value {
     .map(|p| shell_quote(&p.to_string_lossy()))
     .join(" ");
     json!({ "PreToolUse": [entry(Some(FILE_TOOLS), &command)] })
-}
-
-// The advisor's and the researcher's: every file tool is refused before it runs.
-fn refusing_hooks() -> Value {
-    let refuse = "echo 'kelpie: this call writes no files' >&2; exit 2";
-    json!({ "PreToolUse": [entry(Some(FILE_TOOLS), refuse)] })
 }
 
 fn entry(matcher: Option<&str>, command: &str) -> Value {
@@ -683,7 +551,6 @@ mod tests {
                     base: "main".into(),
                     kelpie_pushes: false,
                     folders: Vec::new(),
-                    issues: None,
                     hooks: Hooks::default(),
                 },
                 hooks: Vec::new(),
@@ -758,7 +625,6 @@ mod tests {
                     base: "main".into(),
                     kelpie_pushes: false,
                     folders: Vec::new(),
-                    issues: None,
                     hooks,
                 },
                 hooks: Vec::new(),
@@ -818,33 +684,6 @@ mod tests {
         assert_eq!(pre["timeout"], GUARD_BUDGET.as_secs() + GUARD_MARGIN);
     }
 
-    // The issue writer's ledger recorder is one post entry; the project's
-    // `after_command` hooks are another, with the writer's rules on its line.
-    #[test]
-    fn the_issue_writer_gets_the_after_command_hook_beside_its_ledger_recorder() {
-        use crate::guard::IssueRules;
-        use crate::settings::HookPoint;
-        let mut reach = reach_with(hooks_at(&[HookPoint::AfterCommand]));
-        let fence = reach.fence.as_mut().unwrap();
-        fence.guard.issues = Some(IssueRules {
-            status: "ready".to_owned(),
-            agents: vec!["claude".to_owned()],
-            ledger: None,
-            tickets: None,
-        });
-
-        let s = settings(Tools::Work, &reach);
-
-        for event in ["PostToolUse", "PostToolUseFailure"] {
-            let posts = commands_of(&s["hooks"][event], "Bash");
-            let after: Vec<_> = posts.iter().filter(|c| c.ends_with(" --after")).collect();
-            assert_eq!(after.len(), 1, "{event}: {posts:?}");
-            assert!(after[0].contains("--issues"), "{event}: {}", after[0]);
-        }
-        let posts = commands_of(&s["hooks"]["PostToolUse"], "Bash");
-        assert!(posts.iter().any(|c| c.ends_with(" --record")), "{posts:?}");
-    }
-
     #[test]
     fn no_write_or_after_command_hook_adds_no_flag_to_confine_and_no_post_entry() {
         use crate::settings::HookPoint;
@@ -892,7 +731,7 @@ mod tests {
             // file denies `NotebookEdit` through `trimmed`, so that one is asserted. Kelpie's
             // sandbox holds the writes of the other three, so no deny is asserted for them yet.
             Tools::Review => &["Edit", "Write", "MultiEdit"],
-            Tools::Answer | Tools::Issues | Tools::Retro | Tools::Advise | Tools::Research => &[],
+            Tools::Answer | Tools::Retro => &[],
         }
     }
 
@@ -902,12 +741,9 @@ mod tests {
         match tools {
             Tools::Work => Some(Tools::Review),
             Tools::Review => Some(Tools::Answer),
-            Tools::Answer => Some(Tools::Issues),
-            Tools::Issues => Some(Tools::Pm),
+            Tools::Answer => Some(Tools::Pm),
             Tools::Pm => Some(Tools::Retro),
-            Tools::Retro => Some(Tools::Advise),
-            Tools::Advise => Some(Tools::Research),
-            Tools::Research => None,
+            Tools::Retro => None,
         }
     }
 
@@ -941,11 +777,8 @@ mod tests {
             Tools::Work,
             Tools::Review,
             Tools::Answer,
-            Tools::Issues,
             Tools::Pm,
             Tools::Retro,
-            Tools::Advise,
-            Tools::Research,
         ] {
             let s = settings(tools, &Reach::default());
             for key in [
@@ -962,11 +795,8 @@ mod tests {
                 Tools::Work => &WORK_DENY,
                 Tools::Review => &REVIEW_DENY,
                 Tools::Answer => &NO_TOOLS,
-                Tools::Issues => &ISSUES_DENY,
                 Tools::Pm => &PM_DENY,
                 Tools::Retro => &RETRO_DENY,
-                Tools::Advise => &ADVISE_DENY,
-                Tools::Research => &EXPERT_DENY,
             };
             assert_eq!(s["permissions"]["deny"], deny_with_trim(own), "{tools:?}");
             // What kelpie's own calls use stays, unless the role denies it itself.

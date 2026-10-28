@@ -29,7 +29,9 @@ fn seven_and_eight(project: &str) -> (Rig, Mutex<Runner>) {
     rig.forge.block(9, 4);
     rig.forge.set_ready_body(
         9,
-        "Reword `README.md`, then `src/missing.rs:12`.\n\n\n\nSee `x y` and `--flag`.",
+        "Reword `README.md`, then `src/missing.rs:12`.\n\n\n\nSee `x y` and `--flag`.\n\n\
+         Touches: `README.md`\n\n## What to build\n\n- The reword.\n\n\
+         ## Acceptance criteria\n\n- [ ] It reads well.",
     );
     rig.forge.open_pull_request(71, "kelpie/7", &[7]);
     rig.forge.open_pull_request(81, "kelpie/8", &[8]);
@@ -155,6 +157,16 @@ Files both sides touch, and the files `git merge-tree` finds in conflict between
 > Reword `README.md`, then `src/missing.rs:12`.
 >
 > See `x y` and `--flag`.
+>
+> Touches: `README.md`
+>
+> ## What to build
+>
+> - The reword.
+>
+> ## Acceptance criteria
+>
+> - [ ] It reads well.
 "#;
 
 #[test]

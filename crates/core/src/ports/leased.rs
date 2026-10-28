@@ -1,12 +1,12 @@
 //! The leases a gateway holds on local models, as `status` shows them
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::forwarder::Upstream;
 
 /// Who holds a lease on a model, as the gateway's `GET /paddock/status` lists it
 // wire format: `status.local_leases` shows it, so a rename breaks readers of status
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PaddockHolder {
     /// The lease's id, such as `L12`
     pub lease: String,

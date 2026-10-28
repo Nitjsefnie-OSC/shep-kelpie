@@ -175,10 +175,7 @@ fn name(role: Role) -> &'static str {
     match role {
         Role::Worker => "worker",
         Role::Reviewer => "reviewer",
-        Role::IssueWriter => "issue writer",
         Role::Pm => "project manager",
-        Role::Advisor => "advisor",
-        Role::Researcher => "researcher",
         Role::Representative => "representative",
         Role::Triager => "triager",
     }

@@ -12,8 +12,8 @@ use super::Runner;
 use super::end_reads::EndRead;
 use crate::board::OpenPullRequest;
 use crate::ports::{
-    FailedLogs, Forge, ForgeError, InstallationToken, Issue, PullRequest, QueueStanding, Talk,
-    ThreadComment, Tickets, Voice,
+    FailedLogs, Forge, ForgeError, InstallationToken, Issue, Meter, MeterError, PullRequest,
+    QueueStanding, Talk, ThreadComment, Tickets, Timestamp, Utilization, Voice,
 };
 use crate::review_bot::{Activity, Bot, Profile};
 use crate::runner::git_reads::{Found, Git, Kept};
@@ -22,7 +22,7 @@ use crate::runner::off_lock::ItemKey;
 use crate::runner::report::Begin;
 use crate::runner::snapshot::view_of;
 use crate::runner::worktree_jobs::{Change, Changed};
-use crate::settings::ForgeSlug;
+use crate::settings::{Account, ForgeSlug};
 use crate::state::StateError;
 use crate::ticket::TicketId;
 use crate::work_item::WorkItem;
@@ -46,6 +46,7 @@ pub(in crate::runner) struct Reads {
     talked: BTreeSet<u64>,
     // What a work item's turn reads before its call, by ticket
     starts: BTreeMap<TicketId, Started>,
+    usage: BTreeMap<Account, Result<Utilization, MeterError>>,
     // What git said, the fetches and diffs that need no write access to the worktree
     pub(in crate::runner) git: Kept,
     // What a turn's end read, which `end_turn` takes
@@ -76,6 +77,7 @@ impl Reads {
         self.merged.clear();
         self.talked.clear();
         self.starts.clear();
+        self.usage.clear();
         self.git.clear();
         self.ended = None;
     }
@@ -134,6 +136,23 @@ impl Reads {
         self.standings.get(&number).cloned()
     }
 
+    /// `account`'s usage, as the step or the board's read read it
+    pub(in crate::runner) fn usage(
+        &self,
+        account: Account,
+    ) -> Option<Result<Utilization, MeterError>> {
+        self.usage.get(&account).cloned()
+    }
+
+    /// Keeps `account`'s usage for the step
+    pub(in crate::runner) fn keep_usage(
+        &mut self,
+        account: Account,
+        usage: Result<Utilization, MeterError>,
+    ) {
+        self.usage.insert(account, usage);
+    }
+
     /// Whether marking pull request `number` ready came to, as the step asked it
     pub(in crate::runner) fn readied(&self, number: u64) -> Option<Result<(), ForgeError>> {
         self.readied.get(&number).cloned()
@@ -172,6 +191,7 @@ enum Read {
     Start(Starting),
     Git(Git),
     Change(Change),
+    Usage(Metered),
 }
 
 // The read `pull_request_view` makes, from the pass's listing or the pull request itself
@@ -227,6 +247,13 @@ struct Starting {
     comments: bool,
 }
 
+// An account's usage, which the pacer reads before a call on it starts
+struct Metered {
+    meter: Arc<dyn Meter>,
+    account: Account,
+    now: Timestamp,
+}
+
 /// What a [`Job`] found, errors as the inline call returns them
 pub(in crate::runner) enum Done {
     Start {
@@ -267,6 +294,10 @@ pub(in crate::runner) enum Done {
     },
     Git(Found),
     Changed(Changed),
+    Usage {
+        account: Account,
+        usage: Result<Utilization, MeterError>,
+    },
 }
 
 impl Job {
@@ -357,6 +388,14 @@ impl Job {
             },
             Read::Git(git) => Done::Git(git.run()),
             Read::Change(change) => Done::Changed(change.run()),
+            Read::Usage(Metered {
+                meter,
+                account,
+                now,
+            }) => Done::Usage {
+                account,
+                usage: meter.read(now),
+            },
         }
     }
 }
@@ -587,6 +626,22 @@ impl Runner {
         self.job(|_, _| Read::Change(change))
     }
 
+    // The job that reads `account`'s usage at `now` for the focused work item's step
+    pub(in crate::runner) fn usage_job(
+        &self,
+        account: Account,
+        now: Timestamp,
+    ) -> Option<Box<Job>> {
+        let meter = Arc::clone(self.ports.meter_of(account));
+        self.job(|_, _| {
+            Read::Usage(Metered {
+                meter,
+                account,
+                now,
+            })
+        })
+    }
+
     // A job for the focused work item's step, or none when no pass runs to make the read and step
     // again, as at a turn's end
     fn job(&self, read: impl FnOnce(Arc<dyn Forge>, ForgeSlug) -> Read) -> Option<Box<Job>> {
@@ -659,6 +714,7 @@ impl Runner {
                 self.reads.merged.insert(number, merged);
             }
             Done::Git(found) => self.reads.git.keep(found),
+            Done::Usage { account, usage } => self.reads.keep_usage(account, usage),
             Done::Changed(_) => {}
         }
     }

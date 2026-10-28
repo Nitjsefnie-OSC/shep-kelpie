@@ -24,6 +24,21 @@ use crate::ticket::TicketId;
 
 // The issue number of a ticket the rig is asked for. Every test's project has
 // GitHub issues as its tickets, so every ticket the rig is asked for is one.
+// A ready issue's labels as the board reads them. With no priority it reads
+// as `priority: P4`, and with no kind as `kind:fix`, so it passes the check.
+fn checked_labels(mut labels: Vec<String>) -> Vec<String> {
+    if !labels.iter().any(|l| crate::board::is_priority_label(l)) {
+        labels.push("priority: P4".to_owned());
+    }
+    if !labels
+        .iter()
+        .any(|l| crate::board::check::kind_of(l).is_some())
+    {
+        labels.push("kind:fix".to_owned());
+    }
+    labels
+}
+
 fn number(ticket: TicketId) -> u64 {
     ticket.github().expect("a test's ticket is a GitHub issue")
 }
@@ -84,13 +99,17 @@ impl Tickets for FakeForge {
         self.board()?;
         let ready = self.ready.lock().unwrap().clone();
         let closed = self.closed.lock().unwrap().clone();
+        let unchecked = self.unchecked.lock().unwrap().clone();
         Ok(ready
             .into_iter()
             .filter(|i| !closed.contains(&number(i.ticket)))
             .map(|i| {
                 let number = number(i.ticket);
                 ReadyIssue {
-                    labels: self.labels_of(number),
+                    labels: match unchecked.contains(&number) {
+                        true => self.labels_of(number),
+                        false => checked_labels(self.labels_of(number)),
+                    },
                     blocked_by: self.blockers_of(number),
                     parent: self.parent_of(number).map(ticket),
                     sub_issues: self.count_sub_issues(number),
@@ -101,6 +120,7 @@ impl Tickets for FakeForge {
     }
 
     fn open_issues(&self, _repo: &ForgeSlug) -> Result<Vec<OpenIssue>, ForgeError> {
+        self.issue_listings.fetch_add(1, Ordering::SeqCst);
         self.ask()?;
         // The listing is as the forge had it when the read began, however long a
         // held read takes to come back.

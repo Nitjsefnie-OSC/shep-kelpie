@@ -10,6 +10,7 @@ use crate::ports::{
     Clock, Cost, Meter, MeterError, Role, SessionId, Timestamp, Usage, Utilization, Window,
 };
 use crate::work_item::{CallRecord, Known, Phase, Seconds, TimingPhase, Timings, Turn, WorkItem};
+use forge::{At, Gate};
 
 mod alerts;
 mod bridge;
@@ -182,6 +183,7 @@ pub fn with_tables(entry: &str, tables: &str) -> String {
 pub struct FakeMeter {
     reading: Arc<Mutex<Result<Utilization, MeterError>>>,
     reads: Arc<AtomicUsize>,
+    hold: Arc<Mutex<Option<Gate>>>,
 }
 
 impl FakeMeter {
@@ -190,6 +192,7 @@ impl FakeMeter {
         Self {
             reading: Arc::new(Mutex::new(Ok(utilization(0, 0)))),
             reads: Arc::default(),
+            hold: Arc::default(),
         }
     }
 
@@ -207,10 +210,21 @@ impl FakeMeter {
     pub fn reads(&self) -> usize {
         self.reads.load(Ordering::SeqCst)
     }
+
+    /// Holds the next read open until the test drops what this returns
+    pub fn hold_next_read(&self) -> HeldCall {
+        let (gate, held) = Gate::open(At::Any);
+        *self.hold.lock().unwrap() = Some(gate);
+        held
+    }
 }
 
 impl Meter for FakeMeter {
     fn read(&self, _now: Timestamp) -> Result<Utilization, MeterError> {
+        let gate = self.hold.lock().unwrap().take();
+        if let Some(gate) = gate {
+            gate.pass();
+        }
         self.reads.fetch_add(1, Ordering::SeqCst);
         self.reading.lock().unwrap().clone()
     }

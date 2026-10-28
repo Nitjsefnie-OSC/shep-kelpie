@@ -161,22 +161,9 @@ mod tests {
             .replace("# configuration = \"web\"", "configuration = \"web\"")
             .replace("# routes = [\"/\"]", "routes = [\"/\"]")
             .replace("# pm = \"pm\"", "pm = \"pm\"")
-            .replace("# advisor = \"advisor\"", "advisor = \"advisor\"")
             .replace(
-                "# researcher = \"researcher\"",
-                "researcher = \"researcher\"",
-            )
-            .replace(
-                "# [app.dogs.kelpie.researcher]\n# transcripts =",
-                "[app.dogs.kelpie.researcher]\ntranscripts =",
-            )
-            .replace(
-                "# allowed_domains = [\"docs.rs\"]",
-                "allowed_domains = [\"docs.rs\"]",
-            )
-            .replace(
-                "# [app.dogs.kelpie.rulings]\n# decide = \"panel\"\n# pm_alone =",
-                "[app.dogs.kelpie.rulings]\ndecide = \"panel\"\npm_alone =",
+                "# [app.dogs.kelpie.rulings.pm_decides]\n# question =",
+                "[app.dogs.kelpie.rulings.pm_decides]\nquestion =",
             )
             .replace(
                 "# [app.dogs.kelpie.contributions]\n# pick = \"off\"\n# reviewers = [\"defect-hunter-lite\"]\n# security_reviewer = \"security-reviewer\"\n# quiet_days = 7\n# nudge_days = 3\n",
@@ -198,9 +185,7 @@ mod tests {
                 "# [app.dogs.kelpie.dependencies]\n# pick = \"off\"\n# bots = [\"dependabot\"]\n# on_red = \"close\"\n# web = [\"web/\", \"package.json\"]\n# wait_hours = 24\n",
                 "[app.dogs.kelpie.dependencies]\npick = \"off\"\nbots = [\"dependabot\"]\non_red = \"close\"\nweb = [\"web/\", \"package.json\"]\nwait_hours = 24\n",
             )
-            .replace("# full_panel_paths =", "full_panel_paths =")
             .replace("# implementer_choice =", "implementer_choice =")
-            .replace("# issue_writer =", "issue_writer =")
             .replace("# representative =", "representative =")
             .replace("# fallback_after =", "fallback_after =")
             .replace("# maintainer =", "maintainer =")

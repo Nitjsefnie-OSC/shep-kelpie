@@ -1,6 +1,6 @@
 # The GitHub App
 
-Per-user App: tokens, posting, answering rulings on GitHub. The ruling panel is in `ruling-panel.md`.
+Per-user App: tokens, posting, answering rulings on GitHub. Who answers a ruling is in `who-answers.md`.
 
 ## App and tokens
 

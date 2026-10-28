@@ -17,7 +17,7 @@ use std::process::ExitCode;
 
 use shep_kelpie::confine::{APPEND, Verdict, judge_append, judge_with};
 use shep_kelpie::guard::{self, Checkout};
-use shep_kelpie::hooks::{Hooks, Role};
+use shep_kelpie::hooks::Hooks;
 use shep_kelpie::tools::Tools;
 
 /// A PreToolUse hook's exit code that refuses the tool call
@@ -46,9 +46,7 @@ fn main() -> ExitCode {
         [command, rest @ ..] if command == "lease" => shep_kelpie::lease::cli::main(rest),
         [role, git_common_dir, worktree, local @ ..] if role == "guard" => {
             let home = std::env::var_os("HOME").map(PathBuf::from);
-            let (issues, local) = guard::issue_rules(local);
-            let (record, local) = guard::record_flag(&local);
-            let (pin, local) = guard::pin_flag(&local);
+            let (pin, local) = guard::pin_flag(local);
             let (here, local) = guard::here_flag(&local);
             let (after, local) = guard::after_flag(&local);
             let (reading, local) = guard::reading_flag(&local);
@@ -116,30 +114,8 @@ fn main() -> ExitCode {
                 }
                 return ExitCode::SUCCESS;
             }
-            if let Some(rules) = issues.as_ref().filter(|_| record) {
-                guard::record_issues(&input[..], rules);
-                return ExitCode::SUCCESS;
-            }
             if after {
-                let role = match issues {
-                    Some(_) => Role::IssueWriter,
-                    None => Role::Worker,
-                };
-                return hook(guard::judge_after(
-                    &input[..],
-                    &hooks,
-                    role,
-                    Path::new(worktree),
-                ));
-            }
-            if let Some(rules) = issues {
-                return hook(guard::judge_issues_with(
-                    &input[..],
-                    home.as_deref(),
-                    paths,
-                    &hooks,
-                    &rules,
-                ));
+                return hook(guard::judge_after(&input[..], &hooks, Path::new(worktree)));
             }
             if here {
                 let folder = std::env::current_dir()
@@ -181,6 +157,12 @@ fn main() -> ExitCode {
         }
         [command, rest @ ..] if command == "doctor" => shep_kelpie::doctor::main(rest),
         [command, rest @ ..] if command == "agents" => shep_kelpie::agent_verbs::main(rest),
+        [command, verb] if command == "settings" && verb == "migrate" => {
+            shep_kelpie::flock::settings_migrate()
+        }
+        [command, verb] if command == "upgrade" && verb == "migrate" => {
+            shep_kelpie::upgrade::migrate_main()
+        }
         [command, rest @ ..] if command == "upgrade" => shep_kelpie::upgrade::main(rest),
         [command, rest @ ..] if command == "github" => shep_kelpie::github::setup::main(rest),
         [command] if command == "version" => version(false),
@@ -224,7 +206,7 @@ fn main() -> ExitCode {
                 return ExitCode::from(2);
             }
             eprintln!(
-                "usage: shep-kelpie add [<project>] | add <ticket>\n       shep-kelpie start | pause | finish | status\n       shep-kelpie rule [<id> <answer>]\n       shep-kelpie rework <pr> | adopt <pr>\n       shep-kelpie gate [<ticket>] | drop [<ticket>]\n       shep-kelpie doctor [<project>] [--test-alert]\n       shep-kelpie agents new <role> --harness <harness> --model <model> --effort <effort> [--baseline <name>] [--name <file name>] [--second-look] [--gateway <name> | --url <url>] [--context <tokens>]\n       shep-kelpie agents init <harness> [--gateway <name> | --url <url>]\n       shep-kelpie agents init --detect\n       shep-kelpie agents list\n       shep-kelpie agents migrate\n       shep-kelpie upgrade [--now] --ref <git ref> | --release <version> | --binary <path> | --rollback\n       shep-kelpie version [--json]\n       shep-kelpie runner <project>\n{}\n       shep-kelpie confine <folder>...\n       shep-kelpie guard <git common dir> <worktree>\n       shep-kelpie github setup [--org <org>] [--name <app name>] [--replace]\n       shep-kelpie tools install\n       shep-kelpie mcp-connect <socket>\n       shep-kelpie totp [--rotate | --unlock]\n\nAdopted as `kelpie`, the same verbs run as `shep kelpie <verb>`, and `--` reaches `lease run`.\n\n{}\n\n{}",
+                "usage: shep-kelpie add [<project>] | add <ticket>\n       shep-kelpie start | pause | finish | status\n       shep-kelpie rule [<id> <answer>]\n       shep-kelpie rework <pr> | adopt <pr>\n       shep-kelpie gate [<ticket>] | drop [<ticket>]\n       shep-kelpie doctor [<project>] [--test-alert]\n       shep-kelpie agents new <role> --harness <harness> --model <model> --effort <effort> [--baseline <name>] [--name <file name>] [--second-look] [--gateway <name> | --url <url>] [--context <tokens>]\n       shep-kelpie agents init <harness> [--gateway <name> | --url <url>]\n       shep-kelpie agents init --detect\n       shep-kelpie agents list\n       shep-kelpie agents migrate\n       shep-kelpie settings migrate\n       shep-kelpie upgrade [--now] --ref <git ref> | --release <version> | --binary <path> | --rollback\n       shep-kelpie version [--json]\n       shep-kelpie runner <project>\n{}\n       shep-kelpie confine <folder>...\n       shep-kelpie guard <git common dir> <worktree>\n       shep-kelpie github setup [--org <org>] [--name <app name>] [--replace]\n       shep-kelpie tools install\n       shep-kelpie mcp-connect <socket>\n       shep-kelpie totp [--rotate | --unlock]\n\nAdopted as `kelpie`, the same verbs run as `shep kelpie <verb>`, and `--` reaches `lease run`.\n\n{}\n\n{}",
                 shep_kelpie::lease::cli::USAGE,
                 shep_kelpie::flock::USAGE,
                 shep_kelpie::flock::rule::HELP

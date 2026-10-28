@@ -67,26 +67,36 @@ fn a_hand_labelled_maintainer_issue_ends_the_poll_at_needs_triage_and_the_board_
     );
 }
 
+// The issue check refuses it, so it goes to the triager whatever `hand_ready`
+// says. Without it the label stays on, and the board holds the issue.
 #[test]
-fn the_same_issue_is_started_by_the_board_while_hand_ready_is_off() {
+fn with_hand_ready_off_the_same_issue_goes_to_the_triager_keeping_its_label() {
     let (rig, runner) = on_the_board("pick = \"maintainer\"", MAINTAINER);
 
-    let (started, _) = dispatched(step(&runner).unwrap());
+    assert_eq!(
+        step(&runner).unwrap(),
+        None,
+        "the triage call, not the board"
+    );
 
-    assert_eq!(started.github(), Some(30));
     assert_eq!(rig.github.label_takes(), []);
-    assert_eq!(calls(&rig, Role::Triager).len(), 0);
+    assert_eq!(calls(&rig, Role::Triager).len(), 1);
+    let status = rig.ask(&runner, "status", None);
+    assert_eq!(status["working"], serde_json::json!([]), "{status}");
 }
 
 #[test]
-fn an_issue_someone_else_opened_is_left_for_the_board_even_with_hand_ready_on() {
+fn an_issue_someone_else_opened_goes_to_the_triager_and_is_not_taken_back() {
     let (rig, runner) = on_the_board("pick = \"all\"\nhand_ready = true", "newcomer");
 
-    let (started, _) = dispatched(step(&runner).unwrap());
+    assert_eq!(
+        step(&runner).unwrap(),
+        None,
+        "the triage call, not the board"
+    );
 
-    assert_eq!(started.github(), Some(30));
     assert_eq!(rig.github.label_takes(), []);
-    assert_eq!(calls(&rig, Role::Triager).len(), 0);
+    assert_eq!(calls(&rig, Role::Triager).len(), 1);
 }
 
 #[test]

@@ -4,8 +4,8 @@ use serde_json::{Value, json};
 
 use super::{Records, build, span};
 use crate::ports::{Severity, Timestamp};
-use crate::runner::panel::Record;
 use crate::runner::retro::journal::{Entry, Held, Stamped};
+use crate::runner::ruling::Record;
 use crate::state::Finished;
 use crate::test::ticket;
 use crate::usage::Line;
@@ -288,23 +288,17 @@ fn an_item_carries_the_wakes_that_named_it_and_what_they_did() {
 }
 
 #[test]
-fn an_item_carries_each_ruling_with_its_votes_and_who_answered() {
+fn an_item_carries_each_ruling_with_who_answered_it() {
     let digest = digest();
     let item = section(&digest, "## #11:");
     assert!(item.contains("- Rulings: 1"), "{item}");
     assert!(
-        item.contains(
-            "  - ruling 1 (merge), waited 5m00s; votes: Worker A, Advisor abstained; \
-             answered by the maintainer: yes"
-        ),
+        item.contains("  - ruling 1 (merge), waited 5m00s; answered by the maintainer: yes"),
         "{item}"
     );
     let other = section(&digest, "## #12:");
     assert!(
-        other.contains(
-            "  - ruling 2 (merge), waited 1m30s; no panel vote; \
-             answered by the project manager: yes"
-        ),
+        other.contains("  - ruling 2 (merge), waited 1m30s; answered by the project manager: yes"),
         "{other}"
     );
 }

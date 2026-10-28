@@ -44,6 +44,14 @@ fn seven_parked_on_src_seven(project: &str) -> (Rig, Mutex<Runner>) {
     (rig, runner)
 }
 
+// A ready body that names only `path` and passes the issue check
+fn changes(path: &str) -> String {
+    format!(
+        "Touches: `{path}`\n\n## What to build\n\n- Change it.\n\n## Acceptance criteria\n\n\
+         - [ ] It is changed.\n"
+    )
+}
+
 fn overlap_9() -> Skip {
     Skip::Overlap {
         issue: ticket(9),
@@ -60,9 +68,9 @@ fn skipped(rig: &Rig, runner: &Mutex<Runner>) -> serde_json::Value {
 fn a_ready_issue_naming_a_file_a_parked_branch_changes_waits() {
     let (rig, runner) = seven_parked_on_src_seven("acme");
     rig.forge.list_ready(9, false);
-    rig.forge.set_ready_body(9, "Change `src/seven.rs`.");
+    rig.forge.set_ready_body(9, &changes("src/seven.rs"));
     rig.forge.list_ready(10, false);
-    rig.forge.set_ready_body(10, "Change `src/ten.rs`.");
+    rig.forge.set_ready_body(10, &changes("src/ten.rs"));
 
     // Neither issue's paths are read until the board's next write.
     assert_eq!(step(&runner).unwrap(), None);
@@ -76,7 +84,7 @@ fn a_ready_issue_naming_a_file_a_parked_branch_changes_waits() {
 fn a_body_edited_after_its_paths_were_read_is_read_again_before_dispatch() {
     let (rig, runner) = seven_parked_on_src_seven("acme");
     rig.forge.list_ready(9, false);
-    rig.forge.set_ready_body(9, "Change `src/nine.rs`.");
+    rig.forge.set_ready_body(9, &changes("src/nine.rs"));
     assert_eq!(step(&runner).unwrap(), None, "#9's paths are read");
     let unread = Skip::PathsUnread {
         issue: ticket(9),
@@ -89,7 +97,7 @@ fn a_body_edited_after_its_paths_were_read_is_read_again_before_dispatch() {
     assert_eq!(skipped(&rig, &runner)[0]["reason"], "paths-unread");
 
     // Edited to name #7's file before the board opens it.
-    rig.forge.set_ready_body(9, "Change `src/seven.rs`.");
+    rig.forge.set_ready_body(9, &changes("src/seven.rs"));
     assert_eq!(step(&runner).unwrap(), None, "the new body is read first");
     assert_eq!(step(&runner).unwrap(), None);
     assert_eq!(
@@ -108,7 +116,7 @@ fn a_branch_git_cannot_read_keeps_the_files_last_read() {
     let head = git(&rig.repo(), &["rev-parse", "kelpie/7"]);
     git(&rig.repo(), &["update-ref", "-d", "refs/heads/kelpie/7"]);
     rig.forge.list_ready(9, false);
-    rig.forge.set_ready_body(9, "Change `src/seven.rs`.");
+    rig.forge.set_ready_body(9, &changes("src/seven.rs"));
     assert_eq!(step(&runner).unwrap(), None, "#9's paths are read");
     assert_eq!(step(&runner).unwrap(), None);
     assert_eq!(
@@ -130,7 +138,7 @@ fn a_parked_branch_whose_files_are_unknown_holds_every_ready_issue() {
     drop(runner);
     let runner = rig.open().unwrap();
     rig.forge.list_ready(10, false);
-    rig.forge.set_ready_body(10, "Change `src/ten.rs`.");
+    rig.forge.set_ready_body(10, &changes("src/ten.rs"));
     for _ in 0..2 {
         assert_eq!(step(&runner).unwrap(), None, "#10 waits on #7's files");
     }

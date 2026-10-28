@@ -2,7 +2,7 @@
 
 The operator reference for shep-kelpie, one page for each topic. [Getting started](../../README.md#getting-started) comes first.
 
-- [Writing issues](issues.md): the issue writer, `shep kelpie issue` and the `agent:` label
+- [Writing issues](issues.md): the `issue` skill, `shep kelpie issue check` and the `agent:` label
 - [Local tickets](tickets.md): a project's tickets as files in kelpie's home, and `shep kelpie ticket`
 - [The board and the project manager](board.md): what decides whether and when an issue starts, the briefing and the project manager
 - [Contributions](contributions.md): pull requests from other people, and their security review
@@ -13,7 +13,6 @@ The operator reference for shep-kelpie, one page for each topic. [Getting starte
 - [Agents](agents.md): agent files, gateways, pi and Codex
 - [Attaching to a worker](attach.md): steering a work item's worker by hand
 - [Rulings](rulings.md): the six kinds, how to answer them, and answers from GitHub and ntfy
-- [The panel](panel.md): the experts who vote on a ruling, how they decide, who votes and how to measure them
 - [The GitHub App](github-app.md): registering kelpie's App, what a worker's token can do, and the tools and login token
 - [Upgrading](upgrading.md): moving the dog and the runners onto a new build
 - [What shep does for it](shep.md): supervision, lambs, triggers, settings and logs

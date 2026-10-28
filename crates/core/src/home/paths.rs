@@ -95,14 +95,9 @@ pub struct ProjectPaths {
     /// The project manager's folder: the board as it stood at its last wake,
     /// and its notes
     pub pm: PathBuf,
-    /// The advisor's folder: the ruling it votes on, and the diff of its branch
-    pub advisor: PathBuf,
-    /// The researcher's folder: the ruling it votes on, the rulings before it,
-    /// the threads, the worker's transcript and the maintainer's
-    pub researcher: PathBuf,
     /// The representative's folder, where its calls run with nothing in it
     pub representative: PathBuf,
-    /// Every ruling answered, one JSON object a line, which the researcher reads
+    /// Every ruling answered, one JSON object a line, which the project manager's batch retro reads
     pub rulings: PathBuf,
     /// What happened to the work items, one JSON object a line, which the
     /// project manager's batch retro reads
@@ -128,14 +123,13 @@ pub struct ProjectPaths {
     graphs: PathBuf,
     graph_runtimes: PathBuf,
     browsers: PathBuf,
-    issues: PathBuf,
     triage: PathBuf,
 }
 
 impl ProjectPaths {
     /// `<kelpie home>/<project>/`, holding the project's state and worker
-    /// files, and its `worktrees`, `builds`, `code-graphs`, `cbm`, `browser` and `issues` folders, beside
-    /// kelpie's own `totp`, `agents` and `tools`
+    /// files, and its `worktrees`, `builds`, `code-graphs`, `cbm` and `browser`
+    /// folders, beside kelpie's own `totp`, `agents` and `tools`
     pub fn under(kelpie_home: &Path, shep_home: &Path, project: &ProjectName) -> Self {
         let folder = kelpie_home.join(project.as_str());
         Self {
@@ -146,8 +140,6 @@ impl ProjectPaths {
             board: folder.join("board.md"),
             answers: folder.join("answers"),
             pm: folder.join("pm"),
-            advisor: folder.join("advisor"),
-            researcher: folder.join("researcher"),
             representative: folder.join("representative"),
             rulings: folder.join("rulings.jsonl"),
             journal: folder.join("journal.jsonl"),
@@ -163,7 +155,6 @@ impl ProjectPaths {
             graphs: folder.join("code-graphs"),
             graph_runtimes: folder.join("cbm"),
             browsers: folder.join("browser"),
-            issues: folder.join("issues"),
             triage: folder.join("triage"),
         }
     }
@@ -275,12 +266,6 @@ impl ProjectPaths {
     /// goes when the call ends
     pub fn triage_images(&self, ticket: TicketId) -> PathBuf {
         self.triage.join(format!("{ticket}-images"))
-    }
-
-    /// The folder for the issue writer's settings, prompt and checkouts,
-    /// apart from every work item's
-    pub fn issues(&self) -> PathBuf {
-        self.issues.clone()
     }
 }
 

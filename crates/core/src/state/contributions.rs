@@ -793,9 +793,9 @@ pub enum Held {
 
 impl RulingKind {
     /// Whether the ruling is about someone else's pull request. It is never
-    /// posted on that pull request nor put to the panel: a public comment
-    /// would accuse the contributor and tip off an attacker, and text from a
-    /// stranger must not reach a vote.
+    /// posted on that pull request nor put to the project manager: a public
+    /// comment would accuse the contributor and tip off an attacker, and text
+    /// from a stranger must not reach an agent that answers it.
     pub fn is_contribution(&self) -> bool {
         matches!(self, Self::Contribution(_))
     }

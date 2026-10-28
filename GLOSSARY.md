@@ -10,9 +10,10 @@ _Avoid_: harness (the working name before 2026-09-25), control room
 
 ## The flow
 
-1. **Issue.** The maintainer and the issue writer turn a request into an
-   issue with acceptance criteria, one pull request's worth, labelled with
-   the agent that should build it.
+1. **Issue.** The maintainer, or any agent session, writes an issue with
+   kelpie's issue skill: acceptance criteria, one pull request's worth, and
+   the agent that should build it as a label where one is wanted. The
+   **issue check** says it holds every part.
 2. **Pick.** The project manager's agent picks the next ready issue, or,
    without one, the board takes it by priority, then age; either opens a
    work item for it.
@@ -96,7 +97,7 @@ goose call is not paused this way, and runs to its end.
 
 **Agent**:
 A definition file, `<kelpie home>/agents/<name>.md`, naming what it is for
-(its **role**: `implementer`, `reviewer`, `issue-writer`, `pm` and the
+(its **role**: `implementer`, `reviewer`, `pm` and the
 others), its harness, the model and effort it runs on, and its prompt as the
 body. A file is a **baseline** plus a **binding**, or says both itself.
 Kelpie ships whole agents and baselines, and `add` writes the whole ones
@@ -127,7 +128,7 @@ _Avoid_: roster, pool
 **Harness**:
 What runs an agent's session: Claude Code (`claude-code`), Codex (`codex`),
 pi (`pi`, a model on an OpenAI-compatible server) or goose (`goose`, a model
-on an OpenAI-compatible server, in the researcher role for now). A reviewer may also
+on an OpenAI-compatible server too). A reviewer may also
 run as a `command`, an `endpoint` or a `bot`.
 
 **Gateway**:
@@ -141,14 +142,11 @@ _Avoid_: proxy, router
 
 **Implementer**:
 An agent kelpie can run a work item on, from a file whose role is
-`implementer`. A project lists the ones an unlabelled issue is picked from,
-and the chain its first turn **falls back** along. An issue's
-`agent:<name>` label picks one, listed or not. With several listed, the
-issue writer labels an issue without one before the board opens it, unless
-`agents.implementer_choice` is `order`, which takes the first listed with no
-call; with one, it runs on that one, the **default implementer**, the first
-listed, which may be a local model. A work item keeps the implementer it
-opened on, unless its first turn **falls back**: with
+`implementer`. A project lists the ones an issue runs on, and the chain its
+first turn **falls back** along. An issue's `agent:<name>` label picks one,
+listed or not. An issue without one runs on the **default implementer**,
+the first listed, which may be a local model. A work item keeps the
+implementer it opened on, unless its first turn **falls back**: with
 `agents.fallback_after` set, a first turn that waited that long for its
 model moves to the next implementer listed. A label ending in `!` **pins**
 the work item, which never falls back, and an unlisted implementer never
@@ -162,16 +160,16 @@ minutes with that off). `status` and the board show since when, and why.
 Its first output clears it.
 _Avoid_: stalled, hung
 
-**Issue writer**:
-The agent that turns a request into an issue: it researches, scopes the work
-to one pull request or splits it, writes the acceptance criteria and labels
-the implementer. `shep kelpie issue "<request>"` runs it headless and files
-the issue for the maintainer to read; with `--interactive` it runs in the
-maintainer's terminal and files it ready for a worker. With several
-implementers listed, the runner also asks it to pick the implementer for a
-ready issue with no `agent:` label, and puts that label on the issue itself.
-`agents.issue_writer` names its agent file.
-_Avoid_: planner, planning call
+**Issue check**:
+Kelpie's code check that an issue holds every part an implementer builds
+from: a `Touches:` line, what to build, acceptance criteria, harness reach
+when it touches one harness's adapter, blockers when it names any, one
+priority label, and a kind: its `kind:<type>` label, else its title's
+conventional prefix, one of nine conventional types. It reads structure, not quality.
+`shep kelpie issue check <n>` runs it, and the issue skill holds the same
+format for the agent that writes an issue. The board runs it on every new or
+edited open issue, and the **triager** runs only on one that fails it.
+_Avoid_: lint, validation, triage
 
 **Reviewer**:
 An agent in a project's review list, `agents.reviewers`. Each reads the
@@ -213,7 +211,7 @@ adopted dog, `kelpie`, holds the leases. Each **project** runs as a
 turn, a reviewer's session or the PM's wake, is that sheep's **lamb**.
 A stop is shep's: the runner exits, shep's stop ends every lamb it left
 (ADR 0005), and a restart resumes each work item from its session. The sessions the
-maintainer opens by hand, `--interactive`, `attach` and `shep kelpie pm`,
+maintainer opens by hand, `attach` and `shep kelpie pm`,
 run in the maintainer's terminal and are not lambs.
 
 ## What they handle
@@ -269,8 +267,8 @@ _Avoid_: triage bot, classifier (that word is the **spam check**'s model)
 
 **Triage**:
 Kelpie's handling of issues other people open, chosen by `triage.pick`. An
-issue is **untouched** until it carries one of kelpie's triage labels, and
-only one opened after `triage.since` is looked at.
+issue the **issue check** refused is **untouched** until it carries one of
+kelpie's triage labels, and only one opened after `triage.since` is looked at.
 _Avoid_: grooming, intake
 
 **Spam check**:
@@ -460,32 +458,6 @@ ruling, which reruns the head's failed jobs, and `restore` on a `turn-failed`
 one, which puts an uncommitted agent file back before the turn resumes. The
 option's text says what kelpie will do, and the board's events name the option
 that asked for it.
-
-**Panel**:
-The four experts who vote on a ruling, each blind to the others: the work
-item's own **worker**, resumed once with the ruling (it abstains when the
-item has no worker turn), the **project manager**, the **advisor** and the
-**researcher**. A project has one once it names an advisor or a researcher
-(`agents.advisor`, `agents.researcher`). A **vote** is one JSON object, a
-`choice` that is an option's key, a `why` of at most 350 characters and a
-`design` flag; one kelpie cannot read is an abstention, logged. A ruling's
-comment lists the votes under **Panel** and waits for them, 20 minutes at
-most. Nothing decides by them yet.
-_Avoid_: jury, council, quorum
-
-**Advisor**:
-The panel's expert on the codebase, an agent file whose role is `advisor`.
-It reads the work item's worktree, the checkout, the branch's diff that kelpie
-writes into its folder, and the project's design docs, ADRs, glossary and
-README. It runs no git, `gh` or command, and writes nothing but its vote.
-
-**Researcher**:
-The panel's expert on everything outside the codebase, an agent file whose
-role is `researcher`. It reads what kelpie writes into its folder, which is
-earlier rulings and their answers, the issue and pull request threads, the
-worker's session and the maintainer's own agent sessions
-(`researcher.transcripts`, off until named), and it has the web, read only.
-It runs no git, `gh` or command, and writes nothing but its vote.
 
 **Merge authority**:
 Who merges a green, reviewed pull request, a project's `git.merging`. `ask`

@@ -8,9 +8,8 @@
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
-use super::CallLine;
 use super::requests::{Parsed, parse};
-use crate::ports::Role;
+use super::{CallLine, LedgerRole};
 
 /// One session, as the first of its calls in a window names it
 #[derive(Debug)]
@@ -18,7 +17,7 @@ pub(super) struct Seen {
     /// Its id
     pub session: String,
     /// The role of its first call
-    pub role: Role,
+    pub role: LedgerRole,
     /// The harness of its first call, or `unknown` for an imported line
     pub harness: String,
     /// Its transcript, where the steps file names it and the file exists
@@ -53,7 +52,7 @@ pub(super) fn seen(calls: &[&CallLine], steps: &str) -> Vec<Seen> {
         let parsed = (placed.zip(text)).and_then(|((format, _), text)| parse(*format, &text));
         out.push(Seen {
             session: session.to_owned(),
-            role: call.role,
+            role: call.role.clone(),
             harness: (call.harness.clone()).unwrap_or_else(|| "unknown".to_owned()),
             file: placed.map(|(_, file)| file.clone()),
             parsed,

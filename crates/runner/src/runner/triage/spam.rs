@@ -118,6 +118,7 @@ impl Runner {
                 questions: None,
                 local: None,
                 spam: Some(probability),
+                begun: None,
             };
             for at in made {
                 record.add_call(at);
@@ -188,8 +189,8 @@ impl Runner {
             at,
             issue: TicketId::from_issue(issue),
             pull_request: None,
-            role: Role::Triager,
-            kind: CallKind::SpamCheck,
+            role: Role::Triager.into(),
+            kind: CallKind::SpamCheck.into(),
             agent: None,
             harness: None,
             model: None,
@@ -206,7 +207,6 @@ impl Runner {
             gpu_seconds: None,
             pacer: Default::default(),
             imported: false,
-            votes: Vec::new(),
         }
     }
 }

@@ -6,7 +6,7 @@ use shep_client::shep_core::values::UpDuration;
 use super::*;
 use crate::home::ProjectPaths;
 use crate::ports::Visibility;
-use crate::settings::{AgentName, BaseBranch, ForgeSlug};
+use crate::settings::{AgentName, BaseBranch, ForgeSlug, RulingName};
 use crate::state::STATE_FILE;
 use crate::test::{CALL_PATIENCE, FakeForge, FakeShepherd, ticket};
 
@@ -291,6 +291,25 @@ async fn add_writes_stubs_for_the_whole_agents_and_none_for_a_baseline() {
     }
     let reviewers = scene.settings().agents.reviewers.unwrap();
     assert_eq!(reviewers, [AgentName::kelpies("defect-hunter-lite")]);
+}
+
+#[tokio::test]
+async fn a_new_project_s_table_holds_every_kind_of_ruling_at_its_default() {
+    let scene = Scene::new().await;
+    scene.add().await.unwrap();
+    let (runner, _) = scene.shepherd.sheep("koji").expect("a runner");
+    let table = runner
+        .dogs
+        .get(DOG)
+        .expect("a kelpie table")
+        .as_map()
+        .clone();
+    let map = table["rulings"]["pm_decides"].as_object().unwrap();
+    for kind in RulingName::ALL {
+        let written = map.get(kind.as_str()).and_then(Value::as_bool);
+        assert_eq!(written, kind.pm_default(), "{kind:?}");
+    }
+    assert!(scene.settings().rulings.pm_decides(RulingName::StillRed));
 }
 
 #[tokio::test]

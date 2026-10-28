@@ -217,7 +217,7 @@ impl Runner {
                 .map(|item| (item.issue, item.branch.clone()))
                 .collect(),
             bodies: self.brief.bodies.clone(),
-            patches: (self.agents.pm.is_some() || self.panel_enabled()).then(|| {
+            patches: self.agents.pm.is_some().then(|| {
                 (self.state.work_items.iter())
                     .map(|item| (item.issue, self.paths.worktree(item.issue)))
                     .collect()
@@ -632,14 +632,8 @@ pub(super) fn passed_over(skip: &Skip, shown: &dyn Fn(String) -> String) -> (Str
             ),
             true,
         ),
-        Skip::Unlabelled { ruling: None, .. } => (
-            "waits for the issue writer to pick its implementer".into(),
-            true,
-        ),
-        Skip::Unlabelled {
-            ruling: Some(id), ..
-        } => (
-            format!("has no `agent:` label, and waits on ruling {id}"),
+        Skip::Check { failures, .. } => (
+            format!("the issue check refused it: {}", shown(failures.join("; "))),
             true,
         ),
         Skip::Paced { hold, .. } => (format!("held by the pacer: {hold}"), true),

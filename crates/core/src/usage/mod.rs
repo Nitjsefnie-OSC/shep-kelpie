@@ -4,7 +4,7 @@
 //! `<kelpie home>/<project>/usage.jsonl` holds one JSON object per line,
 //! appended and never rewritten: a `call` line as each call ends, the
 //! worker's turns, every reviewer's sessions and local rounds, the project
-//! manager's wakes and compactions and the issue writer's runs, and a
+//! manager's wakes and compactions, and a
 //! `finished` line as a work item finishes. A call's line keeps its four
 //! token counts beside its units, so another weighting can be applied
 //! later. `shep kelpie usage` reads it, and nothing else does.
@@ -18,9 +18,7 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 
 use crate::metrics::Recorder;
-use crate::panel::{Tier, Voter};
 use crate::ports::{Cost, Role, SessionId, Timestamp, Usage};
-use crate::settings::RulingName;
 use crate::ticket::TicketId;
 use crate::work_item::RoleTally;
 
@@ -31,7 +29,6 @@ mod finished;
 mod import;
 mod item;
 mod openmetrics;
-mod panel;
 mod reads;
 mod report;
 mod requests;
@@ -43,7 +40,6 @@ pub use finished::{FinishedLine, HeldFindings};
 pub use import::{Imported, import};
 pub use item::item;
 pub use openmetrics::openmetrics;
-pub use panel::vote_costs;
 pub use reads::reads;
 pub use report::report;
 
@@ -92,14 +88,9 @@ pub enum CallKind {
     /// `/compact` on the project manager's session, or on a worker's before
     /// a turn
     Compact,
-    /// The issue writer's run
-    Issues,
     /// The project manager's batch retro, over the work items finished since
     /// the last one
     Retro,
-    /// An expert's vote on a ruling: the worker's resumed session, the
-    /// advisor's or the researcher's
-    Vote,
     /// The representative's wording of a post to a contributor
     Post,
     /// The triager's research of an issue
@@ -107,6 +98,72 @@ pub enum CallKind {
     /// The classifier's check of an issue for spam, which spent no tokens and
     /// made no model call of the caps' counting
     SpamCheck,
+}
+
+/// A call line's role: one this build has, or a retired one by the name a
+/// line wrote, which still counts
+// wire format: the role's name, as `Role` writes it
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum LedgerRole {
+    /// A role this build has
+    Known(Role),
+    /// A role an older build had
+    Retired(String),
+}
+
+impl LedgerRole {
+    /// The role's name, as the ledger writes it
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::Known(role) => role.as_str(),
+            Self::Retired(name) => name,
+        }
+    }
+
+    /// The role, if this build has it
+    pub fn known(&self) -> Option<Role> {
+        match self {
+            Self::Known(role) => Some(*role),
+            Self::Retired(_) => None,
+        }
+    }
+}
+
+impl From<Role> for LedgerRole {
+    fn from(role: Role) -> Self {
+        Self::Known(role)
+    }
+}
+
+impl PartialEq<Role> for LedgerRole {
+    fn eq(&self, role: &Role) -> bool {
+        *self == Self::Known(*role)
+    }
+}
+
+/// A call line's kind: one this build has, or a retired one by the name a
+/// line wrote, which still counts
+// wire format: the kind's name, as `CallKind` writes it
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum LedgerKind {
+    /// A kind this build has
+    Known(CallKind),
+    /// A kind an older build had
+    Retired(String),
+}
+
+impl From<CallKind> for LedgerKind {
+    fn from(kind: CallKind) -> Self {
+        Self::Known(kind)
+    }
+}
+
+impl PartialEq<CallKind> for LedgerKind {
+    fn eq(&self, kind: &CallKind) -> bool {
+        *self == Self::Known(*kind)
+    }
 }
 
 /// How a call ended
@@ -147,27 +204,6 @@ pub struct PacerLine {
     pub week_resets_at: Option<Timestamp>,
 }
 
-/// A vote on a ruling that a call cast, or, for the project manager's wake,
-/// one of the votes it cast
-// wire format: changing this is a breaking change to the usage ledger
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct VoteMark {
-    /// The ruling's id
-    pub ruling: TicketId,
-    /// The kind of ruling it is
-    pub ruling_kind: RulingName,
-    /// The expert who voted
-    pub voter: Voter,
-    /// The panel the work item's type set
-    pub panel: Tier,
-    /// The work item's type, from its pull request's title: `fix`, `feat`,
-    /// `breaking` or `untyped`
-    pub work: String,
-    /// The option it chose, or none when it abstained
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub choice: Option<char>,
-}
-
 /// A model call, as it ended
 // wire format: changing this is a breaking change to the usage ledger
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -180,9 +216,9 @@ pub struct CallLine {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pull_request: Option<u64>,
     /// The role it was made for
-    pub role: Role,
+    pub role: LedgerRole,
     /// What it was
-    pub kind: CallKind,
+    pub kind: LedgerKind,
     /// The agent it ran on, unknown on an imported line
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent: Option<String>,
@@ -228,10 +264,6 @@ pub struct CallLine {
     /// Whether it was read from a runner's log, not written as it ended
     #[serde(default, skip_serializing_if = "is_false")]
     pub imported: bool,
-    /// The votes on rulings it cast: one for an expert's call, and one for
-    /// each ruling a project manager's wake voted on
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub votes: Vec<VoteMark>,
 }
 
 fn is_false(b: &bool) -> bool {
@@ -371,8 +403,8 @@ impl Ledger {
 /// Appends `line` to the ledger at `path`, making its folder if need be
 ///
 /// The line goes in one write to a file opened for appending, so a runner
-/// and an issue writer adding at once never interleave within a line. A
-/// line a crash left torn is ended first, so it costs only itself.
+/// and an import from its steps file adding at once never interleave within
+/// a line. A line a crash left torn is ended first, so it costs only itself.
 ///
 /// # Errors
 ///

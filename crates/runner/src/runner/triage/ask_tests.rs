@@ -8,7 +8,9 @@ use serde_json::{Value, json};
 use super::ask::REPLY_HINT;
 use super::marker::MARKER;
 use super::pick_tests::{MAINTAINER, issue, list, rig_with};
-use super::research_tests::{APP, calls, crashed_with, handed, moves, reply, restart, triage};
+use super::research_tests::{
+    APP, calls, crashed_with, handed, moves, reply, restart, triage, under,
+};
 use crate::github::ApiError;
 use crate::ports::{Clock, Role};
 use crate::runner::{Runner, step};
@@ -20,8 +22,9 @@ pub(super) const ASK_WORDS: &str =
 pub(super) const A_WORDS: &str = "That settles most of it.";
 
 // The labels a repo may hold for the pass, named bare
-const REPO_LABELS: [&str; 7] = [
+const REPO_LABELS: [&str; 8] = [
     "bug",
+    "kind:fix",
     "enhancement",
     "P1",
     "P2",
@@ -112,6 +115,7 @@ pub(super) fn settled() -> Value {
 pub(super) fn settled_ready() -> Value {
     json!({
         "type": "bug",
+        "kind": "fix",
         "priority": "P2",
         "body": "Touches:\n- `src/start.rs`\n\n## What to build\n\n- Fix the crash on start, \
             on Linux.\n\n## Acceptance criteria\n\n- [ ] `runner::start::it_starts`\n",
@@ -304,7 +308,10 @@ fn a_github_followed_by_answers_is_read_as_answers_and_no_question_is_posted_aga
         rig.github.issue_edits(),
         [(
             30,
-            "It crashes when I run it.\n\n## Settled\n\n- Linux, on start.".to_owned()
+            under(
+                "It crashes when I run it.",
+                "## Settled\n\n- Linux, on start."
+            )
         )]
     );
     assert_eq!(record(&rig, &runner)["step"], "done");

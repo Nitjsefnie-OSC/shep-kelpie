@@ -1,12 +1,13 @@
 //! What `shep kelpie usage` prints: per merged pull request, its units,
 //! dollars, wall time, rulings and each role's share, with their medians,
 //! the loaded units per merged pull request that a baseline is held
-//! against, then the project manager's and the issue writer's totals
+//! against, then the project manager's totals, and those of roles this
+//! build no longer has
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::baselines::Baseline;
-use super::{CallKind, CallLine, FinishedLine, Line};
+use super::{CallKind, CallLine, FinishedLine, LedgerRole, Line};
 use crate::ports::{Role, Timestamp};
 use crate::ticket::TicketId;
 
@@ -66,7 +67,7 @@ pub fn report(
         let unpriced = calls.iter().filter(|call| call.unpriced).count();
         out.push(format!(
             "loaded: {} units, {}{} per merged pull request, counting every call: the \
-             project manager's, the issue writer's, and those of work items dropped or \
+             project manager's, the retired roles', and those of work items dropped or \
              closed with no change too",
             thousands(loaded.round() as u64),
             money(dollars),
@@ -84,12 +85,10 @@ pub fn report(
     out.extend(not_merged("dropped", &ended(false)));
     out.push(String::new());
     out.push(totals("project manager", &calls, Role::Pm));
-    out.push(totals("issue writer", &calls, Role::IssueWriter));
     out.extend(retros(&calls));
-    out.extend(votes(&calls));
     out.extend(posts(&calls));
     out.extend(triage(&calls));
-    out.extend(super::panel::split(&calls));
+    out.extend(retired(&calls));
     let recorded: BTreeSet<TicketId> = finished.iter().map(|item| item.issue).collect();
     out.extend(unrecorded(&calls, &recorded));
     out
@@ -252,11 +251,6 @@ fn triage(calls: &[&CallLine]) -> Option<String> {
     of_kind("triager", CallKind::Triage, calls)
 }
 
-// The panel's votes on rulings, totalled apart from the work items, if any ran
-fn votes(calls: &[&CallLine]) -> Option<String> {
-    of_kind("panel votes", CallKind::Vote, calls)
-}
-
 // The calls of `kind`, totalled as `name`, if any ran
 fn of_kind(name: &str, kind: CallKind, calls: &[&CallLine]) -> Option<String> {
     let mine: Vec<&&CallLine> = (calls.iter()).filter(|call| call.kind == kind).collect();
@@ -272,6 +266,32 @@ fn of_kind(name: &str, kind: CallKind, calls: &[&CallLine]) -> Option<String> {
         thousands(units),
         money(dollars),
         unpriced_note(unpriced)
+    ))
+}
+
+// The calls of roles this build no longer has, totalled on one line naming each, if any ran
+fn retired(calls: &[&CallLine]) -> Option<String> {
+    let mut by_role: BTreeMap<&str, usize> = BTreeMap::new();
+    let mine: Vec<&&CallLine> = (calls.iter())
+        .filter(|call| matches!(call.role, LedgerRole::Retired(_)))
+        .inspect(|call| *by_role.entry(call.role.as_str()).or_default() += 1)
+        .collect();
+    if mine.is_empty() {
+        return None;
+    }
+    let units = mine.iter().map(|call| call.units).sum();
+    let dollars = mine.iter().filter_map(|call| call.cost_usd).sum();
+    let unpriced = mine.iter().filter(|call| call.unpriced).count();
+    let named: Vec<String> = (by_role.into_iter())
+        .map(|(role, n)| format!("{role} {}", count(n, "call")))
+        .collect();
+    Some(format!(
+        "retired roles: {}, {} units, {}{} ({})",
+        count(mine.len(), "call"),
+        thousands(units),
+        money(dollars),
+        unpriced_note(unpriced),
+        named.join(", ")
     ))
 }
 

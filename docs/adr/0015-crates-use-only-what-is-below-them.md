@@ -37,3 +37,5 @@ The decision:
 - A leaf's manifest names no other member, which the build holds, since a crate cannot name one above or beside it.
 - `cargo fmt --all`, `cargo clippy --all-targets` and `cargo test` run from the root cover every member through `default-members`. A member alone is `-p`.
 - Scripts that scan `src/` scan every member's `src/` too, and a test that names a type above its crate moves to the crate that holds both.
+
+ADR 0017 adds `protocol` to the map, between `core` and `runner`: it holds the runner's typed requests, answers and owned status, and names only `core`, serde and serde_json.

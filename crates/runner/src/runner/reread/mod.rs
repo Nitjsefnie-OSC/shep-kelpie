@@ -60,12 +60,8 @@ impl Runner {
         if !kelpie.gateways().iter().eq(self.gateways.iter()) {
             waiting.push("gateways");
         }
-        if let Some(reason) = settings.rulings.refusal() {
-            return Err(SettingsError::Invalid {
-                setting: "rulings.pm_alone",
-                reason,
-            }
-            .into());
+        if let Some(refused) = settings.rulings.refusal() {
+            return Err(refused.into());
         }
         // The start refuses a browser this machine cannot give, so a reread does too.
         settings
@@ -75,9 +71,6 @@ impl Runner {
                 setting: "browser.enabled",
                 reason,
             })?;
-        if settings.rulings != self.settings.rulings {
-            self.notes.extend(settings.rulings.unused_under_always());
-        }
         let gpu_metrics_url = kelpie.gpu_metrics_url.clone();
         let mut book = Agents::load(&self.paths.agents)?;
         book.hold_for(self.state.work_items.iter().map(|item| &item.agent))?;
@@ -132,9 +125,7 @@ impl Runner {
             open_checks::triage(&settings, self.ports.voice.as_ref(), &self.remote, &book)?;
         }
         let (was, now) = (&self.settings.agents, &settings.agents);
-        let picking = (was.issue_writer != now.issue_writer)
-            || (was.fallback_after != now.fallback_after)
-            || (was.implementer_choice != now.implementer_choice);
+        let picking = was.fallback_after != now.fallback_after;
         if agents != self.agents || lineup != self.lineup || book != self.book || picking {
             changed.push("agents");
         }
@@ -332,18 +323,14 @@ pub fn check_gateway_shapes(
     gateways.check_listed_without_keys(book, listed(agents, lineup))
 }
 
-// Every agent a project runs a call on: its implementers, its reviewers, its advisor
-// and its researcher.
+// Every agent a project runs a call on: its implementers and its reviewers.
 fn listed<'a>(
     agents: &'a RoleAgents,
     lineup: &'a [ListedReviewer],
 ) -> impl Iterator<Item = &'a AgentName> + 'a {
     let implementers = agents.implementers.iter().map(|i| &i.name);
     let reviewers = lineup.iter().map(|r| &r.name);
-    let experts = agents.advisor.iter().chain(agents.researcher.iter());
-    implementers
-        .chain(reviewers)
-        .chain(experts.map(|e| &e.name))
+    implementers.chain(reviewers)
 }
 
 #[cfg(test)]

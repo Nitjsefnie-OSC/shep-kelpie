@@ -7,6 +7,7 @@
 //! a runner killed mid-write leaves the previous state whole.
 
 mod bumps;
+mod checks;
 mod contributions;
 mod events;
 mod lease;
@@ -19,6 +20,7 @@ mod ruling;
 mod triage;
 
 pub use bumps::{Bump, E2eResult, E2eState, Red, RedStep};
+pub use checks::{CheckTriage, IssueCheck};
 pub use contributions::{
     Adopting, Asked, BotTurn, Ci, CiState, Contribution, Deciding, Held, How, KEPT, Pass, Released,
     Ruled, Said, Security, SecurityVerdict, Spent, Verdict, Walking,
@@ -29,7 +31,7 @@ pub use notices::{MainNotice, MergeNotice, Notice};
 pub use projects::Projects;
 pub use red::{Handled, RedWorkflow};
 pub use removed::OldWorker;
-pub use ruling::Ruling;
+pub use ruling::{PmAsked, Ruling};
 pub use triage::{
     TRIAGE_CALLS_KEPT, TRIAGED_KEPT, TriageAsked, TriageHeld, TriageLocal, TriageQuestions,
     TriageState, TriageStep, Triaged,
@@ -53,7 +55,7 @@ use crate::work_item::{Attached, Known, Phase, Priced, Review, Seconds, Tally, T
 pub const STATE_FILE: &str = "state.json";
 
 /// The state file's format version, bumped when the file gains a field or value an older kelpie refuses
-pub const VERSION: u32 = 85;
+pub const VERSION: u32 = 89;
 
 /// The format before a project could have more than one work item open,
 /// which this kelpie still reads
@@ -163,6 +165,11 @@ pub struct ProjectState {
     /// Left out while unset.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub triage: Option<TriageState>,
+    /// What the issue check last said of each open GitHub issue, by number
+    ///
+    /// Left out while empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub checks: Vec<IssueCheck>,
     /// Leases this project holds
     pub leases: Vec<LeaseHeld>,
     /// What the Claude account's week had spent when today began, once
@@ -277,6 +284,7 @@ impl ProjectState {
             spent: Vec::new(),
             bumps: Vec::new(),
             triage: None,
+            checks: Vec::new(),
             leases: Vec::new(),
             pacing: None,
             codex_pacing: None,
@@ -520,7 +528,7 @@ pub enum RulingKind {
     },
     /// A contribution waits on the maintainer before anything of it runs. It
     /// parks no work item, and it is never posted on the contributor's pull
-    /// request nor put to the panel.
+    /// request nor put to the project manager.
     Contribution(Held),
 }
 
@@ -657,13 +665,6 @@ pub enum Stuck {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         phase: Option<Phase>,
     },
-    /// The issue writer could not label an issue with no `agent:` label,
-    /// which no work item holds. Any answer clears it, and the board reads
-    /// the issue again.
-    Unlabelled {
-        /// Why
-        why: String,
-    },
     /// An adopted pull request cannot start, and no work item holds it. Any
     /// answer clears it, and the board tries again every poll.
     AdoptFailed {
@@ -684,6 +685,10 @@ pub enum Stuck {
         /// before the turn resumes
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         restore: Vec<String>,
+        /// Kelpie could not set up the call, which a retry does not fix, so
+        /// the ruling goes to the maintainer, never the project manager
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        setup: bool,
     },
     /// A work item's priced calls cost more than its cap, so its worker's
     /// next turn did not start. A yes doubles the cap, again while it is
@@ -871,6 +876,7 @@ impl StateStore {
             return Err(StateError::RemovedRuling { path, id, kind });
         }
         removed::drop_removed_fields(&mut value);
+        removed::withdraw_unlabelled(&mut value);
         if found <= BUILT_IN_REVIEWERS {
             removed::name_reviewers_as_files(&mut value);
         }

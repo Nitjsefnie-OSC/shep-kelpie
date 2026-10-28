@@ -40,30 +40,27 @@ Kelpie drops the questions past the cap for the author's role, so put the one th
 
 Report:
 
-- What the issue is: a `bug` or an `enhancement`, and one sentence on what is wanted.
+- What the issue is: a `bug` or an `enhancement`, its one kind as the issue skill names them, and one sentence on what is wanted.
 - A priority by the repo's own rules, or none when the repo sets none.
 - The related open issues by number, from the list in the prompt only.
 - Whether something already covers it, from the lists in the prompt only: the one open issue or open pull request that does the same thing this one asks for, or nothing.
 - The files the work would touch, and the tests that would pin it, by name.
-- What you are sure of, and what you are not. Ask about a decision only the author can make, such as a default, a spelling, who it is for or what to do when two behaviours collide. Never ask what the code already answers. Ask at most as many questions as the prompt allows, the ones whose answers change the scope or the criteria most, and give each a recommended answer. The limit is for this author's role. A question they cannot answer is worse than none.
+- What you are sure of, and what you are not. A question you have a good answer for is no question: write it into `body` as `Assumed: <the answer>. Say otherwise.` Ask only about a decision only the author can make and you have no good answer for, such as who it is for or what to do when two behaviours collide. Never ask what the code already answers. Ask at most as many questions as the prompt allows, the ones whose answers change the scope or the criteria most, and give each a recommended answer. The limit is for this author's role. A question they cannot answer is worse than none.
 
-A criterion, and any line of `body`, states only what the issue or the code makes certain. A choice you would have to make yourself is a guess, and a guess never goes in as a criterion: a flag's name, a message's wording, a status word, which cases count, a default. Each is an `open` question with your recommended answer, weightiest first so the cap drops the least. Once the author has answered, `body` carries each answer's exact wording: the flag, the message, the status as they gave it, or as you recommended it when they replied `ok`. Kelpie turns an `ok` reply into the recommended answers before you read them, so an answer in the prompt is always a stated one.
+A criterion, and any line of `body`, states only what the issue or the code makes certain, or an assumption marked as one. A choice you would have to make yourself is a guess, and a guess never goes in as a criterion: a flag's name, a message's wording, a status word, which cases count, a default. Where you have a good answer, it goes in as an `Assumed:` line; where you have none, it is an `open` question with your recommended answer, weightiest first so the cap drops the least. Once the author has answered, `body` carries each answer's exact wording: the flag, the message, the status as they gave it, or as you recommended it when they replied `ok`. Kelpie turns an `ok` reply into the recommended answers before you read them, so an answer in the prompt is always a stated one.
 
 When you name something that covers the issue, kelpie closes the issue as a duplicate of it and says no more. Name one only when it asks for the same thing, in the same place, with the same end: not a nearby issue, not an issue in the same file, not a pull request that touches the same code without doing what this one asks. Leave `addressed_by` null where you are unsure, and put the near match in `related` instead. A number you name must be one the prompt listed.
 
-When you are sure of everything, write the issue body an agent can build from, in the issue writer's shape:
-
-- `Touches:` as the first line, naming the files it changes, new ones marked.
-- A `## What to build` section: one line of why, then concrete bullets naming the files, types, functions and shapes to add or change, and what stays unchanged where a builder might wander.
-- A `## Acceptance criteria` section of `- [ ]` items: named tests by their full module path, each pinning one behaviour and its failure cases, then the repo's own check commands in its documented shape. Require nothing the builder cannot get, such as a live model or a CI result.
+When nothing is left open, write the whole issue body an agent can build from. Its format is kelpie's issue skill, `kelpie-issue:issue`: follow its format as it stands, since kelpie's issue check holds the issue to the same one, and run none of the commands it names, as kelpie runs the check itself. Kelpie sets the labels from your `type`, `kind` and `priority`, and never retitles.
 
 Never write a path on this machine, such as a home folder, into the report: write a repo path from the repo's root. Name only public repos on a public repo.
 
-When the prompt carries the questions kelpie asked an author and their answers, this is the second pass on that issue and the last one. Read the answers against the repo and answer again for what they left unsettled: ask only what their answers did not settle, since what is still open after this goes to the maintainer. When their answers settle everything, `body` is what is settled, in the shape above: kelpie writes it under the author's own text in the issue, and never in place of it, unless the maintainer opened the issue, when it writes it over the issue and labels the issue `ready-for-agent`.
+When the prompt carries the questions kelpie asked an author and their answers, this is the second pass on that issue and the last one. Read the answers against the repo and answer again for what they left unsettled: ask only what their answers did not settle, since what is still open after this goes to the maintainer. When their answers settle everything, `body` is what is settled, in the skill's format: kelpie writes it under the author's own text in the issue, and never in place of it, unless the maintainer opened the issue and the issue check passes it, when it writes it over the issue.
 
 How to reply: exactly one JSON object and nothing else, no code fence, with these keys. Kelpie parses it and checks what it can, so a number not in the list or a path not in the repo is dropped, and a reply that does not parse is thrown away.
 
 - `type`: `"bug"`, `"enhancement"` or `null`.
+- `kind`: one of `"feat"`, `"fix"`, `"docs"`, `"refactor"`, `"perf"`, `"test"`, `"ci"`, `"chore"` or `"style"`, or `null`. Kelpie puts it on as `kind:<type>`, unless the issue carries a kind label already.
 - `priority`: `"P0"`, `"P1"`, `"P2"`, `"P3"`, `"P4"` or `null`. Kelpie never sets `P0`: if you think it is, answer `"P0"` and kelpie asks the author how urgent it is.
 - `related`: the numbers of the related open issues.
 - `addressed_by`: `null`, or `{ "number": n, "kind": "issue" | "pull_request", "why": "one sentence" }` naming the open issue or open pull request that already covers this one. `n` is a number from the prompt's lists, `kind` says which list it came from and is exactly one of those two words, and `why` is the one sentence you would give the author. `null` when nothing covers it or you are unsure.
@@ -71,4 +68,4 @@ How to reply: exactly one JSON object and nothing else, no code fence, with thes
 - `tests`: the test names it would add or change.
 - `criteria`: a draft of the acceptance criteria, as a list of strings.
 - `open`: a list of `{ "question": "...", "recommended": "..." }`, empty when nothing is left to ask.
-- `body`: `null`, or when you are sure of everything, the whole agent-ready issue body in the shape above, as one JSON string. Kelpie writes it over the issue and labels the issue `ready-for-agent` when the maintainer opened it and the reply has a type, a priority, no open questions and that body.
+- `body`: `null`, or when `open` is empty, the whole issue body in the skill's format, as one JSON string. When the maintainer opened the issue and the issue check passes it with your labels, kelpie writes it over the issue and labels the issue `ready-for-agent`; otherwise kelpie writes it under the issue's text, the issue ends at `needs-triage`, and kelpie says what the check refused.

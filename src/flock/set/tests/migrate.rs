@@ -1,0 +1,261 @@
+//! `settings migrate` against the stand-in shepherd's flock
+
+use super::*;
+use crate::settings::RulingName;
+
+impl Scene {
+    async fn migrate(&self) -> Result<Vec<String>, String> {
+        let client = self.shepherd.connect().await;
+        let home = self.shepherd.scratch("home");
+        let kelpie_home = home.join("kelpie");
+        let homes = Homes {
+            home: &home,
+            kelpie_home: &kelpie_home,
+            shep_home: self.shepherd.home(),
+        };
+        let done = crate::flock::set::migrate::migrate(&client, homes);
+        tokio::time::timeout(CALL_PATIENCE, done)
+            .await
+            .expect("migrate neither ended nor failed in time")
+    }
+}
+
+fn with_rulings(lines: &str) -> String {
+    format!("{TABLE}\n[rulings]\n{lines}\n")
+}
+
+fn map_of(table: &Map<String, Value>) -> &Map<String, Value> {
+    table["rulings"]["pm_decides"]
+        .as_object()
+        .expect("the map is written")
+}
+
+#[tokio::test]
+async fn an_empty_rulings_table_gets_every_kind_that_has_a_default() {
+    let scene = Scene::holding(&with_rulings("")).await;
+
+    let said = scene.migrate().await.unwrap();
+
+    assert_eq!(said.len(), 2, "{said:?}");
+    assert!(said[0].starts_with("project eevee: wrote "), "{said:?}");
+    assert!(said[1].starts_with("project koji: wrote "), "{said:?}");
+    assert!(
+        said[1].contains("rulings.pm_decides.rebase = true"),
+        "{said:?}"
+    );
+    let table = scene.table();
+    let map = map_of(&table);
+    for kind in RulingName::ALL {
+        let written = map.get(kind.as_str()).and_then(Value::as_bool);
+        assert_eq!(written, kind.pm_default(), "{kind:?}");
+    }
+}
+
+#[tokio::test]
+async fn a_value_already_there_is_never_changed() {
+    let table = with_rulings("pm_decides = { question = true, rebase = false }");
+    let scene = Scene::holding(&table).await;
+
+    scene.migrate().await.unwrap();
+
+    let table = scene.table();
+    let map = map_of(&table);
+    assert_eq!(map["question"], true);
+    assert_eq!(map["rebase"], false);
+    assert_eq!(map["still-red"], true);
+    assert_eq!(map["agent-files"], false);
+}
+
+#[tokio::test]
+async fn an_old_list_becomes_entries_in_the_map_and_is_removed() {
+    let scene = Scene::holding(&with_rulings("pm_alone = [\"question\"]")).await;
+
+    let said = scene.migrate().await.unwrap();
+
+    assert!(said[1].contains("rulings.pm_alone"), "{said:?}");
+    let table = scene.table();
+    assert!(table["rulings"].get("pm_alone").is_none(), "{table:?}");
+    let map = map_of(&table);
+    assert_eq!(map["question"], true);
+    assert_eq!(map["foreign-change"], false);
+    assert_eq!(map["turn-failed"], true);
+}
+
+#[tokio::test]
+async fn a_second_run_has_nothing_to_migrate() {
+    let mut scene = Scene::new().await;
+    scene.migrate().await.unwrap();
+    let after = scene.table();
+    assert_eq!(scene.shepherd.writes().len(), 2);
+
+    let said = scene.migrate().await.unwrap();
+
+    assert_eq!(said, ["nothing to migrate"]);
+    assert_eq!(scene.shepherd.writes(), []);
+    assert_eq!(scene.table(), after);
+}
+
+#[tokio::test]
+async fn a_table_that_would_not_load_is_not_written_and_the_others_are() {
+    let mut scene =
+        Scene::holding_each(&with_rulings("pm_alone = [\"merge\"]"), &with_rulings("")).await;
+    let before = scene.table();
+
+    let refused = scene.migrate().await.unwrap_err();
+
+    assert!(refused.contains("project koji"), "{refused}");
+    assert!(refused.contains("rulings.pm_decides"), "{refused}");
+    assert!(refused.contains("project eevee: wrote "), "{refused}");
+    assert_eq!(scene.table(), before);
+    assert_eq!(scene.shepherd.writes().len(), 1);
+    assert!(map_of(&scene.table_of("eevee")).contains_key("rebase"));
+}
+
+#[tokio::test]
+async fn a_list_with_an_entry_that_is_no_kind_s_name_is_refused_by_name_and_kept() {
+    let mut scene = Scene::holding_each(
+        &with_rulings("pm_alone = [\"rebase\", 3]"),
+        &with_rulings(""),
+    )
+    .await;
+    let before = scene.table();
+
+    let refused = scene.migrate().await.unwrap_err();
+
+    assert!(refused.contains("project koji: not migrated"), "{refused}");
+    assert!(refused.contains("rulings.pm_alone"), "{refused}");
+    assert_eq!(scene.table(), before);
+    assert_eq!(scene.shepherd.writes().len(), 1);
+}
+
+#[tokio::test]
+async fn the_panels_keys_are_deleted_and_named_and_the_table_loads() {
+    let panel = "decide = \"panel\"\nfull_panel_paths = [\"src/**\"]";
+    let scene = Scene::holding(&with_rulings(panel)).await;
+
+    let said = scene.migrate().await.unwrap();
+
+    assert!(
+        said[1].contains("removed rulings.decide, rulings.full_panel_paths"),
+        "{said:?}"
+    );
+    let table = scene.table();
+    for key in ["decide", "full_panel_paths"] {
+        assert!(table["rulings"].get(key).is_none(), "{table:?}");
+    }
+}
+
+#[tokio::test]
+async fn a_table_whose_map_is_whole_has_the_panels_key_deleted_alone() {
+    let whole: Vec<String> = (RulingName::ALL.into_iter())
+        .filter_map(|kind| Some(format!("\"{}\" = {}", kind.as_str(), kind.pm_default()?)))
+        .collect();
+    let lines = format!(
+        "decide = \"shadow\"\npm_decides = {{ {} }}",
+        whole.join(", ")
+    );
+    let scene = Scene::holding(&with_rulings(&lines)).await;
+
+    let said = scene.migrate().await.unwrap();
+
+    assert_eq!(said[1], "project koji: removed rulings.decide", "{said:?}");
+    assert!(scene.table()["rulings"].get("decide").is_none());
+}
+
+#[tokio::test]
+async fn the_panels_expert_keys_and_roles_are_deleted_and_named_and_the_table_loads() {
+    let experts = TABLE.replace(
+        "[agents]\n",
+        "[agents]\nadvisor = \"advisor\"\nresearcher = \"researcher\"\n",
+    );
+    let lines = "[researcher]\nallowed_domains = [\"docs.rs\"]\n\n\
+                 [repo_setup]\nroles = [\"worker\", \"advisor\", \"researcher\"]\n";
+    let scene = Scene::holding(&format!("{experts}\n{lines}")).await;
+
+    let said = scene.migrate().await.unwrap();
+
+    assert!(
+        said[1].contains(
+            "removed agents.advisor, agents.researcher, researcher, \
+             advisor from repo_setup.roles, researcher from repo_setup.roles"
+        ),
+        "{said:?}"
+    );
+    let table = scene.table();
+    assert!(table["agents"].get("advisor").is_none(), "{table:?}");
+    assert!(table["agents"].get("researcher").is_none(), "{table:?}");
+    assert!(table.get("researcher").is_none(), "{table:?}");
+    assert_eq!(table["repo_setup"]["roles"], serde_json::json!(["worker"]));
+}
+
+#[tokio::test]
+async fn the_issue_writers_implementer_choice_is_deleted_and_order_is_left() {
+    let chosen = |value: &str| {
+        TABLE.replace(
+            "[agents]\n",
+            &format!("[agents]\nimplementer_choice = \"{value}\"\n"),
+        )
+    };
+    let scene = Scene::holding(&chosen("issue-writer")).await;
+
+    let said = scene.migrate().await.unwrap();
+
+    assert!(
+        said[1].contains("removed agents.implementer_choice = \"issue-writer\""),
+        "{said:?}"
+    );
+    assert!(scene.table()["agents"].get("implementer_choice").is_none());
+
+    let scene = Scene::holding(&chosen("order")).await;
+    scene.migrate().await.unwrap();
+    assert_eq!(scene.table()["agents"]["implementer_choice"], "order");
+}
+
+#[tokio::test]
+async fn the_issue_writers_unlabelled_kind_is_deleted_from_the_map_and_the_list() {
+    let map = with_rulings("pm_decides = { unlabelled = true, rebase = false }");
+    let list = with_rulings("pm_alone = [\"unlabelled\", \"question\"]");
+    let scene = Scene::holding_each(&map, &list).await;
+
+    let said = scene.migrate().await.unwrap();
+
+    assert!(
+        said[0].contains("unlabelled from rulings.pm_alone"),
+        "{said:?}"
+    );
+    assert!(
+        said[1].contains("rulings.pm_decides.unlabelled"),
+        "{said:?}"
+    );
+    for table in [scene.table_of("eevee"), scene.table()] {
+        let map = map_of(&table);
+        assert!(map.get("unlabelled").is_none(), "{map:?}");
+        assert_eq!(map.len(), RulingName::ALL.len() - 4, "{map:?}");
+    }
+}
+
+#[tokio::test]
+async fn the_issue_writers_role_is_deleted_from_repo_setup_and_the_table_loads() {
+    let lines = "[repo_setup]\nroles = [\"worker\", \"issue-writer\", \"pm\"]\n";
+    let scene = Scene::holding(&format!("{TABLE}\n{lines}")).await;
+
+    let said = scene.migrate().await.unwrap();
+
+    assert!(
+        said[1].contains("removed issue-writer from repo_setup.roles"),
+        "{said:?}"
+    );
+    let roles = &scene.table()["repo_setup"]["roles"];
+    assert_eq!(*roles, serde_json::json!(["worker", "pm"]));
+}
+
+#[tokio::test]
+async fn the_issue_writers_agent_key_is_deleted_and_named_and_the_table_loads() {
+    let named = TABLE.replace("[agents]\n", "[agents]\nissue_writer = \"scribe\"\n");
+    let scene = Scene::holding(&named).await;
+
+    let said = scene.migrate().await.unwrap();
+
+    assert!(said[1].contains("removed agents.issue_writer"), "{said:?}");
+    assert!(scene.table()["agents"].get("issue_writer").is_none());
+}

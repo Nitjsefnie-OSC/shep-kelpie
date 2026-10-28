@@ -4,7 +4,7 @@ use std::path::Path;
 
 use super::Line;
 use crate::ports::{Alert, Alerts};
-use crate::settings::SettingsError;
+use crate::settings::{PM_DECIDES, RulingName, Settings, SettingsError};
 use crate::webhook::{KelpieSettings, WebhookKind};
 
 /// Kelpie's own settings: its `[kelpie]` section, empty when there is none
@@ -60,6 +60,29 @@ pub(super) fn channel(subject: String, kelpie: &KelpieSettings) -> Line {
             "no webhook, so rulings reach you only in the log, `status` and `shep kelpie rule`",
         ),
     }
+}
+
+/// The line naming the kinds of ruling with a default that `settings` leaves
+/// out of `rulings.pm_decides`, when it leaves any out
+///
+/// A kind left out is the maintainer's, so the project still runs.
+pub(super) fn unnamed_kinds(subject: String, settings: &Settings) -> Option<Line> {
+    let named = &settings.rulings.pm_decides;
+    let unnamed: Vec<&str> = (RulingName::ALL.into_iter())
+        .filter(|kind| kind.pm_default().is_some() && !named.contains_key(kind))
+        .map(RulingName::as_str)
+        .collect();
+    if unnamed.is_empty() {
+        return None;
+    }
+    Some(Line::missing(
+        subject,
+        format!(
+            "`{PM_DECIDES}` does not name {}, so you decide them",
+            unnamed.join(", ")
+        ),
+        "shep kelpie upgrade, or shep kelpie settings migrate",
+    ))
 }
 
 /// The line saying replies on the topic need no code, when the maintainer

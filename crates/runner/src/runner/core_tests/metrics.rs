@@ -372,16 +372,13 @@ fn a_runner_with_every_role_and_harness_in_use_stays_under_the_cap() {
     // local round too. Requests are counted for the worker, reviewer and project manager on Claude
     // Code and pi and the worker on Codex, and the other calls are recorded to show they add none.
     let roles = [
-        ("worker", "claude-code", &["turn", "compact", "vote"][..]),
-        ("worker", "pi", &["turn", "compact", "vote"][..]),
-        ("worker", "codex", &["turn", "compact", "vote"][..]),
+        ("worker", "claude-code", &["turn", "compact"][..]),
+        ("worker", "pi", &["turn", "compact"][..]),
+        ("worker", "codex", &["turn", "compact"][..]),
         ("pm", "pi", &["wake", "compact", "retro"][..]),
         ("reviewer", "claude-code", &["review"][..]),
         ("reviewer", "local", &["local-round"][..]),
-        ("issue-writer", "pi", &["issues"][..]),
         ("pm", "claude-code", &["wake", "compact", "retro"][..]),
-        ("advisor", "codex", &["vote"][..]),
-        ("researcher", "goose", &["vote"][..]),
         ("representative", "pi", &["post"][..]),
         ("triager", "claude-code", &["triage"][..]),
     ];

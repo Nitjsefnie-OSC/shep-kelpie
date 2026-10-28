@@ -22,11 +22,6 @@ pub(super) enum News {
     Pm(End),
     // The batch retro's call ended
     Retro(End),
-    // The issue writer's call labelling an issue ended
-    Labelled {
-        issue: TicketId,
-        end: End,
-    },
     // The e2e run of a bump's head ended
     Proved(super::proving::Proof),
     // A contribution's head was read for security, to a verdict or to none
@@ -42,11 +37,6 @@ pub(super) enum News {
         issue: u64,
         end: End,
         found: Option<Box<Result<crate::runner::triage::research::Found, String>>>,
-    },
-    // The experts of a ruling ended, each as its own call did
-    Paneled {
-        id: TicketId,
-        ends: Vec<(crate::panel::Voter, Result<AgentReply, AgentError>)>,
     },
     // A local round queued for the GPU or began to run. The call waits until
     // `_seen` drops, once the stage is saved, so its time is charged right.

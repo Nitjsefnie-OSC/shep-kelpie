@@ -31,10 +31,7 @@ use bot::at_key;
 enum Front {
     Implementer(Implementer),
     Reviewer(Reviewer),
-    IssueWriter(OnClaude),
     Pm(OnClaude),
-    Advisor(Expert),
-    Researcher(Expert),
     Representative(Expert),
     Triager(Expert),
 }
@@ -44,6 +41,22 @@ enum Front {
 struct Tag {
     role: Role,
 }
+
+// The `role` key as plain text, so a role no longer in [`Role`] can be named
+#[derive(Debug, Deserialize)]
+struct Written {
+    role: String,
+}
+
+/// The roles an agent file may not name, each with the reason its refusal gives
+const GONE: [(&str, &str); 3] = [
+    ("advisor", "went with the ruling panel"),
+    ("researcher", "went with the ruling panel"),
+    (
+        "issue-writer",
+        "went with the issue writer, and an issue is written with kelpie's `issue` skill",
+    ),
+];
 
 // An implementer's keys: a session on a harness
 #[derive(Debug, Deserialize)]
@@ -70,8 +83,8 @@ struct Implementer {
     tools: Option<NonBlank>,
 }
 
-// The issue writer's and the project manager's keys: a Claude Code
-// session, since each is held by a Claude Code hook
+// The project manager's keys: a Claude Code session, since it is held by a
+// Claude Code hook
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct OnClaude {
@@ -84,9 +97,9 @@ struct OnClaude {
     effort: Effort,
 }
 
-// The advisor's, the researcher's, the representative's and the triager's keys: a session on
-// any harness. None takes `tools`: each is held to its reads by the kind of
-// call kelpie makes.
+// The representative's and the triager's keys: a session on any harness.
+// Neither takes `tools`: each is held to its reads by the kind of call kelpie
+// makes.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Expert {
@@ -215,13 +228,12 @@ pub(super) fn parse(text: &str) -> Result<Agent, String> {
     // A blank first line stands for the opening `---`, so a message's line is the file's.
     let yaml = format!("\n{front}");
     let refused = |e: serde_saphyr::Error| yaml_error(&yaml, &e);
-    let front = match serde_saphyr::from_str::<Tag>(&yaml).map_err(refused)?.role {
+    let tag = serde_saphyr::from_str::<Tag>(&yaml)
+        .map_err(|e| gone_at_role(&yaml).unwrap_or_else(|| refused(e)))?;
+    let front = match tag.role {
         Role::Implementer => Front::Implementer(serde_saphyr::from_str(&yaml).map_err(refused)?),
         Role::Reviewer => Front::Reviewer(serde_saphyr::from_str(&yaml).map_err(refused)?),
-        Role::IssueWriter => Front::IssueWriter(serde_saphyr::from_str(&yaml).map_err(refused)?),
         Role::Pm => Front::Pm(serde_saphyr::from_str(&yaml).map_err(refused)?),
-        Role::Advisor => Front::Advisor(serde_saphyr::from_str(&yaml).map_err(refused)?),
-        Role::Researcher => Front::Researcher(serde_saphyr::from_str(&yaml).map_err(refused)?),
         Role::Representative => {
             Front::Representative(serde_saphyr::from_str(&yaml).map_err(refused)?)
         }
@@ -230,11 +242,8 @@ pub(super) fn parse(text: &str) -> Result<Agent, String> {
     let leased = match &front {
         Front::Implementer(keys) => keys.lease.is_some(),
         Front::Reviewer(keys) => keys.lease.is_some(),
-        Front::Advisor(keys)
-        | Front::Researcher(keys)
-        | Front::Representative(keys)
-        | Front::Triager(keys) => keys.lease.is_some(),
-        Front::IssueWriter(_) | Front::Pm(_) => false,
+        Front::Representative(keys) | Front::Triager(keys) => keys.lease.is_some(),
+        Front::Pm(_) => false,
     };
     if leased {
         return Err(at_key(&yaml, "lease", LEASE_GONE));
@@ -275,18 +284,37 @@ pub(super) fn parse(text: &str) -> Result<Agent, String> {
                 second_look: keys.second_look,
             })
         }
-        Front::IssueWriter(keys) => {
-            keys.agent(Role::IssueWriter, prompt, &yaml, "the issue writer")
-        }
         Front::Pm(keys) => keys.agent(Role::Pm, prompt, &yaml, "the project manager"),
-        Front::Advisor(keys) => keys.agent(Role::Advisor, prompt, &yaml, "the advisor"),
-        Front::Researcher(keys) => keys.agent(Role::Researcher, prompt, &yaml, "the researcher"),
         Front::Representative(keys) => {
             keys.agent(Role::Representative, prompt, &yaml, "the representative")
         }
         Front::Triager(keys) => keys.agent(Role::Triager, prompt, &yaml, "the triager"),
     }?;
     Ok(agent)
+}
+
+/// The refusal of a file whose role is `role`, if that is one of [`GONE`]
+pub(super) fn gone(role: &str) -> Option<String> {
+    went(role).map(|went| format!("the `{role}` role {went}, so delete the file"))
+}
+
+/// What the role `role` went with, if it is one of [`GONE`]
+pub(super) fn went(role: &str) -> Option<&'static str> {
+    GONE.iter()
+        .find(|(gone, _)| *gone == role)
+        .map(|(_, went)| *went)
+}
+
+/// The refusal of the agent file `text`, if its own `role` is one of [`GONE`]
+pub(super) fn gone_role_of(text: &str) -> Option<String> {
+    let (front, _) = split(text)?;
+    gone(&serde_saphyr::from_str::<Written>(front).ok()?.role)
+}
+
+// The refusal at the `role` key, if `yaml` names one of `GONE`.
+fn gone_at_role(yaml: &str) -> Option<String> {
+    let role = serde_saphyr::from_str::<Written>(yaml).ok()?.role;
+    gone(&role).map(|why| at_key(yaml, "role", &why))
 }
 
 impl Expert {
@@ -330,18 +358,14 @@ fn check_needs(
     explicit: Option<&[Need]>,
     yaml: &str,
 ) -> Result<(), String> {
-    let guard = matches!(role, Role::Pm | Role::IssueWriter).then_some(&Need::RoleGuard);
+    let guard = (role == Role::Pm).then_some(&Need::RoleGuard);
     let needs = explicit.unwrap_or_else(|| role.needs()).iter().chain(guard);
-    // parity: harness.issue-writer, harness.pm
+    // parity: harness.pm
     let Some(need) = needs.clone().find(|need| !need.met_by(harness)) else {
         return Ok(());
     };
     let name = harness.as_str();
     let message = match (role, need) {
-        (Role::IssueWriter, Need::RoleGuard) => format!(
-            "the issue writer runs on claude-code, not {name}: \
-             `--interactive` starts `claude`, and its guard is a Claude Code hook"
-        ),
         (Role::Pm, Need::RoleGuard) => format!(
             "the project manager runs on claude-code, not {name}: \
              a Claude Code hook is what holds its writes to its notes"

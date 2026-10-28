@@ -44,23 +44,6 @@ pub enum StepReport {
         /// Older ready issues the board passed over, and why
         skipped: Vec<Skip>,
     },
-    /// The issue writer labelled an issue for the implementer it picked
-    Labelled {
-        /// The ticket
-        issue: TicketId,
-        /// The implementer its label names
-        agent: AgentName,
-    },
-    /// The issue writer could not label an issue, so a ruling asks the
-    /// maintainer to, and the board passes it over until it is answered
-    Unlabelled {
-        /// The ticket
-        issue: TicketId,
-        /// The ruling's id
-        id: TicketId,
-        /// The question, with the triggers that answer it
-        question: String,
-    },
     /// A work item's first turn waited for its model past
     /// `agents.fallback_after`, and moved to the next implementer listed
     FellBack {
@@ -799,9 +782,6 @@ pub(super) enum Begin {
         compact: bool,
     },
     Review(ReviewCall),
-    /// The issue writer's call to label an issue the board would open with
-    /// no `agent:` label
-    Label(crate::board::ReadyIssue),
     /// A call on a contribution's head, its security review or the pass over
     /// it, which takes a slot while it runs
     Secure(super::contributions::Job),

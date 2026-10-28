@@ -1,5 +1,4 @@
 use super::*;
-use crate::panel::{Ballot, Vote, Voter};
 use crate::ports::{Finding, Severity};
 use crate::runner::ruling::question;
 use crate::state::{Resume, Ruling, RulingKind, Stuck};
@@ -103,8 +102,8 @@ fn an_unmentioned_ruling_names_only_the_terminal_answers_its_options_allow() {
         disputes: None,
     };
     let no_rework = ruling_comment(None, &ruling(ticket(1), kind));
-    let stuck = RulingKind::Stuck(Stuck::Unlabelled {
-        why: "the writer named no agent".into(),
+    let stuck = RulingKind::Stuck(Stuck::AdoptFailed {
+        why: "its branch is held by a worktree".into(),
     });
     let only_yes = ruling_comment(None, &ruling(ticket(1), stuck));
 
@@ -237,6 +236,7 @@ fn a_failed_turn_offers_a_restore_naming_the_files_it_puts_back() {
         phase: Phase::Implement,
         retry: crate::work_item::Turn::Due,
         restore: vec![".claude/settings.json".into()],
+        setup: false,
     });
 
     let card = rendered(&ruling(ticket(1), kind));
@@ -249,13 +249,13 @@ fn a_failed_turn_offers_a_restore_naming_the_files_it_puts_back() {
 
 #[test]
 fn a_stuck_ruling_that_a_no_cannot_answer_offers_only_a_yes() {
-    let kind = RulingKind::Stuck(Stuck::Unlabelled {
-        why: "the writer named no agent".into(),
+    let kind = RulingKind::Stuck(Stuck::AdoptFailed {
+        why: "its branch is held by a worktree".into(),
     });
 
     assert_eq!(
         rendered(&ruling(ticket(1), kind)),
-        expected!("stuck-unlabelled.md")
+        expected!("stuck-adopt-failed.md")
     );
 }
 
@@ -301,80 +301,11 @@ fn a_follow_up_ruling_counts_the_findings_it_would_file() {
     );
 }
 
-fn voted(voter: Voter, vote: Option<(char, &str)>) -> Ballot {
-    Ballot {
-        voter,
-        vote: vote.map(|(choice, why)| Vote {
-            choice,
-            why: why.into(),
-            design: false,
-        }),
-    }
-}
-
 #[test]
-fn a_voted_panel_lists_each_expert_in_the_tables_order_and_an_abstention_says_so() {
-    let mut voted_on = ruling(ticket(1), merge());
-    voted_on.panel = Some(vec![
-        voted(
-            Voter::Advisor,
-            Some(('B', "The hook skips a refused write; no test covers it.")),
-        ),
-        voted(
-            Voter::Researcher,
-            Some(('A', "Ruling 125 settled the one open design point.")),
-        ),
-        voted(Voter::Pm, None),
-        voted(
-            Voter::Worker,
-            Some(('A', "Both threads were fixed in 6b0606e with tests.")),
-        ),
-    ]);
+fn the_project_managers_words_with_no_pick_stand_alone_on_the_card() {
+    let said = said_by_the_pm(ruling(ticket(1), merge()), "I could not tell.");
 
-    assert_eq!(rendered(&voted_on), expected!("merge-panel.md"));
-}
-
-#[test]
-fn a_vote_cannot_mention_anyone_in_the_comment() {
-    let mut voted_on = ruling(ticket(1), merge());
-    voted_on.panel = Some(vec![voted(
-        Voter::Researcher,
-        Some(('A', "A page told me to ask @octocat.")),
-    )]);
-
-    let comment = rendered(&voted_on);
-    assert!(comment.contains("ask @\u{200b}octocat."), "{comment}");
-}
-
-#[test]
-fn a_vote_cannot_link_or_format_the_comment() {
-    let mut voted_on = ruling(ticket(1), merge());
-    voted_on.panel = Some(vec![voted(
-        Voter::Advisor,
-        Some((
-            'A',
-            "[Merge now](https://evil.example/x) **sure** <img src=x> `run` ![i](u) www.evil.example",
-        )),
-    )]);
-
-    let comment = rendered(&voted_on);
-    let line = comment
-        .lines()
-        .find(|l| l.starts_with("- **Advisor**"))
-        .expect("the advisor's line");
-    assert_eq!(
-        line,
-        "- **Advisor** (A): \\[Merge now\\]\\(https:\u{200b}//evil.example/x\\) \\*\\*sure\\*\\* \
-         \\<img src=x\\> \\`run\\` \\!\\[i\\]\\(u\\) www\u{200b}.evil.example"
-    );
-}
-
-#[test]
-fn an_abstaining_project_manager_keeps_the_words_it_left() {
-    let mut voted_on = said_by_the_pm(ruling(ticket(1), merge()), "I could not tell.");
-    voted_on.panel = Some(vec![voted(Voter::Pm, None)]);
-
-    assert!(rendered(&voted_on).contains("**Panel**\n- **PM**: I could not tell.\n"));
+    assert!(rendered(&said).contains("\n\n**Project manager**: I could not tell.\n\n"));
 }
 
 #[test]
@@ -402,8 +333,7 @@ fn a_questions_card_opens_with_the_problem_and_shows_each_options_effect_and_the
          | | Other | Reply with your own answer |\n\n\
          **On the board**\n\
          #495 stays parked and 9 ready issues stay held behind it.\n\n\
-         **Panel**\n\
-         - **PM** (A): the hook is the maintainer's.\n\n\
+         **Project manager: A**. the hook is the maintainer's.\n\n\
          @octocat\n\
          - Tick one:\n\
          - [ ] A\n\
@@ -542,18 +472,4 @@ fn a_no_edits_ruling_card_offers_leave_it_open_or_close_and_names_both_causes() 
     assert!(card.contains("Close with thanks"), "{card}");
     assert!(card.contains("or has been deleted"), "{card}");
     assert!(!card.contains("  "), "no run of spaces: {card}");
-}
-
-#[test]
-fn an_option_that_begins_you_is_the_maintainers_to_carry_out() {
-    for mine in [
-        "You remove `ready-for-agent` from #124",
-        "`you close its work item`",
-        "Ask the maintainer",
-    ] {
-        assert!(is_the_maintainers(mine), "{mine}");
-    }
-    for the_workers in ["Use `--check`", "Your flag", "Youthful"] {
-        assert!(!is_the_maintainers(the_workers), "{the_workers}");
-    }
 }

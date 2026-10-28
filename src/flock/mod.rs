@@ -14,13 +14,14 @@ mod glob;
 mod help;
 mod pm;
 pub mod rule;
-mod set;
+pub(crate) mod set;
 pub(crate) mod share;
 pub(crate) mod ticket;
 mod usage;
 mod verbs;
 mod watch;
 
+pub use set::migrate::main as settings_migrate;
 pub use verbs::{USAGE, VERBS, main, split_project, verb_first};
 
 use std::collections::BTreeMap;

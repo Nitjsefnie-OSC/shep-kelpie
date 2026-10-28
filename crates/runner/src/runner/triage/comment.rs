@@ -2,12 +2,12 @@
 //!
 //! The representative words the facts, kelpie's code appends [`MARKER`] and
 //! posts the comment as the App, and then puts the labels on. A maintainer's
-//! issue the pass is sure of goes on to the ready path ([`ready`]); any other
-//! issue ends `needs-triage`. The record in `triage.issues` is saved before each
-//! next write to the forge, so a restart posts nothing twice; a post the forge
-//! took whose record did not save is caught by the marker, which only the App's
-//! own comment counts for. A failed step is logged and tried at the next poll,
-//! and five failures give the issue up until kelpie restarts.
+//! issue whose rewrite the issue check passes takes the ready path ([`ready`]);
+//! any other ends `needs-triage`. The record in `triage.issues` is saved before
+//! each next write to the forge, so a restart posts nothing twice; a post the
+//! forge took whose record did not save is caught by the App's marker. A failed
+//! step is logged and tried at the next poll, and five failures give the issue
+//! up until kelpie restarts.
 
 use super::super::Runner;
 use super::super::contributions::post::forge_is_busy;
@@ -22,7 +22,7 @@ use crate::board::{self, TRIAGE};
 use crate::local_paths::Leak;
 use crate::ports::{NewLabel, Timestamp};
 use crate::settings::AuthorRole;
-use crate::state::{StateError, TriageLocal, TriageQuestions, TriageStep, Triaged};
+use crate::state::{CheckTriage, StateError, TriageLocal, TriageQuestions, TriageStep, Triaged};
 
 /// How many times a step may fail for an issue before kelpie stops trying it
 pub(super) const TRIES: u32 = 5;
@@ -116,7 +116,7 @@ pub(in crate::runner) struct Tries {
     // comment; the record keeps them from there
     labels: Vec<String>,
     // The agent-ready body the reply gave for a maintainer's issue the pass
-    // is sure of, kept until the record carries it
+    // rewrites into one the check passes, kept until the record carries it
     ready_body: Option<String>,
     // The labels the issue carried when its pass began, so a triage label it
     // carries later came by hand and stands; kept once, whatever retry runs
@@ -158,6 +158,8 @@ pub(in crate::runner) struct Tries {
     // The issue body with the settled answers under its author's text, kept
     // until the record carries it
     pub(in crate::runner) answers_body: Option<String>,
+    // The hash of the body the current call was made from
+    pub(super) begun: Option<u64>,
     // The questions an earlier triage round on this issue asked and its author
     // answered, which a pass asked again over the issue may not ask a second
     // time
@@ -270,8 +272,8 @@ impl Runner {
     }
 
     // Puts the labels the pass found on `issue`; `false` when a write failed.
-    // Its priority goes on first and then replaces the others the issue has,
-    // unless one went on by hand since the pass began: that stands.
+    // The pass has a priority only for an issue that began with none. One put
+    // on by hand since stands.
     pub(super) fn put_pass_labels(&mut self, issue: u64, labels: &[String]) -> bool {
         let Some(ours) = labels.iter().find(|l| board::is_priority_label(l)) else {
             return self.put_labels(issue, labels);
@@ -284,36 +286,20 @@ impl Runner {
                 return false;
             }
         };
-        let seen = self.triage_seen(issue);
-        let others: Vec<&String> = (carried.iter())
-            .filter(|l| board::is_priority_label(l) && !board::same_priority(l, ours))
-            .collect();
-        if let Some(hand) = others.iter().find(|l| !seen.contains(l)) {
+        let hand = (carried.iter())
+            .find(|l| board::is_priority_label(l) && !board::same_priority(l, ours));
+        if let Some(hand) = hand {
             self.notes.push(format!(
-                "triage #{issue}: `{hand}` went on by hand while the pass ran, so that stands:                  kelpie does not put `{ours}` on"
+                "triage #{issue}: `{hand}` went on by hand while the pass ran, so that stands: \
+                 kelpie does not put `{ours}` on"
             ));
-            let rest: Vec<String> = (labels.iter())
-                .filter(|l| !board::is_priority_label(l))
-                .cloned()
-                .collect();
-            return self.put_labels(issue, &rest);
         }
-        let on = carried.iter().any(|l| board::same_priority(l, ours));
+        let on = carried.iter().any(|l| board::is_priority_label(l));
         let put: Vec<String> = (labels.iter())
-            .filter(|l| !(on && l.as_str() == ours))
+            .filter(|l| !(on && board::is_priority_label(l)))
             .cloned()
             .collect();
-        if !self.put_labels(issue, &put) {
-            return false;
-        }
-        for old in others {
-            if let Err(e) = self.label_issue(issue, old, false) {
-                let why = format!("cannot take `{old}` off: {e}");
-                self.triage_failed(issue, &why, !forge_is_busy(&e));
-                return false;
-            }
-        }
-        true
+        self.put_labels(issue, &put)
     }
 
     // Puts each of `labels` on `issue`, stopping at the first the forge refuses
@@ -394,15 +380,17 @@ impl Runner {
         // The reply names a type `bug` and a priority `P2`. The board reads the label
         // `priority: P2`, so a priority is looked for under that name first, then the
         // bare `P2`; a repo with neither gets the board's name made. A type the repo
-        // does not have is never put on.
+        // does not have is never put on. A priority the issue began with stands.
         let mut labels: Vec<String> = Vec::new();
         if let Some(kind) = found.kind {
             labels.extend(board::repo_label(&have, kind).map(str::to_owned));
         }
-        if let Some(priority) = found.priority {
+        let ranked = (self.triage_seen(issue).iter()).any(|l| board::is_priority_label(l));
+        if let Some(priority) = found.priority.filter(|_| !ranked) {
             let named = board::repo_priority(&have, priority).map(str::to_owned);
             labels.extend(named.or_else(|| self.made_priority(issue, priority)));
         }
+        labels.extend(self.kind_label(issue, found.work, &have));
         // A triage label the maintainer put on while the call ran stands, and
         // it is read for before the comment is worded: the comment never
         // promises a rewrite or a `ready-for-agent` that kelpie will not do.
@@ -425,30 +413,37 @@ impl Runner {
             && stood.is_none()
             && !found.open.is_empty()
             && self.askable(author);
-        let ready = ready::readiness(self, author, found);
-        let ready_body = match (stood.as_ref(), ready) {
+        let ready = ready::readiness(self, issue, author, found, &labels);
+        // A rewrite the check still refuses is written as settled answers are,
+        // and the issue ends `needs-triage`.
+        let (ready_body, rewrite) = match (stood.as_ref(), ready) {
             (Some(label), _) => {
                 self.notes.push(format!(
                     "triage #{issue}: `{label}` went on while the triager ran, so that stands: \
                      kelpie labels it no further and writes no new body"
                 ));
-                None
+                (None, None)
             }
-            (None, ready::Ready::Body(body)) => Some(body),
+            (None, ready::Ready::Body(body)) => (Some(body), None),
+            (None, ready::Ready::Rewrite(body)) => (None, Some(body)),
             (None, ready::Ready::Local(leak)) => {
                 self.notes.push(format!(
-                    "triage #{issue}: its agent-ready body names {leak}, so it is not written \
+                    "triage #{issue}: its rewritten body names {leak}, so it is not written \
                      and the issue ends `{TRIAGE}"
                 ));
-                None
+                (None, None)
             }
-            (None, ready::Ready::Not) => None,
+            (None, ready::Ready::Not) => (None, None),
         };
         // An outside issue the answers pass has settled keeps its author's text:
         // what is settled goes under it, never in place of it. A body kelpie
         // could not read is not stood for by a comment without it: the pass is
         // tried again at the next poll with its round still open.
-        let answers_body = match (ready_body.as_ref(), answers, stood.as_ref()) {
+        let answers_body = match (
+            ready_body.as_ref().or(rewrite.as_ref()),
+            answers,
+            stood.as_ref(),
+        ) {
             (None, true, None) if found.open.is_empty() => match found
                 .body
                 .as_deref()
@@ -460,6 +455,14 @@ impl Runner {
             },
             _ => None,
         };
+        // A rewrite the check refuses goes under the author's text, never in place of it.
+        let rewrite = match rewrite.map(|body| self.settled_answers(issue, &body)) {
+            Some(ask::Settled::Body(whole)) => Some(whole),
+            Some(ask::Settled::Not) | None => None,
+            Some(ask::Settled::Held) => return Ok(()),
+        };
+        let rewritten = rewrite.is_some();
+        let answers_body = answers_body.or(rewrite);
         let kind = match (answers, local, ask) {
             (true, _, _) => ANSWERS_KIND,
             (false, true, _) => super::local::LOCAL_READ_KIND,
@@ -501,7 +504,8 @@ impl Runner {
             ask,
             answers,
             local,
-            settled: answers_body.is_some(),
+            settled: answers_body.is_some() && !rewritten,
+            rewrite: rewritten,
             stood: stood.is_some(),
         };
         let mut facts = facts(found, &labels, wording, reader);
@@ -761,11 +765,17 @@ impl Runner {
             questions,
             local,
             spam: None,
+            begun: (self.triage_tries.get(&issue)).and_then(|t| t.begun),
         };
         for at in made {
             record.add_call(at);
         }
         triage.issues.push(record);
+        // The triager ran on the issue as the check last read it, so its end
+        // is checked again.
+        if let Some(kept) = next.checks.iter_mut().find(|c| c.issue == issue) {
+            kept.triage = CheckTriage::Ran;
+        }
         // A record saved finished needs the cap kept, as `triage_stepped` does
         // for the steps that finish later.
         if step == TriageStep::Done

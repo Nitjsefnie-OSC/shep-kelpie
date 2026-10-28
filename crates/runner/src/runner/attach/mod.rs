@@ -293,7 +293,7 @@ impl Runner {
         let item = self.current().expect("the work item held");
         let setup = |why: String| AttachError::Setup(ticket, why);
         let session = Session::Resume(item.session.clone());
-        let call = self.prepare(item, session, Some(String::new()));
+        let call = self.prepare(item, session, Some(String::new()), None);
         let command = call
             .and_then(|call| {
                 self.ports

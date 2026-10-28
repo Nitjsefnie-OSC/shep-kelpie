@@ -667,7 +667,7 @@ pub struct NewLabel<'a> {
 
 /// How much of one usage window the account has spent
 // wire format: changing this is a breaking change to the pacer's status
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Window {
     /// Whole percent of the window used
     pub used_pct: u32,
@@ -879,9 +879,9 @@ pub struct Ports {
     /// Kelpie's own voice on the forge, its GitHub App's where one covers the repo
     pub voice: Arc<dyn Voice>,
     /// The Claude account's usage, from `/usage`
-    pub meter: Box<dyn Meter>,
+    pub meter: Arc<dyn Meter>,
     /// The Codex account's usage
-    pub codex_meter: Box<dyn Meter>,
+    pub codex_meter: Arc<dyn Meter>,
     /// The local round's runner, shared so a round runs without holding the runner
     pub reviewer: Arc<dyn Reviewer>,
     /// The locks a local agent's calls hold
@@ -925,10 +925,10 @@ pub struct Ports {
 
 impl Ports {
     /// The meter that reads `account`'s usage
-    pub fn meter_of(&self, account: Account) -> &dyn Meter {
+    pub fn meter_of(&self, account: Account) -> &Arc<dyn Meter> {
         match account {
-            Account::Claude => self.meter.as_ref(),
-            Account::Codex => self.codex_meter.as_ref(),
+            Account::Claude => &self.meter,
+            Account::Codex => &self.codex_meter,
         }
     }
 }

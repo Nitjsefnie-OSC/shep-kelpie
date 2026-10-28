@@ -241,6 +241,7 @@ impl Runner {
                             now,
                             refused.parked,
                             Vec::new(),
+                            false,
                         );
                         self.save(next)?;
                         self.fill_comment_failed(&mut report);
@@ -289,7 +290,7 @@ impl Runner {
             return self.begin_item(false);
         }
         let now = self.ports.clock.now();
-        let mut report = failed(self.names(), &mut next, issue, now, why, Vec::new());
+        let mut report = failed(self.names(), &mut next, issue, now, why, Vec::new(), false);
         self.save(next)?;
         self.fill_comment_failed(&mut report);
         Ok(Begin::Report(report))
@@ -373,6 +374,7 @@ pub(in crate::runner) fn failed(
     at: Timestamp,
     reason: String,
     restore: Vec<String>,
+    setup: bool,
 ) -> StepReport {
     let item = next
         .item_mut(issue)
@@ -388,6 +390,7 @@ pub(in crate::runner) fn failed(
         phase: item.phase.clone(),
         retry,
         restore,
+        setup,
     }
     .into();
     let (id, question) = park(names, next, issue, pull_request, kind);

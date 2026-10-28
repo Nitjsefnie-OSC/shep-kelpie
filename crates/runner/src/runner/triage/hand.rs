@@ -54,8 +54,15 @@ impl Runner {
     // Whether `issue`'s first pass is still to be made: it has no record, or a
     // record that only says kelpie took it back
     pub(super) fn first_pass_owed(&self, issue: u64) -> bool {
+        // An edit the check refused after a pass that ended is owed a new
+        // one, unless a limit held the issue: a hold is final.
+        let edited = |t: &Triaged| {
+            matches!(t.step, TriageStep::Done | TriageStep::Ready)
+                && t.held.is_none()
+                && self.check_edited(issue)
+        };
         self.triage_record(issue)
-            .is_none_or(|t| t.step == TriageStep::Taken)
+            .is_none_or(|t| t.step == TriageStep::Taken || edited(t))
     }
 
     // Whether `issue` is hand-labelled `ready-for-agent` with no record, or has
@@ -95,6 +102,7 @@ impl Runner {
         let candidates: Vec<usize> = (open.iter().enumerate())
             .filter(|(_, i)| {
                 maintainers_undecided(i, since, pruned_through, &maintainer)
+                    && self.check_owed(i.number)
                     && self.swap_owed(i)
                     && !self.triage_given_up(i.number)
                     && !self.has_work_item(i.number)
@@ -126,7 +134,7 @@ impl Runner {
     }
 
     // Whether the board has, or had, a work item on `issue`
-    fn has_work_item(&self, issue: u64) -> bool {
+    pub(super) fn has_work_item(&self, issue: u64) -> bool {
         let Ok(id) = ticket(issue) else { return true };
         self.state.item(id).is_some()
             || self.state.finished.contains(&id)
@@ -157,6 +165,7 @@ impl Runner {
             questions: None,
             local: None,
             spam: None,
+            begun: None,
         });
         self.save(next)?;
         self.notes.push(format!(

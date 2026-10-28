@@ -1,27 +1,25 @@
 //! `shep kelpie <verb>`: the command line, read into a trigger for a project
 
-use std::ffi::OsStr;
+mod check;
+
+use std::ffi::OsString;
 use std::io::{BufRead, IsTerminal, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
-use std::sync::Arc;
 
 use super::control::Format;
 use super::glob::Named;
 use super::{Checkout, Launch, add, attach, control, help, pm, rule, set, ticket, usage, watch};
-use crate::adapters::{Base, ClaudeCli, Gh, LoginToken, SandboxRuntime, SystemGit};
-use crate::agents::{Agents, Writer};
+use crate::adapters::Gh;
 use crate::home::{ProjectName, ProjectPaths};
-use crate::issues::{self, Mode, Project};
-use crate::local_tickets::{LocalTickets, Routed};
-use crate::settings::source;
+use crate::settings::source::{self, Loaded};
 use crate::shepherd::{self, Connection, Dial, Socket};
 use crate::state::Projects;
 use crate::ticket::TicketId;
 use crate::upgrade::restart::{Interrupt, Patience};
 
 /// The verbs [`main`] runs: every trigger a runner takes, `add`, which also
-/// registers a checkout, `issue`, which runs the issue writer itself, and
+/// registers a checkout, `issue`, which runs the issue check itself, and
 /// `attach` and `pm`, which run a worker's or the project manager's session
 /// here, `usage`, which reads the usage ledger here, `watch`, which
 /// follows the runner's log and the sessions' transcripts here, `ticket`, which
@@ -37,6 +35,11 @@ pub const VERBS: [&str; 24] = [
 const JSON_VERBS: [&str; 10] = [
     "add", "finish", "status", "gate", "drop", "timings", "tell", "drain", "undrain", "board",
 ];
+
+/// What `issue "<request>"` answers: it names the `issue` skill and `issue check`
+const WRITER_GONE: &str = "`shep kelpie issue \"<request>\"` went with the issue writer: write \
+     the issue with kelpie's `issue` skill, which every harness has, and `shep kelpie issue \
+     check <ticket>` checks it";
 
 /// What the verbs take, as their help says
 pub const USAGE: &str = "\
@@ -57,9 +60,11 @@ usage: shep kelpie add [<project>] [--base <branch>]
        shep kelpie board move <issue> <position> | board top <issue>
                                          puts an issue at a place in that list, or first
        shep kelpie timings [<n>]         where the last n finished items' time went
-       shep kelpie issue \"<request>\"     files issues for it, for you to read
-       shep kelpie issue --interactive \"<request>\"
-                                         plans them with you in claude
+       shep kelpie issue check <ticket>  whether an issue holds every part an
+                                         implementer builds from, each missing one named
+       shep kelpie issue check --draft <file> [--label <label>]...
+                                         the same for an issue not yet filed, its title
+                                         the file's first line, with no shepherd
        shep kelpie attach <ticket>       steers its worker's session here
        shep kelpie tell \"<note>\"         a note for the project manager's next wake
        shep kelpie pm                    steers the project manager's session here
@@ -108,7 +113,15 @@ it against files.";
 
 /// Runs `kelpie <command> <args>` for one of [`VERBS`]
 pub fn main(command: &str, args: &[String]) -> ExitCode {
-    let ran = crate::shep_home::required(crate::shep_home::FLOCK_FIX)
+    main_with(&|name| std::env::var_os(name), command, args)
+}
+
+// `main`, with `env` giving each variable.
+fn main_with(env: &dyn Fn(&str) -> Option<OsString>, command: &str, args: &[String]) -> ExitCode {
+    if let Some(code) = without_shep_home(env, command, args) {
+        return code;
+    }
+    let ran = crate::shep_home::from(env("SHEP_HOME"), crate::shep_home::FLOCK_FIX)
         .and_then(|shep_home| shepherd::block_on(run(&Socket, &shep_home, command, args)));
     match ran {
         Ok(lines) => {
@@ -122,6 +135,16 @@ pub fn main(command: &str, args: &[String]) -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+
+// The exit code of the one verb that runs with no `SHEP_HOME`, the issue
+// check, which a worker's sandbox runs. `None` for every other verb.
+fn without_shep_home(
+    env: &dyn Fn(&str) -> Option<OsString>,
+    command: &str,
+    args: &[String],
+) -> Option<ExitCode> {
+    check::asked(command, args).then(|| ExitCode::from(check::main(env, args)))
 }
 
 async fn run(
@@ -364,15 +387,9 @@ async fn run(
             };
             set::set(&client, &name, place, key, value).await
         }
-        ("issue", [_, ..]) => {
-            let here = Here {
-                client: &client,
-                shep_home,
-                kelpie_home: &kelpie_home,
-                home: &home,
-            };
-            issue(here, &project().await?, &args).await
-        }
+        // `main` runs the check itself, so a form it did not take is the usage.
+        ("issue", ["check", ..]) => Err(USAGE.to_owned()),
+        ("issue", [_, ..]) => Err(WRITER_GONE.to_owned()),
         _ => Err(USAGE.to_owned()),
     }
 }
@@ -408,68 +425,13 @@ struct Here<'a> {
     home: &'a Path,
 }
 
-// `issue [--interactive] <request>`: the issue writer, run here rather than
-// by the runner, since the maintainer waits on it or works in it.
-async fn issue(here: Here<'_>, name: &ProjectName, args: &[&str]) -> Result<Vec<String>, String> {
-    let (interactive, words) = match args {
-        ["--interactive", words @ ..] => (true, words),
-        words => (false, words),
-    };
-    let request = words.join(" ");
-    if request.trim().is_empty() || request.starts_with('-') {
-        return Err(USAGE.to_owned());
-    }
+// The project's paths and settings, as its runner would load them.
+async fn load(here: &Here<'_>, name: &ProjectName) -> Result<(ProjectPaths, Loaded), String> {
     let tables = shepherd::read_tables_with(here.client, name.as_str()).await?;
     let paths = ProjectPaths::under(here.kelpie_home, here.shep_home, name);
     let loaded = source::load(&tables, name.as_str(), here.home, &paths.folder)
         .map_err(|e| e.to_string())?;
-    crate::spawn::hide(loaded.kelpie.gateways().key_vars());
-    let agents = Agents::load(&paths.agents).map_err(|e| e.to_string())?;
-    let listed = (loaded.settings.role_agents(&agents)).map_err(|e| e.to_string())?;
-    let implementers = agents.implementer_files();
-    let writer = Writer::of(&agents, &loaded.settings.agents.issue_writer)?;
-    let kelpie = std::env::current_exe().map_err(|e| format!("cannot find kelpie itself: {e}"))?;
-    let remote = crate::runner::check_checkout(&loaded.settings).map_err(|e| e.to_string())?;
-    let project = Project {
-        settings: &loaded.settings,
-        remote: &remote,
-        paths: &paths,
-        agents: &listed,
-        implementers: &implementers,
-        kelpie: &kelpie,
-        home: here.home,
-    };
-    if interactive {
-        issues::make_labels(&Gh::default(), &project, Mode::Interactive)?;
-        let mut claude = issues::interactive(&project, &writer, &request, OsStr::new("claude"))?;
-        let status = claude.command.status();
-        let landed = claude.end(&project, &Gh::default());
-        let status = status.map_err(|e| format!("cannot run claude: {e}"))?;
-        return match (landed, status.success()) {
-            (landed, true) => landed,
-            (Ok(mut lines), false) => {
-                lines.insert(0, format!("claude ended with {status}"));
-                Err(lines.join("\n"))
-            }
-            (Err(e), false) => Err(format!("claude ended with {status}\n{e}")),
-        };
-    }
-    SandboxRuntime::new().check().map_err(|e| e.to_string())?;
-    let codex_home =
-        (loaded.kelpie.codex_home(here.home, here.kelpie_home)).map_err(|e| e.to_string())?;
-    let secret_vars = loaded.kelpie.gateways().key_vars();
-    let base = Base::default().in_runtime(here.home.to_owned(), &codex_home, secret_vars);
-    let claude = ClaudeCli::on(&base).with_login(LoginToken::take());
-    let gh = Gh::default();
-    // What it filed is read back from the project's own ticket source.
-    let tickets = Routed::new(
-        Arc::new(Gh::default()),
-        LocalTickets::new(paths.tickets()),
-        loaded.settings.tickets.source,
-    );
-    issues::headless(
-        &project, &writer, &request, &gh, &tickets, &claude, &SystemGit,
-    )
+    Ok((paths, loaded))
 }
 
 // `rule`: the ruling and its answer read first, asking in a terminal, so

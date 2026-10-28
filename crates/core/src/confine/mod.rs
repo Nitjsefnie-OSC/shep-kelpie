@@ -259,7 +259,7 @@ mod tests {
     #[test]
     fn a_file_and_a_folder_named_hold_the_writes_to_exactly_those() {
         let w = world();
-        // The issue writer's: the glossary, and the folder of ADRs
+        // A file and a folder: the glossary, and the folder of ADRs
         let only = [w.root.join("wt/GLOSSARY.md"), w.root.join("wt/docs/adr")];
         let judge_one = |tool: &str, p: &str| {
             let call = json!({

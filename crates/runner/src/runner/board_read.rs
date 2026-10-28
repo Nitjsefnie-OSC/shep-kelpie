@@ -15,8 +15,8 @@ use super::parent::{self, Refused, Unbuilt, Unlisted};
 use super::trigger::lock;
 use super::turn::Slot;
 use crate::board::{OpenPullRequest, ReadyIssue};
-use crate::ports::{Forge, ForgeError, Tickets, Timestamp};
-use crate::settings::ForgeSlug;
+use crate::ports::{Forge, ForgeError, Meter, MeterError, Tickets, Timestamp, Utilization};
+use crate::settings::{Account, ForgeSlug};
 use crate::ticket::TicketId;
 
 /// A read of the board the runner decided was due, which needs no lock
@@ -33,6 +33,9 @@ pub(super) struct BoardJob {
     items: Vec<TicketId>,
     refused: Refused,
     unbuilt: Unbuilt,
+    /// The accounts a new work item is paced on, read when the board may open one
+    meters: Vec<(Account, Arc<dyn Meter>)>,
+    adopting: bool,
 }
 
 /// What a read of the board found
@@ -48,6 +51,7 @@ pub(super) struct BoardRead {
     pub(super) closed: Vec<TicketId>,
     /// The search for a parent off the ready list, when the board lists none to close
     pub(super) unlisted: Option<Unlisted>,
+    usage: Vec<(Account, Result<Utilization, MeterError>)>,
 }
 
 /// Reads the board, if a poll is due, asking the forge with the runner's lock let go
@@ -63,7 +67,7 @@ pub(super) fn read_board(runner: &Mutex<Runner>) {
 impl BoardJob {
     // Reads in the order the board always has: the ready issues, the open pull requests, the issue
     // of each finished ticket the board no longer lists, then the parents off its list. A read
-    // that fails ends the rest.
+    // that fails ends the rest. Then the usage the pacer reads before a new work item.
     fn run(self) -> BoardRead {
         let mut read = BoardRead {
             writes: self.writes,
@@ -71,6 +75,7 @@ impl BoardJob {
             open: None,
             closed: Vec::new(),
             unlisted: None,
+            usage: Vec::new(),
         };
         let Ok(ready) = &read.ready else {
             return read;
@@ -97,6 +102,11 @@ impl BoardJob {
                 &self.refused,
                 self.unbuilt,
             ));
+        }
+        if self.adopting || ready.iter().any(|r| !self.items.contains(&r.ticket)) {
+            read.usage = (self.meters.into_iter())
+                .map(|(account, meter)| (account, meter.read(self.now)))
+                .collect();
         }
         read
     }
@@ -136,6 +146,8 @@ impl Runner {
             items: self.state.work_items.iter().map(|i| i.issue).collect(),
             refused: self.close_refused.clone(),
             unbuilt: self.unbuilt.clone(),
+            meters: self.dispatch_meters(now),
+            adopting: !self.state.adopted.is_empty(),
         }
     }
 
@@ -168,7 +180,10 @@ impl Runner {
 
     /// What the board shows: the read taken before the pass, or one made now with the lock held
     pub(super) fn take_board_read(&mut self) -> BoardRead {
-        if let Some(read) = self.board_read.take() {
+        if let Some(mut read) = self.board_read.take() {
+            for (account, usage) in read.usage.drain(..) {
+                self.reads.keep_usage(account, usage);
+            }
             return read;
         }
         let now = self.ports.clock.now();

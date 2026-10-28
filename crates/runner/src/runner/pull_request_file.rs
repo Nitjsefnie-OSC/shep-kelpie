@@ -12,8 +12,8 @@ use std::path::{Path, PathBuf};
 
 use super::Runner;
 use crate::local_paths::Leak;
-use crate::panel::work_of;
 use crate::ports::ForgeError;
+use crate::work_kind::work_kind;
 use crate::worker_folder;
 
 /// The file the worker writes its pull request in, in its build folder
@@ -50,7 +50,7 @@ pub(super) enum Untitled {
 /// leading `#`s left off, and the rest is the body
 ///
 /// [`Untitled`] when the first line is blank or not a conventional commit
-/// subject. Any lowercase word is a type, as [`work_of`] reads one, since
+/// subject. Any lowercase word is a type, as [`work_kind`] reads one, since
 /// the runner does not know each project's list.
 pub(super) fn parse(file: &str) -> Result<Text, Untitled> {
     let file = file.trim_start();
@@ -62,7 +62,7 @@ pub(super) fn parse(file: &str) -> Result<Text, Untitled> {
     let summary = title
         .split_once(':')
         .is_some_and(|(_, s)| !s.trim().is_empty());
-    if !summary || work_of(Some(title)).kind == "untyped" {
+    if !summary || work_kind(title) == "untyped" {
         return Err(Untitled::NotConventional(title.to_owned()));
     }
     Ok(Text {

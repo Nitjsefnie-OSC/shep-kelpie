@@ -44,30 +44,28 @@ mod tests {
     use crate::settings::{AgentHarness, Effort};
     use crate::test::Rig;
 
-    // An expert's call as `expert_call` makes it: for a ruling with no issue,
-    // which is how an advisor or a researcher votes on an adopt-failed ruling,
-    // `issue` is 0.
-    fn expert(issue: u64) -> AgentCall {
+    // The triager's call, for work item `issue`, where 0 is none
+    fn triager(issue: u64) -> AgentCall {
         AgentCall {
             issue: crate::ticket::TicketId::from_issue(issue),
             ..AgentCall::new(
-                Role::Advisor,
-                Tools::Advise,
+                Role::Triager,
+                Tools::Review,
                 AgentHarness::ClaudeCode,
                 "sonnet-high",
                 Effort::Low,
                 Session::New(SessionId("s-7".into())),
                 PathBuf::from("/work"),
-                "Vote.",
+                "Triage.",
             )
         }
     }
 
     #[test]
-    fn a_panel_call_for_a_ruling_with_no_issue_is_logged_with_no_work_item() {
+    fn a_call_for_no_issue_is_logged_with_no_work_item() {
         let rig = Rig::new("koji");
         let runner = rig.open().unwrap();
-        runner.lock().unwrap().call_started(&expert(0), "advisor");
+        runner.lock().unwrap().call_started(&triager(0), "scout");
         let [step] = runner.lock().unwrap().take_started().try_into().unwrap();
         let StepReport::SessionStarted {
             issue, role, agent, ..
@@ -77,7 +75,7 @@ mod tests {
         };
         assert_eq!(
             (issue, role, agent.as_str()),
-            (None, Role::Advisor, "advisor"),
+            (None, Role::Triager, "scout"),
             "{step:?}"
         );
         assert_eq!(
@@ -85,8 +83,8 @@ mod tests {
             json!(null),
             "no work item is named: {step:?}"
         );
-        // An expert's call for a ruling that has an issue keeps naming its ticket.
-        runner.lock().unwrap().call_started(&expert(7), "advisor");
+        // A call for a work item keeps naming its ticket.
+        runner.lock().unwrap().call_started(&triager(7), "scout");
         let [step] = runner.lock().unwrap().take_started().try_into().unwrap();
         assert_eq!(serde_json::to_value(&step).unwrap()["issue"], json!("7"));
     }

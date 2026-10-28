@@ -1,6 +1,6 @@
 //! `kelpie guard ... --read-only`: the commands of a call that only reads the repo
 //!
-//! A Codex reviewer, advisor or retro has no read tool, only a shell, so its
+//! A Codex reviewer or retro has no read tool, only a shell, so its
 //! guard runs only what reads: a short list of commands, each as plain words,
 //! piped into one another if need be. It refuses a redirect, a `$` or a
 //! backtick the shell would expand, a function definition, a command off the

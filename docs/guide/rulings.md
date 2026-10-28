@@ -20,7 +20,7 @@ A ruling shows in the runner's log, in `shep kelpie status` and in `shep kelpie 
 
 A ruling is named by its pull request's number, or by its ticket's id while it has no pull request: `rule 427 yes` answers the ruling on 427, and `rule k12 yes` one on the local ticket `k12`, which kelpie files none of yet (see [Commands](commands.md)). A work item waits on one ruling at a time, and GitHub numbers issues and pull requests from one sequence, so within a project a number names one ruling. `rule #427 yes` and `rule shep-kelpie#427 yes` read the same number, and a local id takes the `#` the same way: `rule shep-kelpie#k12 yes`. From a clone, the clone's project is looked at first. Elsewhere a number that one project has a ruling on works, and one that two projects have is refused with their names: `rule shep-kelpie#427 yes` picks one. Quotes are optional, but zsh still needs them around a note with `?`, `*`, `!` or an apostrophe. `-p` goes before the answer: after its first word, and after a `--`, a `-p` is part of the answer. `shep kelpie rule` alone lists the rulings waiting and asks which to answer and how. Each ruling's question says what `yes` and `no`, and on a merge ruling `rework`, do. A `no` or `rework` with a note is the worker's next turn.
 
-Where an App covers the repo, a ruling's comment is one short format, whatever its kind: the problem where there is one, a title, a table of what picking each option leads to, a Panel list, and the ways to answer. The Panel lists each expert's vote once the panel has voted (see [The panel](panel.md#the-panel)), and holds the project manager's words where it gave any until then, or when the project has no panel. Here is a merge ruling. Kelpie writes the effect of each option from what it knows: the items held behind the pull request, CI, the reviewers that read it, and roughly what another review round costs from the ledger:
+Where an App covers the repo, a ruling's comment is one short format, whatever its kind: the problem where there is one, a title, a table of what picking each option leads to, the project manager's pick and why where it gave them (`**Project manager: A**. CI is green and every reviewer read it.`, see [Rulings the project manager answers](#rulings-the-project-manager-answers)), and the ways to answer. Here is a merge ruling. Kelpie writes the effect of each option from what it knows: the items held behind the pull request, CI, the reviewers that read it, and roughly what another review round costs from the ledger:
 
 ```markdown
 ### Merge this pull request at 6b0606e into main?
@@ -71,6 +71,40 @@ A ruling that mentions no one, because `git.maintainer` is unset and `gh` cannot
 On an ntfy webhook, a ruling can also be answered in the topic (see [Answering in the topic](#answering-in-the-topic)).
 
 With a project manager, it may answer a `stuck` ruling for you with a retry, or add its words to the ruling and post it again (see [The project manager](board.md#the-project-manager)).
+
+## Rulings the project manager answers
+
+`rulings.pm_decides` maps each kind of ruling to who answers it: `true` for the project manager, or `false` for you. Operational kinds, whose answer turns on facts it reads from the board, start `true`; `question`, `agent-files` and `foreign-change` start `false`. A kind the map leaves out is yours:
+
+```toml
+[app.dogs.kelpie.rulings.pm_decides]
+question = false
+agent-files = false
+foreign-change = false
+still-red = true
+turn-timeout = true
+# ... and every other kind, `true`
+```
+
+A ruling of a `true` kind that lists two options or more, on a project that names a project manager (`agents.pm`), wakes it, and its comment waits for that one wake. The project manager answers with one of the ruling's options, a `why` of at most 350 characters and a `design` flag, true when the question changes an ADR, the glossary, a public interface or the project's direction. An option it picks is applied at once and posted on the ruling's thread headed `Answered by the project manager: A, Merge`. A reply there of `<id> no <note>` reopens it: the ruling comes back for its work item and your note is the answer, so the worker takes it as it takes any `no`. It needs the work item to be open and its worker not running, and says why when it is not; an answer is watched for 24 hours. `status` counts the rulings it answered, by kind (`pm_answers`).
+
+The ruling comes to you instead, with the project manager's pick and why on its card, when it flags `design`, when it is a merge on a project under `git.merging = "ask"`, and when its pick is one only you can carry out (`Ask the maintainer`, or an option that begins `You`). A wake that gives no answer, or fails, posts the ruling to you as it stands. Every other ruling comes to you at once, with no pick unless you ask for one (see [Asking the project manager](#asking-the-project-manager)), and so do these, whatever their kind: a question and a follow-up, which wake the project manager on their own (see [The project manager](board.md#the-project-manager)); a contribution's ruling; a turn kelpie could not set up, whose fix is on this machine; a ruling raised while the runner drains; and a turn that fails again the way one the project manager already answered on the same work item did, since its answer did not fix it.
+
+The kinds are `question`, `agent-files`, `foreign-change`, `follow-up`, `rebase`, `still-red`, `check-queued`, `no-checks`, `merge-refused`, `closed`, `fix-not-pushed`, `test-still-fails`, `unpushed`, `push-refused`, `turn-timeout`, `turn-failed`, `adopt-failed` and `over-budget`. `merge`, `contribution-merge`, `security` and `local-model-spilled` set `true` are refused: the runner does not start, naming `rulings.pm_decides` (or `rulings.pm_alone` for the old list), and a change that sets one while the runner runs is refused too, keeping the settings it has.
+
+`shep kelpie add` writes every kind into a new project's map, and `shep kelpie upgrade` runs `shep kelpie settings migrate`, which writes each kind a project's map is missing at its default and never changes one it has. That is every kind, not only those a list named: the operational kinds go in `true`, so the project manager answers them unless you set them `false`. A kind you delete from the map is written again at its default on the next run; set it `false` instead. `doctor` names a project whose map is missing kinds. The old `rulings.pm_alone` list still loads for one release, as `true` for each kind it names, and the migration turns it into the map. Setting both is refused. The migration also deletes `rulings.decide`, `rulings.full_panel_paths`, `agents.advisor`, `agents.researcher`, the `researcher` table and `advisor` and `researcher` in `repo_setup.roles`, the settings of the ruling panel that voted on rulings before the project manager answered them, which the runner refuses by name.
+
+### Asking the project manager
+
+A ruling that comes to you carries no pick from the project manager, and no wake runs for it. On a project that names one (`agents.pm`), you can ask in the ruling's thread, starting with its id as any reply does:
+
+- `14 pm recommend`: the project manager reads the ruling and posts its pick and why in the thread, as `**Project manager: A**. <why>`, with the reply that gives it, such as `14 yes`. The ruling stays yours, and you answer it with the replies above. Asking again replaces the earlier pick.
+- `14 pm options`: for when none of the options is right. The project manager posts up to 5 other approaches, numbered, and `14 pm 2` takes the second: on a ruling with fixed options it is your `14 no <note>` with the approach as the note, and on a worker's question it is your answer. The approaches stay on the ruling through a restart, and `pm <n>` with none, past the last, or on a contribution's ruling, which a `no` would only clear, is refused, saying which.
+- `14 pm decide`: hands this one ruling to the project manager, as if its kind were `true` in `rulings.pm_decides`. It is refused, saying why, on the kinds set `true` is refused for (`merge`, `security`, `contribution-merge`, `local-model-spilled`) and on the rulings that come to you whatever the map says. What the project manager would have to hand back to you comes back with its pick in the thread.
+
+Kelpie reacts with a thumbs up to a request it took. With no project manager named, each is refused with a reply saying so. A second request while the project manager is on the ruling is answered once and starts nothing. A wake that fails, times out or gives no answer says in the thread that the project manager did not answer, and the ruling stays yours. What it posts is plain text, so it cannot mention anyone or link anywhere.
+
+On a worker's question, an answer that is exactly `14 pm recommend`, `14 pm options`, `14 pm decide` or `14 pm <n>` is that request, not your answer; any other answer that opens with `pm` is your answer as written.
 
 ## The webhook
 

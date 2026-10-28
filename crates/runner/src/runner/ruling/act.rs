@@ -1,10 +1,10 @@
 //! The actions a ruling's options name, and kelpie carrying them out
 //!
-//! The panel is read-only: no expert runs git, `gh` or a command. An option
-//! that needs one names an action instead, in the words of its table row, so
-//! the experts and the maintainer vote on the action. Kelpie carries it out in
-//! code when the option is chosen, and the item's events say which option
-//! asked for it.
+//! The project manager is read-only: it runs no git, `gh` or command. An
+//! option that needs one names an action instead, in the words of its table
+//! row, so the project manager and the maintainer choose the action. Kelpie
+//! carries it out in code when the option is chosen, and the item's events
+//! say which option asked for it.
 
 use std::path::Path;
 
@@ -13,7 +13,7 @@ use crate::fence;
 use crate::ports::Rerun;
 use crate::runner::Runner;
 use crate::runner::gate::short;
-use crate::runner::panel::Answerer;
+use crate::runner::ruling::Answerer;
 use crate::runner::voice;
 use crate::state::{Ruling, RulingKind, Stuck};
 use crate::ticket::TicketId;
@@ -85,7 +85,6 @@ pub(super) fn asked(ruling: &Ruling, answer: &Answer, by: Answerer) -> String {
     let who = match by {
         Answerer::Maintainer => "the maintainer",
         Answerer::Pm => "the project manager",
-        Answerer::Panel => "the panel",
     };
     let on = ruling
         .issue

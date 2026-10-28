@@ -17,8 +17,8 @@ use crate::ports::{Forge, NewLabel, Timestamp, Visibility};
 use crate::review_bot::{Bot, Login, Profile};
 use crate::runner::{NO_ORIGIN, check_checkout, check_instructions, source_of};
 use crate::settings::{
-    Account, AgentName, DoctorProbe, ForgeSlug, Gateways, Harness, Limit, Pick, RoleModel,
-    Settings, SettingsError, TicketSource,
+    Account, AgentName, DoctorProbe, ForgeSlug, Gateways, Harness, Limit, PM_DECIDES, Pick,
+    RoleModel, Settings, SettingsError, TicketSource,
 };
 use crate::webhook::KelpieSettings;
 
@@ -225,6 +225,7 @@ pub(super) fn checks(
     if let Some(kelpie) = kelpie {
         lines.push(rulings::channel(at("rulings"), kelpie));
     }
+    lines.extend(rulings::unnamed_kinds(at(PM_DECIDES), &settings));
     lines
 }
 
@@ -408,13 +409,6 @@ fn implementers(subject: String, settings: &Settings, paths: &ProjectPaths) -> (
             skipped.join("; "),
             "correct or rename the file it names, or move it out of kelpie's `agents` folder",
         ),
-        Ok(roles) if roles.implementers.len() > 1 => Line::ok(
-            subject,
-            format!(
-                "the issue writer, {}, labels an issue with no `agent:` label",
-                settings.agents.issue_writer
-            ),
-        ),
         Ok(roles) => Line::ok(
             subject,
             format!(
@@ -480,13 +474,8 @@ fn spends_on(
         .any(|(model, _)| on_it(model));
     reviewers
         || roles.is_some_and(|roles| {
-            let others = [
-                roles.pm.as_ref().map(|a| &a.model),
-                roles.advisor.as_ref().map(|a| &a.model),
-                roles.researcher.as_ref().map(|a| &a.model),
-            ];
             roles.implementers.iter().any(|i| on_it(&i.model))
-                || others.into_iter().flatten().any(on_it)
+                || roles.pm.as_ref().is_some_and(|pm| on_it(&pm.model))
         })
 }
 

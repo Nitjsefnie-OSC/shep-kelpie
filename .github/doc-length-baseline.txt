@@ -1,3 +1,2 @@
-crates/panel/src/panel/tally/mod.rs	12	//! How the panel's votes decide a ruling
 crates/runner/src/test/mod.rs	7,7	/// A running project whose worker's first turn pushed `work.txt` on
 crates/trim/src/trim.rs	11	//! Claude Code features no call kelpie makes uses

@@ -113,3 +113,15 @@ fn the_guard_is_told_the_base_branch_only_when_it_is_not_the_default() {
     assert!(guard_command("v2").contains(" '--base=v2'"));
     assert!(!guard_command("main").contains("--base"));
 }
+
+#[test]
+fn a_codex_worker_reads_the_script_its_command_hook_runs_and_its_folder() {
+    let w = World::new();
+    let mut call = w.fenced(Path::new("/k/kelpie"), Session::New(id(WORKER_ID)));
+    let folder = w.path("x");
+    call.reach.fence.as_mut().unwrap().guard.hooks = crate::test::hook_beside_another(&folder);
+    let files = super::Files::of(&call);
+    let program = Path::new("/nowhere/codex");
+    let policy = super::policy(&call, &w.path("login"), &files, program, &[]);
+    crate::test::assert_reads_the_hook_and_its_folder(&policy, &folder);
+}

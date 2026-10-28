@@ -5,8 +5,9 @@
 //! file, line and why. A yes records the head as trusted, so it counts as passed;
 //! a no leaves it unpassed. Nothing of the contributor's runs because of the
 //! answer. The ruling reaches the maintainer's webhook, `status` and `shep kelpie
-//! rule` only, never the panel: a public comment would accuse the contributor and
-//! tip off an attacker. A ruling about a head that is gone is withdrawn at once.
+//! rule` only, never the project manager: a public comment would accuse the
+//! contributor and tip off an attacker. A ruling about a head that is gone is
+//! withdrawn at once.
 
 use super::super::gate::short;
 use super::super::ruling::question;
@@ -153,18 +154,9 @@ fn raise_with(next: &mut ProjectState, pull_request: u64, held: Held, facts: &st
         question.push_str(facts);
     }
     next.rulings.push(Ruling {
-        id,
-        issue: None,
-        question,
         pull_request: Some(pull_request),
-        kind,
-        alerted: false,
-        panel: None,
-        verdict: None,
-        unposted: false,
-        skipped: None,
-        effects: Vec::new(),
         raised: Some(now),
+        ..Ruling::new(id, question, kind)
     });
 }
 

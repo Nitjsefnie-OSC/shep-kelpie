@@ -74,3 +74,24 @@ async fn a_skipped_file_does_not_hide_a_stub_the_migration_would_write() {
     let (what, _) = missing(&report, "agent codex-pm");
     assert!(what.contains("is skipped by the migration"), "{what}");
 }
+
+#[tokio::test]
+async fn a_file_the_migration_leaves_is_named_with_why() {
+    let scene = Scene::new().await;
+    scene.runs("golbat", |_| {});
+    let file = "---\nextends: kelpie:advisor\nmodel: m\n---\nAlso read the changelog.\n";
+    crate::test::write_in(&scene.kelpie_home.join("agents"), "mine.md", file);
+
+    let report = scene.report().await;
+
+    let (what, fix) = missing(&report, "agent mine");
+    assert!(
+        what.starts_with("`mine.md` is left by the migration: "),
+        "{what}"
+    );
+    assert!(
+        what.contains("the `advisor` role went with the ruling panel"),
+        "{what}"
+    );
+    assert_eq!(fix, "delete `mine.md`");
+}

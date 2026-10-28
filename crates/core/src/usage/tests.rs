@@ -83,6 +83,8 @@ fn call(at: u64, issue: Option<u64>, role: Role, kind: CallKind, units: u64) -> 
 
 #[test]
 fn a_report_gives_each_merged_pull_request_its_medians_and_the_other_roles() {
+    let mut writer = retired(902, "issue-writer", 200);
+    writer["kind"] = "issues".into();
     let mut lines = [
         finished(1, true, 3000, 1000, 3600),
         finished(2, true, 1000, 1000, 600),
@@ -95,11 +97,11 @@ fn a_report_gives_each_merged_pull_request_its_medians_and_the_other_roles() {
         call(1003, Some(4), Role::Worker, CallKind::Turn, 500),
         call(900, None, Role::Pm, CallKind::Wake, 400),
         call(901, None, Role::Pm, CallKind::Compact, 300),
-        call(902, None, Role::IssueWriter, CallKind::Issues, 200),
+        serde_json::from_value(writer).unwrap(),
         call(903, Some(9), Role::Worker, CallKind::Turn, 70),
     ];
     // Two of #3's worker calls, one of the dropped item's reviewer calls and
-    // the issue writer's run reported no cost.
+    // a retired issue writer's run reported no cost.
     if let Line::Finished(item) = &mut lines[2] {
         item.worker.unpriced_calls = 2;
     }
@@ -136,7 +138,7 @@ fn a_report_gives_each_merged_pull_request_its_medians_and_the_other_roles() {
             "dollars count priced calls only: 2 calls of 1 merged item report no cost, the \
              median's dollars included",
             "loaded: 5,823 units, $1.17 + 1 unpriced call per merged pull request, counting \
-             every call: the project manager's, the issue writer's, and those of work items \
+             every call: the project manager's, the retired roles', and those of work items \
              dropped or closed with no change too",
             "baseline control room (a week): 8,000 units per merged pull request; kelpie / \
              baseline, below 1 is cheaper: 0.73 loaded, 0.50 median",
@@ -144,7 +146,7 @@ fn a_report_gives_each_merged_pull_request_its_medians_and_the_other_roles() {
             "dropped: 1 work item, 500 units, $0.50 + 1 unpriced call",
             "",
             "project manager: 2 calls (1 compaction), 700 units, $1.00",
-            "issue writer: 1 call, 200 units, $0.00 + 1 unpriced call",
+            "retired roles: 1 call, 200 units, $0.00 + 1 unpriced call (issue-writer 1 call)",
             "no finished record, open or from before the ledger:",
             "  #9 (#109): 1 call, 70 units, $0.50",
         ]
@@ -185,29 +187,78 @@ fn a_report_totals_the_retros_apart_from_the_builds_and_the_project_managers_wak
     assert!(!none.iter().any(|l| l.starts_with("retro")), "{none:#?}");
 }
 
-// Rulings of a kind that has since gone stay in the ledger: their calls'
-// tokens and cost still count.
+// A call line of a role this build no longer has, as a build with the panel
+// wrote its experts' votes
+fn retired(at: u64, role: &str, units: u64) -> serde_json::Value {
+    json!({
+        "line": "call", "at": at, "issue": null, "role": role, "kind": "vote",
+        "usage": { "input": units, "cache_write": 0, "cache_read": 0, "output": 0 },
+        "units": units, "cost_usd": 0.5, "seconds": 5, "ended": "answered",
+    })
+}
+
 #[test]
-fn a_call_that_voted_on_a_ruling_of_a_removed_kind_still_reads() {
+fn a_call_of_a_retired_role_still_reads_and_an_unknown_kind_of_line_is_passed_over() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join(FILE);
-    let text = json!({
-        "line": "call", "at": 100, "issue": null, "role": "pm", "kind": "wake",
+    let wake = json!({
+        "line": "call", "at": 101, "issue": null, "role": "pm", "kind": "wake",
         "usage": { "input": 10, "cache_write": 0, "cache_read": 0, "output": 0 },
-        "units": 10, "cost_usd": 0.5, "seconds": 5, "ended": "answered",
-        "votes": [{
-            "ruling": "3", "ruling_kind": "local-model-spilled", "voter": "pm",
-            "panel": "fix", "work": "feat",
-        }],
+        "units": 10, "cost_usd": 0.5, "ended": "answered",
     });
-    std::fs::write(&path, format!("{text}\n")).unwrap();
+    let future = json!({ "line": "forecast", "at": 102 });
+    let text = format!("{}\n{wake}\n{future}\n", retired(100, "advisor", 10));
+    std::fs::write(&path, text).unwrap();
+
     let lines = read(&path).unwrap();
-    assert_eq!(lines.len(), 1);
-    let Line::Call(call) = &lines[0] else {
-        panic!("{lines:?}")
-    };
-    assert_eq!(call.cost_usd, Some(0.5));
-    assert_eq!(call.votes[0].ruling, ticket(3));
+
+    let calls: Vec<(&LedgerRole, &LedgerKind)> = (lines.iter())
+        .filter_map(|line| match line {
+            Line::Call(call) => Some((&call.role, &call.kind)),
+            Line::Finished(_) => None,
+        })
+        .collect();
+    assert_eq!(
+        calls,
+        [
+            (
+                &LedgerRole::Retired("advisor".into()),
+                &LedgerKind::Retired("vote".into())
+            ),
+            (&Role::Pm.into(), &CallKind::Wake.into()),
+        ],
+        "{lines:?}"
+    );
+}
+
+#[test]
+fn a_report_totals_the_retired_roles_calls_by_name_and_counts_them_in_the_load() {
+    let old = |at, role, units| serde_json::from_value::<Line>(retired(at, role, units)).unwrap();
+    let lines = [
+        finished(1, true, 3000, 1000, 3600),
+        call(1000, Some(1), Role::Worker, CallKind::Turn, 4000),
+        old(900, "advisor", 300),
+        old(901, "researcher", 200),
+        old(902, "advisor", 100),
+    ];
+
+    let out = report("koji", &lines, None, &[]);
+
+    assert!(
+        out.contains(
+            &"retired roles: 3 calls, 600 units, $1.50 (advisor 2 calls, researcher 1 call)"
+                .to_owned()
+        ),
+        "{out:#?}"
+    );
+    let loaded = out.iter().find(|l| l.starts_with("loaded: ")).unwrap();
+    assert!(
+        loaded.starts_with("loaded: 4,600 units, $2.00 "),
+        "{loaded}"
+    );
+
+    let none = report("koji", &lines[..2], None, &[]);
+    assert!(!none.iter().any(|l| l.starts_with("retired")), "{none:#?}");
 }
 
 #[test]
@@ -320,110 +371,6 @@ fn a_ledger_that_cannot_be_read_is_read_again_for_a_session_s_cost() {
     assert_eq!(ledger.session_cost(&session), Cost::from_usd(1.5));
 }
 
-// A vote's call: `voter` voted `choice` on `ruling` of `kind` on `work`, the
-// call taking `seconds` and costing `usd`.
-fn voted(
-    voter: &str,
-    ruling: u64,
-    kind: &str,
-    work: &str,
-    choice: Option<&str>,
-    seconds: u64,
-    usd: f64,
-) -> Line {
-    let call_kind = if voter == "pm" { "wake" } else { "vote" };
-    let mut mark = json!({
-        "ruling": ruling, "ruling_kind": kind, "voter": voter, "panel": "fix", "work": work,
-    });
-    if let Some(choice) = choice {
-        mark["choice"] = json!(choice);
-    }
-    let line: CallLine = serde_json::from_value(json!({
-        "at": 100 + ruling, "issue": null, "role": voter, "kind": call_kind,
-        "usage": { "input": 10, "cache_write": 0, "cache_read": 0, "output": 0 },
-        "units": 10, "cost_usd": usd, "seconds": seconds, "ended": "answered",
-        "votes": [mark],
-    }))
-    .unwrap();
-    Line::Call(line)
-}
-
-// The row of `table` (`expert`, `kind` or `type`) for `group`, as its cells
-fn cells(report: &[String], table: &str, group: &str) -> Vec<String> {
-    let start = report
-        .iter()
-        .position(|l| l.starts_with(table))
-        .unwrap_or_else(|| panic!("no {table} table in {report:#?}"));
-    let row = report[start + 1..]
-        .iter()
-        .take_while(|l| l.starts_with("  "))
-        .find(|l| l.trim().starts_with(group))
-        .unwrap_or_else(|| panic!("no {group} row in {report:#?}"));
-    row.split_whitespace().map(str::to_owned).collect()
-}
-
-#[test]
-fn a_report_splits_the_panels_votes_by_expert_kind_and_type() {
-    let lines = [
-        voted("advisor", 1, "merge", "fix", Some("A"), 10, 0.40),
-        voted("advisor", 2, "still-red", "feat", None, 30, 0.20),
-        voted("researcher", 1, "merge", "fix", Some("B"), 20, 0.10),
-        voted("pm", 1, "merge", "fix", Some("A"), 6, 0.06),
-        voted("pm", 2, "still-red", "feat", Some("A"), 8, 0.04),
-    ];
-
-    let report = report("koji", &lines, None, &[]);
-
-    assert!(
-        report
-            .iter()
-            .any(|l| l.starts_with("panel votes on 2 rulings, $0.40 a ruling")),
-        "{report:#?}"
-    );
-    // 2 calls, $0.60, the median of 10s and 30s, 1 abstention, $0.30 a ruling
-    assert_eq!(
-        cells(&report, "expert", "advisor"),
-        ["advisor", "2", "$0.60", "20s", "1", "$0.30"]
-    );
-    assert_eq!(
-        cells(&report, "expert", "pm"),
-        ["pm", "2", "$0.10", "7s", "0", "$0.05"]
-    );
-    assert_eq!(
-        cells(&report, "kind", "merge"),
-        ["merge", "3", "$0.56", "10s", "0", "$0.56"]
-    );
-    assert_eq!(
-        cells(&report, "kind", "still-red"),
-        ["still-red", "2", "$0.24", "19s", "1", "$0.24"]
-    );
-    assert_eq!(
-        cells(&report, "type", "fix"),
-        ["fix", "3", "$0.56", "10s", "0", "$0.56"]
-    );
-    assert_eq!(
-        cells(&report, "type", "feat"),
-        ["feat", "2", "$0.24", "19s", "1", "$0.24"]
-    );
-}
-
-#[test]
-fn a_wake_that_voted_on_two_rulings_shares_its_cost_between_them() {
-    let Line::Call(mut wake) = voted("pm", 1, "merge", "fix", Some("A"), 12, 0.50) else {
-        unreachable!()
-    };
-    let mut second = wake.votes[0].clone();
-    second.ruling = ticket(2);
-    wake.votes.push(second);
-
-    let report = report("koji", &[Line::Call(wake)], None, &[]);
-
-    assert_eq!(
-        cells(&report, "expert", "pm"),
-        ["pm", "2", "$0.50", "12s", "0", "$0.25"]
-    );
-}
-
 #[test]
 fn a_report_totals_the_representatives_posts_apart_from_the_work_items() {
     let lines = [
@@ -457,33 +404,6 @@ fn triager_calls_total_on_a_line_of_their_own() {
         total.starts_with("triager: 2 calls, 500 units, $1.00"),
         "{total}"
     );
-}
-
-#[test]
-fn a_report_of_a_ledger_with_no_votes_has_no_panel_section() {
-    let lines = [call(5, None, Role::Pm, CallKind::Wake, 100)];
-
-    let report = report("koji", &lines, None, &[]);
-
-    assert!(
-        report.iter().all(|l| !l.starts_with("panel votes on")),
-        "{report:#?}"
-    );
-}
-
-#[test]
-fn a_vote_line_keeps_its_ruling_and_choice_through_the_ledger_file() {
-    let dir = tempfile::tempdir().unwrap();
-    let line = voted("advisor", 3, "merge", "docs", Some("B"), 9, 0.1);
-    append_to(&dir.path().join(FILE), &line).unwrap();
-
-    let read = read(&dir.path().join(FILE)).unwrap();
-
-    assert_eq!(read, [line]);
-    let Line::Call(call) = &read[0] else {
-        unreachable!()
-    };
-    assert_eq!(call.votes[0].choice, Some('B'));
 }
 
 fn ledger_line(text: &str) -> Line {

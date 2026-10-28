@@ -16,17 +16,6 @@ pub enum SessionIds {
     Cli,
 }
 
-/// How the researcher gets the web on a harness
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ResearcherWeb {
-    /// The CLI has a web tool of its own
-    Builtin,
-    /// The `pi-web-access` package, loaded as an extension
-    PiPackage,
-    /// The `duckduckgo-websearch` package, run as the stdio MCP server `kelpie-web`
-    GoosePackage,
-}
-
 /// What `shep kelpie doctor` checks of a harness that is installed and logged in
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DoctorProbe {
@@ -80,7 +69,7 @@ pub struct HarnessFacts {
     pub resumable_session: bool,
     /// Whether it can read the repository
     pub repo_reads: bool,
-    /// Whether its adapter wires kelpie's PM and issue-writer guards
+    /// Whether its adapter wires kelpie's PM guard
     pub role_guard: bool,
     /// Why a handover waits while a session on it is open in the maintainer's
     /// terminal, if it does
@@ -88,8 +77,6 @@ pub struct HarnessFacts {
     /// What `status` calls a session of it open in the maintainer's terminal,
     /// if a drain waits for one
     pub attached_role: Option<&'static str>,
-    /// How the researcher gets the web on it
-    pub researcher_web: ResearcherWeb,
     /// What `doctor` checks of it when a role runs on it, if it checks any
     pub doctor_probe: Option<DoctorProbe>,
 }
@@ -163,7 +150,6 @@ const CLAUDE_CODE: HarnessFacts = HarnessFacts {
     role_guard: true,
     holds_handover_at_attach: None,
     attached_role: None,
-    researcher_web: ResearcherWeb::Builtin,
     doctor_probe: None,
 };
 
@@ -190,7 +176,6 @@ const PI: HarnessFacts = HarnessFacts {
     role_guard: false,
     holds_handover_at_attach: Some(FORWARDER),
     attached_role: Some("pi_session"),
-    researcher_web: ResearcherWeb::PiPackage,
     doctor_probe: Some(DoctorProbe::Pi),
 };
 
@@ -217,7 +202,6 @@ const CODEX: HarnessFacts = HarnessFacts {
     role_guard: false,
     holds_handover_at_attach: Some(TRUST),
     attached_role: Some("codex_session"),
-    researcher_web: ResearcherWeb::Builtin,
     doctor_probe: None,
 };
 
@@ -249,7 +233,6 @@ const GOOSE: HarnessFacts = HarnessFacts {
     role_guard: false,
     holds_handover_at_attach: Some(FORWARDER),
     attached_role: Some("goose_session"),
-    researcher_web: ResearcherWeb::GoosePackage,
     doctor_probe: Some(DoctorProbe::Goose),
 };
 
@@ -277,6 +260,5 @@ const STAND_IN: HarnessFacts = HarnessFacts {
     role_guard: false,
     holds_handover_at_attach: None,
     attached_role: None,
-    researcher_web: ResearcherWeb::Builtin,
     doctor_probe: None,
 };

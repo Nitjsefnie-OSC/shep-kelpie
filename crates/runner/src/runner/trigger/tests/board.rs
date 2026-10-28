@@ -87,9 +87,9 @@ fn board_lists_each_issue_with_its_place_title_priority_and_why_it_waits() {
                 { "position": 1, "issue": "284", "title": "Title of #284",
                   "priority": "P0", "blocked": true, "held": false },
                 { "position": 2, "issue": "282", "title": "Title of #282",
-                  "priority": null, "blocked": true, "held": false },
+                  "priority": "P4", "blocked": true, "held": false },
                 { "position": 3, "issue": "285", "title": "Title of #285",
-                  "priority": null, "blocked": true, "held": false },
+                  "priority": "P4", "blocked": true, "held": false },
             ],
         })
     );

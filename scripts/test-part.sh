@@ -4,7 +4,7 @@
 # modules, and part 3 runs everything else, the other crates included, by
 # skipping both sets. A new or renamed module runs in part 3.
 set -euf
-one="runner::contributions:: runner::review:: runner::panel:: runner::triage:: runner::follow_up::"
+one="runner::contributions:: runner::review:: runner::triage:: runner::follow_up::"
 two="runner::review_bot:: runner::merge:: runner::gate:: runner::pm:: runner::turn:: runner::replies:: runner::core_tests:: runner::flight::
 runner::coderabbit:: runner::thread_replies:: runner::dependencies:: runner::retro:: runner::ruling::"
 # Each list splits on its spaces, with globbing off.

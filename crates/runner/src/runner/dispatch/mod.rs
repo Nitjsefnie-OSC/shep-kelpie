@@ -154,7 +154,10 @@ impl Runner {
         }
         // One whose paths a parked item's branch touches would build on code
         // that may yet change, and one whose paths are unread may be one.
-        let overlaps = self.parked_overlap(&ready);
+        // One the issue check refused waits for its triage or an edit.
+        let mut overlaps = self.check_holds(&ready);
+        ready.retain(|issue| !overlaps.iter().any(|s| s.issue() == Some(issue.ticket)));
+        overlaps.extend(self.parked_overlap(&ready));
         ready.retain(|issue| !overlaps.iter().any(|s| s.issue() == Some(issue.ticket)));
         let implementers = self.implementer_files();
         let all = takeable(
@@ -167,7 +170,6 @@ impl Runner {
         let held = self.pm_holds(&all, &ready);
         ready.retain(|issue| !held.contains(&issue.ticket));
         let mut paced = false;
-        let mut unlabelled: Vec<Skip> = Vec::new();
         // Issues whose labelled agent's account holds, and the first such hold, which
         // is what the step reports if no other issue can start.
         let mut account_held: Vec<Skip> = Vec::new();
@@ -180,7 +182,6 @@ impl Runner {
             let mut skipped = pick.skipped;
             skipped.extend(failed.iter().cloned());
             skipped.extend(overlaps.iter().cloned());
-            skipped.extend(unlabelled.iter().cloned());
             skipped.extend(account_held.iter().cloned());
             skipped.sort_by_key(Skip::issue);
             let takeable = takeable(&ready, &open, &finished, &dropped, &implementers);
@@ -233,17 +234,7 @@ impl Runner {
                 }
                 paced = true;
             }
-            // Issues the issue writer, or a call that holds it, is on for now
-            let waiting: Vec<TicketId> = (unlabelled.iter())
-                .filter_map(|skip| match skip {
-                    Skip::Unlabelled {
-                        issue,
-                        ruling: None,
-                    } => Some(*issue),
-                    _ => None,
-                })
-                .collect();
-            let ticket = match self.pm_pick(&takeable, &waiting) {
+            let ticket = match self.pm_pick(&takeable) {
                 Choice::Take(n) => n,
                 Choice::Rule => picked,
                 Choice::Wait => {
@@ -253,43 +244,6 @@ impl Runner {
                     return Ok(Begin::Idle);
                 }
             };
-            // An issue the issue writer is labelling waits for it, even one
-            // labelled by hand meanwhile. A local ticket has no issue writer's
-            // label: its `agent:` label, or the project's only implementer, sets its agent.
-            let labelling = self.flights.labelling() == Some(ticket);
-            if let Some(found) = ready.iter().find(|i| i.ticket == ticket)
-                && ticket.github().is_some()
-                && (labelling || self.needs_label(found))
-            {
-                let ruling = self.unlabelled_ruling(ticket);
-                if labelling
-                    || ruling.is_some()
-                    || self.draining()
-                    || self.flights.labelling().is_some()
-                {
-                    unlabelled.push(Skip::Unlabelled {
-                        issue: ticket,
-                        ruling,
-                    });
-                    ready.retain(|i| i.ticket != ticket);
-                    continue;
-                }
-                let pace = self.pace_writer()?;
-                if let Some(hold) = pace.reason() {
-                    skipped.push(Skip::Paced {
-                        issue: ticket,
-                        hold: hold.to_owned(),
-                    });
-                    skipped.sort_by_key(Skip::issue);
-                }
-                if let Some(held) = pace.holds() {
-                    self.set_skipped(skipped);
-                    return Ok(held);
-                }
-                let found = found.clone();
-                self.set_skipped(skipped);
-                return Ok(Begin::Label(found));
-            }
             // The agent its label names may be one the project does not list, whose
             // account `pace_dispatch` has not read. A label that fails is `add`'s to refuse.
             let labelled = (ready.iter().find(|i| i.ticket == ticket))

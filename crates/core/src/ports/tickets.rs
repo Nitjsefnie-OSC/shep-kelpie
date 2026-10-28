@@ -135,8 +135,8 @@ pub trait Tickets: Send + Sync {
     /// returns its id
     ///
     /// [`Tickets::create_issue`] on a source that holds both kinds is the GitHub
-    /// issue, which adoption needs a number of. This is where a follow-up or
-    /// the issue writer's ticket lands.
+    /// issue, which adoption needs a number of. This is where a follow-up
+    /// lands.
     ///
     /// # Errors
     ///

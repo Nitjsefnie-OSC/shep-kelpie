@@ -17,12 +17,11 @@ pub mod sheep;
 pub mod upgrade;
 
 // The modules of `shep-kelpie-core`, each kept under the name it had here
-use shep_kelpie_core::dep_sources;
 pub use shep_kelpie_core::{
     agents, board, bridge, browse, coderabbit, codex, confine, cubic, fence, forge_ledger,
     forwarder, guard, home, hooks, ipc, lease, local_paths, local_tickets, metrics, pacer,
-    package_managers, ports, profile, review_bot, settings, shep_home, shepherd, skills, state,
-    ticket, totp, usage, watch, webhook, work_item,
+    package_managers, pm_answer, ports, profile, review_bot, settings, shep_home, shepherd, skills,
+    state, ticket, totp, usage, watch, webhook, work_item, work_kind,
 };
 
 // The real ports and the forge, each kept under the name it had here
@@ -37,7 +36,6 @@ pub use shep_kelpie_runner::runner;
 // The leaf crates under `crates/`, each module kept under the name it had here
 pub use shep_kelpie_disk::disk;
 pub use shep_kelpie_facts::{mcp_use, request_use, tool_error};
-pub use shep_kelpie_panel::panel;
 pub use shep_kelpie_process::{spawn, status, terminal, tools, workflows, worktree};
 pub use shep_kelpie_tree::{interrupt, tree};
 pub use shep_kelpie_trim::trim;

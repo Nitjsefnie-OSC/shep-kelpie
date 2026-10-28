@@ -45,7 +45,7 @@ fn try_planned(rig: &Rig, edit: impl FnOnce(&Path)) -> Result<(Option<DevRun>, S
     let item = runner.current().expect("an item").clone();
     edit(&item.worktree);
     let session = Session::Resume(item.session.clone());
-    let call = runner.worker_call(&item, session, Some("again".into()), true)?;
+    let call = runner.worker_call(&item, session, Some("again".into()), None, true)?;
     let told = fs::read_to_string(call.instructions.as_ref().unwrap()).unwrap();
     // The browser may open nothing until the server answers.
     assert_eq!(runner.dev_gate(ticket(7)).get(), None);
@@ -392,7 +392,7 @@ fn gate_around_serving(rig: &Rig) -> ([Option<u16>; 3], String) {
     let item = runner.current().expect("an item").clone();
     let session = Session::Resume(item.session.clone());
     let mut call = runner
-        .worker_call(&item, session, Some("again".into()), true)
+        .worker_call(&item, session, Some("again".into()), None, true)
         .unwrap();
     let run = runner.planned.get(ticket(7)).expect("a plan");
     let before = runner.dev_gate(ticket(7)).get();
@@ -465,14 +465,14 @@ fn replanned_beside_a_plan_on_4421(rig: &Rig) -> (Option<DevRun>, String) {
     let item = runner.current().expect("an item").clone();
     let session = || Session::Resume(item.session.clone());
     runner
-        .worker_call(&item, session(), Some("again".into()), true)
+        .worker_call(&item, session(), Some("again".into()), None, true)
         .unwrap();
     // Nothing listens on 4421: the other item's server has not bound it yet.
     let other = runner.planned.get(ticket(7)).expect("a plan");
     assert_eq!(other.port, 4421);
     runner.planned.hold(ticket(99), Some(other));
     let call = runner
-        .worker_call(&item, session(), Some("again".into()), true)
+        .worker_call(&item, session(), Some("again".into()), None, true)
         .unwrap();
     let told = fs::read_to_string(call.instructions.as_ref().unwrap()).unwrap();
     (runner.planned.get(ticket(7)), told)

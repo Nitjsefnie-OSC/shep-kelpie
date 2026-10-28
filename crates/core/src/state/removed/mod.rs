@@ -2,12 +2,12 @@
 //!
 //! Such a file still loads. The run state goes, so a paused project runs once
 //! its runner starts. The fields of the relay, planning call, whole-issue check,
-//! review loop, deep round's later steps and shots, and a work item's `retro`
-//! mark, are dropped. Their calls and time fold into a reviewer's session and
-//! review's or other's time. A review saved mid-loop resumes after the last
-//! reviewer it recorded. `deep` and `claude` are `defect-hunter`, and a review
-//! bot round is a pass of the listed bots. A pending ruling of a folded kind is
-//! a `stuck` one; of a removed kind, the file is refused (`local-model-spilled`).
+//! review loop, deep round's later steps and shots, a work item's `retro` mark
+//! and a ruling's panel are dropped, their calls and time folded into a
+//! reviewer's session and review's or other's time. A review saved mid-loop
+//! resumes after its last reviewer. `deep` and `claude` are `defect-hunter`, a
+//! bot round a pass of the listed bots. A pending ruling of a folded kind is
+//! `stuck`, of a removed kind refused, and of `unlabelled` withdrawn.
 
 use serde_json::{Map, Value, json};
 
@@ -89,6 +89,38 @@ pub(super) fn removed_ruling(value: &Value) -> Option<(u64, String)> {
     })
 }
 
+/// Withdraws each pending `unlabelled` ruling and the place read to in its thread
+///
+/// Its issue goes back to the board, which opens it on the first implementer listed.
+pub(super) fn withdraw_unlabelled(value: &mut Value) {
+    let Some(state) = value.as_object_mut() else {
+        return;
+    };
+    let unlabelled = |ruling: &Value| {
+        let kind = ruling.get("kind");
+        let reason = kind
+            .and_then(|kind| kind.get("reason"))
+            .and_then(Value::as_str);
+        kind.and_then(|kind| kind.get("kind"))
+            .and_then(Value::as_str)
+            == Some("stuck")
+            && reason == Some("unlabelled")
+    };
+    let Some(Value::Array(rulings)) = state.get_mut("rulings") else {
+        return;
+    };
+    let withdrawn: Vec<String> = (rulings.iter().filter(|ruling| unlabelled(ruling)))
+        .filter_map(|ruling| ticket(ruling.get("id")))
+        .map(|id| id.to_string())
+        .collect();
+    rulings.retain(|ruling| !unlabelled(ruling));
+    for read in ["heard", "unmentioned"] {
+        if let Some(Value::Object(read)) = state.get_mut(read) {
+            read.retain(|id, _| !withdrawn.contains(id));
+        }
+    }
+}
+
 /// Drops what removed features saved, and moves the whole-issue check's and
 /// the judge's time and calls to review's, and the shots' time to other
 ///
@@ -110,6 +142,10 @@ pub(super) fn drop_removed_fields(value: &mut Value) {
     for ruling in objects(state.get_mut("rulings")) {
         ruling.remove("relayed");
         ruling.remove("resend");
+        // The panel's ballots, verdict and reason it cast none.
+        ruling.remove("panel");
+        ruling.remove("verdict");
+        ruling.remove("skipped");
         if let Some(kind) = ruling.get_mut("kind") {
             drop_loop(kind);
             if let Some(kind) = kind.as_object_mut() {

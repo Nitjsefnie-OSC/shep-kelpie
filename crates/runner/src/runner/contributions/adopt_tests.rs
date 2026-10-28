@@ -174,8 +174,7 @@ fn a_contribution_first_asked_at_quiet_days_is_asked_and_not_ruled_on() {
 // from its title and body, labelled for the project's default implementer, and
 // names it on the pull request so the merge closes it.
 #[test]
-fn a_pull_request_that_closes_no_issue_gets_one_from_the_issue_writer_and_resolves_is_added_to_its_body()
- {
+fn a_pull_request_that_closes_no_issue_gets_one_filed_and_resolves_is_added_to_its_body() {
     let (rig, runner) = taken_over();
 
     let status = rig.ask(&runner, "status", None);

@@ -138,7 +138,7 @@ fn taken(runner: &Mutex<Runner>, id: TicketId, ruling: TicketId, params: &str) -
     let Some((_, answer)) = read_rule(params.trim()).filter(|(named, _)| *named == id) else {
         return (refused(format!("{params:?} is not an answer to it")), true);
     };
-    match lock(runner).rule(ruling, answer) {
+    match lock(runner).rule(ruling, answer.into()) {
         Ok(()) => (
             format!(
                 "answered ruling {id} as `shep kelpie rule` left it while the runner was stopped"

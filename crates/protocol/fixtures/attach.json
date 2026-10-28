@@ -1,0 +1,17 @@
+{
+  "attach": "ready",
+  "command": {
+    "args": [
+      "--settings",
+      "/home/me/koji/.kelpie/workers/settings-7.json",
+      "--resume",
+      "11111111-2222-4333-8444-555555555555"
+    ],
+    "cwd": "/home/me/koji/.kelpie/worktrees/7",
+    "env": {},
+    "program": "claude"
+  },
+  "issue": "7",
+  "session": "11111111-2222-4333-8444-555555555555",
+  "worktree": "/home/me/koji/.kelpie/worktrees/7"
+}

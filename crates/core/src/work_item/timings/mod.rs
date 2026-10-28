@@ -51,7 +51,7 @@ pub struct Timings {
 
 /// A work item's time up to an instant, with the open interval included
 // wire format: changing this is a breaking change to `status`
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Split {
     /// The phase the open interval counts in
     pub phase: TimingPhase,

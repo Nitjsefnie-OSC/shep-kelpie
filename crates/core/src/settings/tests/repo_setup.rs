@@ -12,14 +12,7 @@ fn with(keys: &str) -> String {
 fn left_out_the_repos_plugins_reach_every_call() {
     let setup = parse(EXAMPLE).unwrap().repo_setup;
     assert!(setup.plugins && setup.own);
-    for role in [
-        Role::Worker,
-        Role::Reviewer,
-        Role::IssueWriter,
-        Role::Pm,
-        Role::Advisor,
-        Role::Researcher,
-    ] {
+    for role in [Role::Worker, Role::Reviewer, Role::Pm] {
         assert!(setup.reaches(role), "{role:?}");
     }
     assert!(!setup.skips("style@house"));
@@ -42,7 +35,7 @@ fn roles_name_the_calls_that_get_the_plugins() {
         .repo_setup;
     assert!(setup.reaches(Role::Worker) && setup.reaches(Role::Pm));
     assert!(!setup.reaches(Role::Reviewer));
-    assert!(!setup.reaches(Role::Advisor));
+    assert!(!setup.reaches(Role::Triager));
 }
 
 #[test]
@@ -50,6 +43,27 @@ fn a_role_kelpie_has_no_call_for_is_refused() {
     let err = parse_err(&with("roles = [\"implementer\"]"));
     assert!(err.contains("repo_setup.roles"), "{err}");
     assert!(err.contains("worker, reviewer"), "{err}");
+}
+
+#[test]
+fn a_role_that_went_with_the_panel_is_refused_naming_it() {
+    for gone in ["advisor", "researcher"] {
+        let err = parse_err(&with(&format!("roles = [\"worker\", \"{gone}\"]")));
+        assert!(err.contains("repo_setup.roles"), "{gone}: {err}");
+        assert!(err.contains("`advisor` and `researcher`"), "{gone}: {err}");
+        assert!(err.contains("ruling panel"), "{gone}: {err}");
+    }
+}
+
+#[test]
+fn the_issue_writers_role_is_refused_naming_it_and_the_migration() {
+    let err = parse_err(&with("roles = [\"worker\", \"issue-writer\"]"));
+    assert!(err.contains("repo_setup.roles"), "{err}");
+    assert!(
+        err.contains("`issue-writer` went with the issue writer"),
+        "{err}"
+    );
+    assert!(err.contains("shep kelpie settings migrate"), "{err}");
 }
 
 #[test]

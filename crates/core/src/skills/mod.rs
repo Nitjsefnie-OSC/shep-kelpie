@@ -15,32 +15,17 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::settings::{SettingsError, SkillChoice, SkillName, StepSkills};
 
+pub mod issue;
 mod repo;
 pub mod vendored;
 mod wording;
 
 pub use repo::{MARKETPLACES, RepoPlugin, RepoPlugins, Servers, default_head, host_of, inspect};
 pub use vendored::{PIN, PLUGIN, UPSTREAM};
-
-/// The skill `shep kelpie issue --interactive` starts with: it runs
-/// `grilling` with `domain-modeling`
-pub const GRILL_WITH_DOCS: &str = "grill-with-docs";
-
-/// Writes kelpie's copy of mattpocock/skills into `dir` as a plugin, for a
-/// session the maintainer runs rather than a runner, and returns `skill`'s
-/// slash command in it
-///
-/// # Errors
-///
-/// The first file or folder that could not be removed or written.
-pub fn write_vendored(dir: &Path, skill: &str) -> io::Result<String> {
-    vendored::write(dir, vendored::Which::All)?;
-    Ok(format!("/{PLUGIN}:{skill}"))
-}
 
 /// Whether a plugin of this name would collide with the plugins kelpie
 /// writes itself: the vendored one and each step's own
@@ -49,7 +34,7 @@ pub(crate) fn is_kelpies_own(name: &str) -> bool {
 }
 
 /// A step kelpie drives an agent through
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Step {
     /// Triaging an issue
@@ -123,7 +108,7 @@ impl fmt::Display for Step {
 }
 
 /// One step's skill, as `status` shows it
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StepSkill {
     /// The step
     pub step: Step,
@@ -142,6 +127,8 @@ pub struct Skills {
     steps: Vec<StepSkill>,
     plugins: Vec<PathBuf>,
     wording: Wording,
+    // Why kelpie's issue skill could not be written, where it could not
+    issue_failed: Option<String>,
 }
 
 // Kelpie's writing skill for the pull request's body: where it loaded, or why not
@@ -161,9 +148,9 @@ impl Wording {
 impl Skills {
     /// Loads each step's skill, writing the plugins it needs under `folder`
     ///
-    /// The vendored plugin goes in `folder/mattpocock`, holding only the skills
-    /// a worker's steps run and those they call, kelpie's wording plugin in
-    /// `folder/kelpie-wording`, and a step's own skill folder in `folder/<step>`.
+    /// The vendored plugin goes in `folder/mattpocock`, with only the skills a
+    /// worker's steps run and call, kelpie's own in `folder/kelpie-wording` and
+    /// `folder/kelpie-issue`, and a step's own skill folder in `folder/<step>`.
     /// Nothing here fails: a skill that cannot load leaves its step on kelpie's
     /// prompt. A step the project left out has a skill only where kelpie seeded
     /// one, for [`Step::WORKER`] alone, so no command names a skill the folder lacks.
@@ -174,7 +161,7 @@ impl Skills {
         // set has it, so `status` never names a skill the folder lacks.
         let seeds: BTreeSet<&'static str> = vendored_skills(chosen).collect();
         let needed = vendored::with_their_calls(seeds.iter().copied());
-        let written = vendored::write(&vendored, vendored::Which::Only(needed)).map_err(|e| {
+        let written = vendored::write(&vendored, &needed).map_err(|e| {
             format!(
                 "cannot write kelpie's copy of mattpocock/skills to {}: {e}",
                 vendored.display()
@@ -243,10 +230,23 @@ impl Skills {
                 )),
             }
         };
+        // No step runs it, so no step's setting turns it off.
+        let own = folder.join(issue::PLUGIN);
+        let issue_failed = match issue::write(&own) {
+            Ok(()) => {
+                plugins.push(own);
+                None
+            }
+            Err(e) => Some(format!(
+                "cannot write kelpie's issue skill to {}: {e}, so the worker files an issue without it",
+                own.display()
+            )),
+        };
         Self {
             steps,
             plugins,
             wording,
+            issue_failed,
         }
     }
 
@@ -316,13 +316,19 @@ impl Skills {
         &self.plugins
     }
 
+    /// The folder of kelpie's issue plugin, where it could be written
+    pub fn issue_plugin(&self) -> Option<&Path> {
+        let issue = self.plugins.iter().find(|p| p.ends_with(issue::PLUGIN));
+        issue.map(PathBuf::as_path)
+    }
+
     /// Each step's skill, in [`Step::ALL`]'s order
     pub fn status(&self) -> &[StepSkill] {
         &self.steps
     }
 
     /// A log line for each step whose skill could not load, and for the
-    /// wording skill if it could not be written
+    /// wording and issue skills if they could not be written
     pub fn notices(&self) -> impl Iterator<Item = String> + '_ {
         let wording = match &self.wording {
             Wording::Failed(reason) => Some(format!(
@@ -338,7 +344,7 @@ impl Skills {
                 )
             })
         });
-        steps.chain(wording)
+        steps.chain(wording).chain(self.issue_failed.clone())
     }
 }
 

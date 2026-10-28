@@ -97,6 +97,9 @@ impl Runner {
             settings: self.paths.worker.join("pm-settings.json"),
             instructions: Some(instructions),
             reach: self.pm_reach(),
+            plugin_dirs: (self.skills.issue_plugin().into_iter())
+                .map(Path::to_owned)
+                .collect(),
             ..AgentCall::new(
                 Role::Pm,
                 Tools::Pm,
@@ -193,7 +196,6 @@ impl Runner {
                     base: self.settings.git.base().to_owned(),
                     kelpie_pushes: false,
                     folders: vec![kelpie.clone(), self.settings.git.checkout.clone()],
-                    issues: None,
                     hooks: Hooks::default(),
                 },
                 hooks: Vec::new(),
@@ -202,7 +204,6 @@ impl Runner {
             code_graph: None,
             browser: None,
             mcp_servers: BTreeMap::new(),
-            extensions: Vec::new(),
         }
     }
 }

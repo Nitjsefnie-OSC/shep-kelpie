@@ -16,6 +16,7 @@ use crate::dep_sources::{self, ProcessEnv};
 use crate::fence;
 use crate::hooks::Hooks;
 use crate::lease::door;
+use crate::package_managers::MANAGERS;
 use crate::ports::{Fence, Guard, InstallationToken, Reach};
 use crate::settings::{BuildDir, EnvName, GuardHook, NonBlank};
 
@@ -181,6 +182,14 @@ const KEYCHAIN_COMMANDS: [&str; 6] = [
     "git credential-*",
     "git -c credential*",
 ];
+
+// The caches of `package_managers::MANAGERS` a worker's Go and bun write on
+// every build and install, which the home's copies refuse
+const BUILD_CACHES: [&str; 2] = ["GOCACHE", "BUN_INSTALL_CACHE_DIR"];
+
+// The cache Go's linter writes on every run, whose exit code fails it when the
+// home's copy refuses the write
+const LINT_CACHE: (&str, &str) = ("GOLANGCI_LINT_CACHE", "golangci-lint");
 
 // What `git push` and `gh` reach. A project adds its own, such as a registry.
 const GITHUB: [&str; 2] = ["github.com", "api.github.com"];
@@ -367,7 +376,6 @@ impl WorkerProfile<'_> {
                 base: self.base.to_owned(),
                 kelpie_pushes: self.kelpie_pushes,
                 folders: vec![self.kelpie_home.to_owned(), self.repo.to_owned()],
-                issues: None,
                 hooks: Hooks::default(),
             },
             hooks: self.guard_hooks.to_vec(),
@@ -379,7 +387,6 @@ impl WorkerProfile<'_> {
             code_graph: None,
             browser: None,
             mcp_servers: BTreeMap::new(),
-            extensions: Vec::new(),
         }
     }
 
@@ -397,6 +404,11 @@ impl WorkerProfile<'_> {
     fn env(&self) -> BTreeMap<String, String> {
         let path = |p: &Path| p.to_string_lossy().into_owned();
         let cargo = ("CARGO_TARGET_DIR".to_owned(), path(self.build));
+        // A project's `build_env` comes after, so it may move one.
+        let caches = (MANAGERS.iter().flat_map(|m| m.caches))
+            .filter(|(name, _)| BUILD_CACHES.contains(name))
+            .chain([&LINT_CACHE])
+            .map(|(name, dir)| ((*name).to_owned(), path(&self.build.join(dir))));
         let door = (door::SOCKET_VAR.to_owned(), path(self.door));
         let project = self.build_env.iter().map(|(name, dir)| {
             (
@@ -417,6 +429,7 @@ impl WorkerProfile<'_> {
             ("GIT_CONFIG_PARAMETERS".to_owned(), git_config),
         ]
         .into_iter()
+        .chain(caches)
         .chain(project)
         .chain(github)
         .collect()

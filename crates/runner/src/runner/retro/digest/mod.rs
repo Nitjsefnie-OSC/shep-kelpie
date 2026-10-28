@@ -11,11 +11,11 @@ use std::fmt::Write;
 use serde::Serialize;
 
 use super::journal::{self, Entry, Stamped};
-use crate::panel::work_of;
-use crate::runner::panel::{Answerer, Record};
+use crate::runner::ruling::{Answerer, Record};
 use crate::state::Finished;
 use crate::ticket::TicketId;
 use crate::usage::{CallKind, CallLine, Ended, FinishedLine, Line, RoleLine};
+use crate::work_kind::work_kind;
 
 mod across;
 
@@ -218,7 +218,7 @@ pub(super) fn build(records: &Records<'_>) -> String {
 }
 
 fn item(out: &mut String, records: &Records<'_>, finished: &Finished, run: (usize, usize)) {
-    let work = work_of(Some(&finished.title)).kind;
+    let work = work_kind(&finished.title);
     let revival = match run.1 > 1 {
         true => format!(", run {} of {}", run.0, run.1),
         false => String::new(),
@@ -369,27 +369,13 @@ fn rulings(out: &mut String, records: &Records<'_>, finished: &Finished) {
         let waited = (ruling.raised).map_or_else(String::new, |raised| {
             format!(", waited {}", span(ruling.at.0.saturating_sub(raised.0)))
         });
-        let ballots: Vec<String> = (ruling.ballots.iter())
-            .map(|b| {
-                let vote = b
-                    .vote
-                    .as_ref()
-                    .map_or("abstained".to_owned(), |v| v.choice.to_string());
-                format!("{} {vote}", b.voter.name())
-            })
-            .collect();
-        let votes = match ballots.is_empty() {
-            true => "no panel vote".to_owned(),
-            false => format!("votes: {}", ballots.join(", ")),
-        };
         let by = match ruling.by() {
             Answerer::Maintainer => "maintainer",
             Answerer::Pm => "project manager",
-            Answerer::Panel => "panel",
         };
         let _ = writeln!(
             out,
-            "  - ruling {} ({kind}){waited}; {votes}; answered by the {by}: {}",
+            "  - ruling {} ({kind}){waited}; answered by the {by}: {}",
             ruling.id,
             one_line(&ruling.answer)
         );
