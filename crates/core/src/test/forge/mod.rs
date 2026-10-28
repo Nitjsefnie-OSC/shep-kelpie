@@ -30,6 +30,8 @@ pub struct FakeForge {
     unread: Arc<Mutex<BTreeMap<u64, usize>>>,
     labels: Arc<Mutex<HashMap<u64, Vec<String>>>>,
     ready: Arc<Mutex<Vec<ReadyIssue>>>,
+    // The ready issues read with only the labels they carry, which need not pass the check
+    unchecked: Arc<Mutex<HashSet<u64>>>,
     blockers: Arc<Mutex<HashMap<u64, Vec<u64>>>>,
     closed: Arc<Mutex<HashSet<u64>>>,
     // Each parent's sub-issues, in the order they were linked
@@ -159,6 +161,7 @@ impl FakeForge {
             unread: Arc::default(),
             labels: Arc::default(),
             ready: Arc::default(),
+            unchecked: Arc::default(),
             blockers: Arc::default(),
             closed: Arc::default(),
             sub_issues: Arc::default(),

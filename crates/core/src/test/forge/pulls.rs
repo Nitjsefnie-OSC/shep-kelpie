@@ -38,6 +38,13 @@ impl FakeForge {
         });
     }
 
+    /// Lists issue `number` as ready as [`Self::list_ready`] does, read with
+    /// only the labels it carries: with none, it shows no priority
+    pub fn list_ready_unchecked(&self, number: u64, assigned: bool) {
+        self.list_ready(number, assigned);
+        self.unchecked.lock().unwrap().insert(number);
+    }
+
     /// A ready issue body the issue check passes, which [`Self::list_ready`]
     /// gives issue `number`. Each names its own file, so no two overlap.
     pub fn passing_body(number: u64) -> String {

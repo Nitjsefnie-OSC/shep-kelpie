@@ -99,13 +99,17 @@ impl Tickets for FakeForge {
         self.board()?;
         let ready = self.ready.lock().unwrap().clone();
         let closed = self.closed.lock().unwrap().clone();
+        let unchecked = self.unchecked.lock().unwrap().clone();
         Ok(ready
             .into_iter()
             .filter(|i| !closed.contains(&number(i.ticket)))
             .map(|i| {
                 let number = number(i.ticket);
                 ReadyIssue {
-                    labels: checked_labels(self.labels_of(number)),
+                    labels: match unchecked.contains(&number) {
+                        true => self.labels_of(number),
+                        false => checked_labels(self.labels_of(number)),
+                    },
                     blocked_by: self.blockers_of(number),
                     parent: self.parent_of(number).map(ticket),
                     sub_issues: self.count_sub_issues(number),

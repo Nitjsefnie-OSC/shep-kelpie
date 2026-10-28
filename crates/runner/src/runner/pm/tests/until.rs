@@ -6,7 +6,7 @@ use serde_json::{Value, json};
 
 use super::{answered, pm_on, step_until};
 use crate::runner::{Runner, StepReport, step};
-use crate::test::{Rig, Scripted};
+use crate::test::{FakeForge, Rig, Scripted};
 
 /// A project with three slots and as many pending rulings, #7 and #8 open and stuck, #9 and #12 ready,
 /// whose project manager answered `answer` to the wake for the free slot
@@ -125,7 +125,8 @@ fn a_hold_until_what_is_no_open_work_item_is_refused_with_a_note() {
 fn a_hold_ends_when_the_held_issue_is_edited() {
     let (rig, runner, _) = held_by(UNTIL_7);
 
-    rig.forge.set_ready_body(9, "A new body.\n");
+    let edited = format!("{}\nA new line.\n", FakeForge::passing_body(9));
+    rig.forge.set_ready_body(9, &edited);
     // The board reads again once its look is due.
     rig.clock.advance(61);
     step(&runner).unwrap();
