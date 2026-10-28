@@ -373,39 +373,34 @@ pub(super) fn sandbox_limits(host: &dyn Host) -> Option<Line> {
     })
 }
 
-/// The login a project's `claude` calls run with, for a repo the App covers (`covered`)
-/// on a machine with a keychain, where the calls cannot reach the one `claude` keeps there
+/// The login a project's `claude` calls run with
 ///
-/// The runner reads the token from its sheep's `env`, whose secret-backed names are
-/// `env`, and doctor from this shell's. A plain value there could be empty, which
-/// the runner refuses and shep's reply does not show, so it does not count.
-pub(super) fn login(
-    subject: String,
-    covered: bool,
-    env: &[String],
-    host: &dyn Host,
-) -> Option<Line> {
-    if !covered || !host.has_keychain() {
-        return None;
-    }
+/// Each call keeps its own config folder, which holds no login, so the calls log in
+/// with the token alone. The runner reads it from its sheep's `env`, whose
+/// secret-backed names are `env`, and doctor from this shell's. A plain value there
+/// could be empty, which the runner refuses and shep's reply does not show, so it
+/// does not count.
+pub(super) fn login(subject: String, env: &[String], host: &dyn Host) -> Line {
     let runner = env.iter().any(|name| name == LOGIN_VAR);
-    Some(match (runner, host.login_token()) {
+    match (runner, host.login_token()) {
         (true, _) => Line::ok(
             subject,
-            "claude logs in with CLAUDE_CODE_OAUTH_TOKEN from the runner's `env`, as the \
-             keychain is blocked in its calls",
+            "claude logs in with CLAUDE_CODE_OAUTH_TOKEN from the runner's `env`, as each call \
+             keeps a config folder of its own",
         ),
         (false, true) => Line::ok(
             subject,
-            "claude logs in with CLAUDE_CODE_OAUTH_TOKEN, as the keychain is blocked in its calls",
+            "claude logs in with CLAUDE_CODE_OAUTH_TOKEN, as each call keeps a config folder \
+             of its own",
         ),
         (false, false) => Line::missing(
             subject,
-            "the keychain is blocked in this project's calls and CLAUDE_CODE_OAUTH_TOKEN is set \
-             in neither the runner's `env` nor this shell, so claude has no login there",
+            "CLAUDE_CODE_OAUTH_TOKEN is set in neither the runner's `env` nor this shell, so \
+             claude has no login: each call keeps a config folder of its own, where the \
+             keychain's is not",
             LOGIN_FIX,
         ),
-    })
+    }
 }
 
 /// The shepherd, on the pinned shep line

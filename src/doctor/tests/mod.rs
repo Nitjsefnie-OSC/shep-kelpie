@@ -23,7 +23,7 @@ const SECRET: &str = "https://ntfy.example.invalid/kelpie-s3cr3t-topic";
 const WEBHOOK: &str =
     "[webhook]\nkind = \"ntfy\"\nurl = \"https://ntfy.example.invalid/kelpie-s3cr3t-topic\"\n";
 
-// A machine with no keychain and no gaps, unless it is given them
+// A machine with a login token, no keychain and no gaps, unless it is given them
 #[derive(Debug, Default)]
 struct FakeHost {
     gaps: Vec<&'static str>,
@@ -136,7 +136,10 @@ impl Scene {
             codex_meter: FakeMeter::idle(),
             reviewer: FakeReviewer::default(),
             alerts: FakeAlerts::on(clock.clone()),
-            host: FakeHost::default(),
+            host: FakeHost {
+                token: true,
+                ..FakeHost::default()
+            },
             clock,
             shepherd,
         };
@@ -284,6 +287,7 @@ async fn a_machine_with_everything_in_place_passes_and_changes_nothing() {
             "golbat: workers",
             "golbat: reads",
             "golbat: maintainer",
+            "golbat: claude login",
             "golbat: reviewers",
             "golbat: rulings",
             "koji: checkout",
@@ -297,6 +301,7 @@ async fn a_machine_with_everything_in_place_passes_and_changes_nothing() {
             "koji: workers",
             "koji: reads",
             "koji: maintainer",
+            "koji: claude login",
             "koji: reviewers",
             "koji: rulings",
         ]
