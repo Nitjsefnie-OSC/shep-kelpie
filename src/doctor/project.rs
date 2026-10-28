@@ -184,12 +184,9 @@ pub(super) fn checks(
             &settings,
             probes.forge,
         ));
-        lines.extend(super::machine::login(
-            at("claude login"),
-            covered,
-            env,
-            probes.host,
-        ));
+    }
+    if spends_on(&settings, (&book, &gateways), here, Harness::ClaudeCode) {
+        lines.push(super::machine::login(at("claude login"), env, probes.host));
     }
     lines.push(reviewers(
         at("reviewers"),

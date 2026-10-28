@@ -852,6 +852,20 @@ mod tests {
     }
 
     #[test]
+    fn removing_a_work_item_keeps_its_claude_config_folder() {
+        let dir = tempfile::tempdir().unwrap();
+        let build = dir.path().join("build/7");
+        std::fs::create_dir_all(&build).unwrap();
+        let transcript = dir.path().join("claude/7/worker/projects/x/s.jsonl");
+        std::fs::create_dir_all(transcript.parent().unwrap()).unwrap();
+        std::fs::write(&transcript, "{}\n").unwrap();
+
+        remove_build(dir.path(), &build).unwrap();
+        assert!(!build.exists());
+        assert!(transcript.is_file());
+    }
+
+    #[test]
     fn a_build_folder_already_gone_is_removed() {
         let dir = tempfile::tempdir().unwrap();
         remove_build(dir.path(), &dir.path().join("build")).unwrap();
