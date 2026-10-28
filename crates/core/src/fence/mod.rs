@@ -16,6 +16,7 @@ use std::path::{Component, Path, PathBuf};
 
 use crate::worktree::{self, Remote, WorktreeError, git};
 
+mod commit;
 mod nested;
 
 /// The files in a worktree that one harness loads and may run code from, and
@@ -242,15 +243,14 @@ pub fn differ(
 ) -> Result<Vec<String>, WorktreeError> {
     let disk = on_disk(worktree)?;
     let hashes = hashed(repo, &disk)?;
-    let main = format!("origin/{base}");
-    let head = worktree::head(repo, worktree)?;
-    let cut_at = git(repo, ["merge-base", &head, &main])?;
+    let (head, main) = commit::head_and_main(repo, worktree, base)?;
+    let cut_at = commit::cut_at(repo, &head, &main)?;
     let mut first = None;
     for commit in [Some(main.as_str()), Some(cut_at.as_str()), accepted]
         .into_iter()
         .flatten()
     {
-        let trusted = in_commit(repo, commit)?;
+        let trusted = commit::files_in(repo, commit)?;
         let differing = compare(repo, &disk, &hashes, &trusted)?;
         if differing.is_empty() {
             return Ok(differing);
@@ -273,8 +273,8 @@ pub fn matches_main(repo: &Path, worktree: &Path, base: &str) -> bool {
     let Ok(hashes) = hashed(repo, &disk) else {
         return false;
     };
-    let main = format!("origin/{base}");
-    in_commit(repo, &main)
+    commit::main_of(repo, base)
+        .and_then(|main| commit::files_in(repo, &main))
         .and_then(|trusted| compare(repo, &disk, &hashes, &trusted))
         .is_ok_and(|differing| differing.is_empty())
 }
@@ -379,52 +379,6 @@ fn executable_bit(meta: &fs::Metadata) -> Option<bool> {
 #[cfg(windows)]
 fn executable_bit(_: &fs::Metadata) -> Option<bool> {
     None
-}
-
-// Each fenced file in `commit`, by path with its root folder named as
-// `on_disk` names it, with its mode and blob. Git matches a pathspec by exact
-// case, so the root is listed and matched here. Two spellings of one path
-// never match anything.
-fn in_commit(
-    repo: &Path,
-    commit: &str,
-) -> Result<BTreeMap<String, (String, String)>, WorktreeError> {
-    let entries = |listing: String| -> Vec<(String, String, String)> {
-        listing
-            .split('\0')
-            .filter_map(|line| {
-                let (meta, path) = line.split_once('\t')?;
-                let mut meta = meta.split(' ');
-                let (mode, _, blob) = (meta.next()?, meta.next()?, meta.next()?);
-                Some((path.to_owned(), mode.to_owned(), blob.to_owned()))
-            })
-            .collect()
-    };
-    let mut found = BTreeMap::new();
-    for (root, ..) in entries(git(repo, ["ls-tree", "-z", commit])?) {
-        let Some(name) = root_names().find(|name| folds_to(OsStr::new(&root), name)) else {
-            continue;
-        };
-        let args = [
-            "--literal-pathspecs",
-            "ls-tree",
-            "-r",
-            "-z",
-            commit,
-            "--",
-            &root,
-        ];
-        for (path, mode, blob) in entries(git(repo, args)?) {
-            let key = format!("{name}{}", &path[root.len()..]);
-            let entry = (mode, blob);
-            let conflict = || ("conflict".to_owned(), String::new());
-            found
-                .entry(key)
-                .and_modify(|seen| *seen = conflict())
-                .or_insert(entry);
-        }
-    }
-    Ok(found)
 }
 
 fn compare(
@@ -902,6 +856,35 @@ mod tests {
         let bare = w.root.join("bare");
         fs::create_dir(&bare).unwrap();
         assert!(!matches_main(&w.repo(), &bare, "main"));
+    }
+
+    #[test]
+    fn a_second_pass_over_the_same_commits_asks_git_for_no_tree_or_ancestor() {
+        let w = World::new();
+        let asked = || commit::ASKED.with(std::cell::Cell::get);
+        w.write(SETTINGS, "{\"other\":true}\n");
+        let first = w.differ(None);
+        let after_first = asked();
+        assert!(after_first > 0, "the first pass reads the commits");
+
+        assert_eq!(w.differ(None), first);
+        assert!(matches_main(&w.repo(), &w.wt(), "main") == first.is_empty());
+
+        assert_eq!(asked(), after_first);
+    }
+
+    #[test]
+    fn a_moved_origin_main_is_read_again() {
+        let w = World::new();
+        w.write(SETTINGS, "{\"moved\":true}\n");
+        assert_eq!(w.differ(None), [SETTINGS]);
+        assert!(!matches_main(&w.repo(), &w.wt(), "main"));
+
+        w.commit(&w.repo(), SETTINGS, "{\"moved\":true}\n");
+        git(&w.repo(), &["push", "--quiet", "origin", "main"]);
+
+        assert_eq!(w.differ(None), Vec::<String>::new());
+        assert!(matches_main(&w.repo(), &w.wt(), "main"));
     }
 
     #[test]

@@ -5,6 +5,7 @@ use std::io::{self, Read};
 use std::path::Path;
 use std::process::Stdio;
 
+use super::git::commits;
 use crate::worktree::in_repo;
 
 /// The most of one diff kept, in bytes: about 16k tokens, so one huge
@@ -43,11 +44,12 @@ pub(in crate::runner) fn merged(
 ) -> Result<Vec<u8>, String> {
     let main = format!("refs/remotes/origin/{base}");
     let head = format!("refs/heads/{branch}");
-    let resolve = |rev: &str| {
-        let found = git_line(repo, &["rev-parse", "--verify", "--quiet", rev]);
-        found.ok_or_else(|| format!("{rev} is not in the checkout"))
+    let tips = commits(repo, [&main, &head]);
+    let tip = |name: &String| match tips.get(name) {
+        Some(id) => Ok(id.clone()),
+        None => Err(format!("{name} is not in the checkout")),
     };
-    let (main, head) = (resolve(&main)?, resolve(&head)?);
+    let (main, head) = (tip(&main)?, tip(&head)?);
     let in_main = ["merge-base", "--is-ancestor", &head, &main];
     if !git_succeeds(repo, &in_main) {
         return read(repo, &main, &head, None, worktree);
@@ -247,6 +249,29 @@ mod tests {
         for other in ["a.txt", "c.txt", "d.txt"] {
             assert!(!diff.contains(other), "{other} is in:\n{diff}");
         }
+    }
+
+    #[test]
+    fn a_missing_ref_is_named_in_the_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path();
+        git(repo, &["init", "--quiet", "--initial-branch=main"]);
+        write_in(repo, "a.txt", "base\n");
+        git(repo, &["add", "."]);
+        git(repo, &["commit", "--quiet", "-m", "base"]);
+        let work = Path::new("/work/7");
+
+        let neither = merged(repo, "feature", work, "main").unwrap_err();
+        assert_eq!(neither, "refs/remotes/origin/main is not in the checkout");
+
+        git(repo, &["update-ref", "refs/remotes/origin/main", "main"]);
+        let no_branch = merged(repo, "feature", work, "main").unwrap_err();
+        assert_eq!(no_branch, "refs/heads/feature is not in the checkout");
+
+        git(repo, &["update-ref", "-d", "refs/remotes/origin/main"]);
+        git(repo, &["branch", "feature"]);
+        let no_main = merged(repo, "feature", work, "main").unwrap_err();
+        assert_eq!(no_main, "refs/remotes/origin/main is not in the checkout");
     }
 
     #[test]
