@@ -108,13 +108,14 @@ impl Job {
 }
 
 /// The two logins whose pull requests are not contributions
+#[derive(Clone)]
 pub(super) struct Logins {
     maintainer: String,
     viewer: String,
 }
 
 impl Logins {
-    fn own(&self, author: &str) -> bool {
+    pub(super) fn own(&self, author: &str) -> bool {
         author.eq_ignore_ascii_case(&self.maintainer) || author.eq_ignore_ascii_case(&self.viewer)
     }
 }
