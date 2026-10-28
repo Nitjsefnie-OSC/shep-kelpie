@@ -41,8 +41,8 @@ struct Poll<'a> {
     busy: bool,
     // The labels made on the repo this poll
     made: BTreeSet<&'static str>,
-    // The maintainer's login, if it can be read
-    maintainer: Option<String>,
+    // The maintainer's login, once read, if it could be
+    maintainer: Option<Option<String>>,
     // The open pull requests the poll read
     pulls: Option<&'a Result<Vec<OpenPull>, ForgeError>>,
 }
@@ -78,7 +78,7 @@ impl Runner {
             writes: CHECK_WRITES,
             busy: false,
             made: BTreeSet::new(),
-            maintainer: self.maintainer().ok(),
+            maintainer: None,
             pulls,
         };
         for issue in open.iter().filter(|i| !i.author_is_bot) {
@@ -210,10 +210,10 @@ impl Runner {
         if decided || self.has_work_item(number) {
             return true;
         }
-        let Some(maintainer) = poll.maintainer.as_deref() else {
+        let Some(maintainer) = self.poll_maintainer(poll) else {
             return false;
         };
-        let wanted: &[(&str, bool)] = match issue.author.eq_ignore_ascii_case(maintainer) {
+        let wanted: &[(&str, bool)] = match issue.author.eq_ignore_ascii_case(&maintainer) {
             true => match poll.pulls {
                 Some(Ok(pulls)) if pulls.iter().any(|p| p.closes.contains(&number)) => {
                     return false;
@@ -274,10 +274,10 @@ impl Runner {
         poll: &mut Poll,
     ) -> bool {
         let number = issue.number;
-        let Some(maintainer) = poll.maintainer.as_deref() else {
+        let Some(maintainer) = self.poll_maintainer(poll) else {
             return false;
         };
-        if !issue.author.eq_ignore_ascii_case(maintainer) {
+        if !issue.author.eq_ignore_ascii_case(&maintainer) {
             return true;
         }
         let marker = check_marker(key);
@@ -317,6 +317,14 @@ impl Runner {
                 self.check_tell_failed(number, &why, forge_is_busy(&e), poll)
             }
         }
+    }
+
+    // The maintainer's login, read at most once a poll
+    fn poll_maintainer(&self, poll: &mut Poll) -> Option<String> {
+        let read = poll
+            .maintainer
+            .get_or_insert_with(|| self.maintainer().ok());
+        read.clone()
     }
 
     // Whether a comment on `issue` ends in `marker`
