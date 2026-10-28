@@ -1,9 +1,10 @@
 use super::super::PARKED_READ;
 use super::super::tests::{SENT_BACK, alert_texts, asked, asked_with_a_pull_request, reply};
+use crate::ports::Checks;
 use crate::runner::report::StepReport;
 use crate::runner::step;
+use crate::test::Rig;
 use crate::test::ticket;
-use crate::test::{Rig, Scripted};
 use serde_json::json;
 
 // Whether `report` ends issue 7's work item with no change, its issue still open
@@ -101,18 +102,41 @@ fn a_pull_request_from_a_fork_covers_the_issue_whoever_opened_it() {
 }
 
 #[test]
-fn a_turn_that_pushed_its_own_pull_request_is_not_ended_by_a_contributors() {
-    let rig = Rig::new("koji");
-    let runner = rig.open().unwrap();
-    rig.ask(&runner, "add", Some("7"));
-    rig.forge.open_pull_request(71, "kelpie/7", &[7]);
+fn a_merge_ruling_asks_which_pull_request_goes_ahead_when_a_contributors_closes_the_issue() {
+    let (rig, runner, _) = Rig::with_pull_request("koji");
     contributor_closes_7(&rig);
-    rig.claude.script([Scripted::Push("work.txt", "work\n")]);
+    rig.forge
+        .set_checks(&rig.forge.head_of("kelpie/7").unwrap(), Checks::Passed);
 
-    step(&runner).unwrap();
+    let Some(StepReport::Ruling { id, question, .. }) = rig.verdict(&runner) else {
+        panic!("the maintainer was not asked");
+    };
 
-    let status = rig.ask(&runner, "status", None);
-    assert_eq!(status["work_item"]["pull_request"], 71);
+    assert_eq!(id, ticket(71));
+    assert!(
+        question.contains("Pull request #80 also closes this issue"),
+        "{question}"
+    );
+    assert_eq!(
+        rig.ask(&runner, "status", None)["work_item"]["pull_request"],
+        71
+    );
+    assert!(rig.github.comments().is_empty());
+}
+
+#[test]
+fn a_merge_ruling_is_raised_under_auto_when_a_contributors_pull_request_closes_the_issue() {
+    let (rig, runner, _) = Rig::with_pull_request_set("koji", Rig::merge_auto);
+    contributor_closes_7(&rig);
+    rig.forge
+        .set_checks(&rig.forge.head_of("kelpie/7").unwrap(), Checks::Passed);
+
+    let report = rig.verdict(&runner);
+
+    assert!(
+        matches!(report, Some(StepReport::Ruling { .. })),
+        "{report:?}"
+    );
 }
 
 #[test]
@@ -134,6 +158,17 @@ fn a_parked_item_with_its_own_pull_request_is_left_to_its_ruling() {
 fn a_parked_item_stays_for_a_pull_request_by_kelpies_own_account() {
     let (rig, runner) = asked("koji");
     rig.forge.open_pull_request(80, "kelpie/7-again", &[7]);
+    rig.clock.advance(PARKED_READ);
+
+    assert_eq!(step(&runner).unwrap(), None);
+
+    assert_eq!(rig.ask(&runner, "status", None)["rulings"][0]["id"], "7");
+}
+
+#[test]
+fn a_pull_request_on_the_items_own_branch_covers_nothing() {
+    let (rig, runner) = asked("koji");
+    rig.forge.open_pull_request(80, "kelpie/7", &[7]);
     rig.clock.advance(PARKED_READ);
 
     assert_eq!(step(&runner).unwrap(), None);

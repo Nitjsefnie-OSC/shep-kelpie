@@ -148,7 +148,7 @@ impl Reads {
             if item.number.is_some() {
                 continue;
             }
-            if let Some(number) = covering(open, item.ticket, &item.branch, own) {
+            if let Some(number) = covering(open, item.ticket, &item.branch, own).next() {
                 *seen = Seen::Covered(number);
             }
         }

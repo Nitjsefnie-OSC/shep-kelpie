@@ -115,6 +115,12 @@ pub(super) struct Logins {
 }
 
 impl Logins {
+    /// Whether `author` is the account kelpie acts as, whose pull request on another branch is
+    /// the work item's own
+    pub(super) fn acting(&self, author: &str) -> bool {
+        author.eq_ignore_ascii_case(&self.viewer)
+    }
+
     pub(super) fn own(&self, author: &str) -> bool {
         author.eq_ignore_ascii_case(&self.maintainer) || author.eq_ignore_ascii_case(&self.viewer)
     }
