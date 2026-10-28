@@ -76,10 +76,14 @@ impl GitJob {
             bodies,
             patches,
         } = self;
-        let main = Git::main(&repo, &base);
-        let heads: Vec<(TicketId, String)> = branches
-            .iter()
-            .filter_map(|(ticket, branch)| Some((*ticket, Git::head(&repo, branch)?)))
+        let main_ref = format!("refs/remotes/origin/{base}");
+        let head_refs: Vec<String> = (branches.iter())
+            .map(|(_, branch)| format!("refs/heads/{branch}"))
+            .collect();
+        let tips = commits(&repo, [&main_ref].into_iter().chain(&head_refs));
+        let main = tips.get(&main_ref).cloned();
+        let heads: Vec<(TicketId, String)> = (branches.iter().zip(&head_refs))
+            .filter_map(|((ticket, _), head_ref)| Some((*ticket, tips.get(head_ref)?.clone())))
             .collect();
         let mut files = BTreeMap::new();
         if let Some(main) = &main {
@@ -161,12 +165,6 @@ impl Git {
     fn main(repo: &Path, base: &str) -> Option<String> {
         let tracking = format!("refs/remotes/origin/{base}");
         read(repo, &["rev-parse", "--verify", "--quiet", &tracking]).map(trimmed)
-    }
-
-    /// The commit local `branch` is at, which the worker's worktree has out
-    fn head(repo: &Path, branch: &str) -> Option<String> {
-        let full = format!("refs/heads/{branch}");
-        read(repo, &["rev-parse", "--verify", "--quiet", &full]).map(trimmed)
     }
 
     /// Every file on `main`
@@ -257,6 +255,22 @@ impl Git {
         self.patches.insert(key, diff.clone());
         Ok(diff)
     }
+}
+
+/// The commit each of `refs` that exists is at, by ref, from one git call
+///
+/// `rev-parse --verify` takes a single revision, so `for-each-ref` lists them.
+pub(super) fn commits<'a>(
+    repo: &Path,
+    refs: impl IntoIterator<Item = &'a String>,
+) -> BTreeMap<String, String> {
+    let mut args = vec!["for-each-ref", "--format=%(objectname) %(refname)"];
+    args.extend(refs.into_iter().map(String::as_str));
+    let listing = read(repo, &args).unwrap_or_default();
+    (listing.lines())
+        .filter_map(|line| line.split_once(' '))
+        .map(|(id, name)| (name.to_owned(), id.to_owned()))
+        .collect()
 }
 
 /// Every file on `origin/<base>` as last fetched, none where git cannot say
