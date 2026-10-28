@@ -1,5 +1,5 @@
 //! Claude Code's transcript: one JSON line per message block, in
-//! `~/.claude/projects/<folder>/<session>.jsonl`
+//! `projects/<folder>/<session>.jsonl` in the call's config folder
 
 use jiff::Timestamp;
 use serde_json::Value;

@@ -12,9 +12,8 @@ use crate::transcripts;
 impl Runner {
     /// The steps of what happened in the middle of a pass since the last call,
     /// oldest first: the `session-started` of each call started, a
-    /// `pull-request-not-opened` of a turn's end, a `resume-lost` of a turn
-    /// whose session its harness could not find, and the `pick-dropped` of a
-    /// project manager's pick that dispatch could not take
+    /// `pull-request-not-opened` of a turn's end, a `resume-lost` of a session
+    /// not found, and the `pick-dropped` of a pick that dispatch could not take
     ///
     /// They are not a pass's result, since a call starts in the middle of one,
     /// so the runner logs them as they come.
