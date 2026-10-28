@@ -166,9 +166,8 @@ impl Cli for Claude {
         if new.join(&file).exists() || !old.join(&file).is_file() {
             return Ok(());
         }
-        let copied = std::fs::create_dir_all(&new).and_then(|()| {
-            std::fs::copy(old.join(&file), new.join(&file)).map(drop)
-        });
+        let copied = std::fs::create_dir_all(&new)
+            .and_then(|()| std::fs::copy(old.join(&file), new.join(&file)).map(drop));
         copied.map_err(|e| {
             AgentError::Setup(format!(
                 "cannot copy {} to {}: {}",
@@ -201,7 +200,10 @@ impl Cli for Claude {
     }
 
     fn folders(&self, call: &AgentCall) -> Result<Vec<std::path::PathBuf>, AgentError> {
-        Ok(vec![sandbox::transcripts(&sandbox::config_folder(call), &call.cwd)?])
+        Ok(vec![sandbox::transcripts(
+            &sandbox::config_folder(call),
+            &call.cwd,
+        )?])
     }
 
     fn command(

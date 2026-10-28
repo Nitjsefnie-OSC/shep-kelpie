@@ -504,9 +504,7 @@ fn a_call_s_lamb_carries_its_issue_and_role() {
     let base = Base::labelling(Arc::clone(&lambs) as Arc<dyn LambLabels>)
         .sandboxed(Arc::new(OpenSandbox::default()), dir.path().join("home"));
     let token = LoginToken::new("sk-ant-oat01-for-the-test".to_owned());
-    let cli = ClaudeCli::on(&base)
-        .with_program(claude)
-        .with_login(token);
+    let cli = ClaudeCli::on(&base).with_program(claude).with_login(token);
     for role in [Role::Worker, Role::Reviewer] {
         let mut call = call(role, fresh());
         call.cwd = dir.path().to_owned();
@@ -555,8 +553,14 @@ fn a_call_keeps_its_config_folder_under_the_projects_kelpie_home() {
     std::fs::create_dir_all(project.join("worktrees/6")).unwrap();
     let cli = logged_in(dir.path().join("home"));
     let calls = [
-        (in_project(&project, Role::Worker, Tools::Work, 6), "claude/6/worker"),
-        (in_project(&project, Role::Reviewer, Tools::Review, 6), "claude/6/reviewer"),
+        (
+            in_project(&project, Role::Worker, Tools::Work, 6),
+            "claude/6/worker",
+        ),
+        (
+            in_project(&project, Role::Reviewer, Tools::Review, 6),
+            "claude/6/reviewer",
+        ),
         (in_project(&project, Role::Pm, Tools::Pm, 0), "claude/pm"),
         (in_project(&project, Role::Pm, Tools::Retro, 0), "claude/pm"),
     ];
@@ -564,10 +568,18 @@ fn a_call_keeps_its_config_folder_under_the_projects_kelpie_home() {
         let folder = project.join(folder);
         for run in [ClaudeCli::sandboxed_command, ClaudeCli::terminal_command] {
             let command = run(&cli, &call).unwrap();
-            assert_eq!(config_dir(&command), Some(folder.clone()), "{:?}", call.role);
+            assert_eq!(
+                config_dir(&command),
+                Some(folder.clone()),
+                "{:?}",
+                call.role
+            );
         }
         let transcript = cli.transcript(&call).unwrap();
-        assert!(transcript.folder.starts_with(folder.join("projects")), "{transcript:?}");
+        assert!(
+            transcript.folder.starts_with(folder.join("projects")),
+            "{transcript:?}"
+        );
     }
 }
 
@@ -592,9 +604,18 @@ fn a_session_from_before_the_move_resumes_from_its_copied_transcript() {
     cli.prepare(&call).unwrap();
     cli.foreground(&call).unwrap();
 
-    assert_eq!(std::fs::read_to_string(moved.join(&file)).unwrap(), "{\"before\":true}\n");
-    assert!(!moved.join("other.jsonl").exists(), "another session's file came too");
-    assert!(old.join(&file).exists(), "the old file is the maintainer's to keep");
+    assert_eq!(
+        std::fs::read_to_string(moved.join(&file)).unwrap(),
+        "{\"before\":true}\n"
+    );
+    assert!(
+        !moved.join("other.jsonl").exists(),
+        "another session's file came too"
+    );
+    assert!(
+        old.join(&file).exists(),
+        "the old file is the maintainer's to keep"
+    );
 
     // The session goes on in the new folder, and a later call leaves what it wrote.
     std::fs::write(moved.join(&file), "{\"before\":true}\n{\"after\":true}\n").unwrap();
@@ -608,5 +629,9 @@ fn a_session_from_before_the_move_resumes_from_its_copied_transcript() {
         ..call
     };
     cli.foreground(&fresh).unwrap();
-    assert!(!moved.join(format!("{}.jsonl", fresh.session.id().0)).exists());
+    assert!(
+        !moved
+            .join(format!("{}.jsonl", fresh.session.id().0))
+            .exists()
+    );
 }

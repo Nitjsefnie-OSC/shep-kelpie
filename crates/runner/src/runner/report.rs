@@ -734,6 +734,19 @@ pub enum StepReport {
         #[serde(skip_serializing_if = "Option::is_none")]
         transcript: Option<Transcript>,
     },
+    /// A worker's turn resumed a session its harness could not find, so the
+    /// turn starts over in a session of the same id
+    ResumeLost {
+        /// The work item's ticket
+        issue: TicketId,
+        /// The harness it runs on, as settings name it
+        harness: &'static str,
+        /// The session it tried to resume
+        session: SessionId,
+        /// Whether the session's transcript file was there, as kelpie looks
+        /// for it, when the harness said it was not
+        transcript: bool,
+    },
     /// A worker's session was compacted before its next turn, its context
     /// past the mark
     WorkerCompacted {

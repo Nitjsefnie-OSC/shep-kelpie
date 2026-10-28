@@ -150,3 +150,76 @@ fn an_answer_reaches_the_worker_across_a_restart_and_a_session_started_over() {
     assert!(again.prompt.starts_with(&asked.prompt), "{}", again.prompt);
     assert!(again.prompt.ends_with(answer), "{}", again.prompt);
 }
+
+// Lost resumes are counted from the log, not inferred from restarts.
+#[test]
+fn a_lost_resume_is_its_own_step() {
+    let (rig, runner) = with_issue_7("acme");
+    rig.claude.script([Scripted::Say(ASKS)]);
+    step(&runner).unwrap();
+    let asked = rig.claude.calls()[0].clone();
+    let id = asked.session.id().clone();
+    let resume_lost = |runner: &Mutex<Runner>| {
+        let mut runner = runner.lock().unwrap();
+        let steps = runner.take_started();
+        steps
+            .into_iter()
+            .filter(|step| matches!(step, StepReport::ResumeLost { .. }))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(resume_lost(&runner), [], "a first call loses nothing");
+
+    rig.ask(&runner, "rule", Some("7 answer use --dry-run"));
+    rig.claude.script([
+        Scripted::Fail(AgentError::NoSession(
+            crate::settings::Harness::ClaudeCode,
+            id.clone(),
+        )),
+        Scripted::Reply(usage(1), Cost(1)),
+    ]);
+    step(&runner).unwrap();
+
+    let lost = resume_lost(&runner);
+    assert_eq!(
+        lost,
+        [StepReport::ResumeLost {
+            issue: ticket(7),
+            harness: "claude-code",
+            session: id.clone(),
+            transcript: false,
+        }]
+    );
+    let logged = serde_json::to_value(&lost[0]).unwrap();
+    assert_eq!(logged["step"], "resume-lost");
+    assert_eq!(logged["transcript"], false);
+}
+
+#[test]
+fn a_lost_resume_says_when_its_transcript_was_there() {
+    let (rig, runner) = with_issue_7("acme");
+    rig.claude.script([Scripted::Say(ASKS)]);
+    step(&runner).unwrap();
+    let asked = rig.claude.calls()[0].clone();
+    let id = asked.session.id().clone();
+    let folder = asked.settings.with_extension("transcripts");
+    fs::create_dir_all(&folder).unwrap();
+    fs::write(folder.join(format!("{}.jsonl", id.0)), "{}\n").unwrap();
+    runner.lock().unwrap().take_started();
+
+    rig.ask(&runner, "rule", Some("7 answer use --dry-run"));
+    rig.claude.script([
+        Scripted::Fail(AgentError::NoSession(
+            crate::settings::Harness::ClaudeCode,
+            id,
+        )),
+        Scripted::Reply(usage(1), Cost(1)),
+    ]);
+    step(&runner).unwrap();
+
+    let steps = runner.lock().unwrap().take_started();
+    let lost = steps.iter().find_map(|step| match step {
+        StepReport::ResumeLost { transcript, .. } => Some(*transcript),
+        _ => None,
+    });
+    assert_eq!(lost, Some(true), "{steps:?}");
+}

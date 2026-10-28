@@ -402,8 +402,9 @@ mod tests {
     #[test]
     fn a_workers_scratch_folder_is_where_it_may_bind_sockets_and_a_reviewers_is_not() {
         let w = World::new();
-        let policy =
-            |call: &AgentCall| policy(call, &w.path("home"), &w.path("claude-program"), &[]).unwrap();
+        let policy = |call: &AgentCall| {
+            policy(call, &w.path("home"), &w.path("claude-program"), &[]).unwrap()
+        };
         assert_eq!(
             policy(&w.worker()).socket_folders,
             [w.path("worker/settings.tmp")]
@@ -481,10 +482,7 @@ mod tests {
         let policy = policy(&review, &w.path("home"), &w.path("claude-program"), &[]).unwrap();
         assert_eq!(
             policy.write,
-            [
-                config_folder(&review),
-                w.path("worker/review-settings.tmp"),
-            ]
+            [config_folder(&review), w.path("worker/review-settings.tmp"),]
         );
         assert_eq!(policy.hosts, [MODEL_HOST]);
         let mut denied: Vec<String> = CREDENTIALS.map(str::to_owned).into();
@@ -525,7 +523,8 @@ mod tests {
                 "{own} is denied: {deny}"
             );
         }
-        let without = super::policy(&review, &w.path("home"), &w.path("claude-program"), &[]).unwrap();
+        let without =
+            super::policy(&review, &w.path("home"), &w.path("claude-program"), &[]).unwrap();
         assert!(
             !without.read.contains(&w.path("wt")),
             "nothing to read around"
@@ -636,9 +635,8 @@ mod tests {
     fn a_call_with_no_login_token_refuses_with_the_fix_whatever_the_keychain() {
         let w = World::new();
         let token = LoginToken::new("sk-ant-oat01-for-the-test".to_owned());
-        let cli = |login: Option<LoginToken>| {
-            w.cli(Arc::new(OpenSandbox::default())).with_login(login)
-        };
+        let cli =
+            |login: Option<LoginToken>| w.cli(Arc::new(OpenSandbox::default())).with_login(login);
         let blocked = |mut call: AgentCall| {
             call.reach.block_keychain = true;
             call
