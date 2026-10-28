@@ -10,7 +10,7 @@ use super::ask_tests::{
 };
 use super::marker::MARKER;
 use super::pick_tests::{MAINTAINER, issue, list};
-use super::research_tests::{calls, moves, nothing, reply, restart};
+use super::research_tests::{calls, moves, nothing, reply, restart, under};
 use crate::ports::{OpenIssue, Role};
 use crate::runner::{Pass, Runner, advance, step};
 use crate::test::{CALL_PATIENCE, Hold, Rig, Scripted};
@@ -194,6 +194,7 @@ fn an_edited_body_is_triaged_again_and_a_sure_maintainer_issue_becomes_ready_for
             "comment",
             "label bug",
             "label P2",
+            "label kind:fix",
             "label ready-for-agent",
         ]
     );
@@ -304,14 +305,17 @@ fn kelpies_own_body_edit_does_not_start_a_triage() {
         .script_for(Role::Representative, [Scripted::Say(A_WORDS)]);
     rig.next_look();
     assert_eq!(step(&runner).unwrap(), None);
-    let written = "It crashes when I run it.\n\n## Settled\n\n- Linux, on start.";
-    assert_eq!(rig.github.issue_edits(), [(30, written.to_owned())]);
+    let written = under(
+        "It crashes when I run it.",
+        "## Settled\n\n- Linux, on start.",
+    );
+    assert_eq!(rig.github.issue_edits(), [(30, written.clone())]);
 
     // The forge now holds what kelpie wrote. Triaged again by hand, its author
     // is asked a new question: the pass reads the round it ran and does not ask
     // again what the author settled. The body kelpie last saw is what the wait
     // is measured against: kelpie's own write is not the author's edit.
-    list(&rig, rewritten(&rig, "newcomer", written));
+    list(&rig, rewritten(&rig, "newcomer", &written));
     rig.claude.script_for(
         Role::Triager,
         [reply(json!({
@@ -401,6 +405,7 @@ fn a_body_rewritten_by_the_deadline_is_read_and_not_ended_as_silence() {
         2,
         "the rewritten body is triaged"
     );
+    // The rewrite still fails the issue check, which the last comment says.
     assert_eq!(
         moves(&rig),
         [
@@ -409,6 +414,7 @@ fn a_body_rewritten_by_the_deadline_is_read_and_not_ended_as_silence() {
             "label bug",
             "label P2",
             "label needs-triage",
+            "comment",
         ]
     );
     assert_eq!(record(&rig, &runner)["step"], "done");
@@ -602,8 +608,8 @@ fn a_body_rewritten_again_under_the_local_read_call_is_not_answered_by_it() {
     );
     assert_eq!(
         rig.github.issue_edits(),
-        [],
-        "no body written from the older read"
+        [(30, under(&twice, "## Settled\n\n- Linux, on start."))],
+        "only the newer read's body is written, under the author's text"
     );
     assert_eq!(
         moves(&rig),

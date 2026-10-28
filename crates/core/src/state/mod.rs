@@ -7,6 +7,7 @@
 //! a runner killed mid-write leaves the previous state whole.
 
 mod bumps;
+mod checks;
 mod contributions;
 mod events;
 mod lease;
@@ -19,6 +20,7 @@ mod ruling;
 mod triage;
 
 pub use bumps::{Bump, E2eResult, E2eState, Red, RedStep};
+pub use checks::{CheckTriage, IssueCheck};
 pub use contributions::{
     Adopting, Asked, BotTurn, Ci, CiState, Contribution, Deciding, Held, How, KEPT, Pass, Released,
     Ruled, Said, Security, SecurityVerdict, Spent, Verdict, Walking,
@@ -53,7 +55,7 @@ use crate::work_item::{Attached, Known, Phase, Priced, Review, Seconds, Tally, T
 pub const STATE_FILE: &str = "state.json";
 
 /// The state file's format version, bumped when the file gains a field or value an older kelpie refuses
-pub const VERSION: u32 = 88;
+pub const VERSION: u32 = 89;
 
 /// The format before a project could have more than one work item open,
 /// which this kelpie still reads
@@ -163,6 +165,11 @@ pub struct ProjectState {
     /// Left out while unset.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub triage: Option<TriageState>,
+    /// What the issue check last said of each open GitHub issue, by number
+    ///
+    /// Left out while empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub checks: Vec<IssueCheck>,
     /// Leases this project holds
     pub leases: Vec<LeaseHeld>,
     /// What the Claude account's week had spent when today began, once
@@ -277,6 +284,7 @@ impl ProjectState {
             spent: Vec::new(),
             bumps: Vec::new(),
             triage: None,
+            checks: Vec::new(),
             leases: Vec::new(),
             pacing: None,
             codex_pacing: None,

@@ -238,19 +238,17 @@ fn a_failing_gate_is_retried_on_a_growing_wait_that_a_success_ends() {
         |report| matches!(report, Some(StepReport::GateFailed { issue, .. }) if issue == ticket(7));
     assert!(failed(step(&runner).unwrap()));
 
+    // The issue check lists the open issues on the board's poll, whatever the gate does.
+    let gate_asks = || rig.forge.asked() - rig.forge.issue_listings();
     for wait in [15, 30, 60] {
-        let asked = rig.forge.asked();
+        let asked = gate_asks();
         assert_eq!(step(&runner).unwrap(), None);
         rig.clock.advance(wait - 1);
         assert_eq!(step(&runner).unwrap(), None);
-        assert_eq!(
-            rig.forge.asked(),
-            asked,
-            "the forge was asked inside a wait"
-        );
+        assert_eq!(gate_asks(), asked, "the forge was asked inside a wait");
         rig.clock.advance(1);
         assert!(failed(step(&runner).unwrap()), "no retry after {wait}s");
-        assert!(rig.forge.asked() > asked);
+        assert!(gate_asks() > asked);
     }
 
     rig.forge.set_down(false);
@@ -336,13 +334,17 @@ fn a_runner_s_forge_calls_land_in_kelpie_s_forge_ledger_under_its_project() {
 
     let lines = forge_ledger::read(&rig.paths().kelpie_home.join(forge_ledger::FILE)).unwrap();
     assert!(lines.iter().all(|line| line.project == "acme"), "{lines:?}");
-    let board = |ended| {
-        lines
-            .iter()
-            .filter(move |l| l.kind == Kind::ReadyIssues && l.ended == ended)
-    };
-    assert!(board(Ended::Ok).count() >= 1, "{lines:?}");
-    assert_eq!(board(Ended::UsedUp).count(), 1, "{lines:?}");
+    let board = (lines.iter()).filter(|l| l.kind == Kind::ReadyIssues && l.ended == Ended::Ok);
+    assert!(board.count() >= 1, "{lines:?}");
+    // The first call the used-up limit refuses is marked, and the rest are held.
+    let used_up: Vec<_> = (lines.iter())
+        .filter(|l| l.ended == Ended::UsedUp)
+        .collect();
+    assert_eq!(used_up.len(), 1, "{lines:?}");
+    assert!(
+        (lines.iter()).any(|l| l.kind == Kind::ReadyIssues && l.ended == Ended::Held),
+        "{lines:?}"
+    );
 }
 
 #[test]

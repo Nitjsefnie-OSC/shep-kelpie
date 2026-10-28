@@ -365,3 +365,46 @@ fn each_failure_names_the_part_it_is_about() {
         assert!(failure.to_string().contains(part), "{failure}");
     }
 }
+
+#[test]
+fn the_key_changes_with_what_the_check_reads_and_nothing_else() {
+    let read = labels(&["kind:feat", "priority: P4"]);
+    let base = key("A thing is true", BODY, &read);
+    assert_eq!(
+        key(
+            "A thing is true",
+            BODY,
+            &labels(&["Priority: P4", "kind:feat"])
+        ),
+        base,
+        "label order and case are not an edit"
+    );
+    let unread = labels(&[
+        "kind:feat",
+        "priority: P4",
+        "needs-triage",
+        "in-progress",
+        "bug",
+    ]);
+    assert_eq!(key("A thing is true", BODY, &unread), base);
+    assert_ne!(key("A thing is false", BODY, &read), base);
+    assert_ne!(key("A thing is true", "Touches:", &read), base);
+    assert_ne!(
+        key(
+            "A thing is true",
+            BODY,
+            &labels(&["kind:feat", "priority: P2"])
+        ),
+        base
+    );
+    assert_ne!(
+        key("A thing is true", BODY, &labels(&["priority: P4"])),
+        base
+    );
+}
+
+#[test]
+fn fnv1a_is_the_published_function() {
+    assert_eq!(fnv1a(b""), 0xcbf2_9ce4_8422_2325);
+    assert_eq!(fnv1a(b"a"), 0xaf63_dc4c_8601_ec8c);
+}

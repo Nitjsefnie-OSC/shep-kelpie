@@ -117,6 +117,11 @@ pub(super) fn moves(rig: &Rig) -> Vec<String> {
 }
 
 // Steps until `done`, hearing each call's end as the loop would
+// `body` with `text` under it, as kelpie's one section of an issue's body
+pub(super) fn under(body: &str, text: &str) -> String {
+    format!("{body}\n\n<!-- kelpie:under -->\n{text}\n<!-- /kelpie:under -->")
+}
+
 pub(super) fn pump(runner: &Mutex<Runner>, mut done: impl FnMut() -> bool) {
     let by = Instant::now() + CALL_PATIENCE;
     while !done() {
@@ -280,7 +285,7 @@ fn filed_with(label: &str) -> (Rig, Mutex<Runner>) {
 }
 
 #[test]
-fn the_priority_the_pass_ranks_replaces_the_one_the_issue_was_filed_with() {
+fn the_priority_the_issue_was_filed_with_stands_over_the_one_the_pass_ranks() {
     for filed in ["priority: P2", "P2"] {
         let (rig, runner) = filed_with(filed);
         let found = json!({ "priority": "P1" });
@@ -288,16 +293,8 @@ fn the_priority_the_pass_ranks_replaces_the_one_the_issue_was_filed_with() {
 
         assert_eq!(step(&runner).unwrap(), None, "{filed}");
 
-        assert_eq!(
-            moves(&rig),
-            ["comment", "label priority: P1", "label needs-triage"],
-            "{filed}"
-        );
-        assert_eq!(
-            rig.github.label_takes(),
-            [(30, filed.to_owned())],
-            "{filed}"
-        );
+        assert_eq!(moves(&rig), ["comment", "label needs-triage"], "{filed}");
+        assert_eq!(rig.github.label_takes(), [], "{filed}");
     }
 }
 

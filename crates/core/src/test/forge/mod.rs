@@ -30,6 +30,8 @@ pub struct FakeForge {
     unread: Arc<Mutex<BTreeMap<u64, usize>>>,
     labels: Arc<Mutex<HashMap<u64, Vec<String>>>>,
     ready: Arc<Mutex<Vec<ReadyIssue>>>,
+    // The ready issues read with only the labels they carry, which need not pass the check
+    unchecked: Arc<Mutex<HashSet<u64>>>,
     blockers: Arc<Mutex<HashMap<u64, Vec<u64>>>>,
     closed: Arc<Mutex<HashSet<u64>>>,
     // Each parent's sub-issues, in the order they were linked
@@ -117,9 +119,10 @@ pub struct FakeForge {
     bot_reviewed: Arc<Mutex<Option<Timestamp>>>,
     bot_review_reads: Arc<AtomicUsize>,
     viewer_down: Arc<Mutex<Option<ForgeError>>>,
-    // Every call made, and the board's reads among them
+    // Every call made, and the board's reads and open-issue listings among them
     asked: Arc<AtomicUsize>,
     board_reads: Arc<AtomicUsize>,
+    issue_listings: Arc<AtomicUsize>,
     // The reads of pull requests: the listing, one's view, and one's review
     pull_request_reads: Arc<reads::PullRequestReads>,
     // The heads whose held CI runs kelpie approved
@@ -158,6 +161,7 @@ impl FakeForge {
             unread: Arc::default(),
             labels: Arc::default(),
             ready: Arc::default(),
+            unchecked: Arc::default(),
             blockers: Arc::default(),
             closed: Arc::default(),
             sub_issues: Arc::default(),
@@ -219,6 +223,7 @@ impl FakeForge {
             viewer_down: Arc::default(),
             asked: Arc::default(),
             board_reads: Arc::default(),
+            issue_listings: Arc::default(),
             pull_request_reads: Arc::default(),
             approvals: Arc::default(),
             down: Arc::default(),

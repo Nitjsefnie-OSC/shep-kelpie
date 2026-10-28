@@ -50,6 +50,11 @@ impl FakeForge {
         self.board_reads.load(Ordering::SeqCst)
     }
 
+    /// How many times the open issues were listed
+    pub fn issue_listings(&self) -> usize {
+        self.issue_listings.load(Ordering::SeqCst)
+    }
+
     /// Makes every call fail as gh does once the rate limit is used up,
     /// with `reset` as when it resets where the forge can say
     pub fn set_used_up(&self, reset: Option<Timestamp>) {

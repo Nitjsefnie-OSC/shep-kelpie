@@ -164,7 +164,7 @@ pub(super) fn rich(rig: &Rig) {
 pub(super) fn ready(rig: &Rig) {
     rig.forge.open_issue(32, "Blocker", "Body of #32.\n");
     for issue in [282, 284] {
-        rig.forge.list_ready(issue, false);
+        rig.forge.list_ready_unchecked(issue, false);
         rig.forge.block(issue, 32);
     }
 }

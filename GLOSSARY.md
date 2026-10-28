@@ -167,7 +167,8 @@ when it touches one harness's adapter, blockers when it names any, one
 priority label, and a kind: its `kind:<type>` label, else its title's
 conventional prefix, one of nine conventional types. It reads structure, not quality.
 `shep kelpie issue check <n>` runs it, and the issue skill holds the same
-format for the agent that writes an issue.
+format for the agent that writes an issue. The board runs it on every new or
+edited open issue, and the **triager** runs only on one that fails it.
 _Avoid_: lint, validation, triage
 
 **Reviewer**:
@@ -266,8 +267,8 @@ _Avoid_: triage bot, classifier (that word is the **spam check**'s model)
 
 **Triage**:
 Kelpie's handling of issues other people open, chosen by `triage.pick`. An
-issue is **untouched** until it carries one of kelpie's triage labels, and
-only one opened after `triage.since` is looked at.
+issue the **issue check** refused is **untouched** until it carries one of
+kelpie's triage labels, and only one opened after `triage.since` is looked at.
 _Avoid_: grooming, intake
 
 **Spam check**:

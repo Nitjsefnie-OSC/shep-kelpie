@@ -20,7 +20,7 @@ fn the_shipped_triager_is_an_expert_file_whose_role_is_triager() {
 }
 
 #[test]
-fn the_shipped_triager_names_the_issue_skills_sections() {
+fn the_shipped_triager_takes_its_body_format_from_the_issue_skill_alone() {
     let agents = Agents::embedded().bind("triager", OPUS_HIGH);
     let prompt = agents
         .get(&name("triager"))
@@ -29,10 +29,18 @@ fn the_shipped_triager_names_the_issue_skills_sections() {
         .as_deref()
         .unwrap();
 
-    for part in ["## What to build", "## Acceptance criteria", "Touches:"] {
-        assert!(prompt.contains(part), "{part}: {prompt}");
+    let skill = format!("`{}:issue`", crate::skills::issue::PLUGIN);
+    assert!(prompt.contains(&skill), "{skill}: {prompt}");
+    for part in ["## What to build", "## Acceptance criteria"] {
+        assert!(
+            !prompt.contains(part),
+            "the skill's, not the triager's: {part}"
+        );
     }
-    assert!(prompt.contains("named tests"), "{prompt}");
+    assert!(
+        prompt.contains("`Assumed: <the answer>. Say otherwise.`"),
+        "{prompt}"
+    );
 }
 
 #[test]

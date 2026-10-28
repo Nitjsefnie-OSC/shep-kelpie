@@ -118,6 +118,7 @@ impl Runner {
                 questions: None,
                 local: None,
                 spam: Some(probability),
+                begun: None,
             };
             for at in made {
                 record.add_call(at);

@@ -1,30 +1,31 @@
-//! The maintainer's own issue the pass is sure of becomes agent-ready
+//! The maintainer's own issue the pass rewrites, made agent-ready when the
+//! issue check passes it
 //!
-//! Only the maintainer makes an outside issue ready, so the ready path runs for
-//! an issue whose author is [`Runner::maintainer`], ignoring case. Sure means a
-//! type and a priority, no open question, and a `body` that names `Touches:`
-//! ([`crate::board::has_criteria`]). The comment says the issue is ready, the
-//! body goes over the issue's, then the labels, `ready-for-agent` last. The
-//! comment is worded first, so it promises nothing for a body the local guard
-//! would refuse or while a hand-put triage label stands
-//! ([`Runner::triage_labelled_by_hand`], [`Runner::triage_seen`]).
+//! The rewrite runs for an issue by [`Runner::maintainer`], ignoring case. The
+//! reply must have a `body` and no open question. Where the check passes the
+//! issue as left, the body goes over the issue's. Then the labels
+//! go on, `ready-for-agent` last. Otherwise the body goes under the issue's
+//! text, and the issue ends `needs-triage`. The comment is worded first. It
+//! promises nothing the local guard would refuse, or while a hand-put triage
+//! label stands.
 
 use super::super::Runner;
 use super::super::contributions::post::{forge_is_busy, refused_text};
 use super::TRIAGE_LABELS;
+use super::local::body_hash;
 use super::research::Found;
 use crate::board::has_criteria;
 use crate::board::{READY, TRIAGE};
 use crate::local_paths::{Leak, Surface};
 use crate::ports::{ForgeError, NewLabel};
-use crate::state::{StateError, TriageStep};
+use crate::state::{CheckTriage, StateError, TriageStep};
 
-/// Made on a repo that lacks it before the first issue kelpie is sure of is
-/// made ready
-const READY_LABEL: NewLabel<'static> = NewLabel {
+/// Made on a repo that lacks it before the first issue that passes the issue
+/// check is made ready
+pub(super) const READY_LABEL: NewLabel<'static> = NewLabel {
     name: READY,
     color: "0e8a16",
-    description: "Kelpie researched this issue and is sure of it; its board may take it",
+    description: "The issue passes kelpie's issue check; its board may take it",
 };
 
 // Whether `body` is an agent-ready issue body: it names `Touches:` and has
@@ -37,39 +38,37 @@ pub(super) fn is_issue_body(body: &str) -> bool {
             .any(|line| line.starts_with("Touches:"))
 }
 
-// Whether the pass is sure of everything: a type, a priority, no open
-// question, and an agent-ready body
-fn sure(found: &Found) -> bool {
-    found.kind.is_some()
-        && found.priority.is_some()
-        && found.open.is_empty()
-        && found.body.as_deref().is_some_and(is_issue_body)
-}
-
-/// The agent-ready body kelpie writes over `issue`'s, or why it will not
-/// write one
+/// The body kelpie writes over `issue`'s, or why it will not write one
 pub(in crate::runner) enum Ready {
-    /// The body to write over the issue's
+    /// The body to write over the issue's, which the check passes
     Body(String),
-    /// Not this issue: an outside author, a reply that is not sure of
-    /// everything, or no maintainer to ask for
+    /// The body to write under the issue's text, which the check still refuses
+    Rewrite(String),
+    /// Not this issue: an outside author, a reply with an open question or no
+    /// body, or no maintainer to ask for
     Not,
-    /// Sure, and the maintainer's own issue, but the body names something of
-    /// this machine, so kelpie will not write it
+    /// The maintainer's own issue, but the body names something of this
+    /// machine, so kelpie will not write it
     Local(Leak),
 }
 
-/// Whether kelpie is going to make `issue` ready, and with what body. Only an
-/// issue whose author is `Runner::maintainer()`, ignoring case, is ever made
-/// ready, since only the maintainer may make one. The body is read against
-/// the same local guard every App post goes through: the comment is worded
-/// before the body is written, so text the guard would refuse is dropped here
-/// rather than promised there.
-pub(in crate::runner) fn readiness(runner: &Runner, author: &str, found: &Found) -> Ready {
+/// Whether kelpie is going to rewrite `issue`, with `labels` the pass puts on,
+/// and whether that makes it ready. Only an issue whose author is
+/// `Runner::maintainer()`, ignoring case, is ever rewritten or made
+/// ready. The body is read against the same local guard every App post goes
+/// through: the comment is worded before the body is written, so text the
+/// guard would refuse is dropped here rather than promised there.
+pub(in crate::runner) fn readiness(
+    runner: &Runner,
+    issue: u64,
+    author: &str,
+    found: &Found,
+    labels: &[String],
+) -> Ready {
     let Some(body) = found.body.clone() else {
         return Ready::Not;
     };
-    if !sure(found) {
+    if !found.open.is_empty() {
         return Ready::Not;
     }
     let Ok(maintainer) = runner.maintainer() else {
@@ -80,7 +79,8 @@ pub(in crate::runner) fn readiness(runner: &Runner, author: &str, found: &Found)
     }
     match runner.local.find(&body, Surface::Prose) {
         Some(leak) => Ready::Local(leak),
-        None => Ready::Body(body),
+        None if runner.passes_with(issue, &body, labels) => Ready::Body(body),
+        None => Ready::Rewrite(body),
     }
 }
 
@@ -112,8 +112,13 @@ impl Runner {
     // label the maintainer put on by hand since the pass began stands, which
     // leaves the record with no further label and no body write.
     pub(super) fn ready_write(&mut self, issue: u64, body: &str) -> Result<ReadyWrite, StateError> {
-        match self.triage_labelled_by_hand(issue) {
-            Ok(Some(label)) => {
+        match self.triage_before_write(issue) {
+            Ok((None, true)) => {
+                self.triage_body_moved(issue)?;
+                self.triage_ready_dropped(issue)?;
+                return Ok(ReadyWrite::Refused);
+            }
+            Ok((Some(label), _)) => {
                 self.notes.push(format!(
                     "triage #{issue}: `{label}` went on while its triage was still running, so \
                      that stands: kelpie labels it no further and writes no new body"
@@ -122,7 +127,7 @@ impl Runner {
                 self.triage_tries.remove(&issue);
                 return Ok(ReadyWrite::Held);
             }
-            Ok(None) => {}
+            Ok((None, false)) => {}
             Err(e) => {
                 let why = format!("cannot read its labels: {e}");
                 self.triage_failed(issue, &why, !forge_is_busy(&e));
@@ -197,6 +202,44 @@ impl Runner {
             &self.triage_labels_now(issue)?,
             &self.triage_seen(issue),
         ))
+    }
+
+    // What `issue` holds just before its body is written, from one read. That
+    // is the triage label put on by hand since the pass began. It is also
+    // whether the body changed since the pass read it.
+    pub(super) fn triage_before_write(
+        &self,
+        issue: u64,
+    ) -> Result<(Option<String>, bool), ForgeError> {
+        let found = (self.ports.tickets).issue(&self.remote, super::ticket(issue)?)?;
+        let begun = (self.triage_tries.get(&issue))
+            .and_then(|t| t.begun)
+            .or_else(|| self.triage_record(issue).and_then(|t| t.begun));
+        let moved = begun.is_some_and(|begun| begun != body_hash(&found.body));
+        let carried: Vec<String> = (found.labels.into_iter())
+            .filter(|l| TRIAGE_LABELS.contains(&l.as_str()))
+            .collect();
+        Ok((stood(&carried, &self.triage_seen(issue)), moved))
+    }
+
+    // Says that `issue`'s body was edited under its pass, so kelpie writes none
+    // over the edit. The issue's check no longer waits on the pass: the next
+    // poll checks the edit.
+    pub(super) fn triage_body_moved(&mut self, issue: u64) -> Result<(), StateError> {
+        self.notes.push(format!(
+            "triage #{issue}: its body was edited while its triage ran, so kelpie writes no \
+             body over the edit, and the issue ends `{TRIAGE}`"
+        ));
+        self.notice_on(
+            issue,
+            "Kelpie did not write into this issue's body: it was edited while kelpie read it. \
+             Kelpie checks the edit at its next look.",
+        );
+        let mut next = self.state.clone();
+        if let Some(kept) = next.checks.iter_mut().find(|c| c.issue == issue) {
+            kept.triage = CheckTriage::None;
+        }
+        self.save(next)
     }
 
     // The same, leaving `own` out of what the issue carries: the label the

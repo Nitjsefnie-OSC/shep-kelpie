@@ -1,13 +1,13 @@
 //! Which issues other people opened are due for triage
 //!
-//! While `triage.pick` is not `off`, the runner lists the open issues once a board
-//! poll ([`poll_read`]), and `status` shows the untouched ones under `triage.due`,
-//! oldest first. An issue is untouched when it carries none of [`TRIAGE_LABELS`]
-//! but a `needs-triage` above `pruned_through`, no bot opened it, it was opened
-//! after `triage.since`, and, under `maintainer`, the maintainer opened it.
+//! The runner lists the open issues once a board poll ([`poll_read`]) and checks
+//! them ([`checks`]). While `triage.pick` is not `off`, `status` lists as due,
+//! oldest first, each the check refused that carries no [`TRIAGE_LABELS`] but
+//! `ready-for-agent` or a `needs-triage` above `pruned_through`, opened after
+//! `triage.since` by no bot, and under `maintainer` by the maintainer.
 //! [`Runner::triage_due`] starts one research call at a time ([`flight::triage`]),
 //! on the oldest or the issue `shep kelpie triage` queued; [`research`] reads its
-//! reply, [`comment`] posts it, and [`ready`] rewrites a maintainer's sure issue.
+//! reply, [`comment`] posts it, and [`ready`] rewrites a maintainer's issue.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -17,7 +17,7 @@ use serde::Serialize;
 use super::Runner;
 use super::report::Begin;
 use super::review::calls::build_call;
-use crate::board::TRIAGE;
+use crate::board::{READY, TRIAGE};
 use crate::ports::{
     AgentCall, AuthorAssociation, ForgeError, OpenIssue, Role, ThreadComment, Timestamp, Tools,
 };
@@ -31,6 +31,7 @@ use ask::Purpose;
 
 pub(super) mod addressed;
 pub(super) mod ask;
+mod checks;
 pub(super) mod comment;
 mod facts;
 pub(super) mod hand;
@@ -42,6 +43,7 @@ pub(super) mod marker;
 pub(super) mod poll_read;
 pub(super) mod ready;
 pub(super) mod research;
+mod rewrite;
 mod scrub;
 pub(super) mod spam;
 
@@ -87,6 +89,9 @@ pub(super) struct Run {
     /// What the last poll read, which the triager's call is made from. None until a
     /// poll has read the listing, and again after one that could not.
     pub(super) listing: Option<poll_read::Listing>,
+    /// How many times the check's comment on each issue failed, short of
+    /// `checks::CHECK_TRIES`
+    pub(super) check_fails: BTreeMap<u64, u32>,
 }
 
 /// An untouched issue, as `status` lists it
@@ -406,6 +411,7 @@ impl Runner {
         if tries.seen.is_none() {
             tries.seen = Some(taken.unwrap_or_else(|| this.labels.clone()));
         }
+        tries.begun = Some(local::body_hash(&this.body));
         // The author's login comes from the same listing that made the call, so
         // a call that never posted is still counted against their cap.
         if tries.author.is_none() {
@@ -561,6 +567,10 @@ impl Runner {
         call.settings = folder.join(format!("triage-settings-{issue}.json"));
         call.instructions = Some(instructions);
         call.tools = Tools::Review;
+        // The issue skill is the format the triager writes a body in.
+        call.plugin_dirs = (self.skills.issue_plugin().into_iter())
+            .map(std::path::Path::to_owned)
+            .collect();
         // It reads the repo, so it reads the installed sources of its
         // dependencies and toolchains, as every other call that reads code does.
         self.with_machine_sources(&mut call);
@@ -634,15 +644,23 @@ impl Runner {
     }
 }
 
-// Whether `issue` is untouched, opened after `since`, and by `only` when one is named.
-// `needs-triage` is a queue state, not a decision: whether kelpie triaged an issue is
-// its record, so a hand-added one does not keep it out. Past `pruned_through` the
-// record may be gone, and kelpie's own `needs-triage` is then all that says so.
-fn untouched(issue: &OpenIssue, since: Timestamp, pruned_through: u64, only: Option<&str>) -> bool {
+// Whether `issue` is untouched, `owed` the triager for a failed check, opened after
+// `since`, and by `only` when one is named. `needs-triage`, and a `ready-for-agent`
+// the check refused, are no decision: whether kelpie triaged an issue is its record,
+// and past `pruned_through`, where that may be gone, kelpie's own `needs-triage`.
+fn untouched(
+    issue: &OpenIssue,
+    since: Timestamp,
+    pruned_through: u64,
+    only: Option<&str>,
+    owed: bool,
+) -> bool {
     let decided = (issue.labels.iter()).any(|l| {
-        TRIAGE_LABELS.contains(&l.as_str()) && (l != TRIAGE || issue.number <= pruned_through)
+        TRIAGE_LABELS.contains(&l.as_str())
+            && (l != TRIAGE || issue.number <= pruned_through)
+            && l != READY
     });
-    !decided
+    owed && !decided
         && !issue.author_is_bot
         && issue.created > since
         && only.is_none_or(|login| issue.author.eq_ignore_ascii_case(login))
@@ -667,6 +685,8 @@ mod addressed_tests;
 mod answers_tests;
 #[cfg(test)]
 mod ask_tests;
+#[cfg(test)]
+mod check_tests;
 #[cfg(test)]
 mod hand_tests;
 #[cfg(test)]
